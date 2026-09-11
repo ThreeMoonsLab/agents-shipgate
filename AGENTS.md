@@ -73,6 +73,21 @@ agents-shipgate scan -c shipgate.yaml
 
 Reports land at `agents-shipgate-reports/report.{md,json}`.
 
+**What did this change do to the agent's authority?** — one row per host
+grant, no manifest and no committed baseline required:
+
+```bash
+shipgate diff --workspace .
+```
+
+It compares the detected default branch's merge base with the working tree,
+materialising the base tree and reading it with the same host readers, then
+handing both inventories to the comparator `audit --host --drift` already
+uses. Rows carry before, after, direction, why it matters and the engine's
+severity; `⚠` marks the changes the engine called expansions of authority.
+`--json` emits the same rows. It publishes no verdict: static configuration
+is what the files permit, not what the agent did.
+
 **Local control for coding agents** — before reporting an agent-capability
 change complete, run the local control loop and parse stdout JSON:
 
@@ -85,6 +100,17 @@ shipgate check --agent cursor --workspace . --format agent-boundary-json
 `--agent` identifies the caller; it never selects host coverage. Every
 recognized changed Codex, Claude Code, Cursor, VS Code MCP, shared trust-root,
 and GitHub workflow surface is evaluated on every run.
+
+**What a flagless run compares.** The detected default branch's merge base
+against the working tree, so committed branch work and uncommitted edits are
+one comparison. `subject.base` names the ref that was used. `--base` and
+`--head` are independent: `--base <ref>` compares that ref's merge base with
+the working tree, `--head <ref>` compares the detected base against it, and
+both together are the committed `base...head` range. `--base HEAD` restricts
+the run to uncommitted changes. On the default branch, where there is no
+other base, the working-tree comparison is the whole answer. Where no base
+can be detected at all — no remote, no `main` or `master` — the run stops and
+names `--base` rather than reporting a pass it did not establish.
 
 Read the single stdout object as `shipgate.agent_boundary_result/v1`. Switch on
 `control.state`; inspect `input_coverage`, `host_coverage`, `affected_hosts`,

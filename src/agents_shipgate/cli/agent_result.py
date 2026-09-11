@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -77,21 +78,25 @@ def build_codex_agent_result(
     """
 
     return freeze_codex_boundary_result(
-        _assessment_for_diff(
-            agent=agent,
-            workspace=workspace,
-            diff_text=diff_text,
-            config=config,
-            policy=policy,
-            input_mode=input_mode,
-            input_issues=input_issues,
-            base=base,
-            head=head,
-            verification_replayable=verification_replayable,
-            base_manifest_absent=base_manifest_absent,
-            requested_workspace=requested_workspace,
-            changed_files_override=changed_files_override,
-            manifest_text_snapshot=manifest_text_snapshot,
+        _with_compared_refs(
+            _assessment_for_diff(
+                agent=agent,
+                workspace=workspace,
+                diff_text=diff_text,
+                config=config,
+                policy=policy,
+                input_mode=input_mode,
+                input_issues=input_issues,
+                base=base,
+                head=head,
+                verification_replayable=verification_replayable,
+                base_manifest_absent=base_manifest_absent,
+                requested_workspace=requested_workspace,
+                changed_files_override=changed_files_override,
+                manifest_text_snapshot=manifest_text_snapshot,
+            ),
+            base,
+            head,
         ).legacy_result
     )
 
@@ -129,7 +134,36 @@ def build_agent_boundary_result(
         changed_files_override=changed_files_override,
         manifest_text_snapshot=manifest_text_snapshot,
     )
-    return project_agent_boundary_result(assessment)
+    return project_agent_boundary_result(_with_compared_refs(assessment, base, head))
+
+
+def _with_compared_refs(assessment, base: str | None, head: str | None):
+    """Name the refs the check compared, on the assessment it produced.
+
+    `check` resolves an omitted base to the default branch's merge base
+    (#649), so which question was answered is no longer evident from the
+    request. `AgentResultSubject` already carries `base`/`head` and nothing
+    ever filled them. Set only when a ref was actually resolved, so a plain
+    worktree check is byte-identical to before.
+
+    Both projections read `assessment.legacy_result`, so replacing the
+    subject there reaches the current and the frozen v2 contract from one
+    place rather than two.
+    """
+
+    if base is None and head is None:
+        return assessment
+    legacy = assessment.legacy_result
+    return replace(
+        assessment,
+        legacy_result=legacy.model_copy(
+            update={
+                "subject": legacy.subject.model_copy(
+                    update={"base": base, "head": head}
+                )
+            }
+        ),
+    )
 
 
 def _assessment_for_diff(
@@ -527,6 +561,82 @@ def _declared_codex_marketplace_roots(
     return roots
 
 
+class UnresolvedComparisonError(RuntimeError):
+    """No base could be resolved, and guessing one would answer a
+    different question than the caller asked."""
+
+
+def _resolve_comparison(
+    *,
+    workspace: Path,
+    base: str | None,
+    head: str | None,
+) -> tuple[str | None, str | None, str, str]:
+    """Decide what this check compares, and say so.
+
+    Returns ``(resolved_base, resolved_head, revspec, comparison_ref)``.
+    A non-empty ``revspec`` selects the committed-range diff; otherwise
+    the worktree is compared against ``comparison_ref``, which keeps
+    untracked capability paths and the manifest binding in scope.
+
+    Before #649 an omitted pair meant "worktree against ``HEAD``", so a
+    branch whose changes were already committed reported ``allow`` with
+    an empty change set — the tool answered "nothing is uncommitted"
+    to the question "what does this branch change". The ladder now:
+
+    1. **Both refs** — unchanged: ``base...head``, the merge-base range.
+    2. **``--base`` alone** — that base's merge base with ``HEAD``,
+       compared against the worktree, so uncommitted work still counts.
+    3. **``--head`` alone** — the detected default base against it.
+    4. **Neither** — the detected default base's merge base against the
+       worktree. This is the reviewer's question by default.
+    5. **On the default branch** (the detected base *is* ``HEAD``) —
+       ``HEAD`` against the worktree, which is both the old behaviour and
+       the complete answer there.
+    6. **No base detectable at all** — refuse and name ``--base``. A
+       repository whose base cannot be identified gets an honest stop,
+       never an ``allow`` computed from a question nobody asked.
+    """
+
+    from agents_shipgate.cli.verify.git import detect_default_base, merge_base_sha
+
+    if base and head:
+        return base, head, f"{base}...{head}", "HEAD"
+
+    def default_base() -> str:
+        detected = detect_default_base(
+            workspace,
+            head or "HEAD",
+            allow_local_when_no_remote=True,
+            allow_equal_head=True,
+        )
+        if detected is None:
+            raise UnresolvedComparisonError(
+                "No base ref could be detected for this repository, so there is "
+                "nothing to compare this working tree against. Pass --base "
+                "<ref> to name one explicitly (use --base HEAD for uncommitted "
+                "changes only)."
+            )
+        return detected
+
+    if head and not base:
+        detected = default_base()
+        return detected, head, f"{detected}...{head}", "HEAD"
+
+    requested = base or default_base()
+
+    if requested == "HEAD":
+        return "HEAD", None, "", "HEAD"
+    merge_base = merge_base_sha(workspace, requested, "HEAD")
+    if merge_base is None:
+        raise UnresolvedComparisonError(
+            f"No merge base between {requested!r} and HEAD, so this working "
+            "tree cannot be compared against it. Pass --base <ref> naming a "
+            "ref that shares history with HEAD."
+        )
+    return requested, None, "", merge_base
+
+
 def git_boundary_change_set(
     *,
     workspace: Path,
@@ -551,19 +661,15 @@ def git_boundary_change_set(
             config_path,
             requested_workspace=requested_workspace,
         )
-    if bool(base) != bool(head):
-        raise RuntimeError(
-            "--base and --head must be provided together; omit both to check "
-            "local uncommitted changes."
-        )
-    if base and head:
-        revspec = f"{base}...{head}"
-    else:
-        revspec = ""
     if repository_root is None:
         raise RuntimeError("Workspace is not inside a Git repository.")
+    resolved_base, resolved_head, revspec, comparison_ref = _resolve_comparison(
+        workspace=workspace, base=base, head=head
+    )
     try:
-        changed_paths, diff_text = _git_diff_context(revspec, cwd=workspace)
+        changed_paths, diff_text = _git_diff_context(
+            revspec, cwd=workspace, comparison_ref=comparison_ref
+        )
     except BinaryCapabilityDiffError as exc:
         return BoundaryChangeSet(
             mode="git_range" if revspec else "worktree",
@@ -612,7 +718,9 @@ def git_boundary_change_set(
     if revspec and config_path is not None:
         try:
             relative = config_path.relative_to(workspace)
-            manifest_text_snapshot = read_file_at_ref(workspace, head, relative)
+            manifest_text_snapshot = read_file_at_ref(
+                workspace, resolved_head or "HEAD", relative
+            )
         except (OSError, RuntimeError, ValueError) as exc:
             raise ConfigError(
                 f"Configured manifest could not be read from head ref {head!r}: {exc}"
@@ -637,6 +745,8 @@ def git_boundary_change_set(
         changed_paths=tuple(sorted(changed_paths)),
         issues=tuple(issues),
         manifest_text_snapshot=manifest_text_snapshot,
+        resolved_base=resolved_base,
+        resolved_head=resolved_head,
     )
 
 

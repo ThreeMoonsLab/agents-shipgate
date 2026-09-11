@@ -72,6 +72,12 @@ class BoundaryChangeSet:
     changed_paths: tuple[str, ...]
     issues: tuple[BoundaryInputIssue, ...] = ()
     manifest_text_snapshot: str | None = None
+    #: The refs this change set actually compared, after defaults were
+    #: resolved. A caller that passed nothing still needs to publish what
+    #: was answered — a diff against an unnamed base is not a reviewable
+    #: claim (#649).
+    resolved_base: str | None = None
+    resolved_head: str | None = None
 
 
 def git_diff_path_token(prefix: str, path: str) -> str:

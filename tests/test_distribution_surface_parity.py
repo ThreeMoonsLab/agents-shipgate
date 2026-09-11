@@ -166,6 +166,17 @@ SURFACES: tuple[Surface, ...] = (
         },
     ),
     Surface(
+        "capability_diff",
+        (
+            "src/agents_shipgate/cli/diff.py",
+            "src/agents_shipgate/core/capability_diff_rows.py",
+        ),
+        # No claims on purpose: this surface restates none of the engine's
+        # answers. It projects the drift payload the engine produced, which
+        # is why it cannot disagree with it.
+        {},
+    ),
+    Surface(
         "zero_install_detector",
         ("tools/shipgate-detect.py",),
         {"agent_project_verdict": ("test_detector_verdict_matches_cli",)},
