@@ -38,7 +38,7 @@
 # Compared against the source by scripts/verify_dependency_lock.py, so a
 # changed extra, marker, URL or range cannot slip past without recompiling.
 #
-#   declares: build<2,>=1.5.0
+#   declares: build<2,>=1.6.0
 #   declares: cryptography<51,>=50.0.1
 #   declares: cyclonedx-bom<8,>=7.3.1
 #   declares: hypothesis<7,>=6.165.10
