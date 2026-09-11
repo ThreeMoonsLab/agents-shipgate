@@ -39,15 +39,21 @@ blocking CI. Organization-wide adoption must be demonstrated. New surface
 follows the [non-goals](#explicit-non-goals) and
 [`CONTRIBUTING.md`](CONTRIBUTING.md#surface-discipline).
 
-## Adoption roadmap to v1.0 (plan of record, 2026-09-10)
+## Roadmap to v1.0 (plan of record, 2026-09-10)
 
-**v1.0 means external adoption by teams that use coding agents.** A platform or
-DevEx engineer can install Agents Shipgate, see what a PR changed in agent
-permissions and capabilities in plain language within two commands, trust that
-a benign PR produces zero rows, and keep it on the repository across the next
-change. The definition, exit criteria and milestone map live in
-[#643](https://github.com/ThreeMoonsLab/agents-shipgate/issues/643); the
-release *decision* and the machine qualification bars stay with
+**v1.0 is product readiness, and it is achievable without waiting for anyone
+else.** Every exit criterion below is measurable in this repository, against
+public repositories and committed fixtures. Adoption follows a release; gating
+the release on adopter counts would be circular, so no adopter, weekly-active
+or second-change number appears in the criteria. Those are measured after v1.0
+ships, on the separate track named at the end of this section.
+
+The claim v1.0 makes: a platform or DevEx engineer who installs Agents Shipgate
+sees what a PR changed in agent permissions and capabilities in plain language
+within two commands, gets no rows on a benign PR, and has a truthful next step
+when a change needs a person. The definition, full exit criteria and milestone
+map live in [#643](https://github.com/ThreeMoonsLab/agents-shipgate/issues/643);
+the release *decision* and the machine qualification bars stay with
 [#572](https://github.com/ThreeMoonsLab/agents-shipgate/issues/572) and the
 record below.
 
@@ -69,18 +75,20 @@ only from the quickstart. This plan makes that value the default experience.
 
 | Milestone | Window | Exit evidence | Tracker |
 | --- | --- | --- | --- |
-| Adoption M1 — installable and navigable | to 2026-10-10 | `pipx install` yields contract >= 29; the three-widening scenario reaches a row naming all three in <= 2 commands and <= 2 minutes; every emitted next_action chain terminates; five design-partner conversations in the ledger | [#644](https://github.com/ThreeMoonsLab/agents-shipgate/issues/644) |
-| Adoption M2 — diff first value | to 2026-11-10 | `shipgate diff` is the default output on every supported route with zero manifest; row precision >= 0.95 and benign zero-row rate >= 95% on a 50-PR host-config corpus; fields-to-first-diff = 0; >= 24/30 public repositories reach a diff row in <= 5 minutes; ten conversations, >= 3 repositories ran `diff` live | [#645](https://github.com/ThreeMoonsLab/agents-shipgate/issues/645) |
-| Adoption M3 — repeat use and team adoption | to 2026-12-10 | human route completes in CI; >= 5 external repositories with a second-change observation; [ADOPTERS.md](ADOPTERS.md) reaches >= 10 external entries, >= 5 of them active weekly (relationship-counted, no telemetry); allowlist files read; GitHub App only after M2 records >= 3 external repositories | [#646](https://github.com/ThreeMoonsLab/agents-shipgate/issues/646) |
+| v1.0 M1 — installable and navigable | to 2026-10-10 | `pipx install` yields contract >= 29 and the README's Action ref resolves; the three-widening scenario reaches a row naming all three in <= 2 commands and <= 2 minutes, following only CLI output; every emitted next_action chain terminates | [#644](https://github.com/ThreeMoonsLab/agents-shipgate/issues/644) |
+| v1.0 M2 — diff first value | to 2026-11-10 | `shipgate diff` is the default output on every supported route with zero manifest; row precision >= 0.95 and benign zero-row rate >= 95% on a 50-PR host-config corpus; fields-to-first-diff = 0; >= 24/30 public repositories reach a diff row in <= 5 minutes; false-finding rate < 2% across ten registry MCP servers | [#645](https://github.com/ThreeMoonsLab/agents-shipgate/issues/645) |
+| v1.0 M3 — product complete | to 2026-12-10 | a `review_required` result completes in CI with a recorded decision on a fixture repository; the six host families that shipped allowlist or config files by 2026-08 produce grant rows; four incident fixtures replay | [#646](https://github.com/ThreeMoonsLab/agents-shipgate/issues/646) |
 
-An unmet exit narrows the next window; it does not skip it. The qualified gate
-track ([#512](https://github.com/ThreeMoonsLab/agents-shipgate/issues/512),
+An unmet exit narrows the next window; it does not skip it. Until the M2 exit is
+recorded, no new check ID, schema family or adapter is added
+([#654](https://github.com/ThreeMoonsLab/agents-shipgate/issues/654)). The
+qualified gate track
+([#512](https://github.com/ThreeMoonsLab/agents-shipgate/issues/512),
 [#509](https://github.com/ThreeMoonsLab/agents-shipgate/issues/509),
-[#510](https://github.com/ThreeMoonsLab/agents-shipgate/issues/510)) continues
-while [ADOPTERS.md](ADOPTERS.md) shows >= 5 weekly-active entries; below that,
-v1.0 is the advisory line's 1.0 and the gate bars move to 1.1. Until the M2 exit
-is recorded, no new check ID, schema family or adapter is added
-([#654](https://github.com/ThreeMoonsLab/agents-shipgate/issues/654)).
+[#510](https://github.com/ThreeMoonsLab/agents-shipgate/issues/510)) is work
+this repository controls, so it stays eligible for v1.0; whether it ships there
+or moves to 1.1 is a product decision recorded in #572, never a threshold on
+how many people are using the product.
 
 ### Order of work
 
@@ -89,8 +97,7 @@ is recorded, no new check ID, schema family or adapter is added
    `check` defaults to the merge-base, [#650](https://github.com/ThreeMoonsLab/agents-shipgate/issues/650)
    next_action chains terminate, [#651](https://github.com/ThreeMoonsLab/agents-shipgate/issues/651)
    `shipgate diff` on the host route, [#652](https://github.com/ThreeMoonsLab/agents-shipgate/issues/652)
-   human-language surfaces, [#653](https://github.com/ThreeMoonsLab/agents-shipgate/issues/653)
-   ten conversations.
+   human-language surfaces.
 2. Diff first value: [#655](https://github.com/ThreeMoonsLab/agents-shipgate/issues/655)
    manifest-free base, [#656](https://github.com/ThreeMoonsLab/agents-shipgate/issues/656)
    generated lock-state (first increment of #474), [#657](https://github.com/ThreeMoonsLab/agents-shipgate/issues/657)
@@ -100,12 +107,22 @@ is recorded, no new check ID, schema family or adapter is added
    cold-start harness, [#661](https://github.com/ThreeMoonsLab/agents-shipgate/issues/661)
    zero-noise local guard, [#662](https://github.com/ThreeMoonsLab/agents-shipgate/issues/662)
    coding-agent-driven adoption.
-3. Repeat use and team adoption: #504 / #337 human route, [#663](https://github.com/ThreeMoonsLab/agents-shipgate/issues/663)
-   allowlist files, [#664](https://github.com/ThreeMoonsLab/agents-shipgate/issues/664)
-   GitHub App with an onboarding PR (conditional, not speculative),
-   [#665](https://github.com/ThreeMoonsLab/agents-shipgate/issues/665) incident
-   fixtures, [#666](https://github.com/ThreeMoonsLab/agents-shipgate/issues/666)
-   delta consumer conversations.
+3. Product complete: #504 / #337 human route,
+   [#663](https://github.com/ThreeMoonsLab/agents-shipgate/issues/663)
+   allowlist files, [#665](https://github.com/ThreeMoonsLab/agents-shipgate/issues/665)
+   incident fixtures, #496 hotspot decomposition.
+
+### After v1.0 — adoption measurement, never a release gate
+
+Design-partner conversations
+([#653](https://github.com/ThreeMoonsLab/agents-shipgate/issues/653)), the
+consent-based pilot (#571), the opt-in registry (#475), a GitHub App
+([#664](https://github.com/ThreeMoonsLab/agents-shipgate/issues/664)) and
+delta-format consumers
+([#666](https://github.com/ThreeMoonsLab/agents-shipgate/issues/666)) run on
+their own track. Conversations can start immediately and inform the product;
+none of them blocks a release, and adoption targets are set once v1.0 is
+installable, against a product that exists.
 
 The "Direction" record below keeps the gate-track obligations and the
 2026-09-08 no-go audit; nothing in it is withdrawn by this plan.
