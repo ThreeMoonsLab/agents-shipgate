@@ -2106,6 +2106,24 @@ TS_DESCRIPTION_CASES += (
     ("unbound_translation_helper", 'server.registerTool("unbound_translation_helper", { description: t("TOOL_KEY", "not established") }, fn);', None),
     ("literal_with_comments", 'server.registerTool("literal_with_comments", { /* own */ description /* key */ : "actual" /* value */, inputSchema: {} }, fn);', "actual"),
 )
+
+TS_DESCRIPTION_CASES += (
+    ("async_method_override", 'server.registerTool("async_method_override", { description: "old", async description() { return "changed"; } }, fn);', None),
+    ("async_generator_override", 'server.registerTool("async_generator_override", { description: "old", async *description() { yield "changed"; } }, fn);', None),
+    ("escaped_key_override", r'server.registerTool("escaped_key_override", { description: "old", descrip\u0074ion: "" }, fn);', None),
+    ("escaped_literal_override", r'server.registerTool("escaped_literal_override", { description: "old", descrip\u0074ion: "actual" }, fn);', None),
+    ("escaped_getter_override", r'server.registerTool("escaped_getter_override", { description: "old", get descrip\u0074ion() { return "actual"; } }, fn);', None),
+    ("unrelated_method", 'server.registerTool("unrelated_method", { description: "actual", helper() { return "unrelated"; } }, fn);', "actual"),
+    ("unrelated_getter", 'server.registerTool("unrelated_getter", { description: "actual", get title() { return "unrelated"; } }, fn);', "actual"),
+)
+
+
+TS_DESCRIPTION_CASES += (
+    ("undecodable_key_empty", r'server.registerTool("undecodable_key_empty", { description: "old", "\144escription": "" }, fn);', None),
+    ("undecodable_key_literal", r'server.registerTool("undecodable_key_literal", { description: "old", "descrip\164ion": "actual" }, fn);', None),
+    ("undecodable_then_known", r'server.registerTool("undecodable_then_known", { description: "old", "\144escription": "unknown", description: "actual" }, fn);', "actual"),
+)
+
 SOURCE_CASES += tuple(
     SourceCase("ts_description:" + name, "typescript", body)
     for name, body, _expected in TS_DESCRIPTION_CASES

@@ -1792,6 +1792,9 @@ def _ts_object_description(
     # comments and nested expressions cannot introduce a member separator.
     for start, end in _go_arguments(source, open_brace, close):
         found, key, key_end = source.literal_at(start)
+        if found and key is None:
+            description = None  # an undecodable quoted key may be description
+            continue
         if not found:
             match = _TS_OBJECT_PROPERTY_RE.match(source.masked, start, end)
             if match is None:
@@ -1802,10 +1805,20 @@ def _ts_object_description(
         if key in {"get", "set"} and after < end and source.masked[after] != ":":
             # Accessors can override the same property without a colon.
             accessor = _TS_OBJECT_PROPERTY_RE.match(source.masked, after, end)
-            if accessor is None or accessor.group() == "description":
+            if (
+                accessor is None
+                or accessor.group() == "description"
+                or source.skip_space(accessor.end()) >= end
+                or source.masked[source.skip_space(accessor.end())] != "("
+            ):
                 description = None
             continue
         if key != "description":
+            # A regex prefix is not a complete property key. Modifiers and
+            # escaped identifiers may still name description, so only skip a
+            # proven direct field, shorthand or ordinary named method.
+            if after < end and source.masked[after] not in ":(":
+                description = None
             continue
         description = None
         if after >= end or source.masked[after] != ":":

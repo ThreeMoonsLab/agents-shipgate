@@ -110,3 +110,27 @@ def test_both_shapes_in_one_file(tmp_path: Path) -> None:
     )
 
     assert _tools(tmp_path, body) == {"a": "Alpha.", "b": "Bravo."}
+
+
+@pytest.mark.parametrize("reestablish", [False, True])
+def test_undecodable_commonjs_key_cannot_leave_a_stale_description(
+    tmp_path: Path, reestablish: bool,
+) -> None:
+    # Legacy octal escapes are legal in non-strict CommonJS, which the same
+    # reader supports. Declining to decode them must not mean ignoring them.
+    (tmp_path / "package.json").write_text(PACKAGE_JSON, encoding="utf-8")
+    later = ', description: "actual"' if reestablish else ""
+    (tmp_path / "server.cjs").write_text(
+        'const { McpServer } = require("@modelcontextprotocol/sdk/server/mcp.js");\n'
+        'const server = new McpServer({ name: "srv", version: "1" });\n'
+        'server.registerTool("probe", { description: "old", '
+        + r'"\144escription": ""'
+        + later + ' }, () => ({ content: [] }));\n',
+        encoding="utf-8",
+    )
+    loaded = load_mcp_server_source(
+        ToolSourceConfig(id="srv", type="mcp_server_source", path="."), tmp_path
+    )
+    assert {tool.name: tool.description for tool in loaded.tools} == {
+        "probe": "actual" if reestablish else None,
+    }
