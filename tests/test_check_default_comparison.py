@@ -218,9 +218,7 @@ def test_a_stale_local_default_never_beats_a_remote_one(tmp_path: Path) -> None:
 def test_empty_refs_are_still_refused(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
 
-    result = runner.invoke(
-        app, ["check", "--workspace", str(repo), "--base", "", "--head", "HEAD"]
-    )
+    result = runner.invoke(app, ["check", "--workspace", str(repo), "--base", "", "--head", "HEAD"])
 
     assert result.exit_code == 2
     assert "cannot be empty" in result.output
@@ -230,8 +228,54 @@ def test_empty_refs_are_still_refused(tmp_path: Path) -> None:
 def test_a_ref_cannot_smuggle_an_option(tmp_path: Path, flag: str) -> None:
     repo = _repo(tmp_path)
 
-    result = runner.invoke(
-        app, ["check", "--workspace", str(repo), flag, "--upload-pack=evil"]
-    )
+    result = runner.invoke(app, ["check", "--workspace", str(repo), flag, "--upload-pack=evil"])
 
     assert result.exit_code == 2
+
+
+def test_configured_remote_without_fetched_base_never_uses_local_head(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _git(repo, "remote", "add", "origin", str(tmp_path / "unfetched"))
+    result = runner.invoke(app, ["check", "--workspace", str(repo)])
+    assert result.exit_code == 2
+    assert "No base ref could be detected" in result.output
+
+
+def test_custom_remote_default_at_head_is_a_valid_base(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, default_branch="trunk")
+    _git(repo, "remote", "add", "origin", str(tmp_path / "remote"))
+    _git(repo, "update-ref", "refs/remotes/origin/trunk", "HEAD")
+    _git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk")
+    payload = _check(repo)
+    assert payload["decision"] == "allow"
+    assert payload["subject"]["base"] == "origin/trunk"
+    (repo / ".claude" / "settings.json").write_text(WIDENED_SETTINGS, encoding="utf-8")
+    assert _check(repo)["decision"] == "block"
+
+
+def test_explicit_head_is_compared_while_default_branch_is_checked_out(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _widen_on_a_branch(repo)
+    _git(repo, "checkout", "-q", "main")
+    payload = _check(repo, "--head", "feat/widen")
+    assert payload["subject"]["base"] == "main"
+    assert payload["subject"]["head"] == "feat/widen"
+    assert payload["decision"] == "block"
+
+
+def test_explicit_head_at_default_is_a_valid_empty_comparison(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    payload = _check(repo, "--head", "HEAD")
+    assert payload["decision"] == "allow"
+    assert payload["subject"]["base"] == "main"
+
+
+def test_default_at_head_does_not_fall_through_to_another_remote_branch(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _git(repo, "remote", "add", "origin", str(tmp_path / "remote"))
+    _git(repo, "update-ref", "refs/remotes/origin/master", "HEAD")
+    _widen_on_a_branch(repo)
+    _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    payload = _check(repo)
+    assert payload["subject"]["base"] == "origin/main"
+    assert payload["changed_files"] == []

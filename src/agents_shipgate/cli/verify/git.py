@@ -419,6 +419,7 @@ def detect_default_base(
     head: str = "HEAD",
     *,
     allow_local_when_no_remote: bool = False,
+    allow_equal_head: bool = False,
 ) -> str | None:
     """Best-effort default base ref for PR-style diff enrichment.
 
@@ -438,10 +439,17 @@ def detect_default_base(
     the only base in existence. Refusing there would leave `check` with
     nothing to compare on a repository that was simply never pushed
     (#649). Off by default, so `verify` keeps its behaviour exactly.
+
+    ``allow_equal_head`` keeps an authoritative default at ``head`` eligible
+    for callers comparing the working tree or an explicitly requested head.
+    This distinguishes a valid empty comparison from missing base evidence.
     """
 
     return detect_default_base_with_notes(
-        workspace, head, allow_local_when_no_remote=allow_local_when_no_remote
+        workspace,
+        head,
+        allow_local_when_no_remote=allow_local_when_no_remote,
+        allow_equal_head=allow_equal_head,
     ).base
 
 
@@ -450,6 +458,7 @@ def detect_default_base_with_notes(
     head: str = "HEAD",
     *,
     allow_local_when_no_remote: bool = False,
+    allow_equal_head: bool = False,
 ) -> DefaultBaseDetection:
     """Return the implicit base plus warnings for skipped local defaults."""
 
@@ -467,7 +476,7 @@ def detect_default_base_with_notes(
     selected_base_sha: str | None = None
     for candidate in candidates:
         sha = commit_sha(workspace, candidate)
-        if sha is not None and sha != head_sha:
+        if sha is not None and (allow_equal_head or sha != head_sha):
             selected_base = candidate
             selected_base_sha = sha
             break
@@ -478,7 +487,7 @@ def detect_default_base_with_notes(
     ):
         for candidate in LOCAL_BASE_CANDIDATES:
             sha = commit_sha(workspace, candidate)
-            if sha is not None and sha != head_sha:
+            if sha is not None and (allow_equal_head or sha != head_sha):
                 selected_base = candidate
                 selected_base_sha = sha
                 break

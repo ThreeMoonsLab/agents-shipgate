@@ -296,12 +296,16 @@ def test_per_scan_framework_adapter_invoked_once_with_multiple_tool_sources(monk
             return LoadedAdapterResult(artifact=LangChainArtifacts())
 
     monkeypatch.setitem(REGISTRY._adapters, "langchain", _RecordingLangChain())
+    # These rows exist to exercise dispatch order, not to be read: their
+    # paths are placeholders that do not exist. They are `optional` so the
+    # shared required-source availability precondition (#585) does not
+    # refuse the manifest before the dispatcher runs.
     manifest = load_manifest(REFUND_SAMPLE)
     duplicated = manifest.model_copy(
         update={
             "tool_sources": [
-                ToolSourceConfig(id="lc1", type="langchain", path="a.py"),
-                ToolSourceConfig(id="lc2", type="langchain", path="b.py"),
+                ToolSourceConfig(id="lc1", type="langchain", path="a.py", optional=True),
+                ToolSourceConfig(id="lc2", type="langchain", path="b.py", optional=True),
             ]
         }
     )
@@ -332,7 +336,7 @@ def test_dispatcher_validates_adapter_artifact_class(monkeypatch):
     triggered = manifest.model_copy(
         update={
             "tool_sources": [
-                ToolSourceConfig(id="lc", type="langchain", path="a.py"),
+                ToolSourceConfig(id="lc", type="langchain", path="a.py", optional=True),
             ]
         }
     )
@@ -392,8 +396,8 @@ def test_per_scan_order_is_canonical_not_tool_sources(monkeypatch):
     swapped = manifest.model_copy(
         update={
             "tool_sources": [
-                ToolSourceConfig(id="lc", type="langchain", path="a.py"),
-                ToolSourceConfig(id="adk", type="google_adk", path="b.py"),
+                ToolSourceConfig(id="lc", type="langchain", path="a.py", optional=True),
+                ToolSourceConfig(id="adk", type="google_adk", path="b.py", optional=True),
             ]
         }
     )

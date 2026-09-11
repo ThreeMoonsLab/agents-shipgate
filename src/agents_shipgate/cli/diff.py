@@ -30,6 +30,7 @@ from agents_shipgate.core.host_grants import (
     build_host_boundary_snapshot,
     build_host_drift_payload,
     build_host_grants_baseline,
+    inventory_is_complete,
 )
 
 DIFF_SCHEMA_VERSION = "0.1"
@@ -44,28 +45,22 @@ def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
         merge_base_sha,
     )
 
+    if base is not None and (not base.strip() or base.startswith("-")):
+        raise typer.BadParameter("Base ref must be non-empty and cannot start with a dash.", param_hint="--base")
+
     # Same resolver `check` uses (#649), including its narrow local
     # fallback: a local `main` is refused while a remote exists, because the
     # remote is the authority it might be stale against, and used only where
     # the repository has no remote at all.
     requested = base or detect_default_base(
-        workspace, "HEAD", allow_local_when_no_remote=True
+        workspace, "HEAD", allow_local_when_no_remote=True, allow_equal_head=True
     )
     if requested is None:
-        # Nothing else to compare against — commonly because HEAD *is* the
-        # default branch, or a branch has not diverged yet. The working tree
-        # against HEAD is then the only question left, and it is a real one:
-        # uncommitted edits still change what the agent may do. The header
-        # names what was compared, so a narrower answer is never a silent
-        # one. `check` refuses here instead, because it publishes a verdict
-        # and a verdict against an unstated base is not reviewable (#649).
-        if commit_sha(workspace, "HEAD") is None:
-            raise typer.BadParameter(
-                "This repository has no commits, so there is nothing to "
-                "compare the working tree against.",
-                param_hint="--base",
-            )
-        return "HEAD", str(commit_sha(workspace, "HEAD"))
+        raise typer.BadParameter(
+            "No base ref could be detected. Pass --base <ref> explicitly "
+            "(use --base HEAD for uncommitted changes only).",
+            param_hint="--base",
+        )
     if commit_sha(workspace, requested) is None:
         raise typer.BadParameter(
             f"Base ref {requested!r} is not available locally. Fetch it first; "
@@ -117,6 +112,13 @@ def run_capability_diff(
     json_output: bool,
 ) -> int:
     require_workspace(workspace)
+    from agents_shipgate.cli.verify.git import ensure_git_workspace
+    from agents_shipgate.core.errors import ConfigError
+
+    try:
+        workspace = ensure_git_workspace(workspace)
+    except ConfigError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--workspace") from exc
     base_ref, base_commit = _resolve_base(workspace, base)
 
     head = build_host_boundary_snapshot(workspace, cache=HostStaticParseCache())
@@ -130,11 +132,19 @@ def run_capability_diff(
             base_tree, cache=HostStaticParseCache()
         ).inventory
 
-    payload = build_host_drift_payload(
-        baseline=build_host_grants_baseline(base_inventory),
-        inventory=head.inventory,
-        baseline_file=f"{base_ref}@{base_commit[:12]}",
-    )
+    if not inventory_is_complete(base_inventory):
+        payload = {
+            "comparison_status": "incomparable",
+            "incomparable_reasons": ["base_inventory_incomplete"],
+            "changes": [],
+            "expansion_signals": [],
+        }
+    else:
+        payload = build_host_drift_payload(
+            baseline=build_host_grants_baseline(base_inventory),
+            inventory=head.inventory,
+            baseline_file=f"{base_ref}@{base_commit[:12]}",
+        )
     rows = capability_diff_rows(payload)
 
     if json_output:
@@ -170,7 +180,7 @@ def run_capability_diff(
     typer.echo(f"Agent capability diff  {base_ref} ({base_commit[:8]}) -> working tree")
     typer.echo("")
     if not rows:
-        typer.echo("No change to what the agent may do.")
+        typer.echo("No static host-grant changes detected. No verdict is implied.")
         return 0
     for line in _render_table(rows):
         typer.echo(line)
@@ -192,7 +202,7 @@ def diff(
     workspace: Path = typer.Option(
         Path("."),
         "--workspace",
-        help="Repository to compare.",
+        help="Checkout to compare; paths inside a checkout resolve to its repository root.",
     ),
     base: str | None = typer.Option(
         None,

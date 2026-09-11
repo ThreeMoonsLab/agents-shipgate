@@ -546,7 +546,8 @@ When a required `tool_sources[].path` does not resolve under the manifest direct
 
 - `agents-shipgate doctor --json` exits **0** with a `SHIP-DIAG-MISSING-SOURCE-FILE` diagnostic and an `unresolved_sources: [{id, declared_path, line, reason}]` field in the payload, so an agent can route to a fix without parsing the error message. `reason` is `"missing"` or `"outside_manifest_dir"`.
 - `agents-shipgate doctor` (no `--json`) prints the same `unresolved_sources` + diagnostic block in human-readable form and **exits 3**, preserving the pre-feature loud failure for interactive users.
-- `agents-shipgate scan` is unchanged — it still raises `InputParseError(3)` regardless of `--json`. Once you're past doctor, missing sources are real scan failures.
+- `agents-shipgate scan` is unchanged — it still raises `InputParseError(3)` regardless of `--json`. Once you're past doctor, missing sources are real scan failures. One precondition enforces this for every source type before any adapter runs, off the resolver doctor uses, so the answer does not depend on which reader the source would have gone to. `optional: true` sources are not covered: they keep their source warning and recovery evidence, and the scan completes.
+- `verify` applies the same precondition to each tree it scans. A base commit whose manifest declares a path that tree does not contain yields `base_status: "scan_failed"` with the reason in `base_notes` and no capability delta; the head gate is unchanged.
 
 ### Missing vs invalid manifests
 
