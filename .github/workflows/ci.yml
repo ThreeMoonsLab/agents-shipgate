@@ -207,6 +207,22 @@ jobs:
         # install so the number is recorded even when a later step fails.
         run: python scripts/release_cadence.py --github
 
+      - name: Surface freeze
+        # #654: no new check ID, schema family or input adapter until the M2
+        # exit is recorded. Runs before the install because it reads Git and
+        # the generated catalogs, not the package, and because a surface
+        # refusal should arrive before a ten-minute suite rather than after
+        # it. Pull requests only: on `main` the merge has already happened,
+        # and failing there would punish whoever pushed next.
+        if: github.event_name == 'pull_request'
+        run: |
+          # The default checkout is shallow and has no base ref, so the
+          # comparison would read an empty catalog and pass on anything.
+          git fetch --no-tags origin "${{ github.base_ref }}"
+          python scripts/check_surface_freeze.py \
+            --base FETCH_HEAD \
+            --labels "${{ join(github.event.pull_request.labels.*.name, ',') }}"
+
       - name: Install
         # The hash-locked closure, not a fresh resolve of `.[dev]`. Release
         # verification installs these same files with these same commands, so

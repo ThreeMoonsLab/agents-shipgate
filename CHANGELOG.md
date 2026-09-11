@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Refuse new public surface while the adoption freeze is on. No new check
+  ID, versioned schema family or input adapter lands until the Adoption M2
+  exit is recorded; `scripts/check_surface_freeze.py` compares the generated
+  catalogs against the base ref on every pull request and fails on one, with
+  a `freeze-exception` label as the deliberate way through. Bug fixes,
+  readers and renderers for existing families, and the milestone's own work
+  are unaffected. The same check reports a 800-line review budget excluding
+  goldens and generated files, and only reports it: a number nobody agreed
+  to should not block a merge, and the author who trips it is rarely the one
+  who can shorten the change (#654).
+
 - Compare against the detected base by default in `check`, so a branch's
   committed work is visible without flags. `shipgate check` compared the
   working tree with `HEAD`, so on a branch whose changes were already

@@ -173,6 +173,34 @@ brought to parity is a **gap**: it needs a row in that document's *Known parity
 gaps* table with an owning issue, and an `xfail(strict=True)` row in the parity
 test, so the day the fix lands the exemption fails and has to be retired.
 
+### The adoption freeze (in force)
+
+Until the [Adoption M2 exit](https://github.com/ThreeMoonsLab/agents-shipgate/issues/645)
+is recorded, three additions are refused outright: a **new check ID**, a
+**new versioned schema family**, and a **new input adapter**.
+`scripts/check_surface_freeze.py` runs on every pull request and fails on
+one.
+
+Everything else is unaffected: bug fixes, readers and renderers for
+families that already exist, and the milestone's own work. To add one
+anyway, apply the `freeze-exception` label and answer the three questions
+above in the PR body — the label makes it a decision somebody made rather
+than one that happened.
+
+Why now: the project has shipped surface faster than it has proven the
+surface it already has. Measured over the 30 days to 2026-09-10 — 130
+merged pull requests, 372,000 added lines, 144 check IDs and 27 schema
+families, with 27 of 63 open issues filed as byproducts of reviewing that
+work, and none of it reaching users because the published build was two
+months old.
+
+The same check reports a **review budget**: at most 800 added lines,
+excluding goldens and generated files. It is reported, never enforced. A
+number nobody agreed to should not block a merge, and the author who
+happens to trip it is rarely the one who can shorten the change. Split it
+where you can; where you cannot, say in the PR body why it is worth reading
+whole.
+
 If the answer to (1) is unclear, the default is **don't** — open an issue
 instead. Deleting or consolidating surface never needs this new-surface
 justification — but removing or renaming surface that already shipped in a
