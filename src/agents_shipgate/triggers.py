@@ -926,7 +926,10 @@ def _verdict_label(result: dict[str, Any]) -> str:
 
 
 def _git_diff_context(
-    revspec: str | None, *, cwd: Path | None = None
+    revspec: str | None,
+    *,
+    cwd: Path | None = None,
+    comparison_ref: str = "HEAD",
 ) -> tuple[list[str], str]:
     """Read changed paths and the unified-diff body from ``git diff``.
 
@@ -934,9 +937,11 @@ def _git_diff_context(
 
     - Non-empty (e.g. ``"origin/main...HEAD"``): PR-style diff.
       ``git diff [--name-only] <revspec>``.
-    - Empty string (bare ``--git-diff``): all uncommitted tracked
-      changes against ``HEAD`` — includes BOTH staged and unstaged
-      edits. Untracked file *paths* (newly-`git add`-able files that
+    - Empty string (bare ``--git-diff``): all changes against
+      ``comparison_ref`` (``HEAD`` by default) — includes BOTH staged and
+      unstaged edits. Passing a merge-base commit as ``comparison_ref``
+      makes one comparison that spans committed branch work *and*
+      uncommitted edits, which is what a branch-scoped review needs. Untracked file *paths* (newly-`git add`-able files that
       aren't yet `git add`ed) are appended to the path list via
       ``git ls-files --others --exclude-standard``; their content is
       NOT captured in ``diff_text`` because reading arbitrary unstaged
@@ -959,7 +964,9 @@ def _git_diff_context(
     return (
         diff_revspec_context(root, revspec)
         if revspec
-        else working_tree_context(root, reject_index_hidden=True)
+        else working_tree_context(
+            root, comparison_ref=comparison_ref, reject_index_hidden=True
+        )
     )
 
 
