@@ -1,4 +1,4 @@
 # Direct requirements for the publication jobs; see release-publish.txt for the
 # hash-locked resolution actually installed.
 sigstore==4.5.0
-uv==0.12.5
+uv==0.12.9
