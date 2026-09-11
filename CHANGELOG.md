@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Detect shallow checkouts before `diff` scans either side. Print a scoped
+  `git fetch --unshallow` recovery (or `fetch-depth: 0` for CI) instead of
+  an object-integrity traceback; agent-mode errors carry the same runnable
+  next action. Object integrity checks remain unchanged (#683).
+
 - Read Go MCP tool descriptions from struct `Description` fields and
   direct `WithDescription`/`WithToolDescription` options. Later description
   options replace earlier ones, including empty or computed values. Nested calls and partial
