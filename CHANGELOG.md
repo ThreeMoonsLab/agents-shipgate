@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Read Go MCP tool descriptions from struct `Description` fields and
+  direct `WithDescription`/`WithToolDescription` options. Later description
+  options replace earlier ones, including empty or computed values. Nested calls and partial
+  expressions cannot supply the parent tool's description.
+
+  A complete two-string call to a declared `TranslationHelperFunc` parameter
+  can supply its literal default. An arbitrary function with key-shaped
+  arguments, an unbound helper, or a shadowed/reassigned parameter cannot.
+  Go trailing commas and comments are supported. The package reader and
+  zero-install detector share regression inputs for these boundaries.
+  First increment of #658; source annotation projection remains separate.
+
 - Make every emitted next action lead somewhere, and prove it. Following
   `control.next_action` on a repository with recognized host configuration
   and no manifest went round three commands forever: `verify --preview`
