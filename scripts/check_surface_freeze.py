@@ -21,7 +21,7 @@ somebody made rather than one that happened.
 The line budget is reported, never enforced: a number nobody agreed to
 should not block a merge.
 
-Usage:  check_surface_freeze.py --base <ref> [--labels a,b] [--budget 800]
+Usage:  check_surface_freeze.py --base <ref> [--labels-json '["label"]'] [--budget 800]
 """
 
 from __future__ import annotations
@@ -132,11 +132,22 @@ def _added_lines(base: str) -> tuple[int, int]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", required=True)
-    parser.add_argument("--labels", default="")
+    label_args = parser.add_mutually_exclusive_group()
+    label_args.add_argument("--labels", default="", help="Comma-separated labels for local CLI use.")
+    label_args.add_argument("--labels-json", help="JSON array of exact label names from an event.")
     parser.add_argument("--budget", type=int, default=800)
     args = parser.parse_args(argv)
 
-    labels = {label.strip() for label in args.labels.split(",") if label.strip()}
+    if args.labels_json is None:
+        labels = {label.strip() for label in args.labels.split(",") if label.strip()}
+    else:
+        try:
+            decoded = json.loads(args.labels_json)
+        except json.JSONDecodeError:
+            parser.error("--labels-json must be a JSON array of strings")
+        if not isinstance(decoded, list) or any(not isinstance(label, str) for label in decoded):
+            parser.error("--labels-json must be a JSON array of strings")
+        labels = set(decoded)
     excepted = EXCEPTION_LABEL in labels
 
     additions: list[str] = []

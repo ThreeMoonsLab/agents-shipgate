@@ -98,6 +98,21 @@ agents-shipgate scan -c shipgate.yaml
 
 Reports land at `agents-shipgate-reports/report.{md,json}`.
 
+**What did this change do to the agent's authority?** — one row per host
+grant, no manifest and no committed baseline required:
+
+```bash
+shipgate diff --workspace .
+```
+
+It compares the detected default branch's merge base with the working tree,
+materialising the base tree and reading it with the same host readers, then
+handing both inventories to the comparator `audit --host --drift` already
+uses. Rows carry before, after, direction, why it matters and the engine's
+severity; `⚠` marks the changes the engine called expansions of authority.
+`--json` emits the same rows. It publishes no verdict: static configuration
+is what the files permit, not what the agent did.
+
 **Local control for coding agents** — before reporting an agent-capability
 change complete, run the local control loop and parse stdout JSON:
 
@@ -2282,6 +2297,26 @@ newer scan. `verify` calls the same scan pipeline internally and writes a fresh,
 mutually consistent verifier artifact set afterward. Supporting commands that
 only need an in-memory report, including `baseline save`, scan into an isolated
 temporary directory so they preserve the current report and verifier evidence.
+
+## Reader strings are in the reader's language
+
+`headline`, `summary`, `control.reason` and every `why` are read by a
+person. They carry no field paths and no internal nouns —
+`tests/test_reader_vocabulary.py` runs every shipped fixture and fails on
+`control.state`, `input_set_id`, `binding graph`, `Route H`,
+`exclusion ledger`, or an enum identifier written into a sentence.
+
+The enum *values* are untouched: `release_decision.decision` is still
+`insufficient_evidence`, because a machine consumer gates on it. What the
+guard forbids is that identifier appearing in prose written for a person.
+"The agent's tool binding graph is incomplete" became "some tools cannot be
+traced to an agent that can call them" — the thing to fix, rather than the
+model it is fixed in.
+
+Root `--help` lists the six commands that carry a reader from a fresh
+checkout to an answer: `diff`, `check`, `verify`, `audit`, `init`,
+`doctor`. `--help-all` lists every command. Prominence is a reading aid,
+never a claim about what exists.
 
 ## Primary vs supporting surfaces
 

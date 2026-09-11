@@ -226,3 +226,32 @@ def test_shallow_checkout_needs_trees_not_merge_base(repo: Path, tmp_path: Path)
     result = _run(shallow)
     assert result.returncode == 0, result.stderr
     assert "1 reviewable" in result.stdout
+
+
+@pytest.mark.parametrize("labels", [["other,freeze-exception"], ['"; echo freeze-exception'], ["$(echo freeze-exception)"], [" freeze-exception "]])
+def test_json_event_labels_are_compared_exactly(repo: Path, labels: list[str]) -> None:
+    (repo / "src/agents_shipgate/inputs/new_adapter.py").write_text("")
+    _commit(repo)
+    result = _run(repo, "--labels-json", json.dumps(labels))
+    assert result.returncode == 1, result.stdout
+    assert "Allowed:" not in result.stdout
+
+
+def test_exact_json_event_exception_is_allowed(repo: Path) -> None:
+    (repo / "src/agents_shipgate/inputs/new_adapter.py").write_text("")
+    _commit(repo)
+    result = _run(repo, "--labels-json", json.dumps(["P1", "freeze-exception"]))
+    assert result.returncode == 0, result.stderr
+    assert "label is present" in result.stdout
+
+
+@pytest.mark.parametrize("raw", ["invalid", "null", "{}", '["freeze-exception", 1]', '"freeze-exception"'])
+def test_invalid_event_label_json_fails_closed(repo: Path, raw: str) -> None:
+    result = _run(repo, "--labels-json", raw)
+    assert result.returncode == 2
+    assert "JSON array of strings" in result.stderr
+
+
+def test_label_inputs_cannot_be_mixed(repo: Path) -> None:
+    result = _run(repo, "--labels", "freeze-exception", "--labels-json", "[]")
+    assert result.returncode == 2

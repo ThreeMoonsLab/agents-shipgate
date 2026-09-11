@@ -23,6 +23,7 @@ from agents_shipgate.cli.bootstrap import bootstrap as _bootstrap_command
 from agents_shipgate.cli.capability import capability_app
 from agents_shipgate.cli.check import check as _check_command
 from agents_shipgate.cli.detect import detect as _detect_command
+from agents_shipgate.cli.diff import diff as _diff_command
 from agents_shipgate.cli.evidence_packet import evidence_packet as _evidence_packet_command
 from agents_shipgate.cli.explain_finding import explain_finding as _explain_finding_command
 from agents_shipgate.cli.feedback import feedback_app
@@ -60,6 +61,13 @@ app.command(
     hidden=True,
     help="Classify a workspace: which agent framework(s), if any. Read-only.",
 )(_detect_command)
+app.command(
+    "diff",
+    help=(
+        "Show what this change does to the agent's authority: one row per "
+        "host grant, with before, after and why it matters."
+    ),
+)(_diff_command)
 app.command(
     "check",
     help="Run the fast local agent-boundary check and emit its JSON result.",
@@ -182,11 +190,14 @@ _register_explain.register(app)
 _register_init.register(app)
 _register_doctor.register(app)
 _register_baseline.register(app)
-# Visibility policy: root --help shows only the prominent flows:
-# `shipgate check`, `agents-shipgate verify`, and `shipgate audit --host`.
-# Supporting/compatibility commands stay fully invokable and documented
-# through their direct --help; hiding is presentation, not deprecation.
-# README fixture demos remain runnable, but are not a root-help flow.
+# Visibility policy: root --help shows the six commands a reader needs to
+# get from a fresh checkout to an answer — `diff`, `check`, `verify`,
+# `audit`, `init`, `doctor`. Three of 53 was not a menu, it was a keyhole:
+# every documented first step (`init`, `doctor`, `fixture run`) was hidden
+# from the one place a stranger looks (#652). Supporting and compatibility
+# commands stay fully invokable and documented through their own --help,
+# and `--help-all` lists every one of them; hiding is presentation, not
+# deprecation.
 app.add_typer(fixture_app, name="fixture", hidden=True)
 app.add_typer(feedback_app, name="feedback", hidden=True)
 app.add_typer(scenario_app, name="scenario", hidden=True)
@@ -201,10 +212,34 @@ app.add_typer(authorization_app, name="authorization", hidden=True)
 logger = logging.getLogger(__name__)
 
 
+def _help_with_every_command() -> str:
+    """Root help with nothing hidden.
+
+    Prominence is a reading aid, not a list of what exists, so there has to
+    be one command that shows the rest. Rendered from the same Click
+    command the real help comes from, with `hidden` cleared, so it cannot
+    fall out of step with what is registered.
+    """
+
+    import typer.main
+
+    command = typer.main.get_command(app)
+    for name in command.list_commands(typer.Context(command)):  # type: ignore[attr-defined]
+        sub = command.get_command(typer.Context(command), name)  # type: ignore[attr-defined]
+        if sub is not None:
+            sub.hidden = False
+    return command.get_help(typer.Context(command, info_name="agents-shipgate"))
+
+
 @app.callback()
 def _root(
     ctx: typer.Context,
     version: bool = typer.Option(False, "--version", help="Show version and exit."),
+    help_all: bool = typer.Option(
+        False,
+        "--help-all",
+        help="Show every command, including the supporting ones.",
+    ),
 ) -> None:
     # Logging state is per-invocation, not per-process: reset to the
     # default (WARNING, plain formatter) before every command so a
@@ -216,6 +251,9 @@ def _root(
     configure_logging(force=True)
     if version:
         typer.echo(f"Agents Shipgate {__version__}")
+        raise typer.Exit(0)
+    if help_all:
+        typer.echo(_help_with_every_command())
         raise typer.Exit(0)
     # Bare `shipgate` (no subcommand) runs a zero-config, read-only first
     # look instead of dumping --help, so a fresh repo gets a verdict and a
