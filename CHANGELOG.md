@@ -63,6 +63,39 @@
   either ref alone so it cannot disagree with the check that emitted it
   (#649).
 
+- Show a reader six commands and speak to them in their own language.
+  `--help` listed three of 53 commands while every documented first step —
+  `init`, `doctor` — was hidden from the one place a stranger looks; it now
+  lists `diff`, `check`, `verify`, `audit`, `init` and `doctor`, and the new
+  `--help-all` lists every command, rendered from the same Click command as
+  the real help so the two cannot fall out of step. Prominence is a reading
+  aid, never a claim about what exists. Reader-facing strings are now
+  guarded: `tests/test_reader_vocabulary.py` runs every shipped fixture and
+  fails when a headline, summary, `control.reason` or `why` carries engine
+  vocabulary. It found two — "the agent's tool binding graph is incomplete"
+  and "a complete root-reachable static binding graph is required for
+  passed" — which now say what a reader must fix rather than the model it is
+  fixed in. Enum values are untouched: `release_decision.decision` is still
+  `insufficient_evidence` for the machines that gate on it (#652).
+
+- Add `shipgate diff`: what this change does to the agent's authority, in one
+  row per host grant, with no manifest and no committed baseline. The engine
+  already decided this — `audit --host --drift` names every typed grant
+  change — but it required a baseline recorded in advance and reachable from
+  the branch, so the answer was two checkouts and a committed file away. The
+  new command supplies the other side from Git: materialise the base tree,
+  read it with the same host readers, hand both inventories to the same
+  comparator. Rows carry before, after, direction, why it matters and the
+  engine's own severity, most severe first, with `⚠` on the changes the
+  engine called expansions of authority. A benign change prints one line.
+  `--json` emits the same rows. Every field is read from the drift payload,
+  so the command cannot disagree with the engine about a change it did not
+  decide: `risk` is the engine's severity and `expansion_signals` is the
+  engine's word on widening, and a change the engine has not called an
+  expansion is reported as `changed` rather than guessed to be a narrowing —
+  that needs the pattern lattice in #657. Host route only; tool-source
+  subjects are #655. No verdict is published (#651).
+
 - Stop inventorying machine-written tool caches, so an ordinary concurrent
   test run no longer collapses the host inventory. `check` run while pytest
   was active returned `human_review_required` with *"Directory inventory

@@ -72,23 +72,31 @@ class Cadence:
     #: Which line this measures. Carried on the value so the one renderer
     #: can serve both without either surface restating the other's name.
     label: str = "Release cadence"
+    date_basis: str = "tag_creator"
 
     @property
     def note(self) -> str:
-        return _STATUS_NOTE[self.status].format(
+        note = _STATUS_NOTE[self.status].format(
             interval=self.interval_days, overdue=self.overdue_days
         )
+        if self.date_basis == "preview_build" and self.status != "unknown":
+            note += "; based on the preview build date, not GitHub publication time"
+        return note
 
     def as_dict(self) -> dict[str, object]:
-        return {
+        date_key = "built_at" if self.date_basis == "preview_build" else "tagged_at"
+        result: dict[str, object] = {
             "latest_release_tag": self.latest_release_tag,
-            "tagged_at": self.tagged_at,
+            date_key: self.tagged_at,
             "days_since_release": self.days_since_release,
             "interval_days": self.interval_days,
             "overdue_days": self.overdue_days,
             "status": self.status,
             "note": self.note,
         }
+        if self.date_basis == "preview_build":
+            result["date_basis"] = self.date_basis
+        return result
 
     def as_line(self) -> str:
         if self.status == "unknown":
@@ -102,6 +110,7 @@ class Cadence:
         """The step-summary block. One renderer, so no surface can disagree."""
 
         days = "unknown" if self.days_since_release is None else str(self.days_since_release)
+        date_label = "Preview build date" if self.date_basis == "preview_build" else "Tagged"
         return "\n".join(
             [
                 f"## {self.label}",
@@ -109,7 +118,7 @@ class Cadence:
                 "| | |",
                 "| --- | --- |",
                 f"| Latest release tag | `{self.latest_release_tag or 'none'}` |",
-                f"| Tagged | {self.tagged_at or 'n/a'} |",
+                f"| {date_label} | {self.tagged_at or 'n/a'} |",
                 f"| Days since | **{days}** |",
                 f"| Interval | {self.interval_days} days |",
                 f"| Status | **{self.status}** -- {self.note} |",
@@ -184,6 +193,23 @@ def read_release_tags(
     return sorted(tags, key=lambda item: item[1], reverse=True)
 
 
+
+def read_advisory_tags(repo: Path) -> list[tuple[str, int]]:
+    """Use the preview version's UTC build date as the offline cadence proxy.
+
+    The preview publisher creates lightweight tags. Git's creatordate for
+    those tags is the source commit time, not when the preview was built or
+    published. Publication timestamps require release metadata unavailable
+    in local Git, so expose the embedded build date and name that boundary.
+    """
+    tags = []
+    for ref, _commit_time in read_release_tags(repo, predicate=is_advisory_tag):
+        stamp = ref.partition("+preview.")[2].partition(".g")[0]
+        built = datetime.strptime(stamp, "%Y%m%d").replace(tzinfo=UTC)
+        tags.append((ref, int(built.timestamp())))
+    return sorted(tags, key=lambda item: item[1], reverse=True)
+
+
 def assess(
     tags: list[tuple[str, int]],
     *,
@@ -191,6 +217,7 @@ def assess(
     interval_days: int = INTERVAL_DAYS,
     overdue_days: int = OVERDUE_DAYS,
     label: str = "Release cadence",
+    date_basis: str = "tag_creator",
 ) -> Cadence:
     """Classify the newest release tag against the approved interval.
 
@@ -200,7 +227,7 @@ def assess(
     """
 
     if not tags:
-        return Cadence(None, None, None, interval_days, overdue_days, "unknown", label)
+        return Cadence(None, None, None, interval_days, overdue_days, "unknown", label, date_basis)
     ref, when = max(tags, key=lambda item: item[1])
     # Truncated, not rounded: "56 days since" must never report 57 because the
     # tag was cut in the afternoon.
@@ -212,7 +239,7 @@ def assess(
     else:
         status = "current"
     tagged_at = datetime.fromtimestamp(when, tz=UTC).date().isoformat()
-    return Cadence(ref, tagged_at, days, interval_days, overdue_days, status, label)
+    return Cadence(ref, tagged_at, days, interval_days, overdue_days, status, label, date_basis)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -237,11 +264,12 @@ def main(argv: list[str] | None = None) -> int:
     now = int(datetime.now(tz=UTC).timestamp())
     cadence = assess(read_release_tags(args.repo), now=now)
     advisory = assess(
-        read_release_tags(args.repo, predicate=is_advisory_tag),
+        read_advisory_tags(args.repo),
         now=now,
         interval_days=ADVISORY_INTERVAL_DAYS,
         overdue_days=ADVISORY_OVERDUE_DAYS,
         label="Advisory cadence",
+        date_basis="preview_build",
     )
 
     lines = (cadence, advisory)

@@ -560,7 +560,11 @@ release body what it is not. A preview cannot satisfy
 renderer, counting `v*` for the gate line and `preview-*` for the advisory
 line. The separation is load-bearing: counting previews in the release metric
 would let the channel that exists *because* the release cadence slipped
-report that cadence as kept.
+report that cadence as kept. Preview age uses the UTC build date encoded in
+the preview version, explicitly reported as a build-date proxy: lightweight
+Git tags expose source commit time, and local Git cannot prove GitHub
+publication time. Publication records remain necessary to establish the
+operational shipping cadence.
 
 **Why neither fails a pull request.** Both lines warn and neither blocks, for
 the reason already recorded for the release cadence: whichever change happens

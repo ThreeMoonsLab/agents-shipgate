@@ -1,6 +1,8 @@
 """Keep preview publication separate from qualified-release cadence."""
 
 import json
+import os
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -46,6 +48,7 @@ def test_cli_preserves_release_json_and_measures_preview_separately(monkeypatch,
     now = int(datetime.now(UTC).timestamp())
     tags = [("v0.15.0", now - 56 * 86400), ("preview-0.16.0+preview.20260902.gabcdef0", now - 86400)]
     monkeypatch.setattr(cadence, "read_release_tags", lambda repo, predicate=cadence.is_release_tag: [item for item in tags if predicate(item[0])])
+    monkeypatch.setattr(cadence, "read_advisory_tags", lambda repo: [item for item in tags if cadence.is_advisory_tag(item[0])])
     assert cadence.main(["--json"]) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["latest_release_tag"] == "v0.15.0"
@@ -59,6 +62,7 @@ def test_overdue_preview_reaches_operator_and_summary(monkeypatch, capsys, tmp_p
     now = int(datetime.now(UTC).timestamp())
     tags = [("v0.15.0", now), ("preview-0.16.0+preview.20260902.gabcdef0", now - 22 * 86400)]
     monkeypatch.setattr(cadence, "read_release_tags", lambda repo, predicate=cadence.is_release_tag: [item for item in tags if predicate(item[0])])
+    monkeypatch.setattr(cadence, "read_advisory_tags", lambda repo: [item for item in tags if cadence.is_advisory_tag(item[0])])
     summary = tmp_path / "summary.md"
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
     assert cadence.main(["--github", "--fail-when-overdue"]) == 1
@@ -68,3 +72,31 @@ def test_overdue_preview_reaches_operator_and_summary(monkeypatch, capsys, tmp_p
     assert "::warning title=Advisory cadence" in output.out
     assert "## Advisory cadence" in summary.read_text()
     assert "**overdue**" in summary.read_text()
+
+
+def test_lightweight_preview_uses_build_stamp_instead_of_old_commit(tmp_path: Path, capsys) -> None:
+    def git(*args: str) -> str:
+        env = os.environ.copy()
+        env.update(GIT_AUTHOR_DATE="2000-01-01T00:00:00Z", GIT_COMMITTER_DATE="2000-01-01T00:00:00Z")
+        return subprocess.check_output(
+            ["git", "-c", f"core.hooksPath={tmp_path / 'no-hooks'}", "-c", "tag.gpgSign=false", *args],
+            cwd=tmp_path, env=env, text=True,
+        ).strip()
+
+    git("init", "-q")
+    git("config", "user.name", "Test")
+    git("config", "user.email", "test@example.invalid")
+    git("-c", "commit.gpgsign=false", "commit", "--allow-empty", "-qm", "old source")
+    tag = "preview-0.16.0+preview.20260903.g" + git("rev-parse", "--short=7", "HEAD")
+    git("tag", tag)
+    original = cadence.read_release_tags(tmp_path, predicate=cadence.is_advisory_tag)
+    assert original[0][1] == int(datetime(2000, 1, 1, tzinfo=UTC).timestamp())
+    measured = cadence.read_advisory_tags(tmp_path)
+    assert measured == [(tag, int(datetime(2026, 9, 3, tzinfo=UTC).timestamp()))]
+    assert cadence.main(["--repo", str(tmp_path), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert "tagged_at" in payload  # Existing qualified-release JSON stays compatible.
+    assert payload["advisory"]["built_at"] == "2026-09-03"
+    assert payload["advisory"]["date_basis"] == "preview_build"
+    assert "tagged_at" not in payload["advisory"]
+    assert "not GitHub publication time" in payload["advisory"]["note"]

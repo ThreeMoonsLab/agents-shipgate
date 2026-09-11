@@ -64,7 +64,7 @@
   },
   "release_decision": {
     "decision": "insufficient_evidence",
-    "reason": "Insufficient evidence: the agent's tool binding graph is incomplete (durable_order_agent [conductor_workflows]). Fix at shipgate.yaml#agent_bindings. Context: 1 binding evidence gap(s), 1 semantic evidence gap(s), 1 low-confidence tool(s) and 4 source warning(s); scan results are not trustworthy enough to gate release.",
+    "reason": "Insufficient evidence: some tools cannot be traced to an agent that can call them (durable_order_agent [conductor_workflows]). Fix at shipgate.yaml#agent_bindings. Context: 1 binding evidence gap(s), 1 semantic evidence gap(s), 1 low-confidence tool(s) and 4 source warning(s); scan results are not trustworthy enough to gate release.",
     "blockers": [],
     "review_items": [
       {
@@ -132,8 +132,8 @@
             "kind": "provide_complete_binding_graph",
             "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
             "path": "shipgate.yaml#agent_bindings",
-            "why": "A complete root-reachable static binding graph is required for passed.",
-            "expects": "Provide static wiring or an exact reviewed declaration for every reachable edge.",
+            "why": "Every tool has to be traceable to an agent that can call it before this can pass.",
+            "expects": "Wire each tool to the agent that calls it in code, or declare that link exactly.",
             "accepted_values": [
               "literal_tools",
               "literal_handoffs",
@@ -1343,7 +1343,7 @@
   "policy_evidence_gaps": [],
   "agent_summary": {
     "verdict": "insufficient_evidence",
-    "headline": "Insufficient evidence: the agent's tool binding graph is incomplete (durable_order_agent [conductor_workflows]). Fix at shipgate.yaml#agent_bindings. Context: 1 binding evidence gap(s), 1 semantic evidence gap(s), 1 low-confidence tool(s) and 4 source warning(s); scan results are not trustworthy enough to gate release.",
+    "headline": "Insufficient evidence: some tools cannot be traced to an agent that can call them (durable_order_agent [conductor_workflows]). Fix at shipgate.yaml#agent_bindings. Context: 1 binding evidence gap(s), 1 semantic evidence gap(s), 1 low-confidence tool(s) and 4 source warning(s); scan results are not trustworthy enough to gate release.",
     "blocker_count": 0,
     "review_item_count": 2,
     "auto_appliable_patches": 0,
@@ -1351,7 +1351,7 @@
     "first_recommended_action": {
       "kind": "info",
       "command": null,
-      "why": "Provide static wiring or an exact reviewed declaration for every reachable edge. Target: shipgate.yaml#agent_bindings. That is the gap this verdict names: the agent's tool binding graph is incomplete (durable_order_agent [conductor_workflows]). Applying patches does not clear an evidence verdict, so close this gap and re-run verification."
+      "why": "Wire each tool to the agent that calls it in code, or declare that link exactly. Target: shipgate.yaml#agent_bindings. That is the gap this verdict names: some tools cannot be traced to an agent that can call them (durable_order_agent [conductor_workflows]). Applying patches does not clear an evidence verdict, so close this gap and re-run verification."
     }
   },
   "policy_audit": {
