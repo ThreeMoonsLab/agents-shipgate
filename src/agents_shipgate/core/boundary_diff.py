@@ -105,17 +105,38 @@ def git_diff_path_token(prefix: str, path: str) -> str:
 
 
 def parse_unified_diff(diff_text: str) -> list[DiffFile]:
+    """Parse unified diff text into per-file added/removed lines and hunks.
+
+    Hunk state, not line spelling, decides what is content.  A removed
+    ``---`` renders as ``----`` and a removed ``-- note`` renders as
+    ``--- note``; matching those against the file-header prefixes drops a
+    counted row, and in the second case rewrites the file's own identity
+    from its content.  While a hunk still owes rows, any line opening with
+    a unified-diff marker (space, ``+``, ``-``, ``\\``) is that hunk's data
+    and is dispatched on its first character alone.
+
+    The row budget comes from the hunk header, so a truncated or
+    over-declared hunk ends as soon as a line cannot be hunk data.  The
+    short hunk is kept, and the declared-count comparison in
+    ``core.instruction_structure`` still refuses it — repairing the parser
+    must not turn an incomplete comparison into a successful one.
+    """
+
     files_out: list[DiffFile] = []
     current: dict[str, Any] | None = None
     current_hunk: DiffHunk | None = None
+    old_remaining = 0
+    new_remaining = 0
 
     def finish() -> None:
-        nonlocal current, current_hunk
+        nonlocal current, current_hunk, old_remaining, new_remaining
         if current is None:
             return
         if current_hunk is not None:
             current.setdefault("hunks", []).append(current_hunk)
             current_hunk = None
+        old_remaining = 0
+        new_remaining = 0
         files_out.append(
             DiffFile(
                 old_path=current.get("old_path"),
@@ -162,6 +183,35 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
             continue
         if current is None:
             continue
+        if (old_remaining > 0 or new_remaining > 0) and raw_line[:1] in {
+            " ",
+            "+",
+            "-",
+            "\\",
+        }:
+            # Inside a hunk that still owes rows: this is content, whatever
+            # it is spelled like. "\ No newline at end of file" is a marker
+            # rather than a row, so it consumes no budget.
+            if raw_line.startswith("\\"):
+                continue
+            marker, text = raw_line[0], raw_line[1:]
+            if marker == "+":
+                current["added_lines"].append(text)
+                new_remaining -= 1
+            elif marker == "-":
+                current["removed_lines"].append(text)
+                old_remaining -= 1
+            else:
+                old_remaining -= 1
+                new_remaining -= 1
+            if current_hunk is not None:
+                current_hunk.lines.append((marker, text))
+            continue
+        # Any other line ends the hunk, however many rows it still owed.
+        # The short hunk is retained so the declared-count comparison can
+        # refuse it.
+        old_remaining = 0
+        new_remaining = 0
         if raw_line.startswith(("old mode ", "new mode ", "copy from ", "copy to ")):
             current["metadata_changed"] = True
         elif raw_line.startswith("deleted file mode"):
@@ -218,6 +268,8 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
             if current_hunk is not None:
                 current.setdefault("hunks", []).append(current_hunk)
             current_hunk = _parse_hunk_header(raw_line)
+            old_remaining = current_hunk.old_count
+            new_remaining = current_hunk.new_count
         elif raw_line.startswith("+") and not raw_line.startswith("+++"):
             current["added_lines"].append(raw_line[1:])
             if current_hunk is not None:
