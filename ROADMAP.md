@@ -71,15 +71,15 @@ only from the quickstart. This plan makes that value the default experience.
 | --- | --- | --- | --- |
 | Adoption M1 — installable and navigable | to 2026-10-10 | `pipx install` yields contract >= 29; the three-widening scenario reaches a row naming all three in <= 2 commands and <= 2 minutes; every emitted next_action chain terminates; five design-partner conversations in the ledger | [#644](https://github.com/ThreeMoonsLab/agents-shipgate/issues/644) |
 | Adoption M2 — diff first value | to 2026-11-10 | `shipgate diff` is the default output on every supported route with zero manifest; row precision >= 0.95 and benign zero-row rate >= 95% on a 50-PR host-config corpus; fields-to-first-diff = 0; >= 24/30 public repositories reach a diff row in <= 5 minutes; ten conversations, >= 3 repositories ran `diff` live | [#645](https://github.com/ThreeMoonsLab/agents-shipgate/issues/645) |
-| Adoption M3 — repeat use and team adoption | to 2026-12-10 | human route completes in CI; >= 5 external repositories with a second-change observation; >= 10 named external users, >= 5 weekly-active (relationship-counted, no telemetry); allowlist files read; GitHub App only after M2 records >= 3 external repositories | [#646](https://github.com/ThreeMoonsLab/agents-shipgate/issues/646) |
+| Adoption M3 — repeat use and team adoption | to 2026-12-10 | human route completes in CI; >= 5 external repositories with a second-change observation; [ADOPTERS.md](ADOPTERS.md) reaches >= 10 external entries, >= 5 of them active weekly (relationship-counted, no telemetry); allowlist files read; GitHub App only after M2 records >= 3 external repositories | [#646](https://github.com/ThreeMoonsLab/agents-shipgate/issues/646) |
 
 An unmet exit narrows the next window; it does not skip it. The qualified gate
 track ([#512](https://github.com/ThreeMoonsLab/agents-shipgate/issues/512),
 [#509](https://github.com/ThreeMoonsLab/agents-shipgate/issues/509),
 [#510](https://github.com/ThreeMoonsLab/agents-shipgate/issues/510)) continues
-while adoption is at >= 5 weekly-active users; below that, v1.0 is the advisory
-line's 1.0 and the gate bars move to 1.1. Until the M2 exit is recorded, no new
-check ID, schema family or adapter is added
+while [ADOPTERS.md](ADOPTERS.md) shows >= 5 weekly-active entries; below that,
+v1.0 is the advisory line's 1.0 and the gate bars move to 1.1. Until the M2 exit
+is recorded, no new check ID, schema family or adapter is added
 ([#654](https://github.com/ThreeMoonsLab/agents-shipgate/issues/654)).
 
 ### Order of work
