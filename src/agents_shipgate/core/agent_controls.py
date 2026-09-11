@@ -74,17 +74,22 @@ def verify_command_for(
     relative spelling would silently retarget the authorized operation.
     """
 
-    if (base is None) != (head is None):
-        raise ValueError("verify command requires both base and head, or neither")
-    if workspace is None and config is None and base is None and not extra:
+    # `verify` accepts either ref on its own — it auto-detects the base and
+    # defaults the head — so emitting whichever the check actually resolved
+    # is faithful. Requiring both mirrored `check`'s old paired-flag rule,
+    # which #649 removed; keeping it here would have made the emitted
+    # command disagree with the command that emitted it.
+    if workspace is None and config is None and base is None and head is None and not extra:
         return retarget_command(DEFAULT_VERIFY_COMMAND)
     args = ["verify"]
     if workspace is not None:
         args.extend(["--workspace", _cwd_anchored(workspace)])
     if config is not None:
         args.extend(["--config", _config_for_verify(workspace, config)])
-    if base is not None and head is not None:
-        args.extend(["--base", base, "--head", head])
+    if base is not None:
+        args.extend(["--base", base])
+    if head is not None:
+        args.extend(["--head", head])
     args.extend(extra)
     args.append("--json")
     return render_command(args)
