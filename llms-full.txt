@@ -1646,6 +1646,32 @@ well. In verifier, verify-run, and preview output, follow
 only `control.next_action` and `control.allowed_next_commands`. See the
 [embedded-trigger migration note](../STABILITY.md#migration-note-unreleased-embedded-trigger-routing).
 
+### Emitted next actions terminate
+
+Following `control.next_action.command` — or the human `Next:` line, which is
+the same routing rendered for a person — reaches a terminal. Three properties
+hold, and `tests/test_next_action_chains_terminate.py` walks every entry
+command on a host-only and a manifest repository to keep them holding:
+
+- **No cycle.** No chain returns to a question it already asked. Output
+  format is not part of a step's identity: `audit --host` and
+  `audit --host --json` ask the same thing, and treating them as different
+  steps is what once hid a three-command loop
+  (`verify --preview` → `init --write` → `audit --host` → `verify --preview`).
+- **No workspace loss.** Every emitted command names the same `--workspace`
+  it was produced for. A step that drops it does not continue the walk; it
+  starts a different one against the caller's current directory, which is
+  the silent retargeting the [invocation policy](diagnostics.md#invocation-policy)
+  exists to prevent.
+- **Every step is runnable.** An emitted command names a Shipgate command
+  that accepts it. Prose that names no command is a terminal: it hands the
+  reader a decision, not another lap.
+
+A run that evaluated no gate says so. `verify --preview` on a repository with
+nothing to gate reports `execution: "not_run"` and
+`applicability: "not_evaluated"`, and the human line reads
+`Agents Shipgate verify: not evaluated` rather than `failed`.
+
 Runtime contract v28 publishes the capability delta as a **standalone
 attestation**. `verify` writes
 `agents-shipgate-reports/capability-delta-attestation.json`: an
