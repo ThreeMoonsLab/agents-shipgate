@@ -277,8 +277,12 @@ def test_a_removal_is_never_reported_as_an_expansion() -> None:
 @pytest.mark.parametrize("json_output", [False, True])
 @pytest.mark.parametrize("agent_mode", ["0", "1"])
 def test_shallow_checkout_names_a_recovery_that_restores_the_diff(
-    repo: Path, tmp_path: Path, depth: int, json_output: bool, agent_mode: str
+    repo: Path, tmp_path: Path, depth: int, json_output: bool, agent_mode: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Hosted CI enables Rich color; the recovery must still be one copyable line.
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    monkeypatch.setenv("COLUMNS", "60")
     for index in range(2):
         (repo / "README.md").write_text(f"# revision {index}\n", encoding="utf-8")
         _git(repo, "add", "README.md")
@@ -306,7 +310,7 @@ def test_shallow_checkout_names_a_recovery_that_restores_the_diff(
         recovery = shlex.split(action["command"])
     else:
         assert errors == []
-        assert "--unshallow" in result.output
+        assert any(shlex.join(recovery) in line for line in result.stderr.splitlines())
     # Follow the published action from outside the checkout. This must restore
     # the actual comparison, without init, policy edits or a wrapper fetch.
     subprocess.run(recovery, cwd=tmp_path, check=True, capture_output=True)

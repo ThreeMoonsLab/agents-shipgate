@@ -61,13 +61,16 @@ def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
         )
         # A shallow boundary is expected missing history, not a corrupt graph.
         # Keep archive validation intact and recover before scanning either side.
+        # Plain stderr keeps the command copyable; Rich parameter panels can
+        # split paths/flags across lines in a narrow or color-enabled terminal.
+        typer.echo(message, err=True)
         emit_agent_mode_error_action(
             "config_error",
             message=message,
             exit_code=2,
             action=NextAction(kind="command", command=command, why=message),
         )
-        raise typer.BadParameter(message, param_hint="--workspace")
+        raise typer.Exit(2)
 
     # Same resolver `check` uses (#649), including its narrow local
     # fallback: a local `main` is refused while a remote exists, because the
