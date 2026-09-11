@@ -605,7 +605,10 @@ def _resolve_comparison(
 
     def default_base() -> str:
         detected = detect_default_base(
-            workspace, "HEAD", allow_local_when_no_remote=True
+            workspace,
+            head or "HEAD",
+            allow_local_when_no_remote=True,
+            allow_equal_head=True,
         )
         if detected is None:
             raise UnresolvedComparisonError(
@@ -620,24 +623,7 @@ def _resolve_comparison(
         detected = default_base()
         return detected, head, f"{detected}...{head}", "HEAD"
 
-    requested = base or None
-    if requested is None:
-        detected = detect_default_base(
-            workspace, "HEAD", allow_local_when_no_remote=True
-        )
-        if detected is None:
-            # Rung 5 before rung 6: being *on* the default branch is the
-            # commonest reason nothing else was detected, and there the
-            # worktree-against-HEAD answer is complete rather than wrong.
-            if _head_is_only_commit_line(workspace):
-                return "HEAD", None, "", "HEAD"
-            raise UnresolvedComparisonError(
-                "No base ref could be detected for this repository, so there is "
-                "nothing to compare this working tree against. Pass --base "
-                "<ref> to name one explicitly (use --base HEAD for uncommitted "
-                "changes only)."
-            )
-        requested = detected
+    requested = base or default_base()
 
     if requested == "HEAD":
         return "HEAD", None, "", "HEAD"
@@ -649,29 +635,6 @@ def _resolve_comparison(
             "ref that shares history with HEAD."
         )
     return requested, None, "", merge_base
-
-
-def _head_is_only_commit_line(workspace: Path) -> bool:
-    """Whether HEAD is the repository's own default line of history.
-
-    ``detect_default_base`` returns nothing both when a base exists but
-    equals ``HEAD`` and when none exists at all. Only the first is a
-    complete answer, so the two are separated here rather than guessed.
-    """
-
-    from agents_shipgate.cli.verify.git import (
-        LOCAL_BASE_CANDIDATES,
-        REMOTE_BASE_CANDIDATES,
-        commit_sha,
-    )
-
-    head_sha = commit_sha(workspace, "HEAD")
-    if head_sha is None:
-        return False
-    for candidate in (*REMOTE_BASE_CANDIDATES, *LOCAL_BASE_CANDIDATES):
-        if commit_sha(workspace, candidate) == head_sha:
-            return True
-    return False
 
 
 def git_boundary_change_set(

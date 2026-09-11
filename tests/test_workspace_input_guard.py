@@ -38,6 +38,7 @@ runner = CliRunner()
 # matter, and before any of them writes.
 COMMAND_INVOCATIONS: dict[str, list[str]] = {
     "detect": ["detect"],
+    "diff": ["diff", "--json"],
     "check": ["check", "--agent", "codex"],
     "preflight": ["preflight", "--json"],
     "bootstrap": ["bootstrap", "--json"],

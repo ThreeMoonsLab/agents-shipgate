@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -47,7 +48,7 @@ READER_FIELDS = ("headline", "summary", "reason", "why")
 
 def _fixture_names() -> list[str]:
     result = subprocess.run(
-        ["python", "-m", "agents_shipgate", "fixture", "list"],
+        [sys.executable, "-m", "agents_shipgate", "fixture", "list"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -141,7 +142,16 @@ def test_help_all_lists_the_supporting_commands_too() -> None:
 
     result = runner.invoke(app, ["--help-all"])
 
+    assert result.exit_code == 0, result.output
     listed = set(re.findall(r"^│ ([a-z][a-z-]*)", result.output, re.M))
     assert {"diff", "check", "verify", "audit", "init", "doctor"} <= listed
     assert {"scan", "detect", "contract", "explain", "trigger"} <= listed
     assert len(listed) > 25
+
+
+def test_help_all_does_not_change_later_root_help() -> None:
+    before = runner.invoke(app, ["--help"])
+    expanded = runner.invoke(app, ["--help-all"])
+    after = runner.invoke(app, ["--help"])
+    assert expanded.exit_code == 0, expanded.output
+    assert before.output == after.output

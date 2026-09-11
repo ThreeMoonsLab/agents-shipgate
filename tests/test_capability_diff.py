@@ -152,7 +152,7 @@ def test_a_benign_change_produces_no_rows(repo: Path) -> None:
     result = _diff(repo)
 
     assert result.exit_code == 0
-    assert "No change to what the agent may do." in result.output
+    assert "No static host-grant changes detected." in result.output
     assert _rows(repo) == []
 
 
@@ -227,6 +227,7 @@ def test_widened_requires_the_engine_to_have_said_so() -> None:
         "current": {
             "host": "claude-code", "source": ".claude/settings.json",
             "kind": "permission_rule", "rule": "Bash(npm test:*)", "risk": "high",
+            "disposition": "allow", "wildcard": True,
         },
     }
 
@@ -236,7 +237,7 @@ def test_widened_requires_the_engine_to_have_said_so() -> None:
     signalled = capability_diff_rows(
         {
             "comparison_status": "comparable",
-            "expansion_signals": ["wildcard_allow_added: claude-code:Bash(npm test:*)"],
+            "expansion_signals": ["wildcard_allow_changed: claude-code:Bash(npm test:*)"],
             "changes": [change],
         }
     )
@@ -301,3 +302,60 @@ def test_the_output_states_what_it_did_not_establish(repo: Path) -> None:
     assert "Static configuration only" in output
     assert "No verdict is implied" in output
     assert _diff(repo, "--json").output.count('"static_analysis_only": true') == 1
+
+
+@pytest.mark.parametrize("disposition", ["deny", "ask"])
+def test_removing_a_restriction_preserves_the_engine_expansion(disposition: str) -> None:
+    from agents_shipgate.core.host_grants import host_grant_expansion_signals
+
+    changes = [{"baseline": {"host": "claude-code", "source": ".claude/settings.json",
+                "kind": "permission_rule", "disposition": disposition,
+                "rule": "Bash(*)", "risk": "low"}, "current": None}]
+    rows = capability_diff_rows({"changes": changes, "expansion_signals": host_grant_expansion_signals(changes)})
+    assert rows[0].expands is True
+    assert rows[0].direction == "removed"
+    assert "removes a" in rows[0].why
+
+
+def test_hook_expansion_is_bound_by_host_and_source() -> None:
+    from agents_shipgate.core.host_grants import host_grant_expansion_signals
+
+    changes = [{"baseline": None, "current": {"host": "claude-code", "source": ".claude/settings.json",
+                "kind": "hook", "name": "PreToolUse", "risk": "high"}}]
+    rows = capability_diff_rows({"changes": changes, "expansion_signals": host_grant_expansion_signals(changes)})
+    assert rows[0].expands is True
+
+
+def test_missing_default_ref_requires_an_explicit_comparison(repo: Path) -> None:
+    _git(repo, "remote", "add", "origin", "https://example.invalid/unfetched.git")
+    result = _diff(repo)
+    assert result.exit_code == 2
+    assert "No base ref could be detected" in result.output
+
+
+def test_subdirectory_compares_the_same_repository_on_both_sides(repo: Path) -> None:
+    nested = repo / "nested"
+    nested.mkdir()
+    payload = json.loads(_diff(nested, "--base", "HEAD", "--json").output)
+    assert payload["workspace"] == str(repo.resolve())
+    assert payload["rows"] == []
+
+
+def test_incomplete_base_returns_an_explicit_incomparable_result(repo: Path) -> None:
+    (repo / ".mcp.json").write_text("{bad json", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "incomplete base")
+    (repo / ".mcp.json").write_text(BASE_MCP, encoding="utf-8")
+    result = _diff(repo, "--base", "HEAD", "--json")
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["comparison_status"] == "incomparable"
+    assert payload["incomparable_reasons"] == ["base_inventory_incomplete"]
+    assert payload["rows"] == []
+
+
+@pytest.mark.parametrize("base", ["", "--upload-pack=evil"])
+def test_invalid_base_cannot_fall_back_or_become_an_option(repo: Path, base: str) -> None:
+    result = _diff(repo, "--base", base)
+    assert result.exit_code == 2
+    assert "Base ref must be non-empty" in result.output

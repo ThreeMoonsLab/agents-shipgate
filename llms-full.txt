@@ -546,7 +546,8 @@ When a required `tool_sources[].path` does not resolve under the manifest direct
 
 - `agents-shipgate doctor --json` exits **0** with a `SHIP-DIAG-MISSING-SOURCE-FILE` diagnostic and an `unresolved_sources: [{id, declared_path, line, reason}]` field in the payload, so an agent can route to a fix without parsing the error message. `reason` is `"missing"` or `"outside_manifest_dir"`.
 - `agents-shipgate doctor` (no `--json`) prints the same `unresolved_sources` + diagnostic block in human-readable form and **exits 3**, preserving the pre-feature loud failure for interactive users.
-- `agents-shipgate scan` is unchanged — it still raises `InputParseError(3)` regardless of `--json`. Once you're past doctor, missing sources are real scan failures.
+- `agents-shipgate scan` is unchanged — it still raises `InputParseError(3)` regardless of `--json`. Once you're past doctor, missing sources are real scan failures. One precondition enforces this for every source type before any adapter runs, off the resolver doctor uses, so the answer does not depend on which reader the source would have gone to. `optional: true` sources are not covered: they keep their source warning and recovery evidence, and the scan completes.
+- `verify` applies the same precondition to each tree it scans. A base commit whose manifest declares a path that tree does not contain yields `base_status: "scan_failed"` with the reason in `base_notes` and no capability delta; the head gate is unchanged.
 
 ### Missing vs invalid manifests
 
@@ -1659,6 +1660,32 @@ command is not repeated. Commands on embedded `matched_rules[]` are cleared as
 well. In verifier, verify-run, and preview output, follow
 only `control.next_action` and `control.allowed_next_commands`. See the
 [embedded-trigger migration note](../STABILITY.md#migration-note-unreleased-embedded-trigger-routing).
+
+### Emitted next actions terminate
+
+Following `control.next_action.command` — or the human `Next:` line, which is
+the same routing rendered for a person — reaches a terminal. Three properties
+hold, and `tests/test_next_action_chains_terminate.py` walks every entry
+command on a host-only and a manifest repository to keep them holding:
+
+- **No cycle.** No chain returns to a question it already asked. Output
+  format is not part of a step's identity: `audit --host` and
+  `audit --host --json` ask the same thing, and treating them as different
+  steps is what once hid a three-command loop
+  (`verify --preview` → `init --write` → `audit --host` → `verify --preview`).
+- **No workspace loss.** Every emitted command names the same `--workspace`
+  it was produced for. A step that drops it does not continue the walk; it
+  starts a different one against the caller's current directory, which is
+  the silent retargeting the [invocation policy](diagnostics.md#invocation-policy)
+  exists to prevent.
+- **Every step is runnable.** An emitted command names a Shipgate command
+  that accepts it. Prose that names no command is a terminal: it hands the
+  reader a decision, not another lap.
+
+A run that evaluated no gate says so. `verify --preview` on a repository with
+nothing to gate reports `execution: "not_run"` and
+`applicability: "not_evaluated"`, and the human line reads
+`Agents Shipgate verify: not evaluated` rather than `failed`.
 
 Runtime contract v28 publishes the capability delta as a **standalone
 attestation**. `verify` writes

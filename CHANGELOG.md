@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+- Make every emitted next action lead somewhere, and prove it. Following
+  `control.next_action` on a repository with recognized host configuration
+  and no manifest went round three commands forever: `verify --preview`
+  named `init --write`, `init` refused because a host-only repository needs
+  no manifest and named `audit --host`, and `audit --host` named
+  `verify --preview` again. The host-audit footer is now conditional — the
+  baseline comparison where there is no manifest, `verify` where there is,
+  `--drift` once a baseline exists — and it says to record the baseline on
+  the base ref, never on the changed checkout, which would accept the change
+  instead of comparing it. That footer also emitted its command without
+  `--workspace`, so following it ran the next step against the caller's
+  current directory rather than the repository just audited; every emitted
+  command now carries the workspace it was produced for. A preview that
+  evaluated no gate reports `Agents Shipgate verify: not evaluated` instead
+  of `failed`, matching the `not_run` its machine fields already carried.
+  `tests/test_next_action_chains_terminate.py` walks every entry command on
+  two repository shapes and fails on a repeat, a lost workspace, or a step
+  this CLI cannot run (#650).
+
+- Compare against the detected base by default in `check`, so a branch's
+  committed work is visible without flags. `shipgate check` compared the
+  working tree with `HEAD`, so on a branch whose changes were already
+  committed it answered `allow` with an empty change set — truthfully
+  reporting "nothing is uncommitted" to someone asking "what does this
+  branch change". Reaching the real answer took `--base <ref> --head HEAD`,
+  a pair the help never suggested and which the CLI rejected unless both
+  were given. A flagless run now compares the detected default branch's
+  merge base against the working tree, one comparison spanning committed
+  and uncommitted work, and `subject.base` names the ref it used. `--base`
+  and `--head` are independent; `--base HEAD` keeps the previous
+  uncommitted-only comparison. On the default branch the working-tree
+  answer is complete and unchanged. Where no base can be detected — no
+  remote and no `main` or `master` — the run stops and names `--base`
+  rather than reporting a pass it did not establish. The implicit local
+  fallback is narrow on purpose: a local `main` is refused while a remote
+  exists, because the remote is the authority it might be stale against,
+  and used only where the repository has no remote at all. `verify`'s own
+  base detection is untouched, and the emitted `verify` command now accepts
+  either ref alone so it cannot disagree with the check that emitted it
+  (#649).
+
 - Show a reader six commands and speak to them in their own language.
   `--help` listed three of 53 commands while every documented first step —
   `init`, `doctor` — was hidden from the one place a stranger looks; it now
@@ -35,27 +76,40 @@
   that needs the pattern lattice in #657. Host route only; tool-source
   subjects are #655. No verdict is published (#651).
 
-- Compare against the detected base by default in `check`, so a branch's
-  committed work is visible without flags. `shipgate check` compared the
-  working tree with `HEAD`, so on a branch whose changes were already
-  committed it answered `allow` with an empty change set — truthfully
-  reporting "nothing is uncommitted" to someone asking "what does this
-  branch change". Reaching the real answer took `--base <ref> --head HEAD`,
-  a pair the help never suggested and which the CLI rejected unless both
-  were given. A flagless run now compares the detected default branch's
-  merge base against the working tree, one comparison spanning committed
-  and uncommitted work, and `subject.base` names the ref it used. `--base`
-  and `--head` are independent; `--base HEAD` keeps the previous
-  uncommitted-only comparison. On the default branch the working-tree
-  answer is complete and unchanged. Where no base can be detected — no
-  remote and no `main` or `master` — the run stops and names `--base`
-  rather than reporting a pass it did not establish. The implicit local
-  fallback is narrow on purpose: a local `main` is refused while a remote
-  exists, because the remote is the authority it might be stale against,
-  and used only where the repository has no remote at all. `verify`'s own
-  base detection is untouched, and the emitted `verify` command now accepts
-  either ref alone so it cannot disagree with the check that emitted it
-  (#649).
+- Stop inventorying machine-written tool caches, so an ordinary concurrent
+  test run no longer collapses the host inventory. `check` run while pytest
+  was active returned `human_review_required` with *"Directory inventory
+  could not complete at tests/__pycache__"*; the refusal was correct — the
+  identity reader revalidates every directory it scanned, and a `.pyc`
+  landing between the two reads really is a directory that changed while it
+  was read — but a bytecode cache should never have been an identity-bound
+  input. `__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`,
+  `.tox` and `.nox` are excluded from the repository walk for the same
+  reason `.venv`, `node_modules` and `.git` already are: no host reads
+  configuration from one, so inventorying them buys no coverage. Nothing
+  else is softened — a recognized host directory that changes mid-read is
+  still refused with no grants, an unreadable one is still fail-closed, and
+  a quiescent rerun still performs a real read rather than serving a cached
+  denial or a cached completion (#598).
+
+- Refuse a required tool source whose declared path is unavailable, once,
+  for every reader. `scan` applies one availability precondition before any
+  adapter runs, reading the same resolver `doctor` renders as
+  `SHIP-DIAG-MISSING-SOURCE-FILE`, so the two agree by construction. The
+  contract `docs/diagnostics.md` already published — a required
+  `tool_sources[].path` that does not resolve is `InputParseError(3)` — was
+  true of the shared loaders and `mcp_server_source` and false of
+  `openai_agents_sdk`, which returned a source warning and let a required,
+  absent entrypoint finish as an advisory exit-0 scan; an integration using
+  execution status to tell bad input from a completed scan got a different
+  answer per reader. The error names each offending source id, its declared
+  path, and whether it was not found or escapes the manifest directory.
+  `optional: true` sources are unchanged, keeping their warning and
+  `coverage_recovery` evidence. `verify` applies the same precondition per
+  tree: a base commit declaring a path absent from that tree reports
+  `base_status: "scan_failed"` with the reason in `base_notes` and no
+  capability delta, and does not move the head gate. Missing input is named,
+  never repaired by an invented declaration (#585).
 
 - Read every counted hunk row, so header-shaped content stops being lost.
   Hunk state and the header's declared row counts, not a line's spelling,

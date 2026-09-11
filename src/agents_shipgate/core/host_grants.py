@@ -996,7 +996,18 @@ def _repository_paths(
     """Enumerate repository sources exclusively from the boundary registry."""
 
     indexed: dict[tuple[str, str], tuple[Path, str, str, str]] = {}
-    skipped = {".git", ".hg", ".svn", "node_modules", "site-packages", ".venv", "venv"}
+    skipped = {
+        ".git", ".hg", ".svn", "node_modules", "site-packages", ".venv", "venv",
+        # Machine-written tool caches. No host reads configuration from one, so
+        # inventorying them buys no coverage — and it made an ordinary
+        # concurrent test run collapse the whole repository inventory, because
+        # a `.pyc` appearing between the scan and its revalidation is a
+        # directory that "changed while it was read" (#598). Excluded for the
+        # same reason `.venv` and `node_modules` already are, not to make an
+        # unreadable input pass.
+        "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+        ".tox", ".nox",
+    }
     candidates: list[tuple[Path, str]] = []
     symlink_directories: list[str] = []
     visited = 0
@@ -1828,7 +1839,9 @@ def build_host_drift_payload(
     return HostGrantsDriftV3.model_validate(payload).model_dump(mode="json")
 
 
-def render_host_audit_markdown(inventory: dict[str, Any]) -> str:
+def render_host_audit_markdown(
+    inventory: dict[str, Any], *, next_step: str | None = None
+) -> str:
     lines = ["# Host Capability Audit", ""]
     lines.append(
         f"Static `{inventory['scope']}` inventory. Runtime session behavior was not verified."
@@ -1874,7 +1887,12 @@ def render_host_audit_markdown(inventory: dict[str, Any]) -> str:
     lines.append("")
     for item in inventory["excluded_scopes"]:
         lines.append(f"- {item}")
-    lines.extend(["", "---", "Next: `agents-shipgate verify --preview --json` for release gating."])
+    lines.extend([
+        "",
+        "---",
+        next_step
+        or "Next: `agents-shipgate verify --preview --json` for release gating.",
+    ])
     return "\n".join(lines) + "\n"
 
 

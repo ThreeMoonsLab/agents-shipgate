@@ -12,9 +12,10 @@ three cannot describe one change three ways.
 
 from __future__ import annotations
 
-import re
 from dataclasses import asdict, dataclass
 from typing import Any
+
+from agents_shipgate.core.host_grants import host_grant_expansion_signals
 
 ABSENT = "—"
 
@@ -96,12 +97,16 @@ def _why(grant: dict[str, Any], direction: str) -> str:
     if kind == "mcp_server":
         if direction == REMOVED:
             return "an MCP tool surface is no longer offered to the agent"
-        return "a new MCP tool surface the agent may call"
+        return "an MCP tool surface the agent may call has changed"
     if kind == "permission_rule":
+        disposition = grant.get("disposition")
+        if disposition in {"deny", "ask"}:
+            condition = "denial" if disposition == "deny" else "confirmation requirement"
+            if direction == REMOVED:
+                return f"removes a {condition} the agent was subject to"
+            return f"a {condition} the agent is subject to"
         if direction == REMOVED:
-            return "a permission the agent previously had here"
-        if grant.get("disposition") == "deny":
-            return "a denial the agent is subject to"
+            return "removes a permission the agent previously had here"
         if wildcard and access == "admin":
             return "matches any command of this kind, without a prompt"
         if wildcard:
@@ -110,7 +115,7 @@ def _why(grant: dict[str, Any], direction: str) -> str:
     if kind == "workflow":
         reasons = []
         if grant.get("pull_request_target"):
-            reasons.append("runs with repository secrets on fork pull requests")
+            reasons.append("uses the privileged pull_request_target event context")
         if access in {"admin", "write"} or grant.get("write_all"):
             reasons.append("the workflow can write to the repository")
         return "; ".join(reasons) or "changes the workflow's own authority"
@@ -121,33 +126,10 @@ def _why(grant: dict[str, Any], direction: str) -> str:
     return f"changes a {kind or 'host'} grant"
 
 
-def _expansion_keys(payload: dict[str, Any]) -> set[str]:
-    """Grant identities the engine called an expansion.
-
-    Signals read ``<signal>: <host>:<value>``; the host/value pair is what
-    ties one back to a row. Parsing the engine's own signal is what keeps
-    `widened` from becoming this module's opinion.
-    """
-
-    keys: set[str] = set()
-    for signal in payload.get("expansion_signals") or []:
-        text = str(signal)
-        matched = re.match(r"[a-z_]+:\s*([^:]+):(.+)$", text)
-        if matched:
-            keys.add(f"{matched.group(1).strip()}:{matched.group(2).strip()}")
-            continue
-        # `workflow_write_changed: .github/workflows/ci.yml` names a source
-        # rather than a host/value pair.
-        single = re.match(r"[a-z_]+:\s*(.+)$", text)
-        if single:
-            keys.add(single.group(1).strip())
-    return keys
-
-
 def capability_diff_rows(payload: dict[str, Any]) -> list[CapabilityDiffRow]:
     """Every typed grant change in ``payload``, one row each."""
 
-    expansions = _expansion_keys(payload)
+    expansions = set(payload.get("expansion_signals") or [])
     rows: list[CapabilityDiffRow] = []
     for change in payload.get("changes") or []:
         before_grant = change.get("baseline")
@@ -161,14 +143,7 @@ def capability_diff_rows(payload: dict[str, Any]) -> list[CapabilityDiffRow]:
             direction = REMOVED
         else:
             direction = CHANGED
-        value = _grant_value(after_grant or before_grant)
-        expands = (
-            direction != REMOVED
-            and (
-                f"{grant.get('host')}:{value}" in expansions
-                or str(grant.get("source") or "") in expansions
-            )
-        )
+        expands = bool(expansions.intersection(host_grant_expansion_signals([change])))
         if direction == CHANGED and expands:
             direction = WIDENED
         rows.append(

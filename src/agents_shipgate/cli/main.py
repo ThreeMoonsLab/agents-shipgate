@@ -221,15 +221,14 @@ def _help_with_every_command() -> str:
     fall out of step with what is registered.
     """
 
-    import click
     import typer.main
 
     command = typer.main.get_command(app)
-    for name in command.list_commands(click.Context(command)):  # type: ignore[attr-defined]
-        sub = command.get_command(click.Context(command), name)  # type: ignore[attr-defined]
+    for name in command.list_commands(typer.Context(command)):  # type: ignore[attr-defined]
+        sub = command.get_command(typer.Context(command), name)  # type: ignore[attr-defined]
         if sub is not None:
             sub.hidden = False
-    return command.get_help(click.Context(command, info_name="agents-shipgate"))
+    return command.get_help(typer.Context(command, info_name="agents-shipgate"))
 
 
 @app.callback()
