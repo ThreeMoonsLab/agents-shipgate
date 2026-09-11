@@ -23,6 +23,7 @@ from agents_shipgate.cli.bootstrap import bootstrap as _bootstrap_command
 from agents_shipgate.cli.capability import capability_app
 from agents_shipgate.cli.check import check as _check_command
 from agents_shipgate.cli.detect import detect as _detect_command
+from agents_shipgate.cli.diff import diff as _diff_command
 from agents_shipgate.cli.evidence_packet import evidence_packet as _evidence_packet_command
 from agents_shipgate.cli.explain_finding import explain_finding as _explain_finding_command
 from agents_shipgate.cli.feedback import feedback_app
@@ -60,6 +61,13 @@ app.command(
     hidden=True,
     help="Classify a workspace: which agent framework(s), if any. Read-only.",
 )(_detect_command)
+app.command(
+    "diff",
+    help=(
+        "Show what this change does to the agent's authority: one row per "
+        "host grant, with before, after and why it matters."
+    ),
+)(_diff_command)
 app.command(
     "check",
     help="Run the fast local agent-boundary check and emit its JSON result.",
