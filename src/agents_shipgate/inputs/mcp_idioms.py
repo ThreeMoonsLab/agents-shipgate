@@ -61,7 +61,7 @@ from __future__ import annotations
 
 import ast
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Literal
@@ -408,14 +408,26 @@ IDIOMS: tuple[RegistrationIdiom, ...] = (
         id="go_must_tool",
         label="Go MustTool call-site registration",
         language="go",
-        reads='A `MustTool("…", …)` call whose first argument is a string literal.',
+        reads=(
+            'A `MustTool("…", …)` call whose first argument is a string '
+            "literal. The description is a `WithDescription(\u2026)` option "
+            "carrying a string literal, or a two-argument translation helper "
+            "such as `t(\"KEY\", \"default\")`, in which case the default is "
+            "read and the key never is."
+        ),
         diff_tokens=("MustTool(",),
     ),
     RegistrationIdiom(
         id="go_new_tool",
         label="Go NewTool call-site registration",
         language="go",
-        reads='A `NewTool("…", …)` call whose first argument is a string literal.',
+        reads=(
+            'A `NewTool("…", …)` call whose first argument is a string '
+            "literal. The description is a `WithDescription(\u2026)` option "
+            "carrying a string literal, or a two-argument translation helper "
+            "such as `t(\"KEY\", \"default\")`, in which case the default is "
+            "read and the key never is."
+        ),
         diff_tokens=("NewTool(",),
     ),
     RegistrationIdiom(
@@ -1396,9 +1408,17 @@ def _literal_is_whole_value(
 
 
 def _call_sites(
-    source: MaskedSource, pattern: re.Pattern[str], idiom: str
+    source: MaskedSource,
+    pattern: re.Pattern[str],
+    idiom: str,
+    *,
+    describe: Callable[[MaskedSource, int, int], str | None] | None = None,
 ) -> list[RegistrationSite]:
-    """Sites for a ``Name(<literal>, …)`` idiom."""
+    """Sites for a ``Name(<literal>, …)`` idiom.
+
+    ``describe`` reads the description out of the call's own argument list
+    for idioms that carry one there rather than in a struct field.
+    """
 
     sites: list[RegistrationSite] = []
     for match in pattern.finditer(source.masked):
@@ -1440,6 +1460,11 @@ def _call_sites(
                 line=line,
                 column=column,
                 span=span,
+                description=(
+                    describe(source, open_paren, close)
+                    if describe is not None and close is not None
+                    else None
+                ),
                 unresolved_reason=unresolved,
             )
         )
@@ -1589,6 +1614,88 @@ def _child_braces(masked: str, open_brace: int, close: int) -> list[tuple[int, i
             continue
         index += 1
     return children
+
+
+#: The option-function shape: `NewTool("name", WithDescription("…"))`. This is
+#: how `mark3labs/mcp-go` declares a tool, which is the SDK behind
+#: `github/github-mcp-server` — so until #658 every one of its 114 tools read
+#: `description=None` and earned a `SHIP-DOC-MISSING-DESCRIPTION` finding. The
+#: struct extractor below never applied: there is no `Description:` field to
+#: find, the description is an argument to an option.
+_GO_WITH_DESCRIPTION_RE = re.compile(r"(?<![\w])With(?:Tool)?Description\s*\(\s*")
+
+#: A two-argument call whose arguments are both string literals, e.g.
+#: `t("TOOL_GET_JOB_DESCRIPTION", "Get details of a workflow job.")`. Every
+#: description in `github-mcp-server` is wrapped this way.
+_GO_HELPER_CALL_RE = re.compile(r"(?<![\w.])[A-Za-z_]\w*\s*\(\s*")
+
+#: What a translation *key* looks like: a lookup token, not prose. Requiring
+#: it is what keeps this from reading `wrap("a", "b")` as a description and
+#: publishing `b` as documentation its author never wrote.
+#:
+#: Two shapes are keys and nothing else is: screaming-snake
+#: (`TOOL_GET_JOB_DESCRIPTION`, what `github-mcp-server` uses) and dotted
+#: (`tools.get_job.description`, the other common i18n convention). A bare
+#: word like `a` is neither, and prose is excluded by both — a key has no
+#: spaces.
+_TRANSLATION_KEY_RE = re.compile(
+    r"\A(?:[A-Z0-9][A-Z0-9_]*[A-Z0-9]|[\w-]+(?:\.[\w-]+)+)\Z"
+)
+
+
+def _go_translated_default(source: MaskedSource, index: int) -> str | None:
+    """The English default inside a translation helper, or ``None``.
+
+    Deliberately narrow. The call must pass *exactly two string literals*,
+    the first must look like a lookup key rather than prose, and only the
+    second is read. Both halves of that matter: `wrap(cfg, x)` is refused for
+    having a non-literal argument, and `wrap("a", "b")` is refused because
+    `a` is not a key — without that second test this would publish `b` as the
+    documentation of a tool whose author never wrote it.
+
+    Reading the *key* instead would be worse than reading nothing: it would
+    publish `TOOL_GET_JOB_DESCRIPTION` to a human as the tool's documentation.
+    """
+
+    start = source.skip_space(index)
+    match = _GO_HELPER_CALL_RE.match(source.masked, start)
+    if match is None:
+        return None
+    open_paren = source.masked.rfind("(", match.start(), match.end())
+    close = _matching_close(source.masked, open_paren, "(", ")")
+    if close is None:
+        return None
+    key_found, key, key_end = source.literal_at(match.end())
+    if not key_found or not key or not _literal_is_whole_value(source, key_end, ","):
+        return None
+    if not _TRANSLATION_KEY_RE.match(key):
+        return None
+    after_key = source.skip_space(key_end)
+    if after_key >= len(source.masked) or source.masked[after_key] != ",":
+        return None
+    found, value, end = source.literal_at(after_key + 1)
+    if not found or not value or not _literal_is_whole_value(source, end, ")"):
+        return None
+    # Exactly two arguments: what follows the second literal closes the call.
+    # `_matching_close` returns the index *past* the `)`, so the literal ends
+    # where the call does only when `skip_space(end) + 1 == close`.
+    return value if source.skip_space(end) + 1 == close else None
+
+
+def _go_option_description(
+    source: MaskedSource, open_paren: int, close: int
+) -> str | None:
+    """The description an option-function registration carries."""
+
+    for match in _GO_WITH_DESCRIPTION_RE.finditer(source.masked, open_paren, close):
+        found, value, end = source.literal_at(match.end())
+        if found and value and _literal_is_whole_value(source, end, ")"):
+            return value
+        if not found:
+            translated = _go_translated_default(source, match.end())
+            if translated:
+                return translated
+    return None
 
 
 _GO_STRUCT_DESCRIPTION_FIELD_RE = re.compile(r"(?<![\w])Description\s*:\s*")
@@ -3084,8 +3191,22 @@ def scan_source(
         sites.extend(_ts_static_tool_name_sites(source))
         sites.extend(_call_sites(source, _TS_REGISTER_TOOL_RE, "ts_sdk_register_tool"))
     else:
-        sites.extend(_call_sites(source, _GO_MUST_TOOL_RE, "go_must_tool"))
-        sites.extend(_call_sites(source, _GO_NEW_TOOL_RE, "go_new_tool"))
+        sites.extend(
+            _call_sites(
+                source,
+                _GO_MUST_TOOL_RE,
+                "go_must_tool",
+                describe=_go_option_description,
+            )
+        )
+        sites.extend(
+            _call_sites(
+                source,
+                _GO_NEW_TOOL_RE,
+                "go_new_tool",
+                describe=_go_option_description,
+            )
+        )
         sites.extend(_go_tool_struct_sites(source))
 
     kept = [
