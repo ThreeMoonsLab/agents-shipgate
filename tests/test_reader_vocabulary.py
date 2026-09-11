@@ -128,22 +128,30 @@ def test_reader_fields_are_actually_found() -> None:
     assert {value for _, value in _reader_strings(payload)} == {"a", "b", "c", "d"}
 
 
-def test_the_six_prominent_commands_are_the_ones_help_shows() -> None:
+def _help_commands(output: str) -> list[str]:
+    # Rich emits ANSI decoration on CI terminals. Compare the displayed
+    # command names, as the existing CLI help tests do.
+    plain = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", output)
+    return re.findall(r"^│ ([a-z][a-z-]*)", plain, re.M)
+
+
+@pytest.mark.parametrize("terminal", ["dumb", "xterm-256color"])
+def test_the_six_prominent_commands_are_the_ones_help_shows(terminal: str) -> None:
     """`--help` is where a stranger looks. Three of 53 was a keyhole."""
 
-    result = runner.invoke(app, ["--help"])
-
-    listed = re.findall(r"^│ ([a-z][a-z-]*)", result.output, re.M)
+    result = runner.invoke(app, ["--help"], env={"CI": "true", "TERM": terminal})
+    assert result.exit_code == 0, result.output
+    listed = _help_commands(result.output)
     assert listed == ["diff", "check", "verify", "audit", "init", "doctor"]
 
 
-def test_help_all_lists_the_supporting_commands_too() -> None:
+@pytest.mark.parametrize("terminal", ["dumb", "xterm-256color"])
+def test_help_all_lists_the_supporting_commands_too(terminal: str) -> None:
     """Prominence is a reading aid, not a claim about what exists."""
 
-    result = runner.invoke(app, ["--help-all"])
-
+    result = runner.invoke(app, ["--help-all"], env={"CI": "true", "TERM": terminal})
     assert result.exit_code == 0, result.output
-    listed = set(re.findall(r"^│ ([a-z][a-z-]*)", result.output, re.M))
+    listed = set(_help_commands(result.output))
     assert {"diff", "check", "verify", "audit", "init", "doctor"} <= listed
     assert {"scan", "detect", "contract", "explain", "trigger"} <= listed
     assert len(listed) > 25
