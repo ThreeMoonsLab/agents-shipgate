@@ -64,9 +64,9 @@ allow list from `Bash(npm test)` / `Read(src/**)` to `Bash(*)` / `Read(**)` /
 capability-change class this pilot exists to observe.
 
 **Published build measured: `0.15.0`.** Preview measured:
-`0.16.0+preview.20260903.gb61aca7`. Source tree: `0.16.0`, rechecked on 2026-09-11 against the uncommitted
-#684 candidate based on `d27c8cc0728854f7f28420bbe92423da5d10a663`, with
-runtime contract 35. The synthetic baseline was recorded and committed on the
+`0.16.0+preview.20260903.gb61aca7`. Source tree: `0.16.0`, rechecked on 2026-09-12 against
+branch commit `871786ba` — the #569 report freeze reconciled with `main` at
+`4c126573` — with runtime contract 36. The synthetic baseline was recorded and committed on the
 fixture base before the permission change, so it was not itself under review. The source-tree
 column below was rerun; the released and preview columns retain their earlier
 measurement and were not relabeled as new runs.
@@ -79,7 +79,7 @@ an assumption.
 
 | | Released `v0.15.0` (`pipx install`) | Preview `0.16.0+preview.20260903` (`gh release download`) | Source tree |
 | --- | --- | --- | --- |
-| Runtime contract | 10 | 29 | 35 |
+| Runtime contract | 10 | 29 | 36 |
 | Host-grant inventory schema | 0.1 | 0.2 | 0.4 |
 | `check` on the fixture | `warn` / `none`, **0 violations** | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** |
 | Coverage limit visible (`host_coverage`, `excluded_scopes`) | no | yes | yes |
