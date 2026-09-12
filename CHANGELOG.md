@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Keep a directory at a recognized host configuration path visible as a failed
+  input. Host audits, worktree diffs and committed-ref comparisons no longer
+  mistake `.mcp.json/` for an absent configuration and report complete coverage.
+  Scoped base trees preserve directory kinds even when their contents are not
+  selected; ordinary containers remain valid (#613).
+
 - Advisory `diff` and manifest-free PR review materialize boundary paths and
   symlinks from a verified tree instead of copying commit ancestry and writing
   every file. The original sample improved from 25s to 2.7s; residual latency

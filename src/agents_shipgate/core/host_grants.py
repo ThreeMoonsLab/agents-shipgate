@@ -24,7 +24,7 @@ from urllib.parse import urlsplit, urlunsplit
 import yaml
 from pydantic import ValidationError
 
-from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS
+from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS, is_explicit_boundary_file_path
 from agents_shipgate.core.host_boundary import (
     _is_wildcard_allow,
     _is_write,
@@ -1100,7 +1100,7 @@ def _repository_paths(
                 if stat.S_ISDIR(metadata.st_mode):
                     if name not in skipped:
                         child_directories.append(Path(relative))
-                        if include_directory_candidates:
+                        if include_directory_candidates or is_explicit_boundary_file_path(relative):
                             candidates.append((candidate, relative))
                     continue
             except (OSError, ValueError) as exc:

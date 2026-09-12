@@ -1827,7 +1827,10 @@ def _materialize_isolated_tree(
     destination: Path,
     scope: Callable[[str], bool] | None = None,
 ) -> None:
-    listing = _run_git_dir(git_dir, ["ls-tree", "-r", "-z", tree], text=False).stdout
+    listing_args = ["ls-tree", "-r", "-z"]
+    if scope is not None:
+        listing_args.append("-t")
+    listing = _run_git_dir(git_dir, [*listing_args, tree], text=False).stdout
     root = destination.resolve()
     entries: list[tuple[str, str, str]] = []
     links: list[tuple[str, str]] = []
@@ -1857,6 +1860,15 @@ def _materialize_isolated_tree(
                 "Git tree contains filesystem-colliding paths: "
                 f"{prior!r} and {path_text!r}"
             )
+        if object_type == "tree" and scope is not None:
+            # A directory at a recognized configuration path is an invalid
+            # input, not an absent file. Preserve its kind even when none of
+            # its children are in scope so both inventories can refuse it.
+            target = (root / path_text).resolve()
+            if target == root or root not in target.parents:
+                raise ConfigError(f"Git tree path escapes destination: {path_text}")
+            target.mkdir(parents=True, exist_ok=True)
+            continue
         if object_type != "blob" or mode == "160000" or (
             mode == "120000" and scope is None
         ):

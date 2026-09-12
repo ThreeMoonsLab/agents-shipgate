@@ -101,6 +101,20 @@ BOUNDARY_ADAPTERS: tuple[BoundaryAdapterSpec, ...] = (
 )
 
 
+def is_explicit_boundary_file_path(path: str) -> bool:
+    """Named configuration files, excluding wildcard directory containers."""
+    normalized = path.replace("\\", "/").removeprefix("./").casefold()
+    return any(
+        normalized in {item.casefold() for item in adapter.exact_paths}
+        or any(
+            not any(char in pattern.rsplit("/", 1)[-1] for char in "*?[")
+            and glob_match_ci(pattern, normalized)
+            for pattern in adapter.globs
+        )
+        for adapter in BOUNDARY_ADAPTERS
+    )
+
+
 def boundary_adapters_for_path(path: str) -> tuple[BoundaryAdapterSpec, ...]:
     return tuple(adapter for adapter in BOUNDARY_ADAPTERS if adapter.matches(path))
 
