@@ -47,10 +47,15 @@ BOUNDARY_ADAPTERS: tuple[BoundaryAdapterSpec, ...] = (
         exact_paths=(
             ".claude/settings.json",
             ".claude/settings.local.json",
+            # Same document shape as `.codex/hooks.json`, which has been read
+            # since the Codex adapter landed. A `SessionStart` command is
+            # executable code around the agent, and it was invisible (#689).
+            ".claude/hooks/hooks.json",
             ".mcp.json",
             "CLAUDE.md",
         ),
         globs=(
+            "**/.claude/hooks/hooks.json",
             "**/.mcp.json",
             "**/CLAUDE.md",
             ".claude/commands/*",

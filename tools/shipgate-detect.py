@@ -5600,6 +5600,7 @@ HOST_CONFIG_PATHS = {
     ".codex/requirements.toml": ["codex"],
     ".claude/settings.json": ["claude-code"],
     ".claude/settings.local.json": ["claude-code"],
+    ".claude/hooks/hooks.json": ["claude-code"],
     ".mcp.json": ["claude-code"],
     ".cursor/cli.json": ["cursor"],
     ".cursor/mcp.json": ["cursor"],
@@ -5607,14 +5608,31 @@ HOST_CONFIG_PATHS = {
 }
 
 
+#: Which of the paths above the registry also matches under a `**/` glob,
+#: so `packages/app/.mcp.json` is host configuration and `packages/app/
+#: .cursor/mcp.json` is not. Named rather than inferred from a prefix: the
+#: previous rule was `.codex/` or `.mcp.json`, which silently excluded a
+#: nesting path added later, and the conformance test only caught it
+#: because it probes a `nested/` variant of every registry glob (#689).
+HOST_CONFIG_NESTED = frozenset({
+    ".claude/hooks/hooks.json",
+    ".codex/config.toml",
+    ".codex/hooks.json",
+    ".codex/requirements.toml",
+    ".mcp.json",
+})
+
+
 def _host_config_hosts(relative: str) -> list[str]:
     folded = relative.replace("\\", "/").removeprefix("./").casefold()
     exact = HOST_CONFIG_PATHS.get(folded)
     if exact:
         return exact
-    for path, hosts in HOST_CONFIG_PATHS.items():
-        if (path.startswith(".codex/") or path == ".mcp.json") and folded.endswith("/" + path):
-            return hosts
+    # Sorted: two suffixes could in principle both match, and a detector
+    # whose answer depends on set iteration order is not a static one.
+    for path in sorted(HOST_CONFIG_NESTED):
+        if folded.endswith("/" + path) and path in HOST_CONFIG_PATHS:
+            return HOST_CONFIG_PATHS[path]
     return []
 
 
