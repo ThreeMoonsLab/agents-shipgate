@@ -20,6 +20,7 @@ from pathlib import Path
 import typer
 
 from agents_shipgate.cli.workspace_guard import require_workspace
+from agents_shipgate.core.boundary_registry import is_boundary_surface_path
 from agents_shipgate.core.capability_diff_rows import (
     ABSENT,
     CapabilityDiffRow,
@@ -151,7 +152,9 @@ def run_capability_diff(
 
         base_tree = Path(scratch) / "base"
         base_tree.mkdir()
-        archive_tree(workspace, base_commit, base_tree)
+        archive_tree(
+            workspace, base_commit, base_tree, scope=is_boundary_surface_path
+        )
         base_inventory = build_host_boundary_snapshot(
             base_tree, cache=HostStaticParseCache()
         ).inventory

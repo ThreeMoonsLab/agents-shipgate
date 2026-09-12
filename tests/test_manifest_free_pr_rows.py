@@ -237,28 +237,63 @@ def test_host_comparison_pointer_rejects_moved_base(s1):
     assert control.exit_code != 0, control.output
 
 
-def test_shallow_comparison_retains_recovery_instead_of_init(s1, tmp_path):
+def test_a_shallow_clone_compares_the_history_it_has(s1, tmp_path):
+    """A depth-1 clone holds the tree it was cloned at, so a comparison
+    against a commit it holds is answerable.
+
+    It was not, before the base tree was scoped: materializing it walked
+    the commit's ancestry, crossed the graft and failed the integrity
+    check, which was then classified as `shallow_history` and answered
+    with `fetch_base`. Telling someone to fetch history in order to
+    compare a commit they already have is a recovery for a problem they
+    do not have (#686).
+    """
+
     clone = tmp_path / "shallow"
     subprocess.run(["git", "clone", "-q", "--depth=1", s1.as_uri(), str(clone)], check=True)
     result = CliRunner().invoke(
         app,
-        [
-            "verify",
-            "--preview",
-            "--workspace",
-            str(clone),
-            "--base",
-            "HEAD",
-            "--head",
-            "HEAD",
-            "--json",
-        ],
+        ["verify", "--preview", "--workspace", str(clone),
+         "--base", "HEAD", "--head", "HEAD", "--json"],
     )
+
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["host_comparison"]["comparison_status"] == "incomparable"
-    assert "shallow_history" in payload["host_comparison"]["incomparable_reasons"]
-    assert payload["control"]["next_action"]["kind"] == "fetch_base"
+    assert payload["host_comparison"]["comparison_status"] == "comparable"
+    assert "init --write" not in result.output
+
+
+def test_a_base_the_shallow_clone_does_not_have_still_routes_to_fetch(s1, tmp_path):
+    """The recovery #683 added, on the case that still needs it: the base
+    commit is genuinely absent, so no scoping makes it readable."""
+
+    clone = tmp_path / "shallow"
+    subprocess.run(
+        ["git", "clone", "-q", "--depth=1", "--branch", "change", s1.as_uri(), str(clone)],
+        check=True,
+    )
+    absent = subprocess.run(
+        ["git", "-C", str(s1), "rev-parse", "main"],
+        check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    assert subprocess.run(
+        ["git", "-C", str(clone), "cat-file", "-e", absent], capture_output=True
+    ).returncode != 0, "the base must really be missing for this to test anything"
+
+    result = CliRunner().invoke(
+        app,
+        ["verify", "--preview", "--workspace", str(clone),
+         "--base", absent, "--head", "HEAD", "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    next_action = payload["control"]["next_action"]
+    assert next_action["kind"] == "fetch_base"
+    assert "refs_missing" in next_action["why"]
+    # Refused before the host comparison is attempted, which is why the
+    # block is absent rather than incomparable: there is no base to read.
+    assert payload["host_comparison"] is None
     assert "init --write" not in result.output
 
 

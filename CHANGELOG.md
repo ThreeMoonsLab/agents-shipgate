@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Read the base tree the host reader will read, and no more. `shipgate diff`
+  and verify's host comparison now materialize only boundary-surface paths
+  (plus symlinks, which are what can conceal them),
+  packing the tree rather than the commit. A 26 MB repository with 1,168 files
+  and four host files took 25s and now takes 2.7s, and a shallow clone is
+  comparable for a commit it already holds. An unrelated symlink no longer
+  makes a repository uncomparable: one outside the surface is not
+  materialized, a symlink to a non-directory can conceal no boundary path,
+  and a scoped archive recreates links instead of refusing the tree. Unscoped
+  archives, which verify uses for the release decision, still refuse every
+  external binding (#686, #688).
+
 - Manifest-free host PR review now names capability changes in verify, PR comments,
   and check. Interactive check defaults to readable text; agent mode keeps JSON.
   Comparison evidence binds its input refs, excludes stale scan artifacts, and

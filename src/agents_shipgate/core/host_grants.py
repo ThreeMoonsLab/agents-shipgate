@@ -1095,7 +1095,8 @@ def _repository_paths(
                 if stat.S_ISLNK(metadata.st_mode):
                     if name not in skipped:
                         candidates.append((candidate, relative))
-                        symlink_directories.append(relative)
+                        if _symlink_may_be_directory(candidate):
+                            symlink_directories.append(relative)
                     continue
                 if stat.S_ISDIR(metadata.st_mode):
                     if name not in skipped:
@@ -1140,6 +1141,34 @@ def _repository_paths(
                     _source_kind(relative),
                 )
     return [indexed[key] for key in sorted(indexed)], visited
+
+
+def _symlink_may_be_directory(candidate: Path) -> bool:
+    """Whether this symlink could hold a boundary path underneath it.
+
+    Only a directory has descendants, so only a directory can conceal them.
+    Without this test every `**/`-prefixed pattern matched every symlink —
+    `_symlink_may_hide_boundary_glob` returns True for any non-empty path
+    once the pattern starts with `**/` — so a symlinked PNG under
+    `website/public/` became a boundary candidate, failed its O_NOFOLLOW
+    read, and left the whole inventory incomplete. Three such images made a
+    real repository uncomparable (#688).
+
+    Fail closed: a dangling or unreadable link is still treated as one that
+    may conceal, because nothing here established otherwise. Resolving is a
+    metadata question only — no content is read through the link, and a
+    boundary path that is *itself* a symlink is matched by its own name and
+    does not depend on this answer.
+    """
+
+    try:
+        return stat.S_ISDIR(os.stat(candidate).st_mode)
+    except OSError:
+        # `Path.is_dir()` answers False for a dangling link rather than
+        # raising, which would report "conceals nothing" about a link whose
+        # target nothing here could inspect. `os.stat` raises, so the
+        # unresolvable case reaches this branch and stays closed.
+        return True
 
 
 def _symlink_may_hide_boundary_glob(relative: str, pattern: str) -> bool:

@@ -12,6 +12,7 @@ from agents_shipgate.cli.verify.git import (
     require_merge_base_sha,
     tree_sha,
 )
+from agents_shipgate.core.boundary_registry import is_boundary_surface_path
 from agents_shipgate.core.host_comparison import compare_host_inventories
 from agents_shipgate.core.host_grants import build_host_boundary_snapshot
 from agents_shipgate.schemas.host_comparison import HostComparison
@@ -83,12 +84,18 @@ def compare_host_refs(
     with tempfile.TemporaryDirectory(prefix="shipgate-host-comparison-") as scratch:
         before = Path(scratch) / "base"
         before.mkdir()
-        archive_tree(workspace, base_commit, before)
+        # The host comparison reads host surface only, so it archives host
+        # surface only: the same scope the live reader uses (#686, #688).
+        archive_tree(
+            workspace, base_commit, before, scope=is_boundary_surface_path
+        )
         after = workspace
         if head is not None:
             after = Path(scratch) / "head"
             after.mkdir()
-            archive_tree(workspace, head_commit, after)
+            archive_tree(
+                workspace, head_commit, after, scope=is_boundary_surface_path
+            )
         # Removing a configured gate, or selecting a historical head containing
         # one, is not first adoption. Leave the existing verifier route intact.
         if require_unconfigured and (
