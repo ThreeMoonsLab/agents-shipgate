@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Advisory `diff` and manifest-free PR review materialize boundary paths and
+  symlinks from a verified tree instead of copying commit ancestry and writing
+  every file. The original sample improved from 25s to 2.7s; residual latency
+  remains #698, not a universal two-second promise. Shallow comparisons verify
+  that a visible common ancestor does not hide a newer one beyond a graft;
+  unresolved ancestry requests a fetch, while HEAD and proven ancestor
+  comparisons remain usable. Configured release archives retain their existing
+  whole-history validation. Scoped archives preserve links, but the reader
+  remains conservative until link-target identity can be bound (#700/#711):
+  successful materialization is not complete inventory coverage (#686/#688).
+
 - Read the Cursor rule format Cursor actually writes. `globs:` with nothing
   after it — how Cursor spells a rule that is not glob-scoped — reads as
   YAML null, and the frontmatter type check rejected null for every field.
