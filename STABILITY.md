@@ -3327,3 +3327,28 @@ If you encounter behavior that contradicts this document — for example, an uns
 3. The observed behavior (output, error message, JSON fragment)
 
 Stability bugs are prioritized.
+
+### Manifest-free host review (contract v35, #684)
+
+Verifier schema `0.18` adds `host_comparison`: advisory rows from the existing
+host inventory comparator, the compared commits and captured workspace identity,
+inventory digests, source paths, and explicit comparison health. It never supplies
+an application `release_decision`, a successful release receipt, or merge authority.
+A missing or malformed manifest does not become an invented policy: existing
+manifest routes remain governed by the verifier, and explicit strict/application
+policy inputs retain their existing failure behavior when no manifest exists.
+The published `0.17` schema remains frozen; reading an older verifier does not
+invent host evidence.
+
+Boundary result `shipgate.agent_boundary_result/v3` adds `rows`,
+`comparison_status`, `incomparable_reasons`, and `comparison_scope`. Existing
+local boundary policy decisions remain authoritative. Supplied diffs compare
+only their changed host files; unresolved content is incomparable, not an empty
+successful comparison. `check` continues to hide permission arguments, including
+in its new rows; use the named source file for the exact rule. The older v2
+schema and deprecated Codex v2 projection remain frozen.
+
+Interactive `check` now defaults to text; detected agent mode defaults to the
+current boundary JSON. Automation should always select `--format
+agent-boundary-json` or `--format agent-control-json` explicitly. These existing
+explicit formats are retained, and `--format text` is available in either mode.

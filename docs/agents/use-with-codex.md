@@ -8,7 +8,7 @@ For the normative agent protocol, use [codex.md](codex.md) and
 shipgate check --agent codex --workspace . --format agent-boundary-json
 ```
 
-Parse stdout as `shipgate.agent_boundary_result/v2`, switch on
+Parse stdout as `shipgate.agent_boundary_result/v3`, switch on
 `control.state`, and follow `control.next_action`,
 `control.allowed_next_commands`, and `control.human_review`. Treat `decision`
 as diagnostic context only; do not infer local control from prose.
@@ -186,7 +186,7 @@ Open Codex in the project and run these checks:
 3. In a repo that already has `shipgate.yaml`, ask Codex to finish an
    agent-tool change. Before its final response, Codex should run
    `shipgate check --agent codex --workspace . --format agent-boundary-json`
-   and parse `shipgate.agent_boundary_result/v2.control.state`; run
+   and parse `shipgate.agent_boundary_result/v3.control.state`; run
    `agents-shipgate preflight --workspace . --plan - --json` before
    protected-surface edits; then run
    `agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json`

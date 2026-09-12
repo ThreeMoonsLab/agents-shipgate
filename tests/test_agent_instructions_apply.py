@@ -191,7 +191,7 @@ def test_claude_command_current_file_matches_renderer() -> None:
 def test_local_contract_renderer_has_required_fields() -> None:
     payload = json.loads(render_local_contract_file())
     assert payload["schema_version"] == "10"
-    assert payload["contract_version"] == "34"
+    assert payload["contract_version"] == "35"
     assert "verify_local" not in payload["primary_commands"]
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["commands"]["verify_local"].startswith("agents-shipgate verify")
@@ -204,7 +204,7 @@ def test_local_contract_renderer_has_required_fields() -> None:
     assert payload["attestation_schema_version"] == "0.5"
     assert payload["registry_schema_version"] == "0.4"
     assert payload["org_evidence_bundle_schema_version"] == ("shipgate.org_evidence_bundle/v2")
-    assert payload["agent_boundary_result_schema_version"] == ("shipgate.agent_boundary_result/v2")
+    assert payload["agent_boundary_result_schema_version"] == ("shipgate.agent_boundary_result/v3")
     assert payload["host_grants_inventory_schema_version"] == "0.4"
     assert payload["host_grants_baseline_schema_version"] == "0.4"
     assert payload["host_grants_drift_schema_version"] == "0.4"

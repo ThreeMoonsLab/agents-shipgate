@@ -173,15 +173,16 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # and incomplete traversal, not grants. Operational control is unchanged.
 # v34 advertises host inventories/baselines/drift 0.4: workflow permission
 # projections and reusable secret recipients. Operational control is unchanged.
-CONTRACT_VERSION: Literal["34"] = "34"
+# v35 carries manifest-free advisory host comparison evidence and named check rows.
+CONTRACT_VERSION: Literal["35"] = "35"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"
 AGENT_RESULT_SCHEMA_PATH: Literal["docs/agent-result-schema.v3.json"] = (
     "docs/agent-result-schema.v3.json"
 )
-AGENT_BOUNDARY_RESULT_SCHEMA_PATH: Literal["docs/agent-boundary-result-schema.v2.json"] = (
-    "docs/agent-boundary-result-schema.v2.json"
+AGENT_BOUNDARY_RESULT_SCHEMA_PATH: Literal["docs/agent-boundary-result-schema.v3.json"] = (
+    "docs/agent-boundary-result-schema.v3.json"
 )
 TRIGGER_CATALOG_SCHEMA_VERSION: Literal["0.4"] = "0.4"
 # Fields of the SHARED agent result (``agent_result_schema_path``). The graded

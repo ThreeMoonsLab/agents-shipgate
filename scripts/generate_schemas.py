@@ -110,7 +110,7 @@ DOCS = REPO_ROOT / "docs"
 # Filenames follow the schema identifiers, so a version bump cannot leave a
 # generated file sitting under the previous version's name.
 _AGENT_RESULT_SUFFIX = "v3"
-_BOUNDARY_SUFFIX = "v2"
+_BOUNDARY_SUFFIX = "v3"
 _VERIFY_RUN_SUFFIX = "v5"
 SRC = REPO_ROOT / "src"
 

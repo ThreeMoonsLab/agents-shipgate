@@ -237,13 +237,13 @@ def test_the_reported_cycle_specifically(host_only_repo: Path) -> None:
 
     assert commands[0] == "verify"
     assert commands.count("verify") == 1, f"returned to verify: {commands}"
-    assert "audit" in commands, f"never reached the host route: {commands}"
+    assert commands in (["verify"], ["verify", "audit"]), commands
 
 
 def test_the_host_route_is_reached_within_two_steps(host_only_repo: Path) -> None:
     chain = _follow(["verify", "--preview", "--workspace", str(host_only_repo)])
 
-    assert [step[0] for step in chain][:3] == ["verify", "init", "audit"]
+    assert [step[0] for step in chain] in (["verify"], ["verify", "audit"])
 
 
 def test_a_preview_that_evaluated_nothing_does_not_say_it_failed(
@@ -258,7 +258,7 @@ def test_a_preview_that_evaluated_nothing_does_not_say_it_failed(
     )
 
     assert "Agents Shipgate verify: failed" not in result.output
-    assert "Agents Shipgate verify: not evaluated" in result.output
+    assert "Agents Shipgate verify: advisory: no application release policy configured" in result.output
 
 
 def test_a_real_failure_is_still_called_a_failure() -> None:
@@ -312,3 +312,19 @@ def test_manifest_audit_advice_quotes_the_workspace(tmp_path: Path) -> None:
     tokens = shlex.split(re.findall(r"`([^`]+)`", advice)[0])
     assert tokens[tokens.index("--workspace") + 1] == str(workspace)
     assert "verify" in tokens
+
+
+def test_host_widening_is_named_before_any_followup(host_only_repo: Path) -> None:
+    """#684: a terminating chain must also answer the initial PR question."""
+    (host_only_repo / ".claude/settings.json").write_text(
+        '{"permissions": {"allow": ["Bash(*)"]}}', encoding="utf-8"
+    )
+    result = runner.invoke(app, [
+        "verify", "--preview", "--workspace", str(host_only_repo),
+        "--base", "main", "--format", "text",
+    ])
+    assert result.exit_code == 0, result.output
+    assert result.output.index("Bash(*)") < result.output.index("advisory:")
+    assert "init --write" not in result.output
+    chain = _follow(["verify", "--preview", "--workspace", str(host_only_repo)])
+    assert len(chain) <= 2

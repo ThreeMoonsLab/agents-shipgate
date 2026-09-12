@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from agents_shipgate.schemas.agent_control import AgentControl, normalize_legacy_agent_control
 from agents_shipgate.schemas.common import ReleaseDecisionStatus
 from agents_shipgate.schemas.disclaimers import STATIC_VERDICT_DISCLAIMER
+from agents_shipgate.schemas.host_comparison import HostComparison
 from agents_shipgate.schemas.human_authorization import AuthorizationEvaluationV1
 from agents_shipgate.schemas.instruction_structure import ConditionalInstructionEditRule
 from agents_shipgate.schemas.report import ReleaseDecision
@@ -719,7 +720,7 @@ class VerifierArtifact(BaseModel):
         },
     )
 
-    verifier_schema_version: Literal["0.17"] = "0.17"
+    verifier_schema_version: Literal["0.18"] = "0.18"
     static_analysis_only: Literal[True] = True
     runtime_behavior_verified: Literal[False] = False
     static_verdict_disclaimer: str = STATIC_VERDICT_DISCLAIMER
@@ -765,6 +766,7 @@ class VerifierArtifact(BaseModel):
     agent_summary: dict[str, Any] | None = None
     reviewer_summary: dict[str, Any] | None = None
     capability_review: VerifierCapabilityReview = Field(default_factory=VerifierCapabilityReview)
+    host_comparison: HostComparison | None = None
     mode: str = "advisory"
     decision: str | None = None
     merge_verdict: MergeVerdict = "unknown"
@@ -788,13 +790,19 @@ class VerifierArtifact(BaseModel):
             return data
         normalized = dict(data)
         legacy_version = normalized.get("verifier_schema_version")
+        if legacy_version == "0.17":
+            if "host_comparison" in normalized:
+                raise ValueError("Legacy verifier cannot claim host comparison evidence")
+            return {**normalized, "verifier_schema_version": "0.18", "host_comparison": None}
         if legacy_version == "0.16":
+            if "host_comparison" in normalized:
+                raise ValueError("Legacy verifier cannot claim host comparison evidence")
             # v0.16 already required current control, diff health and
             # authorization. A discriminator migration cannot fill any of
             # those blanks or synthesize permission from a diagnostic verdict.
             if "conditional_file_edits" in normalized:
                 raise ValueError("Legacy verifier artifacts cannot carry conditional edit rules")
-            return {**normalized, "verifier_schema_version": "0.17", "conditional_file_edits": []}
+            return {**normalized, "verifier_schema_version": "0.18", "conditional_file_edits": []}
         legacy = legacy_version in {
             "0.1",
             "0.2",
@@ -851,9 +859,11 @@ class VerifierArtifact(BaseModel):
             # control would turn an internal consistency failure into a trusted
             # handoff.  Only frozen prior readers are normalized.
             return normalized
+        if "host_comparison" in normalized:
+            raise ValueError("Legacy verifier cannot claim host comparison evidence")
         if "conditional_file_edits" in normalized:
             raise ValueError("Legacy verifier artifacts cannot carry conditional edit rules")
-        normalized["verifier_schema_version"] = "0.17"
+        normalized["verifier_schema_version"] = "0.18"
         # Preserve the historical standing deny-list; never infer the new proof.
         normalized.setdefault("conditional_file_edits", [])
         # A pre-v0.7 artifact recorded nothing about whether its diff was

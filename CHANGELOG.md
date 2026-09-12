@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Manifest-free host PR review now names capability changes in verify, PR comments,
+  and check. Interactive check defaults to readable text; agent mode keeps JSON.
+  Comparison evidence binds its input refs, excludes stale scan artifacts, and
+  never grants application release or merge authority (#684).
+
 - Compare workflow permissions rather than whole-file edits in host diffs.
   Script-only changes no longer appear as permission changes, and an
   existing write grant is not reannounced as a widening. Effective job

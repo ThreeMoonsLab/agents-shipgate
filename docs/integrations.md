@@ -301,7 +301,7 @@ pip install 'agents-shipgate[mcp]'
 ```
 
 Tools: `shipgate.check` (caller-provided diff to
-`shipgate.agent_boundary_result/v2`),
+`shipgate.agent_boundary_result/v3`),
 `shipgate.preflight` (protected surfaces, required evidence, and policy/trust
 root hashes), `shipgate.explain` (check id or `fp_...` fingerprint), and
 `shipgate.capabilities` (capability lock export or diff). The server is
