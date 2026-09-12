@@ -132,3 +132,105 @@ def test_mode_change_cannot_hide_behind_a_prose_change():
     parsed = parse_unified_diff(diff)[0]
     assert parsed.metadata_changed
     assert not unchanged_instruction_structure(parsed, ResolvedFileText(before, after, "fixture", None, None))
+
+
+# --- empty frontmatter values ------------------------------------------------
+#
+# `globs:` with nothing after it is how Cursor writes a rule that is not
+# glob-scoped, and YAML reads that as None. Rejecting it made the canonical
+# Cursor rule an unresolved structure — a *blocking* inventory issue — so a
+# repository carrying one produced no rows at all. `Doist/todoist-mcp` had
+# eleven readable host files and two such rules, and `shipgate diff` answered
+# `incomparable` for that whole repository on every step of its history.
+
+_CURSOR_RULE = ".cursor/rules/demo.mdc"
+
+
+def _cursor(fields: str) -> str:
+    return f"---\n{fields}---\nBe concise.\n"
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        # Exactly what Cursor generates for an always-apply rule.
+        "description: \nglobs: \nalwaysApply: true\n",
+        # ...and for a described rule that is not glob-scoped.
+        "description: Use context7 for library docs\nglobs: \nalwaysApply: false\n",
+        "description: \nglobs: \nalwaysApply: \n",
+        "globs: \n",
+    ],
+)
+def test_an_empty_cursor_field_is_absent_not_invalid(fields: str) -> None:
+    resolved = classify_instruction(_CURSOR_RULE, _cursor(fields))
+
+    assert resolved.status == "structured", resolved.reason
+
+
+def test_a_populated_cursor_rule_still_resolves() -> None:
+    """The fix must not be the only reason anything passes."""
+
+    resolved = classify_instruction(
+        _CURSOR_RULE, _cursor('description: TS rules\nglobs: "**/*.ts"\nalwaysApply: false\n')
+    )
+
+    assert resolved.status == "structured", resolved.reason
+
+
+@pytest.mark.parametrize(
+    ("fields", "reason"),
+    [
+        # A wrong *type* is still a wrong type. Only "not set" is forgiven.
+        ("description: TS\nglobs: 7\nalwaysApply: false\n", "frontmatter_invalid_structure"),
+        ("description: TS\nglobs: \nalwaysApply: yes-please\n", "frontmatter_invalid_structure"),
+        # An unknown key is still unknown, empty or not.
+        ("description: TS\nunexpected: \n", "frontmatter_unknown_fields"),
+    ],
+)
+def test_an_empty_value_does_not_excuse_a_real_structure_problem(
+    fields: str, reason: str
+) -> None:
+    resolved = classify_instruction(_CURSOR_RULE, _cursor(fields))
+
+    assert resolved.status == "unresolved"
+    assert resolved.reason == reason
+
+
+def test_a_skill_still_needs_a_real_name_and_description() -> None:
+    """The required-field check is separate and must keep firing.
+
+    Treating an explicit null as absent in the shared type check would be a
+    hole if identity were only enforced there.
+    """
+
+    for fields in ("name: demo\ndescription: \n", "name: \ndescription: Test\n"):
+        resolved = classify_instruction(
+            ".agents/skills/demo/SKILL.md", f"---\n{fields}---\nBody.\n"
+        )
+        assert resolved.status == "unresolved", fields
+        assert resolved.reason == "skill_identity_missing", fields
+
+
+@pytest.mark.parametrize(
+    ("path", "required", "optional"),
+    [
+        (".cursor/rules/demo.mdc", "", "globs"),
+        (".cursor/rules/demo.mdc", "", "alwaysApply"),
+        (".claude/commands/demo.md", "", "allowed-tools"),
+        (".claude/commands/demo.md", "", "hooks"),
+        (".agents/skills/demo/SKILL.md", "name: demo\ndescription: Test\n", "allowed-tools"),
+    ],
+)
+def test_optional_null_and_omitted_fields_have_the_same_structure(path, required, optional):
+    absent = classify_instruction(path, f"---\n{required}---\nBody.\n")
+    explicit_null = classify_instruction(path, f"---\n{required}{optional}:\n---\nBody.\n")
+    assert absent.status == explicit_null.status == "structured"
+    assert absent.sha256 == explicit_null.sha256
+
+
+def test_normalizing_null_does_not_hide_an_actual_permission_change():
+    path = ".claude/commands/demo.md"
+    empty = classify_instruction(path, "---\nallowed-tools:\n---\nBody.\n")
+    granted = classify_instruction(path, "---\nallowed-tools: Bash(*)\n---\nBody.\n")
+    assert empty.status == granted.status == "structured"
+    assert empty.sha256 != granted.sha256

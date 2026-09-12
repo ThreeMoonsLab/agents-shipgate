@@ -75,6 +75,18 @@ def _digest(value: object) -> str:
 
 def _valid_metadata(metadata: dict) -> bool:
     for key, value in metadata.items():
+        if value is None:
+            # `globs:` with nothing after it is how Cursor writes a rule that
+            # is not glob-scoped, and YAML reads that as None. Rejecting it
+            # made the canonical Cursor rule file an unresolved structure,
+            # which is a *blocking* inventory issue, which made every
+            # repository carrying one incomparable in full — `Doist/todoist-mcp`
+            # produced no rows for eleven readable host files because two
+            # `.cursor/rules/*.mdc` used the format Cursor itself generates.
+            # An explicit null is the same statement as an absent key: the
+            # field is not set. Where a field is genuinely required, the
+            # profile checks below still say so and still fire.
+            continue
         if key in {"disable-model-invocation", "user-invocable", "alwaysApply"}:
             if not isinstance(value, bool):
                 return False
@@ -231,6 +243,10 @@ def classify_instruction(path: str, text: str | None) -> InstructionStructure | 
         commands = [] if profile == "cursor_instruction/v1" else _preprocessing_commands(body)
         if commands is None:
             return unresolved("preprocessing_unresolved")
+        # Optional null fields carry the same declaration as an omitted key.
+        # Normalize only after unknown-key/type/required-field validation;
+        # nested metadata and actual permission or hook values stay intact.
+        metadata = {key: value for key, value in metadata.items() if value is not None}
         structure = _digest([profile, metadata, commands])
     except (yaml.YAMLError, RecursionError, TypeError, ValueError):
         return unresolved("frontmatter_invalid")
