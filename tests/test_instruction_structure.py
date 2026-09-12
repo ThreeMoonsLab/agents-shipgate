@@ -132,3 +132,80 @@ def test_mode_change_cannot_hide_behind_a_prose_change():
     parsed = parse_unified_diff(diff)[0]
     assert parsed.metadata_changed
     assert not unchanged_instruction_structure(parsed, ResolvedFileText(before, after, "fixture", None, None))
+
+
+# --- empty frontmatter values ------------------------------------------------
+#
+# `globs:` with nothing after it is how Cursor writes a rule that is not
+# glob-scoped, and YAML reads that as None. Rejecting it made the canonical
+# Cursor rule an unresolved structure — a *blocking* inventory issue — so a
+# repository carrying one produced no rows at all. `Doist/todoist-mcp` had
+# eleven readable host files and two such rules, and `shipgate diff` answered
+# `incomparable` for that whole repository on every step of its history.
+
+_CURSOR_RULE = ".cursor/rules/demo.mdc"
+
+
+def _cursor(fields: str) -> str:
+    return f"---\n{fields}---\nBe concise.\n"
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        # Exactly what Cursor generates for an always-apply rule.
+        "description: \nglobs: \nalwaysApply: true\n",
+        # ...and for a described rule that is not glob-scoped.
+        "description: Use context7 for library docs\nglobs: \nalwaysApply: false\n",
+        "description: \nglobs: \nalwaysApply: \n",
+        "globs: \n",
+    ],
+)
+def test_an_empty_cursor_field_is_absent_not_invalid(fields: str) -> None:
+    resolved = classify_instruction(_CURSOR_RULE, _cursor(fields))
+
+    assert resolved.status == "structured", resolved.reason
+
+
+def test_a_populated_cursor_rule_still_resolves() -> None:
+    """The fix must not be the only reason anything passes."""
+
+    resolved = classify_instruction(
+        _CURSOR_RULE, _cursor('description: TS rules\nglobs: "**/*.ts"\nalwaysApply: false\n')
+    )
+
+    assert resolved.status == "structured", resolved.reason
+
+
+@pytest.mark.parametrize(
+    ("fields", "reason"),
+    [
+        # A wrong *type* is still a wrong type. Only "not set" is forgiven.
+        ("description: TS\nglobs: 7\nalwaysApply: false\n", "frontmatter_invalid_structure"),
+        ("description: TS\nglobs: \nalwaysApply: yes-please\n", "frontmatter_invalid_structure"),
+        # An unknown key is still unknown, empty or not.
+        ("description: TS\nunexpected: \n", "frontmatter_unknown_fields"),
+    ],
+)
+def test_an_empty_value_does_not_excuse_a_real_structure_problem(
+    fields: str, reason: str
+) -> None:
+    resolved = classify_instruction(_CURSOR_RULE, _cursor(fields))
+
+    assert resolved.status == "unresolved"
+    assert resolved.reason == reason
+
+
+def test_a_skill_still_needs_a_real_name_and_description() -> None:
+    """The required-field check is separate and must keep firing.
+
+    Treating an explicit null as absent in the shared type check would be a
+    hole if identity were only enforced there.
+    """
+
+    for fields in ("name: demo\ndescription: \n", "name: \ndescription: Test\n"):
+        resolved = classify_instruction(
+            ".agents/skills/demo/SKILL.md", f"---\n{fields}---\nBody.\n"
+        )
+        assert resolved.status == "unresolved", fields
+        assert resolved.reason == "skill_identity_missing", fields
