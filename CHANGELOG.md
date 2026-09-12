@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Read the Cursor rule format Cursor actually writes. `globs:` with nothing
+  after it — how Cursor spells a rule that is not glob-scoped — reads as
+  YAML null, and the frontmatter type check rejected null for every field.
+  That made the canonical `.cursor/rules/*.mdc` an unresolved instruction
+  structure, which is a blocking inventory issue, which made the whole
+  repository incomparable: `Doist/todoist-mcp` has eleven readable host
+  files and two such rules, and `diff` produced no rows for any of them on
+  every step of its history. An explicit null is now read as an absent key,
+  which is what it means. Wrong types are still wrong, unknown keys are
+  still unknown, and a skill with an empty `name` or `description` still
+  fails on identity rather than sliding through (#712).
+
 - Manifest-free host PR review now names capability changes in verify, PR comments,
   and check. Interactive check defaults to readable text; agent mode keeps JSON.
   Comparison evidence binds its input refs, excludes stale scan artifacts, and
