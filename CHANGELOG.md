@@ -2,26 +2,16 @@
 
 ## Unreleased
 
-- Compare a shallow checkout against a base it already holds. `diff`
-  refused every shallow checkout, so `actions/checkout`'s default
-  (`fetch-depth: 1`) was sent to `git fetch --unshallow` for a comparison
-  the tool could already answer: the base tree is read through a scoped
-  archive that walks no ancestry. The recovery now fires when the base
-  ref or the merge base is genuinely unavailable, which is what Git
-  reports past a graft — measured on two diverged shallow clones, it
-  returns nothing rather than a wrong commit (#686).
-
-- Read the base tree the host reader will read, and no more. `shipgate diff`
-  and verify's host comparison now materialize only boundary-surface paths
-  (plus symlinks, which are what can conceal them),
-  packing the tree rather than the commit. A 26 MB repository with 1,168 files
-  and four host files took 25s and now takes 2.7s, and a shallow clone is
-  comparable for a commit it already holds. An unrelated symlink no longer
-  makes a repository uncomparable: one outside the surface is not
-  materialized, a symlink to a non-directory can conceal no boundary path,
-  and a scoped archive recreates links instead of refusing the tree. Unscoped
-  archives, which verify uses for the release decision, still refuse every
-  external binding (#686, #688).
+- Advisory `diff` and manifest-free PR review materialize boundary paths and
+  symlinks from a verified tree instead of copying commit ancestry and writing
+  every file. The original sample improved from 25s to 2.7s; residual latency
+  remains #698, not a universal two-second promise. Shallow comparisons verify
+  that a visible common ancestor does not hide a newer one beyond a graft;
+  unresolved ancestry requests a fetch, while HEAD and proven ancestor
+  comparisons remain usable. Configured release archives retain their existing
+  whole-history validation. Scoped archives preserve links, but the reader
+  remains conservative until link-target identity can be bound (#700/#711):
+  successful materialization is not complete inventory coverage (#686/#688).
 
 - Manifest-free host PR review now names capability changes in verify, PR comments,
   and check. Interactive check defaults to readable text; agent mode keeps JSON.

@@ -300,46 +300,46 @@ class TestNamesOutsideTheSurface:
             archive_tree(root, commit, tmp_path / "base", scope=is_boundary_surface_path)
 
 
-class TestTheReaderAgrees:
-    def test_a_symlink_to_a_file_conceals_no_boundary_path(self, tmp_path: Path) -> None:
-        """`_symlink_may_hide_boundary_glob` returns True for any non-empty
-        path once a pattern starts with `**/`, so every symlink in the
-        repository became a boundary candidate, failed its O_NOFOLLOW read
-        and left the inventory incomplete. Only a directory has descendants."""
+@pytest.mark.parametrize("kind", ["file", "directory", "dangling"])
+def test_unbound_symlink_targets_remain_explicit_coverage_limits(tmp_path, kind):
+    # Target type is not part of the identity-bound read. It cannot justify
+    # dropping a candidate, even when it happens to be a regular file now.
+    from agents_shipgate.core.host_grants import inventory_is_complete
 
-        root = _host_repo(tmp_path)
-        (root / "website").mkdir()
-        (root / "website" / "shot.png").symlink_to("../src/m0.py")
+    root = _host_repo(tmp_path)
+    target = root / "target"
+    if kind == "directory":
+        target.mkdir()
+    elif kind == "file":
+        target.write_text("file")
+    (root / "linked").symlink_to("target", target_is_directory=kind == "directory")
+    inventory = build_host_boundary_snapshot(root).inventory
+    assert not inventory_is_complete(inventory)
+    assert any(issue.get("source") == "linked" and issue.get("blocking")
+               for issue in inventory["issues"])
+    assert inventory["grants"]
 
-        inventory = build_host_boundary_snapshot(
-            root, cache=HostStaticParseCache()
-        ).inventory
 
-        assert not [
-            issue
-            for issue in inventory.get("issues", [])
-            if "shot.png" in str(issue.get("source"))
-        ], inventory.get("issues")
-        assert inventory["grants"]
+def test_symlink_target_kind_is_not_unbound_negative_coverage(tmp_path, monkeypatch):
+    from agents_shipgate.core import host_grants
 
-    def test_a_symlinked_directory_still_conceals(self, tmp_path: Path) -> None:
-        """The property the predicate exists for is unchanged: a directory
-        the walk cannot descend may hide a boundary path."""
+    root = _host_repo(tmp_path)
+    target = tmp_path / "external-target"
+    target.write_text("file")
+    (root / "linked").symlink_to(target)
+    original = host_grants._repository_paths
 
-        from agents_shipgate.core.host_grants import _symlink_may_be_directory
+    def enumerate_then_replace(*args, **kwargs):
+        result = original(*args, **kwargs)
+        target.unlink()
+        target.mkdir()
+        (target / "CLAUDE.md").write_text("instructions")
+        return result
 
-        root = _host_repo(tmp_path)
-        (root / "elsewhere").mkdir()
-        (root / "linked").symlink_to("elsewhere", target_is_directory=True)
-
-        assert _symlink_may_be_directory(root / "linked") is True
-
-    def test_a_dangling_symlink_fails_closed(self, tmp_path: Path) -> None:
-        """Nothing establishes that an unresolvable link is harmless."""
-
-        from agents_shipgate.core.host_grants import _symlink_may_be_directory
-
-        root = _host_repo(tmp_path)
-        (root / "dangling").symlink_to("nowhere-at-all")
-
-        assert _symlink_may_be_directory(root / "dangling") is True
+    with monkeypatch.context() as patch:
+        patch.setattr(host_grants, "_repository_paths", enumerate_then_replace)
+        snapshot = build_host_boundary_snapshot(root)
+    fresh = build_host_boundary_snapshot(root)
+    assert not host_grants.inventory_is_complete(snapshot.inventory)
+    assert not host_grants.inventory_is_complete(fresh.inventory)
+    assert snapshot.inventory["issues"]

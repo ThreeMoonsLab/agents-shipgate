@@ -45,6 +45,7 @@ def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
         commit_sha,
         detect_default_base,
         merge_base_sha,
+        shallow_merge_base_is_proven,
     )
 
     if base is not None and (not base.strip() or base.startswith("-")):
@@ -108,24 +109,19 @@ def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
             "common point to compare from.",
             param_hint="--base",
         )
-    # Shallow is refused for the comparisons it actually breaks, not for
-    # being shallow. The base tree is read through a scoped archive that
-    # packs the tree and walks no ancestry, so a base this clone already
-    # holds is readable at `--depth 1`. What shallowness can still break is
-    # the *choice* of base: `git merge-base` cannot see past a graft, so a
-    # merge base that is itself a graft may not be the real one, and
-    # comparing against the wrong base silently is worse than refusing.
-    # Refusing unconditionally sent `actions/checkout`'s default
-    # (`fetch-depth: 1`) to `git fetch --unshallow` for a comparison the
-    # tool could already answer (#686).
-    # No graft check here on purpose. `git merge-base` does not guess past a
-    # shallow boundary — it reports nothing, which the branch above turns
-    # into the `--unshallow` recovery. Verified on two diverged shallow
-    # clones whose true base lay past the graft: both returned empty, never
-    # a wrong commit. So a merge base that *is* returned was proven through
-    # commits this clone holds, and no absent commit can be a more recent
-    # common ancestor. A graft check could not be made to fire on a wrong
-    # answer, and a guard that cannot fire is not a guard.
+    if truncated:
+        # A merge can expose an older common ancestor along one parent while
+        # a shallow graft hides a newer one along another. A nonempty answer
+        # alone is therefore insufficient. After excluding the candidate and
+        # its ancestry, every visible path from both tips must terminate: any
+        # remaining root may be a graft hiding a better common ancestor.
+        # HEAD/self and fully visible paths to the candidate remain usable.
+        base_commit = commit_sha(workspace, requested)
+        head_commit = commit_sha(workspace, "HEAD")
+        if base_commit is None or head_commit is None:
+            refuse_shallow()
+        if not shallow_merge_base_is_proven(workspace, base_commit, head_commit, resolved):
+            refuse_shallow()
     return requested, resolved
 
 

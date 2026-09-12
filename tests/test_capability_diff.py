@@ -451,3 +451,44 @@ def test_invalid_base_cannot_fall_back_or_become_an_option(repo: Path, base: str
     result = _diff(repo, "--base", base)
     assert result.exit_code == 2
     assert "Base ref must be non-empty" in result.output
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+def test_shallow_merge_cannot_select_an_older_visible_common_ancestor(
+    repo: Path, tmp_path: Path, json_output: bool,
+) -> None:
+    # A -> B -> L -> H, H also has parent A; R has parent B. A shallow
+    # graft at L hides B along H's first parent, but H's second exposes A.
+    a = _git_out(repo, "rev-parse", "HEAD")
+    (repo / ".claude" / "settings.json").write_text(WIDE_SETTINGS)
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "B")
+    b = _git_out(repo, "rev-parse", "HEAD")
+    tree = _git_out(repo, "rev-parse", "HEAD^{tree}")
+    left = _git_out(repo, "commit-tree", tree, "-p", b, "-m", "L")
+    head = _git_out(repo, "commit-tree", tree, "-p", left, "-p", a, "-m", "H")
+    right = _git_out(repo, "commit-tree", tree, "-p", b, "-m", "R")
+    _git(repo, "update-ref", "refs/heads/head", head)
+    _git(repo, "update-ref", "refs/heads/base", right)
+    assert _git_out(repo, "merge-base", head, right) == b
+    clone = tmp_path / "partial history"
+    _git(tmp_path, "clone", "--quiet", "--depth", "2", "--branch", "head", repo.as_uri(), str(clone))
+    _git(clone, "fetch", "--quiet", "--depth", "3", "origin", "base")
+    assert _git_out(clone, "merge-base", "HEAD", "FETCH_HEAD") == a
+    # Objects can be present through R even though L's parent edge is cut.
+    assert _git_out(clone, "cat-file", "-t", b) == "commit"
+    from agents_shipgate.cli.verify.host_comparison import compare_host_refs
+    with pytest.raises(ValueError, match="Shallow history"):
+        compare_host_refs(workspace=clone, base="FETCH_HEAD", head="HEAD",
+                          auto_base=False, config_relative=Path("shipgate.yaml"))
+    # A visible ancestor remains the exact base even with another graft.
+    visible = _diff(clone, "--base", left, "--json")
+    assert visible.exit_code == 0, visible.output
+    assert json.loads(visible.output)["rows"] == []
+    result = _diff(clone, "--base", "FETCH_HEAD", *(["--json"] if json_output else []))
+    assert result.exit_code == 2, result.output
+    assert "fetch" in result.output and "--unshallow" in result.output
+    _git(clone, "fetch", "--quiet", "--unshallow", "origin")
+    result = _diff(clone, "--base", right, "--json")
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["rows"] == []

@@ -10,6 +10,7 @@ from agents_shipgate.cli.verify.git import (
     commit_sha,
     detect_default_base,
     require_merge_base_sha,
+    shallow_merge_base_is_proven,
     tree_sha,
 )
 from agents_shipgate.core.boundary_registry import is_boundary_surface_path
@@ -59,6 +60,10 @@ def compare_host_refs(
     )
     if base_ref and base_tip is None:
         raise ValueError("The requested base commit is not available locally")
+    if base_tip and not shallow_merge_base_is_proven(workspace, base_tip, head_commit, base_commit):
+        # Existing callers route a failed shallow comparison to fetch recovery;
+        # never publish rows relative to a potentially older common ancestor.
+        raise ValueError("Shallow history cannot establish the comparison merge base")
 
     def identity():
         bound, overlay = _safe_worktree_overlay(

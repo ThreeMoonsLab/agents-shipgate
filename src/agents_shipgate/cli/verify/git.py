@@ -2457,3 +2457,27 @@ __all__ = [
     "working_tree_context",
     "working_tree_paths",
 ]
+
+
+def shallow_merge_base_is_proven(workspace: Path, base: str, head: str, resolved: str) -> bool:
+    """Reject hidden better ancestors without requiring unrelated old history.
+
+    Inputs are resolved commit IDs. A returned common ancestor need not be the
+    best one when a merge exposes older ancestry around a shallow graft.
+    """
+    if resolved in {base, head}:
+        return True
+    shallow = _history_is_truncated(workspace)
+    if shallow is False:
+        return True
+    if shallow is None:
+        return False
+    roots = _run_git(
+        workspace,
+        ["rev-list", "--max-parents=0", "--max-count=1", base, head, "--not", resolved],
+        check=False,
+    )
+    # Removing the candidate's ancestry must leave no root (including grafts)
+    # reachable from either tip. Otherwise a hidden edge can conceal a newer
+    # common ancestor. This is conservative for unrelated shallow side branches.
+    return roots.returncode == 0 and not roots.stdout.strip()
