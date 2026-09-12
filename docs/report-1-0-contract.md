@@ -306,13 +306,21 @@ an installed build. [#569](https://github.com/ThreeMoonsLab/agents-shipgate/issu
 allows an untagged, unpublished candidate for exactly this, and that is what
 was used.
 
-**Candidate.** `agents_shipgate-0.16.0-py3-none-any.whl`, built from source
-`8e81672b` plus this change with the locked `hatchling==1.32.0` backend
-(`constraints/build-backend.txt`), installed into an isolated virtualenv and
-driven as `python -I -m agents_shipgate` with `PYTHONPATH` cleared — so what
-ran was the package, not the working tree.
+**Candidate.** `agents_shipgate-0.16.0-py3-none-any.whl`
+(`sha256:02a7a3fed745f0794beeb39fbd5bd913ecae51b1346aa76590b74ef6b1a5a1c3`),
+built by the unqualified Release Engine Smoke workflow
+([run 34726385422](https://github.com/ThreeMoonsLab/agents-shipgate/actions/runs/34726385422))
+from committed source `8a14470d` with the locked `hatchling==1.32.0` backend
+(`constraints/build-backend.txt`), then downloaded, installed into an isolated
+virtualenv and driven as `python -I -m agents_shipgate` with `PYTHONPATH` cleared
+— so what ran was the package, not the working tree. Re-established on
+2026-09-12 after this branch was reconciled with `main`: the workflow's
+automated `report_schema_exercise()` and a by-hand replay of all six rows below
+agree. An earlier run of this record used a wheel built from `8e81672b` at
+contract 34; its rows are unchanged, and its engine identity is superseded by
+the one below.
 
-**Engine identity observed:** `cli_version 0.16.0`, `contract_version 34`,
+**Engine identity observed:** `cli_version 0.16.0`, `contract_version 36`,
 `report_schema_version 1.0`, `minimum_control_contract_version 21`.
 
 | Replay | Input | Observed |
@@ -335,10 +343,12 @@ The exercise is automated as `report_schema_exercise()` in
 same disposable job that already proves the CLI and its generated Action agree,
 rather than depending on anyone repeating the steps above by hand.
 
-**What this is not.** The wheel was built from an uncommitted working tree, so
-its SHA-256 identifies nothing anyone else can reproduce and is not release
-provenance in [#570](https://github.com/ThreeMoonsLab/agents-shipgate/issues/570)'s
-sense. It is unsigned, unqualified, untagged and unpublished. It establishes
+**What this is not.** The wheel was built by a disposable smoke run from an
+unmerged branch commit. Its SHA-256 identifies that run's bytes, not a release,
+and is not release provenance in
+[#570](https://github.com/ThreeMoonsLab/agents-shipgate/issues/570)'s sense; the
+run records `qualified: false` and `qualification_claim: "none: synthetic
+distribution smoke only"` about itself. It is unsigned, unqualified, untagged and unpublished. It establishes
 that the report contract holds through an installed build and a migration
 replay — and nothing about qualification, adoption, or the final candidate,
 which [#512](https://github.com/ThreeMoonsLab/agents-shipgate/issues/512),
