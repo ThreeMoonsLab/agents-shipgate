@@ -176,6 +176,8 @@ SURFACES: tuple[Surface, ...] = (
         (
             "src/agents_shipgate/cli/diff.py",
             "src/agents_shipgate/core/capability_diff_rows.py",
+            "src/agents_shipgate/core/host_comparison.py",
+            "src/agents_shipgate/report/host_comparison.py",
         ),
         # No claims on purpose: this surface restates none of the engine's
         # answers. It projects the drift payload the engine produced, which

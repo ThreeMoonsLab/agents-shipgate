@@ -171,23 +171,26 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # v33 routes recognized host-only configuration from discovery to audit,
 # without inventing a manifest. The new detect fields are filename evidence
 # and incomplete traversal, not grants. Operational control is unchanged.
-# v34 freezes the report contract at ``1.0`` (#569). No field is added,
-# renamed, retyped or removed: the emitted shape is the one v33 advertised as
+# v34 advertises host inventories/baselines/drift 0.4: workflow permission
+# projections and reusable secret recipients. Operational control is unchanged.
+# v35 carries manifest-free advisory host comparison evidence and named check rows.
+# v36 freezes the report contract at ``1.0`` (#569). No field is added,
+# renamed, retyped or removed: the emitted shape is the one v35 advertised as
 # report ``0.43``. The bump exists because what the runtime *promises* about
 # that shape changed -- 1.x is additive-only, a breaking change needs 2.0, and
 # a deprecation cycle is counted in shipped releases -- and a consumer must be
 # able to discover that from ``contract --json`` rather than from prose. The
 # operational control shapes remain byte-identical, so
-# ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21 for the seventh time.
-CONTRACT_VERSION: Literal["34"] = "34"
+# ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21.
+CONTRACT_VERSION: Literal["36"] = "36"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"
 AGENT_RESULT_SCHEMA_PATH: Literal["docs/agent-result-schema.v3.json"] = (
     "docs/agent-result-schema.v3.json"
 )
-AGENT_BOUNDARY_RESULT_SCHEMA_PATH: Literal["docs/agent-boundary-result-schema.v2.json"] = (
-    "docs/agent-boundary-result-schema.v2.json"
+AGENT_BOUNDARY_RESULT_SCHEMA_PATH: Literal["docs/agent-boundary-result-schema.v3.json"] = (
+    "docs/agent-boundary-result-schema.v3.json"
 )
 TRIGGER_CATALOG_SCHEMA_VERSION: Literal["0.4"] = "0.4"
 # Fields of the SHARED agent result (``agent_result_schema_path``). The graded

@@ -12,10 +12,10 @@ three cannot describe one change three ways.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 from typing import Any
 
 from agents_shipgate.core.host_grants import host_grant_expansion_signals
+from agents_shipgate.schemas.capability_diff import CapabilityDiffRow as CapabilityDiffRow
 
 ABSENT = "—"
 
@@ -28,24 +28,6 @@ ADDED = "added"
 REMOVED = "removed"
 WIDENED = "widened"
 CHANGED = "changed"
-
-
-@dataclass(frozen=True)
-class CapabilityDiffRow:
-    subject: str
-    before: str
-    after: str
-    direction: str
-    why: str
-    severity: str
-    #: The engine called this change an expansion of authority. Kept apart
-    #: from ``direction`` on purpose: presence is a fact this module can
-    #: read off both sides, whereas widening is a judgement, and only the
-    #: engine's `expansion_signals` may make it.
-    expands: bool = False
-
-    def as_dict(self) -> dict[str, object]:
-        return asdict(self)
 
 
 def _grant_value(grant: dict[str, Any] | None) -> str:
@@ -63,10 +45,27 @@ def _grant_value(grant: dict[str, Any] | None) -> str:
         parts = [str(grant.get("access") or "")]
         if grant.get("write_all"):
             parts.append("write-all")
-        for scope in grant.get("write_scopes") or []:
-            parts.append(str(scope).split(":", 1)[-1].strip())
+        if "permission_contexts" in grant:
+            for context in grant["permission_contexts"]:
+                if context["state"] != "explicit":
+                    reason = "repository defaults" if context["state"] == "repository_default" else "unresolved permissions"
+                    parts.append(f"{context['job']}: {reason} (unknown)")
+                elif not context["permissions"]:
+                    parts.append(f"{context['job']}: no token permissions")
+                else:
+                    for scope, level in context["permissions"].items():
+                        permission = f"{level}-all" if scope == "*" else f"{scope}: {level}"
+                        parts.append(f"{context['job']}: {permission}")
+        else:
+            parts.extend(str(scope) for scope in grant.get("write_scopes") or [])
         if grant.get("pull_request_target"):
             parts.append("pull_request_target")
+        other_triggers = [name for name in grant.get("triggers", []) if name != "pull_request_target"]
+        if other_triggers:
+            parts.append("on: " + ", ".join(other_triggers))
+        for call in grant.get("reusable_calls") or []:
+            forwarding = "secrets: inherit → " if call.get("secrets_inherit") else "uses: "
+            parts.append(f"{call['job']}: {forwarding}{call['uses']}")
         return ", ".join(part for part in parts if part) or kind
     for key in ("rule", "server", "name", "value", "permission"):
         value = grant.get(key)
@@ -117,7 +116,12 @@ def _why(grant: dict[str, Any], direction: str) -> str:
         if grant.get("pull_request_target"):
             reasons.append("uses the privileged pull_request_target event context")
         if access in {"admin", "write"} or grant.get("write_all"):
-            reasons.append("the workflow can write to the repository")
+            reasons.append("grants write permissions to workflow jobs")
+        if any(context["state"] != "explicit" for context in grant.get("permission_contexts", [])):
+            reasons.append("some effective token permissions are unknown; repository defaults or unresolved declarations require review")
+        for call in grant.get("reusable_calls") or []:
+            if call.get("secrets_inherit"):
+                reasons.append(f"passes the caller's available secrets to {call['uses']}")
         return "; ".join(reasons) or "changes the workflow's own authority"
     if kind == "hook":
         return "changes what runs around the agent's actions"

@@ -1,0 +1,12 @@
+name: fixture
+'on':
+- release
+- workflow_call
+- workflow_dispatch
+jobs:
+  mirror:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+    - run: echo revised fixture

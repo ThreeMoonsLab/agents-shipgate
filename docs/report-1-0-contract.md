@@ -189,7 +189,7 @@ floor field at all. That is the real starting point for a migration, not
 | From `v0.15.0` | At `1.0` | Why |
 | --- | --- | --- |
 | `report_schema_version: "0.28"` | `"1.0"` | Everything between is additive. A `0.28` parser still reads a `1.0` report; it simply sees fields it ignores. |
-| `contract_version: 10`, no floor field | `contract_version: 34`, `minimum_control_contract_version: 21` | Gate on `minimum_control_contract_version`, not on `contract_version`, and treat its absence as "older than 21". |
+| `contract_version: 10`, no floor field | `contract_version: 36`, `minimum_control_contract_version: 21` | Gate on `minimum_control_contract_version`, not on `contract_version`, and treat its absence as "older than 21". |
 | Read `agent-result.json` | Read `verification-receipt.json`, then `agent-handoff.json`, `verifier.json`, `verify-run.json` | Removed in `0.14.0`; see that migration note. |
 | `--format agent` | `--format json` | Removed in `0.14.0`. |
 | `--format codex-boundary-json` | `--format agent-boundary-json` | Deprecated; the projection stays through `0.16.x`. |

@@ -14,12 +14,12 @@ This value identifies the calling agent and changes only actor/rerun metadata;
 it never selects or disables host coverage. Every recognized changed boundary
 surface is evaluated on every invocation.
 The command writes no repo artifacts by default. It prints one JSON object to
-stdout: `shipgate.agent_boundary_result/v2`.
+stdout: `shipgate.agent_boundary_result/v3`.
 
 `agents-shipgate verify` and `agents-shipgate-reports/report.json` remain the
 full CI and reviewer substrate. Coding agents should use them for committed PR
 verification and reviewer evidence, but their local control loop is
-`shipgate check` plus `shipgate.agent_boundary_result/v2`.
+`shipgate check` plus `shipgate.agent_boundary_result/v3`.
 
 ## Review questions
 
@@ -72,7 +72,7 @@ for local work or provide both for committed refs. Shipgate never fetches refs.
 
 The stdout object has:
 
-- `schema_version: "shipgate.agent_boundary_result/v2"`
+- `schema_version: "shipgate.agent_boundary_result/v3"`
 - `actor: "codex" | "claude-code" | "cursor"`
 - `input_mode` and `scope`
 - `input_coverage`
@@ -110,7 +110,7 @@ The stdout object has:
 - `audit_id`
 
 Consumers must make decisions from JSON fields, never from prose or Markdown.
-The stable schema is `docs/agent-boundary-result-schema.v2.json`. Operational
+The stable schema is `docs/agent-boundary-result-schema.v3.json`. Operational
 consumers switch only on `control.state`; `decision` is diagnostic context.
 `control.completion_allowed` is true exactly for `complete`, and
 `control.must_stop` is true
@@ -283,7 +283,7 @@ look like:
 
 ```json
 {
-  "schema_version": "shipgate.agent_boundary_result/v2",
+  "schema_version": "shipgate.agent_boundary_result/v3",
   "decision": "block",
   "control": {
     "state": "agent_action_required",
@@ -315,7 +315,7 @@ Surface a schema-valid boundary-result object that routes to an upgrade:
 
 ```json
 {
-  "schema_version": "shipgate.agent_boundary_result/v2",
+  "schema_version": "shipgate.agent_boundary_result/v3",
   "decision": "block",
   "control": {
     "state": "agent_action_required",
@@ -374,7 +374,7 @@ Input:
 }
 ```
 
-`shipgate.check` output is exactly `shipgate.agent_boundary_result/v2`.
+`shipgate.check` output is exactly `shipgate.agent_boundary_result/v3`.
 
 `shipgate.preflight` returns `PreflightResultV3`; prefer the `plan` argument
 with a `PreflightPlanV1` object for protected-surface routing, high-risk

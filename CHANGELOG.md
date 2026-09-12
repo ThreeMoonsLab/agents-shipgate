@@ -2,6 +2,61 @@
 
 ## Unreleased
 
+- Keep a directory at a recognized host configuration path visible as a failed
+  input. Host audits, worktree diffs and committed-ref comparisons no longer
+  mistake `.mcp.json/` for an absent configuration and report complete coverage.
+  Scoped base trees preserve directory kinds even when their contents are not
+  selected; ordinary containers remain valid (#613).
+
+- Advisory `diff` and manifest-free PR review materialize boundary paths and
+  symlinks from a verified tree instead of copying commit ancestry and writing
+  every file. The original sample improved from 25s to 2.7s; residual latency
+  remains #698, not a universal two-second promise. Shallow comparisons verify
+  that a visible common ancestor does not hide a newer one beyond a graft;
+  unresolved ancestry requests a fetch, while HEAD and proven ancestor
+  comparisons remain usable. Configured release archives retain their existing
+  whole-history validation. Scoped archives preserve links, but the reader
+  remains conservative until link-target identity can be bound (#700/#711):
+  successful materialization is not complete inventory coverage (#686/#688).
+
+- Read the Cursor rule format Cursor actually writes. `globs:` with nothing
+  after it — how Cursor spells a rule that is not glob-scoped — reads as
+  YAML null, and the frontmatter type check rejected null for every field.
+  That made the canonical `.cursor/rules/*.mdc` an unresolved instruction
+  structure, which is a blocking inventory issue, which made the whole
+  repository incomparable: `Doist/todoist-mcp` has eleven readable host
+  files and two such rules, and `diff` produced no rows for any of them on
+  every step of its history. An explicit null is now read as an absent key,
+  which is what it means. Wrong types are still wrong, unknown keys are
+  still unknown, and a skill with an empty `name` or `description` still
+  fails on identity rather than sliding through (#712).
+
+- Manifest-free host PR review now names capability changes in verify, PR comments,
+  and check. Interactive check defaults to readable text; agent mode keeps JSON.
+  Comparison evidence binds its input refs, excludes stale scan artifacts, and
+  never grants application release or merge authority (#684).
+
+- Compare workflow permissions rather than whole-file edits in host diffs.
+  Script-only changes no longer appear as permission changes, and an
+  existing write grant is not reannounced as a widening. Effective job
+  permissions respect explicit overrides; reusable calls that inherit
+  secrets name the receiving workflow. Contract v34 and host schema v0.4
+  preserve legacy readers without inventing missing recipient evidence
+  (#685).
+
+- Read literal TypeScript MCP tool descriptions from both SDK registration
+  shapes. Only the options object's own direct description is used; later
+  overrides invalidate stale text, and a later explicit literal can restore
+  it. Nested parameter descriptions and unsupported member/key expressions
+  never supply the tool's documentation. Package and zero-install readers
+  share all read/refusal cases, including supported CommonJS inputs (#680).
+  TypeScript translation-helper semantics remain deferred in #691.
+
+- Detect shallow checkouts before `diff` scans either side. Print a scoped
+  `git fetch --unshallow` recovery (or `fetch-depth: 0` for CI) instead of
+  an object-integrity traceback; agent-mode errors carry the same runnable
+  next action. Object integrity checks remain unchanged (#683).
+
 - Read Go MCP tool descriptions from struct `Description` fields and
   direct `WithDescription`/`WithToolDescription` options. Later description
   options replace earlier ones, including empty or computed values. Nested calls and partial

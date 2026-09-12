@@ -2,7 +2,7 @@
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
-Runtime contract v34 freezes the report contract at `1.0` (#569). No field is
+Runtime contract v36 freezes the report contract at `1.0` (#569). No field is
 added, renamed, retyped or removed; `minimum_control_contract_version` stays at
 `21` because every operational control shape is byte-identical. The production
 qualification policy's `required_report_schema_version` moves to `1.0` with the
@@ -64,6 +64,33 @@ from the shipped `v0.15.0` contract are in
 the Action tag) for reproducible CI.
 
 ---
+
+## Workflow capability comparison (contract v34, #685)
+
+Host inventory, baseline and drift advance from `0.3` to `0.4`. Workflow
+grants now carry per-job `permission_contexts`, `effective_write_scopes` and
+`reusable_calls` (job, target
+and `secrets_inherit`). Their fingerprint describes this static permission
+projection; the separate artifact digest still records workflow content.
+Editing a script therefore remains artifact drift without becoming a
+permission-change row. Effective writes respect explicit job overrides,
+including `{}`; removing an override can reveal inherited write access or
+restore unknown repository defaults. Equivalent inherited and explicit grants
+are quiet, and overridden workflow defaults do not become job authority.
+
+New inherited-secret recipients are named in capability rows, including a
+changed reusable target/ref. This is a declaration that the caller forwards
+its available secrets, not proof of the callee's actions or access to every
+organization secret. Named secret mappings, environment approvals, dynamic
+expressions and transitive callee behavior are outside this comparison.
+See [GitHub's reusable workflow contract](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations).
+
+The `0.1`–`0.3` readers and schemas remain unchanged. A legacy baseline is
+readable but deliberately incomparable: it did not record reusable recipients
+and cannot prove their absence. Preserve the old evidence and explicitly
+review a replacement baseline. Git-backed `diff` scans both refs with the
+current reader and needs no saved-baseline migration. Runtime contract v34
+advertises the new versions; the operational control contract stays unchanged.
 
 ## Qualification coverage diagnostics (v6, #520)
 
@@ -3380,3 +3407,28 @@ If you encounter behavior that contradicts this document — for example, an uns
 3. The observed behavior (output, error message, JSON fragment)
 
 Stability bugs are prioritized.
+
+### Manifest-free host review (contract v35, #684)
+
+Verifier schema `0.18` adds `host_comparison`: advisory rows from the existing
+host inventory comparator, the compared commits and captured workspace identity,
+inventory digests, source paths, and explicit comparison health. It never supplies
+an application `release_decision`, a successful release receipt, or merge authority.
+A missing or malformed manifest does not become an invented policy: existing
+manifest routes remain governed by the verifier, and explicit strict/application
+policy inputs retain their existing failure behavior when no manifest exists.
+The published `0.17` schema remains frozen; reading an older verifier does not
+invent host evidence.
+
+Boundary result `shipgate.agent_boundary_result/v3` adds `rows`,
+`comparison_status`, `incomparable_reasons`, and `comparison_scope`. Existing
+local boundary policy decisions remain authoritative. Supplied diffs compare
+only their changed host files; unresolved content is incomparable, not an empty
+successful comparison. `check` continues to hide permission arguments, including
+in its new rows; use the named source file for the exact rule. The older v2
+schema and deprecated Codex v2 projection remain frozen.
+
+Interactive `check` now defaults to text; detected agent mode defaults to the
+current boundary JSON. Automation should always select `--format
+agent-boundary-json` or `--format agent-control-json` explicitly. These existing
+explicit formats are retained, and `--format text` is available in either mode.

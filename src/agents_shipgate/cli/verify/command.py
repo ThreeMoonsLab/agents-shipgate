@@ -515,6 +515,15 @@ def _emit_verify_stdout(
             if verifier.release_decision is not None
             else _unevaluated_verdict_word(verifier)
         )
+        if verifier.host_comparison is not None:
+            from agents_shipgate.report.host_comparison import host_comparison_lines
+            for line in host_comparison_lines(verifier.host_comparison):
+                typer.echo(line)
+            typer.echo("Agents Shipgate verify: advisory: no application release policy configured")
+            if verifier.host_comparison.comparison_status != "comparable" and verifier.control.next_action is not None:
+                typer.echo("Next: " + single_line_text(verifier.control.next_action.why))
+            typer.echo("Static configuration comparison only; no application release or merge authority is granted.")
+            return
         # Lead with the operational answer. The release verdict below is the
         # gate's word on the change; these lines are the reader's word on what
         # they may do next, and printing the verdict first is what let
@@ -688,7 +697,10 @@ def _verify_envelope(
         current = VerifierArtifact.model_validate_json(captured)
     except ValueError as exc:
         return denied(f"The bound verifier artifact could not be read: {exc}")
-    if (current.request_id, current.decision_id) != (verifier.request_id, verifier.decision_id):
+    if (
+        (current.request_id, current.decision_id) != (verifier.request_id, verifier.decision_id)
+        or current.host_comparison != verifier.host_comparison
+    ):
         return denied(
             "Another run published over this directory while this one was "
             "reporting; the control identity that is current closes a different "

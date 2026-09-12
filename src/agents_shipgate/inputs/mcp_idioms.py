@@ -1617,6 +1617,102 @@ def _child_braces(masked: str, open_brace: int, close: int) -> list[tuple[int, i
     return children
 
 
+#: The TypeScript SDK writes a tool's description in one of two places, and
+#: until #680 neither was read — `ts_sdk_register_tool` resolved the name and
+#: nothing else, so every tool on the *reference* MCP SDK was reported
+#: undocumented. `_TS_DESCRIPTION_RE` above looks like it covers this and does
+#: not: it serves the class-property idiom (`this.description = "…"`).
+#:
+#:   server.registerTool("get_job", { description: "…", inputSchema: {} }, fn)
+#:   server.tool("get_job", "…", fn)
+_TS_OBJECT_PROPERTY_RE = re.compile(r"[A-Za-z_$][\w$]*")
+
+
+def _ts_object_description(
+    source: MaskedSource, open_brace: int, close: int
+) -> str | None:
+    """Read direct members in order, preserving JavaScript override semantics.
+
+    A colon inside another member's expression is not a property boundary.
+    Spreads and computed keys may replace description; a later explicit
+    literal can establish it again. Never retain a stale earlier value.
+    """
+
+    description = None
+    # The balanced argument splitter also separates object members: strings,
+    # comments and nested expressions cannot introduce a member separator.
+    for start, end in _go_arguments(source, open_brace, close):
+        found, key, key_end = source.literal_at(start)
+        if found and key is None:
+            description = None  # an undecodable quoted key may be description
+            continue
+        if not found:
+            match = _TS_OBJECT_PROPERTY_RE.match(source.masked, start, end)
+            if match is None:
+                description = None  # spread or computed key
+                continue
+            key, key_end = match.group(), match.end()
+        after = source.skip_space(key_end)
+        if key in {"get", "set"} and after < end and source.masked[after] != ":":
+            # Accessors can override the same property without a colon.
+            accessor = _TS_OBJECT_PROPERTY_RE.match(source.masked, after, end)
+            if (
+                accessor is None
+                or accessor.group() == "description"
+                or source.skip_space(accessor.end()) >= end
+                or source.masked[source.skip_space(accessor.end())] != "("
+            ):
+                description = None
+            continue
+        if key != "description":
+            # A regex prefix is not a complete property key. Modifiers and
+            # escaped identifiers may still name description, so only skip a
+            # proven direct field, shorthand or ordinary named method.
+            if after < end and source.masked[after] not in ":(":
+                description = None
+            continue
+        description = None
+        if after >= end or source.masked[after] != ":":
+            continue  # shorthand or method: its value is not a known string
+        found, value, literal_end = source.literal_at(after + 1)
+        if found and value and literal_end == end:
+            description = value
+    return description
+
+
+def _ts_call_description(
+    source: MaskedSource, open_paren: int, close: int
+) -> str | None:
+    """The description a `registerTool`/`tool` registration carries.
+
+    Both documented shapes put it in the *second* argument: a bare string in
+    the positional form, a `description` property in the options form.
+    Nothing else is read — `tool("name", handler)` is a registration with no
+    description, and must stay one.
+    """
+
+    found, _name, name_end = source.literal_at(open_paren + 1)
+    if not found:
+        return None
+    after = source.skip_space(name_end)
+    if after >= len(source.masked) or source.masked[after] != ",":
+        return None
+    second = source.skip_space(after + 1)
+    found, value, end = source.literal_at(second)
+    if found:
+        return value if value and _literal_is_whole_value(source, end, ",)") else None
+    if second < len(source.masked) and source.masked[second] == "{":
+        object_close = _matching_close(source.masked, second, "{", "}")
+        if (
+            object_close is None
+            or object_close > close
+            or not _literal_is_whole_value(source, object_close, ",)")
+        ):
+            return None
+        return _ts_object_description(source, second, object_close)
+    return None
+
+
 #: The option-function shape: `NewTool("name", WithDescription("…"))`. This is
 #: how `mark3labs/mcp-go` declares a tool, which is the SDK behind
 #: `github/github-mcp-server` — so until #658 every one of its 114 tools read
@@ -3243,7 +3339,14 @@ def scan_source(
     sites: list[RegistrationSite] = []
     if language == "typescript":
         sites.extend(_ts_static_tool_name_sites(source))
-        sites.extend(_call_sites(source, _TS_REGISTER_TOOL_RE, "ts_sdk_register_tool"))
+        sites.extend(
+            _call_sites(
+                source,
+                _TS_REGISTER_TOOL_RE,
+                "ts_sdk_register_tool",
+                describe=_ts_call_description,
+            )
+        )
     else:
         sites.extend(
             _call_sites(

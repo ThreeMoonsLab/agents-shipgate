@@ -86,9 +86,9 @@
 - Attestation schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/attestation-schema.v0.5.json
 - Registry schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/registry-schema.v0.4.json
 - Org evidence bundle schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/org-evidence-bundle-schema.v2.json
-- Host-grants inventory schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/host-grants-inventory-schema.v0.3.json
-- Host-grants baseline schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/host-grants-baseline-schema.v0.3.json
-- Host-grants drift schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/host-grants-drift-schema.v0.3.json
+- Host-grants inventory schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/host-grants-inventory-schema.v0.4.json
+- Host-grants baseline schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/host-grants-baseline-schema.v0.4.json
+- Host-grants drift schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/host-grants-drift-schema.v0.4.json
 - Capability standard: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-standard.md
 - Governance benchmark catalog/result schemas: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/governance-benchmark-catalog-schema.v0.2.json and https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/governance-benchmark-result-schema.v0.2.json
 - Check catalog: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/checks.json

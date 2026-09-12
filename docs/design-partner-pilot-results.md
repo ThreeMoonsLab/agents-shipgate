@@ -64,9 +64,10 @@ allow list from `Bash(npm test)` / `Read(src/**)` to `Bash(*)` / `Read(**)` /
 capability-change class this pilot exists to observe.
 
 **Published build measured: `0.15.0`.** Preview measured:
-`0.16.0+preview.20260903.gb61aca7`. Source tree: `0.16.0`, rechecked on 2026-09-10 against the
-uncommitted #569 report-1.0-freeze candidate based on
-`8e81672b`, with runtime contract 34. The source-tree
+`0.16.0+preview.20260903.gb61aca7`. Source tree: `0.16.0`, rechecked on 2026-09-11 against the uncommitted
+#684 candidate based on `d27c8cc0728854f7f28420bbe92423da5d10a663`, with
+runtime contract 35. The synthetic baseline was recorded and committed on the
+fixture base before the permission change, so it was not itself under review. The source-tree
 column below was rerun; the released and preview columns retain their earlier
 measurement and were not relabeled as new runs.
 
@@ -78,12 +79,12 @@ an assumption.
 
 | | Released `v0.15.0` (`pipx install`) | Preview `0.16.0+preview.20260903` (`gh release download`) | Source tree |
 | --- | --- | --- | --- |
-| Runtime contract | 10 | 29 | 34 |
-| Host-grant inventory schema | 0.1 | 0.2 | 0.3 |
+| Runtime contract | 10 | 29 | 35 |
+| Host-grant inventory schema | 0.1 | 0.2 | 0.4 |
 | `check` on the fixture | `warn` / `none`, **0 violations** | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** |
 | Coverage limit visible (`host_coverage`, `excluded_scopes`) | no | yes | yes |
 | `init --write --ci` Action pin | `@v0.15.0` — exists | `@v0.16.0+preview.20260903.gb61aca7` — **no such tag** (the release tag is `preview-`-prefixed) | not applicable — host audit handoff, no workflow written |
-| `init` then `verify` on this Route H repo | exit 3 | exit 2 | `init` exits 0 with audit handoff; ignoring it and requesting manifest verify exits 2 |
+| `init` then `verify` on this Route H repo | exit 3 | exit 2 | `init` exits 0 with audit handoff; manifest-free `verify` exits 0 and names six advisory change rows |
 | `audit --host --save-baseline` → `--drift` | works, all 4 expansion signals | works | works |
 | Qualification | qualified release | **none** — no adjudicated corpus, nothing signed | not a distributed build |
 
@@ -91,8 +92,10 @@ The source rerun reproduced four boundary violations (`block` / `critical`)
 and visible coverage. Discovery now names the two host config candidates and
 routes to audit. `init --write --ci` returns
 `not_applicable_host_review`, writes no manifest or workflow, and offers the
-same read-only audit route. A deliberately forced manifest `verify` still exits
-2 because no manifest exists; it is not the emitted next step. Baseline/drift
+same read-only audit route. Manifest-free `verify` now succeeds as an advisory
+comparison: six rows name three added permissions, two removed narrower rules,
+and the added MCP server. It publishes no application release decision or merge
+authority. Baseline/drift
 reproduced all four expansion signals with a canonical
 non-symlink temporary path. The earlier run discovered the documented `/tmp/`
 recovery-path problem on macOS; #550 was subsequently fixed by #595. This run

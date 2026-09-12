@@ -1,7 +1,7 @@
 # Current Agent Contract
 
-Runtime contract v34 freezes the report contract at `1.0` (#569). No field is
-added, renamed, retyped or removed: the emitted shape is exactly the one v33
+Runtime contract v36 freezes the report contract at `1.0` (#569). No field is
+added, renamed, retyped or removed: the emitted shape is exactly the one v35
 advertised as report `0.43`, so a consumer written against `0.43` reads a
 `1.0` report unchanged. What moved is the promise. `1.x` is additive-only; a
 change that cannot be expressed additively needs `2.0`; a deprecation cycle is
@@ -20,6 +20,10 @@ defaults would stand in for blocks it never recorded. Every superseded schema
 stays published for reading archived artifacts. Operational control shapes are
 byte-identical, so `minimum_control_contract_version` stays at `21`. See
 [`docs/report-1-0-contract.md`](report-1-0-contract.md).
+
+Previous runtime contract v35 adds manifest-free host comparison evidence in verifier `0.18` and named boundary rows in `shipgate.agent_boundary_result/v3`. Comparison health and captured input identity remain separate from release and control authority. See [the migration note](../STABILITY.md#manifest-free-host-review-contract-v35-684).
+
+Previous runtime contract v34 advertises host inventory, baseline and drift schema `0.4`: workflow permission projections and reusable secret recipients. Operational control is unchanged; older baselines cannot prove that unrecorded recipients were absent. See [the migration note](../STABILITY.md#workflow-capability-comparison-contract-v34-685).
 
 Runtime contract v33 adds `host_boundary_candidates[]` and
 `host_discovery_incomplete_paths[]` to discovery. They describe recognized
@@ -575,18 +579,18 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `34` (minimum control contract: `21`)
+- Runtime contract: `36` (minimum control contract: `21`)
 - Current report schema: `1.0`, frozen, superseding `0.43` — [`docs/report-schema.v1.0.json`](report-schema.v1.0.json); the `1.x` rules are in [`docs/report-1-0-contract.md`](report-1-0-contract.md)
 - Current packet schema: `0.18` — [`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
-- Current verifier schema: `0.17` — [`docs/verifier-schema.v0.17.json`](verifier-schema.v0.17.json) (`0.16` and earlier stay frozen; `0.17` adds conditional instruction-edit routing)
+- Current verifier schema: `0.18` — [`docs/verifier-schema.v0.18.json`](verifier-schema.v0.18.json) (`0.17` and earlier stay frozen; `0.18` adds advisory host comparison evidence)
 - Current verify-run schema: `shipgate.verify_run/v5` — [`docs/verify-run-schema.v5.json`](verify-run-schema.v5.json)
 - Current verification identity schemas: [`plan v1`](verification-plan-schema.v1.json), [`unit result v1`](verification-unit-result-schema.v1.json), [`artifact manifest v1`](verification-artifact-manifest-schema.v1.json), and [`terminal receipt v1`](verification-receipt-schema.v1.json)
 - Current control pointer schema: `shipgate.current_control/v1` — [`docs/current-control-schema.v1.json`](current-control-schema.v1.json)
 - Current agent control envelope schema: `shipgate.agent_control/v1` — [`docs/agent-control-schema.v1.json`](agent-control-schema.v1.json)
 - Current human-authorization schemas: request, signed grant, verifier evaluation, and external trust policy v1 — [`docs/human-authorization-schema.v1.json`](human-authorization-schema.v1.json)
 - Current agent handoff schema: `shipgate.agent_handoff/v9` — [`docs/agent-handoff-schema.v9.json`](agent-handoff-schema.v9.json)
-- Current agent boundary result schema: `shipgate.agent_boundary_result/v2` — [`docs/agent-boundary-result-schema.v2.json`](agent-boundary-result-schema.v2.json)
+- Current agent boundary result schema: `shipgate.agent_boundary_result/v3` — [`docs/agent-boundary-result-schema.v3.json`](agent-boundary-result-schema.v3.json)
 - Frozen deprecated Codex projection: `shipgate.codex_boundary_result/v2` — [`docs/codex-boundary-result-schema.v2.json`](codex-boundary-result-schema.v2.json)
 - Current preflight schema: `0.5` — [`docs/preflight-schema.v0.5.json`](preflight-schema.v0.5.json)
 - Current downstream local agent contract schema: `10`
@@ -598,7 +602,7 @@ Downstream repos generated with
 - Current attestation schema: `0.5` — [`docs/attestation-schema.v0.5.json`](attestation-schema.v0.5.json)
 - Current registry schema: `0.4` — [`docs/registry-schema.v0.4.json`](registry-schema.v0.4.json)
 - Current org evidence bundle schema: `shipgate.org_evidence_bundle/v2` — [`docs/org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json)
-- Current host-grants inventory, baseline, and drift schemas: `0.3` — [`inventory`](host-grants-inventory-schema.v0.3.json), [`baseline`](host-grants-baseline-schema.v0.3.json), [`drift`](host-grants-drift-schema.v0.3.json)
+- Current host-grants inventory, baseline, and drift schemas: `0.4` — [`inventory`](host-grants-inventory-schema.v0.4.json), [`baseline`](host-grants-baseline-schema.v0.4.json), [`drift`](host-grants-drift-schema.v0.4.json)
 - Current trigger catalog schema: `0.4` — [`docs/triggers.json`](triggers.json)
 - Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
 - Current governance benchmark result schema: `0.2` — [`docs/governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json)
@@ -1044,7 +1048,7 @@ agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --jso
 ```
 
 In `agents-shipgate-reports/verifier.json`, read the fields below (full
-schema [`docs/verifier-schema.v0.17.json`](verifier-schema.v0.17.json)). **Lead
+schema [`docs/verifier-schema.v0.18.json`](verifier-schema.v0.18.json)). **Lead
 with `control.state`.** Every release and merge field below is a mirror or
 deterministic projection of `report.json`; the authorization evaluation is an
 operational overlay and cannot change those fields.
@@ -1289,8 +1293,8 @@ second verdict.
 agent-boundary-json` is the local static multi-host boundary command. The
 `--agent` value is caller identity, never a coverage selector. The command emits
 exactly one stdout JSON object using
-`schema_version: "shipgate.agent_boundary_result/v2"` and the schema in
-[`agent-boundary-result-schema.v2.json`](agent-boundary-result-schema.v2.json).
+`schema_version: "shipgate.agent_boundary_result/v3"` and the schema in
+[`agent-boundary-result-schema.v3.json`](agent-boundary-result-schema.v3.json).
 The old `codex-boundary-json` spelling remains a deprecated `0.16.x`
 compatibility projection of the same assessment.
 

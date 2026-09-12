@@ -48,7 +48,7 @@ index 0000000..1111111
 
     after = _snapshot(tmp_path)
     assert after == before
-    assert payload["schema_version"] == "shipgate.agent_boundary_result/v2"
+    assert payload["schema_version"] == "shipgate.agent_boundary_result/v3"
     assert payload["agent"] == "cursor"
     assert payload["actor"] == "cursor"
     assert payload["affected_hosts"] == ["codex"]

@@ -144,6 +144,14 @@ def _human_summary_lines(
     human_context: HumanArtifactContext | None,
 ) -> list[str]:
     lines = ["", "### Human summary"]
+    if verifier.host_comparison is not None:
+        from agents_shipgate.report.host_comparison import host_comparison_lines
+        lines.extend(host_comparison_lines(verifier.host_comparison, markdown=True))
+        lines.append("Advisory: no application release policy configured. This comparison grants no merge authority.")
+        if verifier.host_comparison.comparison_status != "comparable":
+            lines.extend(_next_actor_lines(verifier))
+        lines.append("Evidence: `verifier.json` contains the compared commits, source paths and inventory digests.")
+        return lines
     surface_first = bool(
         report is not None and should_render_surface_first(report, context=human_context)
     )
@@ -636,10 +644,18 @@ def _render_findings_comment(
     )
     title = (
         "## Agents Shipgate"
-        if surface_first
+        if surface_first or verifier.host_comparison is not None
         else f"## Agents Shipgate result: {verifier.merge_verdict}"
     )
     lines = [STICKY_MARKER, title]
+    if verifier.host_comparison is not None:
+        from agents_shipgate.report.host_comparison import host_comparison_lines
+        lines.extend(host_comparison_lines(verifier.host_comparison, markdown=True))
+        lines.append("Advisory: no application release policy configured. This comparison grants no merge authority.")
+        if verifier.host_comparison.comparison_status != "comparable":
+            lines.extend(_next_actor_lines(verifier))
+        lines.extend(_artifact_lines(verifier, links=False))
+        return _truncate_markdown_lines(lines, 6000, omission=_COMMENT_PROSE_OMISSION)
     if human_review_request is not None:
         lines.extend(human_review_lines(human_review_request))
     if surface_first and report is not None:

@@ -24,7 +24,7 @@ from urllib.parse import urlsplit, urlunsplit
 import yaml
 from pydantic import ValidationError
 
-from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS
+from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS, is_explicit_boundary_file_path
 from agents_shipgate.core.host_boundary import (
     _is_wildcard_allow,
     _is_write,
@@ -53,8 +53,9 @@ from agents_shipgate.schemas.host_grants import (
     HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
     HostGrantsBaselineV2,
     HostGrantsBaselineV3,
-    HostGrantsDriftV3,
-    HostGrantsInventoryV3,
+    HostGrantsBaselineV4,
+    HostGrantsDriftV4,
+    HostGrantsInventoryV4,
 )
 
 HOST_GRANTS_SCHEMA_VERSION = HOST_GRANTS_BASELINE_SCHEMA_VERSION
@@ -813,42 +814,96 @@ def _cursor_grants(data: Any, *, scope: HostScope, source: str) -> list[dict[str
     return grants
 
 
+def _workflow_permissions(value: Any, job: str) -> dict[str, Any]:
+    """Normalize one job's effective declaration, retaining unknown defaults."""
+    state = "explicit"
+    permissions: dict[str, str] = {}
+    if value is None:
+        state = "repository_default"
+    elif isinstance(value, str) and value in {"read-all", "write-all"}:
+        permissions = {"*": value.removesuffix("-all")}
+    elif isinstance(value, dict) and all(
+        isinstance(scope, str) and isinstance(level, str) and level in {"read", "write", "none"}
+        for scope, level in value.items()
+    ):
+        permissions = {scope: level for scope, level in sorted(value.items()) if level != "none"}
+    else:
+        state = "unresolved"
+    return {"job": job, "state": state, "permissions": permissions}
+
+
 def _workflow_grant(data: Any, *, source: str) -> dict[str, Any] | None:
     if not isinstance(data, dict):
         return None
     data = _normalize_workflow_keys(data)
     triggers = sorted(_trigger_names(data.get("on")))
     write_scopes: list[str] = []
-    write_all = False
+    effective_write_scopes: list[str] = []
+    permission_contexts: list[dict[str, Any]] = []
+    reusable_calls: list[dict[str, Any]] = []
 
     def collect(perms: Any, where: str) -> None:
-        nonlocal write_all
         if perms == "write-all":
-            write_all = True
             write_scopes.append(f"{where}: write-all")
         elif isinstance(perms, dict):
-            for scope_name, value in sorted(perms.items()):
+            for scope_name, value in sorted(perms.items(), key=lambda item: str(item[0])):
                 if _is_write(value):
                     write_scopes.append(f"{where}: {scope_name}: {value}")
 
     collect(data.get("permissions"), "<top-level>")
     jobs = data.get("jobs")
     if isinstance(jobs, dict):
-        for job_name, job in sorted(jobs.items()):
+        for job_name, job in sorted(jobs.items(), key=lambda item: str(item[0])):
             if isinstance(job, dict):
                 collect(job.get("permissions"), str(job_name))
+                value = job.get("permissions")
+                effective = _workflow_permissions(
+                    data.get("permissions") if value is None else value, str(job_name),
+                )
+                permission_contexts.append(effective)
+                effective_write_scopes.extend(
+                    f"{job_name}: " + ("write-all" if scope == "*" else f"{scope}: write")
+                    for scope, level in effective["permissions"].items() if level == "write"
+                )
+                uses = job.get("uses")
+                if isinstance(uses, str) and uses.strip():
+                    reusable_calls.append({
+                        "job": str(job_name),
+                        "uses": _sanitize_sensitive_string(uses.strip()),
+                        "secrets_inherit": job.get("secrets") == "inherit",
+                    })
     pull_target = "pull_request_target" in triggers
-    return {
-        **_grant_base(
-            host="github", scope="repository", source=source, kind="workflow",
-            identity=source, config=data,
-            access="admin" if write_all else ("write" if write_scopes or pull_target else "read"),
-            risk="critical" if write_all or pull_target else ("high" if write_scopes else "low"),
-        ),
+    write_all = any(entry.endswith(": write-all") for entry in effective_write_scopes)
+    unknown = not permission_contexts or any(
+        context["state"] != "explicit" for context in permission_contexts
+    )
+    has_read = any(context["permissions"] for context in permission_contexts)
+    inherits_secrets = any(call["secrets_inherit"] for call in reusable_calls)
+    projection = {
         "triggers": triggers,
         "pull_request_target": pull_target,
         "write_all": write_all,
         "write_scopes": sorted(write_scopes),
+        "permission_contexts": permission_contexts,
+        "effective_write_scopes": sorted(effective_write_scopes),
+        "reusable_calls": reusable_calls,
+    }
+    return {
+        **_grant_base(
+            host="github", scope="repository", source=source, kind="workflow",
+            identity=source, config={key: value for key, value in projection.items() if key != "write_scopes"},
+            access="admin" if write_all else (
+                "write" if effective_write_scopes or pull_target else (
+                    "external" if inherits_secrets else (
+                        "unknown" if unknown else ("read" if has_read else "none")
+                    )
+                )
+            ),
+            risk="critical" if write_all or pull_target else (
+                "high" if effective_write_scopes or inherits_secrets else ("unknown" if unknown else "low")
+            ),
+        ),
+        **projection,
     }
 
 
@@ -1045,7 +1100,7 @@ def _repository_paths(
                 if stat.S_ISDIR(metadata.st_mode):
                     if name not in skipped:
                         child_directories.append(Path(relative))
-                        if include_directory_candidates:
+                        if include_directory_candidates or is_explicit_boundary_file_path(relative):
                             candidates.append((candidate, relative))
                     continue
             except (OSError, ValueError) as exc:
@@ -1381,7 +1436,7 @@ def build_host_boundary_snapshot(
         "static_analysis_only": True,
         "runtime_session_verified": False,
     }
-    inventory = HostGrantsInventoryV3.model_validate(payload).model_dump(mode="json")
+    inventory = HostGrantsInventoryV4.model_validate(payload).model_dump(mode="json")
     return HostBoundarySnapshot(
         inventory=inventory, cache=cache, input_failures=dict(cache.input_failures),
     )
@@ -1398,7 +1453,7 @@ def host_audit_inventory(
 
     if snapshot is None:
         snapshot = build_host_boundary_snapshot(workspace, scope=scope, cache=cache)
-    inventory = HostGrantsInventoryV3.model_validate(snapshot.inventory)
+    inventory = HostGrantsInventoryV4.model_validate(snapshot.inventory)
     if inventory.scope != scope:
         raise ValueError(
             f"Host boundary snapshot scope {inventory.scope!r} does not match {scope!r}"
@@ -1449,7 +1504,7 @@ def build_host_grants_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
         "inventory_sha256": host_grants_sha256(normalized),
         "inventory": normalized,
     }
-    return HostGrantsBaselineV3.model_validate(payload).model_dump(mode="json")
+    return HostGrantsBaselineV4.model_validate(payload).model_dump(mode="json")
 
 
 def load_host_grants_baseline(path: Path) -> dict[str, Any]:
@@ -1493,13 +1548,14 @@ def load_host_grants_baseline_with_text(
                 "and repair or replace it deliberately."
             )
         return data, text
-    if version not in {"0.2", HOST_GRANTS_BASELINE_SCHEMA_VERSION}:
+    if version not in {"0.2", "0.3", HOST_GRANTS_BASELINE_SCHEMA_VERSION}:
         raise ValueError(
             f"Host-grants baseline {path} has unsupported schema version "
             f"{version!r}. A human must review migration or replacement."
         )
     try:
-        model = HostGrantsBaselineV2 if version == "0.2" else HostGrantsBaselineV3
+        model = {"0.2": HostGrantsBaselineV2, "0.3": HostGrantsBaselineV3,
+                 "0.4": HostGrantsBaselineV4}[version]
         parsed = model.model_validate(data).model_dump(mode="json")
     except ValidationError:
         return (
@@ -1665,9 +1721,24 @@ def diff_host_grants(baseline: dict[str, Any], current: dict[str, Any]) -> list[
     for grant_id in sorted(set(base_by_id) | set(current_by_id)):
         before = base_by_id.get(grant_id)
         after = current_by_id.get(grant_id)
-        if before != after:
+        if before != after and not _same_workflow_grant(before, after):
             changes.append({"grant_id": grant_id, "baseline": before, "current": after})
     return changes
+
+
+def _same_workflow_grant(before: dict | None, after: dict | None) -> bool:
+    if any(
+        not grant or grant.get("kind") != "workflow" or "permission_contexts" not in grant
+        for grant in (before, after)
+    ):
+        return False
+    # Raw declaration placement is retained for inspection, but replacing
+    # inherited permissions by an identical explicit map changes no grant.
+    ignored = {"write_scopes", "config_sha256"}
+    return (
+        {key: value for key, value in before.items() if key not in ignored}
+        == {key: value for key, value in after.items() if key not in ignored}
+    )
 
 
 def _diff_host_artifacts(
@@ -1755,10 +1826,30 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
             signals.append(f"{marker}_{prefix}: {after['host']}:{after['rule']}")
         elif kind in {"permission_mode", "sandbox", "additional_path", "plugin_or_app", "hook"}:
             signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
-        elif kind == "workflow" and (
-            after.get("write_all") or after.get("write_scopes") or after.get("pull_request_target")
-        ):
-            signals.append(f"workflow_write_{prefix}: {after['source']}")
+        elif kind == "workflow":
+            previous = before or {}
+            old_writes = set(previous.get("effective_write_scopes", previous.get("write_scopes", [])))
+            new_writes = set(after.get("effective_write_scopes", after.get("write_scopes", [])))
+            unknown_before = {
+                context["job"] for context in previous.get("permission_contexts", [])
+                if context["state"] != "explicit"
+            }
+            added_writes = {
+                entry for entry in new_writes - old_writes
+                if f"{entry.split(': ', 1)[0]}: write-all" not in old_writes
+                and entry.split(': ', 1)[0] not in unknown_before
+            }
+            if added_writes or (
+                after.get("pull_request_target") and not previous.get("pull_request_target")
+            ):
+                signals.append(f"workflow_write_{prefix}: {after['source']}")
+            def inherited_calls(grant):
+                return {
+                    (call["job"], call["uses"])
+                    for call in grant.get("reusable_calls", []) if call["secrets_inherit"]
+                }
+            if inherited_calls(after) - inherited_calls(previous):
+                signals.append(f"workflow_secrets_inherited_{prefix}: {after['source']}")
     return sorted(set(signals))
 
 
@@ -1787,7 +1878,7 @@ def _incomparable_payload(
         # and also route to a human before any first acknowledgement.
         "next_action": None,
     }
-    return HostGrantsDriftV3.model_validate(payload).model_dump(mode="json")
+    return HostGrantsDriftV4.model_validate(payload).model_dump(mode="json")
 
 
 def build_host_drift_payload(
@@ -1836,7 +1927,7 @@ def build_host_drift_payload(
         "incomparable_reasons": [],
         "next_action": None,
     }
-    return HostGrantsDriftV3.model_validate(payload).model_dump(mode="json")
+    return HostGrantsDriftV4.model_validate(payload).model_dump(mode="json")
 
 
 def render_host_audit_markdown(

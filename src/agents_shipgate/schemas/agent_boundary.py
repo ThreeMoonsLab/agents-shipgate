@@ -15,8 +15,9 @@ from agents_shipgate.schemas.agent_result_v1 import (
     AgentResultPolicy,
     AgentResultViolatedRule,
 )
+from agents_shipgate.schemas.capability_diff import CapabilityDiffRow
 
-AGENT_BOUNDARY_RESULT_SCHEMA_VERSION = "shipgate.agent_boundary_result/v2"
+AGENT_BOUNDARY_RESULT_SCHEMA_VERSION = "shipgate.agent_boundary_result/v3"
 
 
 class BoundaryHostCoverage(BaseModel):
@@ -76,9 +77,13 @@ class AgentBoundaryResultV1(AgentResultV2):
         },
     )
 
-    schema_version: Literal["shipgate.agent_boundary_result/v2"] = (
+    schema_version: Literal["shipgate.agent_boundary_result/v3"] = (
         AGENT_BOUNDARY_RESULT_SCHEMA_VERSION
     )
+    rows: list[CapabilityDiffRow] = Field(default_factory=list)
+    comparison_status: Literal["comparable", "incomparable", "not_attempted"] = "not_attempted"
+    incomparable_reasons: list[str] = Field(default_factory=list)
+    comparison_scope: Literal["repository", "changed_host_files"] = "repository"
     actor: AgentResultAgent
     input_mode: Literal["worktree", "git_range", "provided_diff"]
     scope: Literal["repository"] = "repository"
@@ -97,6 +102,16 @@ class AgentBoundaryResultV1(AgentResultV2):
     static_analysis_only: Literal[True] = True
     runtime_session_verified: Literal[False] = False
     excluded_scopes: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _read_previous_boundary(cls, value):
+        if isinstance(value, dict) and value.get("schema_version") == "shipgate.agent_boundary_result/v2":
+            fields = {"rows", "comparison_status", "incomparable_reasons", "comparison_scope"}
+            if fields.intersection(value):
+                raise ValueError("Legacy boundary results cannot claim capability comparison evidence")
+            return {**value, "schema_version": AGENT_BOUNDARY_RESULT_SCHEMA_VERSION}
+        return value
 
     @model_validator(mode="after")
     def _coverage_controls_completion(self) -> AgentBoundaryResultV1:
