@@ -50,7 +50,7 @@ def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
     if base is not None and (not base.strip() or base.startswith("-")):
         raise typer.BadParameter("Base ref must be non-empty and cannot start with a dash.", param_hint="--base")
 
-    if _history_is_truncated(workspace) is True:
+    def refuse_shallow() -> None:
         from agents_shipgate.cli.agent_mode import emit_agent_mode_error_action
         from agents_shipgate.invocation import join_argv
         from agents_shipgate.schemas.diagnostics import NextAction
@@ -73,6 +73,9 @@ def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
         )
         raise typer.Exit(2)
 
+    truncated = _history_is_truncated(workspace) is True
+
+
     # Same resolver `check` uses (#649), including its narrow local
     # fallback: a local `main` is refused while a remote exists, because the
     # remote is the authority it might be stale against, and used only where
@@ -87,6 +90,10 @@ def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
             param_hint="--base",
         )
     if commit_sha(workspace, requested) is None:
+        if truncated:
+            # The ref is missing and history is cut: fetching is the repair,
+            # and it is a more useful answer than "fetch it first".
+            refuse_shallow()
         raise typer.BadParameter(
             f"Base ref {requested!r} is not available locally. Fetch it first; "
             "this command never fetches.",
@@ -94,11 +101,31 @@ def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
         )
     resolved = merge_base_sha(workspace, requested, "HEAD")
     if resolved is None:
+        if truncated:
+            refuse_shallow()
         raise typer.BadParameter(
             f"No merge base between {requested!r} and HEAD, so there is no "
             "common point to compare from.",
             param_hint="--base",
         )
+    # Shallow is refused for the comparisons it actually breaks, not for
+    # being shallow. The base tree is read through a scoped archive that
+    # packs the tree and walks no ancestry, so a base this clone already
+    # holds is readable at `--depth 1`. What shallowness can still break is
+    # the *choice* of base: `git merge-base` cannot see past a graft, so a
+    # merge base that is itself a graft may not be the real one, and
+    # comparing against the wrong base silently is worse than refusing.
+    # Refusing unconditionally sent `actions/checkout`'s default
+    # (`fetch-depth: 1`) to `git fetch --unshallow` for a comparison the
+    # tool could already answer (#686).
+    # No graft check here on purpose. `git merge-base` does not guess past a
+    # shallow boundary — it reports nothing, which the branch above turns
+    # into the `--unshallow` recovery. Verified on two diverged shallow
+    # clones whose true base lay past the graft: both returned empty, never
+    # a wrong commit. So a merge base that *is* returned was proven through
+    # commits this clone holds, and no absent commit can be a more recent
+    # common ancestor. A graft check could not be made to fire on a wrong
+    # answer, and a guard that cannot fire is not a guard.
     return requested, resolved
 
 

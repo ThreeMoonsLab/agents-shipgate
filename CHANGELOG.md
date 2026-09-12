@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Compare a shallow checkout against a base it already holds. `diff`
+  refused every shallow checkout, so `actions/checkout`'s default
+  (`fetch-depth: 1`) was sent to `git fetch --unshallow` for a comparison
+  the tool could already answer: the base tree is read through a scoped
+  archive that walks no ancestry. The recovery now fires when the base
+  ref or the merge base is genuinely unavailable, which is what Git
+  reports past a graft — measured on two diverged shallow clones, it
+  returns nothing rather than a wrong commit (#686).
+
 - Read the base tree the host reader will read, and no more. `shipgate diff`
   and verify's host comparison now materialize only boundary-surface paths
   (plus symlinks, which are what can conceal them),

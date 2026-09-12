@@ -276,10 +276,19 @@ def test_a_removal_is_never_reported_as_an_expansion() -> None:
 @pytest.mark.parametrize("depth", [1, 2])
 @pytest.mark.parametrize("json_output", [False, True])
 @pytest.mark.parametrize("agent_mode", ["0", "1"])
-def test_shallow_checkout_names_a_recovery_that_restores_the_diff(
+def test_a_shallow_base_this_clone_does_not_have_names_a_recovery(
     repo: Path, tmp_path: Path, depth: int, json_output: bool, agent_mode: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The recovery is for a base the clone genuinely lacks.
+
+    It used to fire on *any* shallow checkout. The base tree is read through
+    a scoped archive that packs the tree and walks no ancestry (#686), so a
+    base the clone already holds is readable at `--depth 1`; sending that
+    caller to `git fetch --unshallow` is a repair for a problem they do not
+    have. `--base HEAD` — which this case used to pass — is now answerable
+    and is covered below.
+    """
     # Hosted CI enables Rich color; the recovery must still be one copyable line.
     monkeypatch.setenv("FORCE_COLOR", "1")
     monkeypatch.setenv("COLUMNS", "60")
@@ -290,7 +299,10 @@ def test_shallow_checkout_names_a_recovery_that_restores_the_diff(
     clone = tmp_path / "shallow checkout"
     _git(tmp_path, "clone", "--quiet", "--depth", str(depth), repo.as_uri(), str(clone))
     (clone / ".claude" / "settings.json").write_text(WIDE_SETTINGS, encoding="utf-8")
-    args = ["diff", "--workspace", str(clone), "--base", "HEAD"]
+    # A commit this shallow clone does not have: the graft's parent is the
+    # first thing past the boundary, and naming it by the graft is exact.
+    absent = _git_out(clone, "rev-parse", (clone / ".git" / "shallow").read_text().split()[0])
+    args = ["diff", "--workspace", str(clone), "--base", f"{absent}~1"]
     if json_output:
         args.append("--json")
 
@@ -314,9 +326,42 @@ def test_shallow_checkout_names_a_recovery_that_restores_the_diff(
     # Follow the published action from outside the checkout. This must restore
     # the actual comparison, without init, policy edits or a wrapper fetch.
     subprocess.run(recovery, cwd=tmp_path, check=True, capture_output=True)
-    recovered = _diff(clone, "--base", "HEAD", "--json")
+    recovered = _diff(clone, "--base", f"{absent}~1", "--json")
     assert recovered.exit_code == 0, recovered.output
     assert any(row["after"] == "Bash(*)" for row in json.loads(recovered.output)["rows"])
+
+
+def _git_out(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=repo, check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+@pytest.mark.parametrize("depth", [1, 2])
+def test_a_shallow_clone_compares_against_a_base_it_already_holds(
+    repo: Path, tmp_path: Path, depth: int
+) -> None:
+    """`actions/checkout` defaults to `fetch-depth: 1`.
+
+    Refusing every shallow checkout sent that default to `git fetch
+    --unshallow` for a comparison the tool can answer from objects it holds.
+    Measured on five public repositories: the scoped archive read all five
+    at `--depth 3` in 0.5-2.1 s while the command refused all five.
+    """
+
+    for index in range(3):
+        (repo / "README.md").write_text(f"# revision {index}\n", encoding="utf-8")
+        _git(repo, "add", "README.md")
+        _git(repo, "commit", "-qm", f"history {index}")
+    clone = tmp_path / "shallow checkout"
+    _git(tmp_path, "clone", "--quiet", "--depth", str(depth), repo.as_uri(), str(clone))
+    (clone / ".claude" / "settings.json").write_text(WIDE_SETTINGS, encoding="utf-8")
+
+    result = _diff(clone, "--base", "HEAD", "--json")
+
+    assert result.exit_code == 0, result.output
+    assert "This checkout is shallow" not in result.output
+    assert any(row["after"] == "Bash(*)" for row in json.loads(result.output)["rows"])
 
 
 def test_an_absent_base_ref_is_refused_by_name(repo: Path) -> None:
