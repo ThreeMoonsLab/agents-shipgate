@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Run the FastMCP Context-injection SDK cross-checks on the SDK versions the
+  `[mcp]` extra allows. FastMCP was renamed to MCPServer in mcp 2.x and the
+  extra requires `mcp>=2.1.1,<3`, but both cross-checks imported only the 1.x
+  module, so the eight cases comparing the static reader with the real SDK's
+  `find_context_parameter` skipped on every install that satisfies the extra,
+  CI included; they still ran, but only against an out-of-range mcp 1.x such as 1.27.2. They now try the 2.x location first and the
+  1.x one second, skip only when `mcp` is absent, and fail when an installed
+  SDK exposes neither. All eight pass on mcp 2.2.0 and on 1.27.2 (#716).
+
 - Freeze the report contract at `1.0` and publish what that number promises.
   `report_schema_version` moves `0.43` → `1.0` and runtime contract `33` → `34`;
   `minimum_control_contract_version` stays `21`. The shape does not change:
