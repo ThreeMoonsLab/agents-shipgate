@@ -31,8 +31,8 @@
     {
       "id": "claude_code",
       "hosts": ["claude-code"],
-      "exact_paths": [".claude/settings.json", ".claude/settings.local.json", ".mcp.json", "CLAUDE.md"],
-      "globs": ["**/.mcp.json", "**/CLAUDE.md", ".claude/commands/*", ".claude/commands/**", ".claude/skills/*/SKILL.md", ".claude/skills/**/SKILL.md"],
+      "exact_paths": [".claude/settings.json", ".claude/settings.local.json", ".claude/hooks/hooks.json", ".mcp.json", "CLAUDE.md"],
+      "globs": ["**/.claude/hooks/hooks.json", "**/.mcp.json", "**/CLAUDE.md", ".claude/commands/*", ".claude/commands/**", ".claude/skills/*/SKILL.md", ".claude/skills/**/SKILL.md"],
       "experimental": false
     },
     {

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Read `.claude/hooks/hooks.json`. A `SessionStart` command is executable code
+  around the agent and was invisible; the document is the same shape as
+  `.codex/hooks.json`, which has been read since the Codex adapter landed, so
+  only the registry entry was missing. Hook rows now name their event rather
+  than rendering as "hook". Found by counting disagreements between the
+  adapter registry and an independent census of host paths, now committed at
+  `benchmark/cold-start/census.py`: it prints unexplained coverage gaps,
+  issue-owned gaps and census bugs on every run, so a path nobody registered
+  can no longer look like a change that did nothing (#689).
+
 - Keep a directory at a recognized host configuration path visible as a failed
   input. Host audits, worktree diffs and committed-ref comparisons no longer
   mistake `.mcp.json/` for an absent configuration and report complete coverage.
