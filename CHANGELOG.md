@@ -12,7 +12,7 @@
   every step of its history. An explicit null is now read as an absent key,
   which is what it means. Wrong types are still wrong, unknown keys are
   still unknown, and a skill with an empty `name` or `description` still
-  fails on identity rather than sliding through (#711).
+  fails on identity rather than sliding through (#712).
 
 - Manifest-free host PR review now names capability changes in verify, PR comments,
   and check. Interactive check defaults to readable text; agent mode keeps JSON.

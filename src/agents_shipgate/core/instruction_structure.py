@@ -243,6 +243,10 @@ def classify_instruction(path: str, text: str | None) -> InstructionStructure | 
         commands = [] if profile == "cursor_instruction/v1" else _preprocessing_commands(body)
         if commands is None:
             return unresolved("preprocessing_unresolved")
+        # Optional null fields carry the same declaration as an omitted key.
+        # Normalize only after unknown-key/type/required-field validation;
+        # nested metadata and actual permission or hook values stay intact.
+        metadata = {key: value for key, value in metadata.items() if value is not None}
         structure = _digest([profile, metadata, commands])
     except (yaml.YAMLError, RecursionError, TypeError, ValueError):
         return unresolved("frontmatter_invalid")

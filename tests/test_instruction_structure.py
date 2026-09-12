@@ -209,3 +209,28 @@ def test_a_skill_still_needs_a_real_name_and_description() -> None:
         )
         assert resolved.status == "unresolved", fields
         assert resolved.reason == "skill_identity_missing", fields
+
+
+@pytest.mark.parametrize(
+    ("path", "required", "optional"),
+    [
+        (".cursor/rules/demo.mdc", "", "globs"),
+        (".cursor/rules/demo.mdc", "", "alwaysApply"),
+        (".claude/commands/demo.md", "", "allowed-tools"),
+        (".claude/commands/demo.md", "", "hooks"),
+        (".agents/skills/demo/SKILL.md", "name: demo\ndescription: Test\n", "allowed-tools"),
+    ],
+)
+def test_optional_null_and_omitted_fields_have_the_same_structure(path, required, optional):
+    absent = classify_instruction(path, f"---\n{required}---\nBody.\n")
+    explicit_null = classify_instruction(path, f"---\n{required}{optional}:\n---\nBody.\n")
+    assert absent.status == explicit_null.status == "structured"
+    assert absent.sha256 == explicit_null.sha256
+
+
+def test_normalizing_null_does_not_hide_an_actual_permission_change():
+    path = ".claude/commands/demo.md"
+    empty = classify_instruction(path, "---\nallowed-tools:\n---\nBody.\n")
+    granted = classify_instruction(path, "---\nallowed-tools: Bash(*)\n---\nBody.\n")
+    assert empty.status == granted.status == "structured"
+    assert empty.sha256 != granted.sha256
