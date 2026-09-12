@@ -49,7 +49,7 @@ def test_old_models_reject_structural_claims_and_old_baseline_is_not_restamped(r
     assert drift["has_drift"] is None
     assert "baseline_instruction_structure_unavailable" in drift["incomparable_reasons"]
     assert path.read_bytes() == captured
-    schema = json.loads((ROOT / "docs/host-grants-inventory-schema.v0.3.json").read_text())
+    schema = json.loads((ROOT / "docs/host-grants-inventory-schema.v0.4.json").read_text())
     Draft202012Validator(schema).validate(inventory)
 
 

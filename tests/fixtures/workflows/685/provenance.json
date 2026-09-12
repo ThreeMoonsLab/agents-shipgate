@@ -1,0 +1,32 @@
+[
+  {
+    "fixture": "base/release.yml",
+    "source_commit": "93f38e988aaacdbca6b4a00cf9850b4b9b0dfbc9",
+    "source_path": ".github/workflows/release.yml",
+    "source_sha256": "ed59bf59a2d36e929edf0e8f056611acc2070b2d52ae3b03e9cc0dd09cb4bc3d"
+  },
+  {
+    "fixture": "delegation/release.yml",
+    "source_commit": "a757e2a7b95327c296cae74d0b2e96da56e16dfc",
+    "source_path": ".github/workflows/release.yml",
+    "source_sha256": "3fe74f9f5ac0dce2815a617ca287ce9b3fd9c2ad4497bc0afa35427501086ddb"
+  },
+  {
+    "fixture": "delegation/sourceforge-mirror.yml",
+    "source_commit": "a757e2a7b95327c296cae74d0b2e96da56e16dfc",
+    "source_path": ".github/workflows/sourceforge-mirror.yml",
+    "source_sha256": "ac7bb4d7358dd393bb285abf5c6f597ac4f74f8d445b38e1c9ea44576ad39312"
+  },
+  {
+    "fixture": "script/release.yml",
+    "source_commit": "2ea7e88c7d38bf74633e1dc31db7c0fd406d4b64",
+    "source_path": ".github/workflows/release.yml",
+    "source_sha256": "3fe74f9f5ac0dce2815a617ca287ce9b3fd9c2ad4497bc0afa35427501086ddb"
+  },
+  {
+    "fixture": "script/sourceforge-mirror.yml",
+    "source_commit": "2ea7e88c7d38bf74633e1dc31db7c0fd406d4b64",
+    "source_path": ".github/workflows/sourceforge-mirror.yml",
+    "source_sha256": "75d83e5e0fb6156ef5d1fa4d34fbf18f2f9350f1d2275349f0696d0a1224a025"
+  }
+]

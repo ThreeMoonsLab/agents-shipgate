@@ -1,0 +1,33 @@
+name: fixture
+'on':
+- workflow_dispatch
+jobs:
+  build-ui:
+    runs-on: ubuntu-latest
+    steps:
+    - run: echo fixture
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - run: echo fixture
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - run: echo fixture
+  release:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+    - run: echo fixture
+  docker:
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-latest
+    steps:
+    - run: echo fixture
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+    - run: echo fixture

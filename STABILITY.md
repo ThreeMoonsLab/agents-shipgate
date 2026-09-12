@@ -39,6 +39,33 @@ for reproducible CI.
 
 ---
 
+## Workflow capability comparison (contract v34, #685)
+
+Host inventory, baseline and drift advance from `0.3` to `0.4`. Workflow
+grants now carry per-job `permission_contexts`, `effective_write_scopes` and
+`reusable_calls` (job, target
+and `secrets_inherit`). Their fingerprint describes this static permission
+projection; the separate artifact digest still records workflow content.
+Editing a script therefore remains artifact drift without becoming a
+permission-change row. Effective writes respect explicit job overrides,
+including `{}`; removing an override can reveal inherited write access or
+restore unknown repository defaults. Equivalent inherited and explicit grants
+are quiet, and overridden workflow defaults do not become job authority.
+
+New inherited-secret recipients are named in capability rows, including a
+changed reusable target/ref. This is a declaration that the caller forwards
+its available secrets, not proof of the callee's actions or access to every
+organization secret. Named secret mappings, environment approvals, dynamic
+expressions and transitive callee behavior are outside this comparison.
+See [GitHub's reusable workflow contract](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations).
+
+The `0.1`–`0.3` readers and schemas remain unchanged. A legacy baseline is
+readable but deliberately incomparable: it did not record reusable recipients
+and cannot prove their absence. Preserve the old evidence and explicitly
+review a replacement baseline. Git-backed `diff` scans both refs with the
+current reader and needs no saved-baseline migration. Runtime contract v34
+advertises the new versions; the operational control contract stays unchanged.
+
 ## Qualification coverage diagnostics (v6, #520)
 
 `EvidenceGap.recovery` is optional explanatory metadata (#561) on the existing

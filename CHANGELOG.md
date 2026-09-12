@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Compare workflow permissions rather than whole-file edits in host diffs.
+  Script-only changes no longer appear as permission changes, and an
+  existing write grant is not reannounced as a widening. Effective job
+  permissions respect explicit overrides; reusable calls that inherit
+  secrets name the receiving workflow. Contract v34 and host schema v0.4
+  preserve legacy readers without inventing missing recipient evidence
+  (#685).
+
 - Read literal TypeScript MCP tool descriptions from both SDK registration
   shapes. Only the options object's own direct description is used; later
   overrides invalidate stale text, and a later explicit literal can restore

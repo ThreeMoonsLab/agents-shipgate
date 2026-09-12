@@ -1,5 +1,7 @@
 # Current Agent Contract
 
+Runtime contract v34 advertises host inventory, baseline and drift schema `0.4`: workflow permission projections and reusable secret recipients. Operational control is unchanged; older baselines cannot prove that unrecorded recipients were absent. See [the migration note](../STABILITY.md#workflow-capability-comparison-contract-v34-685).
+
 Runtime contract v33 adds `host_boundary_candidates[]` and
 `host_discovery_incomplete_paths[]` to discovery. They describe recognized
 configuration paths and traversal the bounded census could not see through,
@@ -554,7 +556,7 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `33` (minimum control contract: `21`)
+- Runtime contract: `34` (minimum control contract: `21`)
 - Current report schema: `0.43` — [`docs/report-schema.v0.43.json`](report-schema.v0.43.json)
 - Current packet schema: `0.18` — [`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
@@ -577,7 +579,7 @@ Downstream repos generated with
 - Current attestation schema: `0.5` — [`docs/attestation-schema.v0.5.json`](attestation-schema.v0.5.json)
 - Current registry schema: `0.4` — [`docs/registry-schema.v0.4.json`](registry-schema.v0.4.json)
 - Current org evidence bundle schema: `shipgate.org_evidence_bundle/v2` — [`docs/org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json)
-- Current host-grants inventory, baseline, and drift schemas: `0.3` — [`inventory`](host-grants-inventory-schema.v0.3.json), [`baseline`](host-grants-baseline-schema.v0.3.json), [`drift`](host-grants-drift-schema.v0.3.json)
+- Current host-grants inventory, baseline, and drift schemas: `0.4` — [`inventory`](host-grants-inventory-schema.v0.4.json), [`baseline`](host-grants-baseline-schema.v0.4.json), [`drift`](host-grants-drift-schema.v0.4.json)
 - Current trigger catalog schema: `0.4` — [`docs/triggers.json`](triggers.json)
 - Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
 - Current governance benchmark result schema: `0.2` — [`docs/governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json)
