@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Lead the Cursor instruction surface with `shipgate diff`. It opened with
+  the control envelope, so an agent following it reported "a human must
+  review" without naming what changed, while `AGENTS.md` had led with the
+  named rows since #651. The generated file now names the row fields, says
+  a covered comparison with no rows is a real answer, and repeats that a
+  row is a description and never a permission. The committed rule file and
+  the copyable snippet in `docs/target-repo-agent-snippets.md` are
+  regenerated from the one renderer; both are pinned to it by tests (#662).
+
 - Read `.claude/hooks/hooks.json`. A `SessionStart` command is executable code
   around the agent and was invisible; the document is the same shape as
   `.codex/hooks.json`, which has been read since the Codex adapter landed, so
