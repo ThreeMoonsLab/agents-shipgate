@@ -79,6 +79,8 @@ def test_legacy_operational_reader_preserves_deny_list_without_synthesizing_rule
     current = model.model_dump(mode="json")
     legacy = copy.deepcopy(current)
     legacy.pop("conditional_file_edits")
+    if artifact == "verifier":
+        legacy.pop("host_comparison")
     legacy["forbidden_file_edits"] = ["**/AGENTS.md"]
     key = "verifier_schema_version" if artifact == "verifier" else "schema_version"
     legacy[key] = "0.16" if artifact == "verifier" else "shipgate.agent_handoff/v8"
@@ -94,6 +96,7 @@ def test_legacy_operational_reader_preserves_deny_list_without_synthesizing_rule
 def test_v016_migration_cannot_fill_missing_authority_or_input_health(missing):
     current = VerifierArtifact.model_validate(_verifier_payload()).model_dump(mode="json")
     current.pop("conditional_file_edits")
+    current.pop("host_comparison")
     current["verifier_schema_version"] = "0.16"
     schema = json.loads((ROOT / "docs/verifier-schema.v0.16.json").read_text())
     Draft202012Validator(schema).validate(current)

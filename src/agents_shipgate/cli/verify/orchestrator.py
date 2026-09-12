@@ -422,6 +422,26 @@ def run_verify(
     )
 
     if not config_path.is_file():
+        from .host_comparison import compare_host_refs, host_comparison_failure
+
+        # A manifest-free host comparison is advisory evidence, not a synthetic
+        # application policy. Explicit application inputs retain their failure.
+        host_comparison = None
+        if ci_mode != "strict" and not any((baseline, policy_packs, diff_from, authorization, fail_on)):
+            try:
+                host_comparison = compare_host_refs(
+                    workspace=git_root, base=base, head=head if archive_head else None,
+                    auto_base=auto_base, config_relative=config_relative, out_dir=out_dir,
+                )
+            except (OSError, ValueError, RuntimeError, ConfigError) as exc:
+                host_comparison = host_comparison_failure(git_root, head if archive_head else None, exc)
+        if host_comparison is not None:
+            return run_preview(
+                workspace=workspace, config=config, base=base,
+                head=head if archive_head else None, out=out,
+                pr_comment_style=pr_comment_style, auto_base=auto_base,
+                _host_comparison=host_comparison, _operation="verify",
+            )
         preview_command = _preview_verify_command(
             workspace=git_root,
             config=config_relative,
@@ -4761,7 +4781,7 @@ def _publish_run_control(
         # directory belong to some earlier run.  Binding them would present two
         # generations as one current artifact set.
         artifact_keys=(
-            VERIFIER_ROUTE_CONTROL_ARTIFACT_KEYS if operation == "preview" else None
+            VERIFIER_ROUTE_CONTROL_ARTIFACT_KEYS if operation == "preview" or verifier.host_comparison is not None else None
         ),
     )
 
@@ -4797,6 +4817,8 @@ def _current_control_workspace_identity(
     directory it was pointed at to find the pointer at all.
     """
 
+    if verifier.host_comparison is not None and verifier.host_comparison.input_identity is not None:
+        return verifier.host_comparison.input_identity
     plan_path = out_dir / "verification-plan.json"
     if plan_path.is_file() and not plan_path.is_symlink():
         try:
@@ -5968,6 +5990,8 @@ def run_preview(
     out: Path | None,
     pr_comment_style: str = "capability-review",
     auto_base: bool = False,
+    _host_comparison=None,
+    _operation: str = "preview",
 ) -> tuple[VerifierArtifact, None, int]:
     """Lightweight relevance check for ``agents-shipgate verify --preview``.
 
@@ -6004,7 +6028,7 @@ def run_preview(
     # previous run left behind rather than leaving it current beside a preview.
     begin_current_control(
         out_dir,
-        operation="preview",
+        operation=_operation,
         reason=(
             "A verification preview is in progress; no decision in this "
             "directory is current until it publishes one."
@@ -6099,6 +6123,16 @@ def run_preview(
         head=head,
         base=base,
     )
+    host_comparison = _host_comparison
+    if host_comparison is None and not manifest_present and diff_input is None:
+        from .host_comparison import compare_host_refs, host_comparison_failure
+        try:
+            host_comparison = compare_host_refs(
+                workspace=root, base=base, head=head, auto_base=auto_base,
+                config_relative=config_relative, out_dir=out_dir,
+            )
+        except (OSError, ValueError, RuntimeError, ConfigError) as exc:
+            host_comparison = host_comparison_failure(root, head, exc)
     resolution = preview_scope.resolution
     scope = resolution.scope
     scoped_config = (
@@ -6286,6 +6320,24 @@ def run_preview(
             why="Shipgate is already set up here; run verify on the PR diff.",
         )
         headline = "Shipgate is configured; run verify on the PR to get a merge verdict."
+    elif host_comparison is not None:
+        from agents_shipgate.invocation import join_argv
+        next_action = CodingAgentCommandAction(
+            kind="discover",
+            command=join_argv(["agents-shipgate", "audit", "--host", "--workspace", str(root), "--json"]),
+            why="Read the repository-declared host inventory and its coverage limits; no manifest or baseline is required.",
+        )
+        if "shallow_history" in host_comparison.incomparable_reasons:
+            next_action = CodingAgentFetchBaseAction(
+                kind="fetch_base", expects="complete Git history",
+                why="The checkout is shallow. Run git fetch --unshallow (or use fetch-depth: 0 in CI), then rerun the same comparison.",
+            )
+        headline = (
+            f"{len(host_comparison.rows)} repository-declared host capability change(s). "
+            "Advisory comparison only; no application release policy configured."
+            if host_comparison.comparison_status == "comparable"
+            else "Host comparison is incomplete; review its input limits before interpreting changes."
+        )
     elif resolution.contested:
         # Several projects own part of this change. `init` at the root would
         # refuse deterministically, so recommending it would be recommending
@@ -6368,7 +6420,8 @@ def run_preview(
         execution="not_run",
         head_status="not_run",
         head_exit_code=0,
-        mode="preview",
+        host_comparison=host_comparison,
+        mode="preview" if _operation == "preview" else "advisory",
         merge_verdict="unknown",
         applicability="not_evaluated",
         can_merge_without_human=False,
@@ -6398,7 +6451,7 @@ def run_preview(
         # A preview is never a merge decision.  Scoping the pointer to the
         # preview operation makes "complete" unrepresentable for this run, so
         # an agent cannot read a preview as authorization to finish.
-        operation="preview",
+        operation=_operation,
         config_path=config_path,
         config_logical_path=config_relative.as_posix(),
         baseline_path=None,

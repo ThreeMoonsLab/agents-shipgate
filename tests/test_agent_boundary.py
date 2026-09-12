@@ -692,7 +692,7 @@ def test_header_only_cli_and_mcp_never_complete(tmp_path: Path) -> None:
 
     cli = runner.invoke(
         app,
-        ["check", "--workspace", str(tmp_path), "--diff", str(diff_path)],
+        ["check", "--workspace", str(tmp_path), "--diff", str(diff_path), "--format", "agent-boundary-json"],
     )
     assert cli.exit_code == 0, cli.output
     cli_payload = json.loads(cli.output)
@@ -712,7 +712,7 @@ def test_cli_and_mcp_never_serialize_permission_argument_secrets(tmp_path: Path)
     diff_path.write_text(diff, encoding="utf-8")
     cli = runner.invoke(
         app,
-        ["check", "--workspace", str(tmp_path), "--diff", str(diff_path)],
+        ["check", "--workspace", str(tmp_path), "--diff", str(diff_path), "--format", "agent-boundary-json"],
     )
     assert cli.exit_code == 0, cli.output
     mcp = shipgate_check(workspace=str(tmp_path), diff_text=diff)

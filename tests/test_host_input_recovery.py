@@ -302,7 +302,7 @@ def test_existing_closed_schemas_accept_recovery_projection(tmp_path: Path, monk
     monkeypatch.setattr(IdentityBoundReadSession, "finish", fail)
     snapshot = build_host_boundary_snapshot(tmp_path)
     for name, payload in (
-        ("agent-boundary-result-schema.v2.json", _result(tmp_path, snapshot)),
+        ("agent-boundary-result-schema.v3.json", _result(tmp_path, snapshot)),
         ("host-grants-inventory-schema.v0.4.json", snapshot.inventory),
     ):
         jsonschema.validate(payload, json.loads((Path("docs") / name).read_text()))

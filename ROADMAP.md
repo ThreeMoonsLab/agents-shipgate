@@ -67,8 +67,10 @@ Changing this roadmap neither changes that workflow nor clears its gates.
 The 2026-09-10 study measured an older source checkpoint, not today's installed
 product. Since then #649, #650, #651 and #652 delivered default comparison,
 terminating next actions, host diff and clearer output; #679 delivered Go MCP
-description extraction. At `ce894efb`, permission semantics (#678) and
-TypeScript descriptions (#682) are still open PRs. The next question is whether
+description extraction. At `d27c8cc0`, TypeScript descriptions (#682), shallow
+recovery (#692 / #683), and effective workflow permissions and reusable-secret
+recipients (#695 / #685) are merged. Permission semantics (#678) remains open.
+The next question is whether
 an actual installed candidate delivers the repaired workflow with bounded noise,
 coverage and latency.
 
@@ -91,7 +93,7 @@ not a gate on the first ready candidate.
 | Milestone | Window | Exit evidence | Tracker |
 | --- | --- | --- | --- |
 | v1.0 M1 — installable and navigable | to 2026-10-10 | a documented clean install executes the candidate's expected contract and its Action ref resolves; all widenings in the first-value fixture are named in <= 2 commands and <= 2 minutes; emitted next-action chains terminate | [#644](https://github.com/ThreeMoonsLab/agents-shipgate/issues/644) |
-| v1.0 M2 — diff first value | to 2026-11-10 | selected host route needs zero manifest fields; CLI, PR and skill show the same supported changes; 50 fixed public PRs measure precision >= 0.95, widening recall >= 0.90 and benign zero-row rate >= 95%; >= 24/30 public repositories yield a correct covered comparison in <= 2 commands and <= 5 minutes | [#645](https://github.com/ThreeMoonsLab/agents-shipgate/issues/645) |
+| v1.0 M2 — diff first value | to 2026-11-10 | selected host route needs zero manifest fields; CLI, PR and maintained coding-agent JSON show the same supported changes; 50 fixed public PRs measure precision >= 0.95, widening recall >= 0.90 and benign zero-row rate >= 95%; >= 24/30 public repositories yield a correct covered comparison in <= 2 commands and <= 5 minutes | [#645](https://github.com/ThreeMoonsLab/agents-shipgate/issues/645) |
 | v1.0 M3 — release ready | to 2026-12-10 | repeat-change CI/local fixtures, truthful human routing, supported-reader regressions, compatibility/migration and clean-install/upgrade/Action smoke all pass against the same candidate; its publication path and claims are resolved | [#646](https://github.com/ThreeMoonsLab/agents-shipgate/issues/646) |
 
 Windows are capacity estimates. An unmet exit narrows scope or triggers a
@@ -112,11 +114,11 @@ objective.
    channel and records the remaining stable-publication decision. Replay the
    downloaded candidate and actual Action (#570), keeping #649/#650/#651/#652
    as completed prerequisites. This does not wait for PyPI or outside users.
-2. **Repair correctness and latency in parallel.** #683 fixes shallow-history
-   failure; #686 bounds base-tree materialization. #685 and #657 distinguish
-   actual permission widening from workflow edits and precedence changes.
-   Complete the existing #678 and #682 review/CI paths rather than opening
-   duplicate implementations. #658 retains MCP annotation and description
+2. **Repair correctness and latency in parallel.** #683 shallow-history
+   recovery and #685 workflow comparison are complete; #686 still bounds
+   base-tree materialization. #657 distinguishes actual widening under host
+   permission precedence. Complete the existing #678 review/CI path rather
+   than opening a duplicate implementation. #658 retains MCP annotation and description
    precision work on existing readers.
 3. **Join the workflow and its evidence in parallel.** #684 carries host
    changes into manifest-free PR review; #662 aligns CLI, PR and coding-agent
@@ -138,6 +140,10 @@ objective.
    cannot manufacture either.
 
 ### Deferred from the first advisory release
+
+The old Agents Shipgate skill is suspended for this implementation phase by
+the owner (#690). Revisit its workflow interruption cost after the core route
+works; skill activation is not an acceptance condition for this release.
 
 #655's synthesized tool-source base, #656/#474's manifest/lock-state redesign,
 #557/#515/#580's deeper attribution and historical tool-source scope, #663's

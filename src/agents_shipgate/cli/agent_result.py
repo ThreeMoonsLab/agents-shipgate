@@ -134,7 +134,36 @@ def build_agent_boundary_result(
         changed_files_override=changed_files_override,
         manifest_text_snapshot=manifest_text_snapshot,
     )
-    return project_agent_boundary_result(_with_compared_refs(assessment, base, head))
+    result = project_agent_boundary_result(_with_compared_refs(assessment, base, head))
+    if input_mode == "provided_diff":
+        from agents_shipgate.core.host_diff_comparison import compare_host_diff
+        from agents_shipgate.schemas.host_comparison import HostComparison
+
+        try:
+            comparison = (
+                compare_host_diff(workspace, diff_text)
+                if result.input_coverage == "complete"
+                else HostComparison(
+                    comparison_status="incomparable",
+                    incomparable_reasons=["diff_input_coverage_incomplete"],
+                    head_kind="provided_diff",
+                )
+            )
+        except (OSError, ValueError, RuntimeError, ConfigError) as exc:
+            comparison = HostComparison(
+                comparison_status="incomparable",
+                incomparable_reasons=[f"host_comparison_unavailable:{type(exc).__name__}"],
+                head_kind="provided_diff",
+            )
+        result = result.model_copy(
+            update={
+                "rows": comparison.rows,
+                "comparison_status": comparison.comparison_status,
+                "incomparable_reasons": comparison.incomparable_reasons,
+                "comparison_scope": "changed_host_files",
+            }
+        )
+    return result
 
 
 def _with_compared_refs(assessment, base: str | None, head: str | None):

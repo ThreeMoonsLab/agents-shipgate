@@ -462,7 +462,7 @@ shipgate check --agent cursor --workspace . --format agent-boundary-json
 
 The `--agent` value is caller identity, not a coverage selector: every
 recognized changed host boundary is evaluated on every invocation. Parse the
-stdout `shipgate.agent_boundary_result/v2` object, switch on `control.state`,
+stdout `shipgate.agent_boundary_result/v3` object, switch on `control.state`,
 and follow `control.next_action`, `control.allowed_next_commands` and
 `control.human_review`. Treat `decision` as diagnostic context, never as the
 control signal, and never infer control from prose. `check` is necessary but

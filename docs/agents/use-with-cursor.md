@@ -8,7 +8,7 @@ canonical Cursor control command is:
 shipgate check --agent cursor --workspace . --format agent-boundary-json
 ```
 
-Parse stdout as `shipgate.agent_boundary_result/v2`, switch on
+Parse stdout as `shipgate.agent_boundary_result/v3`, switch on
 `control.state`, and follow `control.next_action`,
 `control.allowed_next_commands`, and `control.human_review`. Treat `decision`
 as diagnostic context only; do not infer local control from prose.

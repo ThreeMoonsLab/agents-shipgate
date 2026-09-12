@@ -69,7 +69,7 @@ repository [`README.md`](../README.md) is the landing page that routes to both.
 - [`report-schema.v0.27.json`](report-schema.v0.27.json) — frozen v0.27 reference schema; pre-v0.28 reports validate against this
 - [`report-schema.v0.26.json`](report-schema.v0.26.json) — frozen v0.26 reference schema; pre-v0.27 reports validate against this
 - [`report-schema.v0.25.json`](report-schema.v0.25.json) — frozen v0.25 reference schema; pre-v0.26 reports validate against this
-- [`verifier-schema.v0.17.json`](verifier-schema.v0.17.json) — current JSON Schema for `verifier.json`, including declaration review in the embedded release decision
+- [`verifier-schema.v0.18.json`](verifier-schema.v0.18.json) — current JSON Schema for `verifier.json`, including declaration review in the embedded release decision
 - [`verifier-schema.v0.16.json`](verifier-schema.v0.16.json) — frozen prior reference; no inferred structural comparison
 - [`verifier-schema.v0.15.json`](verifier-schema.v0.15.json) — frozen verifier reference
 - [`verifier-schema.v0.12.json`](verifier-schema.v0.12.json) — frozen v0.12 reference; pre-v0.13 verifier artifacts validate against this
@@ -99,7 +99,7 @@ repository [`README.md`](../README.md) is the landing page that routes to both.
 - [`agent-handoff-schema.v3.json`](agent-handoff-schema.v3.json) — frozen handoff v3 reference
 - [`agent-handoff-schema.v2.json`](agent-handoff-schema.v2.json) — frozen handoff v2 reference
 - [`agent-result-schema.v3.json`](agent-result-schema.v3.json) — current shared local-check and MCP result schema
-- [`agent-boundary-result-schema.v2.json`](agent-boundary-result-schema.v2.json) — current host-neutral JSON Schema for `shipgate check --format agent-boundary-json`
+- [`agent-boundary-result-schema.v3.json`](agent-boundary-result-schema.v3.json) — current host-neutral JSON Schema for `shipgate check --format agent-boundary-json`
 - [`codex-boundary-result-schema.v2.json`](codex-boundary-result-schema.v2.json) — frozen deprecated compatibility projection for `--format codex-boundary-json`
 - [`codex-boundary-result-schema.v1.json`](codex-boundary-result-schema.v1.json) — frozen boundary v1 reference
 - [`agent-result-schema.v1.json`](agent-result-schema.v1.json) — legacy JSON Schema retained for existing local-agent protocol and MCP surfaces; not emitted by `agents-shipgate verify`
