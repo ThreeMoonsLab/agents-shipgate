@@ -38,6 +38,21 @@ When a change affects agent tools, MCP exports, OpenAPI specs, prompts,
 permissions, approval policies, or release gates, run Agents Shipgate.
 Default to advisory verification while adopting the gate.
 
+First, name what the change did to the agent's authority. This needs no
+manifest and no committed baseline:
+
+  shipgate diff --workspace .
+
+One row per host grant, each carrying subject, before, after, direction,
+severity and why it matters; `⚠` marks a row the engine read as an
+expansion of authority. Quote those rows to the user, and put them in the
+pull request body. A covered comparison with no rows is a real answer, not
+a missing one. `--json` emits the same rows under `rows`.
+
+A row is a description, never a permission: showing one, or seeing an empty
+table, grants no authority to edit, commit, push, merge or report the work
+complete.
+
 For local agent control, run:
 
   shipgate check --agent cursor --workspace . --format agent-boundary-json
