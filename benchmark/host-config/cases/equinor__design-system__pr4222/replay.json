@@ -1,13 +1,13 @@
 {
   "benign_case": false,
   "benign_zero_row": false,
-  "correct_rows": 0,
+  "correct_rows": 1,
   "expected_changes": 1,
   "expected_widenings": 1,
-  "incomparable_reasons": "base_inventory_incomplete,head_inventory_incomplete",
-  "rows_on_file": 0,
+  "incomparable_reasons": "",
+  "rows_on_file": 1,
   "scope": "supported",
-  "stop_point": "comparison_incomparable",
+  "stop_point": "comparison_comparable",
   "unclassified_keys": "",
-  "widenings_named": 0
+  "widenings_named": 1
 }

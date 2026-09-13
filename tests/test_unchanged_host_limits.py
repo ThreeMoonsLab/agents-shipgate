@@ -166,14 +166,30 @@ def vscode_repo(tmp_path: Path) -> Path:
     })
 
 
-def test_an_unchanged_experimental_file_is_named_and_the_change_is_compared(vscode_repo: Path) -> None:
+def test_an_unchanged_vscode_mcp_file_is_compared_not_a_limit(vscode_repo: Path) -> None:
+    """#731 made `.vscode/mcp.json` supported, so it is read on both sides, not named."""
+
     write(vscode_repo, ".mcp.json", {"mcpServers": {"postgres": {"command": "postgres-server"}}})
 
     payload = diff(vscode_repo)
 
     assert payload["comparison_status"] == "comparable"
     assert any(row["after"] == "postgres" for row in payload["rows"])
-    assert payload["unchanged_limits"] == [
+    assert payload["unchanged_limits"] == []
+
+
+# No shipped adapter is experimental after #731, so the experimental rule is
+# held on the inventories it reads. It stays: a host can be registered as
+# experimental again, and the rule must still refuse what it cannot vouch for.
+_EXPERIMENTAL = [{"host": "vscode", "status": "experimental", "sources_observed": [".vscode/mcp.json"]}]
+
+
+def test_an_unchanged_experimental_source_is_named() -> None:
+    from agents_shipgate.core.host_comparison import unchanged_limits
+
+    inventory = {"issues": [], "host_coverage": _EXPERIMENTAL}
+
+    assert unchanged_limits(inventory, inventory, lambda source: True) == [
         {
             "host": "vscode",
             "limit": "experimental_coverage",
@@ -183,14 +199,15 @@ def test_an_unchanged_experimental_file_is_named_and_the_change_is_compared(vsco
     ]
 
 
-def test_a_changed_experimental_file_still_refuses(vscode_repo: Path) -> None:
-    write(vscode_repo, ".mcp.json", {"mcpServers": {"postgres": {"command": "postgres-server"}}})
-    write(vscode_repo, ".vscode/mcp.json", {"servers": {"docs": {"command": "other-server"}}})
+def test_a_changed_or_unmatched_experimental_source_still_refuses() -> None:
+    from agents_shipgate.core.host_comparison import unchanged_limits
 
-    payload = diff(vscode_repo)
+    inventory = {"issues": [], "host_coverage": _EXPERIMENTAL}
+    moved = {"issues": [], "host_coverage": [{**_EXPERIMENTAL[0], "sources_observed": [".vscode/other.json"]}]}
 
-    assert payload["comparison_status"] == "incomparable"
-    assert payload["unchanged_limits"] == []
+    assert unchanged_limits(inventory, inventory, lambda source: False) is None
+    assert unchanged_limits(inventory, moved, lambda source: True) is None
+    assert unchanged_limits(inventory, {"issues": [], "host_coverage": []}, lambda source: True) is None
 
 
 def test_verify_publishes_the_same_limits_as_diff(skill_repo: Path) -> None:
