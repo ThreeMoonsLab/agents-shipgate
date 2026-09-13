@@ -952,7 +952,11 @@ def _control_for_result(
             stop_reason=why,
         )
 
-    if undeclared_gap:
+    # A policy block is a universal stop. An undeclared surface sharing the
+    # diff owes discovery too, but routing the coding agent to it would hand a
+    # blocked result a command and publication; the block branch below keeps
+    # the stop and names the violations' reviewers (#694).
+    if undeclared_gap and decision != "block":
         command = first_next_action.command
         if not command:
             why = (
