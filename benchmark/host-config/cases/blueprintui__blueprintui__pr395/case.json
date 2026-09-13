@@ -1,0 +1,12 @@
+{
+  "repo": "blueprintui/blueprintui",
+  "pr_number": 395,
+  "kind": ".cursor/mcp.json",
+  "path": ".cursor/mcp.json",
+  "base_sha": "67f2e83a64f3ac8f587c3a564e88677fc15a14db",
+  "head_sha": "e2edc4d920840f5ced4dc80e67b336a1ce7eea5f",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/blueprintui/blueprintui/blob/67f2e83a64f3ac8f587c3a564e88677fc15a14db/.cursor/mcp.json",
+  "head_source": "https://github.com/blueprintui/blueprintui/blob/e2edc4d920840f5ced4dc80e67b336a1ce7eea5f/.cursor/mcp.json",
+  "redacted_only_change": false
+}

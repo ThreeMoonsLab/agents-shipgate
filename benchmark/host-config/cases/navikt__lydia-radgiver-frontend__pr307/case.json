@@ -1,0 +1,12 @@
+{
+  "repo": "navikt/lydia-radgiver-frontend",
+  "pr_number": 307,
+  "kind": ".github/workflows/",
+  "path": ".github/workflows/check-image-update.yml",
+  "base_sha": "da0ab9cef8d6b4bfaae0f64ea815bc88d53a87f8",
+  "head_sha": "a3965b97e3858cde6e3810bf47b3eccac6dbbd07",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/navikt/lydia-radgiver-frontend/blob/da0ab9cef8d6b4bfaae0f64ea815bc88d53a87f8/.github/workflows/check-image-update.yml",
+  "head_source": "https://github.com/navikt/lydia-radgiver-frontend/blob/a3965b97e3858cde6e3810bf47b3eccac6dbbd07/.github/workflows/check-image-update.yml",
+  "redacted_only_change": false
+}

@@ -1,0 +1,12 @@
+{
+  "repo": "vtex/openapi-schemas",
+  "pr_number": 1583,
+  "kind": ".cursor/mcp.json",
+  "path": ".cursor/mcp.json",
+  "base_sha": "91aa4e2c0a8df53c5906b565b0f1168441d32e11",
+  "head_sha": "388d2d5c32a29a98474fc99a1798d5299f935a5e",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/vtex/openapi-schemas/blob/91aa4e2c0a8df53c5906b565b0f1168441d32e11/.cursor/mcp.json",
+  "head_source": "https://github.com/vtex/openapi-schemas/blob/388d2d5c32a29a98474fc99a1798d5299f935a5e/.cursor/mcp.json",
+  "redacted_only_change": false
+}

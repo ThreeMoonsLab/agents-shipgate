@@ -1,0 +1,3398 @@
+{
+  "selection_date": "2026-09-13T03:39:28+00:00",
+  "wheel": "agents_shipgate-0.16.0-py3-none-any.whl",
+  "records": [
+    {
+      "case": "MetaMask__metamask-mobile__pr29139",
+      "repo": "MetaMask/metamask-mobile",
+      "kind": ".claude/settings.json",
+      "path": ".claude/settings.json",
+      "pr_number": 29139,
+      "merge_commit_sha": "7f6d42cddec729125d946afdc6bf675354305b0b",
+      "coding_agent_marked": true,
+      "base_sha": "5624ab09669d98a2e57a43d0b14181b6aa15ca45",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "hook",
+            "key": "PreToolUse",
+            "direction": "added",
+            "before": null,
+            "after": [
+              {
+                "matcher": "Skill",
+                "hooks": [
+                  {
+                    "type": "command",
+                    "async": true,
+                    "command": "/bin/sh \"${CLAUDE_PROJECT_DIR:-.}/scripts/tooling/hook-claude-dispatch.sh\""
+                  }
+                ]
+              }
+            ],
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "5624ab09669d98a2e57a43d0b14181b6aa15ca45",
+        "base_ref": "5624ab09669d98a2e57a43d0b14181b6aa15ca45",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "base_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 35.21,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "dataplat__dbatools__pr10346",
+      "repo": "dataplat/dbatools",
+      "kind": ".claude/settings.json",
+      "path": ".claude/settings.json",
+      "pr_number": 10346,
+      "merge_commit_sha": "d7dbe213fa0c32deee451e620bd779c39f06ae38",
+      "coding_agent_marked": false,
+      "base_sha": "78e0727ae63af13da6b4ccb825407288aeda1dd8",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "hook",
+            "key": "PreToolUse",
+            "direction": "added",
+            "before": null,
+            "after": [
+              {
+                "matcher": "Edit|Write",
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "pwsh -NoProfile -File .claude/hooks/validate-style.ps1"
+                  }
+                ]
+              },
+              {
+                "matcher": "Bash",
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "bash .claude/hooks/prevent-destructive-git.sh"
+                  }
+                ]
+              }
+            ],
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "78e0727ae63af13da6b4ccb825407288aeda1dd8",
+        "base_ref": "78e0727ae63af13da6b4ccb825407288aeda1dd8",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [
+          {
+            "after": "PreToolUse",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .claude/settings.json",
+            "why": "changes what runs around the agent's actions"
+          },
+          {
+            "after": "instruction_trust_root",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": false,
+            "severity": "medium",
+            "subject": "claude-code .claude/commands/ralph.md",
+            "why": "changes instructions the agent is given"
+          }
+        ],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 6.93,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "near__nearcore__pr15295",
+      "repo": "near/nearcore",
+      "kind": ".claude/settings.json",
+      "path": ".claude/settings.json",
+      "pr_number": 15295,
+      "merge_commit_sha": "7f5fa74b95582f4378e39dd4b88f000c98427d6c",
+      "coding_agent_marked": false,
+      "base_sha": "61a841e2887cc20b37f38c23b03ebc688a40ee20",
+      "expectation": {
+        "scope": "supported",
+        "changes": [],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "61a841e2887cc20b37f38c23b03ebc688a40ee20",
+        "base_ref": "61a841e2887cc20b37f38c23b03ebc688a40ee20",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "base_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 10.6,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "33cn__chain33__pr1360",
+      "repo": "33cn/chain33",
+      "kind": ".claude/settings.json",
+      "path": ".claude/settings.json",
+      "pr_number": 1360,
+      "merge_commit_sha": "fd892c964b4d156a973a24da04d6dfe6e28bd61d",
+      "coding_agent_marked": true,
+      "base_sha": "08a207012bd2fe073f1980c0831a1d79d4f2ceb9",
+      "expectation": {
+        "scope": "supported",
+        "changes": [],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "08a207012bd2fe073f1980c0831a1d79d4f2ceb9",
+        "base_ref": "08a207012bd2fe073f1980c0831a1d79d4f2ceb9",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 4.32,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "bencherdev__bencher__pr673",
+      "repo": "bencherdev/bencher",
+      "kind": ".claude/settings.json",
+      "path": ".claude/settings.json",
+      "pr_number": 673,
+      "merge_commit_sha": "23928b83fcf6c9a2237af0d35dbde8bc9ccaeff5",
+      "coding_agent_marked": false,
+      "base_sha": "05c3ecf6ab415a46fbd5e1da1a28c8753d9dd5c6",
+      "expectation": {
+        "scope": "unsupported",
+        "changes": [
+          {
+            "kind": "unsupported_setting",
+            "key": "env",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+            },
+            "semantic_direction": "changed"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "05c3ecf6ab415a46fbd5e1da1a28c8753d9dd5c6",
+        "base_ref": "05c3ecf6ab415a46fbd5e1da1a28c8753d9dd5c6",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "base_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 10.18,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "pegasi-ai__reins__pr65",
+      "repo": "pegasi-ai/reins",
+      "kind": ".claude/settings.json",
+      "path": ".claude/settings.json",
+      "pr_number": 65,
+      "merge_commit_sha": "c05cecaf1d8336778a86ad67c5d8899e0d894024",
+      "coding_agent_marked": false,
+      "base_sha": "e158e8ac6192446c8ab2c94700d41c7752e5bd04",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "hook",
+            "key": "PostToolUse",
+            "direction": "added",
+            "before": null,
+            "after": [
+              {
+                "matcher": "Bash",
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "node /Users/<user>/Documents/clawreins-public/reins/dist/hooks/post-tool-use.js",
+                    "_reins": true
+                  }
+                ]
+              },
+              {
+                "matcher": "Edit",
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "node /Users/<user>/Documents/clawreins-public/reins/dist/hooks/post-tool-use.js",
+                    "_reins": true
+                  }
+                ]
+              },
+              {
+                "matcher": "MultiEdit",
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "node /Users/<user>/Documents/clawreins-public/reins/dist/hooks/post-tool-use.js",
+                    "_reins": true
+                  }
+                ]
+              },
+              {
+                "matcher": "Write",
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "node /Users/<user>/Documents/clawreins-public/reins/dist/hooks/post-tool-use.js",
+                    "_reins": true
+                  }
+                ]
+              },
+              {
+                "matcher": "",
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "node /Users/<user>/Documents/clawreins-public/reins/dist/hooks/post-tool-use.js",
+                    "_reins": true
+                  }
+                ]
+              }
+            ],
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "hook",
+            "key": "PreToolUse",
+            "direction": "added",
+            "before": null,
+            "after": [
+              {
+                "matcher": "Bash",
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "node /Users/<user>/Documents/clawreins-public/reins/dist/hooks/pre-tool-use.js",
+                    "_reins": true
+                  }
+                ]
+              },
+              {
+                "matcher": "Edit",
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "node /Users/<user>/Documents/clawreins-public/reins/dist/hooks/pre-tool-use.js",
+                    "_reins": true
+                  }
+                ]
+              },
+              {
+                "matcher": "MultiEdit",
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "node /Users/<user>/Documents/clawreins-public/reins/dist/hooks/pre-tool-use.js",
+                    "_reins": true
+                  }
+                ]
+              },
+              {
+                "matcher": "Write",
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "node /Users/<user>/Documents/clawreins-public/reins/dist/hooks/pre-tool-use.js",
+                    "_reins": true
+                  }
+                ]
+              },
+              {
+                "matcher": "",
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "node /Users/<user>/Documents/clawreins-public/reins/dist/hooks/pre-tool-use.js",
+                    "_reins": true
+                  }
+                ]
+              }
+            ],
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "e158e8ac6192446c8ab2c94700d41c7752e5bd04",
+        "base_ref": "e158e8ac6192446c8ab2c94700d41c7752e5bd04",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [
+          {
+            "after": "PostToolUse",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .claude/settings.json",
+            "why": "changes what runs around the agent's actions"
+          },
+          {
+            "after": "PreToolUse",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .claude/settings.json",
+            "why": "changes what runs around the agent's actions"
+          }
+        ],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 4.08,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "abap2UI5__abap2UI5__pr2509",
+      "repo": "abap2UI5/abap2UI5",
+      "kind": ".claude/settings.json",
+      "path": ".claude/settings.json",
+      "pr_number": 2509,
+      "merge_commit_sha": "1272425181b5f9a119b08a792a10bd47aa3f9bf1",
+      "coding_agent_marked": true,
+      "base_sha": "a4d0a05714dab03a6e129689d8bb631df7c86b5f",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "permission_rule",
+            "key": "allow:Bash(git diff:*)",
+            "direction": "added",
+            "before": null,
+            "after": "Bash(git diff:*)",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "allow:Bash(git log:*)",
+            "direction": "added",
+            "before": null,
+            "after": "Bash(git log:*)",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "allow:Bash(git show:*)",
+            "direction": "added",
+            "before": null,
+            "after": "Bash(git show:*)",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "allow:Bash(git status:*)",
+            "direction": "added",
+            "before": null,
+            "after": "Bash(git status:*)",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "allow:Bash(node .github/scripts/*)",
+            "direction": "added",
+            "before": null,
+            "after": "Bash(node .github/scripts/*)",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "allow:Bash(node node/setup/fetch-deps.mjs:*)",
+            "direction": "added",
+            "before": null,
+            "after": "Bash(node node/setup/fetch-deps.mjs:*)",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "allow:Bash(npm ci)",
+            "direction": "added",
+            "before": null,
+            "after": "Bash(npm ci)",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "allow:Bash(npm install)",
+            "direction": "added",
+            "before": null,
+            "after": "Bash(npm install)",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "allow:Bash(npm run app2abap)",
+            "direction": "added",
+            "before": null,
+            "after": "Bash(npm run app2abap)",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "allow:Bash(npm run auto_transpile)",
+            "direction": "added",
+            "before": null,
+            "after": "Bash(npm run auto_transpile)",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "allow:Bash(npm run check)",
+            "direction": "added",
+            "before": null,
+            "after": "Bash(npm run check)",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "allow:Bash(npm run check:*)",
+            "direction": "added",
+            "before": null,
+            "after": "Bash(npm run check:*)",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "allow:Bash(npm run check_visibility)",
+            "direction": "added",
+            "before": null,
+            "after": "Bash(npm run check_visibility)",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "allow:Bash(npm run deps -- --print-latest)",
+            "direction": "added",
+            "before": null,
+            "after": "Bash(npm run deps -- --print-latest)",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "allow:Bash(npm run deps)",
+            "direction": "added",
+            "before": null,
+            "after": "Bash(npm run deps)",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "allow:Bash(npm run downport)",
+            "direction": "added",
+            "before": null,
+            "after": "Bash(npm run downport)",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "allow:Bash(npm run express)",
+            "direction": "added",
+            "before": null,
+            "after": "Bash(npm run express)",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "allow:Bash(npm run unit)",
+            "direction": "added",
+            "before": null,
+            "after": "Bash(npm run unit)",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "allow:Bash(npm run verify)",
+            "direction": "added",
+            "before": null,
+            "after": "Bash(npm run verify)",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "allow:Bash(npm run verify:*)",
+            "direction": "added",
+            "before": null,
+            "after": "Bash(npm run verify:*)",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "allow:Bash(npx abaplint:*)",
+            "direction": "added",
+            "before": null,
+            "after": "Bash(npx abaplint:*)",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "allow:Bash(npx playwright test:*)",
+            "direction": "added",
+            "before": null,
+            "after": "Bash(npx playwright test:*)",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "deny:Edit(.github/api-snapshot.json)",
+            "direction": "added",
+            "before": null,
+            "after": "Edit(.github/api-snapshot.json)",
+            "semantic_direction": "narrowing"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "deny:Edit(src/00/01/**)",
+            "direction": "added",
+            "before": null,
+            "after": "Edit(src/00/01/**)",
+            "semantic_direction": "narrowing"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "deny:Edit(src/00/02/**)",
+            "direction": "added",
+            "before": null,
+            "after": "Edit(src/00/02/**)",
+            "semantic_direction": "narrowing"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "deny:Edit(src/01/03/**)",
+            "direction": "added",
+            "before": null,
+            "after": "Edit(src/01/03/**)",
+            "semantic_direction": "narrowing"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "deny:Edit(src/99/**)",
+            "direction": "added",
+            "before": null,
+            "after": "Edit(src/99/**)",
+            "semantic_direction": "narrowing"
+          },
+          {
+            "kind": "permission_rule",
+            "key": "deny:Read(src/99/**)",
+            "direction": "added",
+            "before": null,
+            "after": "Read(src/99/**)",
+            "semantic_direction": "narrowing"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "a4d0a05714dab03a6e129689d8bb631df7c86b5f",
+        "base_ref": "a4d0a05714dab03a6e129689d8bb631df7c86b5f",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [
+          {
+            "after": "Bash(git diff:*)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "medium",
+            "subject": "claude-code .claude/settings.json",
+            "why": "runs without a prompt"
+          },
+          {
+            "after": "Bash(git log:*)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "medium",
+            "subject": "claude-code .claude/settings.json",
+            "why": "runs without a prompt"
+          },
+          {
+            "after": "Bash(git show:*)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "medium",
+            "subject": "claude-code .claude/settings.json",
+            "why": "runs without a prompt"
+          },
+          {
+            "after": "Bash(git status:*)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "medium",
+            "subject": "claude-code .claude/settings.json",
+            "why": "runs without a prompt"
+          },
+          {
+            "after": "Bash(node .github/scripts/*)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "medium",
+            "subject": "claude-code .claude/settings.json",
+            "why": "runs without a prompt"
+          },
+          {
+            "after": "Bash(node node/setup/fetch-deps.mjs:*)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "medium",
+            "subject": "claude-code .claude/settings.json",
+            "why": "runs without a prompt"
+          },
+          {
+            "after": "Bash(npm ci)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "medium",
+            "subject": "claude-code .claude/settings.json",
+            "why": "runs without a prompt"
+          },
+          {
+            "after": "Bash(npm install)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "medium",
+            "subject": "claude-code .claude/settings.json",
+            "why": "runs without a prompt"
+          },
+          {
+            "after": "Bash(npm run app2abap)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "medium",
+            "subject": "claude-code .claude/settings.json",
+            "why": "runs without a prompt"
+          },
+          {
+            "after": "Bash(npm run auto_transpile)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "medium",
+            "subject": "claude-code .claude/settings.json",
+            "why": "runs without a prompt"
+          },
+          {
+            "after": "Bash(npm run check)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "medium",
+            "subject": "claude-code .claude/settings.json",
+            "why": "runs without a prompt"
+          },
+          {
+            "after": "Bash(npm run check:*)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "medium",
+            "subject": "claude-code .claude/settings.json",
+            "why": "runs without a prompt"
+          },
+          {
+            "after": "Bash(npm run check_visibility)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "medium",
+            "subject": "claude-code .claude/settings.json",
+            "why": "runs without a prompt"
+          },
+          {
+            "after": "Bash(npm run deps -- --print-latest)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "medium",
+            "subject": "claude-code .claude/settings.json",
+            "why": "runs without a prompt"
+          },
+          {
+            "after": "Bash(npm run deps)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "medium",
+            "subject": "claude-code .claude/settings.json",
+            "why": "runs without a prompt"
+          },
+          {
+            "after": "Bash(npm run downport)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "medium",
+            "subject": "claude-code .claude/settings.json",
+            "why": "runs without a prompt"
+          },
+          {
+            "after": "Bash(npm run express)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "medium",
+            "subject": "claude-code .claude/settings.json",
+            "why": "runs without a prompt"
+          },
+          {
+            "after": "Bash(npm run unit)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "medium",
+            "subject": "claude-code .claude/settings.json",
+            "why": "runs without a prompt"
+          },
+          {
+            "after": "Bash(npm run verify)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "medium",
+            "subject": "claude-code .claude/settings.json",
+            "why": "runs without a prompt"
+          },
+          {
+            "after": "Bash(npm run verify:*)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "medium",
+            "subject": "claude-code .claude/settings.json",
+            "why": "runs without a prompt"
+          },
+          {
+            "after": "Bash(npx abaplint:*)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "medium",
+            "subject": "claude-code .claude/settings.json",
+            "why": "runs without a prompt"
+          },
+          {
+            "after": "Bash(npx playwright test:*)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "medium",
+            "subject": "claude-code .claude/settings.json",
+            "why": "runs without a prompt"
+          },
+          {
+            "after": "instruction_trust_root",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": false,
+            "severity": "medium",
+            "subject": "claude-code .claude/skills/build-an-app/SKILL.md",
+            "why": "changes instructions the agent is given"
+          },
+          {
+            "after": "Edit(.github/api-snapshot.json)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": false,
+            "severity": "low",
+            "subject": "claude-code .claude/settings.json",
+            "why": "a denial the agent is subject to"
+          },
+          {
+            "after": "Edit(src/00/01/**)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": false,
+            "severity": "low",
+            "subject": "claude-code .claude/settings.json",
+            "why": "a denial the agent is subject to"
+          },
+          {
+            "after": "Edit(src/00/02/**)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": false,
+            "severity": "low",
+            "subject": "claude-code .claude/settings.json",
+            "why": "a denial the agent is subject to"
+          },
+          {
+            "after": "Edit(src/01/03/**)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": false,
+            "severity": "low",
+            "subject": "claude-code .claude/settings.json",
+            "why": "a denial the agent is subject to"
+          },
+          {
+            "after": "Edit(src/99/**)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": false,
+            "severity": "low",
+            "subject": "claude-code .claude/settings.json",
+            "why": "a denial the agent is subject to"
+          },
+          {
+            "after": "Read(src/99/**)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": false,
+            "severity": "low",
+            "subject": "claude-code .claude/settings.json",
+            "why": "a denial the agent is subject to"
+          },
+          {
+            "after": "read, check_api_contract: contents: read, on: pull_request",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": false,
+            "severity": "low",
+            "subject": "github .github/workflows/check_api_contract.yaml",
+            "why": "changes the workflow's own authority"
+          }
+        ],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 3.35,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "wormhole-foundation__wormhole-connect__pr3857",
+      "repo": "wormhole-foundation/wormhole-connect",
+      "kind": ".claude/settings.json",
+      "path": ".claude/settings.json",
+      "pr_number": 3857,
+      "merge_commit_sha": "017b035bb8830d5d3488d377c9349d110588e915",
+      "coding_agent_marked": false,
+      "base_sha": "be9a2237511619d7177258af6dd0d7ff976107e4",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "permission_rule",
+            "key": "allow:WebSearch(*)",
+            "direction": "removed",
+            "before": "WebSearch(*)",
+            "after": null,
+            "semantic_direction": "narrowing"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "be9a2237511619d7177258af6dd0d7ff976107e4",
+        "base_ref": "be9a2237511619d7177258af6dd0d7ff976107e4",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [
+          {
+            "after": "\u2014",
+            "before": "WebSearch(*)",
+            "direction": "removed",
+            "expands": false,
+            "severity": "high",
+            "subject": "claude-code .claude/settings.json",
+            "why": "removes a permission the agent previously had here"
+          }
+        ],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 2.71,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "LFDT-Lineth__lineth-monorepo__pr2881",
+      "repo": "LFDT-Lineth/lineth-monorepo",
+      "kind": ".claude/settings.json",
+      "path": ".claude/settings.json",
+      "pr_number": 2881,
+      "merge_commit_sha": "3dcd40e1c18d26a2d4be7b7a5c34ee2e1994a297",
+      "coding_agent_marked": false,
+      "base_sha": "54f64053f35f7fdba1a14615f7b1805b9b568f71",
+      "expectation": {
+        "scope": "unsupported",
+        "changes": [
+          {
+            "kind": "plugin",
+            "key": "gopls-lsp@claude-plugins-official",
+            "direction": "added",
+            "before": null,
+            "after": true,
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "plugin",
+            "key": "jdtls-lsp@claude-plugins-official",
+            "direction": "added",
+            "before": null,
+            "after": true,
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "plugin",
+            "key": "kotlin-lsp@claude-plugins-official",
+            "direction": "added",
+            "before": null,
+            "after": true,
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "plugin",
+            "key": "typescript-lsp@claude-plugins-official",
+            "direction": "added",
+            "before": null,
+            "after": true,
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "unsupported_setting",
+            "key": "env",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "ENABLE_LSP_TOOL": "1"
+            },
+            "semantic_direction": "changed"
+          }
+        ],
+        "unclassified_keys": [
+          "Hooks"
+        ]
+      },
+      "payload": {
+        "base_commit": "54f64053f35f7fdba1a14615f7b1805b9b568f71",
+        "base_ref": "54f64053f35f7fdba1a14615f7b1805b9b568f71",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [
+          {
+            "after": "gopls-lsp@claude-plugins-official",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .claude/settings.json",
+            "why": "changes a plugin_or_app grant"
+          },
+          {
+            "after": "jdtls-lsp@claude-plugins-official",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .claude/settings.json",
+            "why": "changes a plugin_or_app grant"
+          },
+          {
+            "after": "kotlin-lsp@claude-plugins-official",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .claude/settings.json",
+            "why": "changes a plugin_or_app grant"
+          },
+          {
+            "after": "typescript-lsp@claude-plugins-official",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .claude/settings.json",
+            "why": "changes a plugin_or_app grant"
+          }
+        ],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 21.01,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "open-learning-exchange__myplanet__pr16644",
+      "repo": "open-learning-exchange/myplanet",
+      "kind": ".claude/settings.json",
+      "path": ".claude/settings.json",
+      "pr_number": 16644,
+      "merge_commit_sha": "62e51089cf1c77bbdd0e59c3ef5503960c874ea8",
+      "coding_agent_marked": false,
+      "base_sha": "3425efb5cb1c30825890ed46b25292aaa44d6218",
+      "expectation": {
+        "scope": "unsupported",
+        "changes": [
+          {
+            "kind": "plugin",
+            "key": "agents-summoning@summoning",
+            "direction": "added",
+            "before": null,
+            "after": true,
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "unsupported_setting",
+            "key": "extraKnownMarketplaces",
+            "direction": "changed",
+            "before": {
+              "importing": {
+                "source": {
+                  "source": "github",
+                  "repo": "dogi/kotlin-importing"
+                }
+              },
+              "overtaking": {
+                "source": {
+                  "source": "github",
+                  "repo": "dogi/branch-overtaking"
+                }
+              },
+              "prepping": {
+                "source": {
+                  "source": "github",
+                  "repo": "dogi/merge-prepping"
+                }
+              }
+            },
+            "after": {
+              "importing": {
+                "source": {
+                  "source": "github",
+                  "repo": "dogi/kotlin-importing"
+                }
+              },
+              "overtaking": {
+                "source": {
+                  "source": "github",
+                  "repo": "dogi/branch-overtaking"
+                }
+              },
+              "prepping": {
+                "source": {
+                  "source": "github",
+                  "repo": "dogi/merge-prepping"
+                }
+              },
+              "summoning": {
+                "source": {
+                  "source": "github",
+                  "repo": "dogi/agents-summoning"
+                }
+              }
+            },
+            "semantic_direction": "changed"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "3425efb5cb1c30825890ed46b25292aaa44d6218",
+        "base_ref": "3425efb5cb1c30825890ed46b25292aaa44d6218",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [
+          {
+            "after": "agents-summoning@summoning",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .claude/settings.json",
+            "why": "changes a plugin_or_app grant"
+          }
+        ],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 3.9,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "getsentry__sentry-mcp__pr883",
+      "repo": "getsentry/sentry-mcp",
+      "kind": ".mcp.json",
+      "path": ".mcp.json",
+      "pr_number": 883,
+      "merge_commit_sha": "94e20f3046d85e99e7ef560cd7bc2d8531e55b0c",
+      "coding_agent_marked": true,
+      "base_sha": "d20bc1a51caee75f5196e1d3e925742ae22b6343",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "sentry-dev",
+            "direction": "changed",
+            "before": {
+              "type": "http",
+              "url": "http://localhost:5173/mcp/sentry/mcp-server"
+            },
+            "after": {
+              "type": "http",
+              "url": "http://localhost:5173/mcp/sentry/mcp-server?experimental=1"
+            },
+            "semantic_direction": "changed"
+          },
+          {
+            "kind": "mcp_server",
+            "key": "sentry-spotlight",
+            "direction": "removed",
+            "before": {
+              "type": "stdio",
+              "command": "npx",
+              "args": [
+                "-y",
+                "@spotlightjs/spotlight",
+                "--stdio-mcp"
+              ],
+              "env": {}
+            },
+            "after": null,
+            "semantic_direction": "narrowing"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "d20bc1a51caee75f5196e1d3e925742ae22b6343",
+        "base_ref": "d20bc1a51caee75f5196e1d3e925742ae22b6343",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "base_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 4.0,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "YoshiiRyo1__document-templates-for-aws__pr6",
+      "repo": "YoshiiRyo1/document-templates-for-aws",
+      "kind": ".mcp.json",
+      "path": ".mcp.json",
+      "pr_number": 6,
+      "merge_commit_sha": "45e9d2d24f212276c701d0f572480f739a8dd318",
+      "coding_agent_marked": false,
+      "base_sha": "27a2865e855c41f2d79425c045b99771740575ca",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "aws-knowledge",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "command": "uvx",
+              "args": [
+                "fastmcp",
+                "run",
+                "https://knowledge-mcp.global.api.aws"
+              ]
+            },
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "mcp_server",
+            "key": "document-loader",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "command": "uvx",
+              "args": [
+                "awslabs.document-loader-mcp-server@latest"
+              ],
+              "env": {
+                "FASTMCP_LOG_LEVEL": "ERROR"
+              }
+            },
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "27a2865e855c41f2d79425c045b99771740575ca",
+        "base_ref": "27a2865e855c41f2d79425c045b99771740575ca",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [
+          {
+            "after": "Bash",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "critical",
+            "subject": "claude-code .claude/settings.json",
+            "why": "matches any command of this kind, without a prompt"
+          },
+          {
+            "after": "True",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "critical",
+            "subject": "claude-code .claude/settings.json",
+            "why": "changes a permission_mode grant"
+          },
+          {
+            "after": "Edit",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .claude/settings.json",
+            "why": "matches every target of this kind, without a prompt"
+          },
+          {
+            "after": "Skill",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .claude/settings.json",
+            "why": "matches every target of this kind, without a prompt"
+          },
+          {
+            "after": "Task",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .claude/settings.json",
+            "why": "matches every target of this kind, without a prompt"
+          },
+          {
+            "after": "WebFetch",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .claude/settings.json",
+            "why": "matches every target of this kind, without a prompt"
+          },
+          {
+            "after": "WebSearch",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .claude/settings.json",
+            "why": "matches every target of this kind, without a prompt"
+          },
+          {
+            "after": "Write",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .claude/settings.json",
+            "why": "matches every target of this kind, without a prompt"
+          },
+          {
+            "after": "mcp__aws-knowledge",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .claude/settings.json",
+            "why": "matches every target of this kind, without a prompt"
+          },
+          {
+            "after": "mcp__document-loader",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .claude/settings.json",
+            "why": "matches every target of this kind, without a prompt"
+          },
+          {
+            "after": "aws-knowledge",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .mcp.json",
+            "why": "an MCP tool surface the agent may call has changed"
+          },
+          {
+            "after": "document-loader",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .mcp.json",
+            "why": "an MCP tool surface the agent may call has changed"
+          },
+          {
+            "after": "instruction_trust_root",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": false,
+            "severity": "medium",
+            "subject": "claude-code .claude/skills/nfr-outdated-check/SKILL.md",
+            "why": "changes instructions the agent is given"
+          },
+          {
+            "after": "instruction_trust_root",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": false,
+            "severity": "medium",
+            "subject": "claude-code .claude/skills/wa-review/SKILL.md",
+            "why": "changes instructions the agent is given"
+          },
+          {
+            "after": "Bash(curl:*)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": false,
+            "severity": "low",
+            "subject": "claude-code .claude/settings.json",
+            "why": "a confirmation requirement the agent is subject to"
+          },
+          {
+            "after": "Bash(reboot:*)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": false,
+            "severity": "low",
+            "subject": "claude-code .claude/settings.json",
+            "why": "a denial the agent is subject to"
+          },
+          {
+            "after": "Bash(rm -rf /:*)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": false,
+            "severity": "low",
+            "subject": "claude-code .claude/settings.json",
+            "why": "a denial the agent is subject to"
+          },
+          {
+            "after": "Bash(rm:*)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": false,
+            "severity": "low",
+            "subject": "claude-code .claude/settings.json",
+            "why": "a confirmation requirement the agent is subject to"
+          },
+          {
+            "after": "Bash(shutdown:*)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": false,
+            "severity": "low",
+            "subject": "claude-code .claude/settings.json",
+            "why": "a denial the agent is subject to"
+          },
+          {
+            "after": "Bash(sudo:*)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": false,
+            "severity": "low",
+            "subject": "claude-code .claude/settings.json",
+            "why": "a denial the agent is subject to"
+          },
+          {
+            "after": "Bash(wget:*)",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": false,
+            "severity": "low",
+            "subject": "claude-code .claude/settings.json",
+            "why": "a confirmation requirement the agent is subject to"
+          },
+          {
+            "after": "Read",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "low",
+            "subject": "claude-code .claude/settings.json",
+            "why": "matches every target of this kind, without a prompt"
+          }
+        ],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 2.09,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "leboncoin__spark-web__pr3005",
+      "repo": "leboncoin/spark-web",
+      "kind": ".mcp.json",
+      "path": ".mcp.json",
+      "pr_number": 3005,
+      "merge_commit_sha": "3bc304f247c97db295bea54f71a4dc15900cab19",
+      "coding_agent_marked": false,
+      "base_sha": "a075b43bf6696f1038dbe9ccb761cb716b2855f2",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "chrome-devtools",
+            "direction": "removed",
+            "before": {
+              "command": "npx",
+              "args": [
+                "-y",
+                "chrome-devtools-mcp@latest"
+              ]
+            },
+            "after": null,
+            "semantic_direction": "narrowing"
+          },
+          {
+            "kind": "mcp_server",
+            "key": "figma",
+            "direction": "removed",
+            "before": {
+              "url": "https://mcp.figma.com/mcp"
+            },
+            "after": null,
+            "semantic_direction": "narrowing"
+          },
+          {
+            "kind": "mcp_server",
+            "key": "spark-ui-storybook-mcp",
+            "direction": "changed",
+            "before": {
+              "url": "http://localhost:6006/mcp"
+            },
+            "after": {
+              "type": "http",
+              "url": "http://localhost:6006/mcp"
+            },
+            "semantic_direction": "changed"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "a075b43bf6696f1038dbe9ccb761cb716b2855f2",
+        "base_ref": "a075b43bf6696f1038dbe9ccb761cb716b2855f2",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "base_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 5.19,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "lucaslorentz__durabletask-extensions__pr55",
+      "repo": "lucaslorentz/durabletask-extensions",
+      "kind": ".mcp.json",
+      "path": ".mcp.json",
+      "pr_number": 55,
+      "merge_commit_sha": "b75799a8910e793e7674d8dc4a415b7dcb7192db",
+      "coding_agent_marked": true,
+      "base_sha": "ad0e4b2d75f16ffe01c75ba061c29e924f6a00d5",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "playwright",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "command": "npx",
+              "args": [
+                "-y",
+                "@anthropic-ai/mcp-server-playwright@latest"
+              ]
+            },
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "ad0e4b2d75f16ffe01c75ba061c29e924f6a00d5",
+        "base_ref": "ad0e4b2d75f16ffe01c75ba061c29e924f6a00d5",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [
+          {
+            "after": "playwright",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .mcp.json",
+            "why": "an MCP tool surface the agent may call has changed"
+          }
+        ],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 2.47,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "Vortiago__mcp-outline__pr138",
+      "repo": "Vortiago/mcp-outline",
+      "kind": ".mcp.json",
+      "path": ".mcp.json",
+      "pr_number": 138,
+      "merge_commit_sha": "e699cd5d16a983c7bcb4e67c3cf213608df7eeac",
+      "coding_agent_marked": false,
+      "base_sha": "e1a0b46363b37c5dec01435a8bbc19fd862984e1",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "mcp-outline",
+            "direction": "changed",
+            "before": {
+              "command": "uvx",
+              "args": [
+                "mcp-outline==1.10.0"
+              ],
+              "env": {
+                "OUTLINE_API_KEY": "${OUTLINE_API_KEY:-}",
+                "OUTLINE_API_URL": "${OUTLINE_API_URL:-}",
+                "OUTLINE_READ_ONLY": "${OUTLINE_READ_ONLY:-}",
+                "OUTLINE_DISABLE_DELETE": "${OUTLINE_DISABLE_DELETE:-}",
+                "OUTLINE_DISABLE_AI_TOOLS": "${OUTLINE_DISABLE_AI_TOOLS:-}",
+                "OUTLINE_VERIFY_SSL": "${OUTLINE_VERIFY_SSL:-}"
+              }
+            },
+            "after": {
+              "command": "uvx",
+              "args": [
+                "mcp-outline==1.10.1"
+              ],
+              "env": {
+                "OUTLINE_API_KEY": "${OUTLINE_API_KEY:-}",
+                "OUTLINE_API_URL": "${OUTLINE_API_URL:-}",
+                "OUTLINE_READ_ONLY": "${OUTLINE_READ_ONLY:-}",
+                "OUTLINE_DISABLE_DELETE": "${OUTLINE_DISABLE_DELETE:-}",
+                "OUTLINE_DISABLE_AI_TOOLS": "${OUTLINE_DISABLE_AI_TOOLS:-}",
+                "OUTLINE_VERIFY_SSL": "${OUTLINE_VERIFY_SSL:-}"
+              }
+            },
+            "semantic_direction": "changed"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "e1a0b46363b37c5dec01435a8bbc19fd862984e1",
+        "base_ref": "e1a0b46363b37c5dec01435a8bbc19fd862984e1",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [
+          {
+            "after": "mcp-outline",
+            "before": "mcp-outline",
+            "direction": "widened",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .mcp.json",
+            "why": "an MCP tool surface the agent may call has changed"
+          }
+        ],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 2.5,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "AgentOrchestrator__AgentBase__pr60",
+      "repo": "AgentOrchestrator/AgentBase",
+      "kind": ".mcp.json",
+      "path": ".mcp.json",
+      "pr_number": 60,
+      "merge_commit_sha": "23a22c3c67feee70538607f8cbb9cc633c139130",
+      "coding_agent_marked": true,
+      "base_sha": "7f7bc111a8a4f38ee4513c286025d73e30c0cce9",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "agent-base",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "type": "http",
+              "url": "http://localhost:3100/mcp"
+            },
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "7f7bc111a8a4f38ee4513c286025d73e30c0cce9",
+        "base_ref": "7f7bc111a8a4f38ee4513c286025d73e30c0cce9",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [
+          {
+            "after": "agent-base",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .mcp.json",
+            "why": "an MCP tool surface the agent may call has changed"
+          }
+        ],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 3.22,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "PierreKieffer__http-tanker__pr2",
+      "repo": "PierreKieffer/http-tanker",
+      "kind": ".mcp.json",
+      "path": ".mcp.json",
+      "pr_number": 2,
+      "merge_commit_sha": "a4441b7c16a20919d643399217dd8c52e4d87eb6",
+      "coding_agent_marked": false,
+      "base_sha": "36463878987c06a518690605badead9446d1ab05",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "http-tanker",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "type": "stdio",
+              "command": "go",
+              "args": [
+                "run",
+                ".",
+                "--mcp"
+              ]
+            },
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "36463878987c06a518690605badead9446d1ab05",
+        "base_ref": "36463878987c06a518690605badead9446d1ab05",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [
+          {
+            "after": "http-tanker",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .mcp.json",
+            "why": "an MCP tool surface the agent may call has changed"
+          }
+        ],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 5.29,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "iterate__iterate__pr1916",
+      "repo": "iterate/iterate",
+      "kind": ".mcp.json",
+      "path": ".mcp.json",
+      "pr_number": 1916,
+      "merge_commit_sha": "576e74bc74007daf60545fd78e98947174e5f26a",
+      "coding_agent_marked": false,
+      "base_sha": "546b78e94ed010422a0a5c1e508e416125022eaa",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "cloudflare",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "type": "http",
+              "url": "https://mcp.cloudflare.com/mcp"
+            },
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "mcp_server",
+            "key": "cloudflare-api",
+            "direction": "removed",
+            "before": {
+              "type": "url",
+              "url": "https://mcp.cloudflare.com/mcp"
+            },
+            "after": null,
+            "semantic_direction": "narrowing"
+          },
+          {
+            "kind": "mcp_server",
+            "key": "context7",
+            "direction": "changed",
+            "before": {
+              "type": "url",
+              "url": "https://mcp.context7.com/mcp"
+            },
+            "after": {
+              "type": "http",
+              "url": "https://mcp.context7.com/mcp"
+            },
+            "semantic_direction": "changed"
+          },
+          {
+            "kind": "mcp_server",
+            "key": "exa",
+            "direction": "changed",
+            "before": {
+              "type": "url",
+              "url": "https://mcp.exa.ai/mcp"
+            },
+            "after": {
+              "type": "http",
+              "url": "https://mcp.exa.ai/mcp"
+            },
+            "semantic_direction": "changed"
+          },
+          {
+            "kind": "mcp_server",
+            "key": "iterate",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "type": "http",
+              "url": "https://mcp.iterate.com"
+            },
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "mcp_server",
+            "key": "posthog",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "type": "http",
+              "url": "https://mcp-eu.posthog.com/mcp"
+            },
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "546b78e94ed010422a0a5c1e508e416125022eaa",
+        "base_ref": "546b78e94ed010422a0a5c1e508e416125022eaa",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "base_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 5.31,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "FriendsOfShopware__shopmon__pr667",
+      "repo": "FriendsOfShopware/shopmon",
+      "kind": ".mcp.json",
+      "path": ".mcp.json",
+      "pr_number": 667,
+      "merge_commit_sha": "0f489ca08ee4a4354734013bf5c4cd6c1d4132dc",
+      "coding_agent_marked": false,
+      "base_sha": "24ec5bf8244689019c9f06ef01a9570803cf2111",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "shadcn",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "command": "npx",
+              "args": [
+                "shadcn-vue@latest",
+                "mcp"
+              ]
+            },
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "24ec5bf8244689019c9f06ef01a9570803cf2111",
+        "base_ref": "24ec5bf8244689019c9f06ef01a9570803cf2111",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [
+          {
+            "after": "shadcn",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "claude-code .mcp.json",
+            "why": "an MCP tool surface the agent may call has changed"
+          },
+          {
+            "after": "\u2014",
+            "before": "write, deploy: contents: read, deploy: id-token: write, deploy: packages: write, on: release, workflow_dispatch",
+            "direction": "removed",
+            "expands": false,
+            "severity": "high",
+            "subject": "github .github/workflows/deploy_production.yml",
+            "why": "grants write permissions to workflow jobs"
+          },
+          {
+            "after": "\u2014",
+            "before": "write, deploy: contents: read, deploy: id-token: write, deploy: packages: write, on: workflow_dispatch",
+            "direction": "removed",
+            "expands": false,
+            "severity": "high",
+            "subject": "github .github/workflows/deploy_staging.yml",
+            "why": "grants write permissions to workflow jobs"
+          },
+          {
+            "after": "\u2014",
+            "before": "write, update-lockfile: id-token: write, on: push, workflow_dispatch",
+            "direction": "removed",
+            "expands": false,
+            "severity": "high",
+            "subject": "github .github/workflows/update-lockfile.yml",
+            "why": "grants write permissions to workflow jobs"
+          },
+          {
+            "after": "unknown, lint: repository defaults (unknown), test: repository defaults (unknown), on: pull_request, push",
+            "before": "unknown, oxfmt: repository defaults (unknown), tslint: repository defaults (unknown), vitest: repository defaults (unknown), on: pull_request",
+            "direction": "changed",
+            "expands": false,
+            "severity": "unknown",
+            "subject": "github .github/workflows/lint-and-test.yml",
+            "why": "some effective token permissions are unknown; repository defaults or unresolved declarations require review"
+          }
+        ],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 2.5,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "00PrabalK00__OpenRosWarehouse__pr34",
+      "repo": "00PrabalK00/OpenRosWarehouse",
+      "kind": ".mcp.json",
+      "path": ".mcp.json",
+      "pr_number": 34,
+      "merge_commit_sha": "730241b8b9951fe0d4af6e668add89981190eae0",
+      "coding_agent_marked": true,
+      "base_sha": "9af08288d07fd893d7fe31350b985ddd539bc26a",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "gitnexus",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "type": "stdio",
+              "command": "/home/<user>/.nvm/versions/node/v22.22.3/bin/gitnexus",
+              "args": [
+                "mcp",
+                "--repo",
+                "/home/<user>/testBuild"
+              ]
+            },
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "9af08288d07fd893d7fe31350b985ddd539bc26a",
+        "base_ref": "9af08288d07fd893d7fe31350b985ddd539bc26a",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "base_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 3.01,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "ng-select__ng-select__pr2875",
+      "repo": "ng-select/ng-select",
+      "kind": ".cursor/mcp.json",
+      "path": ".cursor/mcp.json",
+      "pr_number": 2875,
+      "merge_commit_sha": "feac5322fd5646ab7c0d4d046c24de5bffab9489",
+      "coding_agent_marked": false,
+      "base_sha": "c12f858b57cdd0075d73b56e4731794ce5dc9f40",
+      "expectation": {
+        "scope": "supported",
+        "changes": [],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "c12f858b57cdd0075d73b56e4731794ce5dc9f40",
+        "base_ref": "c12f858b57cdd0075d73b56e4731794ce5dc9f40",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 2.11,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "dotCMS__core__pr36281",
+      "repo": "dotCMS/core",
+      "kind": ".cursor/mcp.json",
+      "path": ".cursor/mcp.json",
+      "pr_number": 36281,
+      "merge_commit_sha": "dcc3daf8dbd8c989cc3e51af72c1d0260c452ba6",
+      "coding_agent_marked": true,
+      "base_sha": "d9b188e2fa0b0d1534eb019f0aab115caebe58a1",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "primeng",
+            "direction": "removed",
+            "before": {
+              "command": "npx",
+              "args": [
+                "-y",
+                "@primeng/mcp"
+              ]
+            },
+            "after": null,
+            "semantic_direction": "narrowing"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "d9b188e2fa0b0d1534eb019f0aab115caebe58a1",
+        "base_ref": "d9b188e2fa0b0d1534eb019f0aab115caebe58a1",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "base_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 37.99,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "stackrox__stackrox__pr16905",
+      "repo": "stackrox/stackrox",
+      "kind": ".cursor/mcp.json",
+      "path": ".cursor/mcp.json",
+      "pr_number": 16905,
+      "merge_commit_sha": "fe2e482164bab334d4fad4dae38b337236a0f046",
+      "coding_agent_marked": false,
+      "base_sha": "e686050509f77b034d12e07671421fb86d7ed384",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "gopls",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "command": "gopls",
+              "args": [
+                "mcp"
+              ]
+            },
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "e686050509f77b034d12e07671421fb86d7ed384",
+        "base_ref": "e686050509f77b034d12e07671421fb86d7ed384",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "base_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 18.54,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "vtex__openapi-schemas__pr1583",
+      "repo": "vtex/openapi-schemas",
+      "kind": ".cursor/mcp.json",
+      "path": ".cursor/mcp.json",
+      "pr_number": 1583,
+      "merge_commit_sha": "388d2d5c32a29a98474fc99a1798d5299f935a5e",
+      "coding_agent_marked": false,
+      "base_sha": "91aa4e2c0a8df53c5906b565b0f1168441d32e11",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "context7",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "command": "npx",
+              "args": [
+                "-y",
+                "@context7/mcp-server"
+              ],
+              "env": {}
+            },
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "91aa4e2c0a8df53c5906b565b0f1168441d32e11",
+        "base_ref": "91aa4e2c0a8df53c5906b565b0f1168441d32e11",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "current_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 1.92,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "blueprintui__blueprintui__pr395",
+      "repo": "blueprintui/blueprintui",
+      "kind": ".cursor/mcp.json",
+      "path": ".cursor/mcp.json",
+      "pr_number": 395,
+      "merge_commit_sha": "e2edc4d920840f5ced4dc80e67b336a1ce7eea5f",
+      "coding_agent_marked": false,
+      "base_sha": "67f2e83a64f3ac8f587c3a564e88677fc15a14db",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "cemq",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "command": "cemq",
+              "description": "Search and query for Web Components APIs via Custom Elements Manifest",
+              "args": [
+                "mcp",
+                "--path",
+                "./projects/components/dist"
+              ]
+            },
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "67f2e83a64f3ac8f587c3a564e88677fc15a14db",
+        "base_ref": "67f2e83a64f3ac8f587c3a564e88677fc15a14db",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "base_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 3.78,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "jazelly__agentic-react__pr8",
+      "repo": "jazelly/agentic-react",
+      "kind": ".cursor/mcp.json",
+      "path": ".cursor/mcp.json",
+      "pr_number": 8,
+      "merge_commit_sha": "f73e1bcc1d62ae1de865aaf6af3f80a6eacfe6ab",
+      "coding_agent_marked": false,
+      "base_sha": "3e0fbd8fe7f5c51e9fb2419b25c8fef4165c76a5",
+      "expectation": {
+        "scope": "supported",
+        "changes": [],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "3e0fbd8fe7f5c51e9fb2419b25c8fef4165c76a5",
+        "base_ref": "3e0fbd8fe7f5c51e9fb2419b25c8fef4165c76a5",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 2.55,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "getsentry__warden__pr301",
+      "repo": "getsentry/warden",
+      "kind": ".cursor/mcp.json",
+      "path": ".cursor/mcp.json",
+      "pr_number": 301,
+      "merge_commit_sha": "74f2951a09b4ac5275aeca322ea82575f11385df",
+      "coding_agent_marked": false,
+      "base_sha": "83017a339655214d95aa8c92cf290f4336fcb144",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "sentry",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "url": "https://mcp.sentry.dev/mcp/sentry/warden"
+            },
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "83017a339655214d95aa8c92cf290f4336fcb144",
+        "base_ref": "83017a339655214d95aa8c92cf290f4336fcb144",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "base_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 1.94,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "ossrs__srs__pr4670",
+      "repo": "ossrs/srs",
+      "kind": ".codex/config.toml",
+      "path": ".codex/config.toml",
+      "pr_number": 4670,
+      "merge_commit_sha": "d8696434cb1c4454e775ae9626ebdf54779395f3",
+      "coding_agent_marked": true,
+      "base_sha": "30fc7775a5221ee067830e8c135a40b2ce343faa",
+      "expectation": {
+        "scope": "unclassified",
+        "changes": [],
+        "unclassified_keys": [
+          "project_doc_fallback_filenames"
+        ]
+      },
+      "payload": {
+        "base_commit": "30fc7775a5221ee067830e8c135a40b2ce343faa",
+        "base_ref": "30fc7775a5221ee067830e8c135a40b2ce343faa",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "base_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 8.87,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "cuthbertLab__music21__pr1869",
+      "repo": "cuthbertLab/music21",
+      "kind": ".codex/config.toml",
+      "path": ".codex/config.toml",
+      "pr_number": 1869,
+      "merge_commit_sha": "5421c7549b8b4b4f07b0229db3b9f180ff587ce2",
+      "coding_agent_marked": false,
+      "base_sha": "429d16222ad450a6c4bd516c95a203bd1cd7eacb",
+      "expectation": {
+        "scope": "unsupported",
+        "changes": [
+          {
+            "kind": "unsupported_setting",
+            "key": "shell_environment_policy",
+            "direction": "changed",
+            "before": null,
+            "after": {
+              "inherit": "all",
+              "set": {
+                "UV_CACHE_DIR": "/tmp/uv-cache",
+                "UV_TOOL_DIR": "/tmp/uv-tools",
+                "UV_OFFLINE": "1"
+              }
+            },
+            "semantic_direction": "changed"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "429d16222ad450a6c4bd516c95a203bd1cd7eacb",
+        "base_ref": "429d16222ad450a6c4bd516c95a203bd1cd7eacb",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "current_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 9.09,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "getsentry__sentry-cocoa__pr7885",
+      "repo": "getsentry/sentry-cocoa",
+      "kind": ".codex/config.toml",
+      "path": ".codex/config.toml",
+      "pr_number": 7885,
+      "merge_commit_sha": "1155f0c432ac59fe3c7f6143e9b2d87d05422b93",
+      "coding_agent_marked": false,
+      "base_sha": "93191850ffe45fb665bc71a807e3b4520a0ecfc5",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "XcodeBuildMCP",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "command": "npx",
+              "args": [
+                "-y",
+                "xcodebuildmcp@2.0.7",
+                "mcp"
+              ]
+            },
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "mcp_server",
+            "key": "sentry",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "url": "https://mcp.sentry.dev/mcp/sentry-sdks/sentry-cocoa"
+            },
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "93191850ffe45fb665bc71a807e3b4520a0ecfc5",
+        "base_ref": "93191850ffe45fb665bc71a807e3b4520a0ecfc5",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "base_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 4.84,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "hcloud-talos__terraform-hcloud-talos__pr397",
+      "repo": "hcloud-talos/terraform-hcloud-talos",
+      "kind": ".codex/config.toml",
+      "path": ".codex/config.toml",
+      "pr_number": 397,
+      "merge_commit_sha": "1d9a56c757f75399678f792679f624b48b782c91",
+      "coding_agent_marked": false,
+      "base_sha": "8d848c1773db2cf8cd524060afb55fe9f17dd722",
+      "expectation": {
+        "scope": "supported",
+        "changes": [],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "8d848c1773db2cf8cd524060afb55fe9f17dd722",
+        "base_ref": "8d848c1773db2cf8cd524060afb55fe9f17dd722",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 1.45,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "divinevideo__divine-mobile__pr6815",
+      "repo": "divinevideo/divine-mobile",
+      "kind": ".codex/config.toml",
+      "path": ".codex/config.toml",
+      "pr_number": 6815,
+      "merge_commit_sha": "6db4126a1c042b57b82590e745b8e1ffbdd1488a",
+      "coding_agent_marked": false,
+      "base_sha": "7c2105e3353307f4a791cfda8251cad4a9ea9243",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "dart",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "command": "dart",
+              "args": [
+                "mcp-server"
+              ]
+            },
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "mcp_server",
+            "key": "figma",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "url": "https://mcp.figma.com/mcp"
+            },
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "mcp_server",
+            "key": "nostr",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "command": "npx",
+              "args": [
+                "-y",
+                "@nostrbook/mcp@latest"
+              ]
+            },
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "7c2105e3353307f4a791cfda8251cad4a9ea9243",
+        "base_ref": "7c2105e3353307f4a791cfda8251cad4a9ea9243",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "base_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 13.58,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "tsz-org__tsz__pr12183",
+      "repo": "tsz-org/tsz",
+      "kind": ".codex/config.toml",
+      "path": ".codex/config.toml",
+      "pr_number": 12183,
+      "merge_commit_sha": "c02f97cd746c4cf9dd0112270e38430f998d8a54",
+      "coding_agent_marked": false,
+      "base_sha": "dc22de1ba437d61c81924ac377dbbc591df3fd50",
+      "expectation": {
+        "scope": "unsupported",
+        "changes": [
+          {
+            "kind": "unsupported_setting",
+            "key": "shell_environment_policy",
+            "direction": "changed",
+            "before": {
+              "inherit": "core",
+              "set": {
+                "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+                "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "64000"
+              }
+            },
+            "after": {
+              "inherit": "core",
+              "set": {
+                "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+              }
+            },
+            "semantic_direction": "changed"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "dc22de1ba437d61c81924ac377dbbc591df3fd50",
+        "base_ref": "dc22de1ba437d61c81924ac377dbbc591df3fd50",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "base_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 7.06,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "AgentEvalHQ__AgentEval__pr148",
+      "repo": "AgentEvalHQ/AgentEval",
+      "kind": ".codex/config.toml",
+      "path": ".codex/config.toml",
+      "pr_number": 148,
+      "merge_commit_sha": "bb2cf6a2f5ae75e16dea196b246d5003eebc8df4",
+      "coding_agent_marked": false,
+      "base_sha": "456ad98790c876dd563c0dc05fdab364f228f5b7",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "maf-doctor",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "command": "maf-doctor",
+              "env": {
+                "MAF_DOCTOR_INIT_VERSION": "1.11.0"
+              }
+            },
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "456ad98790c876dd563c0dc05fdab364f228f5b7",
+        "base_ref": "456ad98790c876dd563c0dc05fdab364f228f5b7",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [
+          {
+            "after": "maf-doctor",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "codex .codex/config.toml",
+            "why": "an MCP tool surface the agent may call has changed"
+          }
+        ],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 4.09,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "hashicorp__design-system__pr3991",
+      "repo": "hashicorp/design-system",
+      "kind": ".vscode/mcp.json",
+      "path": ".vscode/mcp.json",
+      "pr_number": 3991,
+      "merge_commit_sha": "f1aea34434a19f4b8ccdbd641ee59f40264ce175",
+      "coding_agent_marked": false,
+      "base_sha": "d8e92d709903af9ea2902fdf3fe8eb3cc9de8efe",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "ember",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "command": "npx",
+              "args": [
+                "-y",
+                "ember-mcp@0.1.0"
+              ]
+            },
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "d8e92d709903af9ea2902fdf3fe8eb3cc9de8efe",
+        "base_ref": "d8e92d709903af9ea2902fdf3fe8eb3cc9de8efe",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "current_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 13.11,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "meshtastic__Meshtastic-Apple__pr1882",
+      "repo": "meshtastic/Meshtastic-Apple",
+      "kind": ".vscode/mcp.json",
+      "path": ".vscode/mcp.json",
+      "pr_number": 1882,
+      "merge_commit_sha": "fea1b41c5515ade41405ffa2fcefb714ad02ae24",
+      "coding_agent_marked": false,
+      "base_sha": "e623e8d6ff91d947e117ff3c43a90f839e9bbb11",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "datadog",
+            "direction": "changed",
+            "before": {
+              "type": "http",
+              "url": "https://mcp.datadoghq.com/api/unstable/mcp-server/mcp"
+            },
+            "after": {
+              "type": "http",
+              "url": "https://mcp.us5.datadoghq.com/api/unstable/mcp-server/mcp"
+            },
+            "semantic_direction": "changed"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "e623e8d6ff91d947e117ff3c43a90f839e9bbb11",
+        "base_ref": "e623e8d6ff91d947e117ff3c43a90f839e9bbb11",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "base_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 3.0,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "sourcegraph__docs__pr1480",
+      "repo": "sourcegraph/docs",
+      "kind": ".vscode/mcp.json",
+      "path": ".vscode/mcp.json",
+      "pr_number": 1480,
+      "merge_commit_sha": "df8f900381f7eefe067a36a0e4eaad7e8efa5546",
+      "coding_agent_marked": false,
+      "base_sha": "4b34e1ff743bd6c18b8c5f5e3cb2119e24bf2c33",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "s2ds",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "url": "https://sourcegraph.sourcegraph.com/.api/mcp/deepsearch",
+              "type": "http"
+            },
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "4b34e1ff743bd6c18b8c5f5e3cb2119e24bf2c33",
+        "base_ref": "4b34e1ff743bd6c18b8c5f5e3cb2119e24bf2c33",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "current_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 1.97,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "jasonjgardner__blockbench-mcp-plugin__pr39",
+      "repo": "jasonjgardner/blockbench-mcp-plugin",
+      "kind": ".vscode/mcp.json",
+      "path": ".vscode/mcp.json",
+      "pr_number": 39,
+      "merge_commit_sha": "217fa2c9ac65fe3a77f7c6ece94f638c78959ba7",
+      "coding_agent_marked": false,
+      "base_sha": "45010832471ab532aa7b3d576a488592f444e2b1",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "blockbench",
+            "direction": "changed",
+            "before": {
+              "url": "http://localhost:5007/bb-mcp",
+              "type": "http"
+            },
+            "after": {
+              "url": "http://localhost:3000/bb-mcp",
+              "type": "http"
+            },
+            "semantic_direction": "changed"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "45010832471ab532aa7b3d576a488592f444e2b1",
+        "base_ref": "45010832471ab532aa7b3d576a488592f444e2b1",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "base_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 1.4,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "equinor__design-system__pr4222",
+      "repo": "equinor/design-system",
+      "kind": ".vscode/mcp.json",
+      "path": ".vscode/mcp.json",
+      "pr_number": 4222,
+      "merge_commit_sha": "d6a505cc19018b91398154014ea20cdfb456a5a9",
+      "coding_agent_marked": false,
+      "base_sha": "ced18f4557b219222c465bab5669bd1a140827be",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "mcp_server",
+            "key": "figma",
+            "direction": "added",
+            "before": null,
+            "after": {
+              "type": "http",
+              "url": "http://127.0.0.1:3845/mcp"
+            },
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "ced18f4557b219222c465bab5669bd1a140827be",
+        "base_ref": "ced18f4557b219222c465bab5669bd1a140827be",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "base_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 3.86,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "amelioro__ameliorate__pr936",
+      "repo": "amelioro/ameliorate",
+      "kind": ".vscode/mcp.json",
+      "path": ".vscode/mcp.json",
+      "pr_number": 936,
+      "merge_commit_sha": "d2ae04bd119a334fc1a59adfb06aec6d7d7f04b8",
+      "coding_agent_marked": false,
+      "base_sha": "d5fc1e55817d74ef3ead27cff9f51b1c42b9fed7",
+      "expectation": {
+        "scope": "refusal_expected",
+        "changes": [],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "d5fc1e55817d74ef3ead27cff9f51b1c42b9fed7",
+        "base_ref": "d5fc1e55817d74ef3ead27cff9f51b1c42b9fed7",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "current_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 1.83,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "microsoft__TypeScript-Website__pr3582",
+      "repo": "microsoft/TypeScript-Website",
+      "kind": ".github/workflows/",
+      "path": ".github/workflows/publish-packages.yml",
+      "pr_number": 3582,
+      "merge_commit_sha": "082b4c58cdfdb8220978e90703d59bce3e865e11",
+      "coding_agent_marked": false,
+      "base_sha": "f3cefe755855eb1d2fb7b4ab178dfcecf1a66027",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "workflow_permission",
+            "key": "build:contents",
+            "direction": "changed",
+            "before": "write",
+            "after": "read",
+            "semantic_direction": "narrowing"
+          },
+          {
+            "kind": "workflow_permission",
+            "key": "build:id-token",
+            "direction": "changed",
+            "before": "none",
+            "after": "write",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "workflow_permission",
+            "key": "build:pull-requests",
+            "direction": "changed",
+            "before": "write",
+            "after": "none",
+            "semantic_direction": "narrowing"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "f3cefe755855eb1d2fb7b4ab178dfcecf1a66027",
+        "base_ref": "f3cefe755855eb1d2fb7b4ab178dfcecf1a66027",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [
+          {
+            "after": "write, build: contents: read, build: id-token: write, on: push, workflow_dispatch",
+            "before": "write, build: contents: write, build: pull-requests: write, on: push, workflow_dispatch",
+            "direction": "widened",
+            "expands": true,
+            "severity": "high",
+            "subject": "github .github/workflows/publish-packages.yml",
+            "why": "grants write permissions to workflow jobs"
+          }
+        ],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 2.65,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "wpengine__example-sage-theme__pr32",
+      "repo": "wpengine/example-sage-theme",
+      "kind": ".github/workflows/",
+      "path": ".github/workflows/sonar.yaml",
+      "pr_number": 32,
+      "merge_commit_sha": "bdff0a0c095daf0cc5e23197702c54cd93036cc2",
+      "coding_agent_marked": false,
+      "base_sha": "6b36cf147f315a8142dabe07364eacb11c5bb556",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "workflow_permission",
+            "key": "sonarqube:*",
+            "direction": "changed",
+            "before": "absent",
+            "after": "{'contents': 'read', 'pull-requests': 'write', 'id-token': 'write', 'actions': 'read'}",
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "6b36cf147f315a8142dabe07364eacb11c5bb556",
+        "base_ref": "6b36cf147f315a8142dabe07364eacb11c5bb556",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [
+          {
+            "after": "write, sonarqube: actions: read, sonarqube: contents: read, sonarqube: id-token: write, sonarqube: pull-requests: write, on: pull_request, push",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "github .github/workflows/sonar.yaml",
+            "why": "grants write permissions to workflow jobs"
+          }
+        ],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 1.73,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "openbootdotdev__openboot__pr136",
+      "repo": "openbootdotdev/openboot",
+      "kind": ".github/workflows/",
+      "path": ".github/workflows/claude-code-review.yml",
+      "pr_number": 136,
+      "merge_commit_sha": "861552539494163ed94fdb9525dcf9c1f9f06179",
+      "coding_agent_marked": false,
+      "base_sha": "0463ad7ad94265036c5182ef064943ec33ed4d87",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "workflow_permission",
+            "key": "claude-review:issues",
+            "direction": "changed",
+            "before": "read",
+            "after": "write",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "workflow_permission",
+            "key": "claude-review:pull-requests",
+            "direction": "changed",
+            "before": "read",
+            "after": "write",
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "0463ad7ad94265036c5182ef064943ec33ed4d87",
+        "base_ref": "0463ad7ad94265036c5182ef064943ec33ed4d87",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "base_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 2.24,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "Ryan-Millard__Img2Num__pr297",
+      "repo": "Ryan-Millard/Img2Num",
+      "kind": ".github/workflows/",
+      "path": ".github/workflows/pr-auto-label.yml",
+      "pr_number": 297,
+      "merge_commit_sha": "02b8bbf21f9780ab60360633c78ae7e91862ed3c",
+      "coding_agent_marked": false,
+      "base_sha": "33605a59bb01b6b5f0b794af850c2ae35fbfa563",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "workflow_permission",
+            "key": "label:issues",
+            "direction": "changed",
+            "before": "none",
+            "after": "write",
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "33605a59bb01b6b5f0b794af850c2ae35fbfa563",
+        "base_ref": "33605a59bb01b6b5f0b794af850c2ae35fbfa563",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [
+          {
+            "after": "write, label: contents: read, label: issues: write, label: pull-requests: write, pull_request_target",
+            "before": "write, label: contents: read, label: pull-requests: write, pull_request_target",
+            "direction": "widened",
+            "expands": true,
+            "severity": "critical",
+            "subject": "github .github/workflows/pr-auto-label.yml",
+            "why": "uses the privileged pull_request_target event context; grants write permissions to workflow jobs"
+          }
+        ],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 2.47,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "hasura__ndc-nodejs-lambda__pr66",
+      "repo": "hasura/ndc-nodejs-lambda",
+      "kind": ".github/workflows/",
+      "path": ".github/workflows/create-connector-release.yaml",
+      "pr_number": 66,
+      "merge_commit_sha": "ff5c934dc0115bb98ffa632ce150c07470ad33a3",
+      "coding_agent_marked": false,
+      "base_sha": "686fc33330ed7f7a127469420420a905aec12452",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "workflow_permission",
+            "key": "create-release-pr:*",
+            "direction": "changed",
+            "before": "absent",
+            "after": "{'contents': 'write', 'pull-requests': 'write'}",
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "686fc33330ed7f7a127469420420a905aec12452",
+        "base_ref": "686fc33330ed7f7a127469420420a905aec12452",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [
+          {
+            "after": "write, create-release-pr: contents: write, create-release-pr: pull-requests: write, on: workflow_dispatch",
+            "before": "\u2014",
+            "direction": "added",
+            "expands": true,
+            "severity": "high",
+            "subject": "github .github/workflows/create-connector-release.yaml",
+            "why": "grants write permissions to workflow jobs"
+          }
+        ],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 1.36,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "loft-lang__loft__pr605",
+      "repo": "loft-lang/loft",
+      "kind": ".github/workflows/",
+      "path": ".github/workflows/lib-branch-report.yml",
+      "pr_number": 605,
+      "merge_commit_sha": "9cd5d9ebf930350fc422d1090cc78cb98c77d9f3",
+      "coding_agent_marked": true,
+      "base_sha": "ca51c7951bc849f30d4dd00891deeeec157c5295",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "workflow_permission",
+            "key": "report:contents",
+            "direction": "changed",
+            "before": "read",
+            "after": "write",
+            "semantic_direction": "widening"
+          },
+          {
+            "kind": "workflow_permission",
+            "key": "report:pull-requests",
+            "direction": "changed",
+            "before": "none",
+            "after": "write",
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "ca51c7951bc849f30d4dd00891deeeec157c5295",
+        "base_ref": "ca51c7951bc849f30d4dd00891deeeec157c5295",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "incomparable",
+        "incomparable_reasons": [
+          "base_inventory_incomplete"
+        ],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 5.91,
+      "stderr_tail": "",
+      "stop_point": "comparison_incomparable"
+    },
+    {
+      "case": "Krilliac__DuetOS__pr229",
+      "repo": "Krilliac/DuetOS",
+      "kind": ".github/workflows/",
+      "path": ".github/workflows/build.yml",
+      "pr_number": 229,
+      "merge_commit_sha": "407a55adef1d1e97a277ab7d85ff5f81914e67c0",
+      "coding_agent_marked": false,
+      "base_sha": "1cbb161d1f4817f24d00f7c5b409f7c908fc2b84",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "workflow_permission",
+            "key": "diff-boot-smoke:*",
+            "direction": "changed",
+            "before": "absent",
+            "after": "{'contents': 'read'}",
+            "semantic_direction": "widening"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "1cbb161d1f4817f24d00f7c5b409f7c908fc2b84",
+        "base_ref": "1cbb161d1f4817f24d00f7c5b409f7c908fc2b84",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [
+          {
+            "after": "write, build-debug: repository defaults (unknown), build-flavor-matrix: repository defaults (unknown), build-release: repository defaults (unknown), check-format: repository defaults (unknown), check-rust: repository defaults (unknown), clang-tidy: repository defaults (unknown), diff-boot-smoke: contents: read, host-tests: repository defaults (unknown), pre-publish-lifetime-snapshot: contents: write, publish-rolling: contents: write, qemu-smoke: contents: read, qemu-smoke: pull-requests: write, on: pull_request, push, pre-publish-lifetime-snapshot: uses: ./.github/workflows/lifetime-downloads.yml",
+            "before": "write, build-debug: repository defaults (unknown), build-flavor-matrix: repository defaults (unknown), build-release: repository defaults (unknown), check-format: repository defaults (unknown), check-rust: repository defaults (unknown), clang-tidy: repository defaults (unknown), host-tests: repository defaults (unknown), pre-publish-lifetime-snapshot: contents: write, publish-rolling: contents: write, qemu-smoke: contents: read, qemu-smoke: pull-requests: write, on: pull_request, push, pre-publish-lifetime-snapshot: uses: ./.github/workflows/lifetime-downloads.yml",
+            "direction": "changed",
+            "expands": false,
+            "severity": "high",
+            "subject": "github .github/workflows/build.yml",
+            "why": "grants write permissions to workflow jobs; some effective token permissions are unknown; repository defaults or unresolved declarations require review"
+          }
+        ],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 3.05,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "navikt__lydia-radgiver-frontend__pr307",
+      "repo": "navikt/lydia-radgiver-frontend",
+      "kind": ".github/workflows/",
+      "path": ".github/workflows/check-image-update.yml",
+      "pr_number": 307,
+      "merge_commit_sha": "a3965b97e3858cde6e3810bf47b3eccac6dbbd07",
+      "coding_agent_marked": false,
+      "base_sha": "da0ab9cef8d6b4bfaae0f64ea815bc88d53a87f8",
+      "expectation": {
+        "scope": "supported",
+        "changes": [],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "da0ab9cef8d6b4bfaae0f64ea815bc88d53a87f8",
+        "base_ref": "da0ab9cef8d6b4bfaae0f64ea815bc88d53a87f8",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 1.67,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "commercetools__connect-giftcard-integration-template__pr341",
+      "repo": "commercetools/connect-giftcard-integration-template",
+      "kind": ".github/workflows/",
+      "path": ".github/workflows/bump.yaml",
+      "pr_number": 341,
+      "merge_commit_sha": "e609ac585a1a0d72d17de91ee3afd609146f3c66",
+      "coding_agent_marked": false,
+      "base_sha": "ee6c1bf7888ae5292189b530ead1591eb2625293",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "workflow_permission",
+            "key": "bump-version:*",
+            "direction": "changed",
+            "before": "repository_default",
+            "after": "{'contents': 'write', 'pull-requests': 'write'}",
+            "semantic_direction": "changed"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "ee6c1bf7888ae5292189b530ead1591eb2625293",
+        "base_ref": "ee6c1bf7888ae5292189b530ead1591eb2625293",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [
+          {
+            "after": "write, bump-version: contents: write, bump-version: pull-requests: write, on: workflow_dispatch",
+            "before": "unknown, bump-version: repository defaults (unknown), on: workflow_dispatch",
+            "direction": "changed",
+            "expands": false,
+            "severity": "high",
+            "subject": "github .github/workflows/bump.yaml",
+            "why": "grants write permissions to workflow jobs"
+          },
+          {
+            "after": "write, tag-latest: actions: write, tag-latest: contents: write, on: push",
+            "before": "unknown, tag-latest: repository defaults (unknown), on: push",
+            "direction": "changed",
+            "expands": false,
+            "severity": "high",
+            "subject": "github .github/workflows/latest.yaml",
+            "why": "grants write permissions to workflow jobs"
+          },
+          {
+            "after": "read, certify: contents: read, on: push, workflow_dispatch",
+            "before": "unknown, certify: repository defaults (unknown), on: push, workflow_dispatch",
+            "direction": "changed",
+            "expands": false,
+            "severity": "low",
+            "subject": "github .github/workflows/certify.yaml",
+            "why": "changes the workflow's own authority"
+          },
+          {
+            "after": "read, build-enabler: contents: read, build-processor: contents: read, on: push",
+            "before": "unknown, build-enabler: repository defaults (unknown), build-processor: repository defaults (unknown), on: push",
+            "direction": "changed",
+            "expands": false,
+            "severity": "low",
+            "subject": "github .github/workflows/ci.yaml",
+            "why": "changes the workflow's own authority"
+          },
+          {
+            "after": "read, publish: contents: read, on: push, workflow_dispatch",
+            "before": "unknown, publish: repository defaults (unknown), on: push, workflow_dispatch",
+            "direction": "changed",
+            "expands": false,
+            "severity": "low",
+            "subject": "github .github/workflows/cko-preview.yml",
+            "why": "changes the workflow's own authority"
+          }
+        ],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 1.34,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    },
+    {
+      "case": "contemplative-software__specmaker__pr3",
+      "repo": "contemplative-software/specmaker",
+      "kind": ".github/workflows/",
+      "path": ".github/workflows/ci.yml",
+      "pr_number": 3,
+      "merge_commit_sha": "ac0b1d49019539f13d5db442637389cb7a94b18e",
+      "coding_agent_marked": false,
+      "base_sha": "58176bdd449d6386eacd92702cec92d5544cad3f",
+      "expectation": {
+        "scope": "supported",
+        "changes": [
+          {
+            "kind": "workflow_permission",
+            "key": "ci:*",
+            "direction": "changed",
+            "before": "repository_default",
+            "after": "{'contents': 'read', 'pull-requests': 'write'}",
+            "semantic_direction": "changed"
+          }
+        ],
+        "unclassified_keys": []
+      },
+      "payload": {
+        "base_commit": "58176bdd449d6386eacd92702cec92d5544cad3f",
+        "base_ref": "58176bdd449d6386eacd92702cec92d5544cad3f",
+        "capability_diff_schema_version": "0.1",
+        "comparison_status": "comparable",
+        "incomparable_reasons": [],
+        "rows": [
+          {
+            "after": "write, ci: contents: read, ci: pull-requests: write, on: pull_request, push",
+            "before": "unknown, ci: repository defaults (unknown), on: pull_request, push",
+            "direction": "changed",
+            "expands": false,
+            "severity": "high",
+            "subject": "github .github/workflows/ci.yml",
+            "why": "grants write permissions to workflow jobs"
+          }
+        ],
+        "static_analysis_only": true,
+        "workspace": "<tmp-path>"
+      },
+      "comparison_seconds": 1.33,
+      "stderr_tail": "",
+      "stop_point": "comparison_comparable"
+    }
+  ]
+}

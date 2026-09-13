@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Format
+        run: cd specmaker-core && uvx ruff format . --check --diff
+
+      - name: Lint
+        run: cd specmaker-core && uvx ruff check --output-format=github .
+
+      - name: Type Check
+        run: cd specmaker-core && uv run --frozen pyright
+
+      - name: Run Tests with Coverage
+        run: cd specmaker-core && uv run --frozen pytest --cov=src/specmaker_core --cov-report=xml --cov-report=term-missing --junitxml=pytest.xml --cov-fail-under=0
+
+      - name: Fetch base branch for diff coverage
+        run: |
+          git fetch --no-tags --prune origin +refs/heads/main:refs/remotes/origin/main
+
+      - name: Diff coverage (changed files only, fail <90%)
+        run: |
+          cd specmaker-core
+          # Fallback when no merge-base exists (e.g., first commit in repo or shallow fetch)
+          if ! git merge-base --is-ancestor origin/main HEAD 2>/dev/null; then
+            echo "No merge-base with origin/main; comparing against the initial commit"
+            BASE=$(git rev-list --max-parents=0 HEAD | tail -n1)
+            git diff "$BASE" > /dev/null
+          fi
+          uv run --frozen diff-cover coverage.xml --compare-branch=origin/main --fail-under=90 || \
+          uv run --frozen diff-cover coverage.xml --compare-branch=$(git rev-list --max-parents=0 HEAD | tail -n1) --fail-under=90
+
+      - name: Coverage comment (changed files only)
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        uses: MishaKav/pytest-coverage-comment@main
+        with:
+          github-token: ${{ github.token }}
+          pytest-coverage-path: specmaker-core/coverage.xml
+          junitxml-path: specmaker-core/pytest.xml
+          report-only-changed-files: false

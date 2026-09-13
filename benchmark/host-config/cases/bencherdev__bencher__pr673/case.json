@@ -1,0 +1,12 @@
+{
+  "repo": "bencherdev/bencher",
+  "pr_number": 673,
+  "kind": ".claude/settings.json",
+  "path": ".claude/settings.json",
+  "base_sha": "05c3ecf6ab415a46fbd5e1da1a28c8753d9dd5c6",
+  "head_sha": "23928b83fcf6c9a2237af0d35dbde8bc9ccaeff5",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/bencherdev/bencher/blob/05c3ecf6ab415a46fbd5e1da1a28c8753d9dd5c6/.claude/settings.json",
+  "head_source": "https://github.com/bencherdev/bencher/blob/23928b83fcf6c9a2237af0d35dbde8bc9ccaeff5/.claude/settings.json",
+  "redacted_only_change": true
+}

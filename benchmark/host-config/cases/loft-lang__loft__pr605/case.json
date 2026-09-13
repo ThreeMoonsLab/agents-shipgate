@@ -1,0 +1,12 @@
+{
+  "repo": "loft-lang/loft",
+  "pr_number": 605,
+  "kind": ".github/workflows/",
+  "path": ".github/workflows/lib-branch-report.yml",
+  "base_sha": "ca51c7951bc849f30d4dd00891deeeec157c5295",
+  "head_sha": "9cd5d9ebf930350fc422d1090cc78cb98c77d9f3",
+  "coding_agent_marked": true,
+  "base_source": "https://github.com/loft-lang/loft/blob/ca51c7951bc849f30d4dd00891deeeec157c5295/.github/workflows/lib-branch-report.yml",
+  "head_source": "https://github.com/loft-lang/loft/blob/9cd5d9ebf930350fc422d1090cc78cb98c77d9f3/.github/workflows/lib-branch-report.yml",
+  "redacted_only_change": false
+}

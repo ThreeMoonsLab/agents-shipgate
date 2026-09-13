@@ -1,0 +1,12 @@
+{
+  "repo": "commercetools/connect-giftcard-integration-template",
+  "pr_number": 341,
+  "kind": ".github/workflows/",
+  "path": ".github/workflows/bump.yaml",
+  "base_sha": "ee6c1bf7888ae5292189b530ead1591eb2625293",
+  "head_sha": "e609ac585a1a0d72d17de91ee3afd609146f3c66",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/commercetools/connect-giftcard-integration-template/blob/ee6c1bf7888ae5292189b530ead1591eb2625293/.github/workflows/bump.yaml",
+  "head_source": "https://github.com/commercetools/connect-giftcard-integration-template/blob/e609ac585a1a0d72d17de91ee3afd609146f3c66/.github/workflows/bump.yaml",
+  "redacted_only_change": false
+}

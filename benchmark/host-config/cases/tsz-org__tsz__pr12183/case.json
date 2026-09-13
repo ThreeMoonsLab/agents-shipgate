@@ -1,0 +1,12 @@
+{
+  "repo": "tsz-org/tsz",
+  "pr_number": 12183,
+  "kind": ".codex/config.toml",
+  "path": ".codex/config.toml",
+  "base_sha": "dc22de1ba437d61c81924ac377dbbc591df3fd50",
+  "head_sha": "c02f97cd746c4cf9dd0112270e38430f998d8a54",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/tsz-org/tsz/blob/dc22de1ba437d61c81924ac377dbbc591df3fd50/.codex/config.toml",
+  "head_source": "https://github.com/tsz-org/tsz/blob/c02f97cd746c4cf9dd0112270e38430f998d8a54/.codex/config.toml",
+  "redacted_only_change": false
+}

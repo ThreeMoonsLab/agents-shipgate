@@ -1,0 +1,10 @@
+personality = "friendly"
+
+[features]
+codex_hooks = true
+
+[shell_environment_policy]
+inherit = "core"
+
+[shell_environment_policy.set]
+CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1"

@@ -1,0 +1,12 @@
+{
+  "repo": "hasura/ndc-nodejs-lambda",
+  "pr_number": 66,
+  "kind": ".github/workflows/",
+  "path": ".github/workflows/create-connector-release.yaml",
+  "base_sha": "686fc33330ed7f7a127469420420a905aec12452",
+  "head_sha": "ff5c934dc0115bb98ffa632ce150c07470ad33a3",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/hasura/ndc-nodejs-lambda/blob/686fc33330ed7f7a127469420420a905aec12452/.github/workflows/create-connector-release.yaml",
+  "head_source": "https://github.com/hasura/ndc-nodejs-lambda/blob/ff5c934dc0115bb98ffa632ce150c07470ad33a3/.github/workflows/create-connector-release.yaml",
+  "redacted_only_change": false
+}

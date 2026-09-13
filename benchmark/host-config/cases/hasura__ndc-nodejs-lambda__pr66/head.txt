@@ -1,0 +1,193 @@
+name: Automated Release for ndc-nodejs-lambda
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g., v1.20.0)"
+        required: true
+        type: string
+
+jobs:
+  create-release-pr:
+    name: Create Release PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Validate version format
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version must be in format vX.Y.Z (e.g., v1.20.0)"
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check tag doesn't already exist
+        run: |
+          if git rev-parse "${{ github.event.inputs.version }}" >/dev/null 2>&1; then
+            echo "::error::Tag ${{ github.event.inputs.version }} already exists"
+            exit 1
+          fi
+
+      - name: Check release branch doesn't exist
+        run: |
+          BRANCH_NAME="release/${{ github.event.inputs.version }}"
+          if git ls-remote --exit-code --heads origin "$BRANCH_NAME" >/dev/null 2>&1; then
+            echo "::error::Branch $BRANCH_NAME already exists. Delete it first or use a different version."
+            exit 1
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Get previous tag
+        id: get-previous-tag
+        run: |
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          echo "previous_tag=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+          echo "Previous tag: ${PREVIOUS_TAG:-'(none)'}"
+
+      - name: Create release branch
+        run: |
+          BRANCH_NAME="release/${{ github.event.inputs.version }}"
+          git checkout -b "$BRANCH_NAME"
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_ENV
+
+      - name: Generate changelog entry
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          VERSION_NO_V="${VERSION#v}"
+          PREVIOUS_TAG="${{ steps.get-previous-tag.outputs.previous_tag }}"
+          DATE=$(date +%Y-%m-%d)
+
+          # Generate commit log since last tag
+          if [ -n "$PREVIOUS_TAG" ]; then
+            echo "Generating changelog from ${PREVIOUS_TAG} to HEAD"
+            COMMITS=$(git log "${PREVIOUS_TAG}..HEAD" --pretty=format:"- %s" --no-merges | grep -v "^- Release v" || true)
+          else
+            echo "No previous tag found, generating full history"
+            COMMITS=$(git log --pretty=format:"- %s" --no-merges | grep -v "^- Release v" || true)
+          fi
+
+          # Handle empty commits
+          if [ -z "$COMMITS" ]; then
+            COMMITS="- No notable changes"
+          fi
+
+          # Create changelog entry
+          CHANGELOG_ENTRY="## [${VERSION_NO_V}] - ${DATE}
+
+          ${COMMITS}"
+
+          # Create or update CHANGELOG.md
+          if [ -f CHANGELOG.md ]; then
+            # Read existing content, skip header line
+            EXISTING_CONTENT=$(tail -n +2 CHANGELOG.md)
+
+            # Write new changelog
+            {
+              head -1 CHANGELOG.md
+              echo ""
+              echo "$CHANGELOG_ENTRY"
+              echo ""
+              echo "$EXISTING_CONTENT"
+            } > CHANGELOG.tmp
+            mv CHANGELOG.tmp CHANGELOG.md
+          else
+            {
+              echo "# Changelog"
+              echo ""
+              echo "$CHANGELOG_ENTRY"
+            } > CHANGELOG.md
+          fi
+
+          echo "Generated changelog entry:"
+          echo "$CHANGELOG_ENTRY"
+
+      - name: Update package.json version
+        working-directory: ./ndc-lambda-sdk
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          VERSION_NO_V="${VERSION#v}"
+
+          # Update package.json version
+          npm version "$VERSION_NO_V" --no-git-tag-version
+
+          # Regenerate package-lock.json to ensure consistency
+          npm install --package-lock-only
+
+          echo "Updated package.json to version $VERSION_NO_V"
+
+      - name: Commit and push changes
+        run: |
+          git add CHANGELOG.md ndc-lambda-sdk/package.json ndc-lambda-sdk/package-lock.json
+          git commit -m "Release ${{ github.event.inputs.version }}"
+          git push origin "${{ env.branch_name }}"
+
+      - name: Generate PR body
+        id: pr-body
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          VERSION_NO_V="${VERSION#v}"
+
+          # Extract the changelog section for this version
+          RELEASE_NOTES=$(awk "/## \[${VERSION_NO_V}\]/{flag=1; next} /## \[/{flag=0} flag" CHANGELOG.md)
+
+          cat > pr-body.md << 'EOF'
+          ## Release ${{ github.event.inputs.version }}
+
+          This PR prepares the release for version ${{ github.event.inputs.version }}.
+
+          ### Changes
+          EOF
+
+          echo "$RELEASE_NOTES" >> pr-body.md
+
+          cat >> pr-body.md << 'EOF'
+
+          ### Pre-merge Checklist
+          - [ ] Review changelog entries for accuracy
+          - [ ] Verify version in `ndc-lambda-sdk/package.json` is correct
+          - [ ] Ensure all CI checks pass
+
+          ### Post-merge Instructions
+          After merging, create and push the tag to trigger the release workflow:
+
+          ```bash
+          git checkout main
+          git pull origin main
+          git tag ${{ github.event.inputs.version }}
+          git push origin ${{ github.event.inputs.version }}
+          ```
+
+          > **Note:** The release workflow will automatically publish to npm and create the GitHub release.
+          EOF
+
+      - name: Create Pull Request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --base main \
+            --head "${{ env.branch_name }}" \
+            --title "Release ${{ github.event.inputs.version }}" \
+            --body-file pr-body.md \
+            --label "release"

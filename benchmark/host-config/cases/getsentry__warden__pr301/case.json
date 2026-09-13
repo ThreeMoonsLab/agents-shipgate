@@ -1,0 +1,12 @@
+{
+  "repo": "getsentry/warden",
+  "pr_number": 301,
+  "kind": ".cursor/mcp.json",
+  "path": ".cursor/mcp.json",
+  "base_sha": "83017a339655214d95aa8c92cf290f4336fcb144",
+  "head_sha": "74f2951a09b4ac5275aeca322ea82575f11385df",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/getsentry/warden/blob/83017a339655214d95aa8c92cf290f4336fcb144/.cursor/mcp.json",
+  "head_source": "https://github.com/getsentry/warden/blob/74f2951a09b4ac5275aeca322ea82575f11385df/.cursor/mcp.json",
+  "redacted_only_change": false
+}

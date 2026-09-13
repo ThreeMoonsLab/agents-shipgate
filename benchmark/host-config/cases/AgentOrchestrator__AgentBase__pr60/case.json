@@ -1,0 +1,12 @@
+{
+  "repo": "AgentOrchestrator/AgentBase",
+  "pr_number": 60,
+  "kind": ".mcp.json",
+  "path": ".mcp.json",
+  "base_sha": "7f7bc111a8a4f38ee4513c286025d73e30c0cce9",
+  "head_sha": "23a22c3c67feee70538607f8cbb9cc633c139130",
+  "coding_agent_marked": true,
+  "base_source": "https://github.com/AgentOrchestrator/AgentBase/blob/7f7bc111a8a4f38ee4513c286025d73e30c0cce9/.mcp.json",
+  "head_source": "https://github.com/AgentOrchestrator/AgentBase/blob/23a22c3c67feee70538607f8cbb9cc633c139130/.mcp.json",
+  "redacted_only_change": false
+}

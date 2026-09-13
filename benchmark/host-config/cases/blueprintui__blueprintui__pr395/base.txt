@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "args": [
+        "dlx",
+        "chrome-devtools-mcp@latest"
+      ],
+      "command": "pnpm"
+    }
+  }
+}

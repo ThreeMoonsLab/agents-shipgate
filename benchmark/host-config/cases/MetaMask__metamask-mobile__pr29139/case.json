@@ -1,0 +1,12 @@
+{
+  "repo": "MetaMask/metamask-mobile",
+  "pr_number": 29139,
+  "kind": ".claude/settings.json",
+  "path": ".claude/settings.json",
+  "base_sha": "5624ab09669d98a2e57a43d0b14181b6aa15ca45",
+  "head_sha": "7f6d42cddec729125d946afdc6bf675354305b0b",
+  "coding_agent_marked": true,
+  "base_source": "https://github.com/MetaMask/metamask-mobile/blob/5624ab09669d98a2e57a43d0b14181b6aa15ca45/.claude/settings.json",
+  "head_source": "https://github.com/MetaMask/metamask-mobile/blob/7f6d42cddec729125d946afdc6bf675354305b0b/.claude/settings.json",
+  "redacted_only_change": false
+}

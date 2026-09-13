@@ -1,0 +1,12 @@
+{
+  "repo": "microsoft/TypeScript-Website",
+  "pr_number": 3582,
+  "kind": ".github/workflows/",
+  "path": ".github/workflows/publish-packages.yml",
+  "base_sha": "f3cefe755855eb1d2fb7b4ab178dfcecf1a66027",
+  "head_sha": "082b4c58cdfdb8220978e90703d59bce3e865e11",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/microsoft/TypeScript-Website/blob/f3cefe755855eb1d2fb7b4ab178dfcecf1a66027/.github/workflows/publish-packages.yml",
+  "head_source": "https://github.com/microsoft/TypeScript-Website/blob/082b4c58cdfdb8220978e90703d59bce3e865e11/.github/workflows/publish-packages.yml",
+  "redacted_only_change": false
+}

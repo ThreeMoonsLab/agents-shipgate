@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest"
+      ],
+      "command": "npx"
+    },
+    "figma": {
+      "url": "https://mcp.figma.com/mcp"
+    },
+    "spark-ui-storybook-mcp": {
+      "url": "http://localhost:6006/mcp"
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "repo": "Krilliac/DuetOS",
+  "pr_number": 229,
+  "kind": ".github/workflows/",
+  "path": ".github/workflows/build.yml",
+  "base_sha": "1cbb161d1f4817f24d00f7c5b409f7c908fc2b84",
+  "head_sha": "407a55adef1d1e97a277ab7d85ff5f81914e67c0",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/Krilliac/DuetOS/blob/1cbb161d1f4817f24d00f7c5b409f7c908fc2b84/.github/workflows/build.yml",
+  "head_source": "https://github.com/Krilliac/DuetOS/blob/407a55adef1d1e97a277ab7d85ff5f81914e67c0/.github/workflows/build.yml",
+  "redacted_only_change": false
+}

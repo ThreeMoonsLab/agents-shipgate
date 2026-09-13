@@ -1,0 +1,12 @@
+{
+  "repo": "cuthbertLab/music21",
+  "pr_number": 1869,
+  "kind": ".codex/config.toml",
+  "path": ".codex/config.toml",
+  "base_sha": "429d16222ad450a6c4bd516c95a203bd1cd7eacb",
+  "head_sha": "5421c7549b8b4b4f07b0229db3b9f180ff587ce2",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/cuthbertLab/music21/blob/429d16222ad450a6c4bd516c95a203bd1cd7eacb/.codex/config.toml",
+  "head_source": "https://github.com/cuthbertLab/music21/blob/5421c7549b8b4b4f07b0229db3b9f180ff587ce2/.codex/config.toml",
+  "redacted_only_change": false
+}

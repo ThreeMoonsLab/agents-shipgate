@@ -1,0 +1,12 @@
+{
+  "repo": "amelioro/ameliorate",
+  "pr_number": 936,
+  "kind": ".vscode/mcp.json",
+  "path": ".vscode/mcp.json",
+  "base_sha": "d5fc1e55817d74ef3ead27cff9f51b1c42b9fed7",
+  "head_sha": "d2ae04bd119a334fc1a59adfb06aec6d7d7f04b8",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/amelioro/ameliorate/blob/d5fc1e55817d74ef3ead27cff9f51b1c42b9fed7/.vscode/mcp.json",
+  "head_source": "https://github.com/amelioro/ameliorate/blob/d2ae04bd119a334fc1a59adfb06aec6d7d7f04b8/.vscode/mcp.json",
+  "redacted_only_change": false
+}

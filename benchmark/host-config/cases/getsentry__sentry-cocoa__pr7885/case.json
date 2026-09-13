@@ -1,0 +1,12 @@
+{
+  "repo": "getsentry/sentry-cocoa",
+  "pr_number": 7885,
+  "kind": ".codex/config.toml",
+  "path": ".codex/config.toml",
+  "base_sha": "93191850ffe45fb665bc71a807e3b4520a0ecfc5",
+  "head_sha": "1155f0c432ac59fe3c7f6143e9b2d87d05422b93",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/getsentry/sentry-cocoa/blob/93191850ffe45fb665bc71a807e3b4520a0ecfc5/.codex/config.toml",
+  "head_source": "https://github.com/getsentry/sentry-cocoa/blob/1155f0c432ac59fe3c7f6143e9b2d87d05422b93/.codex/config.toml",
+  "redacted_only_change": false
+}

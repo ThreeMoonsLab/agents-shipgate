@@ -1,0 +1,12 @@
+{
+  "repo": "sourcegraph/docs",
+  "pr_number": 1480,
+  "kind": ".vscode/mcp.json",
+  "path": ".vscode/mcp.json",
+  "base_sha": "4b34e1ff743bd6c18b8c5f5e3cb2119e24bf2c33",
+  "head_sha": "df8f900381f7eefe067a36a0e4eaad7e8efa5546",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/sourcegraph/docs/blob/4b34e1ff743bd6c18b8c5f5e3cb2119e24bf2c33/.vscode/mcp.json",
+  "head_source": "https://github.com/sourcegraph/docs/blob/df8f900381f7eefe067a36a0e4eaad7e8efa5546/.vscode/mcp.json",
+  "redacted_only_change": false
+}

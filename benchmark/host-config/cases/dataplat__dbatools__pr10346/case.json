@@ -1,0 +1,12 @@
+{
+  "repo": "dataplat/dbatools",
+  "pr_number": 10346,
+  "kind": ".claude/settings.json",
+  "path": ".claude/settings.json",
+  "base_sha": "78e0727ae63af13da6b4ccb825407288aeda1dd8",
+  "head_sha": "d7dbe213fa0c32deee451e620bd779c39f06ae38",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/dataplat/dbatools/blob/78e0727ae63af13da6b4ccb825407288aeda1dd8/.claude/settings.json",
+  "head_source": "https://github.com/dataplat/dbatools/blob/d7dbe213fa0c32deee451e620bd779c39f06ae38/.claude/settings.json",
+  "redacted_only_change": false
+}

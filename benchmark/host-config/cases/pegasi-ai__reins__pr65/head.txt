@@ -1,0 +1,108 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "_reins": true,
+            "command": "node /Users/<user>/Documents/clawreins-public/reins/dist/hooks/post-tool-use.js",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "_reins": true,
+            "command": "node /Users/<user>/Documents/clawreins-public/reins/dist/hooks/post-tool-use.js",
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit"
+      },
+      {
+        "hooks": [
+          {
+            "_reins": true,
+            "command": "node /Users/<user>/Documents/clawreins-public/reins/dist/hooks/post-tool-use.js",
+            "type": "command"
+          }
+        ],
+        "matcher": "MultiEdit"
+      },
+      {
+        "hooks": [
+          {
+            "_reins": true,
+            "command": "node /Users/<user>/Documents/clawreins-public/reins/dist/hooks/post-tool-use.js",
+            "type": "command"
+          }
+        ],
+        "matcher": "Write"
+      },
+      {
+        "hooks": [
+          {
+            "_reins": true,
+            "command": "node /Users/<user>/Documents/clawreins-public/reins/dist/hooks/post-tool-use.js",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "_reins": true,
+            "command": "node /Users/<user>/Documents/clawreins-public/reins/dist/hooks/pre-tool-use.js",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "_reins": true,
+            "command": "node /Users/<user>/Documents/clawreins-public/reins/dist/hooks/pre-tool-use.js",
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit"
+      },
+      {
+        "hooks": [
+          {
+            "_reins": true,
+            "command": "node /Users/<user>/Documents/clawreins-public/reins/dist/hooks/pre-tool-use.js",
+            "type": "command"
+          }
+        ],
+        "matcher": "MultiEdit"
+      },
+      {
+        "hooks": [
+          {
+            "_reins": true,
+            "command": "node /Users/<user>/Documents/clawreins-public/reins/dist/hooks/pre-tool-use.js",
+            "type": "command"
+          }
+        ],
+        "matcher": "Write"
+      },
+      {
+        "hooks": [
+          {
+            "_reins": true,
+            "command": "node /Users/<user>/Documents/clawreins-public/reins/dist/hooks/pre-tool-use.js",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ]
+  }
+}

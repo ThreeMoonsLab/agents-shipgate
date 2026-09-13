@@ -1,0 +1,12 @@
+{
+  "repo": "near/nearcore",
+  "pr_number": 15295,
+  "kind": ".claude/settings.json",
+  "path": ".claude/settings.json",
+  "base_sha": "61a841e2887cc20b37f38c23b03ebc688a40ee20",
+  "head_sha": "7f5fa74b95582f4378e39dd4b88f000c98427d6c",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/near/nearcore/blob/61a841e2887cc20b37f38c23b03ebc688a40ee20/.claude/settings.json",
+  "head_source": "https://github.com/near/nearcore/blob/7f5fa74b95582f4378e39dd4b88f000c98427d6c/.claude/settings.json",
+  "redacted_only_change": false
+}

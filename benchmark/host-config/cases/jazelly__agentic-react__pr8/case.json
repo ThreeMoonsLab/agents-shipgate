@@ -1,0 +1,12 @@
+{
+  "repo": "jazelly/agentic-react",
+  "pr_number": 8,
+  "kind": ".cursor/mcp.json",
+  "path": ".cursor/mcp.json",
+  "base_sha": "3e0fbd8fe7f5c51e9fb2419b25c8fef4165c76a5",
+  "head_sha": "f73e1bcc1d62ae1de865aaf6af3f80a6eacfe6ab",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/jazelly/agentic-react/blob/3e0fbd8fe7f5c51e9fb2419b25c8fef4165c76a5/.cursor/mcp.json",
+  "head_source": "https://github.com/jazelly/agentic-react/blob/f73e1bcc1d62ae1de865aaf6af3f80a6eacfe6ab/.cursor/mcp.json",
+  "redacted_only_change": false
+}

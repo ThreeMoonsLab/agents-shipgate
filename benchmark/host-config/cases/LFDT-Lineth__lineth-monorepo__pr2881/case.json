@@ -1,0 +1,12 @@
+{
+  "repo": "LFDT-Lineth/lineth-monorepo",
+  "pr_number": 2881,
+  "kind": ".claude/settings.json",
+  "path": ".claude/settings.json",
+  "base_sha": "54f64053f35f7fdba1a14615f7b1805b9b568f71",
+  "head_sha": "3dcd40e1c18d26a2d4be7b7a5c34ee2e1994a297",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/LFDT-Lineth/lineth-monorepo/blob/54f64053f35f7fdba1a14615f7b1805b9b568f71/.claude/settings.json",
+  "head_source": "https://github.com/LFDT-Lineth/lineth-monorepo/blob/3dcd40e1c18d26a2d4be7b7a5c34ee2e1994a297/.claude/settings.json",
+  "redacted_only_change": true
+}

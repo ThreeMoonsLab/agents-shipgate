@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Add the host-config precision harness under `benchmark/host-config/` (#659).
+  It runs `shipgate diff` on 50 merged public PRs, each changing one
+  host-configuration file: `.claude/settings.json`, `.mcp.json`,
+  `.cursor/mcp.json`, `.codex/config.toml`, `.vscode/mcp.json` or a workflow's
+  permissions. It scores row precision, widening recall and the benign zero-row
+  rate against changes derived from the two file versions, never from the
+  engine. An incomparable comparison also records `audit --host --json`, so each
+  refusal maps to its cause. `tests/test_host_config_replay.py` replays every
+  case offline and re-scores the run of record. Against candidate `71ef771d`,
+  precision was 52/52, widening recall 42/63 against a bar of 0.90, and the
+  benign rate 5/6 against 95%. Every miss was a refused comparison (#700, #721,
+  #729, #730, #731).
+
 - Make a URL-based MCP server's query part of its change digest (#723). The
   digest hashed only the redacted URL, which keeps the scheme and host and drops
   everything else. So removing `read_only=true` from a Supabase MCP URL, adding
