@@ -1,6 +1,16 @@
 # Current Agent Contract
 
-Runtime contract v36 freezes the report contract at `1.0` (#569). No field is
+Runtime contract v37 names the limits a host comparison compared past (#721).
+Verifier `0.19` adds `host_comparison.unchanged_limits`, and `shipgate diff`
+(capability diff `0.2`) carries the same list. A surface that is partial
+(`unsupported`, `parse_failed`) or experimental on both sides, and
+byte-identical between them, no longer refuses the whole comparison: the rest
+is compared and each limit is named. A limit that changed, appears on one side
+only, or is `unreadable` still refuses. `check`'s boundary result cannot name
+limits yet and keeps refusing. See
+[the migration note](../STABILITY.md#unchanged-comparison-limits-contract-v37-721).
+
+Previous runtime contract v36 freezes the report contract at `1.0` (#569). No field is
 added, renamed, retyped or removed: the emitted shape is exactly the one v35
 advertised as report `0.43`, so a consumer written against `0.43` reads a
 `1.0` report unchanged. What moved is the promise. `1.x` is additive-only; a
@@ -579,11 +589,11 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `36` (minimum control contract: `21`)
+- Runtime contract: `37` (minimum control contract: `21`)
 - Current report schema: `1.0`, frozen, superseding `0.43` — [`docs/report-schema.v1.0.json`](report-schema.v1.0.json); the `1.x` rules are in [`docs/report-1-0-contract.md`](report-1-0-contract.md)
 - Current packet schema: `0.18` — [`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
-- Current verifier schema: `0.18` — [`docs/verifier-schema.v0.18.json`](verifier-schema.v0.18.json) (`0.17` and earlier stay frozen; `0.18` adds advisory host comparison evidence)
+- Current verifier schema: `0.19` — [`docs/verifier-schema.v0.19.json`](verifier-schema.v0.19.json) (`0.18` and earlier stay frozen; `0.19` names the unchanged limits a host comparison compared past)
 - Current verify-run schema: `shipgate.verify_run/v5` — [`docs/verify-run-schema.v5.json`](verify-run-schema.v5.json)
 - Current verification identity schemas: [`plan v1`](verification-plan-schema.v1.json), [`unit result v1`](verification-unit-result-schema.v1.json), [`artifact manifest v1`](verification-artifact-manifest-schema.v1.json), and [`terminal receipt v1`](verification-receipt-schema.v1.json)
 - Current control pointer schema: `shipgate.current_control/v1` — [`docs/current-control-schema.v1.json`](current-control-schema.v1.json)
@@ -1048,7 +1058,7 @@ agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --jso
 ```
 
 In `agents-shipgate-reports/verifier.json`, read the fields below (full
-schema [`docs/verifier-schema.v0.18.json`](verifier-schema.v0.18.json)). **Lead
+schema [`docs/verifier-schema.v0.19.json`](verifier-schema.v0.19.json)). **Lead
 with `control.state`.** Every release and merge field below is a mirror or
 deterministic projection of `report.json`; the authorization evaluation is an
 operational overlay and cannot change those fields.

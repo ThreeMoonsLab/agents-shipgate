@@ -182,7 +182,8 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # able to discover that from ``contract --json`` rather than from prose. The
 # operational control shapes remain byte-identical, so
 # ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21.
-CONTRACT_VERSION: Literal["36"] = "36"
+# v37 names the unchanged limits a host comparison compared past (#721).
+CONTRACT_VERSION: Literal["37"] = "37"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"

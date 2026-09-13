@@ -7,6 +7,7 @@ from pathlib import Path
 
 from agents_shipgate.cli.verify.git import (
     archive_tree,
+    blob_path_unchanged,
     commit_sha,
     detect_default_base,
     require_merge_base_sha,
@@ -116,6 +117,9 @@ def compare_host_refs(
             base_commit=base_commit,
             head_commit=head_commit,
             redact_permission_arguments=redact_permission_arguments,
+            unchanged=lambda source: blob_path_unchanged(
+                workspace, base_commit, head_commit if head is not None else None, source
+            ),
         )
         if identity() != captured_identity:
             raise ValueError("Host comparison inputs moved during the run")

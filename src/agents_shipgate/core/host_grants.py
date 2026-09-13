@@ -2242,8 +2242,17 @@ def build_host_drift_payload(
     if reasons:
         return _incomparable_payload(inventory=inventory, baseline_file=baseline_file, reasons=reasons)
 
+    return _comparable_drift_payload(
+        baseline_inventory=baseline["inventory"],
+        inventory=inventory,
+        baseline_file=baseline_file,
+    )
+
+
+def _comparable_drift_payload(
+    *, baseline_inventory: dict[str, Any], inventory: dict[str, Any], baseline_file: str
+) -> dict[str, Any]:
     current = normalized_host_grants(inventory)
-    baseline_inventory = baseline["inventory"]
     changes = diff_host_grants(baseline_inventory, current)
     artifact_changes = _diff_host_artifacts(baseline_inventory, current)
     coverage_changes = _diff_host_coverage(baseline_inventory, current)
@@ -2264,6 +2273,32 @@ def build_host_drift_payload(
         "next_action": None,
     }
     return HostGrantsDriftV4.model_validate(payload).model_dump(mode="json")
+
+
+def build_host_comparison_payload(
+    *, before: dict[str, Any], after: dict[str, Any], baseline_file: str
+) -> dict[str, Any]:
+    """Drift between two freshly read inventories whose limits the caller proved unchanged.
+
+    For #721 only: the caller has established that every partial or
+    experimental source is byte-identical in both inventories, so what differs
+    between them was read on both sides. Nothing here saves or loads a
+    baseline. `build_host_grants_baseline` keeps refusing an incomplete
+    inventory, because a saved baseline acknowledges evidence and a comparison
+    between two commits does not.
+    """
+
+    if before.get("scope") != after.get("scope"):
+        return _incomparable_payload(
+            inventory=after,
+            baseline_file=baseline_file,
+            reasons=[f"scope_mismatch:{before.get('scope')}->{after.get('scope')}"],
+        )
+    return _comparable_drift_payload(
+        baseline_inventory=normalized_host_grants(before),
+        inventory=after,
+        baseline_file=baseline_file,
+    )
 
 
 def render_host_audit_markdown(

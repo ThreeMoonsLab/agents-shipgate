@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Compare past an unchanged partial or experimental surface instead of refusing
+  every row (#721, runtime contract 37, verifier schema `0.19`). A comparison
+  refused whenever either inventory was incomplete, including for a file the
+  change never touched. In the #660 cold start that stopped 11 of 30 public
+  repositories: one unresolved skill or one `.vscode/mcp.json` blocked every
+  host-config comparison. `diff` and `verify` now compare the rest when the
+  limit is a per-source `unsupported` or `parse_failed` issue, or experimental
+  coverage, present on both sides and byte-identical by Git object ID. Each such
+  limit is named in `host_comparison.unchanged_limits`, in `diff --json` (`0.2`)
+  and in the text and PR-comment output. A limit that changed, appears on one
+  side only, or is `unreadable` still refuses; symlinks remain #700's decision.
+  `check`'s boundary result cannot carry a limit and keeps refusing there.
+  `audit --host --save-baseline` still refuses an incomplete inventory.
+
 - Add 12 scripted route-parity cases for host-capability changes (#662). One
   widening fixture (a wildcard shell rule, a wildcard fetch rule, a new MCP
   server, `contents: write` and a removed denial) is driven through

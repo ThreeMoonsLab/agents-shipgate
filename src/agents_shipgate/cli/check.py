@@ -482,6 +482,15 @@ def check(
                 incomparable_reasons=[f"host_comparison_unavailable:{type(exc).__name__}"],
                 head_kind="provided_diff" if diff is not None else "worktree",
             )
+        if comparison is not None and comparison.unchanged_limits:
+            # The boundary result cannot name unchanged limits yet, so `check`
+            # keeps refusing rather than show rows without them. `diff` and
+            # `verify` name them (#721).
+            comparison = HostComparison(
+                comparison_status="incomparable",
+                incomparable_reasons=["unchanged_limits_not_representable"],
+                head_kind=comparison.head_kind,
+            )
         if comparison is not None:
             result = result.model_copy(
                 update={
