@@ -110,6 +110,11 @@ pipeline tested one artifact and published another.
 
 ### Which evidence bar the tag must meet
 
+This section governs a version `.github/release-channels.json` declares
+`qualified`. A version declared `advisory` carries no qualification artifact
+and is verified by `release-advisory-verify.yml` instead; see
+[§ The advisory release channel](#the-advisory-release-channel).
+
 Two named qualification policies exist, and the **version decides which one
 applies** — nothing in the artifact does:
 
@@ -496,7 +501,11 @@ The shape that holds:
    matching section, and refuses one over 125,000 characters.
 2. Stamp `<version>` on `STABILITY.md`'s title and on every
    `## Migration Note: unreleased` heading.
-3. Confirm `pyproject.toml` has the release version and a rehearsal is green.
+3. Confirm `pyproject.toml` has the release version,
+   `.github/release-channels.json` declares its channel, and that channel's
+   rehearsal is green: `release-rehearsal.yml` for a qualified release; for an
+   advisory one, Release Engine Smoke and then `release-advisory-rehearsal.yml`
+   on the same commit.
 4. Push the tag: `git tag v0.16.0 && git push origin v0.16.0`.
 5. The `verify` job runs unattended.
 6. Approve the `pypi` environment gate on the `publish` job, using the readiness
@@ -526,6 +535,39 @@ The shape that holds:
    `MINIMUM_CONTROL_CONTRACT_VERSION`, the adoption prompts say so in the same
    breath as the pin rather than quietly promising a floor the pinned build
    does not report.
+
+## The advisory release channel
+
+**Policy: `release-evidence-policy-decision.md`
+[§ Amendment 5](release-evidence-policy-decision.md#amendment-5--the-advisory-line-may-publish-a-v-release),
+decided 2026-09-13 (#648).** An advisory release is an ordinary `v*` tag and
+PyPI version that makes no qualified blocking claim. It shares every
+publication job with the qualified line; it differs in what verification
+proves and in what the release carries.
+
+| | Qualified release | Advisory release |
+|---|---|---|
+| Declared in `.github/release-channels.json` as | `qualified` | `advisory` |
+| Verification workflow | `release-verify.yml` | `release-advisory-verify.yml` |
+| Mandatory rehearsal | `release-rehearsal.yml` | `release-advisory-rehearsal.yml` |
+| Wheel published | the signed, qualified wheel | the wheel Release Engine Smoke exercised |
+| Bound to the tagged source by | `verify_wheel_provenance.py --qualified` | `verify_wheel_provenance.py --exercised` |
+| Assets besides the wheel and manifest | SBOM, provenance, `safety-qualification.json` and its bundle | SBOM, provenance, `advisory-statement.json` |
+| Signed by the release | wheel, SBOM | wheel, SBOM, advisory statement |
+
+To cut one:
+
+1. Land a reviewed change declaring the version `advisory`. Once a tag for a
+   version exists, its entry cannot change.
+2. Dispatch **Release Engine Smoke (unqualified)** on the release commit. Its
+   wheel is the one that will be published.
+3. Dispatch **Advisory Release Rehearsal** on the same commit.
+4. Tag, and continue from step 4 of [§ Cutting the release](#cutting-the-release).
+
+The advisory statement cites the newest successful Release Engine Smoke run for
+the commit. Re-running the smoke after the rehearsal therefore changes the
+tagged manifest, and `stage` refuses because it no longer matches the rehearsed
+one. Rehearse again.
 
 ## The unqualified preview channel
 

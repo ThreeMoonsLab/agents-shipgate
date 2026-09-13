@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Publish a version that reviewed code declares advisory through the ordinary
+  release pipeline, with no qualification claim (#648). Each version's channel
+  is declared in `.github/release-channels.json`, and a missing or unknown
+  entry stops the release before anything is built. `release.yml` calls
+  exactly one of `release-verify.yml`, which is unchanged, and the new
+  `release-advisory-verify.yml`; one publisher serves both. An advisory release
+  publishes the wheel Release Engine Smoke exercised, proven byte-identical to
+  the tagged tree's build, with a wheel-scoped SBOM, a provenance record, the
+  candidate manifest and a signed `advisory-statement.json`. Staging and
+  finalisation refuse a manifest whose channel or asset set is not the declared
+  channel's, and the mandatory rehearsal is the declared channel's own file.
+  `release_cadence.py` reads each tag's declaration, so an advisory `v*` tag
+  never counts as a gate-line release. Policy:
+  `docs/release-evidence-policy-decision.md` § Amendment 5.
+
 - Run the FastMCP Context-injection SDK cross-checks on the SDK versions the
   `[mcp]` extra allows. FastMCP was renamed to MCPServer in mcp 2.x and the
   extra requires `mcp>=2.1.1,<3`, but both cross-checks imported only the 1.x

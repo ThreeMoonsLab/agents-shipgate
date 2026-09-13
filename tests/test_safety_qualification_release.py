@@ -558,7 +558,7 @@ def test_release_workflow_reuses_signed_qualified_wheel_before_publish() -> None
     # graph rather than by step position.
     assert "uv publish --trusted-publishing always" not in verify
     parsed_release = yaml.safe_load(release)
-    assert parsed_release["jobs"]["publish"]["needs"] == ["verify", "stage"]
+    assert parsed_release["jobs"]["publish"]["needs"] == ["candidate", "stage"]
 
     # The wheel is addressed by the filename verification approved, and the
     # source-built wheel never enters the publishable set.
@@ -568,7 +568,13 @@ def test_release_workflow_reuses_signed_qualified_wheel_before_publish() -> None
     assert "safety-qualification.json" in verify
     assert "safety-qualification.sigstore.json" in verify
 
-    for workflow in ("release.yml", "release-verify.yml", "release-rehearsal.yml"):
+    for workflow in (
+        "release.yml",
+        "release-verify.yml",
+        "release-rehearsal.yml",
+        "release-advisory-verify.yml",
+        "release-advisory-rehearsal.yml",
+    ):
         parsed = yaml.safe_load(
             (REPO_ROOT / ".github/workflows" / workflow).read_text(encoding="utf-8")
         )

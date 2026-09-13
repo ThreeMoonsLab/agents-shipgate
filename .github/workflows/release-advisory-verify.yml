@@ -1,0 +1,561 @@
+name: Advisory Release Verification
+
+# Read-only verification of an advisory release candidate (#648). Called by
+# release.yml, for a version `.github/release-channels.json` declares advisory,
+# and by release-advisory-rehearsal.yml.
+#
+# Why this is a separate file rather than a mode of `release-verify.yml`: an
+# advisory release carries no qualification claim, so it has no qualification
+# to verify. Skipping those steps behind a flag inside the qualified workflow
+# would make the separation a matter of getting `if:` conditions right, which
+# `docs/release-evidence-policy-decision.md` rejected for the preview channel
+# (Amendment 2, C3) and rejects again for this one (Amendment 5). This file has
+# no qualification step to skip.
+#
+# What it does verify is everything else a release needs, with the steps both
+# lines share copied byte for byte from `release-verify.yml` and held there by
+# `tests/test_release_advisory_pipeline.py`: the correctness suite, the
+# dependency locks and audit, the CHANGELOG section, the hash-locked build, the
+# wheel-scoped SBOM and the content-addressed handoff.
+#
+# In place of a downloaded qualified wheel, it publishes the wheel a Release
+# Engine Smoke run installed and exercised through both the CLI and the
+# composite Action for the exact source commit, proven byte-identical to the
+# wheel this checkout builds (#570). In place of the qualification artifact, it
+# writes an advisory statement that says what the release does not claim.
+#
+# This workflow never publishes. It holds `contents: read` and `actions: read`
+# and no `id-token`, and a reusable workflow cannot be handed more.
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to verify. A tag for a release, any ref for a rehearsal.
+        required: true
+        type: string
+      release_tag:
+        description: >-
+          Tag the candidate claims. Empty means "derive v<pyproject version>",
+          which is what a rehearsal on a branch checks against.
+        required: false
+        type: string
+        default: ""
+      mode:
+        description: Either "release" or "rehearsal". Affects reporting only.
+        required: false
+        type: string
+        default: rehearsal
+    outputs:
+      version:
+        description: Package version of the verified candidate.
+        value: ${{ jobs.artifact.outputs.version }}
+      release_tag:
+        description: Tag the verified candidate is bound to.
+        value: ${{ jobs.artifact.outputs.release_tag }}
+      source_sha:
+        description: Commit the candidate was actually built from, resolved after checkout.
+        value: ${{ jobs.artifact.outputs.source_sha }}
+      wheel_filename:
+        description: Basename of the exercised wheel.
+        value: ${{ jobs.artifact.outputs.wheel_filename }}
+      wheel_sha256:
+        description: SHA-256 of the wheel that verification approved.
+        value: ${{ jobs.artifact.outputs.wheel_sha256 }}
+      manifest_sha256:
+        description: >-
+          SHA-256 of the candidate manifest, through the job-output channel so
+          publication can detect artifact substitution.
+        value: ${{ jobs.artifact.outputs.manifest_sha256 }}
+      release_notes_sha256:
+        description: SHA-256 of the changelog section this candidate publishes.
+        value: ${{ jobs.artifact.outputs.release_notes_sha256 }}
+      artifact_name:
+        description: Name of the uploaded candidate bundle.
+        value: ${{ jobs.artifact.outputs.artifact_name }}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  tests:
+    name: Correctness suite
+    runs-on: ubuntu-latest
+    # The same budget as `release-verify.yml`'s suite, which runs the same
+    # selection; the measurement behind it is recorded there.
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      source_sha: ${{ steps.tested.outputs.source_sha }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+          # Tags, for the same reason `ci.yml`'s suite job fetches them: the
+          # candidate's own suite checks every pin `init` writes into an
+          # adopter's repository against this repository's release tags (#506).
+          # `ref` alone brings the tag under test and no other, so the newest
+          # *published* release — which the pins name until the constants are
+          # bumped after this tag lands — would be missing.
+          # `tests/test_action_metadata.py`'s
+          # `test_jobs_running_the_whole_suite_check_out_release_tags` asserts
+          # this for every job that runs the suite, in any workflow, because
+          # this one and `ci.yml` were fixed separately once already (#497).
+          fetch-tags: true
+
+      - name: Record the commit under test
+        id: tested
+        run: echo "source_sha=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            constraints/dev.txt
+            constraints/build-backend.txt
+
+      - name: Install
+        # Byte-for-byte the environment CI installs — the same hash-locked
+        # closures, installed with the same commands. `pip install -e ".[dev]"`
+        # resolved fresh at tag time, so the run that decided whether to publish
+        # could differ from the run that approved the commit, and a release-only
+        # failure could not be reproduced from the same tree.
+        #
+        # Nothing here may resolve, including the PEP 517 backend: see the
+        # matching comment in ci.yml for why `--no-build-isolation` and a
+        # separate backend closure are what actually close that hole.
+        run: |
+          python -m pip install --require-hashes --requirement constraints/dev.txt
+          python -m pip install --require-hashes --requirement constraints/build-backend.txt
+          python -m pip install -e . --no-deps --no-build-isolation
+          python -m pip check
+
+      - name: Verify the dependency locks match the declared requirements
+        # A lock that no longer matches pyproject.toml means the release is
+        # testing something other than what it declares. Checked here, before
+        # the suite, so it fails as a named precondition rather than as a
+        # mystery import error inside the release.
+        run: python scripts/verify_dependency_lock.py
+
+      - name: Lint
+        run: python -m ruff check .
+
+      - name: Compile
+        run: python -m compileall -q src tests
+
+      - name: Verify generated schemas are up to date
+        run: python scripts/generate_schemas.py --check
+
+      - name: Trust-model invariant lint (static, no user code execution)
+        # Kept as its own step, and excluded from the aggregate run below, so a
+        # release candidate that introduces a dynamic-import surface in an
+        # adapter fails with a named check rather than inside coverage noise.
+        run: python -m pytest tests/test_adapter_static_only.py -q
+
+      - name: Test
+        # Deliberately differs from CI in two ways, and only two:
+        #
+        #   * `-n auto` matches CI's supported parallelism. Serial execution
+        #     made a release candidate spend the whole budget re-running work
+        #     CI already parallelises.
+        #   * `-m "not perf"` excludes the latency-budget tests. CI is the
+        #     merge-time enforcement point for latency; those tests assert
+        #     wallclock medians and are the one part of the suite that fails
+        #     from shared-runner timing noise rather than from a defect. A
+        #     release candidate must fail on deterministic correctness
+        #     evidence, not on how busy the runner was.
+        #
+        # The coverage floor stays at CI's 85 so release cannot bypass it.
+        run: >-
+          python -m pytest -n auto -m "not perf"
+          --ignore=tests/test_adapter_static_only.py
+          --cov=agents_shipgate --cov-report=term-missing --cov-fail-under=85
+
+      - name: Dependency audit
+        run: python -m pip_audit .
+
+  artifact:
+    name: Verify and seal the advisory candidate
+    # Runs after the suite, in its own runner, and executes none of the
+    # candidate's tests, for the reason recorded on `release-verify.yml`'s
+    # `artifact` job.
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      version: ${{ steps.candidate.outputs.version }}
+      release_tag: ${{ steps.candidate.outputs.release_tag }}
+      source_sha: ${{ steps.candidate.outputs.source_sha }}
+      wheel_filename: ${{ steps.exercised.outputs.wheel_filename }}
+      wheel_sha256: ${{ steps.handoff.outputs.wheel_sha256 }}
+      manifest_sha256: ${{ steps.handoff.outputs.manifest_sha256 }}
+      artifact_name: ${{ steps.handoff.outputs.artifact_name }}
+      release_notes_sha256: ${{ steps.notes.outputs.release_notes_sha256 }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - name: Resolve candidate version and tag
+        id: candidate
+        env:
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          # The commit actually checked out, resolved after checkout rather than
+          # taken from the triggering event. Callers pass an immutable SHA, but
+          # this is what every downstream binding is keyed to, so it is measured
+          # here instead of assumed.
+          source_sha="$(git rev-parse HEAD)"
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -n 1)"
+          if [ -z "${version}" ]; then
+            echo "::error::Could not read version from pyproject.toml."
+            exit 1
+          fi
+          tag="${REQUESTED_TAG:-v${version}}"
+          # Fail fast before the test/qualification pipeline if the tag was cut
+          # on a commit whose pyproject.toml disagrees (e.g. a v0.15.0 tag
+          # pushed while main still says 0.14.0). PyPI uploads are immutable,
+          # so this is the last cheap moment to catch a mistagged release.
+          if [ "${tag}" != "v${version}" ]; then
+            echo "::error::Tag ${tag} does not match pyproject.toml version ${version}; refusing to release."
+            exit 1
+          fi
+          {
+            echo "version=${version}"
+            echo "release_tag=${tag}"
+            echo "source_sha=${source_sha}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "OK: ${tag} matches pyproject.toml (${version}) at ${source_sha}."
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Refuse a version that is not declared advisory
+        # The mirror of `release.yml`'s channel switch, inside the workflow it
+        # selects. Called directly, or from a rehearsal, this file still cannot
+        # verify a version reviewed code assigned to the qualified line, so no
+        # such version can reach publication without its qualification.
+        # Standard library only, so it runs before any toolchain is installed.
+        env:
+          RELEASE_TAG: ${{ steps.candidate.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          channel="$(python scripts/release_channel.py resolve --tag "${RELEASE_TAG}")"
+          if [ "${channel}" != "advisory" ]; then
+            echo "::error::${RELEASE_TAG} is declared ${channel} in .github/release-channels.json; the advisory verification refuses it."
+            exit 1
+          fi
+          echo "OK: ${RELEASE_TAG} is declared advisory."
+
+      - name: Require a CHANGELOG section for this tag
+        id: notes
+        # The release body is the changelog section, so an absent section is a
+        # release nobody described. Required here, in the shared verification
+        # workflow, which means the rehearsal fails on it while the tag does
+        # not yet exist — the only point at which "rename `## Unreleased`" is
+        # still a cheap fix.
+        #
+        # This is also where the notes become content-addressed: `stage` and
+        # `finalize` extract independently and must land on this digest. The
+        # rehearsal therefore exercises the identical write, to the identical
+        # runner-owned path, that the release will perform — a candidate is
+        # never the thing that decides where this file goes.
+        #
+        # Standard library only, so it needs no installed toolchain and runs
+        # before the build, the downloads, and the qualification checks.
+        env:
+          RELEASE_TAG: ${{ steps.candidate.outputs.release_tag }}
+        run: |
+          python scripts/release_notes.py \
+            --tag "${RELEASE_TAG}" \
+            --output "${RUNNER_TEMP}/release-notes.md" \
+            --github-output "${GITHUB_OUTPUT}"
+      - name: Install the hash-locked sealing toolchain
+        # No editable install and no `dev` extra. An unlocked
+        # `pip install -e ".[dev]"` resolves dozens of packages by range and
+        # runs *before* the build, the qualification checks, the provenance
+        # comparison and the sealing — so one compromised compatible release
+        # could rewrite the verifier, both wheel copies, and the digests that
+        # delegate publication authority, with every later check agreeing.
+        run: |
+          python -m pip install --require-hashes \
+            --requirement constraints/release-seal.txt
+      - name: Confirm the sealer is verifying the tested commit
+        # `tests` and this job check out independently. If a caller passed a
+        # mutable ref, the two could resolve to different commits — testing A
+        # and sealing B.
+        env:
+          TESTED_SHA: ${{ needs.tests.outputs.source_sha }}
+          SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          if [ "${TESTED_SHA}" != "${SOURCE_SHA}" ]; then
+            echo "::error::The suite ran against ${TESTED_SHA} but this job resolved ${SOURCE_SHA}."
+            exit 1
+          fi
+          echo "OK: suite and sealer agree on ${SOURCE_SHA}."
+      - name: Build a wheel from the checked-out source
+        # The provenance gate this feeds is the only thing tying the published
+        # bytes back to the tagged commit, and the archive records
+        # `Generator: hatchling <version>`, so a backend bump alone changes the
+        # wheel and fails the gate on a legitimate release.
+        #
+        # What actually pins the backend here is the hash-locked
+        # constraints/release-seal.txt installed above, together with
+        # `--no-isolation` below. PIP_CONSTRAINT is kept as a belt-and-braces
+        # declaration of intent for any future pip-driven path, but it is not
+        # the mechanism: current pip does not apply it to an isolated build
+        # environment at all — constraining hatchling to a version that does
+        # not exist still builds — and `--no-isolation` creates no such
+        # environment to constrain. See constraints/release-build.txt.
+        env:
+          PIP_CONSTRAINT: constraints/release-build.txt
+          AGENTS_SHIPGATE_CANDIDATE_SOURCE_COMMIT: ${{ steps.candidate.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          if [ -e source-build ] || [ -L source-build ]; then
+            echo "::error::source-build must not pre-exist in the release checkout."
+            exit 1
+          fi
+          # `--no-isolation` so the hash-locked hatchling installed above is
+          # the backend that actually runs. With isolation, `build` creates a
+          # fresh environment and re-resolves the `pyproject.toml` build
+          # requirements, which puts the backend's own transitive dependencies
+          # outside the lock — the locked closure would be bypassed for exactly
+          # the code that produces the artifact. Verified byte-equivalent to an
+          # isolated build.
+          # Keep build output outside the checkout until the hook has
+          # revalidated its clean source; it must not certify its own output
+          # as an untracked input. This mode is scoped to this step only.
+          candidate_build_dir="$(mktemp -d "${RUNNER_TEMP}/shipgate-source-build.XXXXXX")"
+          python -m build --wheel --no-isolation --outdir "${candidate_build_dir}" .
+          mkdir source-build
+          cp "${candidate_build_dir}"/*.whl source-build/
+      - name: Download the candidate the Release Engine Smoke exercised
+        # The advisory line's counterpart to downloading the qualified wheel,
+        # and #570's obligation: what this release publishes is what a
+        # pre-publication smoke installed and ran through both the CLI and the
+        # composite Action. The run is found by the exact source commit —
+        # `head_sha` also binds the smoke workflow's own revision, since both
+        # are one tree — and the steps below prove those bytes are what this
+        # checkout builds. Publishing a fresh build instead would publish bytes
+        # nothing exercised.
+        id: exercised
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          for directory in exercised-dist exercised-evidence; do
+            if [ -e "${directory}" ] || [ -L "${directory}" ]; then
+              echo "::error::${directory} must not pre-exist in the release checkout."
+              exit 1
+            fi
+          done
+          run_id="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/release-engine-smoke.yml/runs?head_sha=${SOURCE_SHA}&status=success&per_page=100" \
+            --jq '.workflow_runs[0].id // empty')"
+          if [ -z "${run_id}" ]; then
+            echo "::error::No successful Release Engine Smoke run for ${SOURCE_SHA}. Dispatch it on this commit before rehearsing or tagging; see docs/release-runbook.md."
+            exit 1
+          fi
+          gh run download "${run_id}" --repo "${GITHUB_REPOSITORY}" \
+            --name unqualified-engine-wheel --dir exercised-dist
+          gh run download "${run_id}" --repo "${GITHUB_REPOSITORY}" \
+            --name unqualified-engine-smoke --dir exercised-evidence
+          shopt -s nullglob
+          wheels=(exercised-dist/*.whl)
+          if [ "${#wheels[@]}" -ne 1 ]; then
+            echo "::error::Release Engine Smoke run ${run_id} must carry exactly one wheel; found ${#wheels[@]}."
+            exit 1
+          fi
+          wheel_filename="$(basename "${wheels[0]}")"
+          if [[ ! "${wheel_filename}" =~ ^[A-Za-z0-9_.+-]+\.whl$ ]]; then
+            echo "::error::Exercised wheel filename contains unsafe characters or path components."
+            exit 1
+          fi
+          echo "EXERCISED_WHEEL=exercised-dist/${wheel_filename}" >> "${GITHUB_ENV}"
+          echo "EXERCISED_WHEEL_FILENAME=${wheel_filename}" >> "${GITHUB_ENV}"
+          {
+            echo "wheel_filename=${wheel_filename}"
+            echo "smoke_run_id=${run_id}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "OK: Release Engine Smoke run ${run_id} exercised ${wheel_filename}."
+
+      - name: Require the smoke evidence to cover this exact candidate
+        # A successful run is not taken as the claim. The evidence the smoke
+        # wrote must name this commit and these bytes, record that the
+        # installed CLI and the Action agreed, and still call the build
+        # unqualified.
+        env:
+          SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
+        run: |
+          python scripts/release_channel.py exercised \
+            --evidence exercised-evidence/distribution-evidence.json \
+            --wheel "${EXERCISED_WHEEL}" \
+            --source-commit "${SOURCE_SHA}"
+
+      - name: Bind the exercised wheel to the tagged source tree
+        # Byte equality with the wheel this checkout builds, by the same
+        # verifier the qualified line uses. The report names its subject
+        # `exercised_wheel`, so nothing this release publishes calls its wheel
+        # qualified.
+        env:
+          SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
+        run: |
+          python scripts/verify_wheel_provenance.py \
+            --built source-build/*.whl \
+            --exercised "${EXERCISED_WHEEL}" \
+            --source-commit "${SOURCE_SHA}" \
+            --report provenance.json
+
+      - name: Prove the provenance gate fails closed
+        # The rehearsal drill `release-verify.yml` runs, against this line's
+        # binding: a tampered copy of the exercised wheel must be rejected.
+        if: inputs.mode == 'rehearsal'
+        run: |
+          set -euo pipefail
+          cp -- "${EXERCISED_WHEEL}" fault-injected.whl
+          python - <<'PY'
+          import zipfile
+
+          with zipfile.ZipFile("fault-injected.whl", "a") as archive:
+              archive.writestr("agents_shipgate/_fault_injection.py", "raise SystemExit\n")
+          PY
+          if python scripts/verify_wheel_provenance.py \
+              --built source-build/*.whl \
+              --exercised fault-injected.whl > fault-injection.log 2>&1; then
+            echo "::error::Fault injection was accepted; the provenance gate does not fail closed."
+            exit 1
+          fi
+          rm -f fault-injected.whl
+          echo "OK: provenance gate rejected a tampered wheel:"
+          cat fault-injection.log
+
+      - name: Generate wheel-scoped SBOM
+        # The same isolated runtime-only inventory the qualified line signs.
+        run: |
+          set -euo pipefail
+          mkdir -p candidate
+          python scripts/release_sbom.py build \
+            --wheel "${EXERCISED_WHEEL}" \
+            --output candidate/agents-shipgate-sbom.json
+          python scripts/release_sbom.py verify \
+            --wheel "${EXERCISED_WHEEL}" \
+            --sbom candidate/agents-shipgate-sbom.json
+
+      - name: Write the advisory statement
+        # In place of a qualification artifact. Its claims are fixed in
+        # `scripts/release_channel.py`, not assembled from build output; it
+        # names the exercise run and the readiness record at this commit, and
+        # it is signed alongside the wheel and the SBOM.
+        env:
+          RELEASE_TAG: ${{ steps.candidate.outputs.release_tag }}
+          SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
+          SMOKE_RUN_ID: ${{ steps.exercised.outputs.smoke_run_id }}
+        run: |
+          python scripts/release_channel.py statement \
+            --tag "${RELEASE_TAG}" \
+            --source-commit "${SOURCE_SHA}" \
+            --wheel "${EXERCISED_WHEEL}" \
+            --smoke-run-id "${SMOKE_RUN_ID}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --output candidate/advisory-statement.json
+
+      - name: Assemble content-addressed candidate handoff
+        id: handoff
+        env:
+          RELEASE_TAG: ${{ steps.candidate.outputs.release_tag }}
+          SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          # Re-assert the binding on the exact bytes being sealed, as the
+          # qualified line does: every later stage trusts these digests.
+          python scripts/verify_wheel_provenance.py \
+            --built source-build/*.whl \
+            --exercised "${EXERCISED_WHEEL}" \
+            --source-commit "${SOURCE_SHA}" \
+            --report provenance.json
+          cp -- "${EXERCISED_WHEEL}" "candidate/${EXERCISED_WHEEL_FILENAME}"
+          cp -- provenance.json candidate/provenance.json
+          cmp -- "${EXERCISED_WHEEL}" "candidate/${EXERCISED_WHEEL_FILENAME}"
+          # `--channel advisory` records the channel in the manifest and
+          # refuses any asset set but the advisory one.
+          python scripts/release_publication.py manifest \
+            --tag "${RELEASE_TAG}" \
+            --source-commit "${SOURCE_SHA}" \
+            --channel advisory \
+            --wheel "candidate/${EXERCISED_WHEEL_FILENAME}" \
+            --asset candidate/agents-shipgate-sbom.json \
+            --asset candidate/advisory-statement.json \
+            --asset candidate/provenance.json \
+            --output candidate/candidate-manifest.json
+          manifest_sha256="$(python -c 'import hashlib,pathlib,sys; sys.stdout.write(hashlib.sha256(pathlib.Path("candidate/candidate-manifest.json").read_bytes()).hexdigest())')"
+          wheel_sha256="$(python -c 'import hashlib,pathlib,os,sys; sys.stdout.write(hashlib.sha256(pathlib.Path("candidate/"+os.environ["EXERCISED_WHEEL_FILENAME"]).read_bytes()).hexdigest())')"
+          {
+            echo "manifest_sha256=${manifest_sha256}"
+            echo "wheel_sha256=${wheel_sha256}"
+            echo "artifact_name=release-candidate-${RELEASE_TAG}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Upload candidate bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.handoff.outputs.artifact_name }}
+          path: candidate/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Readiness summary
+        env:
+          MODE: ${{ inputs.mode }}
+          RELEASE_TAG: ${{ steps.candidate.outputs.release_tag }}
+          WHEEL_FILENAME: ${{ steps.exercised.outputs.wheel_filename }}
+          WHEEL_SHA256: ${{ steps.handoff.outputs.wheel_sha256 }}
+          MANIFEST_SHA256: ${{ steps.handoff.outputs.manifest_sha256 }}
+          SMOKE_RUN_ID: ${{ steps.exercised.outputs.smoke_run_id }}
+        run: |
+          {
+            echo "## Advisory release candidate ${RELEASE_TAG} (${MODE})"
+            echo
+            echo "This candidate makes **no qualification claim**. Its channel is declared"
+            echo "advisory in \`.github/release-channels.json\`; see"
+            echo "\`docs/release-evidence-policy-decision.md\` § Amendment 5."
+            echo
+            echo "| Control | Result |"
+            echo "| --- | --- |"
+            echo "| Tag matches pyproject version | pass |"
+            echo "| Declared channel is advisory | pass |"
+            echo "| CHANGELOG section for the tag | pass |"
+            echo "| Dependency locks match declarations | pass |"
+            echo "| Exact candidate exercised (Release Engine Smoke run ${SMOKE_RUN_ID}) | pass |"
+            echo "| Exercised wheel bound to tagged source | $(python -c 'import json,sys; sys.stdout.write(json.load(open("provenance.json"))["provenance_mode"])') |"
+            echo "| Correctness suite (-n auto, not perf) | pass |"
+            echo "| Dependency audit | pass |"
+            echo "| Wheel-scoped SBOM | pass |"
+            echo "| Advisory statement written | pass |"
+            echo
+            echo "- Wheel: \`${WHEEL_FILENAME}\`"
+            echo "- Wheel SHA-256: \`${WHEEL_SHA256}\`"
+            echo "- Candidate manifest SHA-256: \`${MANIFEST_SHA256}\`"
+            echo
+            if [ "${MODE}" = "rehearsal" ]; then
+              echo "Rehearsal only. This workflow holds no publication authority:"
+              echo "no PyPI upload, no tag, and no GitHub Release was created."
+            else
+              echo "Verification complete. Publication requires \`pypi\` environment approval."
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"

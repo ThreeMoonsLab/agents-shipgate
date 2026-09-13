@@ -24,6 +24,15 @@ intact manifest sitting beside an unlisted sdist or executable that a
 subsequent ``dist/*`` upload would happily publish, so the directory contents
 must equal the manifest exactly, and every entry must be a regular file.
 
+Each release channel (#648) has its own closed asset set, ``CHANNEL_ASSETS``.
+``manifest --channel`` refuses any other set and records the channel, and
+``verify-manifest --expected-channel`` requires the manifest's channel and set
+to be the declared channel's, so a qualified release cannot drop its
+qualification artifact and an advisory release cannot carry one. A manifest
+with no ``channel`` predates #648 and was written by the qualified path, the
+only one there was. ``--require-signatures`` requires the channel's Sigstore
+bundles, derived from the same table rather than listed at each call site.
+
 ``pypi-state`` answers the question a retry must ask before re-uploading an
 immutable version. PyPI uploads cannot be replaced, so "just re-run the job" is
 not a recovery procedure — it either fails confusingly or, worse, succeeds
@@ -84,6 +93,63 @@ else:  # ``python scripts/release_publication.py``
 DEFAULT_INDEX = "https://pypi.org/pypi"
 _NETWORK_TIMEOUT_SECONDS = 30
 
+QUALIFIED = "qualified"
+ADVISORY = "advisory"
+
+#: Each release channel's closed asset set, besides the wheel and the manifest
+#: itself (#648). ``scripts/release_channel.py`` reads this table too; it lives
+#: here because ``finalize`` fetches only this module and its support file.
+CHANNEL_ASSETS: dict[str, frozenset[str]] = {
+    QUALIFIED: frozenset(
+        {
+            "agents-shipgate-sbom.json",
+            "provenance.json",
+            "safety-qualification.json",
+            "safety-qualification.sigstore.json",
+        }
+    ),
+    ADVISORY: frozenset(
+        {
+            "advisory-statement.json",
+            "agents-shipgate-sbom.json",
+            "provenance.json",
+        }
+    ),
+}
+
+#: What the release workflow signs besides the wheel, per channel. A
+#: qualification artifact carries its own trust root's signature; the advisory
+#: statement has no other signer, so the release signs it.
+CHANNEL_SIGNED_ASSETS: dict[str, tuple[str, ...]] = {
+    QUALIFIED: ("agents-shipgate-sbom.json",),
+    ADVISORY: ("agents-shipgate-sbom.json", "advisory-statement.json"),
+}
+
+
+def _assert_channel_asset_set(channel: str, names: set[str]) -> None:
+    if channel not in CHANNEL_ASSETS:
+        raise ReleaseError(f"Unknown release channel {channel!r}")
+    expected = CHANNEL_ASSETS[channel]
+    missing = sorted(expected - names)
+    unexpected = sorted(names - expected)
+    if missing or unexpected:
+        detail = []
+        if missing:
+            detail.append(f"missing {', '.join(missing)}")
+        if unexpected:
+            detail.append(f"not permitted {', '.join(unexpected)}")
+        raise ReleaseError(f"The {channel} release asset set is wrong ({'; '.join(detail)}).")
+
+
+def signature_bundles(channel: str, wheel_filename: str) -> set[str]:
+    """The Sigstore bundles a finished release on ``channel`` must carry."""
+
+    if channel not in CHANNEL_SIGNED_ASSETS:
+        raise ReleaseError(f"Unknown release channel {channel!r}")
+    return {
+        f"{name}.sigstore.json" for name in (wheel_filename, *CHANNEL_SIGNED_ASSETS[channel])
+    }
+
 
 def build_manifest(
     *,
@@ -92,6 +158,7 @@ def build_manifest(
     wheel_path: Path,
     asset_paths: list[Path],
     output_path: Path,
+    channel: str | None = None,
 ) -> dict[str, Any]:
     """Write a content-addressed record of every asset the release will ship."""
 
@@ -104,6 +171,10 @@ def build_manifest(
         if not path.is_file():
             raise ReleaseError(f"Candidate asset not found: {path}")
         assets.append({"filename": path.name, "sha256": sha256_file(path)})
+    if channel is not None:
+        _assert_channel_asset_set(
+            channel, {asset["filename"] for asset in assets} - {wheel_path.name}
+        )
 
     manifest = {
         "release_tag": tag,
@@ -114,6 +185,8 @@ def build_manifest(
         "wheel_sha256": wheel_sha256,
         "assets": assets,
     }
+    if channel is not None:
+        manifest["channel"] = channel
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return manifest
@@ -167,6 +240,8 @@ def verify_manifest(
     directory: Path | None = None,
     allowed_extra: set[str] | None = None,
     required_extra: set[str] | None = None,
+    expected_channel: str | None = None,
+    require_signatures: bool = False,
 ) -> dict[str, Any]:
     """Re-derive every digest the verification job recorded.
 
@@ -217,9 +292,26 @@ def verify_manifest(
     if errors:
         raise ReleaseError("Candidate handoff rejected: " + "; ".join(errors))
 
-    _assert_closed_world(
-        manifest_path, base, listed, allowed_extra or set(), required_extra or set()
-    )
+    required = set(required_extra or set())
+    if expected_channel is not None:
+        # A manifest with no channel predates #648 and was written by the
+        # qualified path, the only one there was.
+        recorded = manifest.get("channel", QUALIFIED)
+        if recorded != expected_channel:
+            raise ReleaseError(
+                f"Candidate manifest records the {recorded} channel, but this release was "
+                f"declared {expected_channel}."
+            )
+        wheel_filename = str(manifest.get("wheel_filename", ""))
+        if wheel_filename not in listed:
+            raise ReleaseError("Candidate manifest does not list its own wheel.")
+        _assert_channel_asset_set(expected_channel, listed - {wheel_filename})
+        if require_signatures:
+            required |= signature_bundles(expected_channel, wheel_filename)
+    elif require_signatures:
+        raise ReleaseError("Requiring the release signatures needs the declared channel.")
+
+    _assert_closed_world(manifest_path, base, listed, allowed_extra or set(), required)
     return manifest
 
 
@@ -316,6 +408,11 @@ def _parser() -> argparse.ArgumentParser:
     manifest.add_argument("--source-commit", required=True)
     manifest.add_argument("--wheel", type=Path, required=True)
     manifest.add_argument("--asset", type=Path, action="append", default=[])
+    manifest.add_argument(
+        "--channel",
+        choices=sorted(CHANNEL_ASSETS),
+        help="record the release channel and refuse any asset set but its own",
+    )
     manifest.add_argument("--output", type=Path, required=True)
 
     verify = subparsers.add_parser("verify-manifest", help="re-derive the handoff digests")
@@ -326,6 +423,23 @@ def _parser() -> argparse.ArgumentParser:
         help=(
             "manifest digest from the verification job output; required so a missing "
             "or redacted value cannot silently skip the binding"
+        ),
+    )
+    verify.add_argument(
+        "--expected-channel",
+        required=True,
+        choices=sorted(CHANNEL_ASSETS),
+        help=(
+            "the channel the release was declared; the manifest must record it and "
+            "list exactly its asset set"
+        ),
+    )
+    verify.add_argument(
+        "--require-signatures",
+        action="store_true",
+        help=(
+            "require the Sigstore bundles the declared channel signs, for the "
+            "final asset set of a finished release"
         ),
     )
     verify.add_argument("--directory", type=Path)
@@ -369,6 +483,7 @@ def main(argv: list[str] | None = None) -> int:
                 wheel_path=args.wheel,
                 asset_paths=list(args.asset),
                 output_path=args.output,
+                channel=args.channel,
             )
             digest = sha256_file(args.output)
             sys.stdout.write(
@@ -382,6 +497,8 @@ def main(argv: list[str] | None = None) -> int:
                 directory=args.directory,
                 allowed_extra=set(args.allow),
                 required_extra=set(args.require),
+                expected_channel=args.expected_channel,
+                require_signatures=args.require_signatures,
             )
             sys.stdout.write(
                 f"OK: all {len(manifest['assets'])} candidate assets match the verified digests.\n"
