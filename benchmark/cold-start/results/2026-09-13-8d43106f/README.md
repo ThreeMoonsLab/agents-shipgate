@@ -33,7 +33,7 @@ Every comparison that ran was correct: all 19 comparable cases named each expect
 | `absolute-aungkomyint/athapyar-htote-web` | incomparable | unchanged `.claude/skills/*` symlink; skill frontmatter | #700, #721, #722 |
 | `vmihalis/hacker-bob` | incomparable | unchanged skill with undocumented `skill:` key | #722, #721 |
 | `future-architect/uzomuzo-oss` | incomparable | unchanged skills without `name` (documented default); `.claude/rules/agents.md` | #722, #721 |
-| `justinstimatze/winze` | incomparable | unchanged command with string `allowed-tools` (documented); skill `version`/`author` | #722, #721 |
+| `justinstimatze/winze` | incomparable | unchanged command whose `argument-hint` uses the documented bracket form (a YAML list); skill `version`/`author` | #722, #721 |
 | `IgnacioBarEsp/PlanearIA` | incomparable | unchanged skills with `version`; command with `name`/`category`/`tags` | #722, #721 |
 | `BigSimmo/Database` | incomparable | unchanged skill whose frontmatter is invalid YAML (a correct refusal); when isolated, the changed Supabase URL query has no row | #721, #723 |
 | `solal3105/grandsprojets` | incomparable | no blocking issue; unchanged `.vscode/mcp.json` makes coverage `experimental` | #721 |

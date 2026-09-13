@@ -196,14 +196,16 @@ def test_an_empty_value_does_not_excuse_a_real_structure_problem(
     assert resolved.reason == reason
 
 
-def test_a_skill_still_needs_a_real_name_and_description() -> None:
+def test_a_skill_still_needs_a_real_description() -> None:
     """The required-field check is separate and must keep firing.
 
     Treating an explicit null as absent in the shared type check would be a
-    hole if identity were only enforced there.
+    hole if identity were only enforced there. A `name` is not required: the
+    docs default it to the directory name (#722), which
+    `tests/test_documented_claude_frontmatter.py` covers.
     """
 
-    for fields in ("name: demo\ndescription: \n", "name: \ndescription: Test\n"):
+    for fields in ("name: demo\ndescription: \n", "name: demo\n"):
         resolved = classify_instruction(
             ".agents/skills/demo/SKILL.md", f"---\n{fields}---\nBody.\n"
         )
