@@ -61,8 +61,9 @@ from agents_shipgate.schemas.host_grants import (
     HostGrantsBaselineV2,
     HostGrantsBaselineV3,
     HostGrantsBaselineV4,
-    HostGrantsDriftV4,
-    HostGrantsInventoryV4,
+    HostGrantsBaselineV5,
+    HostGrantsDriftV5,
+    HostGrantsInventoryV5,
 )
 
 HOST_GRANTS_SCHEMA_VERSION = HOST_GRANTS_BASELINE_SCHEMA_VERSION
@@ -548,9 +549,10 @@ def _inventory_issue(
 
 
 def _artifact(
-    *, host: str, scope: HostScope, source: str, kind: str, status: str, data: Any = None
+    *, host: str, scope: HostScope, source: str, kind: str, status: str, data: Any = None,
+    resolved_through: tuple[str, ...] = (),
 ) -> dict[str, Any]:
-    return {
+    artifact = {
         "artifact_id": _stable_id("host_artifact", host, scope, source, kind),
         "host": host,
         "scope": scope,
@@ -559,6 +561,11 @@ def _artifact(
         "parse_status": status,
         "redacted_sha256": redacted_config_sha256(data) if data is not None else None,
     }
+    if resolved_through:
+        # The in-tree paths a read followed from a linked boundary path (#700):
+        # a retargeted link is then a changed artifact, not a silent substitution.
+        artifact["resolved_through"] = [public_host_path(hop) for hop in resolved_through]
+    return artifact
 
 
 def _grant_base(
@@ -631,6 +638,7 @@ def _load_structured(
     *, path: Path, source: str, host: str, kind: str, scope: HostScope,
     containment_root: Path, cache: HostStaticParseCache,
     artifacts: list[dict[str, Any]], issues: list[dict[str, Any]],
+    resolved_through: tuple[str, ...] = (),
 ) -> Any:
     data, error_kind, error_message = cache.parse(
         path, containment_root=containment_root
@@ -644,9 +652,15 @@ def _load_structured(
             source=source,
             message=error_message,
         ))
-        artifacts.append(_artifact(host=host, scope=scope, source=source, kind=kind, status="failed"))
+        artifacts.append(_artifact(
+            host=host, scope=scope, source=source, kind=kind, status="failed",
+            resolved_through=resolved_through,
+        ))
         return None
-    artifacts.append(_artifact(host=host, scope=scope, source=source, kind=kind, status="parsed", data=data))
+    artifacts.append(_artifact(
+        host=host, scope=scope, source=source, kind=kind, status="parsed", data=data,
+        resolved_through=resolved_through,
+    ))
     return data
 
 
@@ -1153,6 +1167,7 @@ def _collect_file(
     *, path: Path, source: str, host: str, scope: HostScope, kind: str,
     containment_root: Path, cache: HostStaticParseCache,
     artifacts: list[dict[str, Any]], grants: list[dict[str, Any]], issues: list[dict[str, Any]],
+    resolved_through: tuple[str, ...] = (),
 ) -> Any:
     if kind == "instructions":
         text, error = cache.read(path, containment_root=containment_root)
@@ -1161,11 +1176,18 @@ def _collect_file(
                 path=path, containment_root=containment_root,
                 kind="unreadable", host=host, source=source, message=error,
             ))
-            artifacts.append(_artifact(host=host, scope=scope, source=source, kind=kind, status="failed"))
+            artifacts.append(_artifact(
+                host=host, scope=scope, source=source, kind=kind, status="failed",
+                resolved_through=resolved_through,
+            ))
             return
         assert text is not None
         redacted_text = _sanitize_sensitive_string(text)
-        artifact = _artifact(host=host, scope=scope, source=source, kind=kind, status="parsed", data={"sha256": hashlib.sha256(redacted_text.encode()).hexdigest()})
+        artifact = _artifact(
+            host=host, scope=scope, source=source, kind=kind, status="parsed",
+            data={"sha256": hashlib.sha256(redacted_text.encode()).hexdigest()},
+            resolved_through=resolved_through,
+        )
         structure = classify_instruction(source, text)
         if structure is not None:
             artifact["instruction_structure"] = structure.projection()
@@ -1187,7 +1209,7 @@ def _collect_file(
     data = _load_structured(
         path=path, source=source, host=host, kind=kind, scope=scope,
         containment_root=containment_root, cache=cache,
-        artifacts=artifacts, issues=issues,
+        artifacts=artifacts, issues=issues, resolved_through=resolved_through,
     )
     if data is None:
         return
@@ -1280,10 +1302,16 @@ def _repository_paths(
     reader: IdentityBoundReadSession,
     limits: tuple[tuple[str, int], ...] = (),
     include_directory_candidates: bool = False,
-) -> tuple[list[tuple[Path, str, str, str]], int]:
-    """Enumerate repository sources exclusively from the boundary registry."""
+) -> tuple[list[tuple[Path, str, str, str, tuple[str, ...]]], int]:
+    """Enumerate repository sources exclusively from the boundary registry.
 
-    indexed: dict[tuple[str, str], tuple[Path, str, str, str]] = {}
+    Each row is ``(read path, source, host, kind, resolved_through)``. The two
+    paths differ only for a boundary path that is an in-tree link (#700, step
+    two): the source keeps the link's own spelling, which is what the host
+    reads, and the read path is the target the walk already enumerated.
+    """
+
+    indexed: dict[tuple[str, str], tuple[Path, str, str, str, tuple[str, ...]]] = {}
     skipped = {
         ".git", ".hg", ".svn", "node_modules", "site-packages", ".venv", "venv",
         # Machine-written tool caches. No host reads configuration from one, so
@@ -1298,6 +1326,7 @@ def _repository_paths(
     }
     candidates: list[tuple[Path, str]] = []
     symlink_directories: list[str] = []
+    link_resolutions: dict[str, tuple[Path, str, tuple[str, ...]] | None] = {}
     visited = 0
     pending = [Path()]
     while pending:
@@ -1328,11 +1357,14 @@ def _repository_paths(
                 if stat.S_ISLNK(metadata.st_mode):
                     if name not in skipped:
                         candidates.append((candidate, relative))
+                        resolution = _resolve_in_tree_link(reader, Path(relative))
+                        link_resolutions[relative] = resolution
                         # A link to an in-tree regular file has no descendants
                         # to conceal (#700, owner decision). Everything else,
                         # including a target this session cannot type, still
-                        # may hide a recursive match.
-                        if not _links_to_in_tree_file(reader, Path(relative)):
+                        # may hide a recursive match unless it is read through
+                        # below.
+                        if resolution is None or resolution[1] != "file":
                             symlink_directories.append(relative)
                     continue
                 if stat.S_ISDIR(metadata.st_mode):
@@ -1349,6 +1381,26 @@ def _repository_paths(
             candidates.append((candidate, relative))
         pending.extend(reversed(child_directories))
 
+    # #700 step two: an in-tree directory link at a boundary location is read
+    # through. Every entry beneath its target was already enumerated by the walk
+    # above, at its real path, so each one is published again under the link.
+    read_through: list[tuple[Path, str, tuple[str, ...]]] = []
+    for link, resolution in sorted(link_resolutions.items()):
+        if resolution is None or resolution[1] != "directory":
+            continue
+        target, _kind, hops = resolution
+        if not _reads_through_directory_link(
+            link, target, skipped=skipped, links=link_resolutions
+        ):
+            continue
+        symlink_directories.remove(link)
+        prefix = f"{target.as_posix()}/"
+        for path, relative in candidates:
+            if relative.startswith(prefix):
+                read_through.append(
+                    (path, f"{link}/{relative[len(prefix):]}", (*hops[:-1], relative))
+                )
+
     for adapter in BOUNDARY_ADAPTERS:
         for expected in adapter.exact_paths:
             if any(
@@ -1357,7 +1409,19 @@ def _repository_paths(
             ):
                 candidates.append((root / expected, expected))
 
+    entries: list[tuple[Path, str, tuple[str, ...]]] = []
     for path, relative in candidates:
+        resolution = link_resolutions.get(relative)
+        if resolution is not None and resolution[1] == "file":
+            # #700 step two: a linked boundary file is read at its in-tree target.
+            entries.append((root / resolution[0], relative, resolution[2]))
+        elif resolution is not None and relative not in symlink_directories:
+            continue  # A directory link read through above names no source itself.
+        else:
+            entries.append((path, relative, ()))
+    entries.extend(read_through)
+
+    for path, relative, resolved_through in entries:
         for adapter in BOUNDARY_ADAPTERS:
             if not (
                 adapter.matches(relative)
@@ -1376,6 +1440,7 @@ def _repository_paths(
                     relative,
                     host,
                     _source_kind(relative),
+                    resolved_through,
                 )
     return [indexed[key] for key in sorted(indexed)], visited
 
@@ -1384,40 +1449,90 @@ def _repository_paths(
 _MAX_IN_TREE_LINK_HOPS = 8
 
 
-def _links_to_in_tree_file(reader: IdentityBoundReadSession, relative: Path) -> bool:
-    """Whether a link resolves, inside the tree, to a regular file (#700).
+def _resolve_in_tree_link(
+    reader: IdentityBoundReadSession, relative: Path
+) -> tuple[Path, str, tuple[str, ...]] | None:
+    """Where a link lands inside the tree: ``(target, kind, hops)``, or ``None`` (#700).
 
-    The answer is bound to the identity-bound read rather than to a `stat()` at
-    enumeration: every link passed through is recorded by
-    :meth:`IdentityBoundReadSession.link_target`, and the target's kind by
+    Bound to the identity-bound read rather than to a `stat()` at enumeration.
+    Each link's text comes from :meth:`IdentityBoundReadSession.link_target`,
+    and each component's kind from
     :meth:`IdentityBoundReadSession.directory_entry_kind`, so :meth:`finish`
-    fails the snapshot if a link is re-pointed or the target is swapped for a
-    directory. An absolute or escaping target, a chain longer than the hop
-    bound, a link as an intermediate component, or anything the session cannot
-    type is not an in-tree file.
+    fails the snapshot if a link is re-pointed or a target is swapped.
+
+    ``kind`` is ``"file"`` or ``"directory"``, and ``hops`` are the in-tree
+    paths the resolution landed on, ending at the target. An absolute or
+    escaping target, a link as an intermediate component, a chain longer than
+    the hop bound, or anything the session cannot type is unresolved.
     """
 
     current = relative
+    hops: list[str] = []
     try:
         for _ in range(_MAX_IN_TREE_LINK_HOPS):
             text = reader.link_target(current)
             if not text or os.path.isabs(text) or text.startswith(("\\", "/")):
-                return False
+                return None
             joined = posixpath.normpath(posixpath.join(current.parent.as_posix(), text))
             if joined in {".", ".."} or joined.startswith("../"):
-                return False
+                return None
             target = Path(joined)
             for index in range(1, len(target.parts)):
                 if reader.directory_entry_kind(Path(*target.parts[:index])) != "directory":
-                    return False
+                    return None
             kind = reader.directory_entry_kind(target)
-            if kind == "file":
-                return True
+            hops.append(joined)
+            if kind in {"file", "directory"}:
+                return target, kind, tuple(hops)
             if kind != "symlink":
-                return False
+                return None
             current = target
     except (OSError, ValueError):
+        return None
+    return None
+
+
+def _links_to_in_tree_file(reader: IdentityBoundReadSession, relative: Path) -> bool:
+    """Whether a link resolves, inside the tree, to a regular file (#700)."""
+
+    resolution = _resolve_in_tree_link(reader, relative)
+    return resolution is not None and resolution[1] == "file"
+
+
+def _reads_through_directory_link(
+    link: str,
+    target: Path,
+    *,
+    skipped: set[str],
+    links: dict[str, tuple[Path, str, tuple[str, ...]] | None],
+) -> bool:
+    """Whether an in-tree directory link is read through (#700, step two).
+
+    Only at a boundary location: a directory a registered adapter names by a
+    fixed prefix, such as `.claude/skills`, or an ancestor of an exact path.
+    A link that could only hide a `**/` match stays a limit. And only when the
+    walk already enumerated everything beneath the target: no skipped name on
+    the way, and no link inside it that would need a second resolution, which
+    also rules out a link into its own ancestor.
+    """
+
+    if any(part in skipped for part in target.parts):
         return False
+    prefix = f"{target.as_posix()}/"
+    if any(other.startswith(prefix) or f"{other}/".startswith(prefix) for other in links):
+        return False
+    lowered = link.casefold()
+    for adapter in BOUNDARY_ADAPTERS:
+        if any(item.casefold().startswith(f"{lowered}/") for item in adapter.exact_paths):
+            return True
+        for pattern in adapter.globs:
+            fixed = pattern.casefold().split("*", 1)[0].rstrip("/")
+            if fixed and (
+                lowered == fixed
+                or lowered.startswith(f"{fixed}/")
+                or fixed.startswith(f"{lowered}/")
+            ):
+                return True
     return False
 
 
@@ -1795,11 +1910,12 @@ def build_host_boundary_snapshot(
             reason="input_unreadable", phase="inventory_enumeration",
             source="<repository>",
         ))
-    for path, source, host, kind in repository_paths:
+    for path, source, host, kind, resolved_through in repository_paths:
         _collect_file(
             path=path, source=source, host=host, scope="repository", kind=kind,
             containment_root=root, cache=cache,
             artifacts=artifacts, grants=grants, issues=issues,
+            resolved_through=resolved_through,
         )
 
     excluded = [
@@ -1884,7 +2000,7 @@ def build_host_boundary_snapshot(
         "static_analysis_only": True,
         "runtime_session_verified": False,
     }
-    inventory = HostGrantsInventoryV4.model_validate(payload).model_dump(mode="json")
+    inventory = HostGrantsInventoryV5.model_validate(payload).model_dump(mode="json")
     return HostBoundarySnapshot(
         inventory=inventory, cache=cache, input_failures=dict(cache.input_failures),
     )
@@ -1901,7 +2017,7 @@ def host_audit_inventory(
 
     if snapshot is None:
         snapshot = build_host_boundary_snapshot(workspace, scope=scope, cache=cache)
-    inventory = HostGrantsInventoryV4.model_validate(snapshot.inventory)
+    inventory = HostGrantsInventoryV5.model_validate(snapshot.inventory)
     if inventory.scope != scope:
         raise ValueError(
             f"Host boundary snapshot scope {inventory.scope!r} does not match {scope!r}"
@@ -1952,7 +2068,7 @@ def build_host_grants_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
         "inventory_sha256": host_grants_sha256(normalized),
         "inventory": normalized,
     }
-    return HostGrantsBaselineV4.model_validate(payload).model_dump(mode="json")
+    return HostGrantsBaselineV5.model_validate(payload).model_dump(mode="json")
 
 
 def load_host_grants_baseline(path: Path) -> dict[str, Any]:
@@ -1996,14 +2112,14 @@ def load_host_grants_baseline_with_text(
                 "and repair or replace it deliberately."
             )
         return data, text
-    if version not in {"0.2", "0.3", HOST_GRANTS_BASELINE_SCHEMA_VERSION}:
+    if version not in {"0.2", "0.3", "0.4", HOST_GRANTS_BASELINE_SCHEMA_VERSION}:
         raise ValueError(
             f"Host-grants baseline {path} has unsupported schema version "
             f"{version!r}. A human must review migration or replacement."
         )
     try:
         model = {"0.2": HostGrantsBaselineV2, "0.3": HostGrantsBaselineV3,
-                 "0.4": HostGrantsBaselineV4}[version]
+                 "0.4": HostGrantsBaselineV4, "0.5": HostGrantsBaselineV5}[version]
         parsed = model.model_validate(data).model_dump(mode="json")
     except ValidationError:
         return (
@@ -2389,7 +2505,15 @@ def _incomparable_payload(
         # and also route to a human before any first acknowledgement.
         "next_action": None,
     }
-    return HostGrantsDriftV4.model_validate(payload).model_dump(mode="json")
+    return HostGrantsDriftV5.model_validate(payload).model_dump(mode="json")
+
+
+#: Baseline versions a drift comparison reads as current. v0.5 only adds
+#: ``resolved_through`` on artifacts read through an in-tree link (#700). A
+#: v0.4 inventory refused such a link as unreadable, and an incomplete
+#: inventory can never be saved, so a v0.4 baseline holds no artifact that v0.5
+#: would describe differently. Accepting it keeps every saved baseline usable.
+_COMPARABLE_BASELINE_SCHEMA_VERSIONS = frozenset({"0.4", HOST_GRANTS_BASELINE_SCHEMA_VERSION})
 
 
 def build_host_drift_payload(
@@ -2398,7 +2522,7 @@ def build_host_drift_payload(
     reasons: list[str] = []
     if baseline.get("host_grants_schema_version") == "0.1":
         reasons.append("baseline_schema_v0.1_lacks_typed_grants_and_scope")
-    elif baseline.get("host_grants_schema_version") != HOST_GRANTS_BASELINE_SCHEMA_VERSION:
+    elif baseline.get("host_grants_schema_version") not in _COMPARABLE_BASELINE_SCHEMA_VERSIONS:
         reasons.append(
             str(baseline.get("_load_error") or "unsupported_baseline_schema")
         )
@@ -2447,7 +2571,7 @@ def _comparable_drift_payload(
         "incomparable_reasons": [],
         "next_action": None,
     }
-    return HostGrantsDriftV4.model_validate(payload).model_dump(mode="json")
+    return HostGrantsDriftV5.model_validate(payload).model_dump(mode="json")
 
 
 def build_host_comparison_payload(

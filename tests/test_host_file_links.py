@@ -94,17 +94,18 @@ def test_a_target_that_is_not_an_in_tree_file_still_conceals(tmp_path: Path, sha
     assert all(item["kind"] == "unreadable" and item["blocking"] for item in issues), shape
 
 
-def test_a_link_at_a_boundary_path_is_still_read_as_a_link(tmp_path: Path) -> None:
-    """Step two of #700 reads through it; pinned so that step shows up as a change."""
+def test_a_link_at_a_boundary_path_is_read_through(tmp_path: Path) -> None:
+    """Step two of #700 reads through it, by owner decision; step one pinned the refusal."""
 
     _settings(tmp_path, ["Read(**)"])
     (tmp_path / "AGENTS.md").write_text("# agents", encoding="utf-8")
     (tmp_path / "CLAUDE.md").symlink_to("AGENTS.md")
 
-    issues = _issues(host_audit_inventory(tmp_path), "CLAUDE.md")
+    inventory = host_audit_inventory(tmp_path)
 
-    assert issues
-    assert all(item["kind"] == "unreadable" for item in issues)
+    assert _issues(inventory, "CLAUDE.md") == []
+    claude = [item for item in inventory["artifacts"] if item["path"] == "CLAUDE.md"]
+    assert claude and all(item["resolved_through"] == ["AGENTS.md"] for item in claude)
 
 
 def test_a_comparison_beside_an_unrelated_file_link_names_the_change(tmp_path: Path) -> None:

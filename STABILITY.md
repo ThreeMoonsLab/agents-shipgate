@@ -2,7 +2,19 @@
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
-Runtime contract v38 lets the control envelope name what host capability
+Runtime contract v39 reads through an in-tree link at a boundary path (#700).
+A link such as `CLAUDE.md -> AGENTS.md` or `.claude/skills -> ../.agents/skills`
+that resolves inside the repository is read at its target and published under
+its own path. Host-grants inventory, baseline and drift schemas move to `0.5`,
+which adds `artifacts[].resolved_through`, the in-tree paths the read
+followed, present only on such an artifact. An external, escaping or dangling
+target, a link inside a linked directory, a chain past eight hops, and a
+directory link that could only hide a `**/` match still refuse. A `0.4`
+baseline stays comparable, and `minimum_control_contract_version` stays `21`.
+See
+[the migration note](#link-read-through-at-boundary-paths-contract-v39-700).
+
+Previous runtime contract v38 lets the control envelope name what host capability
 changed (#662). `shipgate.agent_control/v1` gains an optional
 `capability_rows` block on `check --format agent-control-json`,
 `verify --format control` and `agent control`. It holds up to five rows,
@@ -3552,3 +3564,33 @@ inventory.
 - Readers that parse without validating, or that ignore unknown members, are unaffected.
 - An envelope with no host comparison is byte-identical to v37.
 - `minimum_control_contract_version` stays `21`, because the `AgentControl` union is unchanged, as it was for v23–v25.
+
+### Link read-through at boundary paths (contract v39, #700)
+
+Host-grants inventory, baseline and drift schemas `0.5` add one optional member to an artifact:
+
+```json
+{
+  "path": ".claude/skills/helper/SKILL.md",
+  "resolved_through": [".agents/skills/helper/SKILL.md"]
+}
+```
+
+- **When it appears.** On an artifact read through a symlink that resolves inside the repository, and nowhere else. Two kinds of link qualify:
+  - a file link that a host adapter names, such as `CLAUDE.md`, `AGENTS.md` or `.mcp.json`;
+  - a directory link at a location an adapter names by a fixed prefix, such as `.claude/skills` or `.cursor/skills`, or above an exact path.
+
+  The artifact keeps the link's own path, because that is what the host reads. `resolved_through` lists each in-tree path the resolution landed on, ending at the file read.
+- **Bound to the read.** Each link's text, and each component's kind, comes from the same identity-bound read session. So a link retargeted, or a target swapped, before the read finishes fails the snapshot. A comparison's base tree materializes the target's bytes, so both sides read the same file.
+- **Still a coverage limit.** Each of these stays `unreadable`, and the comparison refuses as before:
+  - an absolute, escaping or dangling target;
+  - a link as an intermediate component;
+  - a chain longer than eight hops;
+  - a linked directory that contains a link, points into its own ancestor, or sits under a skipped directory such as `node_modules` or `.venv`;
+  - a directory link that could only hide a `**/` match.
+- **Change detection.** Retargeting a linked boundary path changes `resolved_through`, so drift reports an artifact change. A change to the target's content is compared under the link's path.
+
+**Compatibility.**
+- **A `0.4` baseline** is still loaded and compared. A `0.4` inventory refused every boundary link, and an incomplete inventory cannot be saved, so no `0.4` baseline holds an artifact that `0.5` would describe differently.
+- **Validators pinned to the `0.4` schemas** reject a `0.5` inventory, baseline or drift payload. The `0.4` schema files stay published.
+- **`minimum_control_contract_version`** stays `21`.
