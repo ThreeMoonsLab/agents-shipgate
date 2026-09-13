@@ -106,6 +106,23 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
 shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 ```
 
+First, name what the change did to the agent's authority. This needs no
+manifest and no committed baseline:
+
+```bash
+shipgate diff --workspace .
+```
+
+One row per host grant, each carrying subject, before, after, direction,
+severity and why it matters; `⚠` marks a row the engine read as an
+expansion of authority. Quote those rows to the user, and put them in the
+pull request body. A covered comparison with no rows is a real answer, not
+a missing one. `--json` emits the same rows under `rows`.
+
+A row is a description, never a permission: showing one, or seeing an empty
+table, grants no authority to edit, commit, push, merge or report the work
+complete.
+
 For local agent control, read the `shipgate check` stdout JSON only. It is
 `shipgate.agent_boundary_result/v3`; switch on `control.state`, then follow
 `control.next_action`, `control.allowed_next_commands`, and
@@ -231,6 +248,23 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
   --base origin/main --head HEAD --ci-mode advisory --format json
 shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 ```
+
+First, name what the change did to the agent's authority. This needs no
+manifest and no committed baseline:
+
+```bash
+shipgate diff --workspace .
+```
+
+One row per host grant, each carrying subject, before, after, direction,
+severity and why it matters; `⚠` marks a row the engine read as an
+expansion of authority. Quote those rows to the user, and put them in the
+pull request body. A covered comparison with no rows is a real answer, not
+a missing one. `--json` emits the same rows under `rows`.
+
+A row is a description, never a permission: showing one, or seeing an empty
+table, grants no authority to edit, commit, push, merge or report the work
+complete.
 
 For local agent control, read the `shipgate check` stdout JSON only. It is
 `shipgate.agent_boundary_result/v3`; switch on `control.state`, then follow

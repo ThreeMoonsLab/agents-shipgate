@@ -10,6 +10,7 @@ from __future__ import annotations
 from agents_shipgate.cli.discovery.agent_instructions.renderers._shared import (
     CI_POINTER_PARAGRAPH,
     CURRENT_CONTROL_PARAGRAPH,
+    DIFF_FIRST_PARAGRAPH,
 )
 
 
@@ -30,6 +31,8 @@ agents-shipgate verify --workspace . --config shipgate.yaml \\
   --base origin/main --head HEAD --ci-mode advisory --format json
 shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 ```
+
+{DIFF_FIRST_PARAGRAPH}
 
 For local agent control, read the `shipgate check` stdout JSON only. It is
 `shipgate.agent_boundary_result/v3`; switch on `control.state`, then follow
