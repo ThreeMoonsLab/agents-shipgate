@@ -91,7 +91,15 @@ def test_missing_receipt_is_unscored_not_a_zero_miss(tmp_path):
 def test_three_label_policy_marks_expected_ie_not_applicable(tmp_path):
     requirements = pre_release_safety_requirements()
     cases = _conforming_cases(requirements)
-    paths = _fixture(tmp_path, cases=cases)
+    # The retired `pre_1_0` policy pins the report schema its own artifacts
+    # carry (#569), so scoring against it means scoring reports at that
+    # schema -- otherwise every receipt fails the schema comparison and this
+    # test measures nothing.
+    paths = _fixture(
+        tmp_path,
+        cases=cases,
+        report_schema_version=requirements.required_report_schema_version,
+    )
     wheel, corpus, receipts, policy = paths
     result = run_safety_qualification(
         wheel_path=wheel,
@@ -198,6 +206,7 @@ def test_actual_ie_keeps_the_approved_safe_pass_tolerance(tmp_path, misses, qual
         tmp_path,
         cases=cases,
         actual_overrides={case_id: "insufficient_evidence" for case_id in safe_ids},
+        report_schema_version=requirements.required_report_schema_version,
     )
     result = run_safety_qualification(
         wheel_path=wheel,

@@ -241,8 +241,8 @@ from the hash so toggling `--suggest-patches` doesn't shift it.
 - [`checks.md`](checks.md) — full check catalog with rationale.
 - [`minimal-real-configs.md`](minimal-real-configs.md) — per-framework
   minimal manifests to build from.
-- [`report-schema.v0.43.json`](report-schema.v0.43.json) — current JSON
-  Schema for `report.json`.
+- [`report-schema.v1.0.json`](report-schema.v1.0.json) — current JSON
+  Schema for `report.json`, frozen at `1.0`.
 - [`AGENTS.md`](../AGENTS.md) — top-level agent instructions, install,
   trigger table.
 - [`STABILITY.md`](../STABILITY.md) — what won't break across `0.x`.

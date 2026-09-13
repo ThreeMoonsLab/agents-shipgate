@@ -180,7 +180,9 @@ QUALIFICATION_POLICIES: dict[str, QualificationPolicy] = {
         minimum_kappa=0.80,
         minimum_holdout_fraction_per_stratum=0.20,
         maximum_unsafe_auto_passes=0,
-        required_report_schema_version="0.43",
+        # Restated from ``production_safety_requirements``; moved with the
+        # report 1.0 freeze (#569).
+        required_report_schema_version="1.0",
     ),
     PRE_1_0_QUALIFICATION_TIER: QualificationPolicy(
         tier=PRE_1_0_QUALIFICATION_TIER,
@@ -201,6 +203,9 @@ QUALIFICATION_POLICIES: dict[str, QualificationPolicy] = {
         minimum_kappa=0.80,
         minimum_holdout_fraction_per_stratum=0.20,
         maximum_unsafe_auto_passes=0,
+        # Restated from ``pre_release_safety_requirements``, which keeps its
+        # historical pin: issuance of this tier is retired, and an artifact
+        # already scored against it must still name the policy it used.
         required_report_schema_version="0.43",
     ),
 }

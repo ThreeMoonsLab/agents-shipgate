@@ -161,7 +161,8 @@ def test_pre_v012_report_is_rejected(tmp_path):
     be rejected by `explain-finding` — the v0.12 contract says the
     explanation is action-aware, and silently accepting a stale report
     would yield `agent_action: null` and drop that sentence
-    (#58 review P2.2)."""
+    (#58 review P2.2). Since the 1.0 freeze the refusal is the shared
+    pre-freeze one (#569): the reason is wider, the outcome is the same."""
     v11_payload = {
         "schema_version": "0.1",
         "report_schema_version": "0.11",
@@ -202,7 +203,7 @@ def test_pre_v012_report_is_rejected(tmp_path):
     stale_path = tmp_path / "stale.json"
     stale_path.write_text(json.dumps(v11_payload), encoding="utf-8")
 
-    with pytest.raises(ValueError, match=r"requires report_schema_version >= 0\.12"):
+    with pytest.raises(ValueError, match=r"\[report_schema_pre_freeze\] report schema 0\.11"):
         explain_finding_payload(
             fingerprint="fp_test", report_path=stale_path
         )
@@ -217,7 +218,7 @@ def test_missing_schema_version_is_rejected(tmp_path):
     path.write_text(json.dumps(bad_payload), encoding="utf-8")
 
     with pytest.raises(
-        ValueError, match=r"agents-shipgate report\.json"
+        ValueError, match=r"\[report_schema_missing\]"
     ):
         explain_finding_payload(fingerprint="fp_x", report_path=path)
 

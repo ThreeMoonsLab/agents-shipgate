@@ -31,13 +31,32 @@ def _current_report_schema_version() -> str:
     return str(ReadinessReport.model_fields["report_schema_version"].default)
 
 
+def _report_schema_versions() -> list[tuple[int, ...]]:
+    """Every published report schema version, ordered oldest first."""
+
+    versions = []
+    for path in DOCS_DIR.glob("report-schema.v*.json"):
+        raw = path.name[len("report-schema.v") : -len(".json")]
+        try:
+            versions.append(tuple(int(part) for part in raw.split(".")))
+        except ValueError:  # pragma: no cover - a filename we do not publish
+            continue
+    return sorted(versions)
+
+
 def _previous_report_schema_version() -> str:
-    """The next-most-recent schema version, expected to remain linked
-    from the index as a frozen reference. Derived as ``current - 1``
-    on the minor."""
-    current = _current_report_schema_version()
-    major, minor = current.split(".")
-    return f"{major}.{int(minor) - 1}"
+    """The published version immediately below the current one.
+
+    Derived from the published set rather than as ``current - 1`` on the
+    minor. Arithmetic on the minor works only inside one major: at the 1.0
+    freeze it computed ``1.-1``, a file that has never existed, and the
+    frozen-reference guard would have asserted its absence forever.
+    """
+
+    current = tuple(int(part) for part in _current_report_schema_version().split("."))
+    older = [version for version in _report_schema_versions() if version < current]
+    assert older, f"no published report schema precedes {current}"
+    return ".".join(str(part) for part in older[-1])
 
 AGENT_FACING_DOCS = (
     "agent-recipes.md",
@@ -142,8 +161,11 @@ def test_no_doc_falsely_advertises_an_older_schema_as_current():
     an adjacent stale "current" claim about v0.N. The marker must now
     lie *between* the older mention and the nearest "current"."""
     current = _current_report_schema_version()
-    older_minor = re.compile(r"report-schema\.v0\.(?P<minor>\d+)\.json")
-    current_minor = int(current.split(".")[1])
+    # Matches any published major, not only ``v0.``. Scoped to ``v0.`` this
+    # became vacuous at the 1.0 freeze: ``int("1.0".split(".")[1])`` is 0, so
+    # every mention compared ">= 0" and the guard stopped guarding.
+    older_minor = re.compile(r"report-schema\.v(?P<version>\d+\.\d+)\.json")
+    current_version = tuple(int(part) for part in current.split("."))
     markers = ("frozen", "legacy", "older", "pre-v")
 
     scan_paths = sorted(DOCS_DIR.rglob("*.md")) + [
@@ -158,8 +180,8 @@ def test_no_doc_falsely_advertises_an_older_schema_as_current():
             if "current" not in lower:
                 continue
             for match in older_minor.finditer(line):
-                mentioned = int(match.group("minor"))
-                if mentioned >= current_minor:
+                mentioned = tuple(int(part) for part in match.group("version").split("."))
+                if mentioned >= current_version:
                     continue
                 # The frozen/legacy marker only excuses the mention when
                 # it sits BETWEEN the mention and a "current" on the same
@@ -180,7 +202,7 @@ def test_no_doc_falsely_advertises_an_older_schema_as_current():
                     index = lower.find("current", index + 1)
                 if not excused:
                     failures.append(
-                        f"{relpath}: report-schema.v0.{mentioned}.json "
+                        f"{relpath}: report-schema.v{match.group('version')}.json "
                         "on a line claiming 'current' without a "
                         "frozen/legacy/older marker between them"
                     )

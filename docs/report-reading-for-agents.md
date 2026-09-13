@@ -289,18 +289,20 @@ Surface the `next_action` to the user rather than scraping prose. The full diagn
 
 | Schema | Current | Frozen references | File |
 |---|---|---|---|
-| Report | `0.43` | `0.42`, `0.41`, `0.40`, `0.39`, `0.38`, `0.37`, `0.36`, `0.35`, `0.34`, `0.33`, `0.32`, `0.31`, `0.30`, `0.29`, `0.28`, `0.27`, `0.26`, `0.25`, `0.24`, `0.23`, `0.22`, `0.21`, `0.20`, `0.19`, `0.18`, `0.17`, `0.16`, `0.15`, `0.14`, `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v0.43.json`](report-schema.v0.43.json) |
+| Report | `1.0` (frozen) | `0.43`, `0.42`, `0.41`, `0.40`, `0.39`, `0.38`, `0.37`, `0.36`, `0.35`, `0.34`, `0.33`, `0.32`, `0.31`, `0.30`, `0.29`, `0.28`, `0.27`, `0.26`, `0.25`, `0.24`, `0.23`, `0.22`, `0.21`, `0.20`, `0.19`, `0.18`, `0.17`, `0.16`, `0.15`, `0.14`, `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`report-schema.v1.0.json`](report-schema.v1.0.json) |
 | Packet | `0.18` | `0.17`, `0.16`, `0.15`, `0.14`, `0.13`, `0.12`, `0.11`, `0.10`, `0.9`, `0.8`, `0.7`, `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1` | [`packet-schema.v0.18.json`](packet-schema.v0.18.json) |
 | Manifest | `0.1` | — | [`manifest-v0.1.json`](manifest-v0.1.json) |
-| CLI contract | `28` | — | `agents-shipgate contract --json` |
+| CLI contract | `36` | — | `agents-shipgate contract --json` |
 
 To detect the version programmatically:
 
 ```python
-version = report.get("report_schema_version", "0.6")  # pre-v0.7 reports may omit
+# Absent means an artifact this engine will not read back; do not default it
+# to a version, because every value you could pick is one the CLI refuses.
+version = report.get("report_schema_version")
 ```
 
-Frozen schemas are kept in `docs/` so older reports remain machine-validatable. See [`STABILITY.md`](../STABILITY.md) for the full guarantees on what fields are stable across `0.x` and what may change.
+Frozen schemas are kept in `docs/` so older reports remain machine-validatable — but a pre-freeze report is no longer accepted as *input* to the CLI; it is refused with a regeneration route. See [`report-1-0-contract.md`](report-1-0-contract.md) for the `1.x` rules and the stable/provisional inventory, and [`STABILITY.md`](../STABILITY.md) for the full per-field guarantees.
 
 ---
 

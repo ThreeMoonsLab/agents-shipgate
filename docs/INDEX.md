@@ -52,7 +52,8 @@ repository [`README.md`](../README.md) is the landing page that routes to both.
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`determinism-boundary.json`](determinism-boundary.json) — machine-readable determinism boundary (`shipgate.determinism_boundary/v1`; regenerated from the adapter registry, drift-checked in CI)
 - [`manifest-v0.1.json`](manifest-v0.1.json) — JSON Schema for `shipgate.yaml`
-- [`report-schema.v0.43.json`](report-schema.v0.43.json) — JSON Schema for `report.json` (current; emitted reports carry `report_schema_version: "0.43"` and a privacy-safe `declaration_review` projection for PR verification)
+- [`report-schema.v1.0.json`](report-schema.v1.0.json) — JSON Schema for `report.json` (current, frozen at `1.0`, superseding `0.43`; emitted reports carry `report_schema_version: "1.0"`. `1.x` is additive-only — see [`report-1-0-contract.md`](report-1-0-contract.md))
+- [`report-schema.v0.43.json`](report-schema.v0.43.json) — frozen reference; the last pre-freeze version (privacy-safe `declaration_review` projection for PR verification)
 - [`report-schema.v0.42.json`](report-schema.v0.42.json) — frozen reference (`effective_policy.control_pack` names the control pack in force)
 - [`report-schema.v0.41.json`](report-schema.v0.41.json) — frozen reference
 - [`report-schema.v0.39.json`](report-schema.v0.39.json) — frozen reference (a confirmed declaration whose evidence has since moved re-opens as a `declaration_drift` gap)

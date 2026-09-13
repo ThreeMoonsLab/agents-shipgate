@@ -44,7 +44,7 @@ ALL_RENDERERS = {
 }
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
-    ".claude/skills/agents-shipgate/SKILL.md": "b09ffc59ad9e52ae34b0015d55ff311f2856e745581fc83b607b5eacf84c1a69",
+    ".claude/skills/agents-shipgate/SKILL.md": "c474cec05fdba44430a0c42857fc7b761e5aa84791b1c64042aebdcb3bac86e3",
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": "7fd2c718e5dad94b231409a72710e05af1b231c3d495d8796c501a7e9493a394",
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": "ffe9272f9a0defd732a9a37dbc1e9450e6051b217d6a39741b835657470f6cb4",
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": "be3079a2f41b66d2db19cfea14c57ccd80ab9047ef7d69eccf30e97fa1beca5b",
@@ -173,7 +173,7 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
     assert payload["schema_version"] == "10"
     assert payload["agents_shipgate_version"]
-    assert payload["contract_version"] == "35"
+    assert payload["contract_version"] == "36"
     assert payload["minimum_control_contract_version"] == "21"
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")

@@ -15,11 +15,15 @@ import json
 import shutil
 from pathlib import Path
 
+import pytest
 import yaml
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.scan import run_scan
+from agents_shipgate.schemas.report import ReadinessReport
+
+REPORT_SCHEMA_VERSION = ReadinessReport.model_fields["report_schema_version"].default
 
 SAMPLES = Path(__file__).resolve().parent.parent / "samples"
 runner = CliRunner()
@@ -240,9 +244,9 @@ def test_containment_violation_emits_agent_mode_error_json(tmp_path: Path) -> No
 
 
 def test_missing_manifest_dir_refuses(tmp_path: Path) -> None:
-    """Old reports that pre-date v0.6 won't have manifest_dir; refuse."""
+    """A current-schema report without its mutation boundary must be refused."""
     payload = {
-        "report_schema_version": "0.5",
+        "report_schema_version": REPORT_SCHEMA_VERSION,
         "findings": [
             {
                 "patches": [
@@ -269,7 +273,7 @@ def test_missing_manifest_dir_refuses(tmp_path: Path) -> None:
 
 
 def test_missing_manifest_dir_emits_agent_mode_error_json(tmp_path: Path) -> None:
-    payload = {"report_schema_version": "0.5", "findings": []}
+    payload = {"report_schema_version": REPORT_SCHEMA_VERSION, "findings": []}
     report_path = tmp_path / "report.json"
     report_path.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -402,6 +406,7 @@ def test_malformed_patch_payload_exits_2(tmp_path: Path) -> None:
     Regression for v0.6 reviewer feedback.
     """
     report = {
+        "report_schema_version": REPORT_SCHEMA_VERSION,
         "manifest_dir": str(tmp_path),
         "findings": [
             {
@@ -511,3 +516,26 @@ def test_containment_violation_symlink_escape_refused(tmp_path: Path) -> None:
     assert "Containment violation" in result.output or "not under" in result.output
     # The file outside the boundary must be untouched.
     assert outside.read_text(encoding="utf-8") == "version: '0.1'\n"
+
+
+@pytest.mark.parametrize("version,reason", [
+    (None, "report_schema_missing"), ("0.43", "report_schema_pre_freeze"),
+    ("1.99", "report_schema_newer_than_engine"), ("2.0", "report_schema_future_major"),
+    ("garbage", "report_schema_malformed"),
+])
+def test_unsupported_report_schema_cannot_mutate_manifest(tmp_path: Path, version, reason) -> None:
+    workspace = _seed_with_stale_suppression(tmp_path)
+    report_path = _scan_with_patches(workspace)
+    payload = json.loads(report_path.read_text())
+    if version is None:
+        payload.pop("report_schema_version")
+    else:
+        payload["report_schema_version"] = version
+    report_path.write_text(json.dumps(payload))
+    manifest = workspace / "shipgate.yaml"
+    before = manifest.read_bytes()
+    result = runner.invoke(app, ["apply-patches", "--from", str(report_path), "--apply", "--json"], env={"AGENTS_SHIPGATE_AGENT_MODE": "1"})
+    assert result.exit_code == 2, result.output
+    assert manifest.read_bytes() == before
+    assert _agent_mode_payload(result)["reason_code"] == reason
+    assert _agent_mode_payload(result)["next_actions"][0]["kind"] == "review"

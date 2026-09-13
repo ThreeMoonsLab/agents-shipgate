@@ -108,7 +108,7 @@ not change the canonical tagline or add another decision engine.
 | A current-control read can return `complete` and merge permission while a dirty file or base ref changes during its final observation | The final comparison omits dimensions validated earlier; a subsequent read correctly refuses, but the interleaved read already returned stale authority | [#567](https://github.com/ThreeMoonsLab/agents-shipgate/issues/567) |
 | Qualification hashes and parses some inputs in separate reads | The scored content can differ from the bytes its digest names | [#559](https://github.com/ThreeMoonsLab/agents-shipgate/issues/559) |
 | The generated Action pin is `v0.15.0` / contract 10 while the source candidate is 0.16.0 / contract 31 | A later main-only constant update cannot change the pin bundled in the final wheel | [#570](https://github.com/ThreeMoonsLab/agents-shipgate/issues/570) |
-| Report schema is **0.43**; STABILITY requires report **1.0** before the 1.0 line | A published compatibility condition has no completed delivery | [#569](https://github.com/ThreeMoonsLab/agents-shipgate/issues/569) |
+| Report schema is frozen at **1.0**, satisfying STABILITY's report freeze condition | Delivered; the freeze holds only while no breaking change lands, and a breaking change restarts it | [#569](https://github.com/ThreeMoonsLab/agents-shipgate/issues/569) |
 | The live Actions-variable read returned **zero repository variables**; Release Rehearsal had **zero runs** | Required qualification locations and an actual rehearsal are not established by those public operational surfaces | [#509](https://github.com/ThreeMoonsLab/agents-shipgate/issues/509), [#510](https://github.com/ThreeMoonsLab/agents-shipgate/issues/510) |
 | The committed release trust root has `signer_identity: "CHANGE_ME"` | Qualification signing identity is not configured; release validation correctly fails closed | [#509](https://github.com/ThreeMoonsLab/agents-shipgate/issues/509) |
 | The only active ruleset targets `main`; no tag ruleset, including inherited rules, was returned. Immutable releases are disabled | Required prevention of tag and release-asset mutation is absent from the inspected settings | [#573](https://github.com/ThreeMoonsLab/agents-shipgate/issues/573) |
@@ -186,7 +186,7 @@ override the current **38/80** policy.
 | Minimum exact review outcomes | **19/20** | **14/14** |
 | Expected-IE ground-truth cases / exact floor | **0 / 0** | **0 / 0** |
 | Primary-label protocol | **Two blind human primary labels; adjudicate and freeze** | Approved independent-agent protocol, with owner adjudication and its stated restrictions |
-| Required report schema at this snapshot | **0.43**, deliberately updated with the reviewed 1.0 freeze | **0.43**, under the same explicit requirement |
+| Required report schema at this snapshot | **1.0**, moved with the reviewed freeze (#569) | **0.43**, the historical pin the retired `pre_1_0` tier was scored against; issuance of that tier has stopped |
 
 Qualifying origins are the policy's real-history, rejected/reverted and
 design-partner categories; the floor counts cases, not distinct repositories

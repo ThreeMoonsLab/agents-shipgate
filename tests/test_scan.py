@@ -11,6 +11,7 @@ from agents_shipgate.cli._artifact_lifecycle import (
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.core.baseline import write_baseline
+from agents_shipgate.schemas.report_compatibility import report_schema_refusal_code
 
 SAMPLE = Path("samples/support_refund_agent/shipgate.yaml")
 GOOGLE_ADK_SAMPLE = Path("samples/google_adk_agent/shipgate.yaml")
@@ -1014,9 +1015,17 @@ def test_scan_diff_from_prior_report_does_not_change_release_gate(tmp_path):
     assert with_diff.tool_surface_diff.base.kind == "report"
 
 
-def test_pre_v029_diff_reference_requires_regeneration_instead_of_effect_deltas(
+def test_pre_freeze_diff_reference_requires_regeneration_instead_of_effect_deltas(
     tmp_path,
 ):
+    """A base this engine may not interpret withholds the verdict.
+
+    Was "pre-v0.29 semantic evidence"; the 1.0 freeze refuses every pre-freeze
+    base for the wider reason (#569). What must not change is the *route*: the
+    scan still runs, the incomparable base is still a `source_warning` carrying
+    a `provide_source` gap, and the decision is still withheld rather than
+    downgraded to `review_required`.
+    """
     project = tmp_path / "project"
     project.mkdir()
     (project / "tools.json").write_text(
@@ -1100,9 +1109,11 @@ action_surface:
     assert report.release_decision is not None
     assert report.release_decision.decision == "insufficient_evidence"
     warning = next(
-        item for item in report.source_warnings if "not comparable with --diff-from" in item
+        item
+        for item in report.source_warnings
+        if report_schema_refusal_code(item) == "report_schema_pre_freeze"
     )
-    assert "uses report schema 0.28" in warning
+    assert "report schema 0.28" in warning
     assert "agents-shipgate scan -c shipgate.yaml --format json" in warning
     gap = next(
         item

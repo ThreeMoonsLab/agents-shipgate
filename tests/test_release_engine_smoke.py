@@ -14,10 +14,17 @@ ROOT = Path(__file__).resolve().parents[1]
 _ENV = "AGENTS_SHIPGATE_CANDIDATE_SOURCE_COMMIT"
 
 
+def _current_report_schema_version() -> str:
+    from agents_shipgate.schemas.report import ReadinessReport
+
+    return str(ReadinessReport.model_fields["report_schema_version"].default)
+
+
 def _result(root: Path, side: str, decision: str = "blocked") -> None:
     directory = root / ".shipgate-smoke" / side
     directory.mkdir(parents=True)
     (directory / "report.json").write_text(json.dumps({
+        "report_schema_version": _current_report_schema_version(),
         "release_decision": {"decision": decision},
         "findings": [{"check_id": "SHIP-POLICY-APPROVAL-MISSING", "severity": "critical"}],
     }))
@@ -27,19 +34,125 @@ def _result(root: Path, side: str, decision: str = "blocked") -> None:
     }}))
 
 
+def _prepared(root: Path) -> None:
+    contract = {
+        "cli_version": "1.0.0",
+        "report_schema_version": _current_report_schema_version(),
+    }
+    (root / ".shipgate-smoke/prepared.json").write_text(json.dumps({
+        "qualified": False, "contract": contract,
+    }))
+
+
+def _stub_installed_cli(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    refusal: str | None = None,
+    contract: dict | None = None,
+) -> None:
+    """Stand in for the installed candidate wheel this script normally drives."""
+
+    from agents_shipgate.schemas.report_compatibility import (
+        require_supported_report_schema,
+    )
+
+    payload = contract or {
+        "cli_version": "1.0.0",
+        "report_schema_version": _current_report_schema_version(),
+    }
+    monkeypatch.setattr(release_engine_smoke, "_cli", lambda *args: payload)
+    if refusal is None:
+        try:
+            require_supported_report_schema("0.43")
+        except Exception as exc:  # noqa: BLE001 - the message is the fixture
+            refusal = str(exc)
+    monkeypatch.setattr(
+        release_engine_smoke, "_cli_refusal", lambda *args: refusal,
+    )
+
+
 def test_smoke_requires_same_nonvacuous_capability_result(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _result(tmp_path, "local")
     _result(tmp_path, "ci")
-    (tmp_path / ".shipgate-smoke/prepared.json").write_text(json.dumps({
-        "qualified": False, "contract": {"cli_version": "1.0.0"},
-    }))
-    monkeypatch.setattr(release_engine_smoke, "_cli", lambda *args: {"cli_version": "1.0.0"})
+    _prepared(tmp_path)
+    _stub_installed_cli(monkeypatch)
     result = compare(tmp_path)
     assert result["local_and_action_agree"] is True
     assert result["qualified"] is False
     assert result["result"]["decision"] == "blocked"
+
+
+def test_the_smoke_records_the_report_freeze_on_the_installed_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#569's recorded RC exercise, on an untagged candidate.
+
+    ``STABILITY.md`` asks that the frozen schema *hold*. The source tree
+    asserting that about itself is not the same claim; this is the one made
+    against the installed build.
+    """
+
+    _result(tmp_path, "local")
+    _result(tmp_path, "ci")
+    _prepared(tmp_path)
+    _stub_installed_cli(monkeypatch)
+
+    exercise = compare(tmp_path)["report_schema_exercise"]
+
+    assert exercise["frozen_major"] == 1
+    assert exercise["advertised_report_schema_version"] == _current_report_schema_version()
+    assert exercise["emitted_report_schema_version"] == exercise[
+        "advertised_report_schema_version"
+    ]
+    assert exercise["relabelled_input_refused_with"] == "report_schema_pre_freeze"
+    assert exercise["refusal_names_regeneration_route"] is True
+    assert exercise["conversion_offered"] is False
+
+
+def test_the_smoke_fails_when_the_candidate_accepts_a_relabelled_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The exercise has to be able to fail, or it records nothing.
+
+    A candidate that accepts a report whose version was edited by hand is one
+    where an old signed receipt acquires current authority through a one-field
+    edit. That is the failure this exercise exists to catch, so it is checked
+    the only way it can be: by making the installed build do it.
+    """
+
+    _result(tmp_path, "local")
+    _result(tmp_path, "ci")
+    _prepared(tmp_path)
+    _stub_installed_cli(monkeypatch)
+    monkeypatch.setattr(
+        release_engine_smoke,
+        "_cli_refusal",
+        lambda *args: (_ for _ in ()).throw(
+            ValueError("Installed CLI accepted an artifact it must refuse: findings")
+        ),
+    )
+
+    with pytest.raises(ValueError, match="accepted an artifact it must refuse"):
+        compare(tmp_path)
+
+
+def test_the_smoke_fails_when_emitted_and_advertised_schemas_disagree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One build, one answer. A split here rejects every qualification receipt."""
+
+    _result(tmp_path, "local")
+    _result(tmp_path, "ci")
+    mismatched = {"cli_version": "1.0.0", "report_schema_version": "1.7"}
+    (tmp_path / ".shipgate-smoke/prepared.json").write_text(json.dumps({
+        "qualified": False, "contract": mismatched,
+    }))
+    _stub_installed_cli(monkeypatch, contract=mismatched)
+
+    with pytest.raises(ValueError, match="emits report schema"):
+        compare(tmp_path)
 
 
 @pytest.mark.parametrize("local,ci", [("passed", "passed"), ("blocked", "passed")])

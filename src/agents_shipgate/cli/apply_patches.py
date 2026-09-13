@@ -55,6 +55,10 @@ from agents_shipgate.schemas.patches import (
     RemovePointerPatch,
     SetPointerPatch,
 )
+from agents_shipgate.schemas.report_compatibility import (
+    ReportSchemaCompatibilityError,
+    require_supported_report_schema,
+)
 
 
 def apply_patches(
@@ -122,10 +126,29 @@ def apply_patches(
         _emit_malformed_patch_error(from_path, message)
         raise typer.Exit(2) from exc
 
+    if not isinstance(report, dict):
+        message = "Report JSON must be an object."
+        typer.echo(message, err=True)
+        _emit_malformed_patch_error(from_path, message)
+        raise typer.Exit(2)
+    try:
+        require_supported_report_schema(
+            report.get("report_schema_version"), subject=str(from_path)
+        )
+    except ReportSchemaCompatibilityError as exc:
+        typer.echo(str(exc), err=True)
+        _emit_input_error(
+            "malformed_patch", str(exc), reason_code=exc.reason_code,
+            exit_code=2,
+            next_actions=[{"kind": "review", "why": str(exc)}],
+            next_action="Regenerate the report with this CLI and --suggest-patches before applying patches.",
+        )
+        raise typer.Exit(2) from exc
+
     manifest_dir = report.get("manifest_dir")
     if not manifest_dir:
         message = (
-            "Report does not include manifest_dir (pre-v0.6 report?). "
+            "Report does not include manifest_dir. "
             "Cannot enforce the containment check; refusing to apply."
         )
         typer.echo(message, err=True)

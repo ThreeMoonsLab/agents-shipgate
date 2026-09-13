@@ -106,6 +106,7 @@ CLAIMS = frozenset(
         "placeholder_ownership",
         "executable_pin",
         "contract_floor",
+        "report_schema_pin",
     }
 )
 
@@ -143,6 +144,11 @@ _FLOOR = (
     f"{_ADOPTER_PINS}::test_the_shipped_floor_is_decided_against_the_release_the_prompts_pin",
 )
 _VOCABULARY = ("test_surface_enumerations_match_the_engine_vocabulary",)
+
+#: Surfaces that restate which report schema this build emits. A reader
+#: validates their `report.json` against the file these name, so a stale one
+#: sends them to a schema the engine does not produce.
+_REPORT_SCHEMA = ("test_surface_names_the_current_report_schema",)
 
 SURFACES: tuple[Surface, ...] = (
     Surface(
@@ -211,6 +217,7 @@ SURFACES: tuple[Surface, ...] = (
             "contract_floor": _FLOOR,
             "release_decision_vocabulary": _VOCABULARY,
             "placeholder_ownership": _OWNERSHIP,
+            "report_schema_pin": _REPORT_SCHEMA,
         },
     ),
     Surface(
@@ -221,6 +228,7 @@ SURFACES: tuple[Surface, ...] = (
             "contract_floor": _FLOOR,
             "release_decision_vocabulary": _VOCABULARY,
             "placeholder_ownership": _OWNERSHIP,
+            "report_schema_pin": _REPORT_SCHEMA,
         },
     ),
     Surface(
@@ -231,6 +239,7 @@ SURFACES: tuple[Surface, ...] = (
             "contract_floor": _FLOOR,
             "release_decision_vocabulary": _VOCABULARY,
             "placeholder_ownership": _OWNERSHIP,
+            "report_schema_pin": _REPORT_SCHEMA,
         },
     ),
     Surface(
@@ -274,6 +283,7 @@ SURFACES: tuple[Surface, ...] = (
             "placeholder_ownership": _OWNERSHIP,
             "merge_verdict_vocabulary": _VOCABULARY,
             "release_decision_vocabulary": _VOCABULARY,
+            "report_schema_pin": _REPORT_SCHEMA,
         },
     ),
     Surface(
@@ -287,6 +297,7 @@ SURFACES: tuple[Surface, ...] = (
         {
             "executable_pin": ("test_executable_pin_resolves_in_a_published_channel",),
             "placeholder_ownership": _OWNERSHIP,
+            "report_schema_pin": _REPORT_SCHEMA,
         },
     ),
 )
@@ -996,6 +1007,70 @@ def _alternation(pattern: re.Pattern[str]) -> set[str]:
     match = re.search(r"\(([a-z_|]+)\)", pattern.pattern)
     assert match, f"not a simple alternation: {pattern.pattern!r}"
     return set(match.group(1).split("|"))
+
+
+_REPORT_SCHEMA_FILE = re.compile(r"report-schema\.v(\d+\.\d+)\.json")
+
+
+@pytest.mark.parametrize(
+    "surface",
+    [s for s in SURFACES if "report_schema_pin" in s.claims],
+    ids=lambda s: s.id,
+)
+def test_surface_names_the_current_report_schema(surface: Surface):
+    """A surface that points a reader at a schema points at the one we emit.
+
+    Five distribution surfaces restate which ``report-schema.v<X>.json`` a
+    reader should validate against. That is an engine answer --
+    ``contract --json`` publishes it -- so it belongs in the registry rather
+    than in five hand-maintained per-file lists (#569).
+
+    Two directions, because a pin drifts both ways. **Behind:** the surface
+    still names a superseded schema as current, and a reader validates fresh
+    reports against a document that no longer describes them. **Ahead:** the
+    surface names a version this build does not emit, and the file it sends a
+    reader to does not exist yet.
+
+    Older versions are *not* an error: `AGENTS.md` keeps a frozen-reference
+    table by design, and freezing them is what makes archived reports
+    validatable. Only naming nothing current, or naming something newer than
+    current, is.
+    """
+
+    from agents_shipgate.schemas.report import ReadinessReport
+
+    current = str(ReadinessReport.model_fields["report_schema_version"].default)
+    current_parts = tuple(int(part) for part in current.split("."))
+
+    named: dict[str, list[str]] = {}
+    for path in _surface_files(surface, (".md", ".json", ".txt", ".mdc", ".yml")):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):  # pragma: no cover - binary asset
+            continue
+        for version in _REPORT_SCHEMA_FILE.findall(text):
+            named.setdefault(version, []).append(str(path.relative_to(REPO_ROOT)))
+
+    assert named, (
+        f"{surface.id} registers the `report_schema_pin` claim but names no "
+        "report schema at all. Drop the claim, or restore the pin."
+    )
+    assert current in named, (
+        f"{surface.id} names report schemas {sorted(named)} but not the "
+        f"{current} this build emits. A reader validating a fresh report "
+        "against any of those is validating against the wrong document; "
+        f"update it in the same change as the schema bump."
+    )
+    ahead = sorted(
+        version
+        for version in named
+        if tuple(int(part) for part in version.split(".")) > current_parts
+    )
+    assert not ahead, (
+        f"{surface.id} names report schema(s) {ahead}, which this build does "
+        f"not emit (it emits {current}). Files: "
+        + ", ".join(sorted({f for v in ahead for f in named[v]}))
+    )
 
 
 def test_harness_holds_no_drifted_copy_of_the_engine_vocabularies():
