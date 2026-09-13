@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Make a URL-based MCP server's query part of its change digest (#723). The
+  digest hashed only the redacted URL, which keeps the scheme and host and drops
+  everything else. So removing `read_only=true` from a Supabase MCP URL, adding
+  `features=` or switching projects produced no row. The #660 cold start found
+  the `features` case on a public repository. Published fields are unchanged and
+  still carry no path, query or secret. A secret-named query parameter
+  contributes only its name, and `env` and `headers` stay out. The path stays out
+  too: a webhook-style path is a secret whose rotation must stay quiet, so a
+  path-only capability change is still not seen. Servers without a query keep
+  their earlier digest. A baseline saved earlier shows each affected URL server
+  as `changed` once.
+
 - Resolve documented Claude skill and command frontmatter instead of refusing it
   (#722). An unresolved instruction is a blocking coverage issue, so one such
   file made a repository's whole host inventory partial. Skills now accept
