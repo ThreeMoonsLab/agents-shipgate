@@ -29,6 +29,8 @@ from typing import Any
 #: hooks" for Claude Code.
 CLAUDE_SUPPORTED_KEYS = frozenset({
     "permissions", "hooks", "sandbox", "enabledPlugins", "additionalDirectories",
+    # "plugins" in the matrix includes the marketplaces they install from (#720).
+    "extraKnownMarketplaces",
     "disableAllHooks", "allowManagedHooksOnly", "allowManagedPermissionRulesOnly",
     "skipDangerousModePermissionPrompt", "enableAllProjectMcpServers",
     # "MCP restrictions" in the matrix: which project `.mcp.json` servers load.
@@ -37,7 +39,6 @@ CLAUDE_SUPPORTED_KEYS = frozenset({
 CLAUDE_UNSUPPORTED_CAPABILITY_KEYS = frozenset({
     "apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "otelHeadersHelper",
     "statusLine", "fileSuggestion", "subagentStatusLine", "env",
-    "extraKnownMarketplaces",
     "forceLoginMethod", "forceLoginOrgUUID",
 })
 #: Keys with no capability effect: presentation, model choice, housekeeping.
@@ -125,6 +126,8 @@ def claude_settings(before_text: str | None, after_text: str | None) -> dict[str
             changes += _map_changes("setting", "sandbox.", old, new)
         elif key == "enabledPlugins":
             changes += _map_changes("plugin", "", old, new)
+        elif key == "extraKnownMarketplaces":
+            changes += _map_changes("plugin", "marketplace:", old, new)
         elif key == "additionalDirectories":
             changes += _list_changes("additional_path", "", old, new)
         elif key in {"enabledMcpjsonServers", "disabledMcpjsonServers"}:

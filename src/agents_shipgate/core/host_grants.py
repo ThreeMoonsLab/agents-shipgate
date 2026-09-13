@@ -753,6 +753,20 @@ def _claude_grants(data: Any, *, scope: HostScope, source: str) -> list[dict[str
                 ),
                 "name": str(name), "enabled": bool(enabled),
             })
+    # `enabledPlugins` entries install from these, so a marketplace added or
+    # re-pointed changes what an enabled plugin runs (#720). Named with a
+    # prefix: a marketplace and a plugin never compete for one precedence key.
+    marketplaces = data.get("extraKnownMarketplaces")
+    if isinstance(marketplaces, dict):
+        for name, config in sorted(marketplaces.items()):
+            label = f"marketplace:{name}"
+            grants.append({
+                **_grant_base(
+                    host="claude-code", scope=scope, source=source, kind="plugin_or_app",
+                    identity=label, config=config, access="external", risk="high",
+                ),
+                "name": label, "enabled": None,
+            })
     grants.extend(_hooks_grants(data, host="claude-code", scope=scope, source=source))
     return grants
 
