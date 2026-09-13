@@ -1121,6 +1121,12 @@ if args and args[0] == "verify":
         "control": {"state": "complete", "reason": "test pass"},
     }))
     raise SystemExit(0)
+if args and args[0] == "diff":
+    import os
+    override = os.environ.get("FAKE_DIFF_PAYLOAD")
+    if override is not None:
+        sys.stdout.write(override)
+        raise SystemExit(0)
 raise SystemExit(2)
 """.lstrip(),
         encoding="utf-8",
@@ -1549,3 +1555,169 @@ def test_post_tool_hook_stays_silent_on_an_evidence_backed_skip(
         == 0
     )
     assert capsys.readouterr().out == ""
+
+
+# --- #661: the Stop hook compares host configuration when no manifest exists --
+
+
+def _host_diff_workspace(tmp_path: Path) -> Path:
+    render_or_install_hooks(
+        workspace=tmp_path,
+        target="claude-code",
+        write=True,
+        config=Path("shipgate.yaml"),
+        base="origin/main",
+        head="",
+        ci_mode="advisory",
+    )
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    for key, value in (("user.email", "shipgate@example.test"), ("user.name", "Shipgate Test")):
+        subprocess.run(["git", "config", key, value], cwd=tmp_path, check=True)
+    settings_path = tmp_path / ".claude" / "settings.json"
+    settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    settings["permissions"] = {"allow": ["Read(**)"]}
+    settings_path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "update-ref", "refs/remotes/origin/main", "HEAD"], cwd=tmp_path, check=True)
+    settings["permissions"] = {"allow": ["Bash(*)", "Read(**)"]}
+    settings_path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+    return tmp_path
+
+
+def _run_hook(tmp_path: Path, mode: str, payload: dict, *, diff_payload: str | None) -> subprocess.CompletedProcess[str]:
+    log = tmp_path.parent / f"{tmp_path.name}-cli.log"
+    fake_cli = _fake_shipgate_cli(tmp_path)
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    env["AGENTS_SHIPGATE_CLI"] = f"{sys.executable} {fake_cli} {log}"
+    if diff_payload is not None:
+        env["FAKE_DIFF_PAYLOAD"] = diff_payload
+    return subprocess.run(
+        [sys.executable, str(tmp_path / HOOK_SCRIPT_RELATIVE_PATH), mode],
+        input=json.dumps({"cwd": str(tmp_path), **payload}),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        check=False,
+    )
+
+
+def _cli_calls(tmp_path: Path) -> list[list[str]]:
+    log = tmp_path.parent / f"{tmp_path.name}-cli.log"
+    if not log.exists():
+        return []
+    return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+
+
+_WIDENING = {
+    "subject": "claude-code .claude/settings.json",
+    "before": "\u2014",
+    "after": "Bash(*)",
+    "direction": "added",
+    "severity": "critical",
+    "why": "matches any command of this kind, without a prompt",
+    "expands": True,
+}
+
+
+def test_stop_hook_without_manifest_is_quiet_when_no_host_row_expands(tmp_path: Path) -> None:
+    _host_diff_workspace(tmp_path)
+    narrowing = {**_WIDENING, "direction": "removed", "before": "Bash(*)", "after": "\u2014", "expands": False}
+    result = _run_hook(tmp_path, "verify", {}, diff_payload=json.dumps({"comparison_status": "comparable", "rows": [narrowing]}))
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""
+    assert any(call[0] == "diff" for call in _cli_calls(tmp_path))
+
+
+def test_stop_hook_without_manifest_names_widening_rows_once(tmp_path: Path) -> None:
+    _host_diff_workspace(tmp_path)
+    payload = json.dumps({"comparison_status": "comparable", "rows": [_WIDENING]})
+
+    first = _run_hook(tmp_path, "verify", {}, diff_payload=payload)
+    message = json.loads(first.stdout)["systemMessage"]
+    assert "Bash(*)" in message
+    assert "never a permission" in message
+    assert "decision" not in json.loads(first.stdout)
+
+    repeat = _run_hook(tmp_path, "verify", {}, diff_payload=payload)
+    assert repeat.stdout.strip() == ""
+
+    other = {**_WIDENING, "after": "WebFetch(*)"}
+    changed = _run_hook(tmp_path, "verify", {}, diff_payload=json.dumps({"comparison_status": "comparable", "rows": [other]}))
+    assert "WebFetch(*)" in json.loads(changed.stdout)["systemMessage"]
+
+
+@pytest.mark.parametrize(
+    "diff_payload",
+    [
+        json.dumps({"comparison_status": "incomparable", "incomparable_reasons": ["head_inventory_incomplete"], "rows": []}),
+        "not json",
+    ],
+    ids=["incomparable", "unparsed"],
+)
+def test_stop_hook_without_manifest_is_never_quiet_when_it_cannot_compare(tmp_path: Path, diff_payload: str) -> None:
+    _host_diff_workspace(tmp_path)
+    result = _run_hook(tmp_path, "verify", {}, diff_payload=diff_payload)
+
+    message = json.loads(result.stdout)["systemMessage"]
+    assert "could not compare the host configuration" in message
+    assert "agents-shipgate diff" in message
+
+
+def test_stop_hook_without_manifest_names_a_missing_base(tmp_path: Path) -> None:
+    _host_diff_workspace(tmp_path)
+    subprocess.run(["git", "update-ref", "-d", "refs/remotes/origin/main"], cwd=tmp_path, check=True)
+
+    result = _run_hook(tmp_path, "verify", {}, diff_payload=json.dumps({"comparison_status": "comparable", "rows": []}))
+
+    assert "not available locally" in json.loads(result.stdout)["systemMessage"]
+    assert not any(call[0] == "diff" for call in _cli_calls(tmp_path))
+
+
+def test_stop_hook_with_other_changes_keeps_the_manifest_advice(tmp_path: Path) -> None:
+    _host_diff_workspace(tmp_path)
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "refund.md").write_text("require approval\n", encoding="utf-8")
+
+    result = _run_hook(tmp_path, "verify", {}, diff_payload=json.dumps({"comparison_status": "comparable", "rows": []}))
+
+    assert "configured manifest 'shipgate.yaml' does not exist" in json.loads(result.stdout)["systemMessage"]
+    assert not any(call[0] == "diff" for call in _cli_calls(tmp_path))
+
+
+def test_post_tool_hook_is_quiet_on_host_config_edits_without_manifest(tmp_path: Path) -> None:
+    _host_diff_workspace(tmp_path)
+    payload = {"tool_input": {"file_path": str(tmp_path / ".claude" / "settings.json")}}
+
+    result = _run_hook(tmp_path, "trigger", payload, diff_payload=None)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""
+    assert not any(call[0] == "trigger" for call in _cli_calls(tmp_path))
+
+
+def test_rendered_host_config_surfaces_match_the_registry(tmp_path: Path) -> None:
+    from agents_shipgate.cli.install_hooks import host_config_change_patterns
+
+    namespace = _rendered_hook_namespace(tmp_path)
+    assert namespace["HOST_CONFIG_SURFACES"] == host_config_change_patterns()
+    classify = namespace["_is_host_config_path"]
+    for path, expected in {
+        ".claude/settings.json": True,
+        ".mcp.json": True,
+        "nested/.mcp.json": True,
+        ".cursor/mcp.json": True,
+        ".codex/config.toml": True,
+        ".vscode/mcp.json": True,
+        ".github/workflows/ci.yml": True,
+        "CLAUDE.md": False,
+        "AGENTS.md": False,
+        ".claude/commands/deploy.md": False,
+        ".cursor/rules/style.mdc": False,
+        "policies/host-boundary.shipgate.yaml": False,
+        "src/app.py": False,
+    }.items():
+        assert classify(path) is expected, path
