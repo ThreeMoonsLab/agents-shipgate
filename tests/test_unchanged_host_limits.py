@@ -23,8 +23,9 @@ from agents_shipgate.core.host_comparison import UNCHANGED_LIMIT_ISSUE_KINDS
 from agents_shipgate.core.host_grants import build_host_grants_baseline, host_audit_inventory
 
 SKILL = ".claude/skills/helper/SKILL.md"
-#: `version` is not a documented Claude skill field, so this skill is unresolved.
-UNRESOLVED_SKILL = "---\nname: helper\ndescription: A helper.\nversion: 1.0.0\n---\n\nBody.\n"
+#: `effort` is a documented Claude skill field, and `extreme` is not one of its
+#: values, so this skill is unresolved. (An undocumented key no longer is: #730.)
+UNRESOLVED_SKILL = "---\nname: helper\ndescription: A helper.\neffort: extreme\n---\n\nBody.\n"
 
 
 def git(repo: Path, *args: str) -> str:
@@ -82,7 +83,7 @@ def test_an_unchanged_unresolved_skill_is_named_and_the_change_is_compared(skill
     assert payload["unchanged_limits"]
     assert {limit["source"] for limit in payload["unchanged_limits"]} == {SKILL}
     assert {limit["limit"] for limit in payload["unchanged_limits"]} == {"unsupported"}
-    assert all("frontmatter_unknown_fields" in limit["detail"] for limit in payload["unchanged_limits"])
+    assert all("frontmatter_invalid" in limit["detail"] for limit in payload["unchanged_limits"])
 
 
 def test_the_text_output_names_the_limit(skill_repo: Path) -> None:
