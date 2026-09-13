@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Read Go MCP servers' literal tool hints for the contradiction check (#658).
+  `SHIP-MCP-ANNOTATION-CONTRADICTION` could challenge a FastMCP `readOnlyHint`
+  read from source, but not a Go server's. Neither the go-sdk
+  `Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}` field, as
+  `github/github-mcp-server` writes it, nor the mcp-go
+  `mcp.WithReadOnlyHintAnnotation(true)` and `WithDestructiveHintAnnotation(...)`
+  options were read. Both readers now keep a bare `true` or `false` and refuse
+  anything else: pointer helpers, `WithToolAnnotation`, variables, positional
+  fields. As with Python, a hint is a claim the check may challenge and never
+  evidence, so it does not change a tool's effect.
+
 - Stop calling a narrowed allow rule an expanded allowlist in `check` and
   `verify` (#661). The host boundary evaluator compared rule text by set
   difference, so tightening `Bash(*)` to `Bash(git status)` in

@@ -2104,6 +2104,9 @@ def _call_sites(
     idiom: str,
     *,
     describe: Callable[[MaskedSource, int, int], str | None] | None = None,
+    annotate: Callable[
+        [MaskedSource, int, int], tuple[tuple[tuple[str, bool], ...], bool]
+    ] | None = None,
 ) -> list[RegistrationSite]:
     """Sites for a ``Name(<literal>, …)`` idiom."""
     sites: list[RegistrationSite] = []
@@ -2133,6 +2136,11 @@ def _call_sites(
             # An unresolved site needs the same second argument before it is
             # reported: it is what keeps `map.tool(key)` out of the ledger.
             continue
+        hints, hints_unresolved = (
+            annotate(source, open_paren, close)
+            if annotate is not None and close is not None
+            else ((), False)
+        )
         line, column = source.line_column(match.start())
         sites.append(
             RegistrationSite(
@@ -2147,6 +2155,8 @@ def _call_sites(
                     else None
                 ),
                 unresolved_reason=unresolved,
+                annotation_hints=hints,
+                annotations_unresolved=hints_unresolved,
             )
         )
     return sites
@@ -2246,6 +2256,7 @@ def _go_tool_struct_site(
     if name is not None and not _literal_is_whole_value(source, literal_end, ",}"):
         name, unresolved = None, "name_not_literal"
     line, column = source.line_column(start)
+    hints, hints_unresolved = _go_struct_annotations(source, open_brace, close)
     return [
         RegistrationSite(
             idiom="go_tool_struct",
@@ -2255,6 +2266,8 @@ def _go_tool_struct_site(
             span=(start, close),
             description=_go_struct_description(source, open_brace, close),
             unresolved_reason=unresolved,
+            annotation_hints=hints,
+            annotations_unresolved=hints_unresolved,
         )
     ]
 
@@ -2295,6 +2308,90 @@ def _go_struct_description(source: MaskedSource, open_brace: int, close: int) ->
         if match is not None:
             return _go_description_value(source, source.skip_space(match.end()), end)
     return None
+
+
+#: The two MCP hints a Go registration can carry as literals (#658), by the Go
+#: field or option that writes them. The go-sdk struct spells a field
+#: (`Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}`, as
+#: `github/github-mcp-server` does), and `mark3labs/mcp-go` an option
+#: (`mcp.WithReadOnlyHintAnnotation(true)`). Only a bare `true` or `false`
+#: counts. go-sdk's `DestructiveHint` is a `*bool`, and a pointer helper such
+#: as `jsonschema.Ptr(true)` is a function this reader does not run.
+_GO_HINT_FIELDS = {"ReadOnlyHint": "readOnlyHint", "DestructiveHint": "destructiveHint"}
+_GO_HINT_OPTION_RE = re.compile(
+    r"(?:[A-Za-z_]\w*\.)?With(?P<hint>ReadOnly|Destructive)HintAnnotation\s*\(\s*"
+)
+_GO_TOOL_ANNOTATION_OPTION_RE = re.compile(r"(?:[A-Za-z_]\w*\.)?WithToolAnnotation\s*\(")
+_GO_ANNOTATIONS_FIELD_RE = re.compile(r"(?<![\w])Annotations\s*:\s*")
+_GO_TOOL_ANNOTATIONS_LITERAL_RE = re.compile(r"&?\s*(?:[A-Za-z_]\w*\.)?ToolAnnotations\s*\{")
+_GO_KEYED_VALUE_RE = re.compile(r"([A-Za-z_]\w*)\s*:\s*")
+
+
+def _go_bool(source: MaskedSource, start: int, end: int) -> bool | None:
+    return {"true": True, "false": False}.get(source.masked[start:end].strip())
+
+
+def _go_option_annotations(
+    source: MaskedSource, open_paren: int, close: int
+) -> tuple[tuple[tuple[str, bool], ...], bool]:
+    """Hint options in SDK order, a later one overriding an earlier one.
+
+    One option this reader cannot read refuses them all, as the Python reader
+    does: which value wins is then decided at run time.
+    `WithToolAnnotation(mcp.ToolAnnotation{...})` sets every hint at once
+    through `*bool` fields, which are never bare literals, so it refuses too.
+    """
+
+    hints: dict[str, bool] = {}
+    for start, end in _go_arguments(source, open_paren, close)[1:]:
+        if _GO_TOOL_ANNOTATION_OPTION_RE.match(source.masked, start):
+            return (), True
+        match = _GO_HINT_OPTION_RE.match(source.masked, start)
+        if match is None:
+            continue
+        opening = source.masked.rfind("(", match.start(), match.end())
+        option_close = _matching_close(source.masked, opening, "(", ")")
+        args = _go_arguments(source, opening, option_close) if option_close == end else []
+        value = _go_bool(source, *args[0]) if len(args) == 1 else None
+        if value is None:
+            return (), True
+        hints["readOnlyHint" if match["hint"] == "ReadOnly" else "destructiveHint"] = value
+    return tuple(sorted(hints.items())), False
+
+
+def _go_struct_annotations(
+    source: MaskedSource, open_brace: int, close: int
+) -> tuple[tuple[tuple[str, bool], ...], bool]:
+    """The literal hints a go-sdk `mcp.Tool{Annotations: ...}` literal carries."""
+
+    for start, end in _go_arguments(source, open_brace, close):
+        field = _GO_ANNOTATIONS_FIELD_RE.match(source.masked, start)
+        if field is None:
+            continue
+        literal = _GO_TOOL_ANNOTATIONS_LITERAL_RE.match(
+            source.masked, source.skip_space(field.end())
+        )
+        if literal is None:
+            return (), True
+        inner_open = source.masked.index("{", literal.start())
+        inner_close = _matching_close(source.masked, inner_open, "{", "}")
+        if inner_close != end:
+            return (), True
+        hints: dict[str, bool] = {}
+        for field_start, field_end in _go_arguments(source, inner_open, inner_close):
+            keyed = _GO_KEYED_VALUE_RE.match(source.masked, field_start)
+            if keyed is None:
+                # A positional field cannot be placed on a hint.
+                return (), True
+            key = _GO_HINT_FIELDS.get(keyed.group(1))
+            if key is None:
+                continue
+            value = _go_bool(source, keyed.end(), field_end)
+            if value is None:
+                return (), True
+            hints[key] = value
+        return tuple(sorted(hints.items())), False
+    return (), False
 
 
 def _brace_depth(masked: str, open_brace: int, index: int) -> int:
@@ -3820,12 +3917,14 @@ def scan_source(
     else:
         sites.extend(
             _call_sites(
-                source, _GO_MUST_TOOL_RE, "go_must_tool", describe=_go_option_description
+                source, _GO_MUST_TOOL_RE, "go_must_tool", describe=_go_option_description,
+                annotate=_go_option_annotations,
             )
         )
         sites.extend(
             _call_sites(
-                source, _GO_NEW_TOOL_RE, "go_new_tool", describe=_go_option_description
+                source, _GO_NEW_TOOL_RE, "go_new_tool", describe=_go_option_description,
+                annotate=_go_option_annotations,
             )
         )
         sites.extend(_go_tool_struct_sites(source))

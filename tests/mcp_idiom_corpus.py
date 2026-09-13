@@ -2170,3 +2170,33 @@ SOURCE_CASES += tuple(
     SourceCase("py_annotations:" + name, "python", PY_ANNOTATION_HEADER + body)
     for name, body, _expected in PY_ANNOTATION_CASES
 )
+
+
+# Go MCP annotation hints (#658): the go-sdk struct field and the mcp-go option,
+# read and refused identically by both readers; the expectation is `(hints, unresolved)`.
+_GO_READ_ONLY = (("readOnlyHint", True),)
+GO_ANNOTATION_CASES: tuple[tuple[str, str, tuple[tuple[tuple[str, bool], ...], bool]], ...] = (
+    ("struct_read_only", 'func F() mcp.Tool { return mcp.Tool{Name: "tool", Annotations: &mcp.ToolAnnotations{Title: "T", ReadOnlyHint: true}} }', (_GO_READ_ONLY, False)),
+    ("struct_both_hints", 'func F() mcp.Tool { return mcp.Tool{Name: "tool", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: true}} }', ((("destructiveHint", True), ("readOnlyHint", False)), False)),
+    ("struct_value_unqualified", 'func F() Tool { return Tool{Name: "tool", Annotations: ToolAnnotations{ReadOnlyHint: true}} }', (_GO_READ_ONLY, False)),
+    ("struct_no_annotations", 'func F() mcp.Tool { return mcp.Tool{Name: "tool", Description: "d"} }', ((), False)),
+    ("struct_unread_hints_only", 'func F() mcp.Tool { return mcp.Tool{Name: "tool", Annotations: &mcp.ToolAnnotations{Title: "T", IdempotentHint: true, OpenWorldHint: ptr(true)}} }', ((), False)),
+    ("struct_pointer_helper", 'func F() mcp.Tool { return mcp.Tool{Name: "tool", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: jsonschema.Ptr(true)}} }', ((), True)),
+    ("struct_variable", 'func F() mcp.Tool { return mcp.Tool{Name: "tool", Annotations: annotations} }', ((), True)),
+    ("struct_computed_value", 'func F() mcp.Tool { return mcp.Tool{Name: "tool", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: readOnly}} }', ((), True)),
+    ("struct_positional_fields", 'func F() mcp.Tool { return mcp.Tool{Name: "tool", Annotations: &mcp.ToolAnnotations{"T", true}} }', ((), True)),
+    ("option_read_only", 'func F() mcp.Tool { return mcp.NewTool("tool", mcp.WithDescription("d"), mcp.WithReadOnlyHintAnnotation(true)) }', (_GO_READ_ONLY, False)),
+    ("option_later_overrides", 'func F() mcp.Tool { return mcp.NewTool("tool", mcp.WithReadOnlyHintAnnotation(true), mcp.WithDestructiveHintAnnotation(false), mcp.WithReadOnlyHintAnnotation(false)) }', ((("destructiveHint", False), ("readOnlyHint", False)), False)),
+    ("option_must_tool", 'func F() mcp.Tool { return mcp.MustTool("tool", mcp.WithDestructiveHintAnnotation(true)) }', ((("destructiveHint", True),), False)),
+    ("option_unqualified", 'func F() mcp.Tool { return NewTool("tool", WithReadOnlyHintAnnotation(true)) }', (_GO_READ_ONLY, False)),
+    ("option_unread_hints_only", 'func F() mcp.Tool { return mcp.NewTool("tool", mcp.WithTitleAnnotation("T"), mcp.WithOpenWorldHintAnnotation(true)) }', ((), False)),
+    ("option_nested_unapplied", 'func F() mcp.Tool { return mcp.NewTool("tool", func(tool *mcp.Tool) { _ = mcp.WithReadOnlyHintAnnotation(true) }) }', ((), False)),
+    ("option_computed_value", 'func F() mcp.Tool { return mcp.NewTool("tool", mcp.WithReadOnlyHintAnnotation(readOnly)) }', ((), True)),
+    ("option_two_arguments", 'func F() mcp.Tool { return mcp.NewTool("tool", mcp.WithReadOnlyHintAnnotation(true, false)) }', ((), True)),
+    ("option_tool_annotation", 'func F() mcp.Tool { return mcp.NewTool("tool", mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: mcp.ToBoolPtr(true)})) }', ((), True)),
+    ("option_literal_then_computed", 'func F() mcp.Tool { return mcp.NewTool("tool", mcp.WithReadOnlyHintAnnotation(true), mcp.WithReadOnlyHintAnnotation(flag)) }', ((), True)),
+)
+SOURCE_CASES += tuple(
+    SourceCase("go_annotations:" + name, "go", "package p\n" + body)
+    for name, body, _expected in GO_ANNOTATION_CASES
+)
