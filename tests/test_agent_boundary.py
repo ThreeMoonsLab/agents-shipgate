@@ -602,6 +602,114 @@ def test_shared_trust_roots_never_complete_without_safe_receipt(
     assert result.control.completion_allowed is False
 
 
+def test_untracked_baseline_with_blocked_host_expansion_routes_to_human_review(
+    tmp_path: Path,
+) -> None:
+    _init_repo(tmp_path)
+    old = json.dumps({"permissions": {"allow": ["Bash(npm test)", "Read(src/**)"]}})
+    new = json.dumps({"permissions": {"allow": ["Bash(*)", "Read(**)", "WebFetch(*)"]}})
+    target = tmp_path / ".claude" / "settings.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(old, encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "boundary base"], cwd=tmp_path, check=True)
+    target.write_text(new, encoding="utf-8")
+    diff = _change_diff(".claude/settings.json", old, new) + _new_file_diff(
+        ".agents-shipgate/host-grants.json",
+        json.dumps({"version": 1, "grants": []}),
+    )
+
+    result = _build(tmp_path, diff, agent="claude-code")
+
+    assert result.decision == "block"
+    assert result.control.state == "human_review_required"
+    assert result.control.permissions.publishes is False
+    assert result.control.completion_allowed is False
+    assert result.required_reviewers == list(
+        result.control.human_review.required_reviewers
+    )
+    assert "SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW" in [
+        item.check_id for item in result.violations
+    ]
+
+
+
+@pytest.mark.parametrize(
+    "format_",
+    ["text", "agent-boundary-json", "agent-control-json", "codex-boundary-json"],
+)
+def test_check_stops_an_untracked_baseline_with_a_blocked_expansion_in_every_format(
+    tmp_path: Path, format_: str
+) -> None:
+    """#694 through the real command, on the issue's route.
+
+    The new baseline is an undeclared surface and the widening is a policy
+    block. Every format must answer, and none may hand the blocked result a
+    coding-agent command or publication: the frozen codex projection used to
+    route it to a configuration command while the others crashed.
+    """
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", *args], cwd=tmp_path, check=True)
+
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "test@example.com")
+    git("config", "user.name", "Test")
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir()
+    settings.write_text(
+        json.dumps({"permissions": {"allow": ["Bash(npm test)", "Read(src/**)"]}}),
+        encoding="utf-8",
+    )
+    mcp = tmp_path / ".mcp.json"
+    local = {"command": "node", "args": ["server.js"]}
+    mcp.write_text(json.dumps({"mcpServers": {"local": local}}), encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-qm", "base")
+    saved = CliRunner().invoke(
+        app, ["audit", "--host", "--save-baseline", "--workspace", str(tmp_path)]
+    )
+    assert saved.exit_code == 0, saved.output
+    assert (tmp_path / ".agents-shipgate" / "host-grants.json").is_file()
+    git("checkout", "-qb", "feature")
+    settings.write_text(
+        json.dumps({"permissions": {"allow": ["Bash(*)", "Read(**)", "WebFetch(*)"]}}),
+        encoding="utf-8",
+    )
+    remote = {"type": "http", "url": "https://example.com/mcp"}
+    mcp.write_text(
+        json.dumps({"mcpServers": {"local": local, "remote": remote}}),
+        encoding="utf-8",
+    )
+    git("add", ".claude", ".mcp.json")
+    git("commit", "-qm", "widen")
+
+    result = CliRunner().invoke(
+        app, ["check", "--workspace", str(tmp_path), "--format", format_]
+    )
+
+    assert result.exit_code == 0, result.output
+    if format_ == "text":
+        assert "Bash(*)" in result.output
+        return
+    payload = json.loads(result.output)
+    assert payload["decision"] == "block"
+    if format_ == "agent-control-json":
+        state, next_action = payload["control_state"], payload["next_action"]
+        assert not any(payload["permissions"].values())
+    else:
+        control = payload["control"]
+        state, next_action = control["state"], control["next_action"]
+        assert control["completion_allowed"] is False
+        assert payload["required_reviewers"]
+    if format_ == "agent-boundary-json":
+        assert not any(payload["control"]["permissions"].values())
+        assert "SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW" in [
+            item["check_id"] for item in payload["violations"]
+        ]
+    assert state == "human_review_required"
+    assert (next_action["actor"], next_action["kind"]) == ("human", "stop")
+
 def test_unified_policy_cannot_downgrade_host_safety_floor(tmp_path: Path) -> None:
     policy = tmp_path / "policies" / "agent-boundary.shipgate.yaml"
     policy.parent.mkdir(parents=True)

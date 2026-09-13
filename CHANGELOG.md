@@ -24,6 +24,16 @@
   longer nudges on those edits. Mixed changes and repositories with a manifest
   keep their existing route. The path list is rendered from the boundary
   registry at install time.
+- Answer with one human stop when an untracked host baseline and a blocked
+  host-capability expansion share a change (#694). The new baseline is an
+  undeclared surface, and that route was chosen before the policy block. So
+  `check` raised `a blocked result cannot authorize publication` in the `text`,
+  `agent-boundary-json` and `agent-control-json` formats and printed nothing,
+  while `codex-boundary-json` sent the coding agent to a configuration command
+  for a blocked result. A block now keeps the stop and the violations'
+  reviewers in every format. A committed baseline and a trust-root-only change
+  route as before. Reported, with a first fix and its regression test, in #728.
+
 
 - Compare past an unchanged partial or experimental surface instead of refusing
   every row (#721, runtime contract 37, verifier schema `0.19`). A comparison
