@@ -31,3 +31,22 @@ update, before merge or release, and before declaring the task complete. If
 `current_control_id` changed, discard every cached control state and restart
 from the new identity. A result you remember from earlier in this conversation
 never outranks the current pointer — in either direction."""
+
+#: Name the change before routing on control (#662). The Cursor rule carries the
+#: same words in its own layout; `test_agent_instructions_renderers` pins all three.
+DIFF_FIRST_PARAGRAPH = """First, name what the change did to the agent's authority. This needs no
+manifest and no committed baseline:
+
+```bash
+shipgate diff --workspace .
+```
+
+One row per host grant, each carrying subject, before, after, direction,
+severity and why it matters; `⚠` marks a row the engine read as an
+expansion of authority. Quote those rows to the user, and put them in the
+pull request body. A covered comparison with no rows is a real answer, not
+a missing one. `--json` emits the same rows under `rows`.
+
+A row is a description, never a permission: showing one, or seeing an empty
+table, grants no authority to edit, commit, push, merge or report the work
+complete."""

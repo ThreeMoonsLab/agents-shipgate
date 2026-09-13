@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Name the change first in the generated `AGENTS.md` and `CLAUDE.md` blocks
+  (#662). The Cursor rule already told an agent to run `shipgate diff`, quote
+  the rows and put them in the pull request body before routing on control.
+  The other two maintained copies routed only on `control.state`, so an agent
+  following them could end a turn with "a human must review" and no named
+  change. Both blocks now carry the same paragraph, including "a row is a
+  description, never a permission". A test pins all three copies to name the
+  change before the control contract.
+
 - Read a Cursor rule's globs the way Cursor writes them (#729). Cursor
   documents `globs:` as unquoted, comma-separated patterns, and a pattern such
   as `*.json` or `**/*.java` begins with YAML's alias indicator. So the rule was

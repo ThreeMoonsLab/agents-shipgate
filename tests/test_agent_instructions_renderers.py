@@ -157,6 +157,32 @@ def test_agent_instruction_surfaces_name_phase1_control_fields() -> None:
             assert token in text, f"{name} missing {token!r}"
 
 
+def test_every_generated_copy_names_the_change_before_routing_on_control() -> None:
+    """#662: an agent following any maintained copy says what changed.
+
+    The Cursor rule led with `shipgate diff` while the AGENTS.md and CLAUDE.md
+    blocks routed only on `control.state`, so two of three copies could end a
+    turn with "a human must review" and no named change.
+    """
+
+    for name, text in {
+        "agents-md": render_agents_md(),
+        "claude-md": render_claude_md(),
+        "cursor": render_cursor_file(),
+    }.items():
+        flat = " ".join(text.split())
+        for phrase in (
+            "shipgate diff --workspace .",
+            "Quote those rows to the user, and put them in the pull request body.",
+            "A covered comparison with no rows is a real answer",
+            "A row is a description, never a permission",
+        ):
+            assert phrase in flat, f"{name} missing {phrase!r}"
+        assert flat.index("shipgate diff --workspace .") < flat.index(
+            "shipgate.agent_boundary_result/v3"
+        ), f"{name} routes on control before naming the change"
+
+
 def test_committed_cursor_rule_matches_renderer() -> None:
     """The repo-level Cursor rule and the init renderer must not drift."""
     committed = (REPO_ROOT / ".cursor/rules/agents-shipgate.mdc").read_text(encoding="utf-8")
