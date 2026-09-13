@@ -4,7 +4,7 @@
   "correct_rows": 0,
   "expected_changes": 1,
   "expected_widenings": 1,
-  "incomparable_reasons": "current_inventory_incomplete",
+  "incomparable_reasons": "head_inventory_incomplete",
   "rows_on_file": 0,
   "scope": "supported",
   "stop_point": "comparison_incomparable",

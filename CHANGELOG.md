@@ -15,6 +15,8 @@
   side only, or is `unreadable` still refuses; symlinks remain #700's decision.
   `check`'s boundary result cannot carry a limit and keeps refusing there.
   `audit --host --save-baseline` still refuses an incomplete inventory.
+  `diff --json` now names an incomplete head `head_inventory_incomplete`, as
+  `verify` does, where it said `current_inventory_incomplete`.
 
 - Add 12 scripted route-parity cases for host-capability changes (#662). One
   widening fixture (a wildcard shell rule, a wildcard fetch rule, a new MCP
