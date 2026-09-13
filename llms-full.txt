@@ -3169,8 +3169,8 @@ baseline summary and do not fail CI.
 | `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` | medium | A coding-agent host configuration file could not be parsed. |
 | `SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED` | high | A new MCP server was declared for the coding-agent host. |
 | `SHIP-HOST-BOUNDARY-MCP-SERVER-CHANGED` | high | An existing MCP server declaration changed its command, URL, args, or env keys. |
-| `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` | critical | A Claude Code allow rule grants a wildcard tool surface. |
-| `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` | high | The Claude Code permission allowlist expanded. |
+| `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` | critical | A Claude Code allow rule grants a wildcard surface over a tool that can execute, reach the network, or write. |
+| `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` | high | The Claude Code permission allowlist expanded, by a scoped rule or a read-only wildcard. |
 | `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED` | high | A Claude Code permission deny rule was removed. |
 | `SHIP-HOST-BOUNDARY-HOOK-CHANGED` | high | Claude Code hooks changed. |
 | `SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL` | critical | A GitHub workflow grants write-all permissions. |
@@ -3715,13 +3715,23 @@ names only.
 
 A changed `.claude/settings.json` or `.claude/settings.local.json` adds an
 allow rule that is `*`, a bare tool name, or a wildcard-shaped rule such as
-`Bash(*)`. Do not allow wildcard tool permissions; scope the rule to specific
-commands.
+`Bash(*)`, **and** the tool it grants can reach beyond reading. Do not allow
+wildcard tool permissions over execution, network access or writes; scope the
+rule to specific commands.
+
+A wildcard grant over a read tool — `Read(**)`, `Glob`, `Grep(**)` — raises
+`SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` instead. It is still an
+expansion and still reviewed, but it is not a release blocker: the agent
+already has the workspace checked out, and turning that read into an
+exfiltration needs a network or write grant, which is its own finding. Before
+v0.17 every wildcard shape reached this check, so the ordinary coding-agent
+configuration blocked the release at `critical` (#657).
 
 ### SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED
 
-A changed Claude Code settings file adds a non-wildcard `permissions.allow`
-entry. Have a human approve the new permission allow rule.
+A changed Claude Code settings file adds a `permissions.allow` entry that is
+either scoped (`Bash(npm test:*)`) or a wildcard over a read-only tool
+(`Read(**)`). Have a human approve the new permission allow rule.
 
 ### SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED
 
