@@ -1291,14 +1291,180 @@ def _coverage(
     return coverage
 
 
+#: Claude Code's settings stack, highest first, as documented at
+#: code.claude.com/docs/en/settings § Settings precedence: managed settings,
+#: then `--settings` (a static audit never sees a session flag), then project
+#: local, shared project and user. A lower number wins.
+_CLAUDE_MANAGED_SOURCES = frozenset({
+    "/Library/Application Support/ClaudeCode/managed-settings.json",
+    "C:/Program Files/ClaudeCode/managed-settings.json",
+    "/etc/claude-code/managed-settings.json",
+})
+_CLAUDE_SETTINGS_RANK: dict[str, int] = {
+    **dict.fromkeys(_CLAUDE_MANAGED_SOURCES, 0),
+    ".claude/settings.local.json": 1,
+    ".claude/settings.json": 2,
+    "~/.claude/settings.json": 3,
+}
+#: One MCP server name defined in several scopes: "Claude Code connects to it
+#: once, using the definition from the highest-precedence source", whole
+#: entry, local over project (code.claude.com/docs/en/mcp).
+_CLAUDE_MCP_RANK: dict[str, int] = {
+    "~/.claude.json#current-workspace": 0,
+    ".mcp.json": 1,
+}
+#: Documented to take effect only from managed settings, where they restrict
+#: which permission rules or hooks any other source may contribute.
+_CLAUDE_MANAGED_ONLY_SETTINGS = {
+    "allowManagedPermissionRulesOnly": "permission_rule",
+    "allowManagedHooksOnly": "hook",
+}
+#: Kinds whose values the settings stack does not document how to combine
+#: when two layers disagree. Agreement is resolvable; disagreement fails
+#: closed and names both layers.
+_CLAUDE_UNDOCUMENTED_MERGE_KINDS = frozenset({"sandbox", "plugin_or_app"})
+
+
+def _claude_precedence_key(grant: dict[str, Any]) -> tuple[str, str] | None:
+    """The key two layers compete for, or ``None`` for a kind that merges.
+
+    Permission rules, additional directories and hooks merge across layers
+    ("Lists merge instead of overriding"; hook entries "merge across settings
+    levels rather than replacing each other"), so every layer's entry stays
+    effective and nothing competes.
+    """
+
+    kind = grant.get("kind")
+    if kind in {"permission_mode", "sandbox"}:
+        return (str(kind), str(grant.get("setting")))
+    if kind == "plugin_or_app":
+        return (str(kind), str(grant.get("name")))
+    if kind == "mcp_server":
+        return (str(kind), str(grant.get("server")))
+    return None
+
+
+def _claude_setting_ignored_in_source(grant: dict[str, Any]) -> bool:
+    """A value the documentation says this file cannot make take effect.
+
+    Such a grant never shadows a lower layer. It is still reported: the
+    restriction is recent (a project `bypassPermissions` took effect before
+    Claude Code v2.1.257) and a static audit cannot see the installed
+    version, so it over-reports rather than hide authority an older client
+    would grant.
+    """
+
+    if grant.get("kind") != "permission_mode":
+        return False
+    setting, value, source = grant.get("setting"), grant.get("value"), grant.get("source")
+    project_files = {".claude/settings.local.json", ".claude/settings.json"}
+    if setting == "defaultMode":
+        return value in {"auto", "bypassPermissions"} and source in project_files
+    if setting == "skipDangerousModePermissionPrompt":
+        return source == ".claude/settings.json"
+    return False
+
+
+def _project_claude_precedence(
+    grants: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Keep the Claude Code grants that take effect across local layers (#657).
+
+    Every layer used to raise a blocking ``unresolved_precedence`` issue as
+    soon as two existed, so the ordinary developer setup — user settings plus
+    a project's — could never record a local baseline. The projection follows
+    the documented stack instead: merged kinds keep every layer, a scalar key
+    keeps the highest layer that sets it, a same-named MCP server keeps the
+    highest scope's entry, and managed-only restrictions apply. What remains
+    names its effective layer in ``source``. Where the documentation does not
+    settle a disagreement, or a layer has no documented rank, every candidate
+    is kept and a blocking issue names the key and each layer.
+    """
+
+    claude = [grant for grant in grants if grant.get("host") == "claude-code"]
+    restricted_kinds = {
+        _CLAUDE_MANAGED_ONLY_SETTINGS[str(grant.get("setting"))]
+        for grant in claude
+        if grant.get("kind") == "permission_mode"
+        and grant.get("setting") in _CLAUDE_MANAGED_ONLY_SETTINGS
+        and grant.get("source") in _CLAUDE_MANAGED_SOURCES
+        and grant.get("value") == "True"
+    }
+    kept: list[dict[str, Any]] = []
+    contested: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for grant in grants:
+        if grant.get("host") != "claude-code":
+            kept.append(grant)
+            continue
+        managed = grant.get("source") in _CLAUDE_MANAGED_SOURCES
+        if (
+            grant.get("kind") == "permission_mode"
+            and grant.get("setting") in _CLAUDE_MANAGED_ONLY_SETTINGS
+            and not managed
+        ):
+            continue  # Documented as managed-only: no effect from any other file.
+        if grant.get("kind") in restricted_kinds and not managed:
+            continue  # A managed setting admits only managed rules or hooks.
+        key = _claude_precedence_key(grant)
+        if key is None:
+            kept.append(grant)
+        else:
+            contested.setdefault(key, []).append(grant)
+
+    issues: list[dict[str, Any]] = []
+    for (kind, name), group in sorted(contested.items()):
+        sources = sorted({str(grant.get("source")) for grant in group})
+        if len(sources) < 2:
+            kept.extend(group)
+            continue
+        rank = _CLAUDE_MCP_RANK if kind == "mcp_server" else _CLAUDE_SETTINGS_RANK
+        unranked = [source for source in sources if source not in rank]
+        disagreement = kind in _CLAUDE_UNDOCUMENTED_MERGE_KINDS and len({
+            str(grant.get("value") if kind == "sandbox" else grant.get("enabled"))
+            for grant in group
+        }) > 1
+        if unranked or disagreement:
+            reason = (
+                f"{', '.join(unranked)} has no documented place in Claude Code's precedence"
+                if unranked
+                else "Claude Code's documentation does not say which disagreeing value applies"
+            )
+            issues.append(
+                _inventory_issue(
+                    kind="unresolved_precedence",
+                    host="claude-code",
+                    source=f"claude-code:{kind}:{name}",
+                    message=(
+                        f"{kind} {name!r} is set in {', '.join(sources)}; {reason}, so its "
+                        "effective value is not statically projected."
+                    ),
+                    blocking=True,
+                )
+            )
+            kept.extend(group)
+            continue
+        shadowing = [grant for grant in group if not _claude_setting_ignored_in_source(grant)]
+        if not shadowing:
+            kept.extend(group)
+            continue
+        winner = min(rank[str(grant.get("source"))] for grant in shadowing)
+        # Anything ranked above the winner is a value its own file cannot make
+        # take effect; it stays, over-reported, for the reason given above.
+        kept.extend(grant for grant in group if rank[str(grant.get("source"))] <= winner)
+    return kept, issues
+
+
 def _local_precedence_issues(
     artifacts: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Fail closed where several static layers require an effective merge.
 
-    The inventory retains every redacted declaration, but it must not claim
-    effective-authority coverage until host-specific precedence is projected
-    at the individual setting/grant level.
+    Claude Code is projected by ``_project_claude_precedence``. For the other
+    hosts the inventory retains every redacted declaration, but it must not
+    claim effective-authority coverage while their layering is undocumented
+    or depends on state a static read cannot see (Codex loads a project
+    ``.codex/config.toml`` only for a trusted project; Cursor does not say
+    whether its user and project CLI files merge).
     """
 
     grouped: dict[tuple[str, str], list[str]] = {}
@@ -1319,8 +1485,9 @@ def _local_precedence_issues(
                 host=host,
                 source=f"{host}:{kind}",
                 message=(
-                    f"Multiple {host} {kind} layers were observed; their "
-                    "runtime-effective precedence is not statically projected."
+                    f"Multiple {host} {kind} layers were observed "
+                    f"({', '.join(unique_sources)}); their runtime-effective "
+                    "precedence is not statically projected."
                 ),
                 blocking=True,
             )
@@ -1396,7 +1563,11 @@ def build_host_boundary_snapshot(
         raise ValueError(f"Unsupported host audit scope: {scope!r}")
 
     if scope == "local_static":
-        issues.extend(_local_precedence_issues(artifacts))
+        grants, claude_precedence_issues = _project_claude_precedence(grants)
+        issues.extend(claude_precedence_issues)
+        issues.extend(_local_precedence_issues(
+            [item for item in artifacts if item.get("host") != "claude-code"]
+        ))
 
     try:
         cache.finish()

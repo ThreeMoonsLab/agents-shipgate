@@ -47,6 +47,20 @@ Shipgate never runs dynamic policy helpers. Sources that cannot be reconstructed
 deterministically are recorded as partial coverage rather than treated as
 absent.
 
+Local layers are combined the way the host documents, not listed as though
+each applied on its own. For Claude Code, permission rules, additional
+directories and hooks merge across layers. A scalar setting keeps the highest
+layer that sets it (managed, then project local, shared project and user), and
+the remaining grant's `source` names that layer. A same-named MCP server keeps
+the current workspace's local-scope entry over `.mcp.json`, and
+`allowManagedPermissionRulesOnly` and `allowManagedHooksOnly` restrict rules
+and hooks only from managed settings. A `defaultMode` of `auto` or
+`bypassPermissions` in a project file is still listed beside the lower layer's
+mode, because clients before v2.1.257 honored it. Where the documentation does
+not settle a case — disagreeing `sandbox` or `enabledPlugins` values, or a
+layer with no documented rank — and for Codex and Cursor layers, coverage stays
+partial and the issue names the key and each layer.
+
 Both scopes explicitly exclude:
 
 - transient permission prompts and approvals;
