@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Stop counting a symlink to an in-tree regular file as a coverage limit (#700,
+  owner decision). The audit treated every link as a directory that might hide
+  a host-config match, so one symlinked file anywhere made every host's
+  inventory incomplete and refused its comparisons: #659 measured it on
+  `MetaMask/metamask-mobile#29139` and `bencherdev/bencher#673`. A link is now
+  resolved inside the tree, through at most eight links and never through a
+  linked directory. Its target's kind is recorded in the identity-bound read
+  session, which revalidates it when the snapshot finishes, so a target swapped
+  for a directory mid-read still fails. A dangling, external or directory target
+  is still a limit, and a link at a boundary path is still read as a link until
+  #700's second step. The scoped base tree gives such a link an empty
+  placeholder of its target's type, so both sides judge it the same way.
+
 - Compare host configuration in the Claude Code Stop hook when no manifest
   exists (#661). A narrowing and a widening edit to `.claude/settings.json` got
   the same two messages, neither named `Bash(*)`, and both advised initializing

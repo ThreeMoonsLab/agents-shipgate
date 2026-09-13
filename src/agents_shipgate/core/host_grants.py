@@ -12,6 +12,7 @@ import errno
 import hashlib
 import json
 import os
+import posixpath
 import re
 import stat
 import sys
@@ -1197,7 +1198,12 @@ def _repository_paths(
                 if stat.S_ISLNK(metadata.st_mode):
                     if name not in skipped:
                         candidates.append((candidate, relative))
-                        symlink_directories.append(relative)
+                        # A link to an in-tree regular file has no descendants
+                        # to conceal (#700, owner decision). Everything else,
+                        # including a target this session cannot type, still
+                        # may hide a recursive match.
+                        if not _links_to_in_tree_file(reader, Path(relative)):
+                            symlink_directories.append(relative)
                     continue
                 if stat.S_ISDIR(metadata.st_mode):
                     if name not in skipped:
@@ -1242,6 +1248,47 @@ def _repository_paths(
                     _source_kind(relative),
                 )
     return [indexed[key] for key in sorted(indexed)], visited
+
+
+#: How many links one in-tree resolution may pass through.
+_MAX_IN_TREE_LINK_HOPS = 8
+
+
+def _links_to_in_tree_file(reader: IdentityBoundReadSession, relative: Path) -> bool:
+    """Whether a link resolves, inside the tree, to a regular file (#700).
+
+    The answer is bound to the identity-bound read rather than to a `stat()` at
+    enumeration: every link passed through is recorded by
+    :meth:`IdentityBoundReadSession.link_target`, and the target's kind by
+    :meth:`IdentityBoundReadSession.directory_entry_kind`, so :meth:`finish`
+    fails the snapshot if a link is re-pointed or the target is swapped for a
+    directory. An absolute or escaping target, a chain longer than the hop
+    bound, a link as an intermediate component, or anything the session cannot
+    type is not an in-tree file.
+    """
+
+    current = relative
+    try:
+        for _ in range(_MAX_IN_TREE_LINK_HOPS):
+            text = reader.link_target(current)
+            if not text or os.path.isabs(text) or text.startswith(("\\", "/")):
+                return False
+            joined = posixpath.normpath(posixpath.join(current.parent.as_posix(), text))
+            if joined in {".", ".."} or joined.startswith("../"):
+                return False
+            target = Path(joined)
+            for index in range(1, len(target.parts)):
+                if reader.directory_entry_kind(Path(*target.parts[:index])) != "directory":
+                    return False
+            kind = reader.directory_entry_kind(target)
+            if kind == "file":
+                return True
+            if kind != "symlink":
+                return False
+            current = target
+    except (OSError, ValueError):
+        return False
+    return False
 
 
 def _symlink_may_hide_boundary_glob(relative: str, pattern: str) -> bool:
