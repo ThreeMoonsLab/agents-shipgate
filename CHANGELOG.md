@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+- Freeze the report contract at `1.0` and publish what that number promises.
+  `report_schema_version` moves `0.43` → `1.0` and runtime contract `33` → `34`;
+  `minimum_control_contract_version` stays `21`. The shape does not change:
+  `docs/report-schema.v1.0.json` and `docs/report-schema.v0.43.json` are
+  byte-identical apart from `$id`, `title` and the version constant, so a
+  consumer written against `0.43` needs no edit. `1.x` is additive-only, a
+  change that cannot be expressed additively needs `2.0`, a deprecation cycle
+  counts shipped releases rather than time on unreleased `main`, and every
+  published schema URL keeps its bytes. The stable/provisional inventory of
+  report fields, CLI, exit-code, Action and control surfaces, the migration
+  from the shipped `v0.15.0` contract, and the recorded RC exercise are in
+  [`docs/report-1-0-contract.md`](docs/report-1-0-contract.md), checked against
+  the runtime by `tests/test_report_1_0_contract.py`.
+
+  Pre-freeze `0.x` reports are no longer accepted as engine *input*.
+  `scan --diff-from`, `apply-patches`, `explain-finding`, `findings`, `scenario suggest` and
+  `evidence-packet` refuse one by name, with a stable `reason_code` and a
+  regeneration route, instead of validating it against a model whose defaults
+  would stand in for blocks it never recorded. A report from a newer `1.x`
+  minor is read by a projection reader and refused by evidence comparison
+  or patch application.
+  Nothing is converted and no artifact gains current authority through
+  conversion or a restamped digest; every superseded schema stays published, so
+  archived reports remain validatable. An incomparable `--diff-from` base still
+  withholds the verdict rather than downgrading it — that routing is now keyed
+  on the refusal's own reason code instead of on its wording.
+
+  The production `beta` qualification policy's `required_report_schema_version`
+  moves to `1.0` with the engine. Issuance of the `pre_1_0` tier is retired:
+  `scripts/run_safety_qualification.py` produces no artifact carrying it and
+  `--policy-tier pre-1.0` is refused by name. The policy, its thresholds and
+  every reader of it remain, and it keeps its historical `0.43` pin so an
+  artifact already scored against it is still named and diagnosed correctly.
+  No scoring floor moved.
+
+  `docs/distribution-surfaces.md` gains a `report_schema_pin` claim: the five
+  surfaces that tell a reader which `report-schema.v<X>.json` to validate
+  against are now checked from the registry, in both directions (a pin left
+  behind and a pin ahead of the build), instead of by hand-maintained per-file
+  lists. `explain-finding` refuses a report whose findings carry no
+  `agent_action` rather than explaining a null one, the way `findings` already
+  refuses a missing `provenance_kind` (#569).
+
 - Tell a widened permission rule from a narrowed one, and stop rating
   reading files as critical. Host grants are keyed by rule text, so
   replacing `Bash(npm *)` with `Bash(npm test:*)` arrived as one removal
@@ -177,7 +220,6 @@
   scheduled job. Recorded as Amendment 4 in
   `docs/release-evidence-policy-decision.md`; no gate-line bar moves (#648).
 
-
 - Compare against the detected base by default in `check`, so a branch's
   committed work is visible without flags. `shipgate check` compared the
   working tree with `HEAD`, so on a branch whose changes were already
@@ -248,49 +290,6 @@
   still refused with no grants, an unreadable one is still fail-closed, and
   a quiescent rerun still performs a real read rather than serving a cached
   denial or a cached completion (#598).
-
-- Freeze the report contract at `1.0` and publish what that number promises.
-  `report_schema_version` moves `0.43` → `1.0` and runtime contract `33` → `34`;
-  `minimum_control_contract_version` stays `21`. The shape does not change:
-  `docs/report-schema.v1.0.json` and `docs/report-schema.v0.43.json` are
-  byte-identical apart from `$id`, `title` and the version constant, so a
-  consumer written against `0.43` needs no edit. `1.x` is additive-only, a
-  change that cannot be expressed additively needs `2.0`, a deprecation cycle
-  counts shipped releases rather than time on unreleased `main`, and every
-  published schema URL keeps its bytes. The stable/provisional inventory of
-  report fields, CLI, exit-code, Action and control surfaces, the migration
-  from the shipped `v0.15.0` contract, and the recorded RC exercise are in
-  [`docs/report-1-0-contract.md`](docs/report-1-0-contract.md), checked against
-  the runtime by `tests/test_report_1_0_contract.py`.
-
-  Pre-freeze `0.x` reports are no longer accepted as engine *input*.
-  `scan --diff-from`, `apply-patches`, `explain-finding`, `findings`, `scenario suggest` and
-  `evidence-packet` refuse one by name, with a stable `reason_code` and a
-  regeneration route, instead of validating it against a model whose defaults
-  would stand in for blocks it never recorded. A report from a newer `1.x`
-  minor is read by a projection reader and refused by evidence comparison
-  or patch application.
-  Nothing is converted and no artifact gains current authority through
-  conversion or a restamped digest; every superseded schema stays published, so
-  archived reports remain validatable. An incomparable `--diff-from` base still
-  withholds the verdict rather than downgrading it — that routing is now keyed
-  on the refusal's own reason code instead of on its wording.
-
-  The production `beta` qualification policy's `required_report_schema_version`
-  moves to `1.0` with the engine. Issuance of the `pre_1_0` tier is retired:
-  `scripts/run_safety_qualification.py` produces no artifact carrying it and
-  `--policy-tier pre-1.0` is refused by name. The policy, its thresholds and
-  every reader of it remain, and it keeps its historical `0.43` pin so an
-  artifact already scored against it is still named and diagnosed correctly.
-  No scoring floor moved.
-
-  `docs/distribution-surfaces.md` gains a `report_schema_pin` claim: the five
-  surfaces that tell a reader which `report-schema.v<X>.json` to validate
-  against are now checked from the registry, in both directions (a pin left
-  behind and a pin ahead of the build), instead of by hand-maintained per-file
-  lists. `explain-finding` refuses a report whose findings carry no
-  `agent_action` rather than explaining a null one, the way `findings` already
-  refuses a missing `provenance_kind` (#569).
 
 - Refuse a required tool source whose declared path is unavailable, once,
   for every reader. `scan` applies one availability precondition before any
@@ -841,6 +840,7 @@
   build-dated, and a guard fails the day the newest published tag moves so the
   comparison is re-run instead of carried forward — a guard the page itself
   records as insufficient, since nothing fails when a new preview is cut.
+
 - **Everything `init` writes into an adopter's repository now names a release
   that exists.** (#506) `init --write --ci` generated
   `uses: ThreeMoonsLab/agents-shipgate@v0.16.0`, and no such tag had ever been
@@ -1094,7 +1094,6 @@
   written. A companion test pins the committed tree to exactly two version
   sites that already agree, so a third one cannot be added and silently left
   unstamped.
-
 
 - **Releases run on a cadence, and work that cannot be tagged can still be
   installed.** (#491) 81% of this changelog had never reached a user: 5,039 of
