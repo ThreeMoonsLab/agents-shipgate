@@ -138,6 +138,18 @@ PROSE_TRUNCATION_MARKER = " […]"
 # authority folding turns a 117-tool repository into one question, not 117.
 MAX_ENVELOPE_QUESTIONS = 6
 
+# How many host capability rows one envelope names (#662).
+#
+# A display cap on the same terms as ``MAX_ENVELOPE_QUESTIONS``: it reaches no
+# state, no permission and no route. ``omitted_rows`` counts what was not
+# printed, and the unabridged list stays on the producer: ``rows`` on
+# ``check --format agent-boundary-json`` and ``host_comparison.rows`` in
+# ``verifier.json``. Five is measured, not guessed: a row renders at about
+# 0.25 KiB, so five fit beside the full artifact map and the capped prose of a
+# verify route inside the published budget (pinned in
+# ``tests/test_agent_control_envelope_rows.py``).
+MAX_ENVELOPE_CAPABILITY_ROWS = 5
+
 # Which command produced this answer. ``check`` reaches no release decision and
 # publishes no pointer; ``verify``/``preview``/``scan`` do both; the three setup
 # operations run before a release decision can exist at all (see #323).
@@ -666,6 +678,104 @@ class AgentControlArtifactRef(BaseModel):
     sha256: str = Field(pattern=CONTENT_ID_PATTERN)
 
 
+class EnvelopeCapabilityRow(BaseModel):
+    """One host capability row, copied from the comparison that produced it.
+
+    Every field is a copy of :class:`~agents_shipgate.schemas.capability_diff.CapabilityDiffRow`.
+    Only ``why`` is prose and capped; ``subject``, ``before`` and ``after`` are
+    the configuration values a reader quotes, so they are never abridged.
+    Unconstrained strings on purpose: this projection must not raise on a row
+    its producer already published, or the control answer would be lost with it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    subject: str
+    before: str
+    after: str
+    direction: str
+    severity: str
+    why: str
+    #: The engine called this change an expansion of authority.
+    expands: bool
+
+
+# An incomparable comparison publishes no rows, and a comparable one names no
+# reason it could not compare. Mirrored by the model validator below so the
+# published schema and Pydantic accept exactly the same payloads.
+_CAPABILITY_ROWS_RULE = [
+    {
+        "if": {
+            "properties": {"comparison_status": {"const": "incomparable"}},
+            "required": ["comparison_status"],
+        },
+        "then": {
+            "properties": {
+                "rows": {"maxItems": 0},
+                "omitted_rows": {"const": 0},
+                "unchanged_limit_count": {"const": 0},
+            }
+        },
+        "else": {"properties": {"incomparable_reasons": {"maxItems": 0}}},
+    },
+    {
+        "if": {"properties": {"omitted_rows": {"minimum": 1}}, "required": ["omitted_rows"]},
+        "then": {"properties": {"rows": {"minItems": MAX_ENVELOPE_CAPABILITY_ROWS}}},
+    },
+]
+
+
+class EnvelopeCapabilityRows(BaseModel):
+    """What host capability changed, beside the control that routes on it (#662).
+
+    Evidence, never authority. Nothing here is an input to the state, the
+    permission vector or the route: an envelope with rows authorizes exactly
+    what the same envelope without them does, and an empty ``rows`` on a
+    ``comparable`` comparison is "no row in the covered comparison", not "safe".
+
+    ``rows`` is a prefix. Rows the engine called an expansion come first, each
+    half keeping the producer's order, so the cap drops a narrowing before it
+    drops a widening; ``omitted_rows`` says how many were cut. A comparison that
+    compared past an unchanged partial surface says so in
+    ``unchanged_limit_count`` rather than reading as complete.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "required": [
+                "comparison_status",
+                "incomparable_reasons",
+                "rows",
+                "omitted_rows",
+                "unchanged_limit_count",
+            ],
+            "allOf": _CAPABILITY_ROWS_RULE,
+        },
+    )
+
+    comparison_status: Literal["comparable", "incomparable"]
+    incomparable_reasons: list[str] = Field(default_factory=list)
+    rows: list[EnvelopeCapabilityRow] = Field(
+        default_factory=list, max_length=MAX_ENVELOPE_CAPABILITY_ROWS
+    )
+    omitted_rows: int = Field(default=0, ge=0)
+    #: Surfaces the comparison did not read because they were unchanged and
+    #: partial on both sides (#721). The named list is in ``verifier.json``.
+    unchanged_limit_count: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def _rows_follow_the_comparison(self) -> EnvelopeCapabilityRows:
+        if self.comparison_status == "incomparable":
+            if self.rows or self.omitted_rows or self.unchanged_limit_count:
+                raise ValueError("an incomparable comparison publishes no rows")
+        elif self.incomparable_reasons:
+            raise ValueError("a comparable comparison carries no incomparable reasons")
+        if self.omitted_rows and len(self.rows) < MAX_ENVELOPE_CAPABILITY_ROWS:
+            raise ValueError("rows is a full prefix whenever a row is omitted")
+        return self
+
+
 class _AgentControlEnvelopeBase(BaseModel):
     """Fields every state carries. The state tag fixes the rest."""
 
@@ -709,6 +819,14 @@ class _AgentControlEnvelopeBase(BaseModel):
     reason: BoundedProse
     current_control_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
     artifacts: dict[str, AgentControlArtifactRef] = Field(default_factory=dict)
+
+    # --- what host capability changed? (#662) -------------------------------
+    # Present only when the producer compared host configuration, and omitted
+    # rather than ``null`` otherwise, so an envelope with no comparison is byte-
+    # identical to one printed before contract v38.
+    capability_rows: EnvelopeCapabilityRows | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @model_validator(mode="after")
     def _decision_and_source_move_together(self) -> _AgentControlEnvelopeBase:
@@ -1014,7 +1132,10 @@ __all__ = [
     "SetupEditAction",
     "ConfirmDeclarationsAction",
     "EnvelopeDeclarationQuestion",
+    "MAX_ENVELOPE_CAPABILITY_ROWS",
     "MAX_ENVELOPE_QUESTIONS",
+    "EnvelopeCapabilityRow",
+    "EnvelopeCapabilityRows",
     "truncate_prose",
     "validate_agent_control_envelope",
 ]

@@ -2,7 +2,20 @@
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
-Runtime contract v37 names the limits a host comparison compared past (#721).
+Runtime contract v38 lets the control envelope name what host capability
+changed (#662). `shipgate.agent_control/v1` gains an optional
+`capability_rows` block on `check --format agent-control-json`,
+`verify --format control` and `agent control`. It holds up to five rows,
+the rows the engine called an expansion first, plus `omitted_rows`,
+`comparison_status`, `incomparable_reasons` and `unchanged_limit_count`.
+It is evidence beside the control and moves no state, permission or route.
+It is omitted when no host comparison ran, so those envelopes are
+byte-identical. The envelope object is closed, so a reader that validates
+against the v37 schema rejects an envelope carrying the block. That break
+is deliberate. `minimum_control_contract_version` stays `21`. See
+[the migration note](#host-capability-rows-in-the-control-envelope-contract-v38-662).
+
+Previous runtime contract v37 names the limits a host comparison compared past (#721).
 Verifier `0.19` adds `host_comparison.unchanged_limits`, and `shipgate diff`
 (capability diff `0.2`) carries the same list. A surface that is partial
 (`unsupported`, `parse_failed`) or experimental on both sides, and
@@ -3500,3 +3513,42 @@ build knew. One that claims `unchanged_limits` is refused. The published `0.18`
 schema stays frozen. `audit --host --save-baseline` still refuses an incomplete
 inventory.
 
+### Host capability rows in the control envelope (contract v38, #662)
+
+`shipgate.agent_control/v1` gains one optional member:
+
+```json
+"capability_rows": {
+  "comparison_status": "comparable",
+  "incomparable_reasons": [],
+  "rows": [
+    {
+      "subject": "claude-code .claude/settings.json",
+      "before": "—",
+      "after": "Bash(*)",
+      "direction": "added",
+      "severity": "critical",
+      "why": "matches any command of this kind, without a prompt",
+      "expands": true
+    }
+  ],
+  "omitted_rows": 0,
+  "unchanged_limit_count": 0
+}
+```
+
+- **Source.** The block copies the host comparison the producer already published. For `check` that is `rows`, `comparison_status` and `incomparable_reasons` on `agent-boundary-json`. For `verify --format control` and `agent control` it is `host_comparison` in `verifier.json`. When no comparison ran, the member is omitted rather than set to `null`.
+- **Cap.** At most five rows are included. Rows with `expands: true` come first, then the rest, each group in the producer's order. `omitted_rows` counts the rows that were cut. Whenever it is non-zero, `rows` holds exactly five. `why` is capped at 400 UTF-8 bytes like the envelope's other prose. `subject`, `before` and `after` are never abridged.
+- **Status.**
+  - An `incomparable` block copies its reasons and carries no rows, with both counts at `0`.
+  - A `comparable` block carries no reasons.
+  - Empty `rows` on a `comparable` block means "no row in the covered comparison", not "safe".
+  - `unchanged_limit_count` counts unchanged partial surfaces the comparison did not read (#721); `verifier.json` names them.
+- **Authority.** None. `control_state`, `permissions`, `next_action` and `human_review` are the same with or without the block.
+
+**Compatibility.** The envelope is a closed object, and its published schema was pinned by hash. Contract v38 widens it in place under the same identifier rather than publishing a `v2`; the owner chose this so a consumer keeps one envelope identifier. The effects are:
+
+- A reader that validates envelopes against the v37 `docs/agent-control-schema.v1.json` rejects any envelope carrying `capability_rows`. That happens only when a host comparison ran, and the reader fails closed. Re-fetch the schema.
+- Readers that parse without validating, or that ignore unknown members, are unaffected.
+- An envelope with no host comparison is byte-identical to v37.
+- `minimum_control_contract_version` stays `21`, because the `AgentControl` union is unchanged, as it was for v23–v25.

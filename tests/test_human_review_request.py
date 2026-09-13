@@ -198,7 +198,10 @@ FROZEN_CONTROL_SCHEMAS = {
     "agent-result-schema.v3.json": "ad762ecbbcde20b6cbc117337b4e0ad208708ab062ccc851ffe26b4ff63df232",
     "agent-boundary-result-schema.v2.json": "179f849080fabdc59cdf4b86b5ec6a0d9c605e1ac31eb130ee2463c6a0ab361d",
     "verify-run-schema.v5.json": "19deb3ba50d3f610325b6e7457ad000ccbcbb737e03cb8bb0e8011c69343f141",
-    "agent-control-schema.v1.json": "a1515f5770bedecd7c22d8d35d82fa2b335feb18e1c8293099dec71ff6e9a0b1",
+    # #662 widened this grammar deliberately, by owner decision: an optional,
+    # bounded ``capability_rows`` block, published as contract v38 with a
+    # migration note. The pin moves with that decision and nothing else.
+    "agent-control-schema.v1.json": "4f28e47bc37deffe2bf9103d9c28bc92809f332dd914c778df6308cfc2dd5e71",
 }
 
 

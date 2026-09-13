@@ -473,6 +473,17 @@
           "title": "Artifacts",
           "type": "object"
         },
+        "capability_rows": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnvelopeCapabilityRows"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "contract_version": {
           "minLength": 1,
           "title": "Contract Version",
@@ -1303,6 +1314,17 @@
           "title": "Artifacts",
           "type": "object"
         },
+        "capability_rows": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnvelopeCapabilityRows"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "contract_version": {
           "minLength": 1,
           "title": "Contract Version",
@@ -1513,6 +1535,154 @@
         "human_authorable"
       ],
       "title": "ConfirmDeclarationsAction",
+      "type": "object"
+    },
+    "EnvelopeCapabilityRow": {
+      "additionalProperties": false,
+      "description": "One host capability row, copied from the comparison that produced it.\n\nEvery field is a copy of :class:`~agents_shipgate.schemas.capability_diff.CapabilityDiffRow`.\nOnly ``why`` is prose and capped; ``subject``, ``before`` and ``after`` are\nthe configuration values a reader quotes, so they are never abridged.\nUnconstrained strings on purpose: this projection must not raise on a row\nits producer already published, or the control answer would be lost with it.",
+      "properties": {
+        "after": {
+          "title": "After",
+          "type": "string"
+        },
+        "before": {
+          "title": "Before",
+          "type": "string"
+        },
+        "direction": {
+          "title": "Direction",
+          "type": "string"
+        },
+        "expands": {
+          "title": "Expands",
+          "type": "boolean"
+        },
+        "severity": {
+          "title": "Severity",
+          "type": "string"
+        },
+        "subject": {
+          "title": "Subject",
+          "type": "string"
+        },
+        "why": {
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subject",
+        "before",
+        "after",
+        "direction",
+        "severity",
+        "why",
+        "expands"
+      ],
+      "title": "EnvelopeCapabilityRow",
+      "type": "object"
+    },
+    "EnvelopeCapabilityRows": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "incomparable_reasons": {
+                "maxItems": 0
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "comparison_status": {
+                "const": "incomparable"
+              }
+            },
+            "required": [
+              "comparison_status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "omitted_rows": {
+                "const": 0
+              },
+              "rows": {
+                "maxItems": 0
+              },
+              "unchanged_limit_count": {
+                "const": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "omitted_rows": {
+                "minimum": 1
+              }
+            },
+            "required": [
+              "omitted_rows"
+            ]
+          },
+          "then": {
+            "properties": {
+              "rows": {
+                "minItems": 5
+              }
+            }
+          }
+        }
+      ],
+      "description": "What host capability changed, beside the control that routes on it (#662).\n\nEvidence, never authority. Nothing here is an input to the state, the\npermission vector or the route: an envelope with rows authorizes exactly\nwhat the same envelope without them does, and an empty ``rows`` on a\n``comparable`` comparison is \"no row in the covered comparison\", not \"safe\".\n\n``rows`` is a prefix. Rows the engine called an expansion come first, each\nhalf keeping the producer's order, so the cap drops a narrowing before it\ndrops a widening; ``omitted_rows`` says how many were cut. A comparison that\ncompared past an unchanged partial surface says so in\n``unchanged_limit_count`` rather than reading as complete.",
+      "properties": {
+        "comparison_status": {
+          "enum": [
+            "comparable",
+            "incomparable"
+          ],
+          "title": "Comparison Status",
+          "type": "string"
+        },
+        "incomparable_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Incomparable Reasons",
+          "type": "array"
+        },
+        "omitted_rows": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Omitted Rows",
+          "type": "integer"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/EnvelopeCapabilityRow"
+          },
+          "maxItems": 5,
+          "title": "Rows",
+          "type": "array"
+        },
+        "unchanged_limit_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Unchanged Limit Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "comparison_status",
+        "incomparable_reasons",
+        "rows",
+        "omitted_rows",
+        "unchanged_limit_count"
+      ],
+      "title": "EnvelopeCapabilityRows",
       "type": "object"
     },
     "EnvelopeCodingAgentAction": {
@@ -2115,6 +2285,17 @@
           },
           "title": "Artifacts",
           "type": "object"
+        },
+        "capability_rows": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnvelopeCapabilityRows"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "contract_version": {
           "minLength": 1,
@@ -2842,6 +3023,17 @@
           },
           "title": "Artifacts",
           "type": "object"
+        },
+        "capability_rows": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnvelopeCapabilityRows"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "contract_version": {
           "minLength": 1,
