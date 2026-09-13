@@ -67,7 +67,9 @@ def _grant_value(grant: dict[str, Any] | None) -> str:
             forwarding = "secrets: inherit → " if call.get("secrets_inherit") else "uses: "
             parts.append(f"{call['job']}: {forwarding}{call['uses']}")
         return ", ".join(part for part in parts if part) or kind
-    for key in ("rule", "server", "name", "value", "permission"):
+    # `event` names a hook's trigger. Without it a hook row rendered as
+    # "hook", which tells a reviewer a hook changed and not which one (#689).
+    for key in ("rule", "server", "name", "event", "value", "permission"):
         value = grant.get(key)
         if value:
             return str(value)

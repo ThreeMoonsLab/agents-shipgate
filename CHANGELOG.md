@@ -2,6 +2,76 @@
 
 ## Unreleased
 
+- Tell a widened permission rule from a narrowed one, and stop rating
+  reading files as critical. Host grants are keyed by rule text, so
+  replacing `Bash(npm *)` with `Bash(npm test:*)` arrived as one removal
+  plus one addition — byte-for-byte the same shape as replacing it with
+  `Bash(*)`. Set arithmetic cannot separate those, so drift reported a
+  tightening as an expansion, and a reviewer who tightens a rule and gets
+  warned for it learns to stop reading the warnings. A new
+  `core/permission_lattice.py` decides which of two rules is wider for the
+  patterns hosts actually use — whole-tool grants, trailing-star prefixes,
+  literals, and the bare `mcp__server__*` spelling — and answers `None`
+  for anything else, including character classes and interior stars, where
+  a guess would be the same wrong direction in a new place. A narrowing no
+  longer contributes to `expansion_signals`; it stays visible in `changes`
+  as the removal and addition it is. A widening is now named
+  (`permission_widened: <host>:<before> -> <after>`) rather than only
+  counted.
+
+  The same lattice sets severity, replacing a model where every wildcard
+  allow was `admin`/`critical`. `Read(**)` sat beside `Bash(*)` at the top
+  of the table. On a carefully written host config — wildcard reads,
+  scoped `Bash` and `Edit`, two deny rules, one MCP server, a
+  least-privilege workflow — `audit --host` rated 7 of 10 grants `high` or
+  `critical`, three of them `critical`/`admin` for reading files. The same
+  config now rates 1 of 10 above `medium`: the MCP server, which is the
+  one row there that can reach anything new. Severity follows what the
+  grant reaches:
+  execution and `*` stay `critical`, network and write are `high`, an
+  unrecognised whole-tool grant is `high` because nothing establishes
+  otherwise, and reading a workspace the agent already has checked out is
+  `low`.
+
+  This narrows a blocking check. `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW`
+  blocked the release on any wildcard allow, so adding `Read(**)` — the
+  ordinary configuration for a coding agent — was a `critical` release
+  blocker, and a gate that stops a release over reading files is one a team
+  turns off. Read-only whole-tool grants now raise
+  `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` (`require_review`, `high`)
+  instead. Nothing else moves: execution, network, write, `*` and unknown
+  tools still block, and the check ID is unchanged for them. The gate had
+  classified wildcards a second time in `core/host_boundary.py`; both
+  readers now share the one lattice, and a test pins that they agree.
+
+  `policies/host-boundary.shipgate.yaml` records why each severity is what
+  it is, one `why:` line per rule — nine of the ten sat at `high` or above
+  with nothing written down. `tests/test_permission_lattice.py`
+  carries twenty widen/narrow/unchanged pairs replayed through the real
+  reader for both hosts with a rule vocabulary, and marks the two pairs
+  this lattice declines so the boundary moves visibly rather than
+  silently. Replayed against pre-fix `main`, 51 of its 78 cases fail
+  (#657).
+
+- Lead the Cursor instruction surface with `shipgate diff`. It opened with
+  the control envelope, so an agent following it reported "a human must
+  review" without naming what changed, while `AGENTS.md` had led with the
+  named rows since #651. The generated file now names the row fields, says
+  a covered comparison with no rows is a real answer, and repeats that a
+  row is a description and never a permission. The committed rule file and
+  the copyable snippet in `docs/target-repo-agent-snippets.md` are
+  regenerated from the one renderer; both are pinned to it by tests (#662).
+
+- Read `.claude/hooks/hooks.json`. A `SessionStart` command is executable code
+  around the agent and was invisible; the document is the same shape as
+  `.codex/hooks.json`, which has been read since the Codex adapter landed, so
+  only the registry entry was missing. Hook rows now name their event rather
+  than rendering as "hook". Found by counting disagreements between the
+  adapter registry and an independent census of host paths, now committed at
+  `benchmark/cold-start/census.py`: it prints unexplained coverage gaps,
+  issue-owned gaps and census bugs on every run, so a path nobody registered
+  can no longer look like a change that did nothing (#689).
+
 - Keep a directory at a recognized host configuration path visible as a failed
   input. Host audits, worktree diffs and committed-ref comparisons no longer
   mistake `.mcp.json/` for an absent configuration and report complete coverage.

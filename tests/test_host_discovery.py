@@ -26,6 +26,7 @@ from tests.test_zero_install_detector import _load_script_module
 CONFIG_PATHS = [
     ".claude/settings.json", ".claude/settings.local.json", ".mcp.json",
     ".codex/config.toml", ".codex/hooks.json", ".codex/requirements.toml",
+    ".claude/hooks/hooks.json",
     ".cursor/cli.json", ".cursor/mcp.json", ".vscode/mcp.json",
     "nested/.mcp.json", "nested/.codex/config.toml",
 ]
@@ -392,6 +393,10 @@ def test_a_link_to_a_directory_still_withholds_the_negative(tmp_path, zero):
 REGISTRY_ELIGIBILITY: dict[str, bool] = {
     ".codex/config.toml": True,
     ".codex/hooks.json": True,
+    # Same document, same decision, different host: a hook declaration is
+    # host configuration wherever it is written (#689).
+    ".claude/hooks/hooks.json": True,
+    "**/.claude/hooks/hooks.json": True,
     ".codex/requirements.toml": True,
     "**/.codex/config.toml": True,
     "**/.codex/hooks.json": True,

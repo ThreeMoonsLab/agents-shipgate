@@ -40,6 +40,11 @@ from agents_shipgate.core.host_input_failure import (
     safe_failure_text,
 )
 from agents_shipgate.core.instruction_structure import classify_instruction, instruction_profile
+from agents_shipgate.core.permission_lattice import (
+    scoped_risk,
+    subsumes,
+    whole_tool_risk,
+)
 from agents_shipgate.core.privacy import SENSITIVE_VALUE_KEYS
 from agents_shipgate.core.trust_roots import (
     IdentityBoundReadSession,
@@ -559,8 +564,17 @@ def _permission_rule_grants(
         for raw_rule in sorted(_string_entries(permissions.get(disposition))):
             rule = _sanitize_sensitive_string(raw_rule)
             wildcard = disposition == "allow" and _is_wildcard_allow(raw_rule)
-            access = "admin" if wildcard else ("execute" if disposition == "allow" else "none")
-            risk = "critical" if wildcard else ("high" if disposition == "allow" else "low")
+            if wildcard:
+                # Not every whole-tool grant reaches the same thing. Rating
+                # `Read(**)` beside `Bash(*)` put four of eight grants at
+                # `critical` on an ordinary repository, and a severity
+                # column that cries critical at reading files is one a
+                # reviewer stops reading (#657).
+                access, risk = whole_tool_risk(raw_rule)
+            elif disposition == "allow":
+                access, risk = scoped_risk(raw_rule)
+            else:
+                access, risk = "none", "low"
             grants.append({
                 **_grant_base(
                     host=host, scope=scope, source=source, kind="permission_rule",
@@ -1809,7 +1823,8 @@ def _diff_host_coverage(
 
 
 def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
-    signals: list[str] = []
+    widened, narrowed_rules = _permission_direction_signals(changes)
+    signals: list[str] = list(widened)
     for change in changes:
         before = change.get("baseline")
         after = change.get("current")
@@ -1822,6 +1837,15 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
         if kind == "mcp_server":
             signals.append(f"mcp_server_{prefix}: {after['host']}:{after['server']}")
         elif kind == "permission_rule" and after.get("disposition") == "allow":
+            if (after["host"], str(after["rule"])) in narrowed_rules:
+                # The narrower half of a replacement. This list is an
+                # expansion channel — `preflight` prefixes it with
+                # "Expansion signals:" and the drift markdown prints every
+                # entry under "## Expansion signals" with a ⚠ — so an
+                # `allow_rule_added` here puts the warning on the change
+                # that *removed* authority. The narrowing is still visible:
+                # it is in `changes` as a removal and an addition (#657).
+                continue
             marker = "wildcard_allow" if after.get("wildcard") else "allow_rule"
             signals.append(f"{marker}_{prefix}: {after['host']}:{after['rule']}")
         elif kind in {"permission_mode", "sandbox", "additional_path", "plugin_or_app", "hook"}:
@@ -1851,6 +1875,59 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
             if inherited_calls(after) - inherited_calls(previous):
                 signals.append(f"workflow_secrets_inherited_{prefix}: {after['source']}")
     return sorted(set(signals))
+
+
+def _permission_direction_signals(
+    changes: list[dict[str, Any]],
+) -> tuple[list[str], set[tuple[str, str]]]:
+    """Name a replaced allow rule as widened or narrowed.
+
+    Grants are keyed by their rule text, so replacing `Bash(npm *)` with
+    `Bash(npm test:*)` arrives as one removal and one addition — the same
+    shape as replacing it with `Bash(*)`. Set arithmetic cannot tell those
+    apart; the lattice can, for the patterns it decides (#657).
+
+    Only pairs within one host, source and disposition are considered, and
+    only where exactly one rule left and one arrived: with several on each
+    side there is no evidence about which replaced which, and inventing a
+    pairing would be inventing the direction too. A pair the lattice cannot
+    decide produces nothing, which leaves the existing add/remove signals
+    as the whole answer.
+    """
+
+    removed: dict[tuple[str, str, str], list[str]] = {}
+    added: dict[tuple[str, str, str], list[str]] = {}
+    for change in changes:
+        before, after = change.get("baseline"), change.get("current")
+        for grant, sink in ((before, removed), (after, added)):
+            if (
+                grant
+                and grant.get("kind") == "permission_rule"
+                and grant.get("disposition") == "allow"
+            ):
+                key = (grant["host"], grant.get("source", ""), grant["disposition"])
+                sink.setdefault(key, []).append(str(grant["rule"]))
+    # A rule present on both sides is unchanged and pairs with nothing.
+    signals: list[str] = []
+    narrowed: set[tuple[str, str]] = set()
+    for key, gone in removed.items():
+        arrived = added.get(key, [])
+        only_gone = [rule for rule in gone if rule not in arrived]
+        only_arrived = [rule for rule in arrived if rule not in gone]
+        if len(only_gone) != 1 or len(only_arrived) != 1:
+            continue
+        before_rule, after_rule = only_gone[0], only_arrived[0]
+        host = key[0]
+        if subsumes(after_rule, before_rule) is True:
+            # Named as well as counted: `allow_rule_changed` says a rule
+            # moved, this says which way and by how much. The add signal
+            # stays too — it is not wrong, and readers already depend on it.
+            signals.append(f"permission_widened: {host}:{before_rule} -> {after_rule}")
+        elif subsumes(before_rule, after_rule) is True:
+            # A narrowing earns no entry in an expansion list. What it earns
+            # is silence there, which is what the caller uses this set for.
+            narrowed.add((host, after_rule))
+    return signals, narrowed
 
 
 def _incomparable_payload(
@@ -1960,11 +2037,23 @@ def render_host_audit_markdown(
             for grant in by_kind.get("permission_rule", [])
             if grant.get("disposition") == "allow" and grant.get("wildcard")
         ]
-        if wildcard_rules:
+        # A `⚠` on `Read(**)` spends the reader's attention on the grant
+        # least worth it, and teaches them the marker means nothing. The
+        # warning names the wildcards whose tool class earned a severity;
+        # the low-risk ones are still listed above, just not shouted (#657).
+        notable = [grant for grant in wildcard_rules if grant.get("risk") != "low"]
+        if notable:
             lines.append("")
+            quiet = len(wildcard_rules) - len(notable)
             lines.append(
-                f"⚠ {len(wildcard_rules)} wildcard allow rule(s); verification "
-                "reports `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW`."
+                f"⚠ {len(notable)} wildcard allow rule(s) above low risk; "
+                "verification reports "
+                "`SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW`."
+                + (
+                    f" {quiet} further wildcard rule(s) are read-only and listed above."
+                    if quiet
+                    else ""
+                )
             )
     lines.append("")
     if inventory["issues"]:

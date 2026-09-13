@@ -348,7 +348,7 @@ repos:
             (.*/)?conductor/.*\.json|
             (.*/)?ai/examples/.*\.json|
             (.*/)?\.codex/(config\.toml|hooks\.json|requirements\.toml)|
-            (.*/)?\.claude/(settings(\.local)?\.json|commands(/.*)?)|
+            (.*/)?\.claude/(settings(\.local)?\.json|commands(/.*)?|hooks/hooks\.json)|
             (.*/)?\.cursor/(cli\.json|mcp\.json|rules(/.*)?)|
             (.*/)?\.vscode/mcp\.json|
             (.*/)?\.shipgate/agent-contract\.json|
