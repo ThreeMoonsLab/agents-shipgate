@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Let a host settings narrowing finish without a human review (#661). In an
+  adopted repository, tightening `.claude/settings.json` from `Bash(*)` to
+  `Bash(git status)` no longer raised an expansion after #745. But `check`
+  still added `SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED` and `verify`
+  raised `SHIP-VERIFY-TRUST-ROOT-TOUCHED`, so the Stop hook ended the agent's
+  turn on a human review. A change to `.claude/settings.json`,
+  `.claude/settings.local.json` or `.cursor/cli.json` now clears both when the
+  permission lattice decides it only narrows. Only the rule lists may change:
+  every added allow rule must be subsumed by an existing one, and no deny rule,
+  nor for Claude Code an ask rule, may be removed. `check` records it as the
+  `host_settings_narrowed` diagnostic. A hook, any other key, or a rule the
+  lattice cannot decide keeps the review.
+
 - Document that `check` and `verify` publish changed-file paths verbatim
   (#742). The privacy section of `STABILITY.md` now names the fields that carry
   them and why: they are locators a reviewer or agent opens, and the pull

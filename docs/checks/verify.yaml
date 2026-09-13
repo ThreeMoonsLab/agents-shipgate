@@ -50,7 +50,9 @@ checks:
     CI pass can weaken the gate instead of fixing the underlying readiness issue
     (reward hacking); touching a trust root must therefore require human review.
   fires_when: A changed file from the verification context matches a trust-root
-    surface glob. Emits nothing on a plain scan (no verification context).
+    surface glob. Emits nothing on a plain scan (no verification context). A host
+    settings file whose only change is a narrowing the permission lattice decides
+    does not fire.
   evidence_fields:
   - changed_file
   - trust_root_class

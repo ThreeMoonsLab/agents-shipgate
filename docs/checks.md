@@ -986,6 +986,15 @@ supplied (`agents-shipgate scan --changed-files ...` or, later, `verify`);
 a plain `scan` emits nothing. It is one ordinary `Finding` at `medium`
 severity routed through `release_decision` — never a second verdict.
 
+A host settings change that can only take authority away does not fire
+(#661). That holds when `.claude/settings.json`, `.claude/settings.local.json`
+or `.cursor/cli.json` changes nothing but its rule lists, every added allow
+rule is subsumed by an allow rule the file already had, and no deny rule, nor
+for Claude Code an ask rule, was removed. `check` records such a change as the
+`host_settings_narrowed` diagnostic. A hook, any other key, a rule list that is
+not a list of rules, or an added rule the permission lattice cannot decide
+still fires.
+
 ### SHIP-VERIFY-POLICY-WEAKENED
 
 Tier B trust-root protection: instead of classifying *which* files

@@ -233,6 +233,31 @@ def evaluate_host_boundary(
             )
         )
 
+    def note_narrowing(
+        diff_file: DiffFile, resolved: ResolvedFileText, raised: int, *, cursor: bool
+    ) -> None:
+        # A settings change that raised nothing, read cleanly, and only takes
+        # authority away has been evaluated completely, so neither the
+        # protected-surface fallback nor the trust-root touch needs a human
+        # for it (#661). The diagnostic keeps it on the record.
+        if len(violations) != raised or any(
+            item.path == diff_file.path and item.level != "info" for item in diagnostics
+        ):
+            return
+        if settings_change_only_narrows(resolved, cursor=cursor):
+            diagnostics.append(
+                AgentResultDiagnostic(
+                    level="info",
+                    code=HOST_SETTINGS_NARROWED,
+                    message=(
+                        "This host settings change only narrows permissions: every "
+                        "added allow rule is covered by a rule the file already had, "
+                        "and no deny or ask rule was removed. It needs no human review."
+                    ),
+                    path=diff_file.path,
+                )
+            )
+
     for diff_file in diff_files:
         path = diff_file.path
         if not path:
@@ -243,10 +268,14 @@ def evaluate_host_boundary(
             _evaluate_mcp_file(diff_file, resolved, add)
         if _is_claude_settings_path(normalized):
             resolved = resolve(diff_file)
+            raised = len(violations)
             _evaluate_claude_settings(diff_file, resolved, add)
+            note_narrowing(diff_file, resolved, raised, cursor=False)
         if _is_cursor_settings_path(normalized):
             resolved = resolve(diff_file)
+            raised = len(violations)
             _evaluate_cursor_settings(diff_file, resolved, add)
+            note_narrowing(diff_file, resolved, raised, cursor=True)
         if _is_workflow_path(normalized):
             resolved = resolve(diff_file)
             _evaluate_workflow(diff_file, resolved, add)
@@ -663,6 +692,84 @@ def _widens_allow(rule: str, old_rules) -> bool:
     """
 
     return not any(subsumes(old, rule) is True for old in old_rules)
+
+
+HOST_SETTINGS_NARROWED = "host_settings_narrowed"
+_CURSOR_RULE_CATEGORIES = ("shell", "read", "write")
+
+
+def settings_change_only_narrows(resolved: ResolvedFileText, *, cursor: bool) -> bool:
+    """Whether a host settings change can only take authority away (#661).
+
+    True when the old and new JSON agree on everything except the rule lists,
+    every added allow rule is subsumed by an old allow rule (a decided lattice
+    ``True``), and no deny rule, nor for Claude Code an ask rule, was removed.
+    Anything else is not a narrowing: a hook or any other key that changed, a
+    rule list that is not a list of rule strings, a deleted or unresolved
+    file, or an added rule the lattice cannot decide.
+    """
+
+    if resolved.new_text is None or resolved.source == "diff_deleted_file":
+        return False
+    try:
+        new_data = json.loads(resolved.new_text)
+        old_data = json.loads(resolved.old_text) if resolved.old_text else {}
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(old_data, dict) or not isinstance(new_data, dict):
+        return False
+    keys = ("allow", "deny") if cursor else ("allow", "ask", "deny")
+    old_rules = _rule_lists(old_data, keys)
+    new_rules = _rule_lists(new_data, keys)
+    if old_rules is None or new_rules is None:
+        return False
+    if _canonical_json(_without_rule_lists(old_data, keys)) != _canonical_json(
+        _without_rule_lists(new_data, keys)
+    ):
+        return False
+    old_allow = list(old_rules["allow"])
+    if cursor:
+        # The Cursor evaluator reads top-level category arrays as allow rules
+        # too; they are unchanged here, so they cover exactly as they did.
+        for category in _CURSOR_RULE_CATEGORIES:
+            old_allow.extend(_string_entries(old_data.get(category)))
+    if any(
+        _widens_allow(rule, old_allow)
+        for rule in set(new_rules["allow"]) - set(old_rules["allow"])
+    ):
+        return False
+    return all(set(old_rules[key]) <= set(new_rules[key]) for key in keys if key != "allow")
+
+
+def _rule_lists(data: dict[str, Any], keys: tuple[str, ...]) -> dict[str, list[str]] | None:
+    permissions = data.get("permissions", {})
+    if not isinstance(permissions, dict):
+        return None
+    lists: dict[str, list[str]] = {}
+    for key in keys:
+        value = permissions.get(key, [])
+        if not isinstance(value, list) or not all(
+            isinstance(item, str) and item.strip() for item in value
+        ):
+            return None
+        lists[key] = value
+    return lists
+
+
+def _without_rule_lists(data: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
+    stripped = dict(data)
+    permissions = stripped.pop("permissions", None)
+    if isinstance(permissions, dict):
+        rest = {key: value for key, value in permissions.items() if key not in keys}
+        if rest:
+            stripped["permissions"] = rest
+    return stripped
+
+
+def is_host_settings_path(path: str) -> bool:
+    """A host settings file whose permission rules the lattice reads."""
+
+    return _is_claude_settings_path(path) or _is_cursor_settings_path(path)
 
 
 def _is_wildcard_allow(rule: str) -> bool:

@@ -3120,7 +3120,7 @@
         "trust_root_class",
         "matched_glob"
       ],
-      "fires_when": "A changed file from the verification context matches a trust-root surface glob. Emits nothing on a plain scan (no verification context).",
+      "fires_when": "A changed file from the verification context matches a trust-root surface glob. Emits nothing on a plain scan (no verification context). A host settings file whose only change is a narrowing the permission lattice decides does not fire.",
       "floor_severity": "medium",
       "id": "SHIP-VERIFY-TRUST-ROOT-TOUCHED",
       "mvp_tier": "lifecycle",
