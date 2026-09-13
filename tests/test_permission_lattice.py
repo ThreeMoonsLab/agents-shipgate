@@ -473,3 +473,110 @@ class TestLatticeSoundness:
     def test_unrelated_tools_are_not_wider_than_each_other(self) -> None:
         assert subsumes("Read(**)", "Bash(*)") is False
         assert subsumes("mcp__gitlab__*", "mcp__github__get_issue") is False
+
+
+# --- the boundary check reads direction from the same lattice (#661) ---------
+
+_EXPANSION_CHECKS = {
+    "SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED",
+    "SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW",
+}
+
+
+def _boundary_findings(tmp_path: Path, relative: str, before: dict, after: dict) -> list[str]:
+    """Run `check`'s host boundary evaluator on a one-file replacement diff."""
+
+    from agents_shipgate.checks.host_boundary import run as host_boundary_run
+    from agents_shipgate.config.loader import load_manifest
+    from agents_shipgate.core.context import ScanContext
+    from agents_shipgate.core.domain import Agent
+    from agents_shipgate.schemas.verification import VerificationContext
+
+    old_text = json.dumps(before, indent=2)
+    new_text = json.dumps(after, indent=2)
+    target = tmp_path / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(old_text, encoding="utf-8")
+    old_lines, new_lines = old_text.splitlines(), new_text.splitlines()
+    body = "\n".join([f"-{line}" for line in old_lines] + [f"+{line}" for line in new_lines])
+    diff = (
+        f"diff --git a/{relative} b/{relative}\nindex 1111111..2222222 100644\n"
+        f"--- a/{relative}\n+++ b/{relative}\n"
+        f"@@ -1,{len(old_lines)} +1,{len(new_lines)} @@\n{body}\n"
+    )
+    manifest = load_manifest(
+        Path(__file__).resolve().parent.parent / "samples" / "support_refund_agent" / "shipgate.yaml"
+    )
+    context = ScanContext(
+        manifest=manifest,
+        agent=Agent(id="agent:test/test", name="test"),
+        tools=[],
+        config_path=tmp_path / "shipgate.yaml",
+        verification=VerificationContext(diff_text=diff, diff_text_available=True),
+    )
+    return [finding.check_id for finding in host_boundary_run(context)]
+
+
+@pytest.mark.parametrize("pair", PAIRS, ids=lambda pair: pair.id)
+def test_direction_on_the_boundary_check(tmp_path: Path, pair: Pair) -> None:
+    """`check` and `verify` read direction from the table drift reads (#661).
+
+    The boundary evaluator took set difference, so `Bash(*)` -> `Bash(npm *)`
+    in `.claude/settings.json` was an expanded allowlist, and a narrowing in an
+    adopted repository ended the agent's turn on a human review.
+    """
+
+    findings = _boundary_findings(
+        tmp_path,
+        ".claude/settings.json",
+        {"permissions": {"allow": list(pair.before)}},
+        {"permissions": {"allow": list(pair.after)}},
+    )
+    expansions = [item for item in findings if item in _EXPANSION_CHECKS]
+    if pair.truth == "unchanged":
+        assert not expansions, f"{pair.id}: {findings}"
+    elif pair.truth == "widen" or not pair.decided:
+        # Zero missed widenings, and a pair the lattice declines stays one.
+        assert expansions, f"{pair.id}: {findings}"
+    else:
+        assert not expansions, f"{pair.id}: narrowing reported as an expansion: {findings}"
+
+
+def test_a_narrower_rule_beside_a_retained_wildcard_is_not_an_expansion(tmp_path: Path) -> None:
+    findings = _boundary_findings(
+        tmp_path,
+        ".claude/settings.json",
+        {"permissions": {"allow": ["Bash(*)"]}},
+        {"permissions": {"allow": ["Bash(*)", "Bash(git status)"]}},
+    )
+
+    assert not [item for item in findings if item in _EXPANSION_CHECKS], findings
+
+
+def test_a_rule_no_old_rule_covers_is_still_an_expansion(tmp_path: Path) -> None:
+    findings = _boundary_findings(
+        tmp_path,
+        ".claude/settings.json",
+        {"permissions": {"allow": ["Bash(git status)", "Read(src/**)"]}},
+        {"permissions": {"allow": ["Bash(git status)", "WebFetch(domain:example.com)"]}},
+    )
+
+    assert "SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED" in findings, findings
+
+
+def test_the_cursor_cli_config_reads_direction_the_same_way(tmp_path: Path) -> None:
+    narrowed = _boundary_findings(
+        tmp_path / "narrow",
+        ".cursor/cli.json",
+        {"permissions": {"allow": ["Shell(*)"]}},
+        {"permissions": {"allow": ["Shell(git status)"]}},
+    )
+    widened = _boundary_findings(
+        tmp_path / "widen",
+        ".cursor/cli.json",
+        {"permissions": {"allow": ["Shell(git status)"]}},
+        {"permissions": {"allow": ["Shell(*)"]}},
+    )
+
+    assert not [item for item in narrowed if item in _EXPANSION_CHECKS], narrowed
+    assert [item for item in widened if item in _EXPANSION_CHECKS], widened

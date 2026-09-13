@@ -47,7 +47,7 @@ from agents_shipgate.core.codex_boundary import (
     _dedupe_violations,
     _display_path,
 )
-from agents_shipgate.core.permission_lattice import whole_tool_risk
+from agents_shipgate.core.permission_lattice import subsumes, whole_tool_risk
 from agents_shipgate.core.trust_roots import read_absolute_identity_bound_text
 from agents_shipgate.schemas.agent_result_v1 import (
     AgentResultDiagnostic,
@@ -480,6 +480,8 @@ def _evaluate_claude_settings(diff_file, resolved, add) -> None:
     _evaluate_permission_mode(old_permissions, permissions, path, add)
     old_allow = set(_string_entries(old_permissions.get("allow")))
     for rule in sorted(set(_string_entries(permissions.get("allow"))) - old_allow):
+        if not _widens_allow(rule, old_allow):
+            continue
         rule_id = _allow_rule_id(rule)
         add(
             rule_id,
@@ -562,6 +564,8 @@ def _evaluate_cursor_settings(diff_file, resolved, add) -> None:
             old_values.extend(_string_entries(old_data.get(category)))
         if key == "allow":
             for rule in sorted(set(values) - set(old_values)):
+                if not _widens_allow(rule, old_values):
+                    continue
                 add(
                     _allow_rule_id(rule),
                     path=path,
@@ -644,6 +648,21 @@ def _string_entries(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, str) and item.strip()]
+
+
+def _widens_allow(rule: str, old_rules) -> bool:
+    """Whether an added allow rule grants anything the old list did not (#661).
+
+    Rules are compared by text, so tightening `Bash(*)` to `Bash(git status)`
+    arrives as an addition, and set difference alone called it an expanded
+    allowlist. In an adopted repository that sent every narrowing to a human.
+    An added rule that an old rule already subsumes grants nothing new. The
+    drift reader and the audit table already read direction from this lattice
+    (#657); the boundary check now does too. Only a decided ``True`` excuses a
+    rule, so a pair the lattice cannot decide stays an expansion.
+    """
+
+    return not any(subsumes(old, rule) is True for old in old_rules)
 
 
 def _is_wildcard_allow(rule: str) -> bool:
