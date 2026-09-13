@@ -35,6 +35,14 @@ to human review unless a dedicated rule can prove the change safe. This can be
 noisier than the former Codex-only evaluator; it prevents an unclassified
 cross-host trust-root edit from being reported as complete.
 
+Skill and command frontmatter is read the way Claude Code documents it (#730).
+Frontmatter is optional: a skill without it takes its name from the directory
+and its description from the first non-empty line. Documented fields are
+type-checked. An undocumented key (`version`, `author`, `category`, …) is
+digested as written rather than refused, so changing it is still a change and
+none is read as a permission. A Cursor rule still refuses a key outside
+`description`, `globs` and `alwaysApply`.
+
 ## Local-static audit scope
 
 `shipgate audit --host --scope local-static` is an explicit local-machine

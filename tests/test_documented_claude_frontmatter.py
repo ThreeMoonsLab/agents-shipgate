@@ -68,11 +68,9 @@ def test_a_documented_command_field_resolves(field: str) -> None:
         ("shell: zsh\n", "frontmatter_invalid_structure"),
         ("background: sometimes\n", "frontmatter_invalid_structure"),
         ("paths: 7\n", "frontmatter_invalid_structure"),
-        ("version: 1.0.0\n", "frontmatter_unknown_fields"),
-        ("author: someone\n", "frontmatter_unknown_fields"),
     ],
 )
-def test_wrong_types_and_undocumented_keys_stay_unresolved(field: str, reason: str) -> None:
+def test_wrong_types_for_documented_keys_stay_unresolved(field: str, reason: str) -> None:
     resolved = classify_instruction(SKILL, _doc(f"name: helper\ndescription: Helps.\n{field}"))
 
     assert resolved.status == "unresolved"
@@ -133,3 +131,29 @@ def test_the_cold_start_shapes_that_were_documented_now_resolve() -> None:
 
     assert classify_instruction(COMMAND, command).status == "structured"
     assert classify_instruction(".claude/skills/plan-review/SKILL.md", description_only_skill).status == "structured"
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "version: 1.0.0\n",
+        "author: someone\ndate: 2026-01-29\n",
+        "category: framework\nbundle: [typescript-type-expert]\ndisplayName: TypeScript\ncolor: blue\n",
+        "publish: false\n",
+        "subagent: general-purpose\n",
+    ],
+)
+def test_an_undocumented_key_is_digested_not_refused(field: str) -> None:
+    """The shapes #659 measured refusing whole repositories, now digested (#730)."""
+
+    plain = classify_instruction(SKILL, _doc("name: helper\ndescription: Helps.\n"))
+    resolved = classify_instruction(SKILL, _doc(f"name: helper\ndescription: Helps.\n{field}"))
+
+    assert resolved.status == "structured", (field, resolved.reason)
+    assert resolved.sha256 != plain.sha256
+
+
+def test_a_cursor_rule_still_refuses_an_undocumented_key() -> None:
+    resolved = classify_instruction(".cursor/rules/demo.mdc", "---\ndescription: d\nversion: 1\n---\nBody.\n")
+
+    assert resolved.reason == "frontmatter_unknown_fields"

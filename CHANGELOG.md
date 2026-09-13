@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Digest undocumented skill and command frontmatter keys instead of refusing
+  them, and read a skill without frontmatter by its documented defaults (#730).
+  `version`, `author`, `category` and similar keys made a skill unresolved, which
+  refused every host comparison in its repository: #659 measured 4 of 50 PRs,
+  110 skills in one of them. They now enter the structure digest as written, so
+  changing one is still a change. An unquoted YAML date is digested as its ISO
+  text. Claude Code documents frontmatter as optional, so a skill without it
+  takes its name from the directory and its description from the first
+  non-empty line. Cursor rules still refuse an undocumented key.
+
 - Compare past an unchanged partial or experimental surface instead of refusing
   every row (#721, runtime contract 37, verifier schema `0.19`). A comparison
   refused whenever either inventory was incomplete, including for a file the
