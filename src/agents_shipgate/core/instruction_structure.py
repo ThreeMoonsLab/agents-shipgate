@@ -6,6 +6,7 @@ Unknown formats and incomplete text cannot establish unchanged structure.
 
 from __future__ import annotations
 
+import datetime
 import hashlib
 import json
 import re
@@ -43,9 +44,10 @@ _COMMAND_FIELDS = frozenset({
     # and `paths` are documented as working differently there, not as absent.
     "user-invocable", "disallowed-tools", "effort", "arguments", "name", "paths",
 })
-#: Undocumented keys (`version`, `author`, `category`, …) are still refused.
-#: Whether a host ignores them when loading is unspecified, so accepting them
-#: is a decision recorded on #722, not a side effect of this list.
+#: Undocumented keys (`version`, `author`, `category`, …) are digested, not
+#: refused (#730, owner decision). They enter the structure digest with their
+#: values, so changing one is still a change, and none is read as a permission.
+#: A Cursor rule keeps refusing a key outside `_CURSOR_FIELDS`.
 
 #: Fields a host reads as a list, written either way the docs allow: a YAML
 #: list, or one string it splits. `argument-hint` is documented as a string,
@@ -100,13 +102,37 @@ def instruction_profile(path: str) -> str | None:
     return None
 
 
+def _json_ready(value: object) -> object:
+    """A YAML value in a form the digest can encode, without changing what it says.
+
+    An undocumented key is digested as written (#730), and YAML reads an
+    unquoted `date: 2026-01-29` as a date object, which JSON cannot encode. Left
+    as it was, the refusal came back one layer down as `frontmatter_invalid`,
+    on the exact shape #659 measured (110 skills in one repository). A date is
+    digested as its ISO text; containers are converted element by element.
+    """
+
+    if isinstance(value, dict):
+        return {str(key): _json_ready(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_ready(item) for item in value]
+    if isinstance(value, (datetime.date, datetime.datetime)):
+        return value.isoformat()
+    return value
+
+
 def _digest(value: object) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
     return "sha256:" + hashlib.sha256(encoded.encode()).hexdigest()
 
 
-def _valid_metadata(metadata: dict) -> bool:
+def _valid_metadata(metadata: dict, known: frozenset[str]) -> bool:
     for key, value in metadata.items():
+        if key not in known:
+            # An undocumented key has no documented type to check (#730). Its
+            # YAML value was composed without aliases, tags or duplicate keys,
+            # and it is digested as written.
+            continue
         if value is None:
             # `globs:` with nothing after it is how Cursor writes a rule that
             # is not glob-scoped, and YAML reads that as None. Rejecting it
@@ -224,8 +250,6 @@ def classify_instruction(path: str, text: str | None) -> InstructionStructure | 
 
     lines = text.splitlines()
     has_frontmatter = bool(lines and lines[0].strip() == "---")
-    if not has_frontmatter and profile == "skill_instruction/v1":
-        return unresolved("frontmatter_missing")
     close = (
         next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
         if has_frontmatter else -1
@@ -279,12 +303,23 @@ def classify_instruction(path: str, text: str | None) -> InstructionStructure | 
             else _COMMAND_FIELDS if profile == "claude_command/v1"
             else _SKILL_FIELDS
         )
-        if any(not isinstance(key, str) or key not in known for key in metadata):
+        if any(not isinstance(key, str) for key in metadata) or (
+            profile == "cursor_instruction/v1" and any(key not in known for key in metadata)
+        ):
             return unresolved("frontmatter_unknown_fields")
-        if not _valid_metadata(metadata):
+        if not _valid_metadata(metadata, known):
             return unresolved("frontmatter_invalid_structure")
         if profile == "skill_instruction/v1":
             description = metadata.get("description")
+            if description is None:
+                # "If omitted, uses the first non-empty line of the markdown
+                # content" (code.claude.com/docs/en/skills). Frontmatter itself is
+                # optional (#730). The default enters the digest, so editing
+                # that line is a change.
+                first = next((line.strip() for line in body.splitlines() if line.strip()), None)
+                if first is not None:
+                    description = first
+                    metadata = {**metadata, "description": first}
             if not isinstance(description, str) or not description.strip():
                 return unresolved("skill_identity_missing")
             name = metadata.get("name")
@@ -305,7 +340,7 @@ def classify_instruction(path: str, text: str | None) -> InstructionStructure | 
         # Normalize only after unknown-key/type/required-field validation;
         # nested metadata and actual permission or hook values stay intact.
         metadata = {key: value for key, value in metadata.items() if value is not None}
-        structure = _digest([profile, metadata, commands])
+        structure = _digest([profile, _json_ready(metadata), commands])
     except (yaml.YAMLError, RecursionError, TypeError, ValueError):
         return unresolved("frontmatter_invalid")
     return InstructionStructure(profile, "structured", structure, "declared_structure")
