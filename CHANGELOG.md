@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Resolve documented Claude skill and command frontmatter instead of refusing it
+  (#722). An unresolved instruction is a blocking coverage issue, so one such
+  file made a repository's whole host inventory partial. Skills now accept
+  `when_to_use`, `arguments`, `disallowed-tools`, `effort`, `background`,
+  `paths` and `shell`. Commands accept `user-invocable`, `disallowed-tools`,
+  `effort`, `arguments`, `name` and `paths`, as the docs say they take the same
+  frontmatter as skills. `argument-hint` may use its documented bracket form,
+  which YAML reads as a list. A skill without `name` takes its directory name,
+  and the default enters the structure digest. Claude booleans accept `yes`,
+  `no`, `on`, `off`, `1` and `0`, while Cursor's `alwaysApply` stays exact.
+  `effort` and `shell` are checked against their documented values, and
+  `description` is still required. Undocumented keys such as `version` and
+  `author` are still refused. The #660 results now name the right cause for
+  `justinstimatze/winze`: its bracket-form `argument-hint`, not a string
+  `allowed-tools`, which was always accepted.
+
 - Add the cold-start harness under `benchmark/cold-start/` (#660). It measures
   whether `shipgate diff`, run from a fresh clone of a frozen population of 30
   public repositories, reaches a correct, covered comparison. Expected changes

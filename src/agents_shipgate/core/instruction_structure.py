@@ -25,12 +25,39 @@ _SKILL_FIELDS = frozenset({
     "name", "description", "license", "compatibility", "metadata",
     "allowed-tools", "argument-hint", "disable-model-invocation",
     "user-invocable", "model", "context", "agent", "hooks",
+    # Documented at code.claude.com/docs/en/skills and refused until #722, so a
+    # skill using any of them made its whole host inventory partial.
+    "when_to_use", "arguments", "disallowed-tools", "effort", "background",
+    "paths", "shell",
 })
 _CURSOR_FIELDS = frozenset({"description", "globs", "alwaysApply"})
 _COMMAND_FIELDS = frozenset({
     "description", "allowed-tools", "argument-hint", "model",
     "disable-model-invocation", "hooks",
+    # "Custom commands support the same YAML frontmatter as skills"; `name`
+    # and `paths` are documented as working differently there, not as absent.
+    "user-invocable", "disallowed-tools", "effort", "arguments", "name", "paths",
 })
+#: Undocumented keys (`version`, `author`, `category`, …) are still refused.
+#: Whether a host ignores them when loading is unspecified, so accepting them
+#: is a decision recorded on #722, not a side effect of this list.
+
+#: Fields a host reads as a list, written either way the docs allow: a YAML
+#: list, or one string it splits. `argument-hint` is documented as a string,
+#: but its documented example `[issue-number]` is a YAML list.
+_STRING_OR_LIST_FIELDS = frozenset({
+    "allowed-tools", "disallowed-tools", "globs", "arguments", "paths", "argument-hint",
+})
+_BOOLEAN_FIELDS = frozenset({
+    "disable-model-invocation", "user-invocable", "alwaysApply", "background",
+})
+#: Claude Code booleans also accept these spellings (any case); Cursor's
+#: `alwaysApply` does not document them and stays an exact boolean.
+_CLAUDE_BOOLEAN_STRINGS = frozenset({"true", "false", "yes", "no", "on", "off", "1", "0"})
+_ENUM_FIELDS = {
+    "effort": frozenset({"low", "medium", "high", "xhigh", "max"}),
+    "shell": frozenset({"bash", "powershell"}),
+}
 
 
 @dataclass(frozen=True)
@@ -87,13 +114,20 @@ def _valid_metadata(metadata: dict) -> bool:
             # field is not set. Where a field is genuinely required, the
             # profile checks below still say so and still fire.
             continue
-        if key in {"disable-model-invocation", "user-invocable", "alwaysApply"}:
-            if not isinstance(value, bool):
+        if key in _BOOLEAN_FIELDS:
+            if not isinstance(value, bool) and not (
+                key != "alwaysApply"
+                and isinstance(value, str)
+                and value.strip().lower() in _CLAUDE_BOOLEAN_STRINGS
+            ):
                 return False
-        elif key in {"allowed-tools", "globs"}:
+        elif key in _STRING_OR_LIST_FIELDS:
             if not isinstance(value, str) and not (
                 isinstance(value, list) and all(isinstance(item, str) for item in value)
             ):
+                return False
+        elif key in _ENUM_FIELDS:
+            if not isinstance(value, str) or value not in _ENUM_FIELDS[key]:
                 return False
         elif key == "hooks":
             if not _valid_hooks(value):
@@ -232,11 +266,18 @@ def classify_instruction(path: str, text: str | None) -> InstructionStructure | 
             return unresolved("frontmatter_unknown_fields")
         if not _valid_metadata(metadata):
             return unresolved("frontmatter_invalid_structure")
-        if profile == "skill_instruction/v1" and any(
-            not isinstance(metadata.get(key), str) or not metadata[key].strip()
-            for key in ("name", "description")
-        ):
-            return unresolved("skill_identity_missing")
+        if profile == "skill_instruction/v1":
+            description = metadata.get("description")
+            if not isinstance(description, str) or not description.strip():
+                return unresolved("skill_identity_missing")
+            name = metadata.get("name")
+            if name is None or (isinstance(name, str) and not name.strip()):
+                # "name — defaults to directory name" (code.claude.com/docs/en/skills).
+                # The default enters the digest, so renaming the directory is a change.
+                directory = PurePosixPath(path.replace("\\", "/")).parent.name
+                if not directory:
+                    return unresolved("skill_identity_missing")
+                metadata = {**metadata, "name": directory}
         # Claude skill/command preprocessing runs bang-backtick commands even
         # though ordinary fenced shell examples are just guidance. Preserve
         # command text exactly; an unterminated form cannot be called absent.
