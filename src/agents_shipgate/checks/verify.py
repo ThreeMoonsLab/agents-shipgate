@@ -3,7 +3,8 @@
 ``SHIP-VERIFY-TRUST-ROOT-TOUCHED`` is Tier A of trust-root protection
 (docs/engineering/ai-coding-workflow-verifier.md §5.1): path/glob classification of the PR's changed files against the release
 gate's trust spine, with a shared complete-text comparison for supported
-instructions. Prose-only edits clear only a positively unchanged structure. It is fully deterministic, needs no base scan, and fires
+instructions. Prose-only edits clear only a positively unchanged structure, and a host
+settings change clears only when the permission lattice decides it narrows (#661). It is fully deterministic, needs no base scan, and fires
 only when a :class:`VerificationContext` is present — plain ``scan``
 (``context.verification is None``) emits nothing.
 
@@ -70,10 +71,33 @@ def run(context: ScanContext) -> list[Finding]:
             assessment = assessment_for_scan_context(context)
             if path in assessment.instruction_structure_unchanged:
                 continue
+        if (
+            trust_root_class in {"agent_instructions", "host_boundary"}
+            and verification.diff_text_available
+            and _host_settings_only_narrowed(context, path)
+        ):
+            continue
         findings.append(
             _finding(context, path, trust_root_class, matched_glob)
         )
     return findings
+
+
+def _host_settings_only_narrowed(context: ScanContext, path: str) -> bool:
+    """A host settings change the permission lattice decides only narrows (#661).
+
+    The boundary evaluator read it completely and it can take authority away
+    but never grant it, so touching the file is not a reason for a human to
+    review it. The change stays on the PR in the capability rows.
+    """
+
+    from agents_shipgate.core.agent_boundary import assessment_for_scan_context
+    from agents_shipgate.core.host_boundary import is_host_settings_path
+
+    return (
+        is_host_settings_path(path)
+        and path in assessment_for_scan_context(context).host_settings_narrowed
+    )
 
 
 def _classify(path: str) -> tuple[str, str] | None:

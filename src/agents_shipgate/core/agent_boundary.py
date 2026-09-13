@@ -55,6 +55,7 @@ from agents_shipgate.core.host_boundary import (
     DEFAULT_POLICY_PATH as LEGACY_HOST_POLICY_PATH,
 )
 from agents_shipgate.core.host_boundary import (
+    HOST_SETTINGS_NARROWED,
     HostBoundaryPolicy,
     evaluate_host_boundary,
     load_host_boundary_policy,
@@ -111,6 +112,7 @@ class AgentBoundaryAssessment:
     host_snapshot: HostBoundarySnapshot
     legacy_result: AgentResultV2
     instruction_structure_unchanged: frozenset[str] = frozenset()
+    host_settings_narrowed: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -242,6 +244,18 @@ def evaluate_agent_boundary(
         resolved_text_cache=resolved_text_cache,
         static_read_cache=host_snapshot.cache,
     )
+    # A host settings change the permission lattice decides only narrows was
+    # evaluated completely (#661): like an unchanged instruction structure, it
+    # is not an unclassified protected change and needs no human.
+    host_settings_narrowed = {
+        item.path
+        for item in host_diagnostics
+        if item.code == HOST_SETTINGS_NARROWED
+        and item.path
+        and not input_issues
+        and not is_configured_manifest(config_path, item.path, workspace=workspace)
+        and not _is_invocation_path(policy_path, item.path, workspace=workspace)
+    }
     diagnostics = _dedupe_diagnostics(
         [*legacy.diagnostics, *host_diagnostics, *policies.diagnostics]
     )
@@ -273,6 +287,7 @@ def evaluate_agent_boundary(
         workspace=workspace,
         evaluated_paths={
             *instruction_structure_unchanged,
+            *host_settings_narrowed,
             *(
             item.path
             for item in diagnostics
@@ -466,6 +481,7 @@ def evaluate_agent_boundary(
         host_snapshot=host_snapshot,
         legacy_result=projected,
         instruction_structure_unchanged=frozenset(instruction_structure_unchanged),
+        host_settings_narrowed=frozenset(host_settings_narrowed),
     )
 
 
