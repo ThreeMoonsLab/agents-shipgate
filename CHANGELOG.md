@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Read a Cursor rule's globs the way Cursor writes them (#729). Cursor
+  documents `globs:` as unquoted, comma-separated patterns, and a pattern such
+  as `*.json` or `**/*.java` begins with YAML's alias indicator. So the rule was
+  refused as invalid YAML, which made the whole repository's comparison
+  incomplete: #659 measured it on `vtex/openapi-schemas#1583` and six rules in
+  `dotCMS/core#36281`. A bare top-level `globs:` value is now read as its
+  literal string, so editing a glob is still a change, and an alias anywhere
+  else in a rule still refuses.
+
 - Read Claude Code `extraKnownMarketplaces`, so adding, removing or
   re-pointing a plugin marketplace produces a row (#720). `enabledPlugins`
   entries install from those marketplaces, but only the plugins were read. The
