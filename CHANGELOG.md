@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Add the cold-start harness under `benchmark/cold-start/` (#660). It measures
+  whether `shipgate diff`, run from a fresh clone of a frozen population of 30
+  public repositories, reaches a correct, covered comparison. Expected changes
+  are derived from the files and host documentation, never from the engine.
+  Incomparable, unsupported and unclassified cases never count as success.
+  `tests/test_cold_start_replay.py` replays every case offline against its
+  recorded outcome. The first run, against candidate `8d43106f`, recorded
+  17/30 against a bar of 24. Every comparison that ran was correct, and all 11
+  failures stopped on a surface the commit did not change (#700, #720–#723).
+
 - Resolve local Claude Code settings layers by the documented precedence
   instead of refusing them. `audit --host --scope local-static` raised a
   blocking `unresolved_precedence` issue whenever two layers existed, so user
