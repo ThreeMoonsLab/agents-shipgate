@@ -2207,6 +2207,21 @@ False positives are allowed in favor of privacy; local routing metadata such as
 source paths, JSON pointers, and scopes remains structurally present with only
 secret-like substrings replaced.
 
+Changed-file paths are published verbatim, by decision (#742). `check` and
+`verify` name each file the change touches exactly as Git names it: in
+`changed_files[]`, `trigger.changed_files[]`, `affected_files[].path`,
+`violations[].path`, `violated_rules[].path` and `host_coverage[].paths[]` of
+`check --format agent-boundary-json` and its text output, and in
+`changed_files[]` and `trigger.changed_files[]` of `verifier.json` and
+`agent-handoff.json`. These paths are locators: a reviewer, an agent or CI
+opens, quotes and reviews the named file, and the pull request's own diff
+already shows the same names. A credential-shaped file name is therefore
+disclosed by the change itself, and redacting it here would break the locator
+without hiding it. The host inventory is the path surface that redacts: `audit
+--host`, its saved baseline, drift, `diff` and `verify`'s `host_comparison`
+redact each path component with the shared sanitizers and add a short digest of
+the exact source (#590). Do not commit a file whose name carries a secret.
+
 v0.18 changes public fingerprints for findings whose identity evidence contains
 a recognized secret pattern because the public `findings[].fingerprint` is now
 computed from redacted evidence. During `--baseline` scans, Shipgate also checks

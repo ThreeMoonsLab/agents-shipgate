@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Document that `check` and `verify` publish changed-file paths verbatim
+  (#742). The privacy section of `STABILITY.md` now names the fields that carry
+  them and why: they are locators a reviewer or agent opens, and the pull
+  request diff already shows them. The host inventory redacts path bytes (#590);
+  changed-file paths do not. No output changes.
+
 - Read through an in-tree link at a boundary path (#700). `CLAUDE.md -> AGENTS.md`
   and `.claude/skills -> ../.agents/skills` made every host comparison in the
   repository refuse as `unreadable`. That was the largest single cause of the
