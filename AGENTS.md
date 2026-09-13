@@ -827,7 +827,7 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Report schema (v0.6 frozen reference) | [`docs/report-schema.v0.6.json`](docs/report-schema.v0.6.json) | `0.6` |
 | Packet schema (Release Evidence Packet, latest) | [`docs/packet-schema.v0.18.json`](docs/packet-schema.v0.18.json) | `0.18` |
 | Agent result schema (current) | [`docs/agent-result-schema.v3.json`](docs/agent-result-schema.v3.json) | `agent_result_v3` |
-| Verifier schema (current) | [`docs/verifier-schema.v0.18.json`](docs/verifier-schema.v0.18.json) | `0.18` |
+| Verifier schema (current) | [`docs/verifier-schema.v0.19.json`](docs/verifier-schema.v0.19.json) | `0.19` |
 | Agent handoff schema (current) | [`docs/agent-handoff-schema.v9.json`](docs/agent-handoff-schema.v9.json) | `shipgate.agent_handoff/v9` |
 | Preflight schema (current) | [`docs/preflight-schema.v0.5.json`](docs/preflight-schema.v0.5.json) | `0.5` |
 | Host-grants inventory schema | [`docs/host-grants-inventory-schema.v0.4.json`](docs/host-grants-inventory-schema.v0.4.json) | `0.4` |

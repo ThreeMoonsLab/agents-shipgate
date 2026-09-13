@@ -64,22 +64,23 @@ allow list from `Bash(npm test)` / `Read(src/**)` to `Bash(*)` / `Read(**)` /
 capability-change class this pilot exists to observe.
 
 **Published build measured: `0.15.0`.** Preview measured:
-`0.16.0+preview.20260903.gb61aca7`. Source tree: `0.16.0`, rechecked on 2026-09-12 against
-branch commit `871786ba` — the #569 report freeze reconciled with `main` at
-`4c126573` — with runtime contract 36. The synthetic baseline was recorded and committed on the
+`0.16.0+preview.20260903.gb61aca7`. Source tree: `0.16.0`, rechecked on 2026-09-13 against
+branch commit `53b28313` — #721's named unchanged comparison limits, rebased on `main` at
+`71ef771d` — with runtime contract 37. The synthetic baseline was recorded and committed on the
 fixture base before the permission change, so it was not itself under review. The source-tree
 column below was rerun; the released and preview columns retain their earlier
 measurement and were not relabeled as new runs.
 
 The rerun reproduced every source-tree cell unchanged except the contract
-number: the freeze renumbers the report schema and does not touch host
-discovery, `check`, the audit route or drift. That is the point of re-running
+number: #721 names unchanged partial or experimental surfaces instead of
+refusing, and this fixture has none, so discovery, `check`, the audit route,
+`verify`'s six rows and drift are untouched. That is the point of re-running
 rather than carrying the row forward — "nothing changed" is a measurement, not
 an assumption.
 
 | | Released `v0.15.0` (`pipx install`) | Preview `0.16.0+preview.20260903` (`gh release download`) | Source tree |
 | --- | --- | --- | --- |
-| Runtime contract | 10 | 29 | 36 |
+| Runtime contract | 10 | 29 | 37 |
 | Host-grant inventory schema | 0.1 | 0.2 | 0.4 |
 | `check` on the fixture | `warn` / `none`, **0 violations** | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** |
 | Coverage limit visible (`host_coverage`, `excluded_scopes`) | no | yes | yes |

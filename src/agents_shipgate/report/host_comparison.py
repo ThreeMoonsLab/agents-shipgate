@@ -36,4 +36,10 @@ def host_comparison_lines(comparison: HostComparison, *, markdown: bool = False)
                 f"  {text(row.why)}",
             ]
         )
+    if comparison.unchanged_limits:
+        lines.append(
+            "Not compared: unchanged in this change and not read, so no claim is made about them:"
+        )
+        for limit in comparison.unchanged_limits:
+            lines.append(f"- {text(limit.host)} {text(limit.source)} — {text(limit.limit)}")
     return lines

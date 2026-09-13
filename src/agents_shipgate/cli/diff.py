@@ -24,17 +24,14 @@ from agents_shipgate.core.boundary_registry import is_boundary_surface_path
 from agents_shipgate.core.capability_diff_rows import (
     ABSENT,
     CapabilityDiffRow,
-    capability_diff_rows,
 )
 from agents_shipgate.core.host_grants import (
     HostStaticParseCache,
     build_host_boundary_snapshot,
-    build_host_drift_payload,
-    build_host_grants_baseline,
-    inventory_is_complete,
 )
 
-DIFF_SCHEMA_VERSION = "0.1"
+# 0.2 adds `unchanged_limits` (#721).
+DIFF_SCHEMA_VERSION = "0.2"
 
 
 def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
@@ -182,20 +179,24 @@ def run_capability_diff(
             base_tree, cache=HostStaticParseCache()
         ).inventory
 
-    if not inventory_is_complete(base_inventory):
-        payload = {
-            "comparison_status": "incomparable",
-            "incomparable_reasons": ["base_inventory_incomplete"],
-            "changes": [],
-            "expansion_signals": [],
-        }
-    else:
-        payload = build_host_drift_payload(
-            baseline=build_host_grants_baseline(base_inventory),
-            inventory=head.inventory,
-            baseline_file=f"{base_ref}@{base_commit[:12]}",
-        )
-    rows = capability_diff_rows(payload)
+    from agents_shipgate.cli.verify.git import blob_path_unchanged
+    from agents_shipgate.core.host_comparison import compare_host_inventories
+
+    # One comparison for diff, verify and check (#721). An unchanged partial or
+    # experimental surface is named as a limit instead of refusing every row.
+    comparison = compare_host_inventories(
+        base_inventory,
+        head.inventory,
+        head_kind="worktree",
+        base_commit=base_commit,
+        unchanged=lambda source: blob_path_unchanged(workspace, base_commit, None, source),
+    )
+    rows = list(comparison.rows)
+    limits = [limit.model_dump(mode="json") for limit in comparison.unchanged_limits]
+    payload = {
+        "comparison_status": comparison.comparison_status,
+        "incomparable_reasons": comparison.incomparable_reasons,
+    }
 
     if json_output:
         typer.echo(
@@ -208,6 +209,7 @@ def run_capability_diff(
                     "comparison_status": payload.get("comparison_status"),
                     "incomparable_reasons": payload.get("incomparable_reasons") or [],
                     "rows": [row.as_dict() for row in rows],
+                    "unchanged_limits": limits,
                     "static_analysis_only": True,
                 },
                 indent=2,
@@ -229,6 +231,13 @@ def run_capability_diff(
 
     typer.echo(f"Agent capability diff  {base_ref} ({base_commit[:8]}) -> working tree")
     typer.echo("")
+    if limits:
+        typer.echo(
+            "Not compared: unchanged in this change and not read, so no claim is made about them:"
+        )
+        for limit in limits:
+            typer.echo(f"  {limit['host']} {limit['source']} — {limit['limit']}")
+        typer.echo("")
     if not rows:
         typer.echo("No static host-grant changes detected. No verdict is implied.")
         return 0

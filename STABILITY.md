@@ -2,7 +2,17 @@
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
-Runtime contract v36 freezes the report contract at `1.0` (#569). No field is
+Runtime contract v37 names the limits a host comparison compared past (#721).
+Verifier `0.19` adds `host_comparison.unchanged_limits`, and `shipgate diff`
+(capability diff `0.2`) carries the same list. A surface that is partial
+(`unsupported`, `parse_failed`) or experimental on both sides, and
+byte-identical between them, no longer refuses the whole comparison: the rest
+is compared and each limit is named. A limit that changed, appears on one side
+only, or is `unreadable` still refuses. `check`'s boundary result cannot name
+limits yet and keeps refusing. See
+[the migration note](#unchanged-comparison-limits-contract-v37-721).
+
+Previous runtime contract v36 freezes the report contract at `1.0` (#569). No field is
 added, renamed, retyped or removed; `minimum_control_contract_version` stays at
 `21` because every operational control shape is byte-identical. The production
 qualification policy's `required_report_schema_version` moves to `1.0` with the
@@ -3455,4 +3465,38 @@ A host-grants baseline saved by an earlier build reports each URL server that
 has a query as `changed` once, because its digest now covers more.
 Review that row, then re-save the baseline. No schema version moves: the
 digest's inputs changed, not the inventory's shape.
+
+### Unchanged comparison limits (contract v37, #721)
+
+Verifier schema `0.19` adds `host_comparison.unchanged_limits`, a list of
+`{host, limit, source, detail}`. `limit` is `unsupported`, `parse_failed` or
+`experimental_coverage`. It is non-empty only on a `comparable` comparison, and
+an `incomparable` one names none.
+
+A comparison used to refuse whenever either inventory was partial or
+experimental, even when the surface that made it so was untouched. A limit is
+now named instead of refusing when all three hold:
+
+- it is present with the same kind, host and source on both sides;
+- it is a per-source `unsupported` or `parse_failed` issue, or experimental host
+  coverage;
+- its source is byte-identical at base and head, by Git object ID for a commit
+  and by unfiltered hash for a working tree.
+
+Anything else still refuses, including an `unreadable` source. An unchanged
+symlink whose in-tree target changed must not read as unchanged (#700).
+
+`shipgate diff --json` moves to capability diff `0.2` with the same
+`unchanged_limits` list. Its incomparable reason for an incomplete head is now
+`head_inventory_incomplete`, matching `verify`.
+
+`check --format agent-boundary-json` is unchanged:
+`shipgate.agent_boundary_result/v3` has no field for a limit. Where `diff` and
+`verify` would compare past one, `check` reports
+`incomparable` / `unchanged_limits_not_representable`.
+
+A `0.18` verifier artifact reads as `0.19` with no limits, which is what that
+build knew. One that claims `unchanged_limits` is refused. The published `0.18`
+schema stays frozen. `audit --host --save-baseline` still refuses an incomplete
+inventory.
 

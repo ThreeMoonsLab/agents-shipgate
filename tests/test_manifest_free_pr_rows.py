@@ -353,7 +353,7 @@ def test_current_host_result_validates_and_legacy_does_not_gain_evidence(s1, leg
         ],
     )
     payload = json.loads(result.output)
-    schema = json.loads((Path(__file__).parents[1] / "docs/verifier-schema.v0.18.json").read_text())
+    schema = json.loads((Path(__file__).parents[1] / "docs/verifier-schema.v0.19.json").read_text())
     Draft202012Validator(schema).validate(payload)
     payload["verifier_schema_version"] = legacy_version
     with pytest.raises(ValueError, match="Legacy verifier"):

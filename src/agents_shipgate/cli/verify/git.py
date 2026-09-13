@@ -1003,6 +1003,63 @@ def path_present_at_ref(workspace: Path, ref: str, path: Path) -> bool | None:
     return False
 
 
+def blob_path_unchanged(workspace: Path, base: str, head: str | None, path: str) -> bool:
+    """Whether ``path`` is the same regular file at ``base`` and at ``head``.
+
+    ``head=None`` means the working tree. The answer is ``False`` whenever
+    identity cannot be proven: a path absent on either side, a symlink or a
+    symlinked parent, a tree or submodule, an unreadable file, or any Git
+    failure. Blob object IDs are compared rather than `git diff` output, so a
+    ``.gitattributes`` filter or textconv cannot make two different byte
+    sequences read as equal (#721).
+    """
+
+    from pathlib import PurePosixPath
+
+    relative = PurePosixPath(path)
+    if not path or relative.is_absolute() or ".." in relative.parts or "\\" in path:
+        return False
+
+    def entry(commit: str) -> tuple[str, str, str] | None:
+        result = _run_git(
+            workspace,
+            ["--literal-pathspecs", "ls-tree", "-z", "--full-tree", commit, "--", path],
+            check=False,
+            text=False,
+        )
+        if result.returncode != 0:
+            return None
+        records = [record for record in result.stdout.split(b"\0") if record]
+        if len(records) != 1:
+            return None
+        header, separator, name = records[0].partition(b"\t")
+        fields = header.split()
+        if not separator or len(fields) != 3 or name != path.encode("utf-8"):
+            return None
+        mode, kind, oid = (field.decode("ascii") for field in fields)
+        if kind != "blob" or mode not in {"100644", "100755"}:
+            return None
+        return mode, kind, oid
+
+    base_commit = commit_sha(workspace, base)
+    base_entry = entry(base_commit) if base_commit else None
+    if base_entry is None:
+        return False
+    if head is not None:
+        head_commit = commit_sha(workspace, head)
+        head_entry = entry(head_commit) if head_commit else None
+        return head_entry == base_entry
+    target = workspace / path
+    try:
+        parents = [workspace / Path(*relative.parts[:index]) for index in range(1, len(relative.parts))]
+        if any(parent.is_symlink() for parent in parents) or target.is_symlink() or not target.is_file():
+            return False
+    except OSError:
+        return False
+    hashed = _run_git(workspace, ["hash-object", "--no-filters", "--", path], check=False)
+    return hashed.returncode == 0 and hashed.stdout.strip() == base_entry[2]
+
+
 def resolve_tree_path_identity(
     workspace: Path,
     ref: str,
