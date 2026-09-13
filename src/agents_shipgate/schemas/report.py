@@ -1759,7 +1759,16 @@ class ReadinessReport(BaseModel):
     # manifest block that answers it (``answer_path``), so the actions one
     # ``tool_sources[].authority`` block covers are one question and one
     # evidence-gap row rather than N of each (#410 increment 3).
-    report_schema_version: str = "0.43"
+    # 1.0 (#569): the freeze. The shape is byte-compatible with 0.43 -- no
+    # field was renamed, retyped, removed, or given a new meaning -- so this
+    # is a promotion of the 0.43 surface, not a break. What changes is the
+    # promise attached to it: see ``docs/report-1-0-contract.md`` for the
+    # stable/provisional inventory and the 1.x compatibility rules, and
+    # ``agents_shipgate.schemas.report_compatibility`` for the reader that
+    # enforces them. Historical ``0.x`` reports are no longer accepted as
+    # engine input; they are refused with a named regeneration route rather
+    # than reinterpreted under this model's defaults.
+    report_schema_version: str = "1.0"
     run_id: str
     request_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)
     subject_id: str | None = Field(default=None, pattern=CONTENT_ID_PATTERN)

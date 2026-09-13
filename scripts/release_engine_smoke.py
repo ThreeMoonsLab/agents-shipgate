@@ -107,6 +107,118 @@ def prepare(root: Path, source_commit: str, wheel: Path, *, disposable: bool = F
     return result
 
 
+def _cli_refusal(root: Path, *args: str) -> str:
+    """Run the installed CLI expecting it to refuse, and return what it said.
+
+    ``_cli`` raises on a non-zero exit because every other caller wants the
+    parsed stdout. The migration replay wants the opposite: the refusal *is*
+    the result, and a zero exit is the failure.
+    """
+
+    env = {k: v for k, v in os.environ.items() if k not in {"PYTHONPATH", "PYTHONHOME"}}
+    result = subprocess.run(
+        [sys.executable, "-I", "-m", "agents_shipgate", *args],
+        cwd=root, env=env, text=True, capture_output=True, check=False,
+    )
+    if result.returncode == 0:
+        raise ValueError(
+            f"Installed CLI accepted an artifact it must refuse: {' '.join(args)}"
+        )
+    return result.stdout + result.stderr
+
+
+def report_schema_exercise(root: Path, prepared: dict) -> dict:
+    """The recorded report-contract exercise for this candidate (#569).
+
+    ``STABILITY.md`` says a ``1.0`` line begins only once the report schema
+    reaches ``1.0`` and *holds*. "Holds" cannot be established by the source
+    tree asserting things about itself, so it is established here, against the
+    installed candidate wheel, on the same disposable run that already proves
+    the CLI and its generated Action agree.
+
+    Two claims, and the second is the one worth the machinery:
+
+    1. **The freeze is real in the distribution.** The reports this build emits
+       carry the frozen major, and it is the same version the build advertises
+       in ``contract --json``. A build whose emitted and advertised schema
+       disagree sends consumers to the wrong document and makes the
+       qualification gate reject every receipt.
+
+    2. **The migration boundary behaves, on the installed build.** A pre-freeze
+       report is refused by name with a route, and this build's own report is
+       accepted. The pre-freeze input is this run's own report with *only* its
+       version rewritten -- a single-variable experiment, and exactly the
+       mistake the freeze forbids: relabelling an artifact rather than
+       regenerating it. If a relabelled artifact were accepted, an old signed
+       receipt could acquire current authority by a one-field edit.
+    """
+
+    # Which side each fact comes from, stated because this file otherwise
+    # reads everything out of the installed wheel via ``_cli``:
+    #
+    #   * the *observed* values -- advertised contract, emitted report, the
+    #     refusal text -- come from the installed candidate;
+    #   * ``REPORT_CONTRACT_MAJOR`` and ``report_schema_refusal_code`` are the
+    #     *reviewed claim* being checked, and come from the source tree.
+    #
+    # They are the same build by construction: ``prepare`` is given
+    # ``--source-commit`` and refuses unless the generated workflow names it,
+    # so the checkout under review is the commit the wheel was built from.
+    from agents_shipgate.schemas.report_compatibility import (
+        REPORT_CONTRACT_MAJOR,
+        parse_report_schema_version,
+        report_schema_refusal_code,
+    )
+
+    advertised = prepared["contract"]["report_schema_version"]
+    parsed = parse_report_schema_version(advertised)
+    if parsed is None or parsed[0] != REPORT_CONTRACT_MAJOR:
+        raise ValueError(
+            f"Installed candidate advertises report schema {advertised!r}, which is "
+            f"not in the frozen {REPORT_CONTRACT_MAJOR}.x major"
+        )
+
+    local = root / ".shipgate-smoke/local"
+    emitted = json.loads((local / "report.json").read_text())["report_schema_version"]
+    if emitted != advertised:
+        raise ValueError(
+            f"Installed candidate emits report schema {emitted!r} but advertises "
+            f"{advertised!r}; consumers and the qualification gate read the second"
+        )
+
+    replay = root / ".shipgate-smoke/migration-replay"
+    replay.mkdir(parents=True, exist_ok=True)
+    relabelled = replay / "pre-freeze-report.json"
+    payload = json.loads((local / "report.json").read_text())
+    payload["report_schema_version"] = "0.43"
+    relabelled.write_text(json.dumps(payload, indent=2) + "\n")
+
+    refusal = _cli_refusal(root, "findings", "--from", str(relabelled), "--json")
+    code = report_schema_refusal_code(refusal)
+    if code != "report_schema_pre_freeze":
+        raise ValueError(
+            "Installed candidate did not refuse a relabelled pre-freeze report "
+            f"with a recognizable reason code (got {code!r})"
+        )
+    if "agents-shipgate scan" not in refusal:
+        raise ValueError("The installed candidate's refusal names no regeneration route")
+
+    # The other half: a gate nothing passes is indistinguishable from a broken
+    # one, and that is how a fail-closed change actually ships broken.
+    _cli(root, "findings", "--from", str(local / "report.json"), "--json")
+
+    return {
+        "advertised_report_schema_version": advertised,
+        "emitted_report_schema_version": emitted,
+        "frozen_major": REPORT_CONTRACT_MAJOR,
+        "relabelled_input_version": "0.43",
+        "relabelled_input_refused_with": code,
+        "refusal_names_regeneration_route": True,
+        "current_report_accepted": True,
+        "conversion_offered": False,
+    }
+
+
 def compare(root: Path) -> dict:
     prepared = json.loads((root / ".shipgate-smoke/prepared.json").read_text())
     results = []
@@ -120,6 +232,7 @@ def compare(root: Path) -> dict:
             "merge_verdict": verifier["merge_verdict"],
             "findings": sorted((f["check_id"], f["severity"]) for f in report["findings"]),
             "engine": plan["engine"],
+            "report_schema_version": report.get("report_schema_version"),
         })
     if results[0] != results[1] or results[0]["decision"] != "blocked":
         raise ValueError("Installed CLI and Action disagree, or the unsafe refund was not blocked")
@@ -127,6 +240,7 @@ def compare(root: Path) -> dict:
     if current_contract != prepared["contract"]:
         raise ValueError("Installed runtime contract changed between local and Action execution")
     return {**prepared, "local_and_action_agree": True, "result": results[0],
+            "report_schema_exercise": report_schema_exercise(root, prepared),
             "qualification_claim": "none: synthetic distribution smoke only"}
 
 

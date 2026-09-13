@@ -93,6 +93,7 @@ from agents_shipgate.schemas.report import (
 from agents_shipgate.schemas.report import (
     REVIEW_REQUIRED_SENTINEL as _REVIEW_REQUIRED_SENTINEL,
 )
+from agents_shipgate.schemas.report_compatibility import report_schema_refusal_code
 
 # Thresholds for the `insufficient_evidence` decision state. Private
 # module-level constants so they're tunable in code without expanding
@@ -2603,11 +2604,12 @@ def _evidence_gaps(
     for fact in source_recovery_evidence or ():
         recovery_by_warning[fact.warning].append(fact)
     for warning in report.source_warnings:
-        if (
-            "predates report schema" in warning
-            and "semantic evidence" in warning
-            and "not comparable with --diff-from" in warning
-        ):
+        # Structural, not prose. The three-substring match this replaced keyed
+        # on the exact wording of one refusal, so rewording it dropped an
+        # incomparable base out of `insufficient_evidence` without failing
+        # anything that named the decision (#569). The refusal now carries its
+        # own reason code and this looks it up.
+        if report_schema_refusal_code(warning) is not None:
             action = EvidenceGapAction(
                 kind="provide_source",
                 # No command, for the same reason as the unavailable-base gap

@@ -47,6 +47,7 @@ from agents_shipgate.core.codex_boundary import (
     _dedupe_violations,
     _display_path,
 )
+from agents_shipgate.core.permission_lattice import whole_tool_risk
 from agents_shipgate.core.trust_roots import read_absolute_identity_bound_text
 from agents_shipgate.schemas.agent_result_v1 import (
     AgentResultDiagnostic,
@@ -479,18 +480,19 @@ def _evaluate_claude_settings(diff_file, resolved, add) -> None:
     _evaluate_permission_mode(old_permissions, permissions, path, add)
     old_allow = set(_string_entries(old_permissions.get("allow")))
     for rule in sorted(set(_string_entries(permissions.get("allow"))) - old_allow):
-        if _is_wildcard_allow(rule):
-            add(
-                "HOST-PERMISSION-WILDCARD-ALLOW",
-                path=path,
-                evidence={"kind": "permission_wildcard_allow", "rule": _safe_rule(rule)},
-            )
-        else:
-            add(
-                "HOST-PERMISSION-ALLOW-EXPANDED",
-                path=path,
-                evidence={"kind": "permission_allow_expanded", "rule": _safe_rule(rule)},
-            )
+        rule_id = _allow_rule_id(rule)
+        add(
+            rule_id,
+            path=path,
+            evidence={
+                "kind": (
+                    "permission_wildcard_allow"
+                    if rule_id == "HOST-PERMISSION-WILDCARD-ALLOW"
+                    else "permission_allow_expanded"
+                ),
+                "rule": _safe_rule(rule),
+            },
+        )
     new_deny = set(_string_entries(permissions.get("deny")))
     for rule in sorted(set(_string_entries(old_permissions.get("deny"))) - new_deny):
         add(
@@ -561,9 +563,7 @@ def _evaluate_cursor_settings(diff_file, resolved, add) -> None:
         if key == "allow":
             for rule in sorted(set(values) - set(old_values)):
                 add(
-                    "HOST-PERMISSION-WILDCARD-ALLOW"
-                    if _is_wildcard_allow(rule)
-                    else "HOST-PERMISSION-ALLOW-EXPANDED",
+                    _allow_rule_id(rule),
                     path=path,
                     evidence={
                         "kind": "cursor_permission_allow_expanded",
@@ -664,6 +664,32 @@ def _is_wildcard_allow(rule: str) -> bool:
         return True
     argument = stripped[open_paren + 1 :].lstrip()
     return argument.startswith("*")
+
+
+def _allow_rule_id(rule: str) -> str:
+    """Which finding a newly-added allow rule earns.
+
+    `_is_wildcard_allow` answers *whether* a rule grants a whole tool, not
+    *what that tool reaches*, and the blocking rule was wired straight to
+    it. So adding `Read(**)` — the ordinary configuration for a coding
+    agent that already has the workspace checked out — blocked the
+    release at `critical`, exactly as `Bash(*)` does. A gate that stops
+    the release over reading files is one a team turns off, and a gate
+    that is off catches no `Bash(*)` either.
+
+    The tool class is the discriminator, taken from the same lattice the
+    audit table uses so the gate and the table cannot drift apart (#657).
+    """
+
+    if not _is_wildcard_allow(rule):
+        return "HOST-PERMISSION-ALLOW-EXPANDED"
+    _, risk = whole_tool_risk(rule)
+    # Still an expansion, still reviewed — just not a release blocker.
+    return (
+        "HOST-PERMISSION-ALLOW-EXPANDED"
+        if risk == "low"
+        else "HOST-PERMISSION-WILDCARD-ALLOW"
+    )
 
 
 def _safe_rule(rule: str) -> str:

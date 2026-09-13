@@ -43,6 +43,10 @@ from agents_shipgate.packet.html import write_packet_html
 from agents_shipgate.packet.json_packet import write_packet_json
 from agents_shipgate.packet.markdown import write_packet_markdown
 from agents_shipgate.schemas.report import ReadinessReport
+from agents_shipgate.schemas.report_compatibility import (
+    ReportSchemaCompatibilityError,
+    require_supported_report_schema,
+)
 
 _DEFAULT_FORMATS = "md,json,html"
 _VALID_FORMATS = {"md", "json", "html", "pdf"}
@@ -183,6 +187,20 @@ def _load_packet_or_report(payload: str) -> EvidencePacket:
         return load_packet_json(parsed)
 
     if "report_schema_version" in parsed:
+        # Gate before validating: `ReadinessReport` is ``extra="allow"`` with
+        # defaults nearly everywhere, so a pre-freeze payload would validate
+        # and silently present this build's defaults as recorded evidence
+        # (#569).
+        try:
+            require_supported_report_schema(
+                parsed.get("report_schema_version"),
+                subject="report.json",
+                # the packet is a projection of the report it is handed, so a
+                # later 1.x minor's extra fields change nothing it emits.
+                accept_newer_minor=True,
+            )
+        except ReportSchemaCompatibilityError as exc:
+            raise PacketSchemaError(str(exc)) from exc
         try:
             report = ReadinessReport.model_validate(parsed)
         except ValidationError as exc:

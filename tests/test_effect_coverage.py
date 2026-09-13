@@ -850,6 +850,10 @@ _FROZEN_AND_CURRENT_SCHEMAS = [
         "entry_point_agent_ids",
     ),
     ("report-schema.v0.42.json", "report-schema.v0.43.json", "declaration_review"),
+    # The 1.0 freeze (#569). The two documents are byte-identical apart from
+    # $id/title/version, so no member token distinguishes them -- the marker is
+    # the version constant itself, which is the only thing that moved.
+    ("report-schema.v0.43.json", "report-schema.v1.0.json", '"const": "1.0"'),
     ("packet-schema.v0.17.json", "packet-schema.v0.18.json", "declaration_review"),
     ("verifier-schema.v0.15.json", "verifier-schema.v0.16.json", "declaration_review"),
 ]
@@ -948,6 +952,9 @@ _PUBLISHED_SCHEMA_SHA256 = {
     "verifier-schema.v0.15.json": (
         "f362d0bb211830d4900fca2e2f3d38e95256a9e15338ff992a88a03640f29ee5"
     ),
+    "report-schema.v0.43.json": (
+        "e3d13aca31480e170e1c6656a4f075191ddc4da747cf00f5c5c7066d266ac7bd"
+    ),
 }
 
 
@@ -991,7 +998,7 @@ def test_every_emitted_artifact_validates_against_its_own_current_schema(tmp_pat
     )
 
     for artifact, schema_name in (
-        ("report.json", "report-schema.v0.43.json"),
+        ("report.json", "report-schema.v1.0.json"),
         ("packet.json", "packet-schema.v0.18.json"),
     ):
         payload = json.loads((tmp_path / artifact).read_text(encoding="utf-8"))

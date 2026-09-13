@@ -2,6 +2,157 @@
 
 ## Unreleased
 
+- Run the FastMCP Context-injection SDK cross-checks on the SDK versions the
+  `[mcp]` extra allows. FastMCP was renamed to MCPServer in mcp 2.x and the
+  extra requires `mcp>=2.1.1,<3`, but both cross-checks imported only the 1.x
+  module, so the eight cases comparing the static reader with the real SDK's
+  `find_context_parameter` skipped on every install that satisfies the extra,
+  CI included; they still ran, but only against an out-of-range mcp 1.x such as 1.27.2. They now try the 2.x location first and the
+  1.x one second, skip only when `mcp` is absent, and fail when an installed
+  SDK exposes neither. All eight pass on mcp 2.2.0 and on 1.27.2 (#716).
+
+- Freeze the report contract at `1.0` and publish what that number promises.
+  `report_schema_version` moves `0.43` → `1.0` and runtime contract `33` → `34`;
+  `minimum_control_contract_version` stays `21`. The shape does not change:
+  `docs/report-schema.v1.0.json` and `docs/report-schema.v0.43.json` are
+  byte-identical apart from `$id`, `title` and the version constant, so a
+  consumer written against `0.43` needs no edit. `1.x` is additive-only, a
+  change that cannot be expressed additively needs `2.0`, a deprecation cycle
+  counts shipped releases rather than time on unreleased `main`, and every
+  published schema URL keeps its bytes. The stable/provisional inventory of
+  report fields, CLI, exit-code, Action and control surfaces, the migration
+  from the shipped `v0.15.0` contract, and the recorded RC exercise are in
+  [`docs/report-1-0-contract.md`](docs/report-1-0-contract.md), checked against
+  the runtime by `tests/test_report_1_0_contract.py`.
+
+  Pre-freeze `0.x` reports are no longer accepted as engine *input*.
+  `scan --diff-from`, `apply-patches`, `explain-finding`, `findings`, `scenario suggest` and
+  `evidence-packet` refuse one by name, with a stable `reason_code` and a
+  regeneration route, instead of validating it against a model whose defaults
+  would stand in for blocks it never recorded. A report from a newer `1.x`
+  minor is read by a projection reader and refused by evidence comparison
+  or patch application.
+  Nothing is converted and no artifact gains current authority through
+  conversion or a restamped digest; every superseded schema stays published, so
+  archived reports remain validatable. An incomparable `--diff-from` base still
+  withholds the verdict rather than downgrading it — that routing is now keyed
+  on the refusal's own reason code instead of on its wording.
+
+  The production `beta` qualification policy's `required_report_schema_version`
+  moves to `1.0` with the engine. Issuance of the `pre_1_0` tier is retired:
+  `scripts/run_safety_qualification.py` produces no artifact carrying it and
+  `--policy-tier pre-1.0` is refused by name. The policy, its thresholds and
+  every reader of it remain, and it keeps its historical `0.43` pin so an
+  artifact already scored against it is still named and diagnosed correctly.
+  No scoring floor moved.
+
+  `docs/distribution-surfaces.md` gains a `report_schema_pin` claim: the five
+  surfaces that tell a reader which `report-schema.v<X>.json` to validate
+  against are now checked from the registry, in both directions (a pin left
+  behind and a pin ahead of the build), instead of by hand-maintained per-file
+  lists. `explain-finding` refuses a report whose findings carry no
+  `agent_action` rather than explaining a null one, the way `findings` already
+  refuses a missing `provenance_kind` (#569).
+
+- Tell a widened permission rule from a narrowed one, and stop rating
+  reading files as critical. Host grants are keyed by rule text, so
+  replacing `Bash(npm *)` with `Bash(npm test:*)` arrived as one removal
+  plus one addition — byte-for-byte the same shape as replacing it with
+  `Bash(*)`. Set arithmetic cannot separate those, so drift reported a
+  tightening as an expansion, and a reviewer who tightens a rule and gets
+  warned for it learns to stop reading the warnings. A new
+  `core/permission_lattice.py` decides which of two rules is wider for the
+  patterns hosts actually use — whole-tool grants, trailing-star prefixes,
+  literals, and the bare `mcp__server__*` spelling — and answers `None`
+  for anything else, including character classes and interior stars, where
+  a guess would be the same wrong direction in a new place. A narrowing no
+  longer contributes to `expansion_signals`; it stays visible in `changes`
+  as the removal and addition it is. A widening is now named
+  (`permission_widened: <host>:<before> -> <after>`) rather than only
+  counted.
+
+  The same lattice sets severity, replacing a model where every wildcard
+  allow was `admin`/`critical`. `Read(**)` sat beside `Bash(*)` at the top
+  of the table. On a carefully written host config — wildcard reads,
+  scoped `Bash` and `Edit`, two deny rules, one MCP server, a
+  least-privilege workflow — `audit --host` rated 7 of 10 grants `high` or
+  `critical`, three of them `critical`/`admin` for reading files. The same
+  config now rates 1 of 10 above `medium`: the MCP server, which is the
+  one row there that can reach anything new. Severity follows what the
+  grant reaches:
+  execution and `*` stay `critical`, network and write are `high`, an
+  unrecognised whole-tool grant is `high` because nothing establishes
+  otherwise, and reading a workspace the agent already has checked out is
+  `low`.
+
+  This narrows a blocking check. `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW`
+  blocked the release on any wildcard allow, so adding `Read(**)` — the
+  ordinary configuration for a coding agent — was a `critical` release
+  blocker, and a gate that stops a release over reading files is one a team
+  turns off. Read-only whole-tool grants now raise
+  `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` (`require_review`, `high`)
+  instead. Nothing else moves: execution, network, write, `*` and unknown
+  tools still block, and the check ID is unchanged for them. The gate had
+  classified wildcards a second time in `core/host_boundary.py`; both
+  readers now share the one lattice, and a test pins that they agree.
+
+  `policies/host-boundary.shipgate.yaml` records why each severity is what
+  it is, one `why:` line per rule — nine of the ten sat at `high` or above
+  with nothing written down. `tests/test_permission_lattice.py`
+  carries twenty widen/narrow/unchanged pairs replayed through the real
+  reader for both hosts with a rule vocabulary, and marks the two pairs
+  this lattice declines so the boundary moves visibly rather than
+  silently. Replayed against pre-fix `main`, 51 of its 78 cases fail
+  (#657).
+
+- Lead the Cursor instruction surface with `shipgate diff`. It opened with
+  the control envelope, so an agent following it reported "a human must
+  review" without naming what changed, while `AGENTS.md` had led with the
+  named rows since #651. The generated file now names the row fields, says
+  a covered comparison with no rows is a real answer, and repeats that a
+  row is a description and never a permission. The committed rule file and
+  the copyable snippet in `docs/target-repo-agent-snippets.md` are
+  regenerated from the one renderer; both are pinned to it by tests (#662).
+
+- Read `.claude/hooks/hooks.json`. A `SessionStart` command is executable code
+  around the agent and was invisible; the document is the same shape as
+  `.codex/hooks.json`, which has been read since the Codex adapter landed, so
+  only the registry entry was missing. Hook rows now name their event rather
+  than rendering as "hook". Found by counting disagreements between the
+  adapter registry and an independent census of host paths, now committed at
+  `benchmark/cold-start/census.py`: it prints unexplained coverage gaps,
+  issue-owned gaps and census bugs on every run, so a path nobody registered
+  can no longer look like a change that did nothing (#689).
+
+- Keep a directory at a recognized host configuration path visible as a failed
+  input. Host audits, worktree diffs and committed-ref comparisons no longer
+  mistake `.mcp.json/` for an absent configuration and report complete coverage.
+  Scoped base trees preserve directory kinds even when their contents are not
+  selected; ordinary containers remain valid (#613).
+
+- Advisory `diff` and manifest-free PR review materialize boundary paths and
+  symlinks from a verified tree instead of copying commit ancestry and writing
+  every file. The original sample improved from 25s to 2.7s; residual latency
+  remains #698, not a universal two-second promise. Shallow comparisons verify
+  that a visible common ancestor does not hide a newer one beyond a graft;
+  unresolved ancestry requests a fetch, while HEAD and proven ancestor
+  comparisons remain usable. Configured release archives retain their existing
+  whole-history validation. Scoped archives preserve links, but the reader
+  remains conservative until link-target identity can be bound (#700/#711):
+  successful materialization is not complete inventory coverage (#686/#688).
+
+- Read the Cursor rule format Cursor actually writes. `globs:` with nothing
+  after it — how Cursor spells a rule that is not glob-scoped — reads as
+  YAML null, and the frontmatter type check rejected null for every field.
+  That made the canonical `.cursor/rules/*.mdc` an unresolved instruction
+  structure, which is a blocking inventory issue, which made the whole
+  repository incomparable: `Doist/todoist-mcp` has eleven readable host
+  files and two such rules, and `diff` produced no rows for any of them on
+  every step of its history. An explicit null is now read as an absent key,
+  which is what it means. Wrong types are still wrong, unknown keys are
+  still unknown, and a skill with an empty `name` or `description` still
+  fails on identity rather than sliding through (#712).
+
 - Manifest-free host PR review now names capability changes in verify, PR comments,
   and check. Interactive check defaults to readable text; agent mode keeps JSON.
   Comparison evidence binds its input refs, excludes stale scan artifacts, and
@@ -77,7 +228,6 @@
   cut a release. `--fail-when-overdue` now covers both, for an operator or a
   scheduled job. Recorded as Amendment 4 in
   `docs/release-evidence-policy-decision.md`; no gate-line bar moves (#648).
-
 
 - Compare against the detected base by default in `check`, so a branch's
   committed work is visible without flags. `shipgate check` compared the
@@ -699,6 +849,7 @@
   build-dated, and a guard fails the day the newest published tag moves so the
   comparison is re-run instead of carried forward — a guard the page itself
   records as insufficient, since nothing fails when a new preview is cut.
+
 - **Everything `init` writes into an adopter's repository now names a release
   that exists.** (#506) `init --write --ci` generated
   `uses: ThreeMoonsLab/agents-shipgate@v0.16.0`, and no such tag had ever been
@@ -952,7 +1103,6 @@
   written. A companion test pins the committed tree to exactly two version
   sites that already agree, so a third one cannot be added and silently left
   unstamped.
-
 
 - **Releases run on a cadence, and work that cannot be tagged can still be
   installed.** (#491) 81% of this changelog had never reached a user: 5,039 of

@@ -31,23 +31,10 @@ from agents_shipgate.schemas.report import (
     Finding,
     ReadinessReport,
 )
-
-_MIN_SUPPORTED_SCHEMA = "0.12"
-
-
-def _version_tuple(value: str) -> tuple[int, ...]:
-    """Parse a `MAJOR.MINOR` schema version into a comparable tuple.
-
-    Raises ``ValueError`` for malformed strings so the CLI maps the
-    failure to ``input_parse_error`` (exit 3) rather than a 500-style
-    crash."""
-    try:
-        return tuple(int(part) for part in value.split("."))
-    except (AttributeError, ValueError) as exc:
-        raise ValueError(
-            f"invalid report_schema_version: {value!r}"
-        ) from exc
-
+from agents_shipgate.schemas.report_compatibility import (
+    ReportSchemaCompatibilityError,
+    require_supported_report_schema,
+)
 
 _AGENT_ACTION_GUIDANCE: dict[AgentAction, str] = {
     "auto_apply": (
@@ -105,27 +92,51 @@ def _load_report(path: Path) -> tuple[ReadinessReport, dict[str, Any]]:
     if not isinstance(payload, dict):
         raise ValueError("report JSON must be an object")
 
-    version = payload.get("report_schema_version")
-    if not isinstance(version, str):
-        raise ValueError(
-            "input must be an agents-shipgate report.json with a "
-            "string `report_schema_version`."
+    # The 1.0 freeze replaced this command's own ">= 0.12" floor with the
+    # shared boundary (#569). The version check alone was never the real guard:
+    # `Finding.agent_action` is `AgentAction | None` in the model, so a payload
+    # that merely *declares* a supported version can still carry nulls and
+    # produce the `"agent_action": null` explanation #58 review P2.2 exists to
+    # prevent. The published schema requires the field, so the honest guard is
+    # structural -- checked below, the same way `findings.py` checks
+    # `provenance_kind`.
+    try:
+        require_supported_report_schema(
+            payload.get("report_schema_version"),
+            subject="report.json",
+            # explain-finding explains one row it is handed, so a
+            # later 1.x minor's extra fields change nothing it emits.
+            accept_newer_minor=True,
         )
-    if _version_tuple(version) < _version_tuple(_MIN_SUPPORTED_SCHEMA):
-        raise ValueError(
-            f"explain-finding requires report_schema_version "
-            f">= {_MIN_SUPPORTED_SCHEMA} (got {version!r}). The "
-            "v0.12 schema added the per-finding `agent_action` enum "
-            "that this command depends on. Re-scan with the current "
-            "CLI: `agents-shipgate scan -c shipgate.yaml --format json`."
-        )
+    except ReportSchemaCompatibilityError as exc:
+        raise ValueError(str(exc)) from exc
 
     payload = sanitize_report_payload(payload)
 
     try:
-        return ReadinessReport.model_validate(payload), payload
+        report = ReadinessReport.model_validate(payload)
     except ValidationError as exc:
         raise ValueError(f"report.json failed validation: {exc}") from exc
+
+    # The published schema requires `agent_action` on every finding; the
+    # Pydantic model leaves it optional so fixtures can build minimal findings.
+    # Explaining a row without it returns `"agent_action": null` and drops the
+    # action-aware sentence this command exists for, so refuse instead --
+    # `findings.py` refuses the same way when `provenance_kind` is absent.
+    missing = [
+        finding.id or finding.fingerprint or finding.check_id
+        for finding in report.findings
+        if finding.agent_action is None
+    ]
+    if missing:
+        preview = ", ".join(missing[:3])
+        suffix = f", … (+{len(missing) - 3})" if len(missing) > 3 else ""
+        raise ValueError(
+            "report.json contains finding(s) without `agent_action`: "
+            f"{preview}{suffix}. Re-scan with the current CLI: "
+            "`agents-shipgate scan -c shipgate.yaml --format json`."
+        )
+    return report, payload
 
 
 def _evidence_summary(evidence: dict[str, Any]) -> str:
@@ -211,9 +222,11 @@ def explain_finding_payload(
     """Build the deterministic payload for ``explain-finding --json``.
 
     Pure function: takes a fingerprint and a report path, returns a
-    serialisable dict. Raises ``ValueError`` on missing report or
-    pre-v0.12 schema; raises :class:`FingerprintNotFound` when the
-    fingerprint doesn't match any finding in the report.
+    serialisable dict. Raises ``ValueError`` on a missing report or one
+    whose report schema this build must not interpret (see
+    :mod:`agents_shipgate.schemas.report_compatibility`); raises
+    :class:`FingerprintNotFound` when the fingerprint doesn't match any
+    finding in the report.
 
     Payload shape: every canonical ``Finding`` field (via
     :meth:`pydantic.BaseModel.model_dump`) plus three derived fields:

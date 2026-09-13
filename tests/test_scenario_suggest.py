@@ -322,7 +322,10 @@ def test_scenario_suggest_rejects_bad_inputs(tmp_path):
 def test_scenario_suggest_accepts_future_minor_report_schema(tmp_path):
     report_path = _sample_report_path(tmp_path)
     payload = json.loads(report_path.read_text(encoding="utf-8"))
-    payload["report_schema_version"] = "0.99"
+    # A later minor *within the frozen major*. "0.99" used to stand for "a
+    # future minor"; after the 1.0 freeze it is a pre-freeze version, which is
+    # refused for a different and correct reason (#569).
+    payload["report_schema_version"] = "1.99"
     report_path.write_text(json.dumps(payload), encoding="utf-8")
     out_path = tmp_path / "suggested-scenarios.yaml"
 

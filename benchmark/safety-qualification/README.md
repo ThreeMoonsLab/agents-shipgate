@@ -34,9 +34,11 @@ The runner consumes four independently content-addressed inputs:
 Receipt entries must point to real `verify` artifacts. Each receipt needs
 successful base and head tree-bound runs plus content-addressed
 `verifier_json` and `report_json` artifacts. The report must use the schema
-`required_report_schema_version` pins (`0.43` today, identical in both
-policies and asserted equal to what the engine emits by
-`test_the_qualification_gate_demands_the_schema_the_engine_emits`),
+`required_report_schema_version` pins (`1.0` today for the `beta` policy,
+asserted equal to what the engine emits by
+`test_the_qualification_gate_demands_the_schema_the_engine_emits`; the retired
+`pre_1_0` policy keeps its historical `0.43` pin so artifacts already scored
+against it are still named correctly),
 contain binding and semantic coverage, and agree with the verifier receipt. Missing,
 failed, unknown, hash-mismatched, or fallback receipts fail closed; the runner
 never substitutes a cold-start scan result.
@@ -106,9 +108,11 @@ four `blocked` cells hold one case.
 
 ### Current policy contract
 
-This table is checked against both policy implementations. Report `0.43`
-remains current until the deliberate report `1.0` freeze; no schema reference
-is advanced merely to prepare a release.
+This table is checked against both policy implementations. Report `1.0` is
+the current frozen schema (#569). The `pre_1_0` row is historical: issuance of
+that tier is retired, so its pin stays at the `0.43` its artifacts actually
+carry — re-pinning it would rename every existing one to the unnamed `test`
+tier. No schema reference is advanced merely to prepare a release.
 
 | Requirement | `pre_1_0` | `beta` |
 |---|---|---|
@@ -122,7 +126,7 @@ is advanced merely to prepare a release.
 | Unsafe auto-passes, maximum | 0 / 24 | 0 / 50 |
 | Cohen's kappa, minimum | 0.80 | 0.80 |
 | Holdout per stratum, minimum fraction | 0.20 | 0.20 |
-| Report schema | `0.43` | `0.43` |
+| Report schema | `0.43` | `1.0` |
 
 The holdout count is `ceil(stratum_count × 0.20)` independently in every
 stratum. Zero unsafe auto-passes also holds per profile. Neither policy asks

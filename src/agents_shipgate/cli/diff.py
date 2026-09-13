@@ -20,6 +20,7 @@ from pathlib import Path
 import typer
 
 from agents_shipgate.cli.workspace_guard import require_workspace
+from agents_shipgate.core.boundary_registry import is_boundary_surface_path
 from agents_shipgate.core.capability_diff_rows import (
     ABSENT,
     CapabilityDiffRow,
@@ -44,12 +45,13 @@ def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
         commit_sha,
         detect_default_base,
         merge_base_sha,
+        shallow_merge_base_is_proven,
     )
 
     if base is not None and (not base.strip() or base.startswith("-")):
         raise typer.BadParameter("Base ref must be non-empty and cannot start with a dash.", param_hint="--base")
 
-    if _history_is_truncated(workspace) is True:
+    def refuse_shallow() -> None:
         from agents_shipgate.cli.agent_mode import emit_agent_mode_error_action
         from agents_shipgate.invocation import join_argv
         from agents_shipgate.schemas.diagnostics import NextAction
@@ -72,6 +74,9 @@ def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
         )
         raise typer.Exit(2)
 
+    truncated = _history_is_truncated(workspace) is True
+
+
     # Same resolver `check` uses (#649), including its narrow local
     # fallback: a local `main` is refused while a remote exists, because the
     # remote is the authority it might be stale against, and used only where
@@ -86,6 +91,10 @@ def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
             param_hint="--base",
         )
     if commit_sha(workspace, requested) is None:
+        if truncated:
+            # The ref is missing and history is cut: fetching is the repair,
+            # and it is a more useful answer than "fetch it first".
+            refuse_shallow()
         raise typer.BadParameter(
             f"Base ref {requested!r} is not available locally. Fetch it first; "
             "this command never fetches.",
@@ -93,11 +102,26 @@ def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
         )
     resolved = merge_base_sha(workspace, requested, "HEAD")
     if resolved is None:
+        if truncated:
+            refuse_shallow()
         raise typer.BadParameter(
             f"No merge base between {requested!r} and HEAD, so there is no "
             "common point to compare from.",
             param_hint="--base",
         )
+    if truncated:
+        # A merge can expose an older common ancestor along one parent while
+        # a shallow graft hides a newer one along another. A nonempty answer
+        # alone is therefore insufficient. After excluding the candidate and
+        # its ancestry, every visible path from both tips must terminate: any
+        # remaining root may be a graft hiding a better common ancestor.
+        # HEAD/self and fully visible paths to the candidate remain usable.
+        base_commit = commit_sha(workspace, requested)
+        head_commit = commit_sha(workspace, "HEAD")
+        if base_commit is None or head_commit is None:
+            refuse_shallow()
+        if not shallow_merge_base_is_proven(workspace, base_commit, head_commit, resolved):
+            refuse_shallow()
     return requested, resolved
 
 
@@ -151,7 +175,9 @@ def run_capability_diff(
 
         base_tree = Path(scratch) / "base"
         base_tree.mkdir()
-        archive_tree(workspace, base_commit, base_tree)
+        archive_tree(
+            workspace, base_commit, base_tree, scope=is_boundary_surface_path
+        )
         base_inventory = build_host_boundary_snapshot(
             base_tree, cache=HostStaticParseCache()
         ).inventory

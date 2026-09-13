@@ -104,7 +104,7 @@ schema.
 
 - **Markdown** — `agents-shipgate-reports/report.md`, for human review.
 - **JSON** — `agents-shipgate-reports/report.json`, machine-readable
-  (schema v0.43, current). Always parse this for programmatic use.
+  (schema v1.0, current). Always parse this for programmatic use.
   For release gating, read `release_decision.decision`; the legacy
   `summary.status` field is baseline-blind (kept for v0.7 callers). A
   `passed` decision requires complete, conflict-free static surface, effect,

@@ -1,6 +1,27 @@
 # Current Agent Contract
 
-Runtime contract v35 adds manifest-free host comparison evidence in verifier `0.18` and named boundary rows in `shipgate.agent_boundary_result/v3`. Comparison health and captured input identity remain separate from release and control authority. See [the migration note](../STABILITY.md#manifest-free-host-review-contract-v35-684).
+Runtime contract v36 freezes the report contract at `1.0` (#569). No field is
+added, renamed, retyped or removed: the emitted shape is exactly the one v35
+advertised as report `0.43`, so a consumer written against `0.43` reads a
+`1.0` report unchanged. What moved is the promise. `1.x` is additive-only; a
+change that cannot be expressed additively needs `2.0`; a deprecation cycle is
+counted in shipped releases, never in time on unreleased `main`; and every
+published schema URL keeps its bytes forever. The production qualification
+policy's `required_report_schema_version` moves with the engine to `1.0`, and
+issuance of the `pre_1_0` qualification tier is retired — existing `pre_1_0`
+artifacts stay readable, nameable and scoreable, they are simply not produced
+any more.
+
+Pre-freeze `0.x` reports are no longer accepted as *input* to this engine.
+Every external report boundary — `--diff-from`, `explain-finding`, `findings`,
+`scenario suggest`, and `packet` from a report — refuses one by name and names
+the regeneration route, instead of validating it against a model whose
+defaults would stand in for blocks it never recorded. Every superseded schema
+stays published for reading archived artifacts. Operational control shapes are
+byte-identical, so `minimum_control_contract_version` stays at `21`. See
+[`docs/report-1-0-contract.md`](report-1-0-contract.md).
+
+Previous runtime contract v35 adds manifest-free host comparison evidence in verifier `0.18` and named boundary rows in `shipgate.agent_boundary_result/v3`. Comparison health and captured input identity remain separate from release and control authority. See [the migration note](../STABILITY.md#manifest-free-host-review-contract-v35-684).
 
 Previous runtime contract v34 advertises host inventory, baseline and drift schema `0.4`: workflow permission projections and reusable secret recipients. Operational control is unchanged; older baselines cannot prove that unrecorded recipients were absent. See [the migration note](../STABILITY.md#workflow-capability-comparison-contract-v34-685).
 
@@ -52,7 +73,7 @@ agents-shipgate contract --json
 ### Unreleased declaration-review migration
 
 Runtime contract v29 coordinates the public artifacts that carry changed
-action declarations: report v0.43, packet v0.18, and verifier v0.16.
+action declarations: report v0.43 (now frozen at `1.0`), packet v0.18, and verifier v0.16.
 `minimum_control_contract_version` remains 21 because the operational control
 envelope is unchanged.
 
@@ -558,8 +579,8 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `35` (minimum control contract: `21`)
-- Current report schema: `0.43` — [`docs/report-schema.v0.43.json`](report-schema.v0.43.json)
+- Runtime contract: `36` (minimum control contract: `21`)
+- Current report schema: `1.0`, frozen, superseding `0.43` — [`docs/report-schema.v1.0.json`](report-schema.v1.0.json); the `1.x` rules are in [`docs/report-1-0-contract.md`](report-1-0-contract.md)
 - Current packet schema: `0.18` — [`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
 - Current verifier schema: `0.18` — [`docs/verifier-schema.v0.18.json`](verifier-schema.v0.18.json) (`0.17` and earlier stay frozen; `0.18` adds advisory host comparison evidence)
@@ -1471,7 +1492,7 @@ Companion prompt: [`prompts/explain-finding-to-user.md`](../prompts/explain-find
 
 - [STABILITY.md](../STABILITY.md) — full alpha stability contract. Source of truth for everything above.
 - [AGENTS.md](../AGENTS.md) — agent-facing instructions: install, run, single-turn flow, error semantics.
-- [`docs/report-schema.v0.43.json`](report-schema.v0.43.json) — machine-validatable JSON Schema for the current report.
+- [`docs/report-schema.v1.0.json`](report-schema.v1.0.json) — machine-validatable JSON Schema for the current report.
 - [`docs/privacy.md`](privacy.md) and [`docs/report-sensitive-fields.json`](report-sensitive-fields.json) — default redaction behavior and sensitive-field inventory.
 - [`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json) — machine-validatable JSON Schema for the current packet.
 - [`docs/checks.json`](checks.json) — check catalog, including `mvp_tier` for MVP/readiness triage.

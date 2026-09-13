@@ -174,7 +174,15 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # v34 advertises host inventories/baselines/drift 0.4: workflow permission
 # projections and reusable secret recipients. Operational control is unchanged.
 # v35 carries manifest-free advisory host comparison evidence and named check rows.
-CONTRACT_VERSION: Literal["35"] = "35"
+# v36 freezes the report contract at ``1.0`` (#569). No field is added,
+# renamed, retyped or removed: the emitted shape is the one v35 advertised as
+# report ``0.43``. The bump exists because what the runtime *promises* about
+# that shape changed -- 1.x is additive-only, a breaking change needs 2.0, and
+# a deprecation cycle is counted in shipped releases -- and a consumer must be
+# able to discover that from ``contract --json`` rather than from prose. The
+# operational control shapes remain byte-identical, so
+# ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21.
+CONTRACT_VERSION: Literal["36"] = "36"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"

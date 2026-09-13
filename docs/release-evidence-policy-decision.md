@@ -35,7 +35,7 @@ must carry. It reduces nothing about how that evidence is judged.
 | Blocked exact³ | ≥ 30 of 30 (100%) | **≥ 10 of 10** (100%) |
 | Review exact | ≥ 19 of 20 (95%) | **≥ 14 of 14** (100%) |
 | Insufficient-evidence exact³ | no cases target it | **no cases target it** |
-| Report schema² | `0.43` | **`0.43`** — unchanged |
+| Report schema² | `1.0` | **`0.43`** — historical; this tier's issuance is retired (#569) |
 
 ² The approved table read `0.42`. The pin follows the schema the engine emits
 (`test_the_qualification_gate_demands_the_schema_the_engine_emits`), a later

@@ -723,9 +723,14 @@ def test_a_hand_built_action_dict_is_normalized_at_the_wire(tmp_path: Path) -> N
     """
 
     report = tmp_path / "report.json"
-    # A report without ``manifest_dir`` is the pre-v0.6 shape whose recovery
-    # route is the hand-built command dict.
-    report.write_text(json.dumps({"findings": []}), encoding="utf-8")
+    # A current-version report missing ``manifest_dir`` reaches the
+    # hand-built command recovery rather than the schema-version refusal.
+    from agents_shipgate.schemas.report import ReadinessReport
+
+    report.write_text(json.dumps({
+        "report_schema_version": ReadinessReport.model_fields["report_schema_version"].default,
+        "findings": [],
+    }), encoding="utf-8")
 
     result = _run_module("apply-patches", "--from", str(report), cwd=tmp_path)
     payload = _agent_mode_line(result.stderr)

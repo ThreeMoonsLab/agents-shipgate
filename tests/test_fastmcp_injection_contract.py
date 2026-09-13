@@ -4,11 +4,72 @@ SDK probes below call only the installed framework's signature utility on
 functions authored in this test. No scanned server is imported or executed.
 """
 
+import importlib
+import importlib.metadata
+import importlib.util
 import typing
 
 import pytest
 
 from agents_shipgate.inputs.mcp_idioms import scan_source
+
+#: Where the installed SDK keeps the signature utility these probes compare
+#: against. FastMCP was renamed to MCPServer in mcp 2.x, and the `[mcp]` extra
+#: requires `mcp>=2.1.1,<3`, so importing only the 1.x path skipped on every
+#: supported install: the cross-checks against the real SDK never ran (#716).
+_SDK_LOCATIONS = (
+    ("mcp.server.mcpserver.utilities.context_injection", "mcp.server.mcpserver"),  # mcp 2.x
+    ("mcp.server.fastmcp.utilities.context_injection", "mcp.server.fastmcp"),  # mcp 1.x
+)
+
+
+def _installed_sdk():
+    """The installed SDK's injection utility and its ``Context`` class.
+
+    Skips only when ``mcp`` itself is absent. An installed SDK exposing
+    neither location is an API move this file has not followed, and skipping
+    it would hide the gap exactly the way the 1.x-only import did, so that
+    fails instead.
+    """
+
+    if importlib.util.find_spec("mcp") is None:
+        pytest.skip(
+            "the mcp SDK is not installed; install agents-shipgate[mcp] to run "
+            "the SDK cross-checks"
+        )
+    for utility, package in _SDK_LOCATIONS:
+        try:
+            module = importlib.import_module(utility)
+        except ModuleNotFoundError:
+            continue
+        return module, importlib.import_module(package).Context
+    try:
+        version = importlib.metadata.version("mcp")
+    except importlib.metadata.PackageNotFoundError:
+        version = "unknown"
+    pytest.fail(
+        f"mcp {version} is installed but exposes no context-injection utility at a "
+        "known location; extend _SDK_LOCATIONS rather than letting these cross-checks skip"
+    )
+
+
+def test_an_absent_sdk_skips_and_names_the_extra(monkeypatch):
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a, **k: None)
+    with pytest.raises(pytest.skip.Exception, match=r"agents-shipgate\[mcp\]"):
+        _installed_sdk()
+
+
+def test_an_installed_sdk_at_an_unknown_location_fails_instead_of_skipping(monkeypatch):
+    """The skip that hid #716 must not come back with the next rename."""
+
+    def missing(name, *args, **kwargs):
+        raise ModuleNotFoundError(name)
+
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a, **k: object())
+    monkeypatch.setattr(importlib, "import_module", missing)
+    monkeypatch.setattr(importlib.metadata, "version", lambda name: "9.9.9")
+    with pytest.raises(pytest.fail.Exception, match="no context-injection utility"):
+        _installed_sdk()
 
 
 def _parameters(signature, *, imports="", definitions="", family="mcp.server.fastmcp"):
@@ -69,8 +130,7 @@ def test_unresolved_whole_signature_does_not_hide_context(signature):
     "Dict[str]", "Dict[str, str, int]", "Union[()]",
 ])
 def test_invalid_typing_arity_cannot_hide_context(annotation):
-    sdk = pytest.importorskip("mcp.server.fastmcp.utilities.context_injection")
-    from mcp.server.fastmcp import Context
+    sdk, Context = _installed_sdk()
 
     # Authored test annotations only: get_type_hints must reach the same
     # semantic refusal that stops the real SDK's whole-signature resolver.
@@ -132,8 +192,7 @@ def test_unresolved_local_class_construction_cannot_hide_a_parameter(definition)
 
 
 def test_installed_sdk_whole_signature_and_generic_semantics():
-    sdk = pytest.importorskip("mcp.server.fastmcp.utilities.context_injection")
-    from mcp.server.fastmcp import Context
+    sdk, Context = _installed_sdk()
 
     def direct(ctx: Context) -> str:
         return ""

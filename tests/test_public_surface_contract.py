@@ -64,7 +64,10 @@ from agents_shipgate.schemas.org_evidence_bundle import ORG_EVIDENCE_BUNDLE_SCHE
 from agents_shipgate.schemas.packet import EvidencePacket
 from agents_shipgate.schemas.registry import REGISTRY_SCHEMA_VERSION
 from agents_shipgate.schemas.report import ReadinessReport
-from agents_shipgate.schemas.safety_qualification import pre_release_safety_requirements
+from agents_shipgate.schemas.safety_qualification import (
+    pre_release_safety_requirements,
+    production_safety_requirements,
+)
 from agents_shipgate.schemas.verifier import VerifierArtifact
 from agents_shipgate.triggers import (
     VALID_SURFACE_CLASSES,
@@ -758,10 +761,17 @@ def test_the_prose_that_states_the_current_report_schema_states_the_current_one(
     # already holds equal to what the engine emits. Checking it against the
     # policy keeps this guard about the sentence rather than duplicating that
     # equality.
-    pinned = pre_release_safety_requirements().required_report_schema_version
+    #
+    # It reads the *production* policy because the two policies stopped being
+    # identical at the 1.0 freeze (#569): production follows the engine to
+    # `1.0`, while the retired `pre_1_0` tier keeps the `0.43` its artifacts
+    # actually carry. The runbook has to say which is which, so both halves of
+    # that sentence are bound here.
+    runbook_text = _read("benchmark/safety-qualification/README.md")
+    pinned = production_safety_requirements().required_report_schema_version
     runbook = re.search(
         r"`required_report_schema_version` pins \(`(\d+\.\d+)` today",
-        _read("benchmark/safety-qualification/README.md"),
+        runbook_text,
     )
     assert runbook, (
         "benchmark/safety-qualification/README.md must state which version "
@@ -769,7 +779,22 @@ def test_the_prose_that_states_the_current_report_schema_states_the_current_one(
     )
     assert runbook.group(1) == pinned, (
         f"the qualification runbook says the policy pins {runbook.group(1)!r}; "
-        f"pre_release_safety_requirements() pins {pinned!r}."
+        f"production_safety_requirements() pins {pinned!r}."
+    )
+
+    retired = pre_release_safety_requirements().required_report_schema_version
+    historical = re.search(
+        r"historical `(\d+\.\d+)` pin", runbook_text
+    )
+    assert historical, (
+        "benchmark/safety-qualification/README.md must state the retired "
+        "`pre_1_0` policy's historical pin, or a reader cannot tell why the "
+        "two policies name different schemas."
+    )
+    assert historical.group(1) == retired, (
+        f"the qualification runbook says the retired policy keeps "
+        f"{historical.group(1)!r}; pre_release_safety_requirements() keeps "
+        f"{retired!r}."
     )
 
 

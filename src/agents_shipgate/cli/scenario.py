@@ -27,6 +27,10 @@ from agents_shipgate.schemas.report import (
     SuggestedScenario,
     SuggestedScenarioType,
 )
+from agents_shipgate.schemas.report_compatibility import (
+    ReportSchemaCompatibilityError,
+    require_supported_report_schema,
+)
 
 SCENARIO_SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 ACTIVE_SCENARIO_SEVERITIES = {"critical", "high", "medium"}
@@ -69,7 +73,7 @@ def scenario_suggest(
     from_path: Path = typer.Option(
         ...,
         "--from",
-        help="Path to a v0.9+ agents-shipgate report.json.",
+        help="Path to an agents-shipgate report.json carrying a supported report schema.",
     ),
     out: Path | None = typer.Option(
         None,
@@ -102,8 +106,8 @@ def scenario_suggest(
                     "path": None,
                     "why": guidance,
                     "expects": (
-                        "--from points at a valid v0.9+ report.json and --out "
-                        "is a writable file path."
+                        "--from points at a report.json this build can read "
+                        "and --out is a writable file path."
                     ),
                 }
             ],
@@ -152,13 +156,18 @@ def load_report_json(path: Path) -> ReadinessReport:
     if not isinstance(payload, dict):
         raise ScenarioInputError("report JSON must be an object")
 
-    version = payload.get("report_schema_version")
-    if not isinstance(version, str):
-        raise ScenarioInputError("input must be an agents-shipgate report.json")
-    if not _schema_version_at_least(version, "0.9"):
-        raise ScenarioInputError(
-            "scenario suggestions require report_schema_version >= 0.9"
+    # Was ">= 0.9"; the 1.0 freeze routes every external report input through
+    # one boundary instead of a per-command floor (#569).
+    try:
+        require_supported_report_schema(
+            payload.get("report_schema_version"),
+            subject="report.json",
+            # scenario suggest projects the report it is handed, so a
+            # later 1.x minor's extra fields change nothing it emits.
+            accept_newer_minor=True,
         )
+    except ReportSchemaCompatibilityError as exc:
+        raise ScenarioInputError(str(exc)) from exc
 
     try:
         return ReadinessReport.model_validate(payload)
@@ -470,17 +479,6 @@ def _short_ref(value: str) -> str:
     if clean.startswith("fp"):
         clean = clean[2:]
     return (clean or "ref")[:8].lower()
-
-
-def _schema_version_at_least(actual: str, minimum: str) -> bool:
-    return _version_tuple(actual) >= _version_tuple(minimum)
-
-
-def _version_tuple(value: str) -> tuple[int, ...]:
-    try:
-        return tuple(int(part) for part in value.split("."))
-    except ValueError as exc:
-        raise ScenarioInputError(f"invalid report_schema_version: {value!r}") from exc
 
 
 __all__ = [

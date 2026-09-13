@@ -2,7 +2,12 @@
 
 > Status: **proposal** (no behavior change in this document). Target:
 > freeze a v1.0 report schema whose top-level surface stops growing.
-> Written 2026-06; current runtime is `report_schema_version: "0.43"`.
+> Written 2026-06; **superseded**. The `1.0` freeze that actually shipped
+> (#569) renumbers the existing shape rather than regrouping it — see
+> [`report-1-0-contract.md`](report-1-0-contract.md). The regrouping below was
+> never adopted; it is kept as the record of an option that was considered and
+> rejected, because it could not be delivered without a breaking re-parenting.
+> Current runtime is `report_schema_version: "1.0"`.
 
 ## Problem
 

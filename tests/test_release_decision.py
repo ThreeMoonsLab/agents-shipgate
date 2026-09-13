@@ -464,10 +464,28 @@ def test_one_source_warning_is_review_required():
 
 
 def test_diff_reference_degradation_uses_typed_action_kind_for_ie():
-    warning = (
-        "Base report predates report schema semantic evidence and is not "
-        "comparable with --diff-from. Regenerate it."
+    """An incomparable `--diff-from` base withholds the verdict.
+
+    The warning is built by the *producer* rather than typed out here. It used
+    to be a hand-written copy of the refusal's prose, and the classifier keyed
+    on three substrings of that prose -- so the two could drift apart while
+    this test, which exists to catch exactly that, went on passing against its
+    own fixture. Both sides now go through
+    ``agents_shipgate.schemas.report_compatibility`` (#569).
+    """
+
+    from agents_shipgate.schemas.report_compatibility import (
+        ReportSchemaCompatibilityError,
+        require_supported_report_schema,
     )
+
+    try:
+        require_supported_report_schema("0.28", subject="Reference report base/report.json")
+    except ReportSchemaCompatibilityError as exc:
+        warning = str(exc)
+    else:  # pragma: no cover - the boundary must refuse a pre-freeze version
+        raise AssertionError("a pre-freeze base report must be refused")
+
     tool = _tool(confidence="high")
     decision = _build(
         _report(tools=[tool], source_warnings=[warning]),
