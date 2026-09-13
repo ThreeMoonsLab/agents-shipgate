@@ -1,0 +1,9 @@
+{
+  "repo": "FriendsOfShopware/shopmon",
+  "kind": ".mcp.json",
+  "base_sha": "93d2917b5dbbba5402b07b7eb716235437e7cc8b",
+  "head_sha": "72dee3a9bbec4128a19df7b751d99333daa90f76",
+  "base_source": "https://github.com/FriendsOfShopware/shopmon/blob/93d2917b5dbbba5402b07b7eb716235437e7cc8b/.mcp.json",
+  "head_source": "https://github.com/FriendsOfShopware/shopmon/blob/72dee3a9bbec4128a19df7b751d99333daa90f76/.mcp.json",
+  "redacted_only_change": false
+}

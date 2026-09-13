@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "atlassian-rovo": {
+      "url": "https://mcp.atlassian.com/v1/mcp"
+    },
+    "confluence": {
+      "url": "http://mcp:23021/mcp/confluence"
+    },
+    "jira": {
+      "url": "http://mcp:23021/mcp/jira"
+    }
+  }
+}

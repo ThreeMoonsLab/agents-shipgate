@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "tafsir": {
+      "url": "https://mcp.tafsir.net/mcp"
+    }
+  }
+}

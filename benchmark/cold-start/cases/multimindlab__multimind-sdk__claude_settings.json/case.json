@@ -1,0 +1,9 @@
+{
+  "repo": "multimindlab/multimind-sdk",
+  "kind": ".claude/settings.json",
+  "base_sha": "4bd61ef9234680a494c6b30ef921c6c4d0bd3e15",
+  "head_sha": "2b835ff4c458b56dd47ee501481adcae48c07930",
+  "base_source": "https://github.com/multimindlab/multimind-sdk/blob/4bd61ef9234680a494c6b30ef921c6c4d0bd3e15/.claude/settings.json",
+  "head_source": "https://github.com/multimindlab/multimind-sdk/blob/2b835ff4c458b56dd47ee501481adcae48c07930/.claude/settings.json",
+  "redacted_only_change": true
+}

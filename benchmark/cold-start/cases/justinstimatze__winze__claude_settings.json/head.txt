@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "script/check-defn-version.sh",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "repo": "Baebeca-Solutions/lexware-php-api",
+  "kind": ".claude/settings.json",
+  "base_sha": "d15740efd299b6ac121342c8617531fbdc3708b3",
+  "head_sha": "64bb069185ea9837018c2c33f1ef70fb23389290",
+  "base_source": "https://github.com/Baebeca-Solutions/lexware-php-api/blob/d15740efd299b6ac121342c8617531fbdc3708b3/.claude/settings.json",
+  "head_source": "https://github.com/Baebeca-Solutions/lexware-php-api/blob/64bb069185ea9837018c2c33f1ef70fb23389290/.claude/settings.json",
+  "redacted_only_change": false
+}

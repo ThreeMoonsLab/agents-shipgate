@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "angular-cli": {
+      "args": [
+        "-y",
+        "@angular/cli",
+        "mcp",
+        "--experimental-tool",
+        "devserver"
+      ],
+      "command": "npx"
+    }
+  }
+}

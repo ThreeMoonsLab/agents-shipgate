@@ -1,0 +1,9 @@
+{
+  "repo": "snakedoll/gcsweb",
+  "kind": ".cursor/mcp.json",
+  "base_sha": "174b654fbe41e38156e458fded9763c96a511b4f",
+  "head_sha": "97fa4ae41f944a32aec13d750181114e9e21128e",
+  "base_source": "https://github.com/snakedoll/gcsweb/blob/174b654fbe41e38156e458fded9763c96a511b4f/.cursor/mcp.json",
+  "head_source": "https://github.com/snakedoll/gcsweb/blob/97fa4ae41f944a32aec13d750181114e9e21128e/.cursor/mcp.json",
+  "redacted_only_change": true
+}

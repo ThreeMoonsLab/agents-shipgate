@@ -1,0 +1,9 @@
+{
+  "repo": "MGEQuant/MGEQuant",
+  "kind": ".mcp.json",
+  "base_sha": "0d4ad7bc18fd38fa5fd26b8cf948f112b738ec32",
+  "head_sha": "701dbc36f2fa1f55cf03d288124cc734e2c0783d",
+  "base_source": "https://github.com/MGEQuant/MGEQuant/blob/0d4ad7bc18fd38fa5fd26b8cf948f112b738ec32/.mcp.json",
+  "head_source": "https://github.com/MGEQuant/MGEQuant/blob/701dbc36f2fa1f55cf03d288124cc734e2c0783d/.mcp.json",
+  "redacted_only_change": false
+}

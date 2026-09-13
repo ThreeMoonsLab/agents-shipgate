@@ -1,0 +1,9 @@
+{
+  "repo": "future-architect/uzomuzo-oss",
+  "kind": ".claude/settings.json",
+  "base_sha": "ac9c9dd22b4d20daa6243952c291c99b6d1f1173",
+  "head_sha": "e3c31460c359a44e9b1fa5a7ddadaedb12504780",
+  "base_source": "https://github.com/future-architect/uzomuzo-oss/blob/ac9c9dd22b4d20daa6243952c291c99b6d1f1173/.claude/settings.json",
+  "head_source": "https://github.com/future-architect/uzomuzo-oss/blob/e3c31460c359a44e9b1fa5a7ddadaedb12504780/.claude/settings.json",
+  "redacted_only_change": false
+}

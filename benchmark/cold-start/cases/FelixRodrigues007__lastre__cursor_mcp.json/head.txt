@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "notion": {
+      "url": "https://mcp.notion.com/mcp"
+    },
+    "shadcn": {
+      "args": [
+        "shadcn@latest",
+        "mcp"
+      ],
+      "command": "npx"
+    }
+  }
+}

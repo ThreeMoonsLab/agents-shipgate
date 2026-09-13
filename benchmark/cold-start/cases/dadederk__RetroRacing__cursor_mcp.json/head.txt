@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "XcodeBuildMCP": {
+      "args": [
+        "-y",
+        "xcodebuildmcp@latest",
+        "mcp"
+      ],
+      "command": "npx"
+    },
+    "cupertino": {
+      "args": [
+        "serve"
+      ],
+      "command": "/opt/homebrew/bin/cupertino"
+    }
+  }
+}

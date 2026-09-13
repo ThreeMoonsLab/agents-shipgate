@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "rocketvault": {
+      "args": [
+        "mcp"
+      ],
+      "command": "/home/<user>/data/rocket/rocketvault/rocketvault"
+    }
+  }
+}

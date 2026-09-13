@@ -1,0 +1,29 @@
+{
+  "mcpServers": {
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp"
+    },
+    "filesystem": {
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/media/sithu/Data/Projects/ordering-web-app/mock-server"
+      ],
+      "command": "npx"
+    },
+    "playwright": {
+      "args": [
+        "-y",
+        "@playwright/mcp@latest"
+      ],
+      "command": "npx",
+      "env": {},
+      "type": "stdio"
+    },
+    "supabase": {
+      "type": "http",
+      "url": "https://mcp.supabase.com/mcp?project_ref=dciowbksowpomyjntywz&features=docs%2Cdatabase%2Cdevelopment%2Cdebugging%2Caccount%2Cfunctions%2Cbranching%2Cstorage"
+    }
+  }
+}

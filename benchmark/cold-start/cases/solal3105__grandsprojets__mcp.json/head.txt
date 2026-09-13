@@ -1,0 +1,32 @@
+{
+  "mcpServers": {
+    "gsc": {
+      "args": [
+        "-y",
+        "suganthan-gsc-mcp@2.2.2"
+      ],
+      "command": "npx",
+      "env": {
+        "GSC_AUTH_MODE": "<redacted>",
+        "GSC_OAUTH_SECRETS_FILE": "<redacted>",
+        "GSC_SITE_URL": "<redacted>",
+        "GSC_SITE_URLS": "<redacted>"
+      }
+    },
+    "posthog": {
+      "headers": {
+        "Authorization": "<redacted>"
+      },
+      "type": "http",
+      "url": "https://mcp.posthog.com/mcp"
+    },
+    "resend": {
+      "type": "http",
+      "url": "https://mcp.resend.com/mcp"
+    },
+    "supabase": {
+      "type": "http",
+      "url": "https://mcp.supabase.com/mcp?project_ref=wqqsuybmyqemhojsamgq"
+    }
+  }
+}

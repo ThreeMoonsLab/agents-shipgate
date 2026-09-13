@@ -1,0 +1,9 @@
+{
+  "repo": "wbrown/janus-datalog",
+  "kind": ".claude/settings.json",
+  "base_sha": "c276a5990b971901100f818ae3ba62af9dd8c417",
+  "head_sha": "7f06343414ec96967c22bdb4ac0c85705062e0dc",
+  "base_source": "https://github.com/wbrown/janus-datalog/blob/c276a5990b971901100f818ae3ba62af9dd8c417/.claude/settings.json",
+  "head_source": "https://github.com/wbrown/janus-datalog/blob/7f06343414ec96967c22bdb4ac0c85705062e0dc/.claude/settings.json",
+  "redacted_only_change": false
+}

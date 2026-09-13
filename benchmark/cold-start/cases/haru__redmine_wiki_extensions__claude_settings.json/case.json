@@ -1,0 +1,9 @@
+{
+  "repo": "haru/redmine_wiki_extensions",
+  "kind": ".claude/settings.json",
+  "base_sha": "a9a748b38bb200bfac7a3a12faa1099fe83f6c37",
+  "head_sha": "0132a04b9073e0473407cebe3f5a372ebb99f9de",
+  "base_source": "https://github.com/haru/redmine_wiki_extensions/blob/a9a748b38bb200bfac7a3a12faa1099fe83f6c37/.claude/settings.json",
+  "head_source": "https://github.com/haru/redmine_wiki_extensions/blob/0132a04b9073e0473407cebe3f5a372ebb99f9de/.claude/settings.json",
+  "redacted_only_change": false
+}

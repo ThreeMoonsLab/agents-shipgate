@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/home/<user>/Github/athapyar-htote-web"
+      ],
+      "command": "npx"
+    },
+    "sqlite": {
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sqlite",
+        "--db",
+        "/home/<user>/Github/athapyar-htote-web/athapyar.db"
+      ],
+      "command": "npx"
+    }
+  }
+}

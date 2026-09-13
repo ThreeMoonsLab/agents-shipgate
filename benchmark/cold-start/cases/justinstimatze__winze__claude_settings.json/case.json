@@ -1,0 +1,9 @@
+{
+  "repo": "justinstimatze/winze",
+  "kind": ".claude/settings.json",
+  "base_sha": "3a1ea242b80c795926c001491b8798a05095d91d",
+  "head_sha": "3ff618c82095ad2b147eaba0ede26c39d9dfa58c",
+  "base_source": "https://github.com/justinstimatze/winze/blob/3a1ea242b80c795926c001491b8798a05095d91d/.claude/settings.json",
+  "head_source": "https://github.com/justinstimatze/winze/blob/3ff618c82095ad2b147eaba0ede26c39d9dfa58c/.claude/settings.json",
+  "redacted_only_change": false
+}

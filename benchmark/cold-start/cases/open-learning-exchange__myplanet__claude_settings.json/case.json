@@ -1,0 +1,9 @@
+{
+  "repo": "open-learning-exchange/myplanet",
+  "kind": ".claude/settings.json",
+  "base_sha": "3425efb5cb1c30825890ed46b25292aaa44d6218",
+  "head_sha": "62e51089cf1c77bbdd0e59c3ef5503960c874ea8",
+  "base_source": "https://github.com/open-learning-exchange/myplanet/blob/3425efb5cb1c30825890ed46b25292aaa44d6218/.claude/settings.json",
+  "head_source": "https://github.com/open-learning-exchange/myplanet/blob/62e51089cf1c77bbdd0e59c3ef5503960c874ea8/.claude/settings.json",
+  "redacted_only_change": false
+}

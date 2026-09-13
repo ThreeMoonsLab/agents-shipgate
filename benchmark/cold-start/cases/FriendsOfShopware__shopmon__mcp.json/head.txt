@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "agent-browser": {
+      "args": [
+        "mcp"
+      ],
+      "command": "agent-browser"
+    },
+    "shadcn": {
+      "args": [
+        "shadcn-vue@latest",
+        "mcp"
+      ],
+      "command": "npx"
+    }
+  }
+}

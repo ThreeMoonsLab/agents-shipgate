@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:api.github.com)",
+      "WebSearch",
+      "Bash(<tmp-path> -m pytest /Users/<user>/Daemongodwiz/Ai2innovate/multimind-sdk/tests/ -q -p no:cacheprovider)",
+      "Bash(.venv/bin/python -)"
+    ]
+  }
+}

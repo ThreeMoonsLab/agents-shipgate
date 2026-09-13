@@ -1,0 +1,9 @@
+{
+  "repo": "vmihalis/hacker-bob",
+  "kind": ".claude/settings.json",
+  "base_sha": "c028ad02e93ca7ea2a8b3740426735167fd8f6d4",
+  "head_sha": "16f15785c54aa9979e279aef1dd77601bd1f8265",
+  "base_source": "https://github.com/vmihalis/hacker-bob/blob/c028ad02e93ca7ea2a8b3740426735167fd8f6d4/.claude/settings.json",
+  "head_source": "https://github.com/vmihalis/hacker-bob/blob/16f15785c54aa9979e279aef1dd77601bd1f8265/.claude/settings.json",
+  "redacted_only_change": false
+}

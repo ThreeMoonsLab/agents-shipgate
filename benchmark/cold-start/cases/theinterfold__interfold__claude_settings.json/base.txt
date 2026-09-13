@@ -1,0 +1,55 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "\"${CLAUDE_PROJECT_DIR}\"/scripts/agent-format-hook.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write"
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(pnpm build)",
+      "Bash(pnpm build:**)",
+      "Bash(pnpm test)",
+      "Bash(pnpm test:**)",
+      "Bash(pnpm rust:**)",
+      "Bash(pnpm evm:**)",
+      "Bash(pnpm sdk:**)",
+      "Bash(pnpm noir:**)",
+      "Bash(pnpm lint)",
+      "Bash(pnpm format)",
+      "Bash(pnpm format:**)",
+      "Bash(pnpm check:**)",
+      "Bash(pnpm generate:verifiers --check)",
+      "Bash(cargo build *)",
+      "Bash(cargo test *)",
+      "Bash(cargo check *)",
+      "Bash(cargo clippy *)",
+      "Bash(cargo fmt *)",
+      "Bash(cargo nextest *)",
+      "Bash(cargo tree *)",
+      "Bash(cargo metadata *)",
+      "Bash(nargo test *)",
+      "Bash(nargo check *)",
+      "Bash(nargo fmt *)",
+      "Bash(git status)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git blame *)",
+      "Bash(git branch *)"
+    ],
+    "deny": [
+      "Read(./**/.env)",
+      "Read(./**/.env.local)",
+      "Read(./**/.env.*.local)",
+      "Read(./**/*.secrets.json)"
+    ]
+  }
+}

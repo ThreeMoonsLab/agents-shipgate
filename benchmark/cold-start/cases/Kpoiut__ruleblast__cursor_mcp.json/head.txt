@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "ruleblast": {
+      "args": [
+        "--yes",
+        "ruleblast@2.5.11",
+        "--mcp"
+      ],
+      "command": "npx"
+    }
+  }
+}

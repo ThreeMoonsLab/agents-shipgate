@@ -1,0 +1,9 @@
+{
+  "repo": "theinterfold/interfold",
+  "kind": ".claude/settings.json",
+  "base_sha": "c64bcfb890b596e626ea6578c5fbd53f808c3b43",
+  "head_sha": "18e16f11b18a3bbcf73f2d9099924d144996a87d",
+  "base_source": "https://github.com/theinterfold/interfold/blob/c64bcfb890b596e626ea6578c5fbd53f808c3b43/.claude/settings.json",
+  "head_source": "https://github.com/theinterfold/interfold/blob/18e16f11b18a3bbcf73f2d9099924d144996a87d/.claude/settings.json",
+  "redacted_only_change": false
+}

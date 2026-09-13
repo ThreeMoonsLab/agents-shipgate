@@ -1,0 +1,9 @@
+{
+  "repo": "Vortiago/mcp-outline",
+  "kind": ".mcp.json",
+  "base_sha": "e1a0b46363b37c5dec01435a8bbc19fd862984e1",
+  "head_sha": "e699cd5d16a983c7bcb4e67c3cf213608df7eeac",
+  "base_source": "https://github.com/Vortiago/mcp-outline/blob/e1a0b46363b37c5dec01435a8bbc19fd862984e1/.mcp.json",
+  "head_source": "https://github.com/Vortiago/mcp-outline/blob/e699cd5d16a983c7bcb4e67c3cf213608df7eeac/.mcp.json",
+  "redacted_only_change": true
+}

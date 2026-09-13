@@ -1,0 +1,63 @@
+{
+  "mcpServers": {
+    "codegraph": {
+      "args": [
+        "serve",
+        "--mcp"
+      ],
+      "command": "codegraph",
+      "type": "stdio"
+    },
+    "context7": {
+      "args": [
+        "-y",
+        "@upstash/context7-mcp@latest"
+      ],
+      "command": "npx"
+    },
+    "expo": {
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://mcp.expo.dev/mcp"
+      ],
+      "command": "npx"
+    },
+    "figma": {
+      "type": "http",
+      "url": "https://mcp.figma.com/mcp"
+    },
+    "github": {
+      "args": [
+        "--no-warnings",
+        "scripts/mcpGithubFromGh.mjs"
+      ],
+      "command": "node",
+      "type": "stdio"
+    },
+    "planearia-sqlite": {
+      "args": [
+        "--no-warnings",
+        "scripts/mcpPlaneariaSqlite.mjs"
+      ],
+      "command": "node",
+      "type": "stdio"
+    },
+    "playwright": {
+      "args": [
+        "/c",
+        "npx",
+        "@playwright/mcp@latest"
+      ],
+      "command": "cmd"
+    },
+    "vercel": {
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://mcp.vercel.com"
+      ],
+      "command": "npx"
+    }
+  }
+}

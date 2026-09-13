@@ -1,0 +1,9 @@
+{
+  "repo": "BigSimmo/Database",
+  "kind": ".cursor/mcp.json",
+  "base_sha": "db9e9710dd6185837197d2b02e5c33053e925485",
+  "head_sha": "33c2dc16108cad6c2f5c69505828d9d7f66131c3",
+  "base_source": "https://github.com/BigSimmo/Database/blob/db9e9710dd6185837197d2b02e5c33053e925485/.cursor/mcp.json",
+  "head_source": "https://github.com/BigSimmo/Database/blob/33c2dc16108cad6c2f5c69505828d9d7f66131c3/.cursor/mcp.json",
+  "redacted_only_change": false
+}

@@ -1,0 +1,27 @@
+{
+  "enabledPlugins": {
+    "branch-overtaking@overtaking": true,
+    "kotlin-importing@importing": true,
+    "merge-prepping@prepping": true
+  },
+  "extraKnownMarketplaces": {
+    "importing": {
+      "source": {
+        "repo": "dogi/kotlin-importing",
+        "source": "github"
+      }
+    },
+    "overtaking": {
+      "source": {
+        "repo": "dogi/branch-overtaking",
+        "source": "github"
+      }
+    },
+    "prepping": {
+      "source": {
+        "repo": "dogi/merge-prepping",
+        "source": "github"
+      }
+    }
+  }
+}

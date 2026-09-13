@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "mcp-outline": {
+      "args": [
+        "mcp-outline==1.10.0"
+      ],
+      "command": "uvx",
+      "env": {
+        "OUTLINE_API_KEY": "<redacted>",
+        "OUTLINE_API_URL": "<redacted>",
+        "OUTLINE_DISABLE_AI_TOOLS": "<redacted>",
+        "OUTLINE_DISABLE_DELETE": "<redacted>",
+        "OUTLINE_READ_ONLY": "<redacted>",
+        "OUTLINE_VERIFY_SSL": "<redacted>"
+      }
+    }
+  }
+}

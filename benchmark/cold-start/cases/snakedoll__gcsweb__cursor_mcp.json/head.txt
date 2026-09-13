@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "erdcloud": {
+      "headers": {
+        "Authorization": "<redacted>"
+      },
+      "url": "${env:ERDCLOUD_MCP_URL}"
+    },
+    "figma": {
+      "headers": {
+        "Authorization": "<redacted>"
+      },
+      "url": "http://127.0.0.1:3845/mcp"
+    },
+    "notion": {
+      "args": [
+        "-y",
+        "@notionhq/notion-mcp-server"
+      ],
+      "command": "npx",
+      "env": {
+        "OPENAPI_MCP_HEADERS": "<redacted>"
+      }
+    }
+  }
+}
