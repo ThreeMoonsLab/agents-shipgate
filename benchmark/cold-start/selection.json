@@ -1,0 +1,2772 @@
+{
+  "selection_date": "2026-09-13T02:45:27+00:00",
+  "window_since": "2026-06-15T02:45:27Z",
+  "rule": "Freeze a #660 cold-start population: 30 public repositories, 10 per supported file.\n\nSelection rule, recorded with the output so a rerun cannot silently pick an\neasier or newer population:\n\n* GitHub code search, one query per supported root file, results in the order\n  the API returned them (recorded verbatim);\n* exact root path only (no `.bak`, no nested copies);\n* public, not a fork, not archived;\n* >= 2 commits touching that file on the default branch in the 90 days before\n  the selection date;\n* head = the newest such non-merge commit, base = its only parent.\n\nEvery candidate considered is written out, accepted or rejected with its reason.\n",
+  "queries": {
+    ".claude/settings.json": "filename:settings.json path:.claude",
+    ".mcp.json": "filename:.mcp.json",
+    ".cursor/mcp.json": "filename:mcp.json path:.cursor"
+  },
+  "search_order": {
+    ".claude/settings.json": [
+      "parcadei/Continuous-Claude-v3 .claude/settings.json.bak",
+      "MetaMask/metamask-mobile .claude/settings.json",
+      "dataplat/dbatools .claude/settings.json",
+      "near/nearcore .claude/settings.json",
+      "33cn/chain33 .claude/settings.json",
+      "razorpay/trino-gateway .claude/settings.json.backup.1777976737",
+      "Nice3point/RevitTemplates .claude/settings.json",
+      "bencherdev/bencher .claude/settings.json",
+      "pegasi-ai/reins .claude/settings.json",
+      "kivo360/OmoiOS .claude/settings.json.bak",
+      "codingagentsystem/cas .claude/settings.json.bak",
+      "abap2UI5/abap2UI5 .claude/settings.json",
+      "sinewaveai/agent-security-scanner-mcp .claude/settings.json.bak-20260221-085225",
+      "ash-project/ash_typescript .claude/settings.json.license",
+      "slonopotamus/stevedore .claude/settings.json",
+      "ash-project/ash_events .claude/settings.json.license",
+      "nicepkg/ai-workflow .claude/skills/legacy-to-ai-ready/assets/settings.json.template",
+      "wormhole-foundation/wormhole-connect .claude/settings.json",
+      "KimYx0207/HookPrompt .claude/settings.json.example-unix",
+      "TrueCrimeDev/ClautoHotkey .claude/settings.json.template",
+      "AratKruglik/claude-laravel .claude/settings.json",
+      "KimYx0207/HookPrompt .claude/settings.json.example-windows",
+      "martymcenroe/AssemblyZero .claude/templates/settings.json.template",
+      "LFDT-Lineth/lineth-monorepo .claude/settings.json",
+      "open-learning-exchange/myplanet .claude/settings.json",
+      "geekatron/jerry .claude/settings.json.bkup",
+      "haru/redmine_wiki_extensions .claude/settings.json",
+      "Baebeca-Solutions/lexware-php-api .claude/settings.json",
+      "multimindlab/multimind-sdk .claude/settings.json",
+      "MaxinAI/school-of-ai .claude/settings.json",
+      "nicolettas-muggelbude/RechnungsFee .claude/settings.json.tmp.23716.131b69f788f6",
+      "lightsparkdev/hurlicane .claude/settings.json.bak",
+      "ngocsangyem/MeowKit .claude/settings.json.bak",
+      "wrg32786/aigent-os .claude/settings.json.template",
+      "JaimeParker/stable-jarvis .claude/settings.json.template",
+      "lis186/ccxray .claude/settings.json",
+      "vmihalis/hacker-bob .claude/settings.json",
+      "Kangentic/kangentic .claude/settings.json",
+      "Dynokostya/just-works .claude/settings.json.default",
+      "Smart-AI-Memory/attune-ai .claude/settings.json.bak",
+      "telekom/controlplane .claude/settings.json.license",
+      "teakzc/backpack-plus .claude/settings.json.bak",
+      "Twingate/gateway .claude/settings.json",
+      "mattstratton/matty-dotfiles .claude/settings.json##os.Linux",
+      "nativectx/ui .claude/settings.json",
+      "theinterfold/interfold .claude/settings.json",
+      "mattstratton/matty-dotfiles .claude/settings.json##os.Darwin",
+      "Flux-Frontiers/KGRAG .claude/settings.json.template",
+      "bula173/LogViewer .claude/settings.json.bak",
+      "claude-code-expert/tika .claude/settings.json.bak",
+      "rochi88/bdshare .claude/settings.json",
+      "DimitriGeelen/agentic-engineering-framework .claude/settings.json.pre-t1117-merge",
+      "welcomyou/scanindex .claude/settings.json.backup",
+      "lanegrid/agtrace .claude/settings.json",
+      "gracefullight/krds .claude/.settings.json.backup-1781007798533-2334",
+      "tbuczen/LARPilot .claude/settings.json.dist",
+      "zach-source/mcp-rust-proxy .claude/settings.json.bkup",
+      "westberliner/checksum .claude/settings.json",
+      "HNakamura33/task-composer .claude/settings.json.bk",
+      "vishnujayvel/pdlc-autopilot .claude/settings.json.template",
+      "wbrown/janus-datalog .claude/settings.json",
+      "every-app/sam .claude/settings.json",
+      "HNakamura33/task-composer .claude/settings.json.max",
+      "thebnbrkr/agora-code .claude/settings.json",
+      "GlassBricks/StagedBlueprintPlanning .claude/settings.json",
+      "PrayerfulDrop/ESPHome-Guition-ESP32-S3-4848S040 .claude/settings.json",
+      "tzachbon/claude-model-router-hook .claude/settings.json",
+      "grahama1970/extractor .claude/settings.json.bak",
+      "chaynHQ/bloom-backend .claude/settings.json",
+      "willdady/platypus .claude/settings.json",
+      "hiroshitanaka-creator/Cyber-Immunizer .claude/settings.json",
+      "Softleif/seqair .claude/settings.json",
+      "kavigupta/urbanstats .claude/settings.json",
+      "braintrustdata/braintrust-sdk-javascript .claude/settings.json",
+      "turtton/YtAlarm .claude/settings.json",
+      "fandsdev/eslint-config-fans .claude/settings.json",
+      "life-itself/climate .claude/settings.json",
+      "Sheldon-92/TAD .claude/settings.json.v2-backup",
+      "tatargabor/set-copilot .claude/settings.json.bak",
+      "threnjen/thren-agentic-workflows .claude/settings.json.bak",
+      "nikeyes/stepwise-dev .claude/settings.json",
+      "majorcontext/moat .claude/settings.json",
+      "alexmond/jhelm .claude/settings.json.bak-preplugins",
+      "namastexlabs/automagik-cli .claude/hooks/setup/settings.json.template",
+      "atlowChemi/vite-svg-2-webfont .claude/settings.json",
+      "fruitriin/embodied-claude-wardrobe .claude/templates/settings.json.template",
+      "mxpv/luaz .claude/settings.json",
+      "bossjones/boss-file-utils .claude/settings.json.sample",
+      "monorailcss/MonorailCss.Framework .claude/settings.json",
+      "toobuntu/blackoutd .claude/settings.json.license",
+      "satoh-y-0323/claude-code-conductor .claude/docs/settings.json.md",
+      "xeeva/Genesis .claude/skills/genesis/templates/settings.json.tmpl",
+      "loschenbd/claude-agent-boilerplate .claude/settings.json.template",
+      "tokedo/kami-harness .claude/settings.json.template",
+      "deepteams/webp .claude/settings.json",
+      "ThibautBaissac/claude-code-architecture .claude/settings.json",
+      "luiseiman/derup .claude/settings.json.bak.20260505-100119",
+      "luiseiman/derup .claude/settings.json.bak.20260428-084801",
+      "luiseiman/derup .claude/settings.json.bak.20260505-112342",
+      "charles-adedotun/notifications-mcp-server .claude/settings.json",
+      "future-architect/uzomuzo-oss .claude/settings.json",
+      "systempromptio/systemprompt-template .claude/settings.json",
+      "NickTikhonov/bitclaw .claude/settings.json",
+      "barney-personal/autodev .claude/settings.json.bak",
+      "geekatron/jerry-claude-plugin .claude/settings.json.bkup",
+      "bossjones/zsh-dotfiles .claude/settings.json.sample",
+      "toobuntu/repo-foundation .claude/settings.json.license",
+      "toobuntu/displayrecommitd .claude/settings.json.license",
+      "tokedo/kami-zero .claude/settings.json.template",
+      "justinstimatze/winze .claude/settings.json",
+      "mralaminahamed/tundra .claude/settings.json",
+      "fandsdev/oxc-config-fans .claude/settings.json",
+      "7hinkDifferent/agent-cracker .claude/settings.json",
+      "aiur-team/aiur .claude/settings.json",
+      "hivellm/tml .claude/settings.json",
+      "jeremylaratro/purplesploit .claude/settings.json",
+      "EdwinKestler/app_llmsat .claude/settings.json",
+      "ainsleyclark/godaily .claude/settings.json",
+      "hex0xdeadbeef/claude-kit .claude/agents/meta-agent/templates/onboarding/settings.json",
+      "osirisQdt2810/shipinfer .claude/settings.json",
+      "Fantamstick/hermes-iap .claude/settings.json",
+      "benjr70/Smart-Smoker-V2 .claude/settings.json",
+      "gitduk/dotfiles .claude/settings.json",
+      "vivmagarwal/apick .claude/settings.json",
+      "bryan-westcott/pyrimeter .claude/settings.json",
+      "prouticus/colorclip-pro .claude/settings.json",
+      "SageV1/makepad-skills .claude/settings.json",
+      "Tonksthebear/trybotster .claude/settings.json",
+      "konflux-ci/task-runner .claude/settings.json",
+      "ATLAS-DEV78423/GOLEM .claude/settings.json",
+      "ksyed0/iCloudMCP .claude/settings.json",
+      "shenhuatian/AI-FM .claude/settings.json",
+      "codersgl/MagicPlay .claude/settings.json",
+      "DanielMJ511/seat-vault .claude/settings.json",
+      "zacjones93/sweet-angel-bakery .claude/settings.json",
+      "dooop/vlc-player .claude/settings.json",
+      "eiAlex/mydirectus .claude/settings.json",
+      "thobho/yt-news-generator .claude/settings.json",
+      "an-X550/zhiji .claude/settings.json",
+      "hughdbrown/ai-wiki .claude/settings.json",
+      "goodtune/dotvault .claude/settings.json",
+      "gguloadoong/market-dashboard-v5 .claude/settings.json",
+      "Rageoholic/parengus-code .claude/settings.json",
+      "bittencourtthulio/mergex .claude/settings.json",
+      "GuiGPaP/TD_starter_pack .claude/settings.json",
+      "ricardodevries/dotfiles .claude/settings.json",
+      "Ethan46290/primrose .claude/settings.json",
+      "amadeus-dlc/aidlc-deep-spec-analysis-plugin .claude/settings.json",
+      "phil-scott-78/Spectre.Tui.Doodads .claude/settings.json",
+      "life-itself/without-hot-air .claude/settings.json",
+      "Caboose413/Caboose413.github.io .claude/settings.json",
+      "mt114ran/mt114ran.github.io .claude/settings.json",
+      "aslogor/aslogor.github.io .claude/settings.json",
+      "dkent600/douglaskent .claude/settings.json",
+      "Shanidhya01/MY .claude/settings.json",
+      "igorzelaya-io/mercado-x-context .claude/settings.json",
+      "linngovan/huyenvi .claude/settings.json",
+      "zawazawazawazawa/equity-distribution-app .claude/settings.json",
+      "vinsmake/cafe1939 .claude/settings.json",
+      "ankit1x01/null-backend .claude/settings.json",
+      "MyTeamForDev/CloudZen .claude/settings.json",
+      "11neeja/medihub .claude/settings.json",
+      "rivaldiekaptrrr/Track-app .claude/settings.json",
+      "Hinten/luratha_frontend .claude/settings.json",
+      "songuu/tech-persistence .claude/settings.json",
+      "massun-onibakuchi/speech-to-text-app .claude/settings.json",
+      "VTHoop/sandlot-game .claude/settings.json",
+      "maxidiflumeri/massivo-app .claude/settings.json",
+      "alvarosamp/TCC .claude/settings.json",
+      "nickorsk2017/health-multi-agent .claude/settings.json",
+      "allansolutions/notetaker .claude/settings.json",
+      "KWondra625/gillbert .claude/settings.json",
+      "gabrielrochass/e-solucoes-website .claude/settings.json",
+      "defmethodinc/herb-embedded .claude/settings.json",
+      "lucacitta/anodal-frontend .claude/settings.json",
+      "harshal4172005/APPLE-ESPORTS-GAMMING-SOFTWARE-new .claude/settings.json",
+      "suarja/FourmiMobile .claude/settings.json",
+      "auxi-wardrobe/auxi-all-in .claude/settings.json",
+      "zeelrupapara/epoch-financial-site .claude/settings.json",
+      "Nkubapawa2002/pawa1 .claude/settings.json",
+      "abhishekmitraaa/textile-spark-net .claude/settings.json",
+      "SalemLouai/NdfAnalayser .claude/settings.json",
+      "koompi/isibds.com .claude/settings.json",
+      "AvinashBayya/social-media-ai-agents-v2 .claude/settings.json",
+      "arthurseredaa/toolkit .claude/settings.json",
+      "markoniemi/oauth2-server .claude/settings.json",
+      "danielbanariba/nacer-digital-challenge .claude/settings.json",
+      "tygwan/AgenticREVIT .claude/settings.json",
+      "allisonbit/cosmic-oracle-charts .claude/settings.json",
+      "ceharsh24/ai-morning-brief .claude/settings.json",
+      "ketangan/student_enrollment_portal .claude/settings.json",
+      "hyemi-im/chloe-taro .claude/settings.json",
+      "NEDJOU666/Jobbe-Mobile .claude/settings.json",
+      "C-o-T/PRINCIPLES .claude/settings.json",
+      "dalecook/rails-native .claude/settings.json",
+      "Akus0ni/KanAuth .claude/settings.json",
+      "nicoespeon/mariane-danse .claude/settings.json",
+      "nnorian/security-monitoring-platform .claude/settings.json",
+      "HybridCloudWorks/Template-LZDeployment .claude/settings.json",
+      "shaheer162008/gloss-auto .claude/settings.json"
+    ],
+    ".mcp.json": [
+      "DanielLavrushin/b4 .mcp.json.template",
+      "disler/claude-code-hooks-multi-agent-observability .mcp.json.firecrawl_7k.sample",
+      "indranilbanerjee/digital-marketing-pro .mcp.json.connectors-reference",
+      "getsentry/sentry-mcp .mcp.json",
+      "BlessedRebuS/Krawl src/templates/deception/.mcp.json.html",
+      "YoshiiRyo1/document-templates-for-aws .mcp.json",
+      "nuxt/nuxt.com .mcp.json",
+      "disler/agentic-drop-zones .mcp.json.sample",
+      "AndrewAltimit/template-repo .mcp.json.full",
+      "tpierrain/kenjaku .mcp.json.template",
+      "BlessedRebuS/Krawl src/templates/deception/@fs__app__.mcp.json.html",
+      "BlessedRebuS/Krawl src/templates/deception/@fs__root__.mcp.json.html",
+      "disler/nano-agent .mcp.json.sample",
+      "cklose2000/pinescript-mcp-server .mcp.json.mac.example",
+      "Archive228/loopkit .mcp.json",
+      "ash-project/ash_typescript .mcp.json.license",
+      "cklose2000/pinescript-mcp-server .mcp.json.windows.example",
+      "undergroundrap/UEFN-TOOLBELT .mcp.json.template",
+      "kky42/codex-as-mcp .mcp.json.back",
+      "ash-project/ash_events .mcp.json.license",
+      "reliverse/experiments packages/rules/src/escaped/.mcp.json.ts",
+      "Consiliency/Code-Index-MCP .mcp.json.fixed",
+      "Consiliency/Code-Index-MCP .mcp.json.backup",
+      "Consiliency/Code-Index-MCP .mcp.json.docker",
+      "DNYoussef/context-cascade .mcp.json.template",
+      "DNYoussef/context-cascade .mcp.json.archived",
+      "gtkx-org/gtkx packages/create-gtkx/src/templates/.mcp.json.ejs",
+      "plurigrid/asi ies/music-topos/.mcp.json.bak",
+      "Consiliency/Code-Index-MCP .mcp.json.template",
+      "assafkip/huntkit .mcp.json.template",
+      "disler/agent-sandboxes .mcp.json.sandbox",
+      "leboncoin/spark-web .mcp.json",
+      "orcasecurity/orca-skills .mcp.json.template",
+      "gavinmcfall/home-ops .mcp.json.disabled",
+      "disler/quick-data-mcp quick-data-mcp/.mcp.json.sample",
+      "IronAdamant/wikifier .mcp.json.wiki.md",
+      "ilandahan/AID .mcp.json.mac",
+      "lucaslorentz/durabletask-extensions .mcp.json",
+      "petekp/claude-code-setup templates/.mcp.json.template",
+      "jnarowski/agentcmd .mcp.json.figma",
+      "jnarowski/agentcmd .mcp.json.shadcn",
+      "jnarowski/agentcmd .mcp.json.design",
+      "jnarowski/agentcmd .mcp.json.chrome",
+      "ilandahan/AID .mcp.json.windows",
+      "2mawi2/para .mcp.json.template",
+      "samuelzxu/claude-evolve .mcp.json.plugin",
+      "Vortiago/mcp-outline .mcp.json",
+      "jnarowski/agentcmd .mcp.json.context7",
+      "Motion-Creative/motion-creative-plugin Plugin/.mcp.json.bak",
+      "jmanhype/speckit .mcp.json.linear-example",
+      "namastexlabs/automagik-tools .mcp.json.backup",
+      "qut-dmrc/buttermilk .mcp.json.disabled",
+      "DevinoSolutions/stealth-chrome-devtools-mcp .mcp.json.bak-2026-07-31",
+      "TimothyVang/verdict-dfir .mcp.json.sift",
+      "indranilbanerjee/socialforge .mcp.json.connectors-reference",
+      "jnarowski/agentcmd .mcp.json.playwright",
+      "Bike4Mind/bike4mind .mcp.json",
+      "TheWayWithin/agent-11 .mcp.json.template",
+      "Dynokostya/just-works .mcp.json.default",
+      "AgentOrchestrator/AgentBase .mcp.json",
+      "Zenobia000/claude-Godzilla-z .mcp.json.linux.example",
+      "PierreKieffer/http-tanker .mcp.json",
+      "vtrivedy/claude-banana-story-agent .mcp.json.template",
+      "TimothyVang/verdict-dfir .mcp.json.docker",
+      "Zenobia000/claude-Godzilla-z .mcp.json.windows.example",
+      "ahostbr/kuroryuu-public .mcp.json.template",
+      "iterate/iterate .mcp.json",
+      "chu2bard/pinion-os .mcp.json",
+      "weiserman/rap-skills .mcp.json.template",
+      "vobase/vobase .mcp.json",
+      "alphaplapplap/mcp-memory-service .mcp.json.backup",
+      "ProjectLiminality/DreamTalk .mcp.json.template",
+      "coalesce-labs/catalyst .mcp.json.template",
+      "AIFundTeam/genai-starter .mcp.json.template",
+      "davebream/claude-of-alexandria .mcp.json.bak",
+      "quazardous/nelson-mcp .mcp.json-dist",
+      "alphaplapplap/mcp-memory-service .mcp.json.template",
+      "FriendsOfShopware/shopmon .mcp.json",
+      "aegntic/aegntic-MCP quick-data/.mcp.json.sample",
+      "towardsai/agentic-ai-engineering-course lessons/research_agent_part_3/.mcp.json.sample",
+      "jpiece3/lead-magnet-quiz-workflow .claude/.mcp.json.template",
+      "lilhammerfun/clumsies packages/clumsies/.mcp.json.tpl",
+      "lancejames221b/agent-hivemind .mcp.json.disabled",
+      "Abilityai/agent-cornelius .mcp.json.template",
+      "lucasgerads/spicelib-mcp .mcp.json.template",
+      "dyCuong03/unity-agent-team .mcp.json.template",
+      "louis49/melchizedek .mcp.json.template",
+      "d2a8k3u/claude-code-memory .mcp.json.template",
+      "EdgeHop/EdgeHop .mcp.json.sample",
+      "tbuczen/LARPilot .mcp.json.dist",
+      "Abilityai/agent-ruby .mcp.json.template",
+      "nft-maker-one/claude_course day7_mcp/.mcp.json.bak",
+      "scrollinondubs/behalfbot chassis/.mcp.json.template",
+      "disler/agent-sandboxes apps/sandbox_agent_working_dir/.mcp.json.sandbox",
+      "AssafWoo/homebrew-pandafilter .mcp.json",
+      "alessandro9110/Speech-To-Text-With-Databricks .mcp.json.bak",
+      "AniketWathore/agntspce .mcp.json.bak",
+      "Flux-Frontiers/agent_kg .mcp.json.bak",
+      "fullstacktard/claude-workflow src/templates/.mcp.json.template",
+      "raffertyuy/github-copilot-prompts .mcp.json",
+      "hashgraph-online/awesome-codex-plugins plugins/Kanevry/session-orchestrator/.mcp.json",
+      "tigerowo/infinite-canvas canvas-agent/.mcp.json",
+      "cat-xierluo/legal-skills skills/yuandian-law-search/scripts/.mcp.json.example",
+      "perchfuruncle656/huntkit .mcp.json.template",
+      "juanfran/tapiz .mcp.json",
+      "Zenobia000/ai-brainstorming .mcp.json.linux.example",
+      "AmadeusITGroup/otter tools/llm/plugins/otter/.mcp.json",
+      "TimothyVang/verdict-dfir-beta .mcp.json.sift",
+      "Zenobia000/ai-brainstorming .mcp.json.windows.example",
+      "lisophorm/mcp-memory-service .mcp.json.backup",
+      "Tattzy25/Digital-Hustle-Memory .mcp.json.backup",
+      "TheWayWithin/aimpactscanner-mvp .mcp.json.template",
+      "TheWayWithin/evolve-7 .mcp.json.template",
+      "lisophorm/mcp-memory-service .mcp.json.template",
+      "Tattzy25/Digital-Hustle-Memory .mcp.json.template",
+      "floodsung/gongzhonghao_agent_team investment_insights/.mcp.json",
+      "jaydubya818/multi-agent-observability .mcp.json.firecrawl_7k.sample",
+      "MercurieVV/ScalaSemantic .mcp.json.example",
+      "zalom/plastic .mcp.json",
+      "slysik/nano-agent .mcp.json.sample",
+      "slysik/agentic-drop-zones .mcp.json.sample",
+      "slysik/agent-sandboxes .mcp.json.sandbox",
+      "TheWayWithin/freecalchub .mcp.json.template",
+      "TheWayWithin/aisearchmastery .mcp.json.template",
+      "nilhemdot/bountystrike-community .mcp.json.bak-20260528-234151",
+      "teachskillofskills-ai/DigitalMarketingPro-techshu .mcp.json.connectors-reference",
+      "usrivastava92/gtv-desktop-remote .mcp.json",
+      "zhcndoc/nuxt .mcp.json",
+      "axpolik/claude-code-d365fo-mcp .mcp.json",
+      "SiThuTun-mdy/fast-order .mcp.json",
+      "crshdn/multi-agents-claude-codex .mcp.json.firecrawl_7k.sample",
+      "phivh/claudekit .mcp.json.firecrawl_7k.sample",
+      "00PrabalK00/OpenRosWarehouse .mcp.json",
+      "aegntic/DAILYDOCO .mcp.json.backup.scattered.20250605_024038",
+      "badshahmukherjeeSAS/agentic-ai-engineering-course lessons/research_agent_part_3/.mcp.json.sample",
+      "OpenWaggle/OpenWaggle .mcp.json",
+      "wikilabs/editions info-session-server/.mcp.json",
+      "thejackluo/weaive docs/setup/mcp-configs/.mcp.json.windows",
+      "ivanzzeth/remote-signer .mcp.json.example",
+      "Zenobia000/auto-triz-x1c01 .mcp.json.linux.example",
+      "Zenobia000/auto-triz-x1c01 .mcp.json.windows.example",
+      "Nickalus12/Loom claude/.mcp.json",
+      "slysik/agent-sandboxes apps/sandbox_agent_working_dir/.mcp.json.sandbox",
+      "Snehal1112/rocketvault .mcp.json",
+      "Bato21/KimunKo .mcp.json",
+      "jmbish04/core-hassio .mcp.json",
+      "wrayboss/trading-jarvis-codex-plugin .mcp.json",
+      "brettmartin97/codegraph .mcp.json",
+      "Slidely-AI/slidely-claude-plugin .mcp.json",
+      "NewJerseyStyle/plugin-mcts .mcp.json",
+      "clssck/Dataiku_MCP .mcp.json",
+      "CSOAI-ORG/sleep-tracker-ai-mcp .mcp.json",
+      "ShubhamPP04/cinema-droplet .mcp.json",
+      "kinncj/OhCanada .mcp.json",
+      "agustincf/Arcade1v1 .mcp.json",
+      "mike-north/AgentMonitors experiments/channel-probe/.mcp.json",
+      "rwilson504/MCP-EmergencyManagement-AzureFunction src/.mcp.json",
+      "liush2yuxjtu/shiyu-aro-ops-v0 plugin/.mcp.json",
+      "IT-Square-Plus/Argus .mcp.json.example",
+      "obuter/satisfactory-mcp .mcp.json.example",
+      "oshanz/oshanz.github.io .mcp.json",
+      "truongan/wecode .mcp.json",
+      "KISA-webpage-development-team/KISA-website-client .mcp.json",
+      "antonio59/AAFairShare .mcp.json",
+      "XMA-Agency-Org/xma-proposal-generator .mcp.json",
+      "davmarek/school-test-generator .mcp.json",
+      "pakkio/nexus .mcp.json",
+      "MergetAI/merget-claude-plugin .mcp.json",
+      "Mosya-CX/FrameSyncMobaDemo .mcp.json",
+      "alessiobacin/llmProxy .mcp.json",
+      "yangsi7/the-fountain-studio .mcp.json",
+      "MGEQuant/MGEQuant .mcp.json",
+      "slysik/tac-7 .mcp.json",
+      "Willjeanne/faststore-soliverdemo .mcp.json",
+      "brandon-fryslie/oscilla-animator-v2 .mcp.json",
+      "MKBSP/writepublishgrow_landingpage .mcp.json",
+      "peterelmwood/copy-table-extension .mcp.json",
+      "Home-Inspectors-Network/INM .mcp.json",
+      "mmvinfo28/cursor-overlay .mcp.json",
+      "zuhayr635/kadromanus .mcp.json",
+      "BoomRepublic/SocialMotive .mcp.json",
+      "microfnhq/skills .mcp.json",
+      "kwon416/real-estimate-AI .mcp.json",
+      "keitaitonet/shokujin-wiki .mcp.json",
+      "charovatzbassar/bi-agent .mcp.json",
+      "AdiRishi/online-diff-tool .mcp.json",
+      "botzrDev/dreamd adapters/claude-code/.mcp.json.example",
+      "mitchdenny/aspire-templates aspire-python/.mcp.json",
+      "younghai/lazyz plugins/lazyz/.mcp.json",
+      "lklimek/memcan .claude-plugin/.mcp.json",
+      "klncgty/LexAI employment-legal/.mcp.json",
+      "Kanishk006/NxtLegal .mcp.json.example",
+      "difflabai/marketplace plugins/dreamsolve/.mcp.json",
+      "ladaniprem/AetherLive apps/web/.mcp.json",
+      "pai-list/pai-gateways wrangler.mcp.jsonc",
+      "shakilahmed0369/task-one ecommerce-app/.mcp.json",
+      "otolab/ai-agent-prompts coeiro-operator/.mcp.json",
+      "rand/disciplined-process-plugin disciplined-process-plugin/.mcp.json",
+      "Ditto190/mcapp-ai-starter examples/pdf-server/plugin/.mcp.json",
+      "etendosoftware/etendo_schema_forge artifacts/asset-group/contract.mcp.json",
+      "Automattic/wp-calypso .mcp.json",
+      "huangjia2019/claude-code-engineering 07-MCP/projects/01-basic-config/.mcp.json",
+      "hashgraph-online/awesome-codex-plugins plugins/kreuzberg-dev/plugins/plugins/crawlberg/.mcp.json",
+      "Azure-Samples/eShopLite scenarios/01-SemanticSearch/src/.mcp.json",
+      "tobilg/caddy-duckdb-module .mcp.json",
+      "ortus-docs/coldbox-docs .mcp.json",
+      "keijiro/Yamu .mcp.json",
+      "zonuexe/riida .mcp.json",
+      "RayTracingON/CashbackCounter .mcp.json",
+      "absolute-aungkomyint/athapyar-htote-web .mcp.json",
+      "Dometrain/mcp .mcp.json",
+      "LokmenoWer/best-cad-mcp .mcp.json",
+      "openreelio/openreelio .agents/external-agent-templates/cursor.mcp.json",
+      "MotleyAI/motley-skills .mcp.json",
+      "solal3105/grandsprojets .mcp.json",
+      "alphabet-h/grooveseek .mcp.json.example",
+      "andyhartzler/my-bluebubbles-web .mcp.json",
+      "ctoforaday/special-circumstances .mcp.json",
+      "chrisdothtml/ai-job-finder .mcp.json",
+      "sunyifeisb-art/legalwork skills/yuandian-law-search/scripts/.mcp.json.example",
+      "JGaldo-beep/transmi-cli .mcp.json",
+      "neonwatty/tfq .mcp.json",
+      "sshanzel/plex plugin/.mcp.json",
+      "michaelahern/airthings-consumer-mcp .mcp.json",
+      "Robaina/chemSearch .mcp.json",
+      "jmbish04/core-tail .mcp.json",
+      "jmbish04/core-spam-filter .mcp.json",
+      "jmbish04/core-workersai-proxy .mcp.json",
+      "Joe-Heffer-Shef/dark-energy .mcp.json",
+      "aerickson/adb_mcp_bridge .mcp.json",
+      "NesiciCoding/RubricMaker .mcp.json",
+      "hit-pay/claude-code-plugin .mcp.json",
+      "smllguy/optimocms-claude-plugin .mcp.json",
+      "volobolo99/NosAiProject .mcp.json",
+      "worldclockpro/worldclock-mcp .mcp.json",
+      "CypherAi-hub/Netwatch .mcp.json",
+      "bodyionita/PSB .mcp.json",
+      "elouansalaun/SEAO_MCP .mcp.json",
+      "gwicho38/prview .mcp.json",
+      "fetinin/cubik front/.mcp.json",
+      "Frisian-MCP/frisian-mcp-demo netbox/.mcp.json",
+      "toddbartholow/irq-canvas-mcp .mcp.json.example",
+      "Vishwajeetsrk/JARVIS-AI-OS packages/agent-memory/plugin/.mcp.json",
+      "dance-cmdr/claude_swarm_workflow workflow/.mcp.json",
+      "nikbrunner/nbr.haus .mcp.json",
+      "subharamv/cloveid .mcp.json",
+      "jmbish04/press .mcp.json",
+      "Shuhaib-Ahamed/agentic-shopping-plugin .mcp.json",
+      "salahAit/sujetstore .mcp.json",
+      "dqdq4197/tax-ai .mcp.json",
+      "yoshiori/listen2post .mcp.json",
+      "WS-maker-tech/RESLOT .mcp.json",
+      "FreddyJD/security-canvas-poc .mcp.json",
+      "Moh-Tayyab/Personal_AI_Employee .mcp.json",
+      "Mithilan1/MCP .mcp.json",
+      "diegoferra5/heineken-voice-agent .mcp.json",
+      "yuvrajnaidoo/ai_dc_energy_foundry .mcp.json",
+      "Sam-SEO-maker/Blog-Refresh-Writer .mcp.json",
+      "dlstudiodev/bb-backend .mcp.json",
+      "algaworks/curso-especialista-microsservicos-nivel-11 .mcp.json",
+      "ganjardbc/umkm-pos .mcp.json",
+      "nomoory/avatarot .mcp.json",
+      "BonTrack/BonTrack .mcp.json",
+      "arfaomar/NotebookLM-Clone .mcp.json",
+      "kokiebisu/sumitsugi .mcp.json",
+      "fyuuki0jp/next-hono-template .mcp.json",
+      "zhendalf/bun-mcp .mcp.json",
+      "mihir-nakra/GiftTracker .mcp.json",
+      "tiennt0212/CKBuilder .mcp.json",
+      "AlexanderV/Seqeron docs/mcp/tools/analysis/codon_frequencies.mcp.json",
+      "openaccountants/marketplace plugins/openaccountants-se/.mcp.json",
+      "pwdev-solucoes/pwdev-claude-marketplace plugins/pwdev-social-media/.mcp.json",
+      "fredh2006/stitch .mcp.json",
+      "ParishruthiGanesh/sentinel-memory mcp/claude-code.mcp.json.example",
+      "srac-technologies/rss-aggregator .mcp.json",
+      "ketovnv/caas-frontend .mcp.json",
+      "laravel-gtm/pg-testing .mcp.json",
+      "govindgoel2001/ppshop .mcp.json",
+      "adubkov/agent-bridge plugins/agent-bridge/.mcp.json",
+      "GetTrustedApp/lastid-agent plugins/lastid-agent/.mcp.json",
+      "luketherose/claude-registry plugins/docs-branding/.mcp.json",
+      "Virus1260/ai-agents-skills-vault skills/qt-agent-skills/.mcp.json",
+      "AlexanderV/Seqeron docs/mcp/tools/chromosome/classify_chromosome_by_arm_ratio.mcp.json",
+      "KrismithReddy12/claude-plugins-official external_plugins/github/.mcp.json",
+      "aah-stack/anthropic external_plugins/github/.mcp.json",
+      "quochieudn2303/claude-plugins-official-copilot external_plugins/github/.mcp.json",
+      "JPalchak/claude-plugins-lsp-only external_plugins/github/.mcp.json",
+      "rothwellmawela-cyber/Claude-plugin external_plugins/github/.mcp.json",
+      "chelleboyer/reachy_mini_retail_assistant skills/customer-support/.mcp.json",
+      "lua-ai-global/claude-code-lua-plugin plugins/lua-agent-builder/.mcp.json",
+      "bahasalah255/instagram-clone insta/.mcp.json",
+      "MauricioPerera/lazyssh-autoprovision plugins/lazyssh-autoprovision/.mcp.json",
+      "chilampoon/portal-claude-plugins plugins/portal-investor-notes/.mcp.json",
+      "JoAiHQ/claude-plugins plugins/generated/claude/work-order/.mcp.json",
+      "Carreau/papyri-gen data/skimage_0.19.3/module/skimage.graph.mcp.json",
+      "Delqhi-Projects/ZOE-Solar-Accounting-OCR .claude/PLUGINS/marketplaces/claude-plugins-official/external_plugins/github/.mcp.json",
+      "tanakaryotadayo-wq/ai-cli-reference cli/.claude/plugins/marketplaces/claude-plugins-official/external_plugins/playwright/.mcp.json",
+      "peterradzisz/OpenOhMyCodePortable skills/microsoft-skills/.github/plugins/azure-skills/.mcp.json",
+      "open-agent-security/openaca tests/fixtures/repos/sample-plugin-string-mcp/.mcp.json",
+      "jeremylongshore/intent-audit-harness tests/fixtures/conform/malformed/mcp-broken-json/.mcp.json"
+    ],
+    ".cursor/mcp.json": [
+      "un-pany/v3-admin-vite .cursor/mcp.json",
+      "ng-select/ng-select .cursor/mcp.json",
+      "getzep/zep .cursor/mcp.json",
+      "dotCMS/core .cursor/mcp.json",
+      "undb-io/undb .cursor/mcp.json",
+      "stackrox/stackrox .cursor/mcp.json",
+      "hijohnnylin/neuronpedia .cursor/mcp.json",
+      "vtex/openapi-schemas .cursor/mcp.json",
+      "Hyk260/PureChat .cursor/mcp.json",
+      "aperoc/toolkami .cursor/mcp.json",
+      "blueprintui/blueprintui .cursor/mcp.json",
+      "jazelly/agentic-react .cursor/mcp.json",
+      "kargnas/laravel-ai-translator .cursor/mcp.json",
+      "awizemann/harness .cursor/mcp.json",
+      "expo-ai-chatbot/expo-ai-chatbot-lite .cursor/mcp.json",
+      "markmhendrickson/neotoma .cursor/mcp.json.template",
+      "s00d/nuxt-i18n-micro .cursor/mcp.json",
+      "xzq-xu/jvm-mcp-server .cursor/mcp.json",
+      "dutradotdev/mcp-portal-transparencia .cursor/mcp.json",
+      "getsentry/warden .cursor/mcp.json",
+      "inboundemail/inbound .cursor/mcp.json",
+      "JNTMTMTM/eIsland .cursor/mcp.json",
+      "lucasvieirasilva/nx-plugins .cursor/mcp.json",
+      "dcwangmit01/amazon-invoice-downloader .cursor/mcp.json",
+      "lucianoayres/mcp-server-node .cursor/mcp.json",
+      "wispbit-ai/wispbit .cursor/mcp.json",
+      "thiagodmont/keynobi .cursor/mcp.json",
+      "tam159/next-role .cursor/mcp.json",
+      "proyecto26/projectx .cursor/mcp.json",
+      "Gusto/embedded-react-sdk .cursor/mcp.json",
+      "lancejames221b/agent-hivemind .cursor/mcp.json.backup",
+      "huiali/rust-skills .cursor/mcp.json",
+      "bia-technologies/rat .cursor/mcp.json",
+      "kindfi-org/kindfi .cursor/mcp.json",
+      "gglessner/hack3270 .cursor/mcp.json",
+      "lancejames221b/agent-hivemind .cursor/mcp.json.disabled",
+      "Klimabevaegelsen/landbruget.dk .cursor/mcp.json",
+      "Cyronlee/TransFlow .cursor/mcp.json",
+      "richardsondx/checkmate .cursor/mcp.json",
+      "celluloid-camp/celluloid .cursor/mcp.json",
+      "Kpoiut/ruleblast .cursor/mcp.json",
+      "dcloudio/uni-ai-x .cursor/mcp.json",
+      "masterfabric/one-hundered-days .cursor/mcp.json",
+      "thetom42/perplexica-mcp .cursor/mcp.json",
+      "s0nerik/context_plus .cursor/mcp.json",
+      "espressif/esp-bist .cursor/mcp.json",
+      "armpro24-blip/cad-cae-copilot .cursor/mcp.json",
+      "mitkury/aiwrapper .cursor/mcp.json",
+      "particlefuture/1mcpserver .cursor/mcp.json",
+      "DmNep/1cPlantUML .cursor/mcp.json",
+      "3fn/DesignerPunk .cursor/mcp.json",
+      "rejot-dev/rejot .cursor/mcp.json",
+      "ever-co/ever-rec-desktop .cursor/mcp.json",
+      "flyingwebie/LaunchKit .cursor/mcp.json.windows",
+      "atlowChemi/vite-svg-2-webfont .cursor/mcp.json",
+      "laravel/locket .cursor/mcp.json",
+      "flyingwebie/LaunchKit .cursor/mcp.json.mac-linux",
+      "mertcanaltin/composto .cursor/mcp.json",
+      "Rugved1652/vayu-ui .cursor/mcp.json",
+      "JesusFilm/core .cursor/mcp.json",
+      "safedep/xbom .cursor/mcp.json",
+      "wesselgrift/sveltekit-spa .cursor/mcp.json",
+      "mpaiva/project-starter-template-cursor .cursor/mcp.json_example",
+      "BitteProtocol/mcp .cursor/mcp.json",
+      "lies-exposed/lies.exposed .cursor/mcp.json",
+      "jmxt3/gitscape.ai .cursor/mcp.json",
+      "vltansky/cursor-chat-history-mcp .cursor/mcp.json",
+      "taucad/tau .cursor/mcp.json",
+      "X-lab2017/open-digger-mcp-server .cursor/mcp.json",
+      "mjdevaccount/AIStack-MCP .cursor/mcp.json.example.uv",
+      "Planet9V/project_nightingale .cursor/mcp.json.backup",
+      "fxstein/ascii-guard .cursor/mcp.json",
+      "lydemann/Todo-monorepo .cursor/mcp.json",
+      "Mineru98/mysql-mcp-server .cursor/mcp.json",
+      "valstro/markdown-rules-mcp .cursor/mcp.json",
+      "hzrd149/applesauce .cursor/mcp.json",
+      "yesonsys03-web/VibeLign .cursor/mcp.json",
+      "cincinnatirb/cincyrb .cursor/mcp.json",
+      "louspringer/ontology-framework .cursor/mcp.json.bak",
+      "theshoaibme/grip .cursor/mcp.json.bak",
+      "marcopesani/think-mcp-server .cursor/mcp.json",
+      "lucca180/itemdb .cursor/mcp.json",
+      "PerfLab-io/perfagent .cursor/mcp.json",
+      "oofangoo/personal-finance-planner .cursor/mcp.json",
+      "gracefullight/docusaurus-plugins .cursor/mcp.json",
+      "adamsiwiec1/mcp-sse-authenticated-cloud-run .cursor/mcp.json",
+      "riccorohl/trading-journal .cursor/mcp.json",
+      "mimfort/rag_for_git .cursor/mcp.json",
+      "Bytes0211/stratifyai .cursor/mcp.json.backup",
+      "Kotakageyama/Test_Figma_MCP .cursor/mcp.json.sample",
+      "myurasov/Superagent .cursor/mcp.json.cursor",
+      "staticroostermedia-arch/engram .cursor/mcp.json",
+      "jbiddulph/johnpyfe .cursor/mcp.json.template",
+      "mjdevaccount/AIStack-MCP .cursor/mcp.json.example.virtualenv",
+      "kwizzlesurp10-ctrl/LLMAgentbuilder .cursor/mcp.json.template",
+      "Paldom/databricks-apps-streamlit-vibe-coding-starter .cursor/mcp.json.template",
+      "WebAppAI0410/MiraiCare .cursor/mcp.json.template",
+      "opsMachine/seed-workspace .cursor/mcp.json.template",
+      "harshmriduhash/Targetym .cursor/mcp.json.template",
+      "adonisjinggw/hjzl .cursor/mcp.json.template",
+      "c15t/c15t .cursor/mcp.json",
+      "peter-trost/flutter-testing-concepts .cursor/mcp.json",
+      "mpaiva/ids-2025-neuroinclusive-design-systems .cursor/mcp.json_example",
+      "NtsDK/larpwriter-toolkit-nims .cursor/mcp.json.example",
+      "iog-creator/LivingTruthEngine .cursor/mcp.json.old",
+      "kingchun1991/nextjs-chakra-starter-blog .cursor/mcp.json",
+      "0xnyn/cruso .cursor/mcp.json",
+      "aesthezel/venezuela-juega .cursor/mcp.json",
+      "adobecom/dc-graybox .cursor/mcp.json",
+      "Jeremy344555/rat .cursor/mcp.json",
+      "svallory/the-notebook-mcp .cursor/mcp.json",
+      "vedovelli/rocketseat-vedovelli-task-master .cursor/mcp.json",
+      "mgetf/website-next .cursor/mcp.json",
+      "cocos-pet/cocos-frontend .cursor/mcp.json",
+      "s00d/nuxt-i18n-micro-cli .cursor/mcp.json",
+      "AbysmalBiscuit/devkit .cursor/mcp.json",
+      "nicodev3/psychologue-nancy-florent-simon.fr .cursor/mcp.json",
+      "Stephenfre/social-charge .cursor/mcp.json",
+      "ben-horner-dev/portfolio .cursor/mcp.json",
+      "kuraydev/react-native-expo-boilerplate .cursor/mcp.json",
+      "tonycondone/birth-certificate-system .cursor/mcp.json",
+      "zyx1121/ai.winlab.tw .cursor/mcp.json",
+      "ThinkPost-ai/thinkpost-ai-launchpad .cursor/mcp.json",
+      "terryso/meta_tag_genie .cursor/mcp.json",
+      "luke-cheng/Rift-Rewind-Reviewer .cursor/mcp.json",
+      "flrxnt/dsbj .cursor/mcp.json",
+      "pmahajan3105/movieapp .cursor/mcp.json",
+      "Scsant/pateste .cursor/mcp.json",
+      "edithatogo/osf-cli-go .cursor/mcp.json",
+      "osuki-dev/kit .cursor/mcp.json",
+      "lambda-code-gk/aish .cursor/mcp.json",
+      "gbude-sudo/DreamerOSLive .cursor/mcp.json",
+      "vindk8d/athena_v3 .cursor/mcp.json",
+      "BigSimmo/Database .cursor/mcp.json",
+      "streamify-one/ancher-agent-skills .cursor/mcp.json",
+      "matthummel-pa/wp-walkridge .cursor/mcp.json",
+      "GregDog/mcp-server-theopenlane .cursor/mcp.json",
+      "unbywyd/tsdiapi-jwt-auth .cursor/mcp.json",
+      "pacificnm/qtcode .cursor/mcp.json",
+      "dentroio/Oryntra .cursor/mcp.json",
+      "alxbryann/paypal-cli .cursor/mcp.json",
+      "leonardozaneladias/ht2-erp .cursor/mcp.json",
+      "adrianmikula/JakartaMigrationMCP .cursor/mcp.json",
+      "thenothing0/THENOTHING .cursor/mcp.json",
+      "FelixRodrigues007/lastre .cursor/mcp.json",
+      "gaopengbin/e-template .cursor/mcp.json",
+      "andrewlau624/agentmaxx .cursor/mcp.json",
+      "leofiorese/planner_financeiro .cursor/mcp.json",
+      "glindberg2000/amazon-invoice-downloader .cursor/mcp.json",
+      "ndx-au/MoBlend_SRE .cursor/mcp.json.example",
+      "Impesud/italy-legacy-db-ai-bridge-template .cursor/mcp.json.example",
+      "danielsmithdevelopment/danielsmithdevelopment.github.io .cursor/mcp.json",
+      "nSimonFR/nic-os .cursor/mcp.json",
+      "juliorafre/portfolio .cursor/mcp.json",
+      "cazzer/bindiving .cursor/mcp.json",
+      "AhmedEsawy13/Quran_Flask .cursor/mcp.json",
+      "rachmanj/payreq-x-v3 .cursor/mcp.json",
+      "crisfroi/SERMED2 .cursor/mcp.json",
+      "kaseonedge/resume .cursor/mcp.json",
+      "bdays87/ahpczportal .cursor/mcp.json",
+      "IgnacioBarEsp/PlanearIA .cursor/mcp.json",
+      "codepanda-ai/resummate .cursor/mcp.json",
+      "flowinternals/seclens-app .cursor/mcp.json",
+      "preneuscliford/guyane-marketPlace .cursor/mcp.json",
+      "j0s3v4rg4s/norseus .cursor/mcp.json",
+      "rishabhamga/clento-app .cursor/mcp.json",
+      "mdayan8/VibeSecure-AI .cursor/mcp.json",
+      "Akinfiresoye-Victor/Estate-Web .cursor/mcp.json",
+      "EduardoSousaPO/site-larissa .cursor/mcp.json",
+      "HimanshuJain04/DocSimplify .cursor/mcp.json",
+      "hellpanderrr/IrishPhoneticTranscription .cursor/mcp.json",
+      "Divyanshi018572/AI_Job_Application_Agent .cursor/mcp.json",
+      "abucan-archive/tripster .cursor/mcp.json",
+      "DariaTsypkina/bookspace .cursor/mcp.json",
+      "luanleiteti/au-parfum .cursor/mcp.json",
+      "kstlouis/dotfiles .cursor/mcp.json",
+      "abelpz/bt-toolkit .cursor/mcp.json",
+      "ciungulete/simpozion-campulung .cursor/mcp.json",
+      "Zafnshr/El-3awatleya-2.0 .cursor/mcp.json",
+      "PROHIT-CoreTech/cash-flow-website-repo .cursor/mcp.json",
+      "Mrjing/overcooked-game .cursor/mcp.json",
+      "jaydubbya985-ops/onefm-985-platform .cursor/mcp.json",
+      "ostegm/contractor-app .cursor/mcp.json",
+      "Viceversa98/sepang-pit-wall .cursor/mcp.json",
+      "cryptochris8/hytopia-free-fall .cursor/mcp.json",
+      "snakedoll/gcsweb .cursor/mcp.json",
+      "Cradcliff187/project-crew-connect .cursor/mcp.json",
+      "pdrohm/postly .cursor/mcp.json",
+      "miladyboy/wingman .cursor/mcp.json",
+      "muazhazali/SpilledIn .cursor/mcp.json",
+      "schicks/ts-refactor-mcp .cursor/mcp.json",
+      "rotnitxe/KPKNFit .cursor/mcp.json",
+      "eurisko-info-lab/treillis .cursor/mcp.json",
+      "danthelos/excel-importer .cursor/mcp.json",
+      "wongjingping/postgres-mcp .cursor/mcp.json",
+      "hcw9iu/hmm-rs .cursor/mcp.json",
+      "Rhodium-Research/frontend .cursor/mcp.json",
+      "tied-inc/mastra-lambda-docker-deploy .cursor/mcp.json",
+      "K-Mistele/mastra-course .cursor/mcp.json",
+      "zehraheray/agentic-ai-developer .cursor/mcp.json",
+      "Mittenzx/Adastrea .cursor/mcp.json.template",
+      "kingchun1991/nextjs-chakra-starter-blog .cursor/mcp.json",
+      "crackedngineer/iLoveGithub .cursor/mcp.json",
+      "ElisePatrikainen/vue-mcp-server .cursor/mcp.json",
+      "heimanba/PromptDiscovery .cursor/mcp.json",
+      "cafreeman/foundry-mcp .cursor/mcp.json",
+      "rilldata/clickhouse-system-analytics .cursor/mcp.json",
+      "zixiao-labs/logos .cursor/mcp.json",
+      "jabrena/codemotion-madrid-2026-demos .cursor/mcp.json",
+      "dadederk/RetroRacing .cursor/mcp.json",
+      "wijnandb/chatbotninja .cursor/mcp.json",
+      "tonycondone/birth-certificate-system .cursor/mcp.json",
+      "xvguerovx/c15t .cursor/mcp.json",
+      "kristalpithwa/ExploreYC .cursor/mcp.json",
+      "hubble-ventures/eng-ops .cursor/mcp.json",
+      "thenothing0/THENOTHING .cursor/mcp.json",
+      "FelixRodrigues007/lastre .cursor/mcp.json",
+      "irvidlop/nextarter-chakra .cursor/mcp.json",
+      "Yab112/Context-Orchestrator .cursor/mcp.json",
+      "patrickhaahr/run-comp .cursor/mcp.json",
+      "4aDay/projectTemplate .cursor/mcp.json",
+      "Naser-Al-Noman/acshen .cursor/mcp.json",
+      "georgest32/Unity-Claude-Automation .cursor/mcp.json",
+      "Roshan7869/algotrading .cursor/mcp.json",
+      "smoketurner/k8s-valkey-operator .cursor/mcp.json",
+      "ralphkrauss/agent-orchestrator .cursor/mcp.json",
+      "LockInTime/headless .cursor/mcp.json",
+      "bilgoun/mcp-gcp-demo .cursor/mcp.json",
+      "rodonguyen/brisbane-parking .cursor/mcp.json",
+      "tyrailleverett/nice-ui .cursor/mcp.json",
+      "niradler/k8s-explorer-mcp .cursor/mcp.json",
+      "reponerve/reponerve .cursor/mcp.json",
+      "aidandaniel/context-eng-project .cursor/mcp.json",
+      "GarthDB/act-testing-mcp .cursor/mcp.json",
+      "Impesud/italy-legacy-db-ai-bridge-template .cursor/mcp.json.example",
+      "Xala-Technologies/farsyn .cursor/mcp.json.example",
+      "Akinfiresoye-Victor/Estate-Web .cursor/mcp.json",
+      "EduardoSousaPO/site-larissa .cursor/mcp.json",
+      "soso0024/so-onishi .cursor/mcp.json",
+      "DenisMit3/mambax-backend .cursor/mcp.json",
+      "crisfroi/ecuatorial-health-dashboard-28d23b44 .cursor/mcp.json",
+      "AmrendraTheCoder/go-backend .cursor/mcp.json",
+      "gbude-sudo/dreameros-agent-plugin .cursor/mcp.json",
+      "fahamijemal/Chimera .cursor/mcp.json",
+      "HuguesSib/multimodal-earthobs .cursor/mcp.json",
+      "boooring-guy/auto-bore .cursor/mcp.json",
+      "MokiMeow/PATCHPILOT_TEST_REPO .cursor/mcp.json",
+      "HaodongWang1995/S3-SAM .cursor/mcp.json",
+      "shopcarbon12-gif/carbon-gen .cursor/mcp.json",
+      "josemimbre/liveview_contacts .cursor/mcp.json",
+      "CastaliaInstitute/aima-assignment-starter .cursor/mcp.json",
+      "ibbykhazanchi/mcp-observability-poc .cursor/mcp.json",
+      "JinUng41/WebviewBridgingDemoApp .cursor/mcp.json",
+      "Nitindeep65/QueryCraft .cursor/mcp.json",
+      "gurezo/chirimen-device-dashboard .cursor/mcp.json",
+      "SouhlInc/souhl-microservices-example .cursor/mcp.json",
+      "jgabriellima/aisdlc-astrojs .cursor/mcp.json",
+      "Akhil325/knowledge_base .cursor/mcp.json",
+      "maithilyrajpure/International-Hackathon .cursor/mcp.json",
+      "Abhishek-Jose7/ideOS .cursor/mcp.json",
+      "second-shot/ORACLE.one .cursor/mcp.json",
+      "IzzatFirdaus/ict-serve .cursor/mcp.json",
+      "BleedingDev/laravel-starter-kit .cursor/mcp.json",
+      "BleedingDev/playwright-training .cursor/mcp.json",
+      "kaori-seasons/sd-system .cursor/mcp.json",
+      "orshih6/fastify-template .cursor/mcp.json",
+      "orshih6/meetify .cursor/mcp.json",
+      "antoinebou12/nxsand .cursor/mcp.json",
+      "orshih6/jobboard .cursor/mcp.json",
+      "medit-dev/ai-agent-toolbox .cursor/mcp.json",
+      "arifism1/kalnehi-daily .cursor/mcp.json",
+      "Sanjaayyy7/Shrobe .cursor/mcp.json",
+      "GeorgeSadek01/sknny .cursor/mcp.json",
+      "ibrahimsezer/chat-with-docs-llm-rag .cursor/mcp.json",
+      "goblin8621/goblin_kong_mcp .cursor/mcp.json",
+      "luisfm44/landed-agent .cursor/mcp.json",
+      "L3earl/golf_score_recog .cursor/mcp.json",
+      "adm-toolsmm-ia/tech-arauz .cursor/mcp.json",
+      "mrisoli/pokerhouse .cursor/mcp.json",
+      "pranto2051/C-Project .cursor/mcp.json",
+      "shazhou-ww/casfa .cursor/mcp.json",
+      "SOFTMAN20/gacinia-vita-care .cursor/rules/mcp.json",
+      "deencat/AI-Web-Test-v1 .cursor/mcp.json.example",
+      "LaterSpec/sam .cursor/mcp.json.example",
+      "fathya-core/zambahola-one-agent .cursor/mcp.json.example",
+      "CynarJulep/whatsapp-pdf-bot .cursor/mcp.json.example",
+      "JuliusChoy/Name-Screening-Automation .cursor/mcp.json.example",
+      "duylequang2303/fieldforcemoblie .cursor/mcp.json.example",
+      "chiayich/sdui .cursor/mcp/network-layer.mcp.json",
+      "MotionPhix/framework .cursor/mcp.json",
+      "TheLifeOfMV/AI-Booking .cursor/mcp.json",
+      "emrecolak-23/nodejs-langchain-rag-mcp-langraph .cursor/mcp.json",
+      "diegofornalha/context-engineering-turso .cursor/mcp.json",
+      "fde-projects/sunshine-cloud-inspection .cursor/mcp.json",
+      "DeepakChander001/LocalMCP .cursor/mcp.json",
+      "hasbisdqi/broadcast-react .cursor/mcp.json",
+      "tajrianislam/TalweehAcademy .cursor/mcp.json",
+      "SotaYamaguchi/python-django-prototype-rules .cursor/mcp.json",
+      "DmitriyAlergant/cursor-excel-analytics .cursor/mcp.json",
+      "tombrk/pdf-mcp .cursor/mcp.json"
+    ]
+  },
+  "accepted": [
+    {
+      "repo": "dataplat/dbatools",
+      "kind": ".claude/settings.json",
+      "default_branch": "development",
+      "head_sha": "507e269c62a3e7b91cb266af1cf27694d0fec75e",
+      "base_sha": "2f9baa0a5a22b8da56e5eb1467c20208b961b893",
+      "head_committed_at": "2026-07-08T06:48:37Z",
+      "commits_in_window": 3,
+      "stars": 2831
+    },
+    {
+      "repo": "open-learning-exchange/myplanet",
+      "kind": ".claude/settings.json",
+      "default_branch": "master",
+      "head_sha": "62e51089cf1c77bbdd0e59c3ef5503960c874ea8",
+      "base_sha": "3425efb5cb1c30825890ed46b25292aaa44d6218",
+      "head_committed_at": "2026-09-01T16:30:12Z",
+      "commits_in_window": 4,
+      "stars": 33
+    },
+    {
+      "repo": "haru/redmine_wiki_extensions",
+      "kind": ".claude/settings.json",
+      "default_branch": "main",
+      "head_sha": "0132a04b9073e0473407cebe3f5a372ebb99f9de",
+      "base_sha": "a9a748b38bb200bfac7a3a12faa1099fe83f6c37",
+      "head_committed_at": "2026-07-05T13:50:43Z",
+      "commits_in_window": 3,
+      "stars": 69
+    },
+    {
+      "repo": "Baebeca-Solutions/lexware-php-api",
+      "kind": ".claude/settings.json",
+      "default_branch": "master",
+      "head_sha": "64bb069185ea9837018c2c33f1ef70fb23389290",
+      "base_sha": "d15740efd299b6ac121342c8617531fbdc3708b3",
+      "head_committed_at": "2026-06-27T07:26:59Z",
+      "commits_in_window": 3,
+      "stars": 43
+    },
+    {
+      "repo": "multimindlab/multimind-sdk",
+      "kind": ".claude/settings.json",
+      "default_branch": "develop",
+      "head_sha": "2b835ff4c458b56dd47ee501481adcae48c07930",
+      "base_sha": "4bd61ef9234680a494c6b30ef921c6c4d0bd3e15",
+      "head_committed_at": "2026-07-07T18:34:27Z",
+      "commits_in_window": 2,
+      "stars": 96
+    },
+    {
+      "repo": "vmihalis/hacker-bob",
+      "kind": ".claude/settings.json",
+      "default_branch": "main",
+      "head_sha": "16f15785c54aa9979e279aef1dd77601bd1f8265",
+      "base_sha": "c028ad02e93ca7ea2a8b3740426735167fd8f6d4",
+      "head_committed_at": "2026-08-25T16:08:24Z",
+      "commits_in_window": 11,
+      "stars": 97
+    },
+    {
+      "repo": "theinterfold/interfold",
+      "kind": ".claude/settings.json",
+      "default_branch": "main",
+      "head_sha": "18e16f11b18a3bbcf73f2d9099924d144996a87d",
+      "base_sha": "c64bcfb890b596e626ea6578c5fbd53f808c3b43",
+      "head_committed_at": "2026-08-16T07:44:03Z",
+      "commits_in_window": 2,
+      "stars": 82
+    },
+    {
+      "repo": "wbrown/janus-datalog",
+      "kind": ".claude/settings.json",
+      "default_branch": "main",
+      "head_sha": "7f06343414ec96967c22bdb4ac0c85705062e0dc",
+      "base_sha": "c276a5990b971901100f818ae3ba62af9dd8c417",
+      "head_committed_at": "2026-08-01T03:21:53Z",
+      "commits_in_window": 2,
+      "stars": 51
+    },
+    {
+      "repo": "future-architect/uzomuzo-oss",
+      "kind": ".claude/settings.json",
+      "default_branch": "main",
+      "head_sha": "e3c31460c359a44e9b1fa5a7ddadaedb12504780",
+      "base_sha": "ac9c9dd22b4d20daa6243952c291c99b6d1f1173",
+      "head_committed_at": "2026-09-01T04:37:00Z",
+      "commits_in_window": 2,
+      "stars": 32
+    },
+    {
+      "repo": "justinstimatze/winze",
+      "kind": ".claude/settings.json",
+      "default_branch": "main",
+      "head_sha": "3ff618c82095ad2b147eaba0ede26c39d9dfa58c",
+      "base_sha": "3a1ea242b80c795926c001491b8798a05095d91d",
+      "head_committed_at": "2026-09-07T18:11:34Z",
+      "commits_in_window": 2,
+      "stars": 7
+    },
+    {
+      "repo": "Vortiago/mcp-outline",
+      "kind": ".mcp.json",
+      "default_branch": "main",
+      "head_sha": "e699cd5d16a983c7bcb4e67c3cf213608df7eeac",
+      "base_sha": "e1a0b46363b37c5dec01435a8bbc19fd862984e1",
+      "head_committed_at": "2026-07-02T08:10:05Z",
+      "commits_in_window": 2,
+      "stars": 155
+    },
+    {
+      "repo": "FriendsOfShopware/shopmon",
+      "kind": ".mcp.json",
+      "default_branch": "main",
+      "head_sha": "72dee3a9bbec4128a19df7b751d99333daa90f76",
+      "base_sha": "93d2917b5dbbba5402b07b7eb716235437e7cc8b",
+      "head_committed_at": "2026-07-29T05:20:29Z",
+      "commits_in_window": 3,
+      "stars": 73
+    },
+    {
+      "repo": "SiThuTun-mdy/fast-order",
+      "kind": ".mcp.json",
+      "default_branch": "main",
+      "head_sha": "46be4ee977677ce16c2e4763935800fb9193dd4d",
+      "base_sha": "9c7a77b9394a767f52a2bad81c419e8554117953",
+      "head_committed_at": "2026-07-15T17:59:20Z",
+      "commits_in_window": 3,
+      "stars": 4
+    },
+    {
+      "repo": "Snehal1112/rocketvault",
+      "kind": ".mcp.json",
+      "default_branch": "v-4.0.0",
+      "head_sha": "8afc0166cd429c71b9f4988f12583579104c5838",
+      "base_sha": "4b0deb8038ace7d8eb3c1f585125d0e2bdfb0599",
+      "head_committed_at": "2026-09-02T21:19:58Z",
+      "commits_in_window": 2,
+      "stars": 0
+    },
+    {
+      "repo": "MGEQuant/MGEQuant",
+      "kind": ".mcp.json",
+      "default_branch": "main",
+      "head_sha": "701dbc36f2fa1f55cf03d288124cc734e2c0783d",
+      "base_sha": "0d4ad7bc18fd38fa5fd26b8cf948f112b738ec32",
+      "head_committed_at": "2026-08-30T20:28:20Z",
+      "commits_in_window": 2,
+      "stars": 0
+    },
+    {
+      "repo": "absolute-aungkomyint/athapyar-htote-web",
+      "kind": ".mcp.json",
+      "default_branch": "main",
+      "head_sha": "55c2c8e1f4f09033a42d2fc5509a693ad7edc730",
+      "base_sha": "40d7c296470ed4e526f1ce21ee7d3c536dbf4a19",
+      "head_committed_at": "2026-06-27T15:03:35Z",
+      "commits_in_window": 2,
+      "stars": 7
+    },
+    {
+      "repo": "LokmenoWer/best-cad-mcp",
+      "kind": ".mcp.json",
+      "default_branch": "master",
+      "head_sha": "063c1740b1d55201cb30833ad2a14001c302a60a",
+      "base_sha": "a4bd3f3550eca421190b17421138a76d9642c1a3",
+      "head_committed_at": "2026-06-24T14:08:12Z",
+      "commits_in_window": 2,
+      "stars": 15
+    },
+    {
+      "repo": "solal3105/grandsprojets",
+      "kind": ".mcp.json",
+      "default_branch": "main",
+      "head_sha": "6036452b3d3a33ccc3a49b21e5d130f3a1b082c6",
+      "base_sha": "4a5a6ddc98a4bbc6731058fe1065d587a1cf9275",
+      "head_committed_at": "2026-09-06T22:00:15Z",
+      "commits_in_window": 4,
+      "stars": 4
+    },
+    {
+      "repo": "ctoforaday/special-circumstances",
+      "kind": ".mcp.json",
+      "default_branch": "main",
+      "head_sha": "6d664790fe172ff603e12ee08da980f23f2d9c84",
+      "base_sha": "4557fcdeb9f15ab53523d51ff9c19d631f807eb5",
+      "head_committed_at": "2026-08-04T11:03:32Z",
+      "commits_in_window": 4,
+      "stars": 3
+    },
+    {
+      "repo": "JGaldo-beep/transmi-cli",
+      "kind": ".mcp.json",
+      "default_branch": "main",
+      "head_sha": "ba4f002583963549472864765a3cbe76e9fa7d80",
+      "base_sha": "a74ba98366a7b7e5a42c598c92b73e2f32de89d9",
+      "head_committed_at": "2026-07-23T20:46:15Z",
+      "commits_in_window": 2,
+      "stars": 2
+    },
+    {
+      "repo": "ng-select/ng-select",
+      "kind": ".cursor/mcp.json",
+      "default_branch": "master",
+      "head_sha": "feac5322fd5646ab7c0d4d046c24de5bffab9489",
+      "base_sha": "c12f858b57cdd0075d73b56e4731794ce5dc9f40",
+      "head_committed_at": "2026-08-30T04:24:45Z",
+      "commits_in_window": 2,
+      "stars": 3372
+    },
+    {
+      "repo": "Kpoiut/ruleblast",
+      "kind": ".cursor/mcp.json",
+      "default_branch": "main",
+      "head_sha": "d826c90a911749651ecb299fe67a896cf4b7eb74",
+      "base_sha": "73f72674ebf41eed013ef29325b511343d5192f9",
+      "head_committed_at": "2026-08-25T09:38:27Z",
+      "commits_in_window": 7,
+      "stars": 19
+    },
+    {
+      "repo": "BigSimmo/Database",
+      "kind": ".cursor/mcp.json",
+      "default_branch": "main",
+      "head_sha": "33c2dc16108cad6c2f5c69505828d9d7f66131c3",
+      "base_sha": "db9e9710dd6185837197d2b02e5c33053e925485",
+      "head_committed_at": "2026-09-04T13:47:37Z",
+      "commits_in_window": 5,
+      "stars": 0
+    },
+    {
+      "repo": "FelixRodrigues007/lastre",
+      "kind": ".cursor/mcp.json",
+      "default_branch": "main",
+      "head_sha": "c65d127b976ec7caaabb7308dfef907fc027eb73",
+      "base_sha": "e4b4d7ddee0a6b11257cdc2ea6b6cea38aa9cedd",
+      "head_committed_at": "2026-07-22T19:39:38Z",
+      "commits_in_window": 2,
+      "stars": 1
+    },
+    {
+      "repo": "AhmedEsawy13/Quran_Flask",
+      "kind": ".cursor/mcp.json",
+      "default_branch": "main",
+      "head_sha": "d9721bc7835dc62e334b9861798675ffdda44575",
+      "base_sha": "404058c9ff4f98bbcef8b729f93705b3a0725295",
+      "head_committed_at": "2026-08-08T09:58:13Z",
+      "commits_in_window": 2,
+      "stars": 0
+    },
+    {
+      "repo": "IgnacioBarEsp/PlanearIA",
+      "kind": ".cursor/mcp.json",
+      "default_branch": "development",
+      "head_sha": "0e57573d48076aa7f0d1b5242201583b9e2e6594",
+      "base_sha": "13f339fabdda24b602c9f18997fb3e5c46bde303",
+      "head_committed_at": "2026-09-01T23:34:54Z",
+      "commits_in_window": 6,
+      "stars": 1
+    },
+    {
+      "repo": "kstlouis/dotfiles",
+      "kind": ".cursor/mcp.json",
+      "default_branch": "main",
+      "head_sha": "1ebe61680d07c9ae0f826af2128d14271b4b1613",
+      "base_sha": "2d539ee523515e07aaa565ae0b1f5169aaf96373",
+      "head_committed_at": "2026-07-18T05:39:51Z",
+      "commits_in_window": 2,
+      "stars": 0
+    },
+    {
+      "repo": "snakedoll/gcsweb",
+      "kind": ".cursor/mcp.json",
+      "default_branch": "main",
+      "head_sha": "97fa4ae41f944a32aec13d750181114e9e21128e",
+      "base_sha": "174b654fbe41e38156e458fded9763c96a511b4f",
+      "head_committed_at": "2026-08-24T11:44:32Z",
+      "commits_in_window": 2,
+      "stars": 0
+    },
+    {
+      "repo": "dadederk/RetroRacing",
+      "kind": ".cursor/mcp.json",
+      "default_branch": "master",
+      "head_sha": "0d92585bdfa9d828a773979bffa89bd1fa723469",
+      "base_sha": "e1ce85b26b62261952a74afbcfdcfde362bdd6a8",
+      "head_committed_at": "2026-06-25T19:58:18Z",
+      "commits_in_window": 2,
+      "stars": 2
+    },
+    {
+      "repo": "maithilyrajpure/International-Hackathon",
+      "kind": ".cursor/mcp.json",
+      "default_branch": "main",
+      "head_sha": "20be275c1542eee4cbd04b90bb01d8346c94b8fe",
+      "base_sha": "c7c581d4a1042bb77d0647f44c70e2492c6d4a21",
+      "head_committed_at": "2026-08-01T16:39:17Z",
+      "commits_in_window": 2,
+      "stars": 0
+    }
+  ],
+  "rejected": [
+    {
+      "repo": "MetaMask/metamask-mobile",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "near/nearcore",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "33cn/chain33",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "Nice3point/RevitTemplates",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "bencherdev/bencher",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "pegasi-ai/reins",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "abap2UI5/abap2UI5",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "slonopotamus/stevedore",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "wormhole-foundation/wormhole-connect",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "AratKruglik/claude-laravel",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "LFDT-Lineth/lineth-monorepo",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "MaxinAI/school-of-ai",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "lis186/ccxray",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "Kangentic/kangentic",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "Twingate/gateway",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "nativectx/ui",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "rochi88/bdshare",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "lanegrid/agtrace",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "westberliner/checksum",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "every-app/sam",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "thebnbrkr/agora-code",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "GlassBricks/StagedBlueprintPlanning",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "PrayerfulDrop/ESPHome-Guition-ESP32-S3-4848S040",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "tzachbon/claude-model-router-hook",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "chaynHQ/bloom-backend",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "willdady/platypus",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "hiroshitanaka-creator/Cyber-Immunizer",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "Softleif/seqair",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "kavigupta/urbanstats",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "braintrustdata/braintrust-sdk-javascript",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "turtton/YtAlarm",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "fandsdev/eslint-config-fans",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "life-itself/climate",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "nikeyes/stepwise-dev",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "majorcontext/moat",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "atlowChemi/vite-svg-2-webfont",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "mxpv/luaz",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "monorailcss/MonorailCss.Framework",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "deepteams/webp",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "ThibautBaissac/claude-code-architecture",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "charles-adedotun/notifications-mcp-server",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "systempromptio/systemprompt-template",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "NickTikhonov/bitclaw",
+      "kind": ".claude/settings.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "getsentry/sentry-mcp",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "YoshiiRyo1/document-templates-for-aws",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "nuxt/nuxt.com",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "Archive228/loopkit",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "leboncoin/spark-web",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "lucaslorentz/durabletask-extensions",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "Bike4Mind/bike4mind",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "AgentOrchestrator/AgentBase",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "PierreKieffer/http-tanker",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "iterate/iterate",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "chu2bard/pinion-os",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "vobase/vobase",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "AssafWoo/homebrew-pandafilter",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "raffertyuy/github-copilot-prompts",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "juanfran/tapiz",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "zalom/plastic",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "usrivastava92/gtv-desktop-remote",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "zhcndoc/nuxt",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "axpolik/claude-code-d365fo-mcp",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "00PrabalK00/OpenRosWarehouse",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "OpenWaggle/OpenWaggle",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "Bato21/KimunKo",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "jmbish04/core-hassio",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "wrayboss/trading-jarvis-codex-plugin",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "brettmartin97/codegraph",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "Slidely-AI/slidely-claude-plugin",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "NewJerseyStyle/plugin-mcts",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "clssck/Dataiku_MCP",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "CSOAI-ORG/sleep-tracker-ai-mcp",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "ShubhamPP04/cinema-droplet",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "kinncj/OhCanada",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "agustincf/Arcade1v1",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "oshanz/oshanz.github.io",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "truongan/wecode",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "KISA-webpage-development-team/KISA-website-client",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "antonio59/AAFairShare",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "XMA-Agency-Org/xma-proposal-generator",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "davmarek/school-test-generator",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "pakkio/nexus",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "MergetAI/merget-claude-plugin",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "Mosya-CX/FrameSyncMobaDemo",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "alessiobacin/llmProxy",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "yangsi7/the-fountain-studio",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "slysik/tac-7",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "Willjeanne/faststore-soliverdemo",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "brandon-fryslie/oscilla-animator-v2",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "MKBSP/writepublishgrow_landingpage",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "peterelmwood/copy-table-extension",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "Home-Inspectors-Network/INM",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "mmvinfo28/cursor-overlay",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "zuhayr635/kadromanus",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "BoomRepublic/SocialMotive",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "microfnhq/skills",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "kwon416/real-estimate-AI",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "keitaitonet/shokujin-wiki",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "charovatzbassar/bi-agent",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "AdiRishi/online-diff-tool",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "Automattic/wp-calypso",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "tobilg/caddy-duckdb-module",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "ortus-docs/coldbox-docs",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "keijiro/Yamu",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "zonuexe/riida",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "RayTracingON/CashbackCounter",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "Dometrain/mcp",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "MotleyAI/motley-skills",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "andyhartzler/my-bluebubbles-web",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "chrisdothtml/ai-job-finder",
+      "kind": ".mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "un-pany/v3-admin-vite",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "getzep/zep",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "dotCMS/core",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "undb-io/undb",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "stackrox/stackrox",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "hijohnnylin/neuronpedia",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "vtex/openapi-schemas",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "Hyk260/PureChat",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "aperoc/toolkami",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "blueprintui/blueprintui",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "jazelly/agentic-react",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "kargnas/laravel-ai-translator",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "awizemann/harness",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "expo-ai-chatbot/expo-ai-chatbot-lite",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "s00d/nuxt-i18n-micro",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "xzq-xu/jvm-mcp-server",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "dutradotdev/mcp-portal-transparencia",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "getsentry/warden",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "inboundemail/inbound",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "JNTMTMTM/eIsland",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "lucasvieirasilva/nx-plugins",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "dcwangmit01/amazon-invoice-downloader",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "lucianoayres/mcp-server-node",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "wispbit-ai/wispbit",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "thiagodmont/keynobi",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "tam159/next-role",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "proyecto26/projectx",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "Gusto/embedded-react-sdk",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "huiali/rust-skills",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "bia-technologies/rat",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "kindfi-org/kindfi",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "gglessner/hack3270",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "Klimabevaegelsen/landbruget.dk",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "Cyronlee/TransFlow",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "richardsondx/checkmate",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "celluloid-camp/celluloid",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "dcloudio/uni-ai-x",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "masterfabric/one-hundered-days",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "thetom42/perplexica-mcp",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "s0nerik/context_plus",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "espressif/esp-bist",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "armpro24-blip/cad-cae-copilot",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "mitkury/aiwrapper",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "particlefuture/1mcpserver",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "DmNep/1cPlantUML",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "3fn/DesignerPunk",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "rejot-dev/rejot",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "ever-co/ever-rec-desktop",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "atlowChemi/vite-svg-2-webfont",
+      "kind": ".cursor/mcp.json",
+      "reason": "already_selected_for_another_file"
+    },
+    {
+      "repo": "laravel/locket",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "mertcanaltin/composto",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "Rugved1652/vayu-ui",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "JesusFilm/core",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "safedep/xbom",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "wesselgrift/sveltekit-spa",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "BitteProtocol/mcp",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "lies-exposed/lies.exposed",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "jmxt3/gitscape.ai",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "vltansky/cursor-chat-history-mcp",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "taucad/tau",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "X-lab2017/open-digger-mcp-server",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "fxstein/ascii-guard",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "lydemann/Todo-monorepo",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "Mineru98/mysql-mcp-server",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "valstro/markdown-rules-mcp",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "hzrd149/applesauce",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "yesonsys03-web/VibeLign",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "cincinnatirb/cincyrb",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "marcopesani/think-mcp-server",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "lucca180/itemdb",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "PerfLab-io/perfagent",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "oofangoo/personal-finance-planner",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "gracefullight/docusaurus-plugins",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "adamsiwiec1/mcp-sse-authenticated-cloud-run",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "riccorohl/trading-journal",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "mimfort/rag_for_git",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "staticroostermedia-arch/engram",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "c15t/c15t",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "peter-trost/flutter-testing-concepts",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "kingchun1991/nextjs-chakra-starter-blog",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "0xnyn/cruso",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "aesthezel/venezuela-juega",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "adobecom/dc-graybox",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "Jeremy344555/rat",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "svallory/the-notebook-mcp",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "vedovelli/rocketseat-vedovelli-task-master",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "mgetf/website-next",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "cocos-pet/cocos-frontend",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "s00d/nuxt-i18n-micro-cli",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "AbysmalBiscuit/devkit",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "nicodev3/psychologue-nancy-florent-simon.fr",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "Stephenfre/social-charge",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "ben-horner-dev/portfolio",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "kuraydev/react-native-expo-boilerplate",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "tonycondone/birth-certificate-system",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "zyx1121/ai.winlab.tw",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "ThinkPost-ai/thinkpost-ai-launchpad",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "terryso/meta_tag_genie",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "luke-cheng/Rift-Rewind-Reviewer",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "flrxnt/dsbj",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "pmahajan3105/movieapp",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "Scsant/pateste",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "edithatogo/osf-cli-go",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "osuki-dev/kit",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "lambda-code-gk/aish",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "gbude-sudo/DreamerOSLive",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "vindk8d/athena_v3",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "streamify-one/ancher-agent-skills",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "matthummel-pa/wp-walkridge",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "GregDog/mcp-server-theopenlane",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "unbywyd/tsdiapi-jwt-auth",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "pacificnm/qtcode",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "dentroio/Oryntra",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "alxbryann/paypal-cli",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "leonardozaneladias/ht2-erp",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "adrianmikula/JakartaMigrationMCP",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "thenothing0/THENOTHING",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "gaopengbin/e-template",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "andrewlau624/agentmaxx",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "leofiorese/planner_financeiro",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "glindberg2000/amazon-invoice-downloader",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "danielsmithdevelopment/danielsmithdevelopment.github.io",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "nSimonFR/nic-os",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "juliorafre/portfolio",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "cazzer/bindiving",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "rachmanj/payreq-x-v3",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "crisfroi/SERMED2",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "kaseonedge/resume",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "bdays87/ahpczportal",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "codepanda-ai/resummate",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "flowinternals/seclens-app",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "preneuscliford/guyane-marketPlace",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "j0s3v4rg4s/norseus",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "rishabhamga/clento-app",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "mdayan8/VibeSecure-AI",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "Akinfiresoye-Victor/Estate-Web",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "EduardoSousaPO/site-larissa",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "HimanshuJain04/DocSimplify",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "hellpanderrr/IrishPhoneticTranscription",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "Divyanshi018572/AI_Job_Application_Agent",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "abucan-archive/tripster",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "DariaTsypkina/bookspace",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "luanleiteti/au-parfum",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "abelpz/bt-toolkit",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "ciungulete/simpozion-campulung",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "Zafnshr/El-3awatleya-2.0",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "PROHIT-CoreTech/cash-flow-website-repo",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "Mrjing/overcooked-game",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "jaydubbya985-ops/onefm-985-platform",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "ostegm/contractor-app",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "Viceversa98/sepang-pit-wall",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "cryptochris8/hytopia-free-fall",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "Cradcliff187/project-crew-connect",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "pdrohm/postly",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "miladyboy/wingman",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "muazhazali/SpilledIn",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "schicks/ts-refactor-mcp",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "rotnitxe/KPKNFit",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "eurisko-info-lab/treillis",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "danthelos/excel-importer",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "wongjingping/postgres-mcp",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "hcw9iu/hmm-rs",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "Rhodium-Research/frontend",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "tied-inc/mastra-lambda-docker-deploy",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "K-Mistele/mastra-course",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "zehraheray/agentic-ai-developer",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "kingchun1991/nextjs-chakra-starter-blog",
+      "kind": ".cursor/mcp.json",
+      "reason": "already_selected_for_another_file"
+    },
+    {
+      "repo": "crackedngineer/iLoveGithub",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "ElisePatrikainen/vue-mcp-server",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "heimanba/PromptDiscovery",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "cafreeman/foundry-mcp",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "rilldata/clickhouse-system-analytics",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "zixiao-labs/logos",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "jabrena/codemotion-madrid-2026-demos",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "wijnandb/chatbotninja",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "tonycondone/birth-certificate-system",
+      "kind": ".cursor/mcp.json",
+      "reason": "already_selected_for_another_file"
+    },
+    {
+      "repo": "xvguerovx/c15t",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "kristalpithwa/ExploreYC",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "hubble-ventures/eng-ops",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "thenothing0/THENOTHING",
+      "kind": ".cursor/mcp.json",
+      "reason": "already_selected_for_another_file"
+    },
+    {
+      "repo": "FelixRodrigues007/lastre",
+      "kind": ".cursor/mcp.json",
+      "reason": "already_selected_for_another_file"
+    },
+    {
+      "repo": "irvidlop/nextarter-chakra",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "Yab112/Context-Orchestrator",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "patrickhaahr/run-comp",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "4aDay/projectTemplate",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "Naser-Al-Noman/acshen",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "georgest32/Unity-Claude-Automation",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "Roshan7869/algotrading",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "smoketurner/k8s-valkey-operator",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "ralphkrauss/agent-orchestrator",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "LockInTime/headless",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "bilgoun/mcp-gcp-demo",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "rodonguyen/brisbane-parking",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "tyrailleverett/nice-ui",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "niradler/k8s-explorer-mcp",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "reponerve/reponerve",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "aidandaniel/context-eng-project",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "GarthDB/act-testing-mcp",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "Akinfiresoye-Victor/Estate-Web",
+      "kind": ".cursor/mcp.json",
+      "reason": "already_selected_for_another_file"
+    },
+    {
+      "repo": "EduardoSousaPO/site-larissa",
+      "kind": ".cursor/mcp.json",
+      "reason": "already_selected_for_another_file"
+    },
+    {
+      "repo": "soso0024/so-onishi",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "DenisMit3/mambax-backend",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "crisfroi/ecuatorial-health-dashboard-28d23b44",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "AmrendraTheCoder/go-backend",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "gbude-sudo/dreameros-agent-plugin",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "fahamijemal/Chimera",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "HuguesSib/multimodal-earthobs",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "boooring-guy/auto-bore",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "MokiMeow/PATCHPILOT_TEST_REPO",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "HaodongWang1995/S3-SAM",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "shopcarbon12-gif/carbon-gen",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "josemimbre/liveview_contacts",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "CastaliaInstitute/aima-assignment-starter",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "ibbykhazanchi/mcp-observability-poc",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "JinUng41/WebviewBridgingDemoApp",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "Nitindeep65/QueryCraft",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=1"
+    },
+    {
+      "repo": "gurezo/chirimen-device-dashboard",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "SouhlInc/souhl-microservices-example",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "jgabriellima/aisdlc-astrojs",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    },
+    {
+      "repo": "Akhil325/knowledge_base",
+      "kind": ".cursor/mcp.json",
+      "reason": "commits_in_window=0"
+    }
+  ]
+}

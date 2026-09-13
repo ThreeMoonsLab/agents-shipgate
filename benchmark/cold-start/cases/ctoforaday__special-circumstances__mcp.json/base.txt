@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "arxiv-latex": {
+      "args": [
+        "arxiv-latex-mcp==0.2.2"
+      ],
+      "command": "uvx"
+    },
+    "pdf-reader": {
+      "args": [
+        "-y",
+        "@sylphx/pdf-reader-mcp@3.0.14"
+      ],
+      "command": "npx"
+    },
+    "qmd": {
+      "args": [
+        "mcp"
+      ],
+      "command": "qmd"
+    }
+  }
+}

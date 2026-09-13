@@ -1,0 +1,9 @@
+{
+  "repo": "dataplat/dbatools",
+  "kind": ".claude/settings.json",
+  "base_sha": "2f9baa0a5a22b8da56e5eb1467c20208b961b893",
+  "head_sha": "507e269c62a3e7b91cb266af1cf27694d0fec75e",
+  "base_source": "https://github.com/dataplat/dbatools/blob/2f9baa0a5a22b8da56e5eb1467c20208b961b893/.claude/settings.json",
+  "head_source": "https://github.com/dataplat/dbatools/blob/507e269c62a3e7b91cb266af1cf27694d0fec75e/.claude/settings.json",
+  "redacted_only_change": false
+}

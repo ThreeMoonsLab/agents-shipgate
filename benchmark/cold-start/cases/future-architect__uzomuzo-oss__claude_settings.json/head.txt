@@ -1,0 +1,69 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE '[/\"]\\.github/(instructions/|AGENTS\\.base\\.md\")'; then make -C \"$(git rev-parse --show-toplevel)\" sync-instructions >&2; fi",
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "bash .claude/hooks/plan-mode-architect-check.sh",
+            "statusMessage": "Checking architect consultation...",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "ExitPlanMode"
+      },
+      {
+        "hooks": [
+          {
+            "command": "node -e \"let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const cmd=JSON.parse(d).tool_input?.command||'';if(/^git\\s+push/.test(cmd)){console.log(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',additionalContext:'IMPORTANT: Before pushing, check if documentation needs updating for the changes on this branch. Run git diff main...HEAD --name-only to see changed files. If Go source files changed, launch the doc-updater agent to update README and godoc comments. Only proceed with git push after docs are confirmed up-to-date or updated.'}}));}});\"",
+            "statusMessage": "Checking if docs need updating...",
+            "timeout": 10,
+            "type": "command"
+          },
+          {
+            "command": "node -e \"let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{let cmd='';try{cmd=JSON.parse(d).tool_input?.command||'';}catch(e){}if(/^git\\s+commit/.test(cmd)){const{execFileSync}=require('child_process');const fs=require('fs');try{const root=execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'}).trim();const hook=root+'/.claude/hooks/check-new-deps.sh';if(fs.existsSync(hook)){execFileSync('bash',[hook],{stdio:'inherit'});}}catch(e){process.exitCode=0;}}});\"",
+            "statusMessage": "Checking new dependency health...",
+            "timeout": 30,
+            "type": "command"
+          },
+          {
+            "command": "bash .claude/hooks/adr-check.sh",
+            "statusMessage": "Checking if ADR is needed...",
+            "timeout": 15,
+            "type": "command"
+          },
+          {
+            "command": "bash .claude/hooks/pre-push-review.sh",
+            "statusMessage": "Self-reviewing for Copilot issues...",
+            "timeout": 30,
+            "type": "command"
+          },
+          {
+            "command": "bash .claude/hooks/readme-walkthrough.sh",
+            "statusMessage": "Checking README walkthroughs for working-directory mismatches...",
+            "timeout": 15,
+            "type": "command"
+          },
+          {
+            "command": "bash .claude/hooks/pr-body-review.sh",
+            "statusMessage": "Checking PR/issue body for coined jargon...",
+            "timeout": 15,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      }
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "jarvis": {
+      "args": [
+        "F:\\Trading Software\\MGEQuant\\Tools\\JarvisMCP\\jarvis_server.py"
+      ],
+      "command": "C:\\Users\\maric\\AppData\\Local\\Programs\\Python\\Python312\\python.exe"
+    }
+  }
+}

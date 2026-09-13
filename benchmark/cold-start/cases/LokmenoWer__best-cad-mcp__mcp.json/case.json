@@ -1,0 +1,9 @@
+{
+  "repo": "LokmenoWer/best-cad-mcp",
+  "kind": ".mcp.json",
+  "base_sha": "a4bd3f3550eca421190b17421138a76d9642c1a3",
+  "head_sha": "063c1740b1d55201cb30833ad2a14001c302a60a",
+  "base_source": "https://github.com/LokmenoWer/best-cad-mcp/blob/a4bd3f3550eca421190b17421138a76d9642c1a3/.mcp.json",
+  "head_source": "https://github.com/LokmenoWer/best-cad-mcp/blob/063c1740b1d55201cb30833ad2a14001c302a60a/.mcp.json",
+  "redacted_only_change": true
+}

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "local-env": {
+      "args": [
+        "-e",
+        "console.log('MCP Connected Successfully')"
+      ],
+      "command": "node"
+    }
+  }
+}

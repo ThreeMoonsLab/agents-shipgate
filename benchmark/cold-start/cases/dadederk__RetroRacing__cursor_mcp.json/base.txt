@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "cupertino": {
+      "args": [
+        "serve"
+      ],
+      "command": "/opt/homebrew/bin/cupertino"
+    }
+  }
+}

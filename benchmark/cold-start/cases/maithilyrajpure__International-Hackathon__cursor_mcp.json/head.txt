@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "devfolio": {
+      "url": "https://mcp.devfolio.co/mcp"
+    },
+    "prava": {
+      "url": "https://mcp.pay.prava.space/mcp"
+    },
+    "prava-docs": {
+      "url": "https://docs.prava.space/mcp"
+    }
+  }
+}

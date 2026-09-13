@@ -1,0 +1,9 @@
+{
+  "repo": "solal3105/grandsprojets",
+  "kind": ".mcp.json",
+  "base_sha": "4a5a6ddc98a4bbc6731058fe1065d587a1cf9275",
+  "head_sha": "6036452b3d3a33ccc3a49b21e5d130f3a1b082c6",
+  "base_source": "https://github.com/solal3105/grandsprojets/blob/4a5a6ddc98a4bbc6731058fe1065d587a1cf9275/.mcp.json",
+  "head_source": "https://github.com/solal3105/grandsprojets/blob/6036452b3d3a33ccc3a49b21e5d130f3a1b082c6/.mcp.json",
+  "redacted_only_change": true
+}

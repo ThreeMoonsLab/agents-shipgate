@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest"
+      ],
+      "command": "npx"
+    },
+    "opensafari": {
+      "args": [
+        "-y",
+        "opensafari-mcp",
+        "serve"
+      ],
+      "command": "npx"
+    },
+    "shadcn": {
+      "args": [
+        "shadcn-vue@latest",
+        "mcp"
+      ],
+      "command": "npx"
+    }
+  }
+}

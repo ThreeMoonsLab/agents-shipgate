@@ -1,0 +1,9 @@
+{
+  "repo": "ctoforaday/special-circumstances",
+  "kind": ".mcp.json",
+  "base_sha": "4557fcdeb9f15ab53523d51ff9c19d631f807eb5",
+  "head_sha": "6d664790fe172ff603e12ee08da980f23f2d9c84",
+  "base_source": "https://github.com/ctoforaday/special-circumstances/blob/4557fcdeb9f15ab53523d51ff9c19d631f807eb5/.mcp.json",
+  "head_source": "https://github.com/ctoforaday/special-circumstances/blob/6d664790fe172ff603e12ee08da980f23f2d9c84/.mcp.json",
+  "redacted_only_change": false
+}

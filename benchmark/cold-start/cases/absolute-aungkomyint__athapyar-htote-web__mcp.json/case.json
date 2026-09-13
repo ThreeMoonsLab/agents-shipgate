@@ -1,0 +1,9 @@
+{
+  "repo": "absolute-aungkomyint/athapyar-htote-web",
+  "kind": ".mcp.json",
+  "base_sha": "40d7c296470ed4e526f1ce21ee7d3c536dbf4a19",
+  "head_sha": "55c2c8e1f4f09033a42d2fc5509a693ad7edc730",
+  "base_source": "https://github.com/absolute-aungkomyint/athapyar-htote-web/blob/40d7c296470ed4e526f1ce21ee7d3c536dbf4a19/.mcp.json",
+  "head_source": "https://github.com/absolute-aungkomyint/athapyar-htote-web/blob/55c2c8e1f4f09033a42d2fc5509a693ad7edc730/.mcp.json",
+  "redacted_only_change": true
+}

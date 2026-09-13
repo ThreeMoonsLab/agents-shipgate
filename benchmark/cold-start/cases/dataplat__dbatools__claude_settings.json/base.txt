@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post-read-track.sh",
+            "statusMessage": "Tracking Read for Read-before-Edit...",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Read"
+      },
+      {
+        "hooks": [
+          {
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post-write-track-session-files.sh",
+            "statusMessage": "Tracking session writes...",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-write-style.sh",
+            "statusMessage": "Checking dbatools style...",
+            "timeout": 20,
+            "type": "command"
+          },
+          {
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-edit-read-check.sh",
+            "statusMessage": "Checking Read-before-Edit...",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write"
+      },
+      {
+        "hooks": [
+          {
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-bash-guard.sh",
+            "statusMessage": "Checking for destructive commands...",
+            "timeout": 10,
+            "type": "command"
+          },
+          {
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-bash-commit-do.sh",
+            "statusMessage": "Checking commit message (do ...) pattern...",
+            "timeout": 10,
+            "type": "command"
+          },
+          {
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-bash-pwsh-script.sh",
+            "statusMessage": "Checking inline PowerShell usage...",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session-compact-reset-reads.sh",
+            "statusMessage": "Resetting Read tracker post-compaction...",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "compact|resume"
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-registration-check.sh",
+            "statusMessage": "Checking psd1/psm1 registration for new commands...",
+            "timeout": 15,
+            "type": "command"
+          },
+          {
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-todo-report.sh",
+            "statusMessage": "Scanning changed files for TODO/FIXME...",
+            "timeout": 15,
+            "type": "command"
+          },
+          {
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-no-deflection.sh",
+            "statusMessage": "Checking for deflection language...",
+            "timeout": 15,
+            "type": "command"
+          },
+          {
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-verify.sh",
+            "statusMessage": "Quality gate checklist...",
+            "timeout": 15,
+            "type": "command"
+          },
+          {
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-codex-review.sh",
+            "statusMessage": "Running codex auto-review \u2014 tail -f ~/.codex-review.live.log to watch",
+            "timeout": 660,
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}

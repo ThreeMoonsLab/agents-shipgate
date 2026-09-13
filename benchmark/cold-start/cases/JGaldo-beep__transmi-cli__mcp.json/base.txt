@@ -1,0 +1,9 @@
+{
+  "transmilenio": {
+    "args": [
+      "run",
+      "src/mcp/server.ts"
+    ],
+    "command": "bun"
+  }
+}

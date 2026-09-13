@@ -1,0 +1,11 @@
+{
+  "expected_changes": 1,
+  "missing": 1,
+  "missing_detail": "mcp_server supabase changed",
+  "rows_on_file": 0,
+  "scope": "supported",
+  "stop_point": "comparison_comparable",
+  "success": false,
+  "unexpected": 0,
+  "unexpected_detail": ""
+}

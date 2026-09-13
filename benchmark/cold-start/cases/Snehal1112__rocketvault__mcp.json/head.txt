@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "rocketvault": {
+      "args": [
+        "mcp"
+      ],
+      "command": "/home/<user>/data/rocket/rocketvault/rocketvault"
+    },
+    "shadcn": {
+      "args": [
+        "--bun",
+        "shadcn",
+        "mcp"
+      ],
+      "command": "bunx",
+      "cwd": "web"
+    }
+  }
+}

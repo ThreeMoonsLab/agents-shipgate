@@ -1,0 +1,95 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/validate-bash.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/review-edit.sh",
+            "timeout": 120,
+            "type": "command"
+          },
+          {
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/review-reasoning.sh",
+            "timeout": 300,
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write|Update"
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "cat \"$CLAUDE_PROJECT_DIR/docs/CORE_MODEL.md\"",
+            "type": "command"
+          },
+          {
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/list-skills.sh\"",
+            "type": "command"
+          },
+          {
+            "command": "cat \"$CLAUDE_PROJECT_DIR/docs/WORKAROUND_WARNING.md\"",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(go test:*)",
+      "Bash(go run:*)",
+      "Bash(go build:*)",
+      "Bash(go vet:*)",
+      "Bash(go get:*)",
+      "Bash(go doc:*)",
+      "Bash(go list:*)",
+      "Bash(go env:*)",
+      "Bash(go tool:*)",
+      "Bash(go mod tidy:*)",
+      "Bash(go version *)",
+      "Bash(make)",
+      "Bash(make:*)",
+      "Bash(gofmt:*)",
+      "Bash(git show:*)",
+      "Bash(git add:*)",
+      "Bash(git log:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(git diff:*)",
+      "Bash(git status:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh api:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr list:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(head:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(wc:*)",
+      "Bash(sort:*)",
+      "Bash(xargs:*)",
+      "Bash(tee:*)",
+      "Bash(echo:*)",
+      "Bash(mkdir:*)",
+      "Bash(python3:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:nrepl.org)",
+      "WebSearch",
+      "Skill(datalog)",
+      "mcp__ide__getDiagnostics"
+    ]
+  },
+  "showThinkingSummaries": true
+}

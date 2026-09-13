@@ -1,0 +1,9 @@
+{
+  "repo": "JGaldo-beep/transmi-cli",
+  "kind": ".mcp.json",
+  "base_sha": "a74ba98366a7b7e5a42c598c92b73e2f32de89d9",
+  "head_sha": "ba4f002583963549472864765a3cbe76e9fa7d80",
+  "base_source": "https://github.com/JGaldo-beep/transmi-cli/blob/a74ba98366a7b7e5a42c598c92b73e2f32de89d9/.mcp.json",
+  "head_source": "https://github.com/JGaldo-beep/transmi-cli/blob/ba4f002583963549472864765a3cbe76e9fa7d80/.mcp.json",
+  "redacted_only_change": false
+}
