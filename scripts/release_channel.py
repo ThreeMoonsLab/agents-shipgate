@@ -61,6 +61,13 @@ def load_declaration(path: Path = DECLARATION_PATH) -> dict[str, str]:
         raw = path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
         raise ChannelError(f"release channel declaration not found: {path}") from exc
+    return parse_declaration(raw)
+
+
+def parse_declaration(raw: str) -> dict[str, str]:
+    """Validate declaration text. Shared by the release run and the cadence
+    reader, which reads the declaration from each tag's own committed tree."""
+
     try:
         document = json.loads(raw, object_pairs_hook=_reject_duplicate_keys)
     except json.JSONDecodeError as exc:
@@ -104,7 +111,9 @@ def resolve(version: str, *, path: Path = DECLARATION_PATH) -> str:
 def resolve_tag(tag: str, *, path: Path = DECLARATION_PATH) -> str:
     """The declared channel for a ``v<version>`` release tag."""
 
-    if not tag.startswith("v") or not is_release_version(tag[1:]):
+    # ``is_release_version`` accepts a local segment, and no public index
+    # accepts one, so a ``v*`` release can never carry it.
+    if not tag.startswith("v") or not is_release_version(tag[1:]) or "+" in tag:
         raise ChannelError(f"release tag {tag!r} is not v<complete release version>")
     return resolve(tag[1:], path=path)
 

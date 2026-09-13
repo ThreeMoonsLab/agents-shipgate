@@ -32,8 +32,22 @@ from pathlib import Path
 
 if __package__:
     from scripts._release_support import is_release_version
+    from scripts.release_channel import (
+        ADVISORY,
+        DECLARATION_PATH,
+        QUALIFIED,
+        ChannelError,
+        parse_declaration,
+    )
 else:  # ``python scripts/release_cadence.py``
     from _release_support import is_release_version
+    from release_channel import (
+        ADVISORY,
+        DECLARATION_PATH,
+        QUALIFIED,
+        ChannelError,
+        parse_declaration,
+    )
 
 # The approved cadence, recorded in `docs/release-runbook.md` § Cadence. These
 # two numbers are the policy; every surface below renders them rather than
@@ -194,6 +208,50 @@ def read_release_tags(
 
 
 
+def tag_channel(repo: Path, ref: str) -> str | None:
+    """The channel ``ref``'s own committed tree declares for its version.
+
+    Read from the tag's tree, never the working checkout: the declaration
+    grows over time, and a tag's channel is what was reviewed when it was cut.
+    ``None`` means that tree has no declaration at all — every tag before
+    advisory ``v*`` releases existed — which makes it a gate-line release by
+    construction. A declaration that is present but unparseable, or that does
+    not name the version, yields ``"undeclared"``: the release workflow
+    refuses such a tag, so it was never published on either line (#648).
+    """
+
+    shown = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        ["git", "show", f"{ref}:{DECLARATION_PATH.as_posix()}"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if shown.returncode != 0:
+        return None
+    try:
+        channels = parse_declaration(shown.stdout)
+    except ChannelError:
+        return "undeclared"
+    return channels.get(ref[1:], "undeclared")
+
+
+def read_gate_line_tags(repo: Path) -> list[tuple[str, int]]:
+    """``v*`` tags on the qualified gate line.
+
+    An advisory ``v*`` release (#648) has the same tag shape, so shape alone
+    no longer separates the lines. Counting one here would let an advisory
+    release report the gate line's cadence as kept — the dishonesty the
+    preview namespace was created to prevent (Amendment 4).
+    """
+
+    return [
+        (ref, when)
+        for ref, when in read_release_tags(repo)
+        if tag_channel(repo, ref) in (None, QUALIFIED)
+    ]
+
+
 def read_advisory_tags(repo: Path) -> list[tuple[str, int]]:
     """Use the preview version's UTC build date as the offline cadence proxy.
 
@@ -203,6 +261,11 @@ def read_advisory_tags(repo: Path) -> list[tuple[str, int]]:
     in local Git, so expose the embedded build date and name that boundary.
     """
     tags = []
+    # An advisory ``v*`` release (#648) is on this line too; its date is the
+    # tag's own creator date, as for the gate line.
+    for ref, when in read_release_tags(repo):
+        if tag_channel(repo, ref) == ADVISORY:
+            tags.append((ref, when))
     for ref, _commit_time in read_release_tags(repo, predicate=is_advisory_tag):
         stamp = ref.partition("+preview.")[2].partition(".g")[0]
         built = datetime.strptime(stamp, "%Y%m%d").replace(tzinfo=UTC)
@@ -262,14 +325,18 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     now = int(datetime.now(tz=UTC).timestamp())
-    cadence = assess(read_release_tags(args.repo), now=now)
+    cadence = assess(read_gate_line_tags(args.repo), now=now)
+    advisory_tags = read_advisory_tags(args.repo)
+    newest_advisory = max(advisory_tags, key=lambda item: item[1])[0] if advisory_tags else ""
     advisory = assess(
-        read_advisory_tags(args.repo),
+        advisory_tags,
         now=now,
         interval_days=ADVISORY_INTERVAL_DAYS,
         overdue_days=ADVISORY_OVERDUE_DAYS,
         label="Advisory cadence",
-        date_basis="preview_build",
+        # A preview is dated by its embedded build stamp; an advisory v*
+        # release by its tag, so say which one produced the number.
+        date_basis="tag_creator" if newest_advisory.startswith("v") else "preview_build",
     )
 
     lines = (cadence, advisory)
