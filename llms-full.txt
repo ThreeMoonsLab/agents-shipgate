@@ -4239,6 +4239,15 @@ Likewise, a source that publishes both `readOnlyHint: true` and
 `destructiveHint: true` remains a `conflicting_effect_evidence` semantic gap; this
 check does not relabel that same-source contradiction as independent evidence.
 
+On `mcp_server_source` the published annotation is a literal hint read from the
+server's own Python registration (`annotations=` on a FastMCP decorator). There
+it is only ever the claim under review: it is not effect evidence, so it can
+neither corroborate a read that would suppress a conflict nor lower the tool's
+effect by itself. The source route reads no function body, so a tool whose only
+side-effect evidence is its body — `process_account` calling `_ITEMS.clear()`
+under `readOnlyHint: True` — does not fire; the same body behind a name such as
+`purge_account` does, on the keyword.
+
 Supported structural instances route to review because MCP clients may use these
 advisory hints to reduce confirmation prompts. Inferred-only instances remain
 visible in `report.findings` with `support.policy_eligible: false` and

@@ -2128,3 +2128,45 @@ SOURCE_CASES += tuple(
     SourceCase("ts_description:" + name, "typescript", body)
     for name, body, _expected in TS_DESCRIPTION_CASES
 )
+
+
+# Python FastMCP annotation hints (#658). Both readers read — and refuse — the
+# same `annotations=` spellings; the expectation is `(hints, unresolved)`.
+PY_ANNOTATION_HEADER = 'from mcp.server.fastmcp import FastMCP\n\nmcp = FastMCP("s")\n\n'
+_READ_ONLY = (("readOnlyHint", True),)
+PY_ANNOTATION_CASES: tuple[tuple[str, str, tuple[tuple[tuple[str, bool], ...], bool]], ...] = (
+    ("dict_literal", '@mcp.tool(annotations={"readOnlyHint": True})\ndef t() -> None: ...\n', (_READ_ONLY, False)),
+    ("dict_both_hints", '@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": True})\ndef t() -> None: ...\n', ((("destructiveHint", True), ("readOnlyHint", False)), False)),
+    ("sdk_class", 'from mcp.types import ToolAnnotations\n\n@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))\ndef t() -> None: ...\n', (_READ_ONLY, False)),
+    ("sdk_class_aliased", 'from mcp.types import ToolAnnotations as Hints\n\n@mcp.tool(annotations=Hints(destructiveHint=False))\ndef t() -> None: ...\n', ((("destructiveHint", False),), False)),
+    ("sdk_module_attribute", 'from mcp import types\n\n@mcp.tool(annotations=types.ToolAnnotations(readOnlyHint=True))\ndef t() -> None: ...\n', (_READ_ONLY, False)),
+    # `import mcp.types` would rebind the header's own `mcp` server name.
+    ("sdk_module_alias", 'import mcp.types as mcp_types\n\n@mcp.tool(annotations=mcp_types.ToolAnnotations(readOnlyHint=True))\ndef t() -> None: ...\n', (_READ_ONLY, False)),
+    ("last_repeated_key_wins", '@mcp.tool(annotations={"readOnlyHint": True, "readOnlyHint": False})\ndef t() -> None: ...\n', ((("readOnlyHint", False),), False)),
+    # Kept out on purpose, and never a reason to refuse the hints beside them.
+    ("unread_hints_only", '@mcp.tool(annotations={"title": T, "idempotentHint": True, "openWorldHint": flag})\ndef t() -> None: ...\n', ((), False)),
+    ("untrusted_keys_dropped", '@mcp.tool(annotations={"readOnlyHint": True, "shipgate_permission_classes": ["read"], "agent_bindings": {"root": {"object": "x"}}})\ndef t() -> None: ...\n', (_READ_ONLY, False)),
+    ("explicit_none", '@mcp.tool(annotations=None)\ndef t() -> None: ...\n', ((), False)),
+    ("no_annotations", '@mcp.tool()\ndef t() -> None: ...\n', ((), False)),
+    ("bare_decorator", '@mcp.tool\ndef t() -> None: ...\n', ((), False)),
+    # --- refusals: annotations are present and these two cannot be read ---
+    ("variable", 'HINTS = {"readOnlyHint": True}\n\n@mcp.tool(annotations=HINTS)\ndef t() -> None: ...\n', ((), True)),
+    ("computed_value", '@mcp.tool(annotations={"readOnlyHint": flag})\ndef t() -> None: ...\n', ((), True)),
+    ("integer_is_not_a_boolean", '@mcp.tool(annotations={"readOnlyHint": 1})\ndef t() -> None: ...\n', ((), True)),
+    ("spread_in_dict", '@mcp.tool(annotations={"readOnlyHint": True, **base})\ndef t() -> None: ...\n', ((), True)),
+    ("computed_key", '@mcp.tool(annotations={READ_ONLY: True})\ndef t() -> None: ...\n', ((), True)),
+    ("decorator_spread", '@mcp.tool(**options)\ndef t() -> None: ...\n', ((), True)),
+    ("unbound_class", '@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))\ndef t() -> None: ...\n', ((), True)),
+    ("foreign_class", 'from mylib import ToolAnnotations\n\n@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))\ndef t() -> None: ...\n', ((), True)),
+    ("relative_import", 'from .types import ToolAnnotations\n\n@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))\ndef t() -> None: ...\n', ((), True)),
+    # The project's own `mcp` package, not the SDK: only the import level tells them apart.
+    ("relative_sdk_shaped_import", 'from .mcp.types import ToolAnnotations\n\n@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))\ndef t() -> None: ...\n', ((), True)),
+    ("rebound_class", 'from mcp.types import ToolAnnotations\nToolAnnotations = Other\n\n@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))\ndef t() -> None: ...\n', ((), True)),
+    ("positional_argument", 'from mcp.types import ToolAnnotations\n\n@mcp.tool(annotations=ToolAnnotations("T", readOnlyHint=True))\ndef t() -> None: ...\n', ((), True)),
+    ("spread_in_class", 'from mcp.types import ToolAnnotations\n\n@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, **extra))\ndef t() -> None: ...\n', ((), True)),
+    ("foreign_module_attribute", 'import mylib\n\n@mcp.tool(annotations=mylib.ToolAnnotations(readOnlyHint=True))\ndef t() -> None: ...\n', ((), True)),
+)
+SOURCE_CASES += tuple(
+    SourceCase("py_annotations:" + name, "python", PY_ANNOTATION_HEADER + body)
+    for name, body, _expected in PY_ANNOTATION_CASES
+)

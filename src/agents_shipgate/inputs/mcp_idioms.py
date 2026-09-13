@@ -514,6 +514,18 @@ class RegistrationSite:
     #: ``neo4j-contrib/mcp-neo4j`` is exactly that server: 40 registrations,
     #: every one of them ``name=namespace_prefix + "…"``.
     proves_server: bool = False
+    #: The literal MCP hints ``annotations=`` carries, as sorted pairs (#658).
+    #: Only ``readOnlyHint`` and ``destructiveHint``, and only exact booleans.
+    #: They are what the server tells a client about itself, so they are kept
+    #: as claims ``SHIP-MCP-ANNOTATION-CONTRADICTION`` can challenge and never
+    #: as evidence about the tool.
+    annotation_hints: tuple[tuple[str, bool], ...] = ()
+    #: ``annotations=`` is present and those two hints could not be read out
+    #: of it — a variable, a spread, a class this reader cannot place. Not a
+    #: surface gap: annotations are no part of the name or schema this route
+    #: establishes, and an unread hint is one the check has nothing to say
+    #: about rather than one it may assume.
+    annotations_unresolved: bool = False
 
 
 @dataclass(frozen=True)
@@ -2629,6 +2641,9 @@ def _python_site(
     parameters, context_injection_unresolved = (
         (None, False) if wrapped else _python_signature(node, module, index, module_path)
     )
+    annotation_hints, annotations_unresolved = (
+        ((), False) if wrapped else _python_tool_annotations(decorator, module)
+    )
     return RegistrationSite(
         idiom="py_fastmcp_decorator",
         name=name,
@@ -2648,6 +2663,8 @@ def _python_site(
             if wrapped or node.returns is None
             else _python_json_type(node.returns, module, node.returns)
         ),
+        annotation_hints=annotation_hints,
+        annotations_unresolved=annotations_unresolved,
         proves_server=True,
     )
 
@@ -2695,6 +2712,88 @@ def _python_tool_description(
         return ast.get_docstring(node, clean=True)
     except (TypeError, ValueError):  # pragma: no cover - malformed docstring node
         return None
+
+
+#: The two MCP tool hints this reader keeps (#658). ``idempotentHint`` and
+#: ``openWorldHint`` are deliberately absent: a source-written
+#: ``idempotentHint: true`` would stand in for a safeguard, which is a
+#: different question from a narrowing claim to challenge.
+PYTHON_TOOL_ANNOTATION_HINTS: tuple[str, ...] = ("readOnlyHint", "destructiveHint")
+
+#: The model ``annotations=`` takes, where the SDK defines it.
+_PYTHON_TOOL_ANNOTATIONS_CLASS = ("mcp.types", "ToolAnnotations")
+
+
+def _python_tool_annotations(
+    decorator: ast.expr, module: _PythonModule
+) -> tuple[tuple[tuple[str, bool], ...], bool]:
+    """The literal hints ``annotations=`` carries, and whether they were unreadable.
+
+    Two spellings carry them: a dict literal, which the server's model
+    validates into the same object, and a ``ToolAnnotations(...)`` call. The
+    call counts only when the name is bound to the SDK's class — the same
+    binding rule every other identity here follows (#539): a class of that
+    name from anywhere else is a different object that happens to share it.
+
+    One unreadable part refuses the whole value rather than keeping the parts
+    that were literal. A spread or a positional argument can override a key
+    written beside it, and which one wins is decided at run time.
+    """
+
+    if not isinstance(decorator, ast.Call):
+        return (), False
+    if any(keyword.arg is None for keyword in decorator.keywords):
+        # ``@mcp.tool(**options)`` may carry ``annotations`` too.
+        return (), True
+    given = _python_keyword(decorator, "annotations")
+    if given is None or (isinstance(given, ast.Constant) and given.value is None):
+        return (), False
+    pairs: list[tuple[str, ast.expr]] = []
+    if isinstance(given, ast.Dict):
+        for key, value in zip(given.keys, given.values, strict=True):
+            if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
+                # ``None`` is a ``**`` spread inside the literal.
+                return (), True
+            pairs.append((key.value, value))
+    elif isinstance(given, ast.Call) and _python_is_tool_annotations(given.func, module):
+        if given.args or any(keyword.arg is None for keyword in given.keywords):
+            return (), True
+        pairs = [(str(keyword.arg), keyword.value) for keyword in given.keywords]
+    else:
+        return (), True
+    hints: dict[str, bool] = {}
+    for key, value in pairs:
+        if key not in PYTHON_TOOL_ANNOTATION_HINTS:
+            continue
+        if not (isinstance(value, ast.Constant) and type(value.value) is bool):
+            return (), True
+        # A repeated dict key keeps its last value, as the literal does.
+        hints[key] = value.value
+    return tuple(sorted(hints.items())), False
+
+
+def _python_is_tool_annotations(node: ast.expr, module: _PythonModule) -> bool:
+    """Whether ``node`` names the SDK's ``ToolAnnotations`` by its binding."""
+
+    module_name, symbol = _PYTHON_TOOL_ANNOTATIONS_CLASS
+    if isinstance(node, ast.Name):
+        imported = module.import_of(node.id, node)
+        return (
+            imported is not None
+            and not imported.level
+            and imported.module == module_name
+            and imported.symbol == symbol
+        )
+    if not (isinstance(node, ast.Attribute) and node.attr == symbol):
+        return False
+    dotted = _python_dotted_name(node.value)
+    if dotted is None:
+        return False
+    root, _, rest = dotted.partition(".")
+    named = module.module_named(root, node)
+    if named is None:
+        return False
+    return (f"{named}.{rest}" if rest else named) == module_name
 
 
 def _python_keyword(call: ast.Call, name: str) -> ast.expr | None:

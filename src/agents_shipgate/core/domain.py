@@ -389,6 +389,26 @@ class AuthInfo(BaseModel):
 SURFACE_ENUMERATED = "enumerated"
 SURFACE_PARTIAL = "partial"
 
+#: Source types whose MCP hints were read out of the tool server's own source
+#: code rather than out of the contract it publishes to clients (#658).
+SOURCE_READ_ANNOTATION_SOURCE_TYPES = frozenset({"mcp_server_source"})
+
+
+def annotation_hints_are_effect_evidence(tool: Tool) -> bool:
+    """Whether this tool's ``readOnlyHint``/``destructiveHint`` may count as evidence.
+
+    ``False`` for a hint read from source. The route reads it so the one check
+    built to doubt it has something to doubt; every effect reading ignores it.
+    Measured before this gate existed, a FastMCP ``readOnlyHint: true`` read
+    from source moved ``transfer_funds`` from ``write`` to ``read`` with no
+    finding and closed three of eight open effect questions — the server
+    answering, about itself, what a reviewer had been asked. That is the #268
+    shape, and the medium extraction ceiling does not prevent it: it only keeps
+    the action from passing, not its effect from being lowered.
+    """
+
+    return tool.source_type not in SOURCE_READ_ANNOTATION_SOURCE_TYPES
+
 
 class ToolParameter(BaseModel):
     model_config = ConfigDict(extra="allow")

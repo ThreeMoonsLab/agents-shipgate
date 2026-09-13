@@ -222,9 +222,22 @@ It reads a name, an operation-class literal where the idiom defines one, and a
 description literal where one sits beside the name — plus, for the Python
 idiom, the decorated function's docstring and signature, because that is where
 the server itself takes them from. It runs no code, evaluates no schema library
-(Zod and Pydantic included), resolves no type, and reads no annotation the
-source declares about itself: a parameter's annotation is mapped to a JSON
-Schema type by spelling, never by import resolution.
+(Zod and Pydantic included), and resolves no type: a parameter's annotation is
+mapped to a JSON Schema type by spelling, never by import resolution.
+
+**MCP tool hints are read as claims, never as evidence (#658).** For the Python
+idiom, a literal `readOnlyHint` or `destructiveHint` passed as `annotations=` —
+a dict literal, or a `ToolAnnotations(...)` whose name is bound to `mcp.types` —
+is kept on the tool. It is what the server will tell every client about the
+tool, and `SHIP-MCP-ANNOTATION-CONTRADICTION` exists to doubt exactly that. No
+effect, risk tag, permission class or declaration question moves because a
+server called its own tool read-only: measured before that rule, one
+`readOnlyHint: True` lowered `transfer_funds` to `read` with no finding.
+Everything else written there is ignored — `idempotentHint`, `openWorldHint`, a
+title, any key this engine reads as policy — and a value this reader cannot
+read (a variable, a spread, a class bound anywhere else) is recorded as
+`extraction.annotations: unresolved` rather than guessed. The Go and TypeScript
+idioms read no hints yet.
 
 Escape sequences are decoded with **each language's own grammar**, and anything
 either grammar does not define is refused rather than guessed. Go writes an

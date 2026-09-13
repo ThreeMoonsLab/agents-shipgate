@@ -28,6 +28,7 @@ from agents_shipgate.core.domain import (
     Tool,
     ToolIdentityAssessment,
     ToolSemanticAssessment,
+    annotation_hints_are_effect_evidence,
 )
 from agents_shipgate.core.tool_identity import configured_tool_source
 from agents_shipgate.schemas.action_effects import (
@@ -347,7 +348,9 @@ def _assess_effect(
                     pointer,
                 )
             )
-    if tool.annotations.get("readOnlyHint") is True:
+    # A hint read out of the server's own source is a claim, not evidence (#658).
+    hints_are_evidence = annotation_hints_are_effect_evidence(tool)
+    if hints_are_evidence and tool.annotations.get("readOnlyHint") is True:
         claims.append(
             _claim(
                 "effect",
@@ -360,7 +363,7 @@ def _assess_effect(
                 {"readOnlyHint": True},
             )
         )
-    if tool.annotations.get("destructiveHint") is True:
+    if hints_are_evidence and tool.annotations.get("destructiveHint") is True:
         claims.append(
             _claim(
                 "effect",
