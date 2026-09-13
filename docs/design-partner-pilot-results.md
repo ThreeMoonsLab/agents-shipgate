@@ -65,23 +65,24 @@ capability-change class this pilot exists to observe.
 
 **Published build measured: `0.15.0`.** Preview measured:
 `0.16.0+preview.20260903.gb61aca7`. Source tree: `0.16.0`, rechecked on 2026-09-13 against
-branch commit `0b0d00b0` — #662's host capability rows in the control envelope, rebased on
-`main` at `294d0443` — with runtime contract 38. The synthetic baseline was recorded and committed on the
+branch commit `2c2e31cb` — #700's read-through of in-tree links at boundary paths, rebased
+on `main` at `faed663b` — with runtime contract 39. The synthetic baseline was recorded and committed on the
 fixture base before the permission change, so it was not itself under review. The source-tree
 column below was rerun; the released and preview columns retain their earlier
 measurement and were not relabeled as new runs.
 
-The rerun reproduced every source-tree cell unchanged except the contract
-number: #662 adds an optional row block to the compact control envelope,
-which none of these cells read, so discovery, `check`, the audit route,
-`verify`'s six rows and drift are untouched. That is the point of re-running
+The rerun reproduced every source-tree cell except two version numbers:
+runtime contract 39 and host-grant inventory schema 0.5. #700 reads in-tree
+links at boundary paths through to their targets, and this fixture has none,
+so discovery, `check`, the audit route, `verify`'s six rows and drift are
+untouched. That is the point of re-running
 rather than carrying the row forward — "nothing changed" is a measurement, not
 an assumption.
 
 | | Released `v0.15.0` (`pipx install`) | Preview `0.16.0+preview.20260903` (`gh release download`) | Source tree |
 | --- | --- | --- | --- |
-| Runtime contract | 10 | 29 | 38 |
-| Host-grant inventory schema | 0.1 | 0.2 | 0.4 |
+| Runtime contract | 10 | 29 | 39 |
+| Host-grant inventory schema | 0.1 | 0.2 | 0.5 |
 | `check` on the fixture | `warn` / `none`, **0 violations** | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** |
 | Coverage limit visible (`host_coverage`, `excluded_scopes`) | no | yes | yes |
 | `init --write --ci` Action pin | `@v0.15.0` — exists | `@v0.16.0+preview.20260903.gb61aca7` — **no such tag** (the release tag is `preview-`-prefixed) | not applicable — host audit handoff, no workflow written |

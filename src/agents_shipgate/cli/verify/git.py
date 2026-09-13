@@ -1896,6 +1896,7 @@ def _materialize_isolated_tree(
     #: Every entry's object type, in or out of scope, so a link's target type
     #: can be read from the tree rather than from what was materialized.
     tree_types: dict[str, str] = {}
+    listed: list[tuple[str, str, str, str]] = []
     for raw in listing.split(b"\0"):
         if not raw:
             continue
@@ -1903,7 +1904,14 @@ def _materialize_isolated_tree(
         mode, object_type, oid = metadata.decode("ascii").split(" ", 2)
         path_text = raw_path.decode("utf-8", errors="strict")
         tree_types[path_text] = "link" if mode == "120000" else object_type
-        if scope is not None and mode != "120000" and not scope(path_text):
+        listed.append((mode, object_type, oid, path_text))
+    in_scope = (
+        _scope_through_boundary_links(git_dir, listed, tree_types, scope)
+        if scope is not None
+        else None
+    )
+    for mode, object_type, oid, path_text in listed:
+        if in_scope is not None and mode != "120000" and not in_scope(path_text):
             # Out of scope is not merely unmaterialized, it is unexamined:
             # the portability and collision checks below describe the tree
             # this archive writes, and a name that never lands on the
@@ -2007,6 +2015,60 @@ def _materialize_isolated_tree(
 
 #: How many links one resolution may pass through before it counts as unresolved.
 _MAX_TREE_LINK_HOPS = 8
+
+
+def _scope_through_boundary_links(
+    git_dir: Path,
+    listed: list[tuple[str, str, str, str]],
+    tree_types: dict[str, str],
+    scope: Callable[[str], bool],
+) -> Callable[[str], bool]:
+    """Widen a scope to the in-tree targets of links at in-scope paths (#700).
+
+    The host reader reads a boundary path that is an in-tree link through to
+    its target. A base tree that held only a typed placeholder there would
+    compare the worktree's file against an empty one. So a link whose own path
+    is in scope brings its target's bytes, and a link to a directory brings
+    every blob beneath it whose path under the link is in scope.
+
+    Targets are resolved by the tree's own names, exactly as
+    :func:`_resolve_tree_link` does. Every link text read here comes from the
+    fsck'd isolated store and is checked against its object ID, and every blob
+    this adds is still validated when it is materialized.
+    """
+
+    object_format = _run_git_dir(git_dir, ["rev-parse", "--show-object-format"]).stdout.strip()
+    link_texts: dict[str, str] = {}
+    for mode, _object_type, oid, path_text in listed:
+        if mode != "120000":
+            continue
+        blob = _run_git_dir(git_dir, ["cat-file", "blob", oid], text=False).stdout
+        if _git_object_id("blob", blob, algorithm=object_format) != oid:
+            raise ConfigError(f"Git blob failed object-ID validation: {path_text}")
+        link_texts[path_text] = blob.decode("utf-8", errors="strict")
+    files: set[str] = set()
+    directories: list[tuple[str, str]] = []
+    for link in sorted(link_texts):
+        resolved = _resolve_tree_link(link, link_texts)
+        if resolved is None or resolved == link:
+            continue
+        target_type = tree_types.get(resolved)
+        if target_type == "blob" and scope(link):
+            files.add(resolved)
+        elif target_type == "tree":
+            directories.append((f"{resolved}/", f"{link}/"))
+    if not files and not directories:
+        return scope
+
+    def widened(path_text: str) -> bool:
+        if scope(path_text) or path_text in files:
+            return True
+        return any(
+            path_text.startswith(target) and scope(link + path_text[len(target):])
+            for target, link in directories
+        )
+
+    return widened
 
 
 def _resolve_tree_link(path_text: str, link_texts: dict[str, str]) -> str | None:

@@ -212,10 +212,13 @@ def test_8_malformed_input_is_incomparable_on_every_route(repo: Path) -> None:
 
 
 def test_9_a_refused_boundary_link_names_its_refusal(repo: Path) -> None:
+    # An in-tree link at a boundary path is read through (#700, step two). A
+    # link that leaves the repository is still refused, and must say so.
     _widen(repo)
-    _write(repo, "AGENTS.md", "# agents\n")
-    (repo / "CLAUDE.md").symlink_to("AGENTS.md")
-    _commit(repo, "link instructions")
+    outside = repo.parent / "outside-instructions.md"
+    outside.write_text("# outside\n", encoding="utf-8")
+    (repo / "CLAUDE.md").symlink_to(outside)
+    _commit(repo, "link instructions outside the repository")
 
     payload = _diff(repo)
 

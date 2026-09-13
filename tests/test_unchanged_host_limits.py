@@ -135,8 +135,13 @@ def test_a_line_ending_filter_cannot_make_a_changed_file_read_as_unchanged(tmp_p
 
 
 @pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
-def test_an_unchanged_symlink_still_refuses(tmp_path: Path) -> None:
-    """An unchanged link whose target changed would hide that change (#700)."""
+def test_an_unchanged_linked_skill_is_read_through_and_a_changed_target_is_named(tmp_path: Path) -> None:
+    """An unchanged link whose target changed must not hide that change (#700).
+
+    Step one refused the comparison. Step two reads the link through on both
+    sides, by owner decision, so the unchanged link compares quietly and a
+    change behind it is named on the link's own path.
+    """
 
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -154,8 +159,15 @@ def test_an_unchanged_symlink_still_refuses(tmp_path: Path) -> None:
 
     payload = diff(repo)
 
-    assert payload["comparison_status"] == "incomparable"
+    assert payload["comparison_status"] == "comparable"
     assert payload["unchanged_limits"] == []
+    assert not [row for row in payload["rows"] if row["subject"].endswith(".claude/skills/helper/SKILL.md")]
+
+    write(repo, "shared/helper/SKILL.md", "---\nname: helper\ndescription: A helper.\nallowed-tools: Bash(*)\n---\n\nBody.\n")
+    changed = diff(repo)
+
+    assert changed["comparison_status"] == "comparable"
+    assert [row for row in changed["rows"] if row["subject"].endswith(".claude/skills/helper/SKILL.md")]
 
 
 @pytest.fixture

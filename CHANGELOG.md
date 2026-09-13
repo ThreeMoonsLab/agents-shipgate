@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Read through an in-tree link at a boundary path (#700). `CLAUDE.md -> AGENTS.md`
+  and `.claude/skills -> ../.agents/skills` made every host comparison in the
+  repository refuse as `unreadable`. That was the largest single cause of the
+  refusals left in the #659 and #660 measurements. A link that resolves inside
+  the repository is now read at its target, under its own path, and each
+  artifact records the hops in `resolved_through`. External, escaping and
+  dangling targets, links inside linked directories, chains past eight hops,
+  and directory links that could only hide a `**/` match still refuse.
+  Host-grants schemas move to `0.5` (runtime contract 39). A `0.4` baseline
+  stays comparable.
+
 - Read Go MCP servers' literal tool hints for the contradiction check (#658).
   `SHIP-MCP-ANNOTATION-CONTRADICTION` could challenge a FastMCP `readOnlyHint`
   read from source, but not a Go server's. Neither the go-sdk

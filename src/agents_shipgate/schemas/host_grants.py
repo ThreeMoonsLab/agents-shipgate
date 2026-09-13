@@ -6,9 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from agents_shipgate.schemas.instruction_structure import InstructionStructureEvidence
 
-HOST_GRANTS_INVENTORY_SCHEMA_VERSION = "0.4"
-HOST_GRANTS_BASELINE_SCHEMA_VERSION = "0.4"
-HOST_GRANTS_DRIFT_SCHEMA_VERSION = "0.4"
+HOST_GRANTS_INVENTORY_SCHEMA_VERSION = "0.5"
+HOST_GRANTS_BASELINE_SCHEMA_VERSION = "0.5"
+HOST_GRANTS_DRIFT_SCHEMA_VERSION = "0.5"
 
 HostName = Literal["codex", "claude-code", "cursor", "vscode", "github"]
 HostGrantScope = Literal["repository", "local_static"]
@@ -428,6 +428,45 @@ class HostGrantsBaselineArtifactV4(RootModel[HostGrantsBaselineV4]):
 
 class HostGrantsDriftArtifactV4(RootModel[HostGrantsDriftV4]):
     root: HostGrantsDriftV4
+
+
+# v0.5 records the in-tree links a read followed (#700, step two). A boundary
+# path that is a link is read through to its in-tree target, and the artifact
+# names each hop, so a retargeted link reads as a changed artifact.
+class HostArtifactV4(HostArtifactV3):
+    resolved_through: list[str] = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
+
+
+class HostGrantsInventoryV5(HostGrantsInventoryV4):
+    host_grants_inventory_schema_version: Literal["0.5"] = "0.5"
+    artifacts: list[HostArtifactV4] = Field(default_factory=list)
+
+
+class HostGrantsNormalizedSnapshotV5(HostGrantsNormalizedSnapshotV4):
+    artifacts: list[HostArtifactV4] = Field(default_factory=list)
+
+
+class HostGrantsBaselineV5(HostGrantsBaselineV4):
+    host_grants_schema_version: Literal["0.5"] = "0.5"
+    inventory: HostGrantsNormalizedSnapshotV5
+
+
+class HostGrantsDriftV5(HostGrantsDriftV4):
+    host_grants_schema_version: Literal["0.5"] = "0.5"
+
+
+class HostGrantsInventoryArtifactV5(RootModel[HostGrantsInventoryV5]):
+    root: HostGrantsInventoryV5
+
+
+class HostGrantsBaselineArtifactV5(RootModel[HostGrantsBaselineV5]):
+    root: HostGrantsBaselineV5
+
+
+class HostGrantsDriftArtifactV5(RootModel[HostGrantsDriftV5]):
+    root: HostGrantsDriftV5
 
 
 __all__ = [name for name in globals() if name.startswith("Host") or name.startswith("HOST_")]

@@ -23,7 +23,9 @@ and `audit --host`.
 
 A registered adapter reports `complete`, `not_applicable`, `partial`, or
 `experimental` coverage. A relevant malformed, unreadable, binary, oversized,
-external, symlinked, or unsupported input prevents a complete control result.
+external, unresolved-symlink, or unsupported input prevents a complete control
+result. An in-tree symlink at a boundary path is read at its target and recorded
+in `resolved_through` (#700).
 Path classification is case-insensitive so protected files cannot evade review
 on macOS or Windows. Nested `.codex/**`, `.mcp.json`, and
 `.github/workflows/**` copies remain protected for repository-wide drift and
