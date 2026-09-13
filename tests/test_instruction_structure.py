@@ -76,8 +76,7 @@ def test_structure_registration_move_remains_reviewable(old, new):
 
 
 @pytest.mark.parametrize("text", [
-    "No frontmatter", "---\nhooks: [\n", "---\nhooks: [\n---\n",
-    _skill(fields="future-hook: ./run.sh\n"),
+    "---\nhooks: [\n", "---\nhooks: [\n---\n",
     _skill(fields="allowed-tools: Read\nallowed-tools: Bash\n"),
     _skill(fields="metadata: &meta {x: y}\n"),
     _skill(fields="hooks: invalid\n"),
@@ -202,12 +201,14 @@ def test_a_skill_still_needs_a_real_description() -> None:
     Treating an explicit null as absent in the shared type check would be a
     hole if identity were only enforced there. A `name` is not required: the
     docs default it to the directory name (#722), which
-    `tests/test_documented_claude_frontmatter.py` covers.
+    `tests/test_documented_claude_frontmatter.py` covers. An omitted
+    `description` takes the body's first non-empty line (#730), so identity is
+    missing only when the body has none.
     """
 
     for fields in ("name: demo\ndescription: \n", "name: demo\n"):
         resolved = classify_instruction(
-            ".agents/skills/demo/SKILL.md", f"---\n{fields}---\nBody.\n"
+            ".agents/skills/demo/SKILL.md", f"---\n{fields}---\n\n"
         )
         assert resolved.status == "unresolved", fields
         assert resolved.reason == "skill_identity_missing", fields
@@ -236,3 +237,30 @@ def test_normalizing_null_does_not_hide_an_actual_permission_change():
     granted = classify_instruction(path, "---\nallowed-tools: Bash(*)\n---\nBody.\n")
     assert empty.status == granted.status == "structured"
     assert empty.sha256 != granted.sha256
+
+
+def test_a_skill_without_frontmatter_uses_the_documented_defaults() -> None:
+    """Frontmatter is optional (#730): `name` from the directory, `description` from the first line."""
+
+    path = ".agents/skills/demo/SKILL.md"
+    plain = classify_instruction(path, "\nFirst line.\nMore prose.\n")
+    assert plain.status == "structured", plain.reason
+
+    later_prose = classify_instruction(path, "\nFirst line.\nOther prose.\n")
+    first_line = classify_instruction(path, "\nAnother first line.\nMore prose.\n")
+    assert plain.sha256 == later_prose.sha256
+    assert plain.sha256 != first_line.sha256
+
+
+def test_an_undocumented_skill_key_is_digested_not_refused() -> None:
+    """Undocumented keys are digested, so changing one is still a change (#730)."""
+
+    path = ".agents/skills/demo/SKILL.md"
+
+    def document(value: str) -> str:
+        return f"---\nname: demo\ndescription: Test fixture\nfuture-hook: {value}\n---\nBody.\n"
+
+    first = classify_instruction(path, document("./run.sh"))
+    second = classify_instruction(path, document("./other.sh"))
+    assert first.status == second.status == "structured"
+    assert first.sha256 != second.sha256
