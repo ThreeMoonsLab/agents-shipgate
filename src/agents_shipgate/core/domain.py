@@ -392,6 +392,8 @@ SURFACE_PARTIAL = "partial"
 #: Source types whose MCP hints were read out of the tool server's own source
 #: code rather than out of the contract it publishes to clients (#658).
 SOURCE_READ_ANNOTATION_SOURCE_TYPES = frozenset({"mcp_server_source"})
+#: The MCP hints that route reads, and the only annotation keys the gate governs.
+ANNOTATION_HINT_KEYS = frozenset({"readOnlyHint", "destructiveHint"})
 
 
 def annotation_hints_are_effect_evidence(tool: Tool) -> bool:

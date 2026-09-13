@@ -409,3 +409,36 @@ def test_the_rename_is_a_known_limit_not_a_silent_pass(tmp_path):
         action for action in hinted["action_surface_facts"]["actions"] if action["tool_name"] == "process_account"
     ]
     assert process["effect"] == "write"
+
+
+def _observation(source_type: str, annotations: dict[str, object], observation: str) -> Tool:
+    return _tool(source_type, annotations).model_copy(
+        update={"observation_id": observation, "source_id": observation}
+    )
+
+
+def test_a_reviewed_identity_merge_does_not_launder_a_source_hint():
+    """A ``tool_identity`` binding keeps the primary's source type on the merged tool.
+
+    Copying a source-read ``readOnlyHint`` onto an exported primary would make it
+    that export's published hint, past the gate, as effect evidence.
+    """
+
+    from agents_shipgate.core.tool_identity import _merge_bound_observations
+
+    export = _observation("mcp", {}, "export")
+    source = _observation(SOURCE_TYPE, {"readOnlyHint": True, "destructiveHint": False}, "source")
+    merged, issues = _merge_bound_observations(export, [export, source])
+    assert "readOnlyHint" not in merged.annotations
+    assert "destructiveHint" not in merged.annotations
+    assert annotation_hints_are_effect_evidence(merged)
+
+    # Negative control: a hint from another published export still merges.
+    other = _observation("mcp", {"readOnlyHint": True}, "other")
+    merged, _ = _merge_bound_observations(export, [export, other])
+    assert merged.annotations["readOnlyHint"] is True
+
+    # A disagreement is still reported, whichever side the source is on.
+    hinted_export = _observation("mcp", {"readOnlyHint": False}, "export")
+    _, issues = _merge_bound_observations(hinted_export, [hinted_export, source])
+    assert any("readOnlyHint" in issue.message for issue in issues)
