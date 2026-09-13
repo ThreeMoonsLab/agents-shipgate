@@ -1685,6 +1685,10 @@ def _site_fields(site: Any) -> dict[str, Any]:
         "returns": site.returns,
         "returns_json_type": site.returns_json_type,
         "context_injection_unresolved": site.context_injection_unresolved,
+        # The two hints the contradiction check challenges (#658): a port that
+        # carried the defaults would agree on every name and read no claim.
+        "annotation_hints": site.annotation_hints,
+        "annotations_unresolved": site.annotations_unresolved,
         "proves_server": site.proves_server,
     }
 

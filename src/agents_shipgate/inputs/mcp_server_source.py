@@ -7,12 +7,20 @@ registry in :mod:`agents_shipgate.inputs.mcp_idioms`, and contributes one
 action per tool name written as a literal at a registration site.
 
 What it does **not** do is as much of the design as what it does. It runs no
-code, evaluates no schema library, infers no type, and reads no annotation the
-source declares about itself — the #268 lesson is that an artifact must never
-get to say what counts as evidence about itself, and a tool server's own source
-is exactly such an artifact. Effect and authority still come from the
-declaration questionnaire (#410). The one thing the source is trusted to state
-is a name, which is checkable against the registration site that carries it.
+code, evaluates no schema library, infers no type, and never lets the source
+say what counts as evidence about itself — the #268 lesson is that an artifact
+must never get to, and a tool server's own source is exactly such an artifact.
+Effect and authority still come from the declaration questionnaire (#410). The
+one thing the source is trusted to state is a name, which is checkable against
+the registration site that carries it.
+
+The source may also *claim* something (#658). A literal FastMCP
+``readOnlyHint`` or ``destructiveHint`` is what the server will tell every
+client about the tool, so it is kept on the tool for
+``SHIP-MCP-ANNOTATION-CONTRADICTION`` to challenge — and
+:func:`~agents_shipgate.core.domain.annotation_hints_are_effect_evidence` keeps
+it out of every effect reading. A server calling its own tool read-only neither
+lowers that tool's effect nor answers a question a reviewer was asked.
 
 The Python idiom (#484) also reads the decorated function's **signature**,
 because for FastMCP that is where the input schema comes from — it is written
@@ -391,6 +399,13 @@ def _unread_reason(path: Path) -> str | None:
     return None
 
 
+#: ``Tool.extraction["annotations"]`` when the registration passes
+#: ``annotations=`` in a form this reader could not read (#658). Recorded so
+#: the absence of a contradiction on that tool is not mistaken for a hint that
+#: was read and agreed with the evidence.
+ANNOTATIONS_UNRESOLVED = "unresolved"
+
+
 def _tool_from_site(
     site: RegistrationSite,
     *,
@@ -415,6 +430,8 @@ def _tool_from_site(
     }
     if gaps:
         extraction["surface_gaps"] = gaps
+    if site.annotations_unresolved:
+        extraction["annotations"] = ANNOTATIONS_UNRESOLVED
     parameters = _signature_parameters(site)
     return Tool(
         id=stable_tool_id(site.name),
@@ -434,6 +451,7 @@ def _tool_from_site(
         ),
         parameters=parameters,
         function_signature=_signature_text(site, parameters),
+        annotations=dict(site.annotation_hints),
         risk_hints=_operation_type_hints(site),
         extraction_confidence=EXTRACTION_CONFIDENCE,
         extraction=extraction,

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Read a FastMCP tool's literal `readOnlyHint` and `destructiveHint` from source,
+  as claims for `SHIP-MCP-ANNOTATION-CONTRADICTION` to challenge (#658). The
+  source route read no hints at all, so a server whose source says
+  `readOnlyHint: True` over a destructive tool had nothing to be contradicted
+  about; it now fires there as it does on an exported `tools.json`. The hints
+  are never evidence. Reading them as the export route does lowered
+  `transfer_funds` from `write` to `read` with no finding and answered three of
+  eight open effect questions on the server's word, so on this route no effect,
+  risk tag, permission class or question moves because of one. Only those two
+  keys, only exact booleans, and `ToolAnnotations` only when bound to
+  `mcp.types`; a value that cannot be read is recorded as
+  `extraction.annotations: unresolved`. A tool whose only side-effect evidence is
+  its body stays quiet, because this route reads no body. A server already
+  scanned with literal hints will see its annotation hash change once.
 - Add the host-config precision harness under `benchmark/host-config/` (#659).
   It runs `shipgate diff` on 50 merged public PRs, each changing one
   host-configuration file: `.claude/settings.json`, `.mcp.json`,

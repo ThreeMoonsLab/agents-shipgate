@@ -8,6 +8,7 @@ from agents_shipgate.core.domain import (
     SideEffect,
     Tool,
     ToolRiskHint,
+    annotation_hints_are_effect_evidence,
 )
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.tool_identity import resolve_selectors_by_tool_id
@@ -311,7 +312,9 @@ def _add_automatic_hints(tool: Tool) -> None:
         )
     if keyword_eligible and WRITE_KEYWORDS & tokens:
         _add_hint(tool, "write", keyword_source, "medium", {}, basis="inferred_keyword")
-    if tool.annotations.get("readOnlyHint") is True:
+    # A hint read out of the server's own source is a claim, not evidence (#658).
+    hints_are_evidence = annotation_hints_are_effect_evidence(tool)
+    if hints_are_evidence and tool.annotations.get("readOnlyHint") is True:
         _add_hint(
             tool,
             "read_only",
@@ -320,7 +323,7 @@ def _add_automatic_hints(tool: Tool) -> None:
             {"readOnlyHint": True},
             basis="protocol_structure",
         )
-    if tool.annotations.get("destructiveHint") is True:
+    if hints_are_evidence and tool.annotations.get("destructiveHint") is True:
         _add_hint(
             tool,
             "destructive",
@@ -372,7 +375,7 @@ def _add_automatic_hints(tool: Tool) -> None:
     provisional_conservative_read = has_read_hint and not has_write_hint
     provisional_effectively_read_only = (
         method in {"GET", "HEAD", "OPTIONS"}
-        or tool.annotations.get("readOnlyHint") is True
+        or (hints_are_evidence and tool.annotations.get("readOnlyHint") is True)
     ) and provisional_conservative_read
     provisional_write = not provisional_conservative_read
 
