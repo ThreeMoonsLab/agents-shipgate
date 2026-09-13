@@ -42,7 +42,11 @@ from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
     ToolSourceConfig,
 )
-from tests.mcp_idiom_corpus import PY_ANNOTATION_CASES, PY_ANNOTATION_HEADER
+from tests.mcp_idiom_corpus import (
+    GO_ANNOTATION_CASES,
+    PY_ANNOTATION_CASES,
+    PY_ANNOTATION_HEADER,
+)
 
 
 @pytest.mark.parametrize(
@@ -54,6 +58,25 @@ def test_the_reader_keeps_literal_hints_and_refuses_the_rest(name, body, expecte
     [site] = mcp_idioms.scan_source(PY_ANNOTATION_HEADER + body, "python").sites
 
     assert (site.annotation_hints, site.annotations_unresolved) == expected
+
+
+@pytest.mark.parametrize(
+    ("name", "body", "expected"),
+    GO_ANNOTATION_CASES,
+    ids=[case[0] for case in GO_ANNOTATION_CASES],
+)
+def test_the_go_reader_keeps_literal_hints_and_refuses_the_rest(name, body, expected):
+    sites = [
+        site
+        for site in mcp_idioms.scan_source("package p\n" + body, "go").sites
+        if site.name == "tool"
+    ]
+
+    # The corpus writes `func F() mcp.Tool { return mcp.Tool{...} }`, which the
+    # struct idiom also reports once for the return type. Every site for the
+    # tool must carry the same answer.
+    assert sites
+    assert {(site.annotation_hints, site.annotations_unresolved) for site in sites} == {expected}
 
 
 def _server(tmp_path: Path, body: str) -> dict[str, Tool]:
@@ -442,3 +465,75 @@ def test_a_reviewed_identity_merge_does_not_launder_a_source_hint():
     hinted_export = _observation("mcp", {"readOnlyHint": False}, "export")
     _, issues = _merge_bound_observations(hinted_export, [hinted_export, source])
     assert any("readOnlyHint" in issue.message for issue in issues)
+
+
+_GO_MOD = (
+    "module example.com/teams\n\ngo 1.22\n\nrequire (\n"
+    "\tgithub.com/mark3labs/mcp-go v0.32.0\n"
+    "\tgithub.com/modelcontextprotocol/go-sdk v0.2.0\n)\n"
+)
+_GO_OPTION_SERVER = """package server
+
+import "github.com/mark3labs/mcp-go/mcp"
+
+func Tools() []mcp.Tool {
+\treturn []mcp.Tool{
+\t\tmcp.NewTool("delete_team", mcp.WithDescription("Permanently delete a team."), mcp.WithReadOnlyHintAnnotation(true)),
+\t\tmcp.NewTool("list_teams", mcp.WithDescription("List the teams in an organization."), mcp.WithReadOnlyHintAnnotation(true)),
+\t}
+}
+"""
+_GO_STRUCT_SERVER = """package server
+
+import "github.com/modelcontextprotocol/go-sdk/mcp"
+
+var Purge = mcp.Tool{Name: "purge_account", Description: "Remove every stored item for an account.", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}}
+"""
+
+
+def _go_scan(root: Path, *, annotated: bool) -> dict:
+    workspace = root / ("go-annotated" if annotated else "go-stripped")
+    (workspace / "src").mkdir(parents=True)
+    (workspace / "go.mod").write_text(_GO_MOD, encoding="utf-8")
+    option_source, struct_source = _GO_OPTION_SERVER, _GO_STRUCT_SERVER
+    if not annotated:
+        option_source = option_source.replace(", mcp.WithReadOnlyHintAnnotation(true)", "")
+        struct_source = struct_source.replace(", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}", "")
+    assert ("HintAnnotation" in option_source and "ToolAnnotations" in struct_source) is annotated
+    (workspace / "src" / "tools.go").write_text(option_source, encoding="utf-8")
+    (workspace / "src" / "purge.go").write_text(struct_source, encoding="utf-8")
+    (workspace / "shipgate.yaml").write_text(_MANIFEST, encoding="utf-8")
+    report, exit_code = run_scan(
+        config_path=workspace / "shipgate.yaml",
+        output_dir=workspace / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+    assert exit_code == 0
+    return report.model_dump(mode="json")
+
+
+def test_a_go_source_hint_earns_the_same_contradictions_and_nothing_else(tmp_path):
+    """Both Go spellings reach the contradiction check, and only the contradiction check."""
+
+    hinted = _go_scan(tmp_path, annotated=True)
+    without = _go_scan(tmp_path, annotated=False)
+
+    added = _findings(hinted) - _findings(without)
+    assert _findings(without) <= _findings(hinted)
+    assert {check for check, _tool in added} == {"SHIP-MCP-ANNOTATION-CONTRADICTION"}
+    assert {tool for _check, tool in added} >= {"delete_team", "purge_account"}
+    assert ("SHIP-MCP-ANNOTATION-CONTRADICTION", "list_teams") not in added
+    published = {
+        finding["tool_name"]: finding["evidence"]["published_annotations"]
+        for finding in hinted["findings"]
+        if finding["check_id"] == "SHIP-MCP-ANNOTATION-CONTRADICTION"
+    }
+    assert published["delete_team"] == {"readOnlyHint": True}
+    assert published["purge_account"] == {"readOnlyHint": True}
+    assert all(
+        finding["blocks_release"] is False
+        for finding in hinted["findings"]
+        if finding["check_id"] == "SHIP-MCP-ANNOTATION-CONTRADICTION"
+    )

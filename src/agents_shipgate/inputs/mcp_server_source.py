@@ -14,8 +14,8 @@ Effect and authority still come from the declaration questionnaire (#410). The
 one thing the source is trusted to state is a name, which is checkable against
 the registration site that carries it.
 
-The source may also *claim* something (#658). A literal FastMCP
-``readOnlyHint`` or ``destructiveHint`` is what the server will tell every
+The source may also *claim* something (#658). A literal FastMCP, go-sdk or
+mcp-go ``readOnlyHint`` or ``destructiveHint`` is what the server will tell every
 client about the tool, so it is kept on the tool for
 ``SHIP-MCP-ANNOTATION-CONTRADICTION`` to challenge — and
 :func:`~agents_shipgate.core.domain.annotation_hints_are_effect_evidence` keeps
