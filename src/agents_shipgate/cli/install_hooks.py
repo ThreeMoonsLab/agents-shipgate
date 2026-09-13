@@ -12,6 +12,7 @@ import typer
 
 from agents_shipgate.checks.verify import TRUST_ROOT_SURFACES
 from agents_shipgate.cli.workspace_guard import require_workspace
+from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.trust_roots import inspect_lexical_path_identity
 
@@ -448,6 +449,30 @@ def _write_text_atomic(path: Path, content: str) -> None:
             temp_path.unlink(missing_ok=True)
 
 
+def host_config_change_patterns() -> list[str]:
+    """Paths the Stop hook compares with `shipgate diff` when no manifest exists (#661).
+
+    Host configuration files and GitHub workflows: what the capability diff
+    reads as host grants. Instruction files, skills, commands, Cursor rules and
+    policies keep their existing route, by the owner decision on #661. Rendered
+    from the boundary registry, so the hook and the reader cannot name a
+    different surface.
+    """
+
+    patterns: set[str] = set()
+    for adapter in BOUNDARY_ADAPTERS:
+        for pattern in (*adapter.exact_paths, *adapter.globs):
+            folded = pattern.casefold()
+            if adapter.id == "shared":
+                if "/.github/workflows/" in f"/{folded}":
+                    patterns.add(pattern)
+            elif folded.endswith((".json", ".toml")) and not folded.startswith(
+                (".claude/commands/", ".cursor/rules/")
+            ):
+                patterns.add(pattern)
+    return sorted(patterns)
+
+
 def _hook_script_text() -> str:
     # The protected-surface list is rendered at install time from the
     # same TRUST_ROOT_SURFACES the verify check classifies against, so
@@ -456,7 +481,10 @@ def _hook_script_text() -> str:
         [[kind, pattern] for kind, pattern in TRUST_ROOT_SURFACES],
         indent=4,
     )
-    return _HOOK_SCRIPT_TEMPLATE.replace("__PROTECTED_SURFACES_JSON__", surfaces)
+    host_config = json.dumps(host_config_change_patterns(), indent=4)
+    return _HOOK_SCRIPT_TEMPLATE.replace("__PROTECTED_SURFACES_JSON__", surfaces).replace(
+        "__HOST_CONFIG_SURFACES_JSON__", host_config
+    )
 
 
 _HOOK_SCRIPT_TEMPLATE = r'''#!/usr/bin/env python3
@@ -526,6 +554,10 @@ _UNPROMPTED_PERMISSION_MODES = frozenset({"bypasspermissions", "dontask"})
 # TRUST_ROOT_SURFACES — the same classification the PR-time verifier
 # uses. Each entry is [trust_root_class, glob_pattern].
 PROTECTED_SURFACES = __PROTECTED_SURFACES_JSON__
+
+# Rendered at install time from agents_shipgate.core.boundary_registry: the
+# host-configuration files and workflows `shipgate diff` compares (#661).
+HOST_CONFIG_SURFACES = __HOST_CONFIG_SURFACES_JSON__
 
 
 def main() -> int:
@@ -770,6 +802,15 @@ def _protected_surface_for(
     return None
 
 
+def _is_host_config_path(path: str) -> bool:
+    normalized = path.replace("\\", "/").removeprefix("./")
+    return any(
+        _glob_match(pattern, normalized)
+        or _glob_match(pattern.casefold(), normalized.casefold())
+        for pattern in HOST_CONFIG_SURFACES
+    )
+
+
 def _glob_match(pattern: str, path: str) -> bool:
     """Mirror of agents_shipgate.core.globbing.glob_match (keep in sync)."""
     import re as _re
@@ -884,6 +925,10 @@ def _trigger(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> i
     if not paths:
         return 0
     _record_in_session_approvals(payload, root, args)
+    if not (root / args.config).is_file() and all(_is_host_config_path(path) for path in paths):
+        # The Stop hook compares host configuration once per change (#661); a
+        # nudge on every edit would repeat itself without naming a row.
+        return 0
     diff_text = _git_diff_for_paths(root, paths)
     if diff_text is None:
         return _emit_context(
@@ -1015,6 +1060,10 @@ def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> in
     if not config_path.is_file():
         if not snapshot["paths"]:
             return 0
+        if all(_is_host_config_path(path) for path in snapshot["paths"]):
+            # Only host configuration changed and nothing is configured: name
+            # what the change did rather than advise initializing a manifest.
+            return _route_host_diff(root, args, signature=str(snapshot["signature"]))
         trigger = _run_trigger_for_paths(
             root,
             snapshot["paths"],
@@ -1149,6 +1198,82 @@ _PUBLISH_ONLY_PERMISSIONS: dict[str, bool] = {
     "merge": False,
     "report_complete": False,
 }
+
+
+#: At most this many widening rows are quoted; the rest are counted.
+_MAX_ANNOUNCED_HOST_ROWS = 20
+
+
+def _route_host_diff(root: Path, args: argparse.Namespace, *, signature: str) -> int:
+    """Compare changed host configuration and speak only about widening (#661).
+
+    Quiet for a covered comparison with no row marked `expands`. Rows that
+    widen what the agent can do are named once: the announcement is bound to
+    the change's snapshot signature, the base and the rows, so an unchanged
+    repeat stays quiet and any change is announced again. An incomparable,
+    unparsed or unavailable comparison is never quiet. A row is a description,
+    never a permission, and this route grants no authority.
+    """
+
+    base = os.environ.get("AGENTS_SHIPGATE_VERIFY_BASE", args.base).strip()
+    manual = " ".join(
+        shlex.quote(part)
+        for part in ["agents-shipgate", "diff", "--workspace", ".", *(["--base", base] if base else [])]
+    )
+    if not base or not _safe_ref_token(base) or not _ref_exists(root, base):
+        return _emit_context(
+            "Stop",
+            "Agents Shipgate could not compare the host configuration this change "
+            f"edits: base ref {base!r} is not available locally. Make it available, "
+            f"then run `{manual}`.",
+        )
+    completed = _run(
+        [*_cli(), "diff", "--workspace", str(root), "--base", base, "--json"],
+        cwd=root,
+        timeout=VERIFY_TIMEOUT_SECONDS,
+        env={**os.environ, "AGENTS_SHIPGATE_AGENT_MODE": "1"},
+    )
+    try:
+        payload = json.loads(completed.stdout) if completed is not None else None
+    except json.JSONDecodeError:
+        payload = None
+    if not isinstance(payload, dict) or payload.get("comparison_status") != "comparable":
+        reasons = (
+            ", ".join(str(item) for item in payload.get("incomparable_reasons") or [])
+            if isinstance(payload, dict)
+            else ""
+        )
+        return _emit_context(
+            "Stop",
+            "Agents Shipgate could not compare the host configuration this change edits"
+            + (f" ({reasons})" if reasons else "")
+            + f". Treat it as unreviewed and run `{manual}`.",
+        )
+    rows = [row for row in payload.get("rows") or [] if isinstance(row, dict) and row.get("expands") is True]
+    if not rows:
+        return 0
+    digest = hashlib.sha256(
+        json.dumps([signature, base, rows], sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    state = _read_state(root)
+    if state.get("last_host_diff_announcement") == digest:
+        return 0
+    state["last_host_diff_announcement"] = digest
+    _write_state(root, state)
+    lines = [
+        f"- {row.get('subject')}: {row.get('before')} -> {row.get('after')} ({row.get('why')})"
+        for row in rows[:_MAX_ANNOUNCED_HOST_ROWS]
+    ]
+    if len(rows) > _MAX_ANNOUNCED_HOST_ROWS:
+        lines.append(f"- and {len(rows) - _MAX_ANNOUNCED_HOST_ROWS} more; run `{manual}`")
+    return _emit_context(
+        "Stop",
+        "Agents Shipgate compared the host configuration this change edits. "
+        "These rows widen what the agent can do:\n"
+        + "\n".join(lines)
+        + "\nQuote them to the user and in the pull request body. A row is a "
+        "description, never a permission.",
+    )
 
 
 def _authorizes_publication(control: dict[str, Any]) -> bool:

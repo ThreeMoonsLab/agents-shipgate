@@ -200,6 +200,18 @@ exact remaining command, and `human_review_required` lets the turn end with a
 hand-off notice — a Stop-hook block forces the agent to keep working, which is
 the opposite of what `must_stop` means.
 
+Without a configured manifest, when every changed file is host configuration —
+`.claude/settings.json`, `.mcp.json`, `.cursor/mcp.json`, `.codex/config.toml`,
+`.vscode/mcp.json` or a GitHub workflow — the Stop hook runs
+`agents-shipgate diff` instead of advising you to initialize a manifest. It
+stays quiet when no row widens what the agent can do. It names each widening
+row once, and repeats the announcement only when the change or its rows change.
+A missing base ref, an incomparable inventory or unparsed output is never
+quiet. The PostToolUse hook does not nudge on those edits, because the Stop
+hook compares them. Instruction files, skills, commands, rules and policies
+keep the route above, and a repository with a manifest always runs `verify`.
+The hook reads configuration, not the agent's runtime permissions.
+
 These hooks are advisory local feedback. Local setup failures such as a
 missing CLI or unavailable base ref are surfaced as context, and verifier
 output the hook cannot parse is surfaced as an explicit warning rather than

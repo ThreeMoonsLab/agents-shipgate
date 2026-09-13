@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Compare host configuration in the Claude Code Stop hook when no manifest
+  exists (#661). A narrowing and a widening edit to `.claude/settings.json` got
+  the same two messages, neither named `Bash(*)`, and both advised initializing
+  a manifest. When every changed file is host configuration, the Stop hook now
+  runs `shipgate diff`. It is quiet when no row expands, names each widening row
+  once, and is never quiet when it cannot compare. The PostToolUse hook no
+  longer nudges on those edits. Mixed changes and repositories with a manifest
+  keep their existing route. The path list is rendered from the boundary
+  registry at install time.
+
 - Compare past an unchanged partial or experimental surface instead of refusing
   every row (#721, runtime contract 37, verifier schema `0.19`). A comparison
   refused whenever either inventory was incomplete, including for a file the
