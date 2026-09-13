@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Add 12 scripted route-parity cases for host-capability changes (#662). One
+  widening fixture (a wildcard shell rule, a wildcard fetch rule, a new MCP
+  server, `contents: write` and a removed denial) is driven through
+  `shipgate diff --json`, `check --format agent-boundary-json`,
+  `verify --preview --json` and the MCP `shipgate.check` tool. Every route must
+  name the same five changes, and the text output must show them. Controls cover
+  a covered no-change (zero rows on every route), a narrowing that is never
+  marked expanding, malformed input and a refused boundary link (incomparable,
+  never an empty safe answer), a second change that is compared rather than
+  remembered, a named widening that grants no authority, and the generated
+  `AGENTS.md` block's `shipgate diff` line run exactly as printed. These are
+  engineering tests, not evidence that a real coding agent runs these commands
+  unprompted.
+
 - Name the change first in the generated `AGENTS.md` and `CLAUDE.md` blocks
   (#662). The Cursor rule already told an agent to run `shipgate diff`, quote
   the rows and put them in the pull request body before routing on control.
