@@ -1,0 +1,12 @@
+{
+  "repo": "stackrox/stackrox",
+  "pr_number": 16905,
+  "kind": ".cursor/mcp.json",
+  "path": ".cursor/mcp.json",
+  "base_sha": "e686050509f77b034d12e07671421fb86d7ed384",
+  "head_sha": "fe2e482164bab334d4fad4dae38b337236a0f046",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/stackrox/stackrox/blob/e686050509f77b034d12e07671421fb86d7ed384/.cursor/mcp.json",
+  "head_source": "https://github.com/stackrox/stackrox/blob/fe2e482164bab334d4fad4dae38b337236a0f046/.cursor/mcp.json",
+  "redacted_only_change": false
+}

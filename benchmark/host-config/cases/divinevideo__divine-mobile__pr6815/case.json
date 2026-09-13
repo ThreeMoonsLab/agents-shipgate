@@ -1,0 +1,12 @@
+{
+  "repo": "divinevideo/divine-mobile",
+  "pr_number": 6815,
+  "kind": ".codex/config.toml",
+  "path": ".codex/config.toml",
+  "base_sha": "7c2105e3353307f4a791cfda8251cad4a9ea9243",
+  "head_sha": "6db4126a1c042b57b82590e745b8e1ffbdd1488a",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/divinevideo/divine-mobile/blob/7c2105e3353307f4a791cfda8251cad4a9ea9243/.codex/config.toml",
+  "head_source": "https://github.com/divinevideo/divine-mobile/blob/6db4126a1c042b57b82590e745b8e1ffbdd1488a/.codex/config.toml",
+  "redacted_only_change": false
+}

@@ -1,0 +1,12 @@
+{
+  "repo": "00PrabalK00/OpenRosWarehouse",
+  "pr_number": 34,
+  "kind": ".mcp.json",
+  "path": ".mcp.json",
+  "base_sha": "9af08288d07fd893d7fe31350b985ddd539bc26a",
+  "head_sha": "730241b8b9951fe0d4af6e668add89981190eae0",
+  "coding_agent_marked": true,
+  "base_source": "https://github.com/00PrabalK00/OpenRosWarehouse/blob/9af08288d07fd893d7fe31350b985ddd539bc26a/.mcp.json",
+  "head_source": "https://github.com/00PrabalK00/OpenRosWarehouse/blob/730241b8b9951fe0d4af6e668add89981190eae0/.mcp.json",
+  "redacted_only_change": false
+}

@@ -1,0 +1,13 @@
+{
+  "benign_case": false,
+  "benign_zero_row": false,
+  "correct_rows": 0,
+  "expected_changes": 1,
+  "expected_widenings": 0,
+  "incomparable_reasons": "base_inventory_incomplete",
+  "rows_on_file": 0,
+  "scope": "supported",
+  "stop_point": "comparison_incomparable",
+  "unclassified_keys": "",
+  "widenings_named": 0
+}

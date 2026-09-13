@@ -1,0 +1,12 @@
+{
+  "repo": "jasonjgardner/blockbench-mcp-plugin",
+  "pr_number": 39,
+  "kind": ".vscode/mcp.json",
+  "path": ".vscode/mcp.json",
+  "base_sha": "45010832471ab532aa7b3d576a488592f444e2b1",
+  "head_sha": "217fa2c9ac65fe3a77f7c6ece94f638c78959ba7",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/jasonjgardner/blockbench-mcp-plugin/blob/45010832471ab532aa7b3d576a488592f444e2b1/.vscode/mcp.json",
+  "head_source": "https://github.com/jasonjgardner/blockbench-mcp-plugin/blob/217fa2c9ac65fe3a77f7c6ece94f638c78959ba7/.vscode/mcp.json",
+  "redacted_only_change": false
+}

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "shadcn": {
+      "args": [
+        "shadcn-vue@latest",
+        "mcp"
+      ],
+      "command": "npx"
+    }
+  }
+}

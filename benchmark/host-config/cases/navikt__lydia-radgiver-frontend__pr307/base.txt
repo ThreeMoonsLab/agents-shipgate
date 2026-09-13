@@ -1,0 +1,23 @@
+name: "Check for newer chainguard image versions"
+
+on:
+  workflow_dispatch:
+  schedule:
+    # At the end of every working day
+    - cron: "0 17 * * *"
+
+jobs:
+  digest-update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6 # Immutable release
+        with:
+          persist-credentials: false
+      - uses: navikt/digestabot@v1 # Immutable release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          team: pia

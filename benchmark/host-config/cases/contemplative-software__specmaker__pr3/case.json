@@ -1,0 +1,12 @@
+{
+  "repo": "contemplative-software/specmaker",
+  "pr_number": 3,
+  "kind": ".github/workflows/",
+  "path": ".github/workflows/ci.yml",
+  "base_sha": "58176bdd449d6386eacd92702cec92d5544cad3f",
+  "head_sha": "ac0b1d49019539f13d5db442637389cb7a94b18e",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/contemplative-software/specmaker/blob/58176bdd449d6386eacd92702cec92d5544cad3f/.github/workflows/ci.yml",
+  "head_source": "https://github.com/contemplative-software/specmaker/blob/ac0b1d49019539f13d5db442637389cb7a94b18e/.github/workflows/ci.yml",
+  "redacted_only_change": false
+}

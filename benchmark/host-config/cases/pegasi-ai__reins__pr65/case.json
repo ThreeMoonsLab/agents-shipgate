@@ -1,0 +1,12 @@
+{
+  "repo": "pegasi-ai/reins",
+  "pr_number": 65,
+  "kind": ".claude/settings.json",
+  "path": ".claude/settings.json",
+  "base_sha": "e158e8ac6192446c8ab2c94700d41c7752e5bd04",
+  "head_sha": "c05cecaf1d8336778a86ad67c5d8899e0d894024",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/pegasi-ai/reins/blob/e158e8ac6192446c8ab2c94700d41c7752e5bd04/.claude/settings.json",
+  "head_source": "https://github.com/pegasi-ai/reins/blob/c05cecaf1d8336778a86ad67c5d8899e0d894024/.claude/settings.json",
+  "redacted_only_change": false
+}

@@ -1,0 +1,12 @@
+{
+  "repo": "getsentry/sentry-mcp",
+  "pr_number": 883,
+  "kind": ".mcp.json",
+  "path": ".mcp.json",
+  "base_sha": "d20bc1a51caee75f5196e1d3e925742ae22b6343",
+  "head_sha": "94e20f3046d85e99e7ef560cd7bc2d8531e55b0c",
+  "coding_agent_marked": true,
+  "base_source": "https://github.com/getsentry/sentry-mcp/blob/d20bc1a51caee75f5196e1d3e925742ae22b6343/.mcp.json",
+  "head_source": "https://github.com/getsentry/sentry-mcp/blob/94e20f3046d85e99e7ef560cd7bc2d8531e55b0c/.mcp.json",
+  "redacted_only_change": false
+}

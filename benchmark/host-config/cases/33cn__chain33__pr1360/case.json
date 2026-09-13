@@ -1,0 +1,12 @@
+{
+  "repo": "33cn/chain33",
+  "pr_number": 1360,
+  "kind": ".claude/settings.json",
+  "path": ".claude/settings.json",
+  "base_sha": "08a207012bd2fe073f1980c0831a1d79d4f2ceb9",
+  "head_sha": "fd892c964b4d156a973a24da04d6dfe6e28bd61d",
+  "coding_agent_marked": true,
+  "base_source": "https://github.com/33cn/chain33/blob/08a207012bd2fe073f1980c0831a1d79d4f2ceb9/.claude/settings.json",
+  "head_source": "https://github.com/33cn/chain33/blob/fd892c964b4d156a973a24da04d6dfe6e28bd61d/.claude/settings.json",
+  "redacted_only_change": false
+}

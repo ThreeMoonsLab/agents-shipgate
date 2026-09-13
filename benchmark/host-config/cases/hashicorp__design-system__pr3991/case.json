@@ -1,0 +1,12 @@
+{
+  "repo": "hashicorp/design-system",
+  "pr_number": 3991,
+  "kind": ".vscode/mcp.json",
+  "path": ".vscode/mcp.json",
+  "base_sha": "d8e92d709903af9ea2902fdf3fe8eb3cc9de8efe",
+  "head_sha": "f1aea34434a19f4b8ccdbd641ee59f40264ce175",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/hashicorp/design-system/blob/d8e92d709903af9ea2902fdf3fe8eb3cc9de8efe/.vscode/mcp.json",
+  "head_source": "https://github.com/hashicorp/design-system/blob/f1aea34434a19f4b8ccdbd641ee59f40264ce175/.vscode/mcp.json",
+  "redacted_only_change": false
+}

@@ -1,0 +1,12 @@
+{
+  "repo": "leboncoin/spark-web",
+  "pr_number": 3005,
+  "kind": ".mcp.json",
+  "path": ".mcp.json",
+  "base_sha": "a075b43bf6696f1038dbe9ccb761cb716b2855f2",
+  "head_sha": "3bc304f247c97db295bea54f71a4dc15900cab19",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/leboncoin/spark-web/blob/a075b43bf6696f1038dbe9ccb761cb716b2855f2/.mcp.json",
+  "head_source": "https://github.com/leboncoin/spark-web/blob/3bc304f247c97db295bea54f71a4dc15900cab19/.mcp.json",
+  "redacted_only_change": false
+}

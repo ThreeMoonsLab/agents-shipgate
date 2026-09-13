@@ -1,0 +1,12 @@
+{
+  "repo": "wormhole-foundation/wormhole-connect",
+  "pr_number": 3857,
+  "kind": ".claude/settings.json",
+  "path": ".claude/settings.json",
+  "base_sha": "be9a2237511619d7177258af6dd0d7ff976107e4",
+  "head_sha": "017b035bb8830d5d3488d377c9349d110588e915",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/wormhole-foundation/wormhole-connect/blob/be9a2237511619d7177258af6dd0d7ff976107e4/.claude/settings.json",
+  "head_source": "https://github.com/wormhole-foundation/wormhole-connect/blob/017b035bb8830d5d3488d377c9349d110588e915/.claude/settings.json",
+  "redacted_only_change": false
+}

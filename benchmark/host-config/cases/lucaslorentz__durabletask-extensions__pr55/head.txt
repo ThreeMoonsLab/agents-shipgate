@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "args": [
+        "-y",
+        "@anthropic-ai/mcp-server-playwright@latest"
+      ],
+      "command": "npx"
+    }
+  }
+}

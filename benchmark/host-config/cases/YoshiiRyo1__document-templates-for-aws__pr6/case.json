@@ -1,0 +1,12 @@
+{
+  "repo": "YoshiiRyo1/document-templates-for-aws",
+  "pr_number": 6,
+  "kind": ".mcp.json",
+  "path": ".mcp.json",
+  "base_sha": "27a2865e855c41f2d79425c045b99771740575ca",
+  "head_sha": "45e9d2d24f212276c701d0f572480f739a8dd318",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/YoshiiRyo1/document-templates-for-aws/blob/27a2865e855c41f2d79425c045b99771740575ca/.mcp.json",
+  "head_source": "https://github.com/YoshiiRyo1/document-templates-for-aws/blob/45e9d2d24f212276c701d0f572480f739a8dd318/.mcp.json",
+  "redacted_only_change": true
+}

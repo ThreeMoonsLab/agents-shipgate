@@ -1,0 +1,671 @@
+# DuetOS CI — x86_64 kernel build + QEMU boot smoke.
+#
+# Scope (v0):
+#   * check-format: enforce clang-format on kernel/ + userland/
+#   * build-debug:  freestanding x86_64 kernel, debug preset
+#   * build-release: same source, release preset
+#   * qemu-smoke:   boot the debug build in QEMU, grep the serial
+#                   log for expected boot signatures. Anything
+#                   missing (a crash, a #PF that wasn't expected,
+#                   a missing "hello-winapi" line) fails the job.
+#
+# Inspired by SparkEngine's build.yml structure (multi-stage jobs,
+# dependency-cached artifacts) but massively trimmed — no sanitizer
+# configs (freestanding kernel, no libasan), no multi-OS matrix
+# (kernel only builds on Linux hosts today), no coverage (gcov
+# doesn't work against ring-0 code). Those land when they make
+# sense.
+
+name: build
+on:
+  push:
+    branches: [main, claude/**]
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
+      - 'docs/**'
+      - 'wiki/**'
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  check-format:
+    name: clang-format
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang-format
+        run: |
+          # Retry-with-backoff against transient mirror flakes
+          # (pattern lifted from SparkEngine's build.yml).
+          for attempt in 1 2 3 4; do
+            if sudo apt-get update; then break; fi
+            sleep $((attempt * 5))
+          done
+          sudo apt-get install -y clang-format-18
+          sudo ln -sf /usr/bin/clang-format-18 /usr/local/bin/clang-format
+      - name: Check format
+        run: |
+          mapfile -t SRCS < <(find kernel userland \
+            \( -name '*.h' -o -name '*.hpp' -o -name '*.c' -o -name '*.cpp' \))
+          if [[ ${#SRCS[@]} -eq 0 ]]; then
+            echo "No C/C++ sources found"; exit 0
+          fi
+          clang-format --dry-run --Werror "${SRCS[@]}"
+
+  check-rust:
+    # rustfmt + clippy gate for every kernel-linked Rust crate.
+    # rustfmt config lives in /rustfmt.toml; clippy policy lives in
+    # the [workspace.lints.clippy] block of /Cargo.toml. Toolchain
+    # pin (channel + components) lives in /rust-toolchain.toml so
+    # rustup auto-installs the right nightly + rust-src/rustfmt/clippy
+    # on first use.
+    name: cargo fmt + clippy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+            sh -s -- -y --default-toolchain none --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Sync toolchain (auto from /rust-toolchain.toml)
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup show
+          rustup component add rustfmt clippy
+      - name: cargo fmt --check
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo fmt --check --all
+      - name: cargo clippy
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo clippy --workspace --release --locked -- -D warnings
+
+  build-debug:
+    name: build debug
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          for attempt in 1 2 3 4; do
+            if sudo apt-get update; then break; fi
+            sleep $((attempt * 5))
+          done
+          sudo apt-get install -y clang-18 lld-18 llvm-18 cmake ninja-build python3 \
+                                  grub-common grub-pc-bin grub-efi-amd64-bin xorriso mtools \
+                                  gcc-mingw-w64-x86-64
+          sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang
+          sudo ln -sf /usr/bin/clang++-18 /usr/local/bin/clang++
+          sudo ln -sf /usr/bin/lld-link-18 /usr/local/bin/lld-link
+          sudo ln -sf /usr/bin/llvm-dlltool-18 /usr/local/bin/llvm-dlltool
+          sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
+      - name: Configure
+        run: cmake --preset x86_64-debug
+      - name: Build
+        run: cmake --build build/x86_64-debug --parallel $(nproc)
+      - name: Upload kernel
+        uses: actions/upload-artifact@v4
+        with:
+          name: duetos-kernel-debug
+          if-no-files-found: error
+          path: |
+            build/x86_64-debug/duetos.iso
+            build/x86_64-debug/kernel/duetos-kernel.elf
+          retention-days: 7
+
+  build-release:
+    name: build release
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          for attempt in 1 2 3 4; do
+            if sudo apt-get update; then break; fi
+            sleep $((attempt * 5))
+          done
+          sudo apt-get install -y clang-18 lld-18 llvm-18 cmake ninja-build python3 \
+                                  grub-common grub-pc-bin grub-efi-amd64-bin xorriso mtools \
+                                  gcc-mingw-w64-x86-64
+          sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang
+          sudo ln -sf /usr/bin/clang++-18 /usr/local/bin/clang++
+          sudo ln -sf /usr/bin/lld-link-18 /usr/local/bin/lld-link
+          sudo ln -sf /usr/bin/llvm-dlltool-18 /usr/local/bin/llvm-dlltool
+          sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
+      - name: Configure
+        run: cmake --preset x86_64-release
+      - name: Build
+        run: cmake --build build/x86_64-release --parallel $(nproc)
+      - name: Upload kernel
+        uses: actions/upload-artifact@v4
+        with:
+          name: duetos-kernel-release
+          if-no-files-found: error
+          path: |
+            build/x86_64-release/duetos.iso
+            build/x86_64-release/kernel/duetos-kernel.elf
+          retention-days: 7
+
+  # Build-flavor matrix: each non-default preset that exposes a
+  # distinct build axis (asserts, full audit, LTO, fast-debug).
+  # Each matrix entry builds AND smoke-boots its preset.
+  #
+  # The smoke uses the `bringup` profile from
+  # tools/test/profile-boot-smoke.sh — kernel reaches
+  # bringup-complete, emits a sentinel, exits via isa-debug-exit.
+  # That's a much narrower test than the full ring3+Win32+driver
+  # ctest smoke (which would require ~60s of guest time per
+  # flavor — prohibitive on GitHub-hosted runners that can't use
+  # KVM and run TCG at ~1/50 native speed). The bringup profile
+  # still exercises every compile-time flavor decision (cap-audit,
+  # lockdep, asserts, klog floor, ubsan) up through driver init,
+  # which is what we care about validating per-flavor.
+  #
+  # Per-flavor timeouts are 480s — matches the main qemu-smoke job's
+  # generous budget for TCG. The kernel exits well under that on a
+  # successful bringup; the timeout only fires on a real wedge.
+  build-flavor-matrix:
+    name: build+smoke flavor (${{ matrix.preset }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        preset:
+          - x86_64-release-asserts
+          - x86_64-release-audit
+          - x86_64-release-lto
+          - x86_64-debug-fast
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain + QEMU
+        run: |
+          for attempt in 1 2 3 4; do
+            if sudo apt-get update; then break; fi
+            sleep $((attempt * 5))
+          done
+          sudo apt-get install -y clang-18 lld-18 llvm-18 cmake ninja-build python3 \
+                                  qemu-system-x86 grub-common grub-pc-bin \
+                                  grub-efi-amd64-bin xorriso mtools ovmf \
+                                  gcc-mingw-w64-x86-64
+          sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang
+          sudo ln -sf /usr/bin/clang++-18 /usr/local/bin/clang++
+          sudo ln -sf /usr/bin/lld-link-18 /usr/local/bin/lld-link
+          sudo ln -sf /usr/bin/llvm-dlltool-18 /usr/local/bin/llvm-dlltool
+          sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
+      - name: Enable KVM access (~50× speedup vs TCG when present)
+        run: |
+          if [[ -e /dev/kvm ]]; then
+            sudo chmod 666 /dev/kvm
+            ls -l /dev/kvm
+          else
+            echo "kvm_present=no — /dev/kvm not on this runner; TCG fallback"
+          fi
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+      - name: Build
+        run: cmake --build build/${{ matrix.preset }} --parallel $(nproc)
+      - name: Smoke-boot bringup
+        id: smoke
+        shell: bash
+        run: |
+          # Use the bringup profile for the per-flavor matrix —
+          # same exit-code contract as ctest-boot-smoke (0 pass /
+          # 1 regression incl. crash / 2 skip), but the kernel
+          # exits via isa-debug-exit when bringup-complete is
+          # reached. Single-attempt — a crash on a clean boot
+          # path is a real bug; retrying past it would just hide
+          # the signal.
+          set +e
+          echo "::group::flavor=${{ matrix.preset }} bringup"
+          DUETOS_PRESET=${{ matrix.preset }} \
+          DUETOS_TIMEOUT=480 \
+            tools/test/profile-boot-smoke.sh bringup build/${{ matrix.preset }}
+          rc=$?
+          echo "::endgroup::"
+          cp -f "build/${{ matrix.preset }}/smoke-bringup.log" \
+                "smoke-${{ matrix.preset }}.log" 2>/dev/null || true
+          if [[ $rc -eq 1 ]]; then echo "::error::flavor=${{ matrix.preset }} regression"; fi
+          if [[ $rc -eq 2 ]]; then echo "::warning::QEMU not available; smoke skipped"; rc=0; fi
+          exit $rc
+      - name: Upload serial logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flavor-smoke-log-${{ matrix.preset }}
+          if-no-files-found: ignore
+          path: |
+            smoke-${{ matrix.preset }}.log
+            build/${{ matrix.preset }}/smoke-bringup.log
+            qemu.log
+          retention-days: 7
+
+  qemu-smoke:
+    # Profile-matrix qemu-smoke. Each profile boots the kernel
+    # through bringup-complete, runs ONE focused scenario, prints
+    # a [smoke] complete sentinel, and exits QEMU via the
+    # isa-debug-exit device. The kernel's smoke=<profile> cmdline
+    # arg routes to kernel/test/smoke_profile.cpp's per-profile
+    # spawn / sleep / sentinel / TestExit chain. Running profiles
+    # in parallel turns the old monolithic 1500s budget into 6 ×
+    # ~180s budgets running concurrently — wall-clock for the
+    # whole matrix is bound by the slowest profile (pe-winapi),
+    # not the sum, and a single hang in one profile no longer
+    # masks the rest.
+    name: qemu smoke (${{ matrix.profile }})
+    needs: build-debug
+    runs-on: ubuntu-24.04
+    permissions:
+      pull-requests: write   # for the PR-comment-on-fail step
+      contents: read
+    strategy:
+      # Don't cancel sibling profiles on first failure — every
+      # profile's signal is independently informative. A flaky
+      # pe-winkill shouldn't suppress the pe-winapi pass.
+      fail-fast: false
+      matrix:
+        profile:
+          - bringup
+          - ring3
+          - pe-hello
+          - pe-winapi
+          - pe-winkill
+          - linux
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install QEMU + grub
+        run: |
+          for attempt in 1 2 3 4; do
+            if sudo apt-get update; then break; fi
+            sleep $((attempt * 5))
+          done
+          sudo apt-get install -y qemu-system-x86 grub-common grub-pc-bin \
+                                  grub-efi-amd64-bin xorriso mtools ovmf \
+                                  clang-18 lld-18 llvm-18 cmake ninja-build python3
+          # cmake --preset x86_64-debug below pulls in
+          # boot/uefi/CMakeLists.txt's `find_program(... lld-link
+          # REQUIRED)`, so even on a smoke job that only re-runs
+          # configure (the kernel artifact is already downloaded)
+          # the PE/COFF linker has to be on PATH. ubuntu-24.04's
+          # preinstalled clang/lld doesn't include lld-link;
+          # symlink the versioned binaries the same way the
+          # build-debug job does.
+          sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang
+          sudo ln -sf /usr/bin/clang++-18 /usr/local/bin/clang++
+          sudo ln -sf /usr/bin/lld-link-18 /usr/local/bin/lld-link
+          sudo ln -sf /usr/bin/llvm-dlltool-18 /usr/local/bin/llvm-dlltool
+          sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
+      - name: Enable KVM access (~50× speedup vs TCG)
+        run: |
+          # GitHub-hosted ubuntu-24.04 runners ship with /dev/kvm
+          # exposed but with restrictive permissions (root:kvm 660).
+          # The smoke step runs as the unprivileged `runner` user,
+          # so without explicit access QEMU silently falls back to
+          # TCG. Open up /dev/kvm so QEMU's `accel=kvm:tcg` picks KVM.
+          if [[ -e /dev/kvm ]]; then
+            sudo chmod 666 /dev/kvm
+            ls -l /dev/kvm
+            echo "kvm_present=yes"
+          else
+            echo "kvm_present=no — /dev/kvm not on this runner"
+          fi
+      - name: Download kernel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: duetos-kernel-debug
+          path: build/x86_64-debug/
+      - name: Configure
+        run: cmake --preset x86_64-debug
+      - name: Boot profile + assert signatures
+        id: smoke
+        shell: bash
+        run: |
+          # profile-boot-smoke.sh runs ONE smoke profile and exits:
+          #   0 = pass, 1 = regression (incl. crash), 2 = env skip.
+          # Single attempt — crashes always fail. The previous
+          # 3-attempt retry-on-flake tier was removed deliberately
+          # so a "passes on retry" run no longer hides a real
+          # boot-path crash. Each profile's ISO is regenerated from
+          # a per-profile grub.cfg by tools/qemu/run.sh. Per-profile
+          # wall budget is 480s — leaves headroom for the observed
+          # ~12:1 wall:guest ratio plus runner variance. Kernel
+          # SmokeProfileSleepAndExit polls tasks_live and exits
+          # within milliseconds of scenario completion; the timeout
+          # only fires on a real wedge.
+          set +e
+          echo "::group::smoke profile=${{ matrix.profile }}"
+          DUETOS_TIMEOUT=480 \
+            tools/test/profile-boot-smoke.sh "${{ matrix.profile }}" build/x86_64-debug
+          rc=$?
+          echo "::endgroup::"
+          cp -f "build/x86_64-debug/smoke-${{ matrix.profile }}.log" \
+                "smoke-${{ matrix.profile }}.log" 2>/dev/null || true
+          case ${rc} in
+            0) status="pass"     ;;
+            1) status="regression" ;;
+            2) status="skip"     ;;
+            *) status="unknown"  ;;
+          esac
+          echo "rc=${rc}"         >> "$GITHUB_OUTPUT"
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+          if [[ "${status}" == "skip" ]]; then
+            echo "::warning::QEMU not available; smoke test skipped."
+            exit 0
+          fi
+          if [[ "${status}" == "pass" ]]; then exit 0; fi
+          exit 1
+      - name: Upload serial logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-serial-log-${{ matrix.profile }}
+          path: |
+            smoke-${{ matrix.profile }}.log
+            build/x86_64-debug/smoke-${{ matrix.profile }}.log
+            qemu.log
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Comment on PR (sticky, per profile)
+        # `always()` so the comment can be updated to "passed"
+        # after a previous run wrote a failure comment. Each
+        # profile gets its own marker so failures in different
+        # profiles don't overwrite each other's diagnostics.
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const profile = '${{ matrix.profile }}';
+            const MARKER = `<!-- duetos-qemu-smoke-report-${profile} -->`;
+            const status = '${{ steps.smoke.outputs.status }}' || 'unknown';
+            const rc = '${{ steps.smoke.outputs.rc }}' || '?';
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const sha = context.payload.pull_request?.head?.sha?.slice(0, 7) || context.sha.slice(0, 7);
+
+            const { data: comments } = await github.rest.issues.listComments({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(MARKER));
+            if (status === 'pass' && !existing) return;
+
+            const candidates = [
+              `smoke-${profile}.log`,
+              `build/x86_64-debug/smoke-${profile}.log`,
+            ];
+            let tail = '(no serial log captured)';
+            for (const p of candidates) {
+              if (fs.existsSync(p)) {
+                const lines = fs.readFileSync(p, 'utf8').trim().split('\n');
+                tail = lines.slice(-40).join('\n');
+                break;
+              }
+            }
+
+            const verdict = {
+              pass:       `:white_check_mark: **qemu-smoke (${profile}) passed** for \`${sha}\`.`,
+              regression: `:x: **Regression in qemu-smoke (${profile})** — an expected signature is missing, or a forbidden one (PANIC / DUETOS CRASH / triple fault / [health] ESCALATE) appeared (\`${sha}\`). No retry — single-attempt gate.`,
+              skip:       `:information_source: **qemu-smoke (${profile}) skipped** — QEMU not available.`,
+            }[status] || `:question: qemu-smoke (${profile}) exited rc=${rc} (status=${status}).`;
+
+            const bodyParts = [MARKER, '', `## qemu-smoke — \`${profile}\``, '', verdict, '', `[View full run](${run})`];
+            if (status !== 'pass') {
+              bodyParts.push('', '<details><summary>Last 40 lines of serial log</summary>', '', '```', tail, '```', '', '</details>');
+            }
+            const body = bodyParts.join('\n');
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                comment_id: existing.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body,
+              });
+            }
+
+  diff-boot-smoke:
+    # Differential-boot harness. Boots the bringup profile under a
+    # matrix of (engine, cpu, accel, firmware) configs and diffs
+    # the canonical sentinel streams pairwise. Catches the class of
+    # bug a single-config qemu-smoke can't see — CPUID-gated paths,
+    # UEFI-vs-SeaBIOS memory-map deltas, emulator-specific
+    # instruction modelling. Advisory until the matrix has shaken
+    # down (Bochs in particular is finicky on the GitHub-runner
+    # Bochs build), but its diff output is captured as an artefact
+    # so a regression is reviewable from the failed run alone.
+    name: diff-boot-smoke (bringup)
+    needs: build-debug
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install QEMU + grub + bochs
+        run: |
+          for attempt in 1 2 3 4; do
+            if sudo apt-get update; then break; fi
+            sleep $((attempt * 5))
+          done
+          sudo apt-get install -y qemu-system-x86 grub-common grub-pc-bin \
+                                  grub-efi-amd64-bin xorriso mtools ovmf \
+                                  bochs bochs-x bochs-term bochsbios vgabios \
+                                  clang-18 lld-18 llvm-18 cmake ninja-build python3
+          # Same toolchain symlinks the qemu-smoke job needs — cmake
+          # configure below pulls in lld-link via boot/uefi/.
+          sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang
+          sudo ln -sf /usr/bin/clang++-18 /usr/local/bin/clang++
+          sudo ln -sf /usr/bin/lld-link-18 /usr/local/bin/lld-link
+          sudo ln -sf /usr/bin/llvm-dlltool-18 /usr/local/bin/llvm-dlltool
+          sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
+      - name: Enable KVM access
+        # KVM doesn't help the differential harness because every
+        # row pins accel=tcg (KVM erases the cross-config signal),
+        # but opening up /dev/kvm is harmless and matches the
+        # qemu-smoke job's posture.
+        run: |
+          if [[ -e /dev/kvm ]]; then sudo chmod 666 /dev/kvm; fi
+      - name: Download kernel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: duetos-kernel-debug
+          path: build/x86_64-debug/
+      - name: Configure
+        run: cmake --preset x86_64-debug
+      - name: Run differential matrix
+        id: diff
+        shell: bash
+        run: |
+          # Exit codes (mirrors diff-boot-smoke.sh):
+          #   0 = matrix converged
+          #   1 = at least one row failed
+          #   2 = rows passed but canonical sets diverged (config-
+          #       dependent behaviour — also a regression)
+          #   3 = environment skip
+          set +e
+          echo "::group::diff-boot-smoke matrix"
+          DUETOS_TIMEOUT=480 \
+            tools/test/diff-boot-smoke.sh bringup build/x86_64-debug
+          rc=$?
+          echo "::endgroup::"
+          echo "rc=${rc}" >> "$GITHUB_OUTPUT"
+          case ${rc} in
+            0) echo "::notice::diff-boot-smoke: matrix converged" ;;
+            1) echo "::warning::diff-boot-smoke: a row failed (rc=1)" ;;
+            2) echo "::warning::diff-boot-smoke: rows diverged (rc=2)" ;;
+            3) echo "::notice::diff-boot-smoke: skipped (env)" ;;
+          esac
+          # Advisory: don't fail the job. continue-on-error catches
+          # the eventual exit too, but this keeps the step status
+          # green so the CI summary doesn't read as red until the
+          # harness has stabilised.
+          exit 0
+      - name: Upload per-row logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diff-boot-smoke-logs
+          if-no-files-found: ignore
+          path: |
+            build/x86_64-debug/diff-bringup-*/runner.log
+            build/x86_64-debug/diff-bringup-*/serial.log
+            build/x86_64-debug/diff-bringup-*/canonical.txt
+            build/x86_64-debug/diff-bringup-*/rc
+          retention-days: 7
+
+  clang-tidy:
+    name: clang-tidy (advisory)
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    needs: build-debug
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tidy
+        run: |
+          for attempt in 1 2 3 4; do
+            if sudo apt-get update; then break; fi
+            sleep $((attempt * 5))
+          done
+          sudo apt-get install -y clang-tidy-18 clang-18 lld-18 cmake ninja-build
+          sudo ln -sf /usr/bin/clang-tidy-18 /usr/local/bin/clang-tidy
+          sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang
+          sudo ln -sf /usr/bin/clang++-18 /usr/local/bin/clang++
+          sudo ln -sf /usr/bin/lld-link-18 /usr/local/bin/lld-link
+          sudo ln -sf /usr/bin/ld.lld-18 /usr/local/bin/ld.lld
+      - name: Configure (for compile_commands.json)
+        run: cmake --preset x86_64-debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+      - name: Run clang-tidy
+        run: |
+          # Advisory pass on the first 30 .cpp files only — a full
+          # run on a freestanding kernel produces a lot of
+          # false-positive noise. Surface the signal early, don't
+          # fail the build.
+          find kernel -name '*.cpp' | head -30 | while read f; do
+            clang-tidy -p build/x86_64-debug "$f" --quiet 2>&1 || true
+          done | head -200
+
+  host-tests:
+    # Hosted unit tests under tests/host/ — built with the runner's
+    # system clang/g++ + glibc, not the kernel freestanding
+    # toolchain. Scope today is arch-neutral header-only kernel TUs
+    # (Result<T,E>, freestanding string primitives); scope expands
+    # over time as more kernel TUs grow `#ifdef DUETOS_HOST_TEST`
+    # shims around hardware accessors. Compared with qemu-smoke,
+    # these tests run in ms, are parallelisable, work under ASan +
+    # UBSan, and can't hide regressions behind a "kernel got slow"
+    # excuse. They're a faster signal that complements the boot
+    # smoke matrix; both are required before merge.
+    name: host tests
+    runs-on: ubuntu-24.04
+    needs: []
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install host toolchain
+        run: |
+          for attempt in 1 2 3 4; do
+            if sudo apt-get update; then break; fi
+            sleep $((attempt * 5))
+          done
+          sudo apt-get install -y clang-18 cmake ninja-build
+          sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang
+          sudo ln -sf /usr/bin/clang++-18 /usr/local/bin/clang++
+      - name: Configure (host-tests, ASan + UBSan)
+        run: cmake -S tests/host -B build/host-tests -G Ninja
+      - name: Build
+        run: cmake --build build/host-tests --parallel $(nproc)
+      - name: Test
+        run: ctest --test-dir build/host-tests --output-on-failure --parallel $(nproc)
+
+  pre-publish-lifetime-snapshot:
+    # Snapshot current asset download counts into the persisted
+    # lifetime tally BEFORE the rolling assets get deleted by
+    # publish-rolling's overwrite_files: true. Without this step
+    # any downloads that accrued since the last scheduled snapshot
+    # would be silently lost when the asset object is replaced.
+    name: snapshot lifetime downloads
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [check-format, check-rust, build-debug, build-release, qemu-smoke, host-tests]
+    uses: ./.github/workflows/lifetime-downloads.yml
+    permissions:
+      contents: write
+
+  publish-rolling:
+    # Refresh the latest-debug / latest-release rolling channels on every
+    # push to main. The README's download badges read off these tags;
+    # without this job they'd stay empty until someone pushes a v* tag
+    # (which release.yml handles separately and overwrites these).
+    name: publish rolling channels
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [check-format, check-rust, build-debug, build-release, qemu-smoke, host-tests, pre-publish-lifetime-snapshot]
+    permissions:
+      contents: write
+    steps:
+      - name: Download debug artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: duetos-kernel-debug
+          path: dist/debug-raw
+      - name: Download release artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: duetos-kernel-release
+          path: dist/release-raw
+      - name: Stage assets
+        run: |
+          set -euo pipefail
+          mkdir -p dist/debug dist/release
+          cp dist/debug-raw/duetos.iso dist/debug/duetos-debug.iso
+          cp dist/debug-raw/kernel/duetos-kernel.elf dist/debug/duetos-kernel-debug.elf
+          ( cd dist/debug && sha256sum duetos-debug.iso duetos-kernel-debug.elf > SHA256SUMS.txt )
+          cp dist/release-raw/duetos.iso dist/release/duetos-release.iso
+          cp dist/release-raw/kernel/duetos-kernel.elf dist/release/duetos-kernel-release.elf
+          ( cd dist/release && sha256sum duetos-release.iso duetos-kernel-release.elf > SHA256SUMS.txt )
+      - name: Publish debug channel
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-debug
+          target_commitish: ${{ github.sha }}
+          name: DuetOS Debug (rolling, ${{ github.sha }})
+          body: |
+            Rolling debug channel build from `main` @ ${{ github.sha }}.
+          prerelease: true
+          make_latest: false
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          files: |
+            dist/debug/duetos-debug.iso
+            dist/debug/duetos-kernel-debug.elf
+            dist/debug/SHA256SUMS.txt
+      - name: Publish release channel
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-release
+          target_commitish: ${{ github.sha }}
+          name: DuetOS Release (rolling, ${{ github.sha }})
+          body: |
+            Rolling release channel build from `main` @ ${{ github.sha }}.
+          prerelease: false
+          make_latest: true
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          files: |
+            dist/release/duetos-release.iso
+            dist/release/duetos-kernel-release.elf
+            dist/release/SHA256SUMS.txt

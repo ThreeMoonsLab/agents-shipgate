@@ -1,0 +1,12 @@
+{
+  "repo": "PierreKieffer/http-tanker",
+  "pr_number": 2,
+  "kind": ".mcp.json",
+  "path": ".mcp.json",
+  "base_sha": "36463878987c06a518690605badead9446d1ab05",
+  "head_sha": "a4441b7c16a20919d643399217dd8c52e4d87eb6",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/PierreKieffer/http-tanker/blob/36463878987c06a518690605badead9446d1ab05/.mcp.json",
+  "head_source": "https://github.com/PierreKieffer/http-tanker/blob/a4441b7c16a20919d643399217dd8c52e4d87eb6/.mcp.json",
+  "redacted_only_change": false
+}

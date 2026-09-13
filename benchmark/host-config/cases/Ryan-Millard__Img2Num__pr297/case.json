@@ -1,0 +1,12 @@
+{
+  "repo": "Ryan-Millard/Img2Num",
+  "pr_number": 297,
+  "kind": ".github/workflows/",
+  "path": ".github/workflows/pr-auto-label.yml",
+  "base_sha": "33605a59bb01b6b5f0b794af850c2ae35fbfa563",
+  "head_sha": "02b8bbf21f9780ab60360633c78ae7e91862ed3c",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/Ryan-Millard/Img2Num/blob/33605a59bb01b6b5f0b794af850c2ae35fbfa563/.github/workflows/pr-auto-label.yml",
+  "head_source": "https://github.com/Ryan-Millard/Img2Num/blob/02b8bbf21f9780ab60360633c78ae7e91862ed3c/.github/workflows/pr-auto-label.yml",
+  "redacted_only_change": false
+}

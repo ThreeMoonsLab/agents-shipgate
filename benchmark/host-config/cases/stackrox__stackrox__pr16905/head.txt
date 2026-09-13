@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "gopls": {
+      "args": [
+        "mcp"
+      ],
+      "command": "gopls"
+    }
+  }
+}

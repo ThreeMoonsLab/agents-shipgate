@@ -1,0 +1,9 @@
+{
+  "inputs": [],
+  "servers": {
+    "s2ds": {
+      "type": "http",
+      "url": "https://sourcegraph.sourcegraph.com/.api/mcp/deepsearch"
+    }
+  }
+}

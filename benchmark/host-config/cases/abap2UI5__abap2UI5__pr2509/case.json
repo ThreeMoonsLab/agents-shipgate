@@ -1,0 +1,12 @@
+{
+  "repo": "abap2UI5/abap2UI5",
+  "pr_number": 2509,
+  "kind": ".claude/settings.json",
+  "path": ".claude/settings.json",
+  "base_sha": "a4d0a05714dab03a6e129689d8bb631df7c86b5f",
+  "head_sha": "1272425181b5f9a119b08a792a10bd47aa3f9bf1",
+  "coding_agent_marked": true,
+  "base_source": "https://github.com/abap2UI5/abap2UI5/blob/a4d0a05714dab03a6e129689d8bb631df7c86b5f/.claude/settings.json",
+  "head_source": "https://github.com/abap2UI5/abap2UI5/blob/1272425181b5f9a119b08a792a10bd47aa3f9bf1/.claude/settings.json",
+  "redacted_only_change": false
+}

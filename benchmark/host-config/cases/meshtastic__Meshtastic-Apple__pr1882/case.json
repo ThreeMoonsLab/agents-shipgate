@@ -1,0 +1,12 @@
+{
+  "repo": "meshtastic/Meshtastic-Apple",
+  "pr_number": 1882,
+  "kind": ".vscode/mcp.json",
+  "path": ".vscode/mcp.json",
+  "base_sha": "e623e8d6ff91d947e117ff3c43a90f839e9bbb11",
+  "head_sha": "fea1b41c5515ade41405ffa2fcefb714ad02ae24",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/meshtastic/Meshtastic-Apple/blob/e623e8d6ff91d947e117ff3c43a90f839e9bbb11/.vscode/mcp.json",
+  "head_source": "https://github.com/meshtastic/Meshtastic-Apple/blob/fea1b41c5515ade41405ffa2fcefb714ad02ae24/.vscode/mcp.json",
+  "redacted_only_change": false
+}

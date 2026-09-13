@@ -1,0 +1,12 @@
+{
+  "repo": "iterate/iterate",
+  "pr_number": 1916,
+  "kind": ".mcp.json",
+  "path": ".mcp.json",
+  "base_sha": "546b78e94ed010422a0a5c1e508e416125022eaa",
+  "head_sha": "576e74bc74007daf60545fd78e98947174e5f26a",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/iterate/iterate/blob/546b78e94ed010422a0a5c1e508e416125022eaa/.mcp.json",
+  "head_source": "https://github.com/iterate/iterate/blob/576e74bc74007daf60545fd78e98947174e5f26a/.mcp.json",
+  "redacted_only_change": false
+}

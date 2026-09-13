@@ -1,0 +1,54 @@
+# Nightly report of UNMERGED branches across the loft-libs-* repos.
+#
+# Branches accumulate on the lib repos because PRs land there, not on loft (whose
+# CI is 20+ min).  This surfaces what is stranded, using the squash-safe CONTENT
+# check in scripts/lib-branch-audit.sh (commit ancestry is unreliable under
+# squash-merge).  INFORMATIONAL: it writes a job summary and never fails — it is a
+# daily "here is what is stranded on the libs", not a gate.  Fast: gh API + shallow
+# clones only, no compile.  The default GITHUB_TOKEN suffices (the lib repos are
+# public, so cross-repo PR/branch reads and clones need no extra scope).
+name: Lib branch report
+
+on:
+  schedule:
+    - cron: '0 7 * * *'   # nightly 07:00 UTC — after the miri (04:00) / CI nightlies
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    name: Unmerged branches across loft-libs-*
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Audit lib branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          out="$(bash scripts/lib-branch-audit.sh)"
+          # Orphans = UNMERGED work with no OPEN pr (no-PR / closed / merged-with-extra).
+          # An active PR line carries " open" (covers "open" and "open/draft").
+          orphans="$(printf '%s\n' "$out" | awk 'index($0,"UNMERGED") && !index($0," open")')"
+          n="$(printf '%s\n' "$orphans" | grep -c 'UNMERGED' || true)"
+          {
+            echo "# Unmerged branches on loft-libs-* — $(date -u +%Y-%m-%d)"
+            echo
+            echo "**${n} branch(es) hold unmerged work with no open PR** — the actionable orphans."
+            if [ "${n}" -gt 0 ]; then
+              echo
+              echo '```'
+              printf '%s\n' "$orphans"
+              echo '```'
+            fi
+            echo
+            echo "<details><summary>Full audit — every non-default branch, all seven repos</summary>"
+            echo
+            echo '```'
+            printf '%s\n' "$out"
+            echo '```'
+            echo
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"

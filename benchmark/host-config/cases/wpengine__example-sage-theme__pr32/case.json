@@ -1,0 +1,12 @@
+{
+  "repo": "wpengine/example-sage-theme",
+  "pr_number": 32,
+  "kind": ".github/workflows/",
+  "path": ".github/workflows/sonar.yaml",
+  "base_sha": "6b36cf147f315a8142dabe07364eacb11c5bb556",
+  "head_sha": "bdff0a0c095daf0cc5e23197702c54cd93036cc2",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/wpengine/example-sage-theme/blob/6b36cf147f315a8142dabe07364eacb11c5bb556/.github/workflows/sonar.yaml",
+  "head_source": "https://github.com/wpengine/example-sage-theme/blob/bdff0a0c095daf0cc5e23197702c54cd93036cc2/.github/workflows/sonar.yaml",
+  "redacted_only_change": false
+}

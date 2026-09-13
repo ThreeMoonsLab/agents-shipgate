@@ -1,0 +1,252 @@
+# Derived from https://github.com/wpengine/ai-github-tools/blob/main/docs/examples/github-actions/sonar.yaml
+# which is derived from https://github.com/wpengine/sec-sonar-testing/blob/main/.github/workflows/main.yml
+
+on:
+  # Trigger analysis when pushing in main or pull requests, and when creating
+  # a pull request.
+  push:
+    branches:
+    - main
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+name: SonarQube Main Workflow
+jobs:
+  sonarqube:
+    runs-on: ubuntu-latest
+    # --- Begin permissions changes
+    # GitHub workflow permissions for steps other than running Claude Code
+    permissions:
+      contents: read
+      pull-requests: write # For minimizing old SonarQube remediation comments
+      id-token: write # Needed to authenticate to Google Cloud
+      actions: read # required by the github_ci MCP server used by Claude Code
+
+    env:
+      # GitHub permissions for Claude Code only
+      CLAUDE_PERMISSIONS: >-
+        {
+          "contents": "read",
+          "pull_requests": "write",
+          "actions": "read"
+        }
+    # --- End permissions changes
+    steps:
+    - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10   # v6.0.3
+      with:
+        # Disabling shallow clone is recommended for improving relevancy of reporting
+        fetch-depth: 0
+    - name: SonarQube Scan
+      uses: sonarsource/sonarqube-scan-action@master # @master tag vs. commit hash is the prescribed pattern by our security team for sonarsource/
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+    - name: SonarQube Quality Gate check
+      # --- Begin change to continue on error
+      id: quality-gate
+      continue-on-error: true
+      # --- End change to continue on error
+      uses: sonarsource/sonarqube-quality-gate-action@master # @master tag vs. commit hash is the prescribed pattern by our security team for sonarsource/
+      # Force to fail step after specific time
+      timeout-minutes: 5
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+    # --- Begin Claude Code remediation steps
+    # Skip AI remediation when SonarQube found no issues, hotspots, or quality gate failures on this PR.
+    - name: Check SonarQube for findings
+      id: sonar-results
+      if: github.event_name == 'pull_request'
+      continue-on-error: true
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        QUALITY_GATE_OUTCOME: ${{ steps.quality-gate.outcome }}
+      run: |
+        PROJECT_KEY=$(grep 'projectKey=' .scannerwork/report-task.txt | cut -d'=' -f2)
+        if [ -z "$PROJECT_KEY" ]; then
+          echo "::error::Could not read projectKey from .scannerwork/report-task.txt — did sonarqube-scan-action run?"
+          exit 1
+        fi
+
+        # Capture HTTP status separately so a misconfigured token / 5xx fails
+        # loudly here in seconds instead of silently coercing to ISSUES=1 +
+        # HOTSPOTS=1 + HAS_FINDINGS=true and burning Claude minutes on every PR.
+        sonar_get() {
+          local path="$1" out="$2" http
+          http=$(curl -s -o "$out" -w '%{http_code}' -u "${SONAR_TOKEN}:" "${SONAR_HOST_URL}${path}")
+          # `curl` writes 000 to %{http_code} on connection-level failures
+          # (DNS, TLS, timeout, unreachable). Treat anything outside 2xx/3xx
+          # as failure so a misconfigured host fails fast like a bad token.
+          if [ "$http" -lt 200 ] || [ "$http" -ge 400 ]; then
+            echo "::error::Sonar API returned HTTP ${http} for ${path}. Check SONAR_TOKEN, SONAR_HOST_URL, and projectKey=${PROJECT_KEY}."
+            head -c 500 "$out" >&2 || true
+            return 1
+          fi
+        }
+
+        issues_resp=$(mktemp); hotspots_resp=$(mktemp)
+        trap 'rm -f "$issues_resp" "$hotspots_resp"' EXIT
+        sonar_get "/api/issues/search?componentKeys=${PROJECT_KEY}&pullRequest=${PR_NUMBER}&resolved=false" "$issues_resp" || exit 1
+        sonar_get "/api/measures/component?component=${PROJECT_KEY}&pullRequest=${PR_NUMBER}&metricKeys=security_hotspots" "$hotspots_resp" || exit 1
+        ISSUES=$(jq -r '.total // 0' "$issues_resp")
+        HOTSPOTS=$(jq -r '.component.measures[0].value // "0"' "$hotspots_resp")
+
+        if [ "${ISSUES}" -eq 0 ] && [ "${HOTSPOTS}" -eq 0 ] && [ "${QUALITY_GATE_OUTCOME}" != "failure" ]; then
+          HAS_FINDINGS=false
+        else
+          HAS_FINDINGS=true
+        fi
+        echo "Findings: ${HAS_FINDINGS} (Issues: ${ISSUES}, Hotspots: ${HOTSPOTS}, Quality gate: ${QUALITY_GATE_OUTCOME})"
+        echo "has_findings=${HAS_FINDINGS}" >> "$GITHUB_OUTPUT"
+
+    # Skip AI remediation on pushes to PRs that already have human approvals.
+    - name: Check for existing approvals
+      id: check-approvals
+      if: github.event.action == 'synchronize'
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: |
+        APPROVALS=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews" --jq '[.[] | select(.state == "APPROVED")] | length')
+        echo "has_approvals=$([ "$APPROVALS" -gt 0 ] && echo 'true' || echo 'false')" >> "$GITHUB_OUTPUT"
+
+    - name: SonarQube Remediation with Claude Code
+      id: claude-sonar
+      # Only run on pull requests, not pushes to main.
+      if: github.event_name == 'pull_request'
+      timeout-minutes: 15 # P95 runtime is ~6 min. 15 min catches hung runs without cutting off legitimate reviews.
+      uses: wpengine/ai-github-tools/.github/actions/wpe-claude-code-action@wpe-claude-code-action/v1  # major version is approved by our security team for this case vs commit hash
+      with:
+        # AI GitHub Tokens
+        claude_permissions: ${{ env.CLAUDE_PERMISSIONS }}
+        allowed_bots: '*'
+        pr_number: ${{ github.event.pull_request.number }}
+        outdated_pr_comments: '(\*\*|## )SonarQube .*(Analysis|Remediation|Review)'
+        # Skip Claude Code for skip label, existing approvals, or no SonarQube findings.
+        # The action still runs to minimize outdated PR comments.
+        skip_claude_code: >-
+          ${{
+            contains(github.event.pull_request.labels.*.name, 'skip-claude-review')
+          ||
+            steps.check-approvals.outputs.has_approvals == 'true' ||
+            steps.sonar-results.outputs.has_findings == 'false'
+          }}
+
+        # General Inputs
+        track_progress: true
+        workflow_type: sonarqube
+        # The default model for sonarqube workflows is set centrally to be appropriate for
+        # most repositories, but can be overridden if your repository has specific needs.
+        # default_model: haiku
+
+        # Effort is not set for sonarqube (Haiku 4.5 does not support it). If you override
+        # to a Sonnet model, you can also set default_effort (e.g., medium).
+        # default_effort: medium
+
+        # SonarQube Remediation Instructions
+        prompt: |
+          REPO: ${{ github.repository }}
+          PR NUMBER: ${{ github.event.pull_request.number }}
+
+          You have access to the SonarQube MCP server to retrieve code quality and security issues.
+
+          The SonarQube scan has completed for this pull request. Your task is to query SonarQube
+          and make a plan to address any issues found. You will publish your plan as comment(s) on the pull request.
+
+          Your task is to:
+
+          1. **Query SonarQube Issues**
+             - Use the sonarqube MCP server tools to retrieve issues for this PR
+
+          2. **Prioritize Issues**
+             - Focus on security vulnerabilities first
+             - Work on other issues in the order of severity
+             - Then address code quality issues
+             - Limit recommendations to the top 10 issues
+
+          3. **Analyze Each Issue**
+             - Read the affected files to understand context
+             - Identify the root cause of each issue
+             - Determine the best remediation approach
+
+          4. **Propose Fixes**
+             - PR summary comment
+               - Name your PR Review comment with a level-2 markdown heading: `## SonarQube Remediation Plan`
+               - Provide a section for current issues. For each current issue (in priority order), provide:
+                 - Context information including the SonarQube engine ID, rule ID, rule title, severity, type, message, and code location. The local AI tools on developer machines do not have SonarQube access, so always include this information.
+                 - For the top 10 legitimate issues, a suggested remediation or point to an inline comment
+                 - For issues that seem illegitimate or unclear, say so rather than guessing.
+                 - For the next 10 issues, omit remediation suggestions, but still provide context for developers to investigate on their own.
+                 - links to the relevant SonarQube rule documentation, such as links to specific rules from https://rules.sonarsource.com/
+               - If there are resolved prior issues, provide a section for them. For each resolved prior issue:
+                 - provide the SonarQube engine ID, rule ID, rule title, severity, type, message, and code location.
+             - Inline comments
+               - Use GitHub inline comments to suggest smaller changes at the exact location
+               - Be concise: state the problem and suggest a fix in 1-3 sentences.
+               - Use `confirmed: true` when creating inline comments.
+
+          Always use Context7 MCP when you need library/API documentation.
+
+          Gotchas to avoid:
+          - DO NOT MAKE COMMITS DIRECTLY; USE COMMENTS TO SUGGEST CHANGES.
+          - Only provide each remediation suggestion in one of the PR summary comment or inline comments, not both. Avoid duplicating the same suggestion in both places.
+          - Do not add PR summary comments or inline comments about issues not reported by SonarQube. Only comment on actual SonarQube issues. Do not provide a general code review. Such comments are redundant with AI-based PR review, and create noise.
+          - Do not restate the PR description or explain what the code does. Focus on SonarQube issues.
+          - Do not list things that look good or provide general praise.
+          - If you cannot access the sonarqube MCP server, retry once. If you still cannot, do not proceed. Instead, comment "Unable to access SonarQube data, cannot perform review." Never attempt to synthesize what SonarQube would have said.
+          - Don't propose unnecessary changes or refactorings beyond fixing the issues
+          - Ensure fixes don't introduce new problems
+          - Never create inline comments to note that issues are resolved.
+          - Do not add inline comments for praise.
+
+          Begin by querying SonarQube for issues on this PR.
+        # Tools
+        plugin_marketplaces: |
+          https://github.com/anthropics/claude-plugins-official.git
+        plugins: |
+          context7@claude-plugins-official
+        claude_args: |
+          --max-turns 50
+          --mcp-config '{
+            "mcpServers": {
+              "sonarqube": {
+                "command": "docker",
+                "args": ["run", "-i", "--rm", "-e", "SONARQUBE_URL", "-e", "SONARQUBE_TOKEN", "mcp/sonarqube"]
+              }
+            }
+          }'
+          --allowedTools "
+            mcp__context7__*,
+            mcp__sonarqube__*,
+            mcp__github_ci__*,
+            mcp__github_inline_comment__create_inline_comment,
+            Bash(gh pr comment:*),
+            Bash(gh pr diff:*),
+            Bash(gh pr view:*),
+            Read,
+            Grep,
+            Glob,
+            Task,
+            WebFetch,
+            WebSearch
+          "
+
+      env:
+        SONARQUBE_URL: ${{ secrets.SONAR_HOST_URL }}
+        SONARQUBE_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+    - name: Enforce Quality Gate Result
+      id: enforce-quality-gate
+      if: ${{ !cancelled() }}
+      env:
+        QUALITY_GATE_OUTCOME: ${{ steps.quality-gate.outcome }}
+      run: |
+        if [ "$QUALITY_GATE_OUTCOME" = "failure" ]; then
+          echo "Quality Gate failed. See Claude Code comments for remediation suggestions."
+          exit 1
+        fi
+    # --- End Claude Code remediation steps

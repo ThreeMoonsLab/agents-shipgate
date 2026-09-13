@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "cemq": {
+      "args": [
+        "mcp",
+        "--path",
+        "./projects/components/dist"
+      ],
+      "command": "cemq",
+      "description": "Search and query for Web Components APIs via Custom Elements Manifest"
+    },
+    "chrome-devtools": {
+      "args": [
+        "dlx",
+        "chrome-devtools-mcp@latest"
+      ],
+      "command": "pnpm"
+    }
+  }
+}

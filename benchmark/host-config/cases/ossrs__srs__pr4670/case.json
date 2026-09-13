@@ -1,0 +1,12 @@
+{
+  "repo": "ossrs/srs",
+  "pr_number": 4670,
+  "kind": ".codex/config.toml",
+  "path": ".codex/config.toml",
+  "base_sha": "30fc7775a5221ee067830e8c135a40b2ce343faa",
+  "head_sha": "d8696434cb1c4454e775ae9626ebdf54779395f3",
+  "coding_agent_marked": true,
+  "base_source": "https://github.com/ossrs/srs/blob/30fc7775a5221ee067830e8c135a40b2ce343faa/.codex/config.toml",
+  "head_source": "https://github.com/ossrs/srs/blob/d8696434cb1c4454e775ae9626ebdf54779395f3/.codex/config.toml",
+  "redacted_only_change": false
+}

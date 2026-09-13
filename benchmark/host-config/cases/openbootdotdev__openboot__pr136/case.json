@@ -1,0 +1,12 @@
+{
+  "repo": "openbootdotdev/openboot",
+  "pr_number": 136,
+  "kind": ".github/workflows/",
+  "path": ".github/workflows/claude-code-review.yml",
+  "base_sha": "0463ad7ad94265036c5182ef064943ec33ed4d87",
+  "head_sha": "861552539494163ed94fdb9525dcf9c1f9f06179",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/openbootdotdev/openboot/blob/0463ad7ad94265036c5182ef064943ec33ed4d87/.github/workflows/claude-code-review.yml",
+  "head_source": "https://github.com/openbootdotdev/openboot/blob/861552539494163ed94fdb9525dcf9c1f9f06179/.github/workflows/claude-code-review.yml",
+  "redacted_only_change": false
+}

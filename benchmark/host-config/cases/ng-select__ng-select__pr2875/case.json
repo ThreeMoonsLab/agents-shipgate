@@ -1,0 +1,12 @@
+{
+  "repo": "ng-select/ng-select",
+  "pr_number": 2875,
+  "kind": ".cursor/mcp.json",
+  "path": ".cursor/mcp.json",
+  "base_sha": "c12f858b57cdd0075d73b56e4731794ce5dc9f40",
+  "head_sha": "feac5322fd5646ab7c0d4d046c24de5bffab9489",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/ng-select/ng-select/blob/c12f858b57cdd0075d73b56e4731794ce5dc9f40/.cursor/mcp.json",
+  "head_source": "https://github.com/ng-select/ng-select/blob/feac5322fd5646ab7c0d4d046c24de5bffab9489/.cursor/mcp.json",
+  "redacted_only_change": false
+}

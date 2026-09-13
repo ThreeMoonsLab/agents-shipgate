@@ -1,0 +1,12 @@
+{
+  "repo": "hcloud-talos/terraform-hcloud-talos",
+  "pr_number": 397,
+  "kind": ".codex/config.toml",
+  "path": ".codex/config.toml",
+  "base_sha": "8d848c1773db2cf8cd524060afb55fe9f17dd722",
+  "head_sha": "1d9a56c757f75399678f792679f624b48b782c91",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/hcloud-talos/terraform-hcloud-talos/blob/8d848c1773db2cf8cd524060afb55fe9f17dd722/.codex/config.toml",
+  "head_source": "https://github.com/hcloud-talos/terraform-hcloud-talos/blob/1d9a56c757f75399678f792679f624b48b782c91/.codex/config.toml",
+  "redacted_only_change": false
+}

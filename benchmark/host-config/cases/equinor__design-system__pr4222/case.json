@@ -1,0 +1,12 @@
+{
+  "repo": "equinor/design-system",
+  "pr_number": 4222,
+  "kind": ".vscode/mcp.json",
+  "path": ".vscode/mcp.json",
+  "base_sha": "ced18f4557b219222c465bab5669bd1a140827be",
+  "head_sha": "d6a505cc19018b91398154014ea20cdfb456a5a9",
+  "coding_agent_marked": false,
+  "base_source": "https://github.com/equinor/design-system/blob/ced18f4557b219222c465bab5669bd1a140827be/.vscode/mcp.json",
+  "head_source": "https://github.com/equinor/design-system/blob/d6a505cc19018b91398154014ea20cdfb456a5a9/.vscode/mcp.json",
+  "redacted_only_change": false
+}

@@ -1,0 +1,12 @@
+{
+  "repo": "dotCMS/core",
+  "pr_number": 36281,
+  "kind": ".cursor/mcp.json",
+  "path": ".cursor/mcp.json",
+  "base_sha": "d9b188e2fa0b0d1534eb019f0aab115caebe58a1",
+  "head_sha": "dcc3daf8dbd8c989cc3e51af72c1d0260c452ba6",
+  "coding_agent_marked": true,
+  "base_source": "https://github.com/dotCMS/core/blob/d9b188e2fa0b0d1534eb019f0aab115caebe58a1/.cursor/mcp.json",
+  "head_source": "https://github.com/dotCMS/core/blob/dcc3daf8dbd8c989cc3e51af72c1d0260c452ba6/.cursor/mcp.json",
+  "redacted_only_change": false
+}

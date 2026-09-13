@@ -1,0 +1,12 @@
+{
+  "repo": "lucaslorentz/durabletask-extensions",
+  "pr_number": 55,
+  "kind": ".mcp.json",
+  "path": ".mcp.json",
+  "base_sha": "ad0e4b2d75f16ffe01c75ba061c29e924f6a00d5",
+  "head_sha": "b75799a8910e793e7674d8dc4a415b7dcb7192db",
+  "coding_agent_marked": true,
+  "base_source": "https://github.com/lucaslorentz/durabletask-extensions/blob/ad0e4b2d75f16ffe01c75ba061c29e924f6a00d5/.mcp.json",
+  "head_source": "https://github.com/lucaslorentz/durabletask-extensions/blob/b75799a8910e793e7674d8dc4a415b7dcb7192db/.mcp.json",
+  "redacted_only_change": false
+}
