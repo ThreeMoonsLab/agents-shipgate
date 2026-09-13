@@ -49,6 +49,7 @@ from agents_shipgate.schemas.agent_control import (
     RequiredHumanReview,
 )
 from agents_shipgate.schemas.agent_control_envelope import (
+    MAX_ENVELOPE_CAPABILITY_ROWS,
     MAX_ENVELOPE_QUESTIONS,
     SETUP_DECISIONS,
     SETUP_OPERATIONS,
@@ -62,6 +63,8 @@ from agents_shipgate.schemas.agent_control_envelope import (
     AgentControlSource,
     CompleteControlEnvelope,
     ConfirmDeclarationsAction,
+    EnvelopeCapabilityRow,
+    EnvelopeCapabilityRows,
     EnvelopeCodingAgentAction,
     EnvelopeDeclarationQuestion,
     HumanReviewRequiredControlEnvelope,
@@ -70,6 +73,7 @@ from agents_shipgate.schemas.agent_control_envelope import (
     truncate_prose,
 )
 from agents_shipgate.schemas.agent_result import AgentResultV2
+from agents_shipgate.schemas.capability_diff import CapabilityDiffRow
 from agents_shipgate.schemas.contract import CONTRACT_VERSION
 from agents_shipgate.schemas.current_control import CurrentControlPointer
 from agents_shipgate.schemas.verifier import VerifierArtifact
@@ -94,6 +98,7 @@ def project_agent_control_envelope(
     artifacts: Mapping[str, AgentControlArtifactRef] | None = None,
     setup_edit: SetupEditAction | None = None,
     declaration_route: ConfirmDeclarationsAction | None = None,
+    capability_rows: EnvelopeCapabilityRows | None = None,
 ) -> AgentControlEnvelope:
     """Project one authoritative control object onto the compact envelope.
 
@@ -117,6 +122,10 @@ def project_agent_control_envelope(
     :func:`envelope_from_verifier`. The two substitutions are mutually
     exclusive: one action is published, and a caller supplying both has not
     decided which route this is.
+
+    ``capability_rows`` is evidence carried beside the control, never read by
+    it: no branch below consults it, so the state, permissions and route are
+    the same with or without it (#662).
     """
 
     if setup_edit is not None and declaration_route is not None:
@@ -149,6 +158,7 @@ def project_agent_control_envelope(
         "reason": truncate_prose(control.reason),
         "current_control_id": current_control_id,
         "artifacts": dict(artifacts or {}),
+        "capability_rows": capability_rows,
     }
     action = _bounded_action(setup_edit or declaration_route or control.next_action)
     review = _bounded_human_review(control.human_review)
@@ -226,6 +236,7 @@ def envelope_from_verifier(
             if operation == "verify" and decision is not None
             else None
         ),
+        capability_rows=_verifier_capability_rows(verifier),
     )
 
 
@@ -305,6 +316,64 @@ def _declaration_route(
     )
 
 
+def capability_rows_block(
+    *,
+    comparison_status: str,
+    incomparable_reasons: Sequence[str],
+    rows: Sequence[CapabilityDiffRow],
+    unchanged_limit_count: int = 0,
+) -> EnvelopeCapabilityRows | None:
+    """The bounded row block for one host comparison, or ``None`` when none ran.
+
+    A copy with one ordering decision, and that decision only picks which rows
+    survive the cap: rows the engine called an expansion first, each half in
+    the producer's order. ``why`` is the only field capped, because it is the
+    only prose.
+    """
+
+    if comparison_status == "incomparable":
+        return EnvelopeCapabilityRows(
+            comparison_status="incomparable",
+            incomparable_reasons=list(incomparable_reasons),
+        )
+    if comparison_status != "comparable":
+        return None
+    ordered = [
+        *(row for row in rows if row.expands),
+        *(row for row in rows if not row.expands),
+    ]
+    kept = ordered[:MAX_ENVELOPE_CAPABILITY_ROWS]
+    return EnvelopeCapabilityRows(
+        comparison_status="comparable",
+        rows=[
+            EnvelopeCapabilityRow(
+                subject=row.subject,
+                before=row.before,
+                after=row.after,
+                direction=row.direction,
+                severity=row.severity,
+                why=truncate_prose(row.why),
+                expands=row.expands,
+            )
+            for row in kept
+        ],
+        omitted_rows=len(ordered) - len(kept),
+        unchanged_limit_count=unchanged_limit_count,
+    )
+
+
+def _verifier_capability_rows(verifier: VerifierArtifact) -> EnvelopeCapabilityRows | None:
+    comparison = verifier.host_comparison
+    if comparison is None:
+        return None
+    return capability_rows_block(
+        comparison_status=comparison.comparison_status,
+        incomparable_reasons=comparison.incomparable_reasons,
+        rows=comparison.rows,
+        unchanged_limit_count=len(comparison.unchanged_limits),
+    )
+
+
 def denied_control_envelope(
     *,
     operation: AgentControlOperation,
@@ -378,6 +447,13 @@ def envelope_from_agent_result(
             )
             for item in getattr(result, "pending_review", ())
         ],
+        # The deprecated codex-boundary v2 result has no comparison fields, so
+        # it reads as not attempted and publishes no rows.
+        capability_rows=capability_rows_block(
+            comparison_status=getattr(result, "comparison_status", "not_attempted"),
+            incomparable_reasons=getattr(result, "incomparable_reasons", ()),
+            rows=getattr(result, "rows", ()),
+        ),
     )
 
 
@@ -711,6 +787,7 @@ def _bounded_human_review(
 
 __all__ = [
     "AgentControlRouteUnavailable",
+    "capability_rows_block",
     "control_headline_lines",
     "envelope_from_agent_result",
     "envelope_from_pointer",

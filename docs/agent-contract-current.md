@@ -1,6 +1,19 @@
 # Current Agent Contract
 
-Runtime contract v37 names the limits a host comparison compared past (#721).
+Runtime contract v38 lets the control envelope name what host capability
+changed (#662). `shipgate.agent_control/v1` gains an optional
+`capability_rows` block on `check --format agent-control-json`,
+`verify --format control` and `agent control`. It holds up to five rows,
+the rows the engine called an expansion first, plus `omitted_rows`,
+`comparison_status`, `incomparable_reasons` and `unchanged_limit_count`.
+It is evidence beside the control and moves no state, permission or route.
+It is omitted when no host comparison ran, so those envelopes are
+byte-identical. The envelope object is closed, so a reader that validates
+against the v37 schema rejects an envelope carrying the block. That break
+is deliberate. `minimum_control_contract_version` stays `21`. See
+[the migration note](../STABILITY.md#host-capability-rows-in-the-control-envelope-contract-v38-662).
+
+Previous runtime contract v37 names the limits a host comparison compared past (#721).
 Verifier `0.19` adds `host_comparison.unchanged_limits`, and `shipgate diff`
 (capability diff `0.2`) carries the same list. A surface that is partial
 (`unsupported`, `parse_failed`) or experimental on both sides, and
@@ -589,7 +602,7 @@ Downstream repos generated with
 
 - Latest release: `v0.15.0`
 - In-tree runtime: `0.16.0` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `37` (minimum control contract: `21`)
+- Runtime contract: `38` (minimum control contract: `21`)
 - Current report schema: `1.0`, frozen, superseding `0.43` — [`docs/report-schema.v1.0.json`](report-schema.v1.0.json); the `1.x` rules are in [`docs/report-1-0-contract.md`](report-1-0-contract.md)
 - Current packet schema: `0.18` — [`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)

@@ -183,7 +183,15 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # operational control shapes remain byte-identical, so
 # ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21.
 # v37 names the unchanged limits a host comparison compared past (#721).
-CONTRACT_VERSION: Literal["37"] = "37"
+# v38 widens ``shipgate.agent_control/v1`` in place with an optional, bounded
+# ``capability_rows`` block (#662): the host capability rows the control was
+# decided beside, a count of rows cut by the cap, the comparison status and
+# reasons. It is omitted when no comparison ran, so those envelopes are
+# byte-identical. The object is closed, so a reader validating against the
+# v37 schema rejects an envelope that carries rows; that break is deliberate
+# and documented. ``AgentControl`` is unchanged, so
+# ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21, as it did for v23-v25.
+CONTRACT_VERSION: Literal["38"] = "38"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"

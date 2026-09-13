@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Name the host capability change in the compact control envelope (#662).
+  `check --format agent-control-json`, `verify --format control` and
+  `agent control` now carry an optional `capability_rows` block in
+  `shipgate.agent_control/v1`. It holds up to five rows, with the rows that
+  widen authority first, plus the count of rows cut, the comparison status
+  and reasons, and how many unchanged partial surfaces were not read. An agent
+  reading only the envelope can now say what changed without a second call.
+  The block grants nothing, and it is omitted when no host comparison ran.
+  **Breaking for strict validators:** the envelope object is closed, so a
+  reader validating against the v37 schema rejects an envelope that carries
+  the block. Runtime contract 38; the minimum control contract stays 21.
+
 - Support `.vscode/mcp.json` as a first-class host surface (#731). It was
   `experimental`, so a repository with the file refused every host comparison
   whenever it changed: none of the six such PRs in #659 compared. The server set
