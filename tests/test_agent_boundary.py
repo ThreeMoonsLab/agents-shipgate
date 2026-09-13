@@ -602,6 +602,37 @@ def test_shared_trust_roots_never_complete_without_safe_receipt(
     assert result.control.completion_allowed is False
 
 
+def test_untracked_baseline_with_blocked_host_expansion_routes_to_human_review(
+    tmp_path: Path,
+) -> None:
+    _init_repo(tmp_path)
+    old = json.dumps({"permissions": {"allow": ["Bash(npm test)", "Read(src/**)"]}})
+    new = json.dumps({"permissions": {"allow": ["Bash(*)", "Read(**)", "WebFetch(*)"]}})
+    target = tmp_path / ".claude" / "settings.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(old, encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "boundary base"], cwd=tmp_path, check=True)
+    target.write_text(new, encoding="utf-8")
+    diff = _change_diff(".claude/settings.json", old, new) + _new_file_diff(
+        ".agents-shipgate/host-grants.json",
+        json.dumps({"version": 1, "grants": []}),
+    )
+
+    result = _build(tmp_path, diff, agent="claude-code")
+
+    assert result.decision == "block"
+    assert result.control.state == "human_review_required"
+    assert result.control.permissions.publishes is False
+    assert result.control.completion_allowed is False
+    assert result.required_reviewers == list(
+        result.control.human_review.required_reviewers
+    )
+    assert "SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW" in [
+        item.check_id for item in result.violations
+    ]
+
+
 def test_unified_policy_cannot_downgrade_host_safety_floor(tmp_path: Path) -> None:
     policy = tmp_path / "policies" / "agent-boundary.shipgate.yaml"
     policy.parent.mkdir(parents=True)

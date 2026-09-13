@@ -469,8 +469,56 @@ def evaluate_agent_boundary(
     )
 
 
+def _reconcile_blocked_control(
+    assessment: AgentBoundaryAssessment, legacy: AgentResultV2
+) -> AgentResultV2:
+    """Demote a publishing control when the aggregate decision is a block.
+
+    The undeclared-surface route can authorize publication for a subject it
+    read while the aggregate decision is ``block`` — e.g. an untracked
+    gate-governing baseline sharing the diff with a wildcard expansion. A
+    blocked result cannot authorize publication, so re-project onto the
+    strictest non-publishing route through the same block-branch derivation
+    instead of constructing an envelope the schema must refuse. Violation
+    evidence, the violation-derived human obligations, and the verify
+    requirement are carried over; only the contradictory publication grant
+    and its coding-agent route are replaced.
+    """
+
+    if (
+        legacy.decision != "block"
+        or legacy.control.completion_allowed
+        or not legacy.control.permissions.publishes
+    ):
+        return legacy
+    violations = list(assessment.violations)
+    control = _control_for_result(
+        verify_command=assessment.verify_command,
+        decision=legacy.decision,
+        summary=legacy.summary,
+        first_next_action=_next_action_for(
+            legacy.decision, violations, legacy.repair
+        ),
+        human_review=_human_review_for(
+            legacy.decision, violations, legacy.repair
+        ),
+        repair=legacy.repair,
+        verify_required=legacy.control.verify_required,
+        undeclared_gap=False,
+        coverage_gap=False,
+        trigger_verify_required=False,
+        violations=violations,
+    )
+    return legacy.model_copy(
+        update={
+            "control": control,
+            "required_reviewers": list(control.human_review.required_reviewers),
+        }
+    )
+
+
 def build_agent_boundary_result(assessment: AgentBoundaryAssessment) -> AgentBoundaryResultV1:
-    legacy = assessment.legacy_result
+    legacy = _reconcile_blocked_control(assessment, assessment.legacy_result)
     aggregate_policy = _aggregate_policy(assessment)
     pending_review = (
         _pending_review_for(
