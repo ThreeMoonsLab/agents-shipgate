@@ -1104,8 +1104,12 @@ def test_drift_all_env_header_value_rotation_quiet_but_key_addition_fires(tmp_pa
     data["mcpServers"]["github"]["env"]["GITHUB_TOKEN"] = "rotated"
     data["mcpServers"]["github"]["env"]["READ_ONLY"] = "false"
     data["mcpServers"]["remote"]["headers"]["Authorization"] = "Bearer rotated"
+    # A rotation: the webhook path and the token *value* change, the token
+    # parameter itself stays. Its presence enters the change digest the way an
+    # env or header key does (#723); its value never does.
     data["mcpServers"]["remote"]["url"] = (
-        "https://mcp.example.test/services/ROTATED-WEBHOOK-PATH-TOP-SECRET"
+        "https://user:rotated@mcp.example.test/services/"
+        "ROTATED-WEBHOOK-PATH-TOP-SECRET?token=rotated"
     )
     path.write_text(json.dumps(data), encoding="utf-8")
     rotated = _drift_json(tmp_path)[1]
@@ -1116,6 +1120,14 @@ def test_drift_all_env_header_value_rotation_quiet_but_key_addition_fires(tmp_pa
     data["mcpServers"]["remote"]["headers"]["X-Scope"] = "admin"
     path.write_text(json.dumps(data), encoding="utf-8")
     assert _drift_json(tmp_path)[1]["has_drift"] is True
+
+    # The query analogue of adding a key: a new capability-shaping parameter.
+    _save_baseline(tmp_path)
+    data["mcpServers"]["remote"]["url"] += "&scope=admin"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    widened = _drift_json(tmp_path)[1]
+    assert widened["has_drift"] is True
+    assert "scope=admin" not in json.dumps(widened)
 
 
 def test_inline_permission_secret_rotation_is_redacted_and_hash_invariant(tmp_path: Path) -> None:

@@ -19,7 +19,7 @@ import tomllib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 import yaml
 from pydantic import ValidationError
@@ -383,8 +383,82 @@ def _redact_secret_values(value: Any, *, parent_key: str | None = None) -> Any:
     return value
 
 
+def _url_capability_parts(value: Any, *, parent_key: str | None = None) -> list[dict[str, Any]]:
+    """The query of each URL, for the change digest only.
+
+    Published fields drop a URL's query because it carries tokens and project
+    identifiers. The change digest must still see it: a Supabase server's
+    `read_only=true` and `features=…` decide which tools an agent gets, and
+    removing one produced no row when only the redacted URL was hashed (#723).
+    Nothing returned here is published; it is hashed with the redacted config.
+
+    The path stays out on purpose. A webhook-style path is itself the secret,
+    and rotating one must stay quiet
+    (`test_drift_all_env_header_value_rotation_quiet_but_key_addition_fires`).
+    A digest cannot tell a capability path (`/read` → `/admin`) from a secret
+    one, so a path-only change remains unseen; that limit is recorded on #723.
+
+    It walks what `_redact_secret_values` keeps: secret keys, `env` and
+    `headers` contribute nothing, and a secret-named query parameter
+    contributes its name, never its value. A URL without a query adds nothing,
+    so a command server, a bare host or a path-only URL keeps its earlier digest.
+    """
+
+    if parent_key is not None and _is_secret_key(parent_key):
+        return []
+    parts: list[dict[str, Any]] = []
+    if isinstance(value, dict):
+        for key, inner in sorted(value.items(), key=lambda item: str(item[0])):
+            key_text = str(key)
+            if (
+                key_text == "policyHelper"
+                or _is_secret_key(key_text)
+                or parent_key in _CREDENTIAL_CONTAINER_KEYS
+                or key_text in {"env", "headers"}
+            ):
+                continue
+            parts.extend(_url_capability_parts(inner, parent_key=key_text))
+        return parts
+    if isinstance(value, list):
+        skip_next = False
+        for item in value:
+            if skip_next:
+                skip_next = False
+                continue
+            if isinstance(item, str) and (
+                _SECRET_ARG_RE.fullmatch(item)
+                or item.lower().lstrip("-").replace("-", "_") in _SECRET_KEY_MARKERS
+            ):
+                skip_next = not _SECRET_ARG_RE.fullmatch(item)
+                continue
+            parts.extend(_url_capability_parts(item, parent_key=parent_key))
+        return parts
+    if isinstance(value, str):
+        for match in _URL_RE.finditer(value):
+            try:
+                parsed = urlsplit(match.group(0))
+                query = parse_qsl(parsed.query, keep_blank_values=True)
+            except ValueError:
+                parts.append({"url": "<unparsable-url>", "raw": match.group(0)})
+                continue
+            if not query:
+                continue
+            parts.append({
+                "url": _sanitize_url(match.group(0)),
+                "query": sorted(
+                    [name, "<secret>" if _is_secret_key(name) else item]
+                    for name, item in query
+                ),
+            })
+    return parts
+
+
 def redacted_config_sha256(config: Any) -> str:
-    return _sha(_redact_secret_values(config))
+    redacted = _redact_secret_values(config)
+    url_parts = _url_capability_parts(config)
+    if not url_parts:
+        return _sha(redacted)
+    return _sha({"redacted": redacted, "url_capability": url_parts})
 
 
 def _display_path(path: Path, *, root: Path, home: Path) -> str:

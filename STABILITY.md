@@ -3432,3 +3432,27 @@ Interactive `check` now defaults to text; detected agent mode defaults to the
 current boundary JSON. Automation should always select `--format
 agent-boundary-json` or `--format agent-control-json` explicitly. These existing
 explicit formats are retained, and `--format text` is available in either mode.
+
+### MCP URL capability digest (#723)
+
+A URL-based MCP server's query parameters now enter its `config_sha256`, and
+its file's `redacted_sha256`. A change carried in the query now produces a row:
+removing `read_only=true`, adding `features=`, or pointing at a different
+project. Before this change only the redacted URL was hashed, so none of these
+was visible.
+
+The URL path stays out of the digest. A webhook-style path is itself a secret,
+and rotating one must stay quiet, so a capability carried only in the path
+(`/read` → `/admin`) is still not seen.
+
+Published fields are unchanged. `endpoint` still replaces the path with
+`<redacted-path>` and drops the query, and nothing in the inventory, baseline
+or rows carries a path, query or secret. A secret-named query parameter
+contributes its name to the digest, never its value, and `env` and `headers`
+contribute nothing. A server with no URL query keeps its earlier digest.
+
+A host-grants baseline saved by an earlier build reports each URL server that
+has a query as `changed` once, because its digest now covers more.
+Review that row, then re-save the baseline. No schema version moves: the
+digest's inputs changed, not the inventory's shape.
+
