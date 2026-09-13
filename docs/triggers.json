@@ -47,7 +47,7 @@
       "hosts": ["vscode"],
       "exact_paths": [".vscode/mcp.json"],
       "globs": [],
-      "experimental": true
+      "experimental": false
     },
     {
       "id": "shared",

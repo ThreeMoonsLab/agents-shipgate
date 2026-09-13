@@ -567,13 +567,17 @@ def test_explicit_custom_policy_is_a_protected_shared_boundary(
     assert shared.status == "complete"
 
 
-def test_changed_experimental_vscode_mcp_never_completes(tmp_path: Path) -> None:
+def test_a_changed_vscode_mcp_config_never_completes_unverified(tmp_path: Path) -> None:
+    """Supported now (#731), so its coverage is complete, and a changed host file still never completes here."""
+
     result = _build(
         tmp_path,
         _new_file_diff(".vscode/mcp.json", json.dumps({"servers": {}})),
     )
-    assert result.control.state == "human_review_required"
-    assert any(item.status == "experimental" for item in result.host_coverage)
+    assert result.control.state != "complete"
+    assert not any(item.status == "experimental" for item in result.host_coverage)
+    [vscode] = [item for item in result.host_coverage if item.adapter == "vscode_mcp"]
+    assert vscode.status == "complete"
 
 
 @pytest.mark.parametrize(
