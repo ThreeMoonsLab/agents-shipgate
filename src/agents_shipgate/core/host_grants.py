@@ -36,6 +36,7 @@ from agents_shipgate.core.host_boundary import (
     _trigger_names,
 )
 from agents_shipgate.core.host_input_failure import (
+    MAX_FAILURE_TEXT,
     HostInputFailure,
     HostInventoryReadError,
     safe_failure_text,
@@ -46,7 +47,7 @@ from agents_shipgate.core.permission_lattice import (
     subsumes,
     whole_tool_risk,
 )
-from agents_shipgate.core.privacy import SENSITIVE_VALUE_KEYS
+from agents_shipgate.core.privacy import SENSITIVE_VALUE_KEYS, redact_text
 from agents_shipgate.core.trust_roots import (
     IdentityBoundReadSession,
     IdentityReadBudget,
@@ -341,6 +342,40 @@ def _sanitize_sensitive_string(value: str) -> str:
     return value
 
 
+_PATH_REDACTION_MARKER = re.compile(r"\[REDACTED:[^\]]+\]|<redacted>")
+
+
+def public_host_path(source: str) -> str:
+    """The location a host inventory publishes for one exact source (#590).
+
+    Inside the reader a path is identity; outside it, it is a published string.
+    Credential-shaped bytes in a directory or file name must not reach that
+    string, so each path component is redacted on its own: a greedy secret
+    pattern can never swallow the separator and the file name after it, which
+    instruction profiles and precedence ranks read.
+
+    Whenever anything was redacted, the marker carries a short digest of the
+    exact source, so two sources that redact alike stay two locations and one
+    cannot inherit the other's grants, coverage or recovery evidence. A redacted
+    path is a label, not a locator: reads and ids always use the exact source.
+    """
+
+    components = source.split("/")
+    redacted = [_sanitize_sensitive_string(redact_text(part) or "") for part in components]
+    if redacted == components:
+        return source
+    digest = hashlib.sha256(source.encode("utf-8", "surrogateescape")).hexdigest()[:12]
+    marked = [
+        _PATH_REDACTION_MARKER.sub(lambda match: f"{match.group(0)}~{digest}", part)
+        for part in redacted
+    ]
+    if marked == redacted:
+        # A pattern rewrote a component without leaving a marker to stamp.
+        index = next(i for i, (a, b) in enumerate(zip(components, redacted, strict=True)) if a != b)
+        marked[index] = f"{marked[index]}~{digest}"
+    return "/".join(marked)
+
+
 def _redact_secret_values(value: Any, *, parent_key: str | None = None) -> Any:
     if parent_key is not None and _is_secret_key(parent_key):
         return "<redacted>"
@@ -473,16 +508,40 @@ def _display_path(path: Path, *, root: Path, home: Path) -> str:
         return str(path)
 
 
+def _issue_source_label(source: str) -> str:
+    """The bounded, single-line form of an issue's source, and its identity (#590).
+
+    Built on :func:`public_host_path` and deliberately not re-run through the
+    whole-string sanitizers in ``safe_failure_text``: a greedy assignment
+    pattern would swallow the digest and the file name after the redacted
+    component, and two unreadable sources would print as one.
+
+    Every lossy step leaves a digest of the exact source. Redaction does so in
+    :func:`public_host_path`. Replacing control characters and bounding the
+    length do so here, at the end. So two sources that display alike never
+    share a label, and the issue id can bind the label without merging them.
+    """
+
+    public = public_host_path(source)
+    label = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", public)
+    if label == public and len(label) <= MAX_FAILURE_TEXT:
+        return label
+    suffix = "~" + hashlib.sha256(source.encode("utf-8", "surrogateescape")).hexdigest()[:12]
+    if len(label) + len(suffix) > MAX_FAILURE_TEXT:
+        label = label[: MAX_FAILURE_TEXT - len(suffix) - 1] + "…"
+    return label + suffix
+
+
 def _inventory_issue(
     *, kind: str, host: str, source: str, message: str, blocking: bool
 ) -> dict[str, Any]:
-    source = safe_failure_text(source)
+    shown = _issue_source_label(source)
     message = safe_failure_text(message)
     return {
-        "issue_id": _stable_id("host_issue", kind, host, source, message),
+        "issue_id": _stable_id("host_issue", kind, host, shown, message),
         "kind": kind,
         "host": host,
-        "source": source,
+        "source": shown,
         "message": message,
         "blocking": blocking,
     }
@@ -495,7 +554,7 @@ def _artifact(
         "artifact_id": _stable_id("host_artifact", host, scope, source, kind),
         "host": host,
         "scope": scope,
-        "path": source,
+        "path": public_host_path(source),
         "kind": kind,
         "parse_status": status,
         "redacted_sha256": redacted_config_sha256(data) if data is not None else None,
@@ -510,7 +569,7 @@ def _grant_base(
         "grant_id": _stable_id("host_grant", host, scope, source, kind, identity),
         "host": host,
         "scope": scope,
-        "source": source,
+        "source": public_host_path(source),
         "kind": kind,
         "config_sha256": redacted_config_sha256(config),
         "access": access,
@@ -1086,7 +1145,7 @@ def _instruction_grant(*, host: str, scope: HostScope, source: str, data: str, s
             config=(structure if structure is not None else {"content_sha256": hashlib.sha256(redacted_text.encode()).hexdigest()}),
             access="execute", risk="medium",
         ),
-        "path": source,
+        "path": public_host_path(source),
     }
 
 

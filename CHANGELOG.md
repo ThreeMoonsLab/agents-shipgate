@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Keep credential-shaped bytes in a directory or file name out of host inventory
+  output (#590). `artifacts[].path`, `grants[].source`, `grants[].path`,
+  `host_coverage[].sources_observed`, the saved baseline, drift and `verify`'s
+  `host_comparison` published the exact path, so a token-shaped directory name
+  reached them for successful and unreadable sources alike. Each path component
+  is now redacted with the shared sanitizers. A redacted location carries a short
+  digest of the exact source, so two sources that redact alike stay distinct.
+  Ids, reads and policy classification still use the exact path. A path with
+  nothing to redact is byte-identical, so existing ids and baselines are
+  unaffected. Changed-file paths in `check` and `verify` are tracked in #742.
+
 - Name the host capability change in the compact control envelope (#662).
   `check --format agent-control-json`, `verify --format control` and
   `agent control` now carry an optional `capability_rows` block in
