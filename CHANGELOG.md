@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Resolve local Claude Code settings layers by the documented precedence
+  instead of refusing them. `audit --host --scope local-static` raised a
+  blocking `unresolved_precedence` issue whenever two layers existed, so user
+  settings plus a project's `.claude/settings.json` — the ordinary developer
+  setup — could never save a local baseline. Permission rules, additional
+  directories and hooks now merge across layers; a scalar setting keeps the
+  highest layer that sets it (managed, project local, shared project, user),
+  and the remaining grant's `source` names that layer; a same-named MCP server
+  keeps the local-scope entry over `.mcp.json`; and `allowManagedPermissionRulesOnly`
+  and `allowManagedHooksOnly` restrict rules and hooks only from managed
+  settings. A `defaultMode` of `auto` or `bypassPermissions` in a project file
+  is still reported, beside the lower layer's mode, because older clients
+  honored it. Disagreeing `sandbox` or `enabledPlugins` values, a layer with no
+  documented rank, and Codex and Cursor layers still fail closed; the issue now
+  names the key and each layer. The repository scope, which the PR route uses,
+  is unchanged (#657).
+
 - Publish a version that reviewed code declares advisory through the ordinary
   release pipeline, with no qualification claim (#648). Each version's channel
   is declared in `.github/release-channels.json`, and a missing or unknown

@@ -372,9 +372,14 @@ def test_policy_helper_is_never_run_and_makes_coverage_partial(
     assert f"touch {marker}" not in json.dumps(inventory)
 
 
-def test_local_static_overlapping_layers_are_partial_until_precedence_is_projected(
+def test_local_static_overlapping_layers_resolve_by_documented_precedence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """User and project settings used to make local coverage partial forever.
+    Their permission lists merge, so both layers' rules are effective and the
+    setup can be baselined; tests/test_host_local_precedence.py covers each
+    rule and every case that still fails closed (#657)."""
+
     workspace = tmp_path / "repo"
     (workspace / ".claude").mkdir(parents=True)
     (workspace / ".claude/settings.json").write_text(
@@ -389,16 +394,14 @@ def test_local_static_overlapping_layers_are_partial_until_precedence_is_project
 
     inventory = host_audit_inventory(workspace, scope="local_static")
 
-    issue = next(
+    assert not [
         item for item in inventory["issues"] if item["kind"] == "unresolved_precedence"
-    )
-    assert issue["host"] == "claude-code"
+    ]
     coverage = next(
         item for item in inventory["host_coverage"] if item["host"] == "claude-code"
     )
-    assert coverage["status"] == "partial"
-    with pytest.raises(ValueError, match="cannot acknowledge missing evidence"):
-        build_host_grants_baseline(inventory)
+    assert coverage["status"] == "complete"
+    assert build_host_grants_baseline(inventory)["scope"] == "local_static"
 
 
 def test_invalid_config_is_structured_partial_coverage_and_cannot_baseline(tmp_path: Path) -> None:
