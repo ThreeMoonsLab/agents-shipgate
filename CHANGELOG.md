@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Support `.vscode/mcp.json` as a first-class host surface (#731). It was
+  `experimental`, so a repository with the file refused every host comparison
+  whenever it changed: none of the six such PRs in #659 compared. The server set
+  is now compared as for `.mcp.json`. `sandbox` and a server's `sandboxEnabled`
+  are sandbox grants, so toggling isolation is its own row. An `${input:…}`
+  reference contributes its name to the server's digest, never a value.
+  `envFile` is recorded as a non-blocking limit, and any other top-level key
+  keeps coverage partial. Five of the six #659 replays now compare and name
+  their row; the invalid-JSON case still refuses.
+
 - Compare past an unchanged partial or experimental surface instead of refusing
   every row (#721, runtime contract 37, verifier schema `0.19`). A comparison
   refused whenever either inventory was incomplete, including for a file the

@@ -605,15 +605,82 @@ def _endpoint(server: Any) -> str | None:
     return None
 
 
+#: VS Code's prompted-input reference, e.g. `"API_KEY": "${input:apiKey}"`.
+_VSCODE_INPUT_REF = re.compile(r"\$\{input:([^}]+)\}")
+#: The documented top level of `.vscode/mcp.json` (#731). Anything else is not
+#: modeled, so the file's coverage stays partial rather than silently complete.
+_VSCODE_MCP_TOP_LEVEL = frozenset({"servers", "inputs", "sandbox"})
+
+
+def _vscode_mcp_extras(
+    data: Any, *, scope: HostScope, source: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """What `.vscode/mcp.json` says beyond its server set (#731).
+
+    `sandbox` and a server's `sandboxEnabled` decide whether a server runs
+    isolated, so they are sandbox grants: turning one off widens what the server
+    can reach. `envFile` names environment the file does not contain; it is
+    recorded as a non-blocking limit on that server. `inputs` holds prompt
+    definitions only, and their values never appear in the file.
+    """
+
+    grants: list[dict[str, Any]] = []
+    issues: list[dict[str, Any]] = []
+    if not isinstance(data, dict):
+        return grants, issues
+    sandbox = data.get("sandbox")
+    if isinstance(sandbox, dict):
+        for setting, value in sorted(sandbox.items()):
+            grants.append(_setting_grant(
+                host="vscode", scope=scope, source=source, kind="sandbox",
+                setting=f"sandbox.{setting}", value=value, access="unknown", risk="high",
+            ))
+    for name, server in sorted(_server_map(data).items()):
+        if not isinstance(server, dict):
+            continue
+        if "sandboxEnabled" in server:
+            enabled = server["sandboxEnabled"]
+            grants.append(_setting_grant(
+                host="vscode", scope=scope, source=source, kind="sandbox",
+                setting=f"servers.{name}.sandboxEnabled", value=enabled,
+                access="admin" if enabled is False else "unknown", risk="high",
+            ))
+        if "envFile" in server:
+            issues.append(_inventory_issue(
+                kind="unsupported", host="vscode", source=source,
+                message=(
+                    f"server {name!r} reads environment from envFile, whose "
+                    "contents a static audit does not read"
+                ),
+                blocking=False,
+            ))
+    for key in sorted(str(item) for item in data if str(item) not in _VSCODE_MCP_TOP_LEVEL):
+        issues.append(_inventory_issue(
+            kind="unsupported", host="vscode", source=source,
+            message=f"top-level key {key!r} is not part of the modeled .vscode/mcp.json shape",
+            blocking=True,
+        ))
+    return grants, issues
+
+
 def _mcp_grants(
     data: Any, *, host: str, scope: HostScope, source: str
 ) -> list[dict[str, Any]]:
     grants: list[dict[str, Any]] = []
     for name, server in sorted(_server_map(data).items()):
         config = server if isinstance(server, dict) else {"value": server}
+        digested = config
+        if host == "vscode" and isinstance(server, dict):
+            # `sandboxEnabled` is its own sandbox grant (#731), so one edit is one
+            # row. An `${input:…}` reference's name enters the digest; the value
+            # VS Code prompts for never exists in the file.
+            digested = {key: value for key, value in config.items() if key != "sandboxEnabled"}
+            refs = sorted(set(_VSCODE_INPUT_REF.findall(json.dumps(config, sort_keys=True, default=str))))
+            if refs:
+                digested = {**digested, "input_refs": refs}
         base = _grant_base(
             host=host, scope=scope, source=source, kind="mcp_server",
-            identity=str(name), config=config, access="external", risk="high",
+            identity=str(name), config=digested, access="external", risk="high",
         )
         env = config.get("env") if isinstance(config.get("env"), dict) else {}
         headers = config.get("headers") if isinstance(config.get("headers"), dict) else {}
@@ -1079,6 +1146,10 @@ def _collect_file(
         )
     if kind == "mcp":
         grants.extend(_mcp_grants(data, host=host, scope=scope, source=source))
+        if host == "vscode":
+            vscode_grants, vscode_issues = _vscode_mcp_extras(data, scope=scope, source=source)
+            grants.extend(vscode_grants)
+            issues.extend(vscode_issues)
     elif kind == "workflow":
         grant = _workflow_grant(data, source=source)
         if grant is not None:
@@ -1363,8 +1434,6 @@ def _coverage(
         host_artifacts = [item for item in artifacts if item["host"] == host]
         host_issues = [item for item in issues if item["host"] == host and item["blocking"]]
         status = "partial" if host_issues else "complete"
-        if host == "vscode" and host_artifacts:
-            status = "experimental"
         expected = _repository_sources_expected(host)
         if scope == "local_static":
             expected.append("documented local static sources")

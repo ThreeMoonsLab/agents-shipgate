@@ -74,7 +74,6 @@ BOUNDARY_ADAPTERS: tuple[BoundaryAdapterSpec, ...] = (
         id="vscode_mcp",
         hosts=("vscode",),
         exact_paths=(".vscode/mcp.json",),
-        experimental=True,
     ),
     BoundaryAdapterSpec(
         id="shared",
