@@ -156,7 +156,7 @@ pushes to `main`.
 
 | Channel | Metadata | Reader gets it with | Qualification |
 | --- | --- | --- | --- |
-| Published release | `agents_shipgate.published_release` → `LATEST_PUBLISHED_VERSION` and `LATEST_PUBLISHED_CONTRACT_VERSION`, bound to the tag and to `.well-known` by `tests/test_adopter_pins_resolve.py` | `pipx install agents-shipgate`, `uses: …@v<tag>` | Qualified |
+| Published release | `agents_shipgate.published_release` → `LATEST_PUBLISHED_VERSION` and `LATEST_PUBLISHED_CONTRACT_VERSION`, bound to the tag and to `.well-known` by `tests/test_adopter_pins_resolve.py` | `pipx install agents-shipgate`, `uses: …@v<tag>` | The declared channel's. **Qualified** for a version `.github/release-channels.json` declares `qualified`, and for every release before #648. **None** for a version it declares `advisory`, which ships a signed `advisory-statement.json` saying so — see `docs/release-evidence-policy-decision.md` § Amendment 5 |
 | Unqualified preview | GitHub pre-release in the `preview-*` namespace, cut by `.github/workflows/release-preview.yml` | `gh release download preview-<version> --pattern '*.whl'` | **None**, by construction — see `docs/release-evidence-policy-decision.md` § Amendment 2 |
 | Source checkout | `pyproject.toml` → `[project].version`, mirrored at `.well-known/agents-shipgate.json` → `version` | `./shipgate …` | Not a distributed build |
 | Final candidate wheel | Build-only `_meta/release-source.json` binds a clean full source SHA and package version; generated CI uses that SHA | Reviewed local wheel; exact-wheel Action smoke requires a local path plus SHA-256 | The provenance record alone grants **none**; qualification, signing and publication bind those same wheel bytes separately |

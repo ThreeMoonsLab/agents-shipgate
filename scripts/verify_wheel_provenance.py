@@ -33,6 +33,11 @@ difference. That is deliberate: the fix is to align the pinned build backend
 (``constraints/release-build.txt``), not to widen the comparison. The report
 names the differing member so the operator can see that immediately.
 
+An advisory release (#648) has no qualified wheel. It binds the wheel a Release
+Engine Smoke run exercised instead, with ``--exercised``: the comparison is the
+same, and the report names its subject ``exercised_wheel``, so nothing an
+advisory release publishes calls its wheel qualified.
+
 Run from the repo root:
 
     python scripts/verify_wheel_provenance.py \\
@@ -60,6 +65,7 @@ else:  # ``python scripts/verify_wheel_provenance.py``
     from _release_support import parse_wheel_filename
 
 ProvenanceMode = Literal["identical_bytes", "identical_payload", "mismatch"]
+ProvenanceSubject = Literal["qualified", "exercised"]
 
 # Number of differing members named in the failure message. A full listing of a
 # 500-member wheel buries the signal in CI logs; the first few are enough to
@@ -180,6 +186,7 @@ def verify_wheel_provenance(
     qualified_path: Path,
     allow_payload_equivalent: bool = False,
     source_commit: str | None = None,
+    subject: ProvenanceSubject = "qualified",
 ) -> dict[str, object]:
     """Return a provenance record, or raise ``ConfigError`` if unpublishable.
 
@@ -187,6 +194,8 @@ def verify_wheel_provenance(
     exception here is what keeps an unbound artifact off PyPI.
     """
 
+    if subject not in ("qualified", "exercised"):
+        raise ConfigError(f"Unknown provenance subject {subject!r}")
     if source_commit is not None:
         # Validate *both* records before the byte-equality fast path: two
         # identical wheels can be identically bound to the wrong commit.
@@ -200,8 +209,8 @@ def verify_wheel_provenance(
         if omitted > 0:
             detail += f"; (+{omitted} more)"
         raise ConfigError(
-            "Wheel built from the tagged source does not match the qualified wheel. "
-            "The qualified wheel was not produced by this source tree, or the build "
+            f"Wheel built from the tagged source does not match the {subject} wheel. "
+            f"The {subject} wheel was not produced by this source tree, or the build "
             "backend pin drifted. Differences: " + detail
         )
     if mode == "identical_payload" and not allow_payload_equivalent:
@@ -217,8 +226,8 @@ def verify_wheel_provenance(
         "provenance_mode": mode,
         "built_wheel": built_path.name,
         "built_wheel_sha256": _sha256_file(built_path),
-        "qualified_wheel": qualified_path.name,
-        "qualified_wheel_sha256": _sha256_file(qualified_path),
+        f"{subject}_wheel": qualified_path.name,
+        f"{subject}_wheel_sha256": _sha256_file(qualified_path),
         "source_commit": source_commit,
         "byte_reproducible": mode == "identical_bytes",
     }
@@ -251,8 +260,12 @@ def _parser() -> argparse.ArgumentParser:
         description="Verify the qualified wheel was produced by the tagged source tree."
     )
     parser.add_argument("--built", type=Path, required=True, help="wheel built from the checkout")
-    parser.add_argument(
-        "--qualified", type=Path, required=True, help="signed, qualified wheel to be published"
+    subject = parser.add_mutually_exclusive_group(required=True)
+    subject.add_argument("--qualified", type=Path, help="signed, qualified wheel to be published")
+    subject.add_argument(
+        "--exercised",
+        type=Path,
+        help="wheel a Release Engine Smoke run exercised, for an advisory release (#648)",
     )
     parser.add_argument("--report", type=Path, help="write a JSON provenance record here")
     parser.add_argument("--source-commit", help="commit SHA the built wheel came from")
@@ -269,10 +282,12 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    subject = "qualified" if args.qualified is not None else "exercised"
     try:
         record = verify_wheel_provenance(
             built_path=args.built,
-            qualified_path=args.qualified,
+            qualified_path=args.qualified if args.qualified is not None else args.exercised,
+            subject=subject,
             allow_payload_equivalent=args.allow_payload_equivalent,
             source_commit=args.source_commit,
         )
@@ -282,8 +297,8 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write(f"Wheel provenance error: {exc}\n")
         return 1
     sys.stdout.write(
-        f"OK: qualified wheel is bound to the tagged source ({record['provenance_mode']}); "
-        f"sha256 {record['qualified_wheel_sha256']}.\n"
+        f"OK: {subject} wheel is bound to the tagged source ({record['provenance_mode']}); "
+        f"sha256 {record[f'{subject}_wheel_sha256']}.\n"
     )
     return 0
 

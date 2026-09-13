@@ -469,7 +469,7 @@ def test_staging_rechecks_the_sbom_binding_before_publication() -> None:
     release = _load_workflow("release.yml")
 
     assert "scripts/release_sbom.py verify" in _job_commands(release["jobs"]["stage"])
-    assert release["jobs"]["publish"]["needs"] == ["verify", "stage"]
+    assert release["jobs"]["publish"]["needs"] == ["candidate", "stage"]
 
 
 # --------------------------------------------------------------------------
@@ -480,11 +480,21 @@ def test_staging_rechecks_the_sbom_binding_before_publication() -> None:
 def test_the_pipeline_separates_verification_staging_publication_and_finalisation() -> None:
     release = _load_workflow("release.yml")
 
-    assert list(release["jobs"]) == ["verify", "stage", "publish", "finalize"]
+    # The channel switch (#648) sits in front of the same four stages;
+    # `tests/test_release_advisory_pipeline.py` holds its shape.
+    assert list(release["jobs"]) == [
+        "channel",
+        "verify",
+        "verify_advisory",
+        "candidate",
+        "stage",
+        "publish",
+        "finalize",
+    ]
     assert release["jobs"]["verify"]["uses"] == "./.github/workflows/release-verify.yml"
-    assert release["jobs"]["stage"]["needs"] == "verify"
-    assert release["jobs"]["publish"]["needs"] == ["verify", "stage"]
-    assert release["jobs"]["finalize"]["needs"] == ["verify", "stage", "publish"]
+    assert release["jobs"]["stage"]["needs"] == "candidate"
+    assert release["jobs"]["publish"]["needs"] == ["candidate", "stage"]
+    assert release["jobs"]["finalize"]["needs"] == ["candidate", "stage", "publish"]
 
 
 def test_write_and_oidc_authority_are_never_held_together() -> None:
@@ -976,14 +986,18 @@ def test_publication_requires_a_rehearsal_of_this_exact_candidate() -> None:
     stage = _load_workflow("release.yml")["jobs"]["stage"]
     commands = _job_commands(stage)
 
-    # Bound to the source tree (and therefore the workflow revision)...
-    assert "actions/workflows/release-rehearsal.yml/runs?head_sha=${SOURCE_SHA}" in commands
-    assert "status=success" in commands
-    assert "No successful Release Rehearsal run" in commands
+    from scripts.release_channel import QUALIFIED, REHEARSAL_WORKFLOWS
+
+    # Bound to the source tree (and therefore the workflow revision), through
+    # the declared channel's own rehearsal file (#648)...
+    assert "actions/workflows/${REHEARSAL_WORKFLOW:?" in commands
+    assert "/runs?head_sha=${SOURCE_SHA}&status=success" in commands
+    assert "No successful ${REHEARSAL_WORKFLOW} run" in commands
+    assert REHEARSAL_WORKFLOWS[QUALIFIED] == "release-rehearsal.yml"
     # ...and to candidate identity, so a qualification artifact swapped between
     # the rehearsal and the tag is caught.
     assert "cmp -- rehearsed/candidate-manifest.json dist/candidate-manifest.json" in commands
-    assert _step_index(stage, "release-rehearsal.yml/runs") < _step_index(
+    assert _step_index(stage, "${REHEARSAL_WORKFLOW:?") < _step_index(
         stage, "gh release create"
     )
 
@@ -1065,16 +1079,26 @@ def test_every_caller_consumed_output_is_publicly_exported() -> None:
 
     import re
 
-    exported = set(_load_workflow("release-verify.yml")["on"]["workflow_call"]["outputs"])
+    from scripts.release_channel import CANDIDATE_OUTPUTS
+
+    # Publication reads verification through `candidate` (#648), which
+    # forwards exactly `CANDIDATE_OUTPUTS` from whichever workflow ran, plus
+    # the channel-keyed names it derives itself.
     consumed = set(
         re.findall(
-            r"needs\.verify\.outputs\.(\w+)",
+            r"needs\.candidate\.outputs\.(\w+)",
             (WORKFLOWS / "release.yml").read_text(encoding="utf-8"),
         )
     )
+    derived = {"channel", "rehearsal_workflow", "release_assets", "signed_assets"}
 
     assert consumed, "the caller consumes no outputs; the check would be vacuous"
-    assert consumed <= exported, f"not exported: {sorted(consumed - exported)}"
+    assert consumed <= set(CANDIDATE_OUTPUTS) | derived, sorted(
+        consumed - set(CANDIDATE_OUTPUTS) - derived
+    )
+    for workflow in ("release-verify.yml", "release-advisory-verify.yml"):
+        exported = set(_load_workflow(workflow)["on"]["workflow_call"]["outputs"])
+        assert set(CANDIDATE_OUTPUTS) <= exported, (workflow, set(CANDIDATE_OUTPUTS) - exported)
 
 
 def test_the_handoff_is_sealed_by_a_job_that_runs_no_candidate_tests() -> None:
@@ -1123,7 +1147,10 @@ def test_a_completed_transaction_is_left_entirely_alone() -> None:
     release = _load_workflow("release.yml")
 
     for job in ("publish", "finalize"):
-        assert release["jobs"][job]["if"] == "needs.stage.outputs.release_state != 'published'"
+        # The rest of the condition names each dependency's success (#648).
+        assert release["jobs"][job]["if"].endswith(
+            "&& needs.stage.outputs.release_state != 'published' }}"
+        )
     assert release["jobs"]["stage"]["outputs"]["release_state"] == (
         "${{ steps.release.outputs.release_state }}"
     )
@@ -1154,9 +1181,15 @@ def test_finalisation_verifies_remote_bytes_not_asset_names() -> None:
     assert "gh release download" in commands
     assert "verify-manifest" in commands
     assert '--expected-sha256 "${MANIFEST_SHA256}"' in commands
-    # `--require`, not `--allow`: a release missing a bundle is incomplete.
-    assert '--require "${WHEEL_FILENAME}.sigstore.json"' in commands
-    assert "--require agents-shipgate-sbom.json.sigstore.json" in commands
+    # Required, not merely allowed: a release missing a bundle is incomplete.
+    # Which bundles is the declared channel's, from `release_publication`.
+    # Checked on commands, not the comments that explain them.
+    commands = "\n".join(
+        line for line in commands.splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "--require-signatures" in commands
+    assert '--expected-channel "${CHANNEL}"' in commands
+    assert "--allow" not in commands
     # The signature bundles are verified, not merely present.
     assert "sigstore verify identity" in commands
     assert _step_index(finalize, "sigstore verify identity") < _step_index(
@@ -1724,9 +1757,11 @@ def test_an_already_published_release_must_be_complete_and_signed() -> None:
     required and verified here."""
 
     stage = _job_commands(_load_workflow("release.yml")["jobs"]["stage"])
+    # Comment lines explain the flag beside it; only the command may satisfy this.
+    stage = "\n".join(line for line in stage.splitlines() if not line.lstrip().startswith("#"))
 
-    assert '--require "${WHEEL_FILENAME}.sigstore.json"' in stage
-    assert "--require agents-shipgate-sbom.json.sigstore.json" in stage
+    assert "--require-signatures" in stage
+    assert "--allow" not in stage
     assert "sigstore verify identity" in stage
 
 
@@ -2159,7 +2194,7 @@ def test_the_release_body_is_the_changelog_section_not_a_placeholder() -> None:
     # Extracted before anything is created, from the checkout pinned to the
     # verified commit rather than from the tag.
     assert _step_index(stage, "scripts/release_notes.py") < _step_index(stage, "gh release create")
-    assert stage["steps"][0]["with"]["ref"] == "${{ needs.verify.outputs.source_sha }}"
+    assert stage["steps"][0]["with"]["ref"] == "${{ needs.candidate.outputs.source_sha }}"
 
 
 def test_the_notes_are_written_to_a_path_no_candidate_controls() -> None:
@@ -2195,10 +2230,24 @@ def test_all_three_extractions_are_bound_to_one_digest() -> None:
         verify["jobs"]["artifact"]["outputs"]["release_notes_sha256"]
         == "${{ steps.notes.outputs.release_notes_sha256 }}"
     )
+    # Both verification workflows publish it, and `candidate` forwards
+    # whichever ran (#648).
+    advisory = _load_workflow("release-advisory-verify.yml")
+    assert "release_notes_sha256" in advisory["on"]["workflow_call"]["outputs"]
+    assert (
+        advisory["jobs"]["artifact"]["outputs"]["release_notes_sha256"]
+        == "${{ steps.notes.outputs.release_notes_sha256 }}"
+    )
+    assert (
+        release["jobs"]["candidate"]["outputs"]["release_notes_sha256"]
+        == "${{ steps.select.outputs.release_notes_sha256 }}"
+    )
     for job in ("stage", "finalize"):
         commands = _job_commands(release["jobs"][job])
         assert '--expected-sha256 "${NOTES_SHA256}"' in commands, job
-        assert "needs.verify.outputs.release_notes_sha256" in json.dumps(release["jobs"][job]), job
+        assert "needs.candidate.outputs.release_notes_sha256" in json.dumps(
+            release["jobs"][job]
+        ), job
 
 
 def test_the_published_body_is_reapplied_in_the_call_that_undrafts() -> None:
@@ -2673,7 +2722,7 @@ def test_the_token_bearing_jobs_check_out_the_installer_and_nothing_else() -> No
         assert with_["sparse-checkout"] == ".github/actions/install-release-toolchain", name
         assert with_["sparse-checkout-cone-mode"] is False, name
         assert with_["persist-credentials"] is False, name
-        assert with_["ref"] == "${{ needs.verify.outputs.source_sha }}", name
+        assert with_["ref"] == "${{ needs.candidate.outputs.source_sha }}", name
 
 
 # --------------------------------------------------------------------------
@@ -3152,7 +3201,10 @@ def test_a_preview_run_cannot_satisfy_the_mandatory_rehearsal() -> None:
 
     stage = _job_commands(_load_workflow("release.yml")["jobs"]["stage"])
 
-    assert "workflows/release-rehearsal.yml/runs" in stage
+    assert "workflows/${REHEARSAL_WORKFLOW:?" in stage
+    from scripts.release_channel import REHEARSAL_WORKFLOWS
+
+    assert not any("preview" in name for name in REHEARSAL_WORKFLOWS.values())
     assert "release-preview" not in (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
     # And the reverse, read from the graph rather than the text: the preview
     # calls no reusable workflow at all, so it cannot inherit a release job.

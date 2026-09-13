@@ -71,7 +71,7 @@ def test_a_duplicated_version_is_refused_not_last_one_wins(tmp_path: Path) -> No
 
     path = tmp_path / "release-channels.json"
     path.write_text(
-        '{"schema": "%s", "channels": {"1.0.0": "qualified", "1.0.0": "advisory"}}' % rc.SCHEMA,
+        '{"schema": "' + rc.SCHEMA + '", "channels": {"1.0.0": "qualified", "1.0.0": "advisory"}}',
         encoding="utf-8",
     )
     with pytest.raises(rc.ChannelError, match="duplicate key"):

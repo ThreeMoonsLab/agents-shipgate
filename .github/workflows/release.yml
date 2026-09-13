@@ -21,8 +21,53 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  channel:
+    name: Resolve the declared release channel
+    # Which line this tag publishes on is decided here, from the declaration
+    # committed at the tagged commit, before anything is built (#648). Choosing
+    # by what verification happens to find — whether a qualification artifact
+    # downloads — would let a qualified release whose download broke publish
+    # as advisory, and PyPI never gives a version back.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      channel: ${{ steps.channel.outputs.channel }}
+    steps:
+      - name: Check out only the channel declaration and its reader
+        # Standard-library scripts and one JSON file, at the immutable SHA of
+        # the push event.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            .github/release-channels.json
+            scripts/_release_support.py
+            scripts/release_channel.py
+            scripts/release_publication.py
+          sparse-checkout-cone-mode: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Read the channel reviewed code declares for this version
+        id: channel
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python scripts/release_channel.py resolve --tag "${RELEASE_TAG}"
+
   verify:
-    name: Verify candidate
+    name: Verify qualified candidate
+    needs: channel
+    # Exactly one of `verify` and `verify_advisory` runs, chosen by the
+    # declaration. They call separate workflow files, so the advisory line
+    # skips no qualification step inside the qualified workflow: it calls one
+    # that has none (Amendment 2, C3; Amendment 5).
+    if: needs.channel.outputs.channel == 'qualified'
     permissions:
       contents: read
     uses: ./.github/workflows/release-verify.yml
@@ -34,9 +79,89 @@ jobs:
       release_tag: ${{ github.ref_name }}
       mode: release
 
+  verify_advisory:
+    name: Verify advisory candidate
+    needs: channel
+    if: needs.channel.outputs.channel == 'advisory'
+    permissions:
+      contents: read
+      # Read-only: locates and downloads the Release Engine Smoke run that
+      # exercised this exact candidate (#570).
+      actions: read
+    uses: ./.github/workflows/release-advisory-verify.yml
+    with:
+      # The immutable SHA of the push event, for the reason given on `verify`.
+      ref: ${{ github.sha }}
+      release_tag: ${{ github.ref_name }}
+      mode: release
+
+  candidate:
+    name: Confirm exactly the declared verification ran
+    needs: [channel, verify, verify_advisory]
+    # One verification job is always skipped, and a skipped dependency skips
+    # every job downstream of it unless a condition says otherwise. So this job
+    # runs whenever the channel resolved, and `release_channel.py candidate`,
+    # not this condition, decides: the declared job must have succeeded, the
+    # other must have stayed skipped and exported nothing, and every value
+    # publication reads must be present and bound to the pushed tag. Every job
+    # after this one names each of its dependencies' success explicitly.
+    if: ${{ !cancelled() && needs.channel.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      channel: ${{ steps.select.outputs.channel }}
+      version: ${{ steps.select.outputs.version }}
+      release_tag: ${{ steps.select.outputs.release_tag }}
+      source_sha: ${{ steps.select.outputs.source_sha }}
+      wheel_filename: ${{ steps.select.outputs.wheel_filename }}
+      wheel_sha256: ${{ steps.select.outputs.wheel_sha256 }}
+      manifest_sha256: ${{ steps.select.outputs.manifest_sha256 }}
+      release_notes_sha256: ${{ steps.select.outputs.release_notes_sha256 }}
+      artifact_name: ${{ steps.select.outputs.artifact_name }}
+      rehearsal_workflow: ${{ steps.select.outputs.rehearsal_workflow }}
+      release_assets: ${{ steps.select.outputs.release_assets }}
+      signed_assets: ${{ steps.select.outputs.signed_assets }}
+    steps:
+      - name: Check out only the channel reader
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/_release_support.py
+            scripts/release_channel.py
+            scripts/release_publication.py
+          sparse-checkout-cone-mode: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Select the declared channel's verified candidate
+        id: select
+        env:
+          CHANNEL: ${{ needs.channel.outputs.channel }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          QUALIFIED_RESULT: ${{ needs.verify.result }}
+          ADVISORY_RESULT: ${{ needs.verify_advisory.result }}
+          QUALIFIED_OUTPUTS: ${{ toJSON(needs.verify.outputs) }}
+          ADVISORY_OUTPUTS: ${{ toJSON(needs.verify_advisory.outputs) }}
+        run: |
+          python scripts/release_channel.py candidate \
+            --channel "${CHANNEL}" \
+            --tag "${RELEASE_TAG}" \
+            --qualified-result "${QUALIFIED_RESULT}" \
+            --advisory-result "${ADVISORY_RESULT}" \
+            --qualified-outputs "${QUALIFIED_OUTPUTS}" \
+            --advisory-outputs "${ADVISORY_OUTPUTS}"
+
   stage:
     name: Stage release
-    needs: verify
+    needs: candidate
+    if: ${{ !cancelled() && needs.candidate.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -50,7 +175,7 @@ jobs:
       - name: Checkout the verified source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.verify.outputs.source_sha }}
+          ref: ${{ needs.candidate.outputs.source_sha }}
           persist-credentials: false
 
       - name: Set up Python
@@ -65,14 +190,14 @@ jobs:
         # choice as well as by digest.
         uses: ./.github/actions/install-release-toolchain
         with:
-          lockfile-url: https://raw.githubusercontent.com/${{ github.repository }}/${{ needs.verify.outputs.source_sha }}/constraints/release-publish.txt
+          lockfile-url: https://raw.githubusercontent.com/${{ github.repository }}/${{ needs.candidate.outputs.source_sha }}/constraints/release-publish.txt
 
       - name: Confirm the tag still points at the verified commit
         # Guards a tag moved (or deleted and recreated) after verification.
         # `^{}` peels annotated tags to the commit they name.
         env:
-          RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
-          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
+          RELEASE_TAG: ${{ needs.candidate.outputs.release_tag }}
+          SOURCE_SHA: ${{ needs.candidate.outputs.source_sha }}
         run: |
           set -euo pipefail
           peeled="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${RELEASE_TAG}^{}" | cut -f1)"
@@ -94,15 +219,19 @@ jobs:
         # rehearsal and the tag is caught here.
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
-          ARTIFACT_NAME: ${{ needs.verify.outputs.artifact_name }}
+          SOURCE_SHA: ${{ needs.candidate.outputs.source_sha }}
+          ARTIFACT_NAME: ${{ needs.candidate.outputs.artifact_name }}
+          # The declared channel's rehearsal file: `release-rehearsal.yml` for
+          # the qualified line, `release-advisory-rehearsal.yml` for the
+          # advisory one, so neither line's rehearsal satisfies the other.
+          REHEARSAL_WORKFLOW: ${{ needs.candidate.outputs.rehearsal_workflow }}
         run: |
           set -euo pipefail
           run_id="$(gh api \
-            "repos/${GITHUB_REPOSITORY}/actions/workflows/release-rehearsal.yml/runs?head_sha=${SOURCE_SHA}&status=success&per_page=100" \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/${REHEARSAL_WORKFLOW:?the candidate names no rehearsal workflow}/runs?head_sha=${SOURCE_SHA}&status=success&per_page=100" \
             --jq '.workflow_runs[0].id // empty')"
           if [ -z "${run_id}" ]; then
-            echo "::error::No successful Release Rehearsal run for ${SOURCE_SHA}. Rehearse the candidate before tagging; see docs/release-runbook.md."
+            echo "::error::No successful ${REHEARSAL_WORKFLOW} run for ${SOURCE_SHA}. Rehearse the candidate before tagging; see docs/release-runbook.md."
             exit 1
           fi
           echo "Rehearsal run: ${run_id}"
@@ -112,7 +241,7 @@ jobs:
       - name: Download verified candidate
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: ${{ needs.verify.outputs.artifact_name }}
+          name: ${{ needs.candidate.outputs.artifact_name }}
           path: dist
 
       - name: Verify the candidate handoff
@@ -122,18 +251,20 @@ jobs:
         # is closed-world: an unlisted file in `dist/` is rejected rather than
         # silently uploaded.
         env:
-          MANIFEST_SHA256: ${{ needs.verify.outputs.manifest_sha256 }}
+          MANIFEST_SHA256: ${{ needs.candidate.outputs.manifest_sha256 }}
+          CHANNEL: ${{ needs.candidate.outputs.channel }}
         run: |
           set -euo pipefail
           python scripts/release_publication.py verify-manifest \
             --manifest dist/candidate-manifest.json \
-            --expected-sha256 "${MANIFEST_SHA256}"
+            --expected-sha256 "${MANIFEST_SHA256}" \
+            --expected-channel "${CHANNEL}"
           cmp -- rehearsed/candidate-manifest.json dist/candidate-manifest.json
           echo "OK: the tagged candidate is byte-identical to the rehearsed one."
 
       - name: Re-verify the wheel-scoped SBOM binding
         env:
-          WHEEL_FILENAME: ${{ needs.verify.outputs.wheel_filename }}
+          WHEEL_FILENAME: ${{ needs.candidate.outputs.wheel_filename }}
         run: |
           python scripts/release_sbom.py verify \
             --wheel "dist/${WHEEL_FILENAME}" \
@@ -153,8 +284,8 @@ jobs:
         # let such a candidate pass the mandatory rehearsal and fail only after
         # the tag was pushed.
         env:
-          RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
-          NOTES_SHA256: ${{ needs.verify.outputs.release_notes_sha256 }}
+          RELEASE_TAG: ${{ needs.candidate.outputs.release_tag }}
+          NOTES_SHA256: ${{ needs.candidate.outputs.release_notes_sha256 }}
         run: |
           python scripts/release_notes.py \
             --tag "${RELEASE_TAG}" \
@@ -166,7 +297,7 @@ jobs:
         # Runs *before* anything mutates the GitHub Release, so a divergent
         # version fails with both registries untouched.
         env:
-          WHEEL_FILENAME: ${{ needs.verify.outputs.wheel_filename }}
+          WHEEL_FILENAME: ${{ needs.candidate.outputs.wheel_filename }}
         run: |
           python scripts/release_publication.py pypi-state \
             --wheel "dist/${WHEEL_FILENAME}" \
@@ -186,11 +317,14 @@ jobs:
         # published release replaces public attestations for no reason.
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
-          WHEEL_FILENAME: ${{ needs.verify.outputs.wheel_filename }}
-          MANIFEST_SHA256: ${{ needs.verify.outputs.manifest_sha256 }}
-          NOTES_SHA256: ${{ needs.verify.outputs.release_notes_sha256 }}
+          RELEASE_TAG: ${{ needs.candidate.outputs.release_tag }}
+          WHEEL_FILENAME: ${{ needs.candidate.outputs.wheel_filename }}
+          MANIFEST_SHA256: ${{ needs.candidate.outputs.manifest_sha256 }}
+          NOTES_SHA256: ${{ needs.candidate.outputs.release_notes_sha256 }}
           INDEX_STATE: ${{ steps.index.outputs.state }}
+          CHANNEL: ${{ needs.candidate.outputs.channel }}
+          RELEASE_ASSETS: ${{ needs.candidate.outputs.release_assets }}
+          SIGNED_ASSETS: ${{ needs.candidate.outputs.signed_assets }}
         run: |
           set -euo pipefail
           # `v1.2.3` is a final release; anything else (v0.16.0b7, rc, a) is a
@@ -208,14 +342,16 @@ jobs:
             create_maturity="--prerelease"
           fi
 
-          assets=(
-            "dist/${WHEEL_FILENAME}"
-            dist/agents-shipgate-sbom.json
-            dist/safety-qualification.json
-            dist/safety-qualification.sigstore.json
-            dist/provenance.json
-            dist/candidate-manifest.json
-          )
+          # The declared channel's closed asset set, from
+          # `release_publication.CHANNEL_ASSETS` by way of `candidate`. The
+          # handoff check above has already refused a `dist/` holding any other.
+          read -r -a channel_assets <<< "${RELEASE_ASSETS:?the candidate names no release assets}"
+          read -r -a signed_assets <<< "${SIGNED_ASSETS:?the candidate names no signed assets}"
+          assets=("dist/${WHEEL_FILENAME}")
+          for asset in "${channel_assets[@]}"; do
+            assets+=("dist/${asset}")
+          done
+          assets+=(dist/candidate-manifest.json)
 
           if ! gh release view "${RELEASE_TAG}" > /dev/null 2>&1; then
             gh release create "${RELEASE_TAG}" "${assets[@]}" \
@@ -249,18 +385,20 @@ jobs:
           fi
           mkdir -p published
           gh release download "${RELEASE_TAG}" --dir published --clobber
-          # `--require`, not `--allow`: declaring the transaction complete makes
-          # both downstream signature-verifying jobs skip, so a release missing
-          # a bundle — or carrying arbitrary bytes under the expected name —
-          # must fail here rather than be waved through.
+          # Required, never merely allowed: declaring the transaction complete
+          # makes both downstream signature-verifying jobs skip, so a release
+          # missing a bundle — or carrying arbitrary bytes under the expected
+          # name — must fail here rather than be waved through.
+          # `--require-signatures` derives the bundles from the declared
+          # channel, so they are not re-listed here.
           python scripts/release_publication.py verify-manifest \
             --manifest published/candidate-manifest.json \
             --expected-sha256 "${MANIFEST_SHA256}" \
+            --expected-channel "${CHANNEL}" \
             --directory published \
-            --require "${WHEEL_FILENAME}.sigstore.json" \
-            --require agents-shipgate-sbom.json.sigstore.json
+            --require-signatures
           identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@refs/tags/${RELEASE_TAG}"
-          for target in "${WHEEL_FILENAME}" agents-shipgate-sbom.json; do
+          for target in "${WHEEL_FILENAME}" "${signed_assets[@]}"; do
             sigstore verify identity \
               --bundle "published/${target}.sigstore.json" \
               --cert-identity "${identity}" \
@@ -283,11 +421,12 @@ jobs:
 
   publish:
     name: Publish to PyPI
-    needs: [verify, stage]
-    # A completed transaction is left alone. Re-signing a published release
+    needs: [candidate, stage]
+    # Each dependency's success is named, never implied: see `candidate`. A
+    # completed transaction is left alone. Re-signing a published release
     # would mint fresh, non-reproducible Sigstore bundles and replace the
     # public attestations for no benefit.
-    if: needs.stage.outputs.release_state != 'published'
+    if: ${{ !cancelled() && needs.candidate.result == 'success' && needs.stage.result == 'success' && needs.stage.outputs.release_state != 'published' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # The human gate sits here, on the one irreversible action, and after the
@@ -315,7 +454,7 @@ jobs:
         # persisted.
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.verify.outputs.source_sha }}
+          ref: ${{ needs.candidate.outputs.source_sha }}
           persist-credentials: false
           sparse-checkout: .github/actions/install-release-toolchain
           sparse-checkout-cone-mode: false
@@ -334,12 +473,12 @@ jobs:
         # therefore uses curl and jq, which the runner provides.
         uses: ./.github/actions/install-release-toolchain
         with:
-          lockfile-url: https://raw.githubusercontent.com/${{ github.repository }}/${{ needs.verify.outputs.source_sha }}/constraints/release-publish.txt
+          lockfile-url: https://raw.githubusercontent.com/${{ github.repository }}/${{ needs.candidate.outputs.source_sha }}/constraints/release-publish.txt
 
       - name: Confirm the tag still points at the verified commit
         env:
-          RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
-          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
+          RELEASE_TAG: ${{ needs.candidate.outputs.release_tag }}
+          SOURCE_SHA: ${{ needs.candidate.outputs.source_sha }}
         run: |
           set -euo pipefail
           peeled="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${RELEASE_TAG}^{}" | cut -f1)"
@@ -354,24 +493,33 @@ jobs:
       - name: Download verified candidate
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: ${{ needs.verify.outputs.artifact_name }}
+          name: ${{ needs.candidate.outputs.artifact_name }}
           path: dist
 
       - name: Confirm the wheel digest verification approved
         env:
-          WHEEL_FILENAME: ${{ needs.verify.outputs.wheel_filename }}
-          WHEEL_SHA256: ${{ needs.verify.outputs.wheel_sha256 }}
+          WHEEL_FILENAME: ${{ needs.candidate.outputs.wheel_filename }}
+          WHEEL_SHA256: ${{ needs.candidate.outputs.wheel_sha256 }}
         run: |
           set -euo pipefail
           echo "${WHEEL_SHA256}  dist/${WHEEL_FILENAME}" | sha256sum --check --strict
 
       - name: Sign release artifacts
+        # The wheel, and what the declared channel signs besides it: the SBOM
+        # on both lines, and on the advisory line the statement saying what the
+        # release does not claim. Plain shell, because this job runs no
+        # project code.
         env:
-          WHEEL_FILENAME: ${{ needs.verify.outputs.wheel_filename }}
+          WHEEL_FILENAME: ${{ needs.candidate.outputs.wheel_filename }}
+          SIGNED_ASSETS: ${{ needs.candidate.outputs.signed_assets }}
         run: |
-          sigstore sign --output-directory dist --overwrite \
-            "dist/${WHEEL_FILENAME}" \
-            dist/agents-shipgate-sbom.json
+          set -euo pipefail
+          read -r -a signed_assets <<< "${SIGNED_ASSETS:?the candidate names no signed assets}"
+          targets=("dist/${WHEEL_FILENAME}")
+          for asset in "${signed_assets[@]}"; do
+            targets+=("dist/${asset}")
+          done
+          sigstore sign --output-directory dist --overwrite "${targets[@]}"
 
       - name: Publish to PyPI with Trusted Publishing
         # The index is reclassified here rather than reusing `stage`'s result.
@@ -382,11 +530,11 @@ jobs:
         # matter: absent -> upload, identical -> skip and continue, divergent
         # -> fail.
         env:
-          WHEEL_FILENAME: ${{ needs.verify.outputs.wheel_filename }}
-          WHEEL_SHA256: ${{ needs.verify.outputs.wheel_sha256 }}
-          VERSION: ${{ needs.verify.outputs.version }}
-          RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
-          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
+          WHEEL_FILENAME: ${{ needs.candidate.outputs.wheel_filename }}
+          WHEEL_SHA256: ${{ needs.candidate.outputs.wheel_sha256 }}
+          VERSION: ${{ needs.candidate.outputs.version }}
+          RELEASE_TAG: ${{ needs.candidate.outputs.release_tag }}
+          SOURCE_SHA: ${{ needs.candidate.outputs.source_sha }}
         run: |
           set -euo pipefail
           # Classified with curl and jq rather than a candidate-tree helper:
@@ -445,16 +593,17 @@ jobs:
       - name: Upload signatures for finalisation
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: release-signatures-${{ needs.verify.outputs.release_tag }}
+          name: release-signatures-${{ needs.candidate.outputs.release_tag }}
           path: dist/*.sigstore.json
           if-no-files-found: error
           retention-days: 14
 
   finalize:
     name: Finalise release
-    needs: [verify, stage, publish]
+    needs: [candidate, stage, publish]
+    # Each dependency's success is named, never implied: see `candidate`.
     # Nothing to finalise when the transaction already completed.
-    if: needs.stage.outputs.release_state != 'published'
+    if: ${{ !cancelled() && needs.candidate.result == 'success' && needs.stage.result == 'success' && needs.publish.result == 'success' && needs.stage.outputs.release_state != 'published' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Repository write, and no `id-token`: a dependency compromised here cannot
@@ -470,7 +619,7 @@ jobs:
         # runs no project code.
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.verify.outputs.source_sha }}
+          ref: ${{ needs.candidate.outputs.source_sha }}
           persist-credentials: false
           sparse-checkout: .github/actions/install-release-toolchain
           sparse-checkout-cone-mode: false
@@ -483,7 +632,7 @@ jobs:
       - name: Install the hash-locked verification toolchain
         uses: ./.github/actions/install-release-toolchain
         with:
-          lockfile-url: https://raw.githubusercontent.com/${{ github.repository }}/${{ needs.verify.outputs.source_sha }}/constraints/release-publish.txt
+          lockfile-url: https://raw.githubusercontent.com/${{ github.repository }}/${{ needs.candidate.outputs.source_sha }}/constraints/release-publish.txt
 
       - name: Fetch the standard-library verification scripts
         # Fetched by immutable SHA rather than checked out: this job mutates a
@@ -492,7 +641,7 @@ jobs:
         # immutable commit, so re-deriving the notes here reads exactly the
         # bytes verification read.
         env:
-          RAW_BASE: https://raw.githubusercontent.com/${{ github.repository }}/${{ needs.verify.outputs.source_sha }}
+          RAW_BASE: https://raw.githubusercontent.com/${{ github.repository }}/${{ needs.candidate.outputs.source_sha }}
         run: |
           set -euo pipefail
           mkdir -p tools
@@ -511,8 +660,8 @@ jobs:
         # by this point; if the tag moved to B, GitHub's source archives and
         # the release would resolve to different code than the index holds.
         env:
-          RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
-          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
+          RELEASE_TAG: ${{ needs.candidate.outputs.release_tag }}
+          SOURCE_SHA: ${{ needs.candidate.outputs.source_sha }}
         run: |
           set -euo pipefail
           peeled="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${RELEASE_TAG}^{}" | cut -f1)"
@@ -527,18 +676,18 @@ jobs:
       - name: Download verified candidate
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: ${{ needs.verify.outputs.artifact_name }}
+          name: ${{ needs.candidate.outputs.artifact_name }}
           path: dist
 
       - name: Download signatures
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: release-signatures-${{ needs.verify.outputs.release_tag }}
+          name: release-signatures-${{ needs.candidate.outputs.release_tag }}
           path: signatures
 
       - name: Confirm the index holds the verified bytes
         env:
-          WHEEL_FILENAME: ${{ needs.verify.outputs.wheel_filename }}
+          WHEEL_FILENAME: ${{ needs.candidate.outputs.wheel_filename }}
         run: |
           python tools/release_publication.py pypi-state \
             --wheel "dist/${WHEEL_FILENAME}" | tee /dev/stderr | grep -q "published_identical"
@@ -546,7 +695,7 @@ jobs:
       - name: Require the release to still be a draft
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
+          RELEASE_TAG: ${{ needs.candidate.outputs.release_tag }}
         run: |
           set -euo pipefail
           if [ "$(gh release view "${RELEASE_TAG}" --json isDraft --jq .isDraft)" != "true" ]; then
@@ -557,7 +706,7 @@ jobs:
       - name: Attach signatures
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
+          RELEASE_TAG: ${{ needs.candidate.outputs.release_tag }}
         run: gh release upload "${RELEASE_TAG}" signatures/*.sigstore.json --clobber
 
       - name: Validate the exact remote asset set, byte for byte
@@ -567,32 +716,36 @@ jobs:
         # rather than assumed from the staging run.
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
-          WHEEL_FILENAME: ${{ needs.verify.outputs.wheel_filename }}
-          MANIFEST_SHA256: ${{ needs.verify.outputs.manifest_sha256 }}
+          RELEASE_TAG: ${{ needs.candidate.outputs.release_tag }}
+          WHEEL_FILENAME: ${{ needs.candidate.outputs.wheel_filename }}
+          MANIFEST_SHA256: ${{ needs.candidate.outputs.manifest_sha256 }}
+          CHANNEL: ${{ needs.candidate.outputs.channel }}
         run: |
           set -euo pipefail
           rm -rf remote && mkdir -p remote
           gh release download "${RELEASE_TAG}" --dir remote --clobber
-          # Closed-world: the remote set must be exactly the candidate assets
-          # plus the two signature bundles, and every listed byte must match
-          # the digest the verification job recorded.
+          # Closed-world: the remote set must be exactly the declared channel's
+          # candidate assets plus the signature bundles that channel requires,
+          # and every listed byte must match the digest the verification job
+          # recorded.
           python tools/release_publication.py verify-manifest \
             --manifest remote/candidate-manifest.json \
             --expected-sha256 "${MANIFEST_SHA256}" \
+            --expected-channel "${CHANNEL}" \
             --directory remote \
-            --require "${WHEEL_FILENAME}.sigstore.json" \
-            --require agents-shipgate-sbom.json.sigstore.json
+            --require-signatures
           echo "OK: the remote asset set matches the verified candidate exactly."
 
       - name: Verify the attached signatures
         env:
-          RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
-          WHEEL_FILENAME: ${{ needs.verify.outputs.wheel_filename }}
+          RELEASE_TAG: ${{ needs.candidate.outputs.release_tag }}
+          WHEEL_FILENAME: ${{ needs.candidate.outputs.wheel_filename }}
+          SIGNED_ASSETS: ${{ needs.candidate.outputs.signed_assets }}
         run: |
           set -euo pipefail
+          read -r -a signed_assets <<< "${SIGNED_ASSETS:?the candidate names no signed assets}"
           identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@refs/tags/${RELEASE_TAG}"
-          for target in "${WHEEL_FILENAME}" agents-shipgate-sbom.json; do
+          for target in "${WHEEL_FILENAME}" "${signed_assets[@]}"; do
             sigstore verify identity \
               --bundle "remote/${target}.sigstore.json" \
               --cert-identity "${identity}" \
@@ -611,8 +764,8 @@ jobs:
         # verification published, and reapplied in the same API call that
         # undrafts, so whatever the body says in the meantime cannot survive.
         env:
-          RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
-          NOTES_SHA256: ${{ needs.verify.outputs.release_notes_sha256 }}
+          RELEASE_TAG: ${{ needs.candidate.outputs.release_tag }}
+          NOTES_SHA256: ${{ needs.candidate.outputs.release_notes_sha256 }}
         run: |
           python tools/release_notes.py \
             --changelog tools/CHANGELOG.md \
@@ -623,8 +776,8 @@ jobs:
       - name: Finalise GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.verify.outputs.release_tag }}
-          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
+          RELEASE_TAG: ${{ needs.candidate.outputs.release_tag }}
+          SOURCE_SHA: ${{ needs.candidate.outputs.source_sha }}
         run: |
           set -euo pipefail
           # Re-peeled once more: undrafting is the moment the release becomes

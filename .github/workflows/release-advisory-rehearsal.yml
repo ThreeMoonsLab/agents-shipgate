@@ -1,0 +1,48 @@
+name: Advisory Release Rehearsal
+
+# The advisory line's counterpart to `release-rehearsal.yml` (#648). It calls
+# the same reusable workflow `release.yml` calls for a version declared
+# advisory, `release-advisory-verify.yml`, with nothing that can publish.
+#
+# `release.yml`'s `stage` job locates the mandatory rehearsal by workflow file,
+# and takes the file name from the declared channel. This is its own file, so a
+# run of it can never satisfy the qualified line's rehearsal, and a qualified
+# rehearsal can never satisfy an advisory release.
+#
+# The same three properties that keep `release-rehearsal.yml` from publishing
+# hold here: there is no publication job in this file, the workflow grants no
+# write, and nothing can mint an `id-token`. `actions: read` is read-only: the
+# verification locates and downloads the Release Engine Smoke run that
+# exercised the exact candidate.
+#
+# Before dispatching, run Release Engine Smoke on the same commit; see
+# docs/release-runbook.md § The advisory release channel.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: >-
+          Tag to rehearse against. Leave empty to derive v<pyproject version>,
+          which is what the real tag will be.
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  rehearse:
+    name: Rehearse advisory candidate
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/release-advisory-verify.yml
+    with:
+      # `github.sha`, never a free-form ref: see the matching comment in
+      # `release-rehearsal.yml`.
+      ref: ${{ github.sha }}
+      release_tag: ${{ inputs.release_tag }}
+      mode: rehearsal

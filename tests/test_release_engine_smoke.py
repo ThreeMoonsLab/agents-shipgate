@@ -239,7 +239,9 @@ def test_smoke_cannot_publish_or_substitute_for_qualification() -> None:
 
 
 def test_no_other_workflow_can_stamp_a_build_as_a_release_candidate() -> None:
-    """Only two build steps in the repository may claim a source identity.
+    """Only the candidate builds may claim a source identity: the smoke's, and
+    each release verification's sealer. The advisory sealer (#648) is a copy of
+    the qualified one, held identical by `tests/test_release_advisory_pipeline.py`.
 
     A preview, rehearsal or CI build that acquired the stamp would emit an
     adopter workflow pinning an Action SHA and a package version that no
@@ -256,6 +258,7 @@ def test_no_other_workflow_can_stamp_a_build_as_a_release_candidate() -> None:
                 if _ENV in (step.get("env") or {}):
                     stamped.append((path.name, name, step["name"]))
     assert stamped == [
+        ("release-advisory-verify.yml", "artifact", "Build a wheel from the checked-out source"),
         ("release-engine-smoke.yml", "candidate", "Build the exact source candidate"),
         ("release-verify.yml", "artifact", "Build a wheel from the checked-out source"),
     ]

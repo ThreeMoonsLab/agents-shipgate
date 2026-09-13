@@ -335,7 +335,7 @@ def test_release_workflow_uses_release_security_steps():
     # both files discuss the superseded `cyclonedx-py environment` scan in
     # comments explaining why it was replaced.
     commands = []
-    for name in ("release.yml", "release-verify.yml"):
+    for name in ("release.yml", "release-verify.yml", "release-advisory-verify.yml"):
         parsed = yaml.safe_load(Path(".github/workflows", name).read_text(encoding="utf-8"))
         for job in parsed["jobs"].values():
             commands.extend(step["run"] for step in (job.get("steps") or []) if "run" in step)

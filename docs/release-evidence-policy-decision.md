@@ -572,6 +572,9 @@ to arrive after an interval lapses is not the one that can cut a release, and
 failing it punishes the wrong author. `--fail-when-overdue` exists for an
 operator or a scheduled job, and now covers both lines.
 
+*Amendment 5 (2026-09-13) lets the advisory line also publish an ordinary `v*`
+release for a version declared advisory. The rest of this amendment stands.*
+
 ## Amendment 3 — `insufficient_evidence` leaves the ground-truth vocabulary, and four cells hold one case
 
 **Status: decided.**
@@ -672,3 +675,123 @@ decided.
       relaxation.
 - [x] The reason each cell is short is written where a corpus owner reads it —
       `strata-inventory.md` § Why four cells hold one case and not two.
+
+## Amendment 5 — the advisory line may publish a `v*` release
+
+**Status: decided. Owner: Pengfei Hu (`pengfei-threemoonslab`), product/security.
+Recorded 2026-09-13.** Tracked by
+[#648](https://github.com/ThreeMoonsLab/agents-shipgate/issues/648).
+
+The owner decided that 1.0 is the advisory line's release: `v1.0.0`, published
+to PyPI, making no qualified blocking claim. This amendment records what that
+changes in this document, what it does not, and the structure that keeps the
+two claims apart now that they share one tag namespace.
+
+### The rule
+
+**The production-tier bar governs a release that makes a qualified blocking
+claim, not a version number.** Every release version is on one of two
+channels, declared in reviewed code in `.github/release-channels.json`:
+
+- a **qualified** release is unchanged in every respect: `release-verify.yml`,
+  the version-to-tier rule, the signed qualification artifact, the trust roots
+  and the mandatory `release-rehearsal.yml` run;
+- an **advisory** release publishes the wheel, a wheel-scoped SBOM, a
+  provenance record, the candidate manifest and a signed
+  `advisory-statement.json`, and carries no qualification artifact. It is
+  governed by the readiness criteria in
+  [`engineering/v1-release-readiness.md`](engineering/v1-release-readiness.md)
+  (#643), not by a qualification tier.
+
+"No shortcut to 1.0" stays true of the blocking claim. It never applied to a
+release that does not make one.
+
+### What it supersedes, and nothing else
+
+Amendment 4 said the advisory line publishes "through the preview
+pre-release". For a version declared advisory, it may now also publish through
+a `v*` tag and PyPI. The preview channel is unchanged, and so is the rest of
+Amendment 4: the advisory line keeps its own cadence and has no authority.
+
+Amendment 2's C1 kept an unqualified build from consuming a version the
+qualified line needs. An advisory `1.0.0` deliberately consumes `1.0.0`, so
+C1's purpose is restated as the rule it served: **no version carries both
+claims.** A version is declared once, and a tagged version's declaration
+cannot change (`release_channel.assert_history_preserved`, checked against
+this repository's tags by the suite). A qualified claim needs a later version.
+
+### The structure, and why each part has its shape
+
+1. **The channel comes from a declaration, not from what a run finds.**
+   Choosing the qualified path by the presence of a qualification artifact
+   fails open on intent: a qualified release whose download broke would
+   publish as advisory, permanently. A missing, malformed or unknown entry
+   stops the release before anything is built.
+2. **Two verification files, one switch.** `release.yml` calls exactly one of
+   `release-verify.yml` and `release-advisory-verify.yml`, gated on the
+   declared channel, and `release_channel.py candidate` refuses every other
+   outcome before publication reads anything. The advisory file has no
+   qualification step to skip, so C3's reasoning holds: the separation is
+   structural, not a set of `if:` conditions inside the qualified workflow.
+   The steps the two files share are copied byte for byte and held equal by a
+   test, and the advisory file refuses a version declared qualified.
+3. **One publisher.** Staging, index classification, signing, the PyPI upload
+   and finalisation stay single jobs for both channels. PyPI Trusted
+   Publishing is bound to `release.yml`, and a second publisher would mean
+   every integrity fix landing twice.
+4. **A closed asset set per channel.** `release_publication.CHANNEL_ASSETS` is
+   the one table. The manifest records the channel, and staging and
+   finalisation refuse a manifest whose channel or asset set is not the
+   declared channel's. A qualified release cannot drop its qualification
+   artifact, and an advisory release cannot carry one.
+5. **The exact candidate is exercised before publication (#570).** The
+   advisory path publishes the wheel a Release Engine Smoke run installed and
+   ran through both the CLI and the Action for the exact source commit. That
+   run's evidence must name those bytes and that commit, and the wheel must be
+   byte-identical to the one the tagged tree builds. The two builds use
+   different entry points over the same pinned backend; on `e6f1ddff` they
+   produced the same SHA-256.
+6. **The statement is reviewed text.** Its claims are fixed in
+   `scripts/release_channel.py`: no qualification, advisory by default,
+   blocking opt-in. It names no tier and has no key a tier could appear under,
+   and the release signs it with the wheel and the SBOM.
+7. **Rehearsal stays mandatory.** `stage` requires a successful run of the
+   declared channel's own rehearsal file, with a byte-identical candidate
+   manifest.
+8. **Cadence stays honest.** `scripts/release_cadence.py` reads each tag's own
+   declaration, so an advisory `v*` tag counts on the advisory line and never
+   as a gate-line release.
+
+### What is not weakened
+
+- No qualification evidence is marked satisfied. #512, #509 and #510 still
+  govern any qualified claim, and `accepted_qualification_tiers` still admits
+  only `beta` for `1.0` and later.
+- No publication control moves. Write and OIDC authority are never held
+  together, the tag is re-peeled before each irreversible step, the index is
+  classified before anything is mutated, only drafts are mutated, and the
+  remote asset set is verified byte for byte before undrafting.
+- The Action's default is unchanged: `ci_mode: advisory`, with an empty
+  `fail_on`. Blocking stays opt-in, and an advisory release says it is
+  unqualified.
+
+### What would have made this inadmissible
+
+- **Selecting the channel by artifact presence**, the fail-open case above.
+- **A mode in `release-verify.yml`** that skips its qualification steps.
+- **A second publishing workflow**, which would also have needed the PyPI
+  trusted publisher reconfigured outside this repository.
+- **A statement assembled from build output**, or one that names a tier.
+- **Counting an advisory tag on the gate line.**
+
+### Acceptance
+
+- [x] The owner decided the scope — 2026-09-13, on #648.
+- [x] The declaration, its reader and the fail-closed selection —
+      `tests/test_release_channel.py`.
+- [x] The advisory verification, its rehearsal and channel-keyed publication —
+      `tests/test_release_advisory_pipeline.py`, alongside the qualified
+      path's existing invariants in `tests/test_release_pipeline.py`.
+- [x] Cadence reads the declaration — `tests/test_release_channel_cadence.py`.
+- [ ] The first advisory tag publishes through this path; #570 owns its
+      post-publication replay.
