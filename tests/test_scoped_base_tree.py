@@ -300,10 +300,12 @@ class TestNamesOutsideTheSurface:
             archive_tree(root, commit, tmp_path / "base", scope=is_boundary_surface_path)
 
 
-@pytest.mark.parametrize("kind", ["file", "directory", "dangling"])
+@pytest.mark.parametrize("kind", ["directory", "dangling"])
 def test_unbound_symlink_targets_remain_explicit_coverage_limits(tmp_path, kind):
-    # Target type is not part of the identity-bound read. It cannot justify
-    # dropping a candidate, even when it happens to be a regular file now.
+    # A directory can hide a recursive match and a dangling target cannot be
+    # typed, so both stay limits. An in-tree *file* target is typed inside the
+    # identity-bound read and is no longer one (#700, owner decision); see
+    # `test_an_in_tree_file_target_is_not_a_coverage_limit`.
     from agents_shipgate.core.host_grants import inventory_is_complete
 
     root = _host_repo(tmp_path)
@@ -343,3 +345,62 @@ def test_symlink_target_kind_is_not_unbound_negative_coverage(tmp_path, monkeypa
     assert not host_grants.inventory_is_complete(snapshot.inventory)
     assert not host_grants.inventory_is_complete(fresh.inventory)
     assert snapshot.inventory["issues"]
+
+
+def test_an_in_tree_file_target_is_not_a_coverage_limit(tmp_path):
+    from agents_shipgate.core.host_grants import inventory_is_complete
+
+    root = _host_repo(tmp_path)
+    (root / "target").write_text("file")
+    (root / "linked").symlink_to("target")
+    inventory = build_host_boundary_snapshot(root).inventory
+    assert inventory_is_complete(inventory), inventory["issues"]
+    assert not any(issue.get("source") == "linked" for issue in inventory["issues"])
+    assert inventory["grants"]
+
+
+def test_an_in_tree_file_target_swapped_for_a_directory_fails_the_snapshot(tmp_path, monkeypatch):
+    """The in-tree variant of the pinned race: the kind is revalidated at finish."""
+
+    from agents_shipgate.core import host_grants
+
+    root = _host_repo(tmp_path)
+    target = root / "target"
+    target.write_text("file")
+    (root / "linked").symlink_to("target")
+    original = host_grants._repository_paths
+
+    def enumerate_then_replace(*args, **kwargs):
+        result = original(*args, **kwargs)
+        target.unlink()
+        target.mkdir()
+        (target / "CLAUDE.md").write_text("instructions")
+        return result
+
+    with monkeypatch.context() as patch:
+        patch.setattr(host_grants, "_repository_paths", enumerate_then_replace)
+        snapshot = build_host_boundary_snapshot(root)
+    assert not host_grants.inventory_is_complete(snapshot.inventory)
+
+
+def test_a_retargeted_link_fails_the_session(tmp_path):
+    """Re-pointing a link after its target was read fails the snapshot (#700).
+
+    Re-pointing keeps the name and the kind, so neither check sees it; the
+    containing directory's recorded identity does, whether the link sits in the
+    session root or below it.
+    """
+
+    from agents_shipgate.core.trust_roots import IdentityBoundReadSession
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "a.md").write_text("a")
+    (docs / "b.md").write_text("b")
+    (docs / "link.md").symlink_to("a.md")
+    session = IdentityBoundReadSession(tmp_path, max_entries=1000, max_total_bytes=1_000_000)
+    assert session.link_target(Path("docs/link.md")) == "a.md"
+    (docs / "link.md").unlink()
+    (docs / "link.md").symlink_to("b.md")
+    with pytest.raises(ValueError):
+        session.finish()

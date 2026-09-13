@@ -469,6 +469,32 @@ class IdentityBoundReadSession:
         snapshot.entry_kinds[relative.name] = kind
         return kind
 
+    def link_target(self, relative: Path) -> str:
+        """Read one enumerated symbolic link's target text, inside this session (#700).
+
+        The name must be in the directory inventory this session recorded, and
+        it must still be a link; nothing is followed or opened. Re-pointing a
+        link replaces a directory entry, which changes the containing
+        directory's own identity. That identity is recorded when the inventory
+        is taken and revalidated by :meth:`finish`, so a link re-pointed after
+        this read fails the snapshot there. A separate per-link record would
+        catch nothing that check does not.
+        """
+
+        if self._finished or relative.is_absolute() or ".." in relative.parts or not relative.name:
+            raise ValueError("invalid symbolic link observation")
+        directory = self.root / relative.parent
+        if directory not in self._snapshots:
+            self.directory_entries(relative.parent)
+        snapshot = self._snapshots[directory]
+        if relative.name not in snapshot.names:
+            raise ValueError("directory entry changed lexical identity")
+        path = self.root / relative
+        metadata = path.lstat()
+        if not stat.S_ISLNK(metadata.st_mode):
+            raise ValueError("entry is not a symbolic link")
+        return os.readlink(path)
+
     def _inspect_components(
         self,
         relative: Path,

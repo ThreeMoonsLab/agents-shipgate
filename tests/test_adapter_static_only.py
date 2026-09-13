@@ -245,7 +245,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/verify/git.py",
         surface="import:subprocess",
-        line=6,
+        line=7,
         snippet="import subprocess",
         rationale=(
             "Verify uses local git commands to resolve refs, collect diffs, "
@@ -257,7 +257,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/verify/git.py",
         surface="attr_call:subprocess.Popen",
-        line=2161,
+        line=2245,
         snippet=(
             "subprocess.Popen(cmd, env=env, stderr=subprocess.PIPE, "
             "stdin=subprocess.PIPE if input is not None else "
@@ -276,7 +276,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/verify/git.py",
         surface="attr_call:subprocess.run",
-        line=2405,
+        line=2489,
         snippet=(
             "subprocess.run(cmd, capture_output=capture_output, check=check, "
             "env=env, input=input, stderr=stderr, stdin=stdin, stdout=stdout, "

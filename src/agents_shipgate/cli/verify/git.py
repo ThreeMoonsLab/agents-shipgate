@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import posixpath
 import re
 import subprocess
 import tempfile
@@ -1892,12 +1893,16 @@ def _materialize_isolated_tree(
     entries: list[tuple[str, str, str]] = []
     links: list[tuple[str, str]] = []
     portable_paths: dict[str, str] = {}
+    #: Every entry's object type, in or out of scope, so a link's target type
+    #: can be read from the tree rather than from what was materialized.
+    tree_types: dict[str, str] = {}
     for raw in listing.split(b"\0"):
         if not raw:
             continue
         metadata, raw_path = raw.split(b"\t", 1)
         mode, object_type, oid = metadata.decode("ascii").split(" ", 2)
         path_text = raw_path.decode("utf-8", errors="strict")
+        tree_types[path_text] = "link" if mode == "120000" else object_type
         if scope is not None and mode != "120000" and not scope(path_text):
             # Out of scope is not merely unmaterialized, it is unexamined:
             # the portability and collision checks below describe the tree
@@ -1967,6 +1972,7 @@ def _materialize_isolated_tree(
         if mode == "100755":
             os.chmod(target, 0o755)
 
+    link_texts: dict[str, str] = {}
     for oid, path_text in links:
         target = root / path_text
         if not _within(root, target.parent):
@@ -1978,15 +1984,93 @@ def _materialize_isolated_tree(
         # The link's own text is the blob. It may point anywhere, including
         # out of the tree — the reader opens it with O_NOFOLLOW and records
         # the failure, which is exactly what it does on the live worktree.
-        os.symlink(blob.decode("utf-8", errors="strict"), target)
+        link_text = blob.decode("utf-8", errors="strict")
+        os.symlink(link_text, target)
+        link_texts[path_text] = link_text
+
+    placeholders = (
+        _materialize_link_target_types(root, link_texts, tree_types)
+        if scope is not None
+        else set()
+    )
 
     materialized = {
-        path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        relative: hashlib.sha256(path.read_bytes()).hexdigest()
         for path in root.rglob("*")
-        if path.is_file() and not path.is_symlink()
+        if path.is_file()
+        and not path.is_symlink()
+        and (relative := path.relative_to(root).as_posix()) not in placeholders
     }
     if materialized != expected_digests:
         raise ConfigError("Materialized Git tree differs from the verified object graph")
+
+
+#: How many links one resolution may pass through before it counts as unresolved.
+_MAX_TREE_LINK_HOPS = 8
+
+
+def _resolve_tree_link(path_text: str, link_texts: dict[str, str]) -> str | None:
+    """Where an in-tree link lands, by the tree's own names, or ``None``.
+
+    Lexical only, and deliberately narrow: an absolute target, a target that
+    leaves the tree, a chain longer than the hop bound, or any path with a link
+    as an *intermediate* component is unresolved. Unresolved is the answer the
+    reader already gives such a link, so nothing below is ever written through
+    one.
+    """
+
+    current = path_text
+    for _ in range(_MAX_TREE_LINK_HOPS):
+        text = link_texts.get(current)
+        if text is None:
+            return current
+        if not text or text.startswith("/"):
+            return None
+        joined = posixpath.normpath(posixpath.join(posixpath.dirname(current), text))
+        if joined in {".", ".."} or joined.startswith("../"):
+            return None
+        parts = joined.split("/")
+        if any("/".join(parts[:index]) in link_texts for index in range(1, len(parts))):
+            return None
+        current = joined
+    return None
+
+
+def _materialize_link_target_types(
+    root: Path, link_texts: dict[str, str], tree_types: dict[str, str]
+) -> set[str]:
+    """Give each recreated link a target of the type the tree says it has (#700).
+
+    A scoped archive writes only the paths a reader opens, so a link to an
+    out-of-scope file dangled here while it resolved in the worktree. The reader
+    types a link's target to decide whether it may conceal a recursive match,
+    and a dangling link does, so `changelog.md -> README.md` made the base side
+    incomplete and every comparison in the repository refused.
+
+    The placeholder carries the target's type, never its content: an empty file
+    or an empty directory, at a path the scope already excluded because no
+    reader opens it. Returns the placeholder files, which the digest check must
+    not count as materialized blobs.
+    """
+
+    placeholders: set[str] = set()
+    for path_text in sorted(link_texts):
+        resolved = _resolve_tree_link(path_text, link_texts)
+        if resolved is None:
+            continue
+        object_type = tree_types.get(resolved)
+        target = root / resolved
+        if object_type not in {"blob", "tree"} or os.path.lexists(target):
+            continue
+        if not _within(root, target.parent):
+            continue
+        if object_type == "tree":
+            target.mkdir(parents=True, exist_ok=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"")
+            placeholders.add(resolved)
+    return placeholders
 
 
 def _within(root: Path, candidate: Path) -> bool:
