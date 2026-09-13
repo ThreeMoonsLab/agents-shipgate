@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Stop calling a narrowed allow rule an expanded allowlist in `check` and
+  `verify` (#661). The host boundary evaluator compared rule text by set
+  difference, so tightening `Bash(*)` to `Bash(git status)` in
+  `.claude/settings.json` or `.cursor/cli.json` raised
+  `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED`, and in an adopted repository
+  the Stop hook handed that narrowing to a human as an expansion. An added rule
+  that an old rule already subsumes now raises nothing, read from the same
+  permission lattice the drift reader and the audit table use (#657). A pair
+  the lattice cannot decide still counts as an expansion.
+
 - Keep credential-shaped bytes in a directory or file name out of host inventory
   output (#590). `artifacts[].path`, `grants[].source`, `grants[].path`,
   `host_coverage[].sources_observed`, the saved baseline, drift and `verify`'s
