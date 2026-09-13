@@ -1,11 +1,11 @@
 {
-  "expected_changes": 1,
+  "expected_changes": 2,
   "missing": 0,
   "missing_detail": "",
-  "rows_on_file": 1,
-  "scope": "unsupported",
+  "rows_on_file": 2,
+  "scope": "supported",
   "stop_point": "comparison_comparable",
-  "success": false,
+  "success": true,
   "unexpected": 0,
   "unexpected_detail": ""
 }

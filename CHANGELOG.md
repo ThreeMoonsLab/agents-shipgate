@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Read Claude Code `extraKnownMarketplaces`, so adding, removing or
+  re-pointing a plugin marketplace produces a row (#720). `enabledPlugins`
+  entries install from those marketplaces, but only the plugins were read. The
+  #660 cold start saw `open-learning-exchange/myplanet` add a marketplace beside
+  its plugin, and the engine named only the plugin. Each marketplace is now a
+  `plugin_or_app` grant named `marketplace:<name>`, so no schema changes. Adding
+  or re-pointing one is an expansion; removing one is not. The cold-start oracle
+  now counts the key as supported, and `myplanet` replays as a covered success.
+
 - Read a FastMCP tool's literal `readOnlyHint` and `destructiveHint` from source,
   as claims for `SHIP-MCP-ANNOTATION-CONTRADICTION` to challenge (#658). The
   source route read no hints at all, so a server whose source says
