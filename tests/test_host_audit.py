@@ -495,7 +495,9 @@ def test_repository_globstar_boundary_fails_closed_on_symlink_ancestor(
     assert coverage["status"] == "partial"
 
 
-def test_vscode_present_is_experimental_and_cannot_baseline(tmp_path: Path) -> None:
+def test_vscode_present_is_complete_and_can_baseline(tmp_path: Path) -> None:
+    """VS Code MCP is a supported surface (#731, owner decision)."""
+
     vscode = tmp_path / ".vscode"
     vscode.mkdir()
     (vscode / "mcp.json").write_text(
@@ -503,11 +505,12 @@ def test_vscode_present_is_experimental_and_cannot_baseline(tmp_path: Path) -> N
     )
     inventory = host_audit_inventory(tmp_path)
     coverage = next(item for item in inventory["host_coverage"] if item["host"] == "vscode")
-    assert coverage["status"] == "experimental"
+    assert coverage["status"] == "complete"
     result = runner.invoke(
         app, ["audit", "--host", "--workspace", str(tmp_path), "--save-baseline"]
     )
-    assert result.exit_code == 2
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / ".agents-shipgate/host-grants.json").is_file()
 
 
 def test_cli_scope_and_json_out(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
