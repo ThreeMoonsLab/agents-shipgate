@@ -31,6 +31,11 @@ _SKILL_FIELDS = frozenset({
     "paths", "shell",
 })
 _CURSOR_FIELDS = frozenset({"description", "globs", "alwaysApply"})
+#: A Cursor rule's `globs:` as Cursor writes it: a bare pattern such as
+#: `*.json` or `**/*.java, **/pom.xml`. A leading `*` is YAML's alias
+#: indicator, so the value was refused as invalid YAML and the whole
+#: repository's comparison with it (#729). Top-level `globs:` only.
+_CURSOR_BARE_GLOBS = re.compile(r"^globs:[ \t]*(\*[^\r\n]*?)[ \t]*$")
 _COMMAND_FIELDS = frozenset({
     "description", "allowed-tools", "argument-hint", "model",
     "disable-model-invocation", "hooks",
@@ -227,6 +232,18 @@ def classify_instruction(path: str, text: str | None) -> InstructionStructure | 
     )
     if close is None:
         return unresolved("frontmatter_unterminated")
+    if profile == "cursor_instruction/v1" and has_frontmatter:
+        # Read the bare glob as the literal string Cursor reads it as. Both
+        # parses below see the same rewrite, and any other alias still refuses.
+        lines = [
+            (
+                "globs: '" + match.group(1).replace("'", "''") + "'"
+                if 0 < index < close and (match := _CURSOR_BARE_GLOBS.match(line))
+                else line
+            )
+            for index, line in enumerate(lines)
+        ]
+        text = "\n".join(lines)
     header = "\n".join(lines[1:close]) if has_frontmatter else ""
     if len(header.encode()) > MAX_FRONTMATTER_BYTES:
         return unresolved("frontmatter_limit")
