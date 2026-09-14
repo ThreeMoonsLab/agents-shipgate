@@ -35,11 +35,12 @@ version.
   (#661)
 - **The control envelope names the change** in a bounded `capability_rows`
   block, and the generated agent instructions lead with it. (#662)
-- **Measured, including where it falls short.** On ten pinned public MCP
-  servers, 76 findings with 1 false (1.3%). Host-config row precision is 69 of
-  69 on 50 public PRs, while widening recall (54 of 64) and the benign zero-row
-  rate (5 of 6) are below their bars; each miss is named in its run. (#658,
-  #659, #660)
+- **Measured, including where it falls short.** In the committed runs: ten
+  pinned public MCP servers gave 76 findings, 1 false (1.3%, bar under 2%); a
+  fresh clone reached a correct comparison in 26 of 30 public repositories
+  (bar 24); on 50 public host-config PRs, row precision is 69 of 69, while
+  widening recall (54 of 64) and the benign zero-row rate (5 of 6) stay below
+  their bars, with every miss named in its run. (#658, #660, #659)
 - **The report contract is frozen at `1.0`.** (#569)
 - **An advisory version publishes through the ordinary release pipeline**,
   declared in `.github/release-channels.json`. (#648)
