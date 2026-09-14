@@ -1,0 +1,1203 @@
+{
+  "records": [
+    {
+      "commit": "7d13a7ad6f2a17f351a6d77ce280c85ae1821f4d",
+      "coverage": {
+        "annotations_unresolved": 27,
+        "descriptions_unresolved": 5,
+        "surface_partial": 40,
+        "unenumerated_registrations": 43
+      },
+      "exit": 0,
+      "findings": [
+        {
+          "check_id": "SHIP-DOC-MISSING-DESCRIPTION",
+          "evidence": {
+            "description_length": 17
+          },
+          "line": 174,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "pkg/github/gists.go",
+          "tool": "create_gist"
+        },
+        {
+          "check_id": "SHIP-INVENTORY-TOOL-SURFACE-TOO-LARGE",
+          "evidence": {
+            "threshold": 50,
+            "tool_count": 114
+          },
+          "line": null,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "",
+          "tool": ""
+        }
+      ],
+      "repo": "github/github-mcp-server",
+      "route": "pkg/github",
+      "seconds": 2.37,
+      "server": "github-mcp-server",
+      "tools": 114
+    },
+    {
+      "commit": "fa089136f4fcc0417a0beeaf8f0ec7aa5d70c4fa",
+      "coverage": {
+        "annotations_unresolved": 0,
+        "descriptions_unresolved": 12,
+        "surface_partial": 0,
+        "unenumerated_registrations": 3
+      },
+      "exit": 0,
+      "findings": [],
+      "repo": "mongodb-js/mongodb-mcp-server",
+      "route": "packages",
+      "seconds": 1.46,
+      "server": "mongodb-mcp-server",
+      "tools": 50
+    },
+    {
+      "commit": "ffd90536d160ff4f3eb4a4fa79217455b8f22f0c",
+      "coverage": {
+        "annotations_unresolved": 0,
+        "descriptions_unresolved": 19,
+        "surface_partial": 0,
+        "unenumerated_registrations": 0
+      },
+      "exit": 0,
+      "findings": [
+        {
+          "check_id": "SHIP-INVENTORY-TOOL-SURFACE-TOO-LARGE",
+          "evidence": {
+            "threshold": 50,
+            "tool_count": 109
+          },
+          "line": null,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "",
+          "tool": ""
+        }
+      ],
+      "repo": "grafana/mcp-grafana",
+      "route": "tools",
+      "seconds": 1.57,
+      "server": "mcp-grafana",
+      "tools": 109
+    },
+    {
+      "commit": "d73f99efbfd40c3aa1b61e88728b3d49fb52608f",
+      "coverage": {
+        "annotations_unresolved": 0,
+        "descriptions_unresolved": 13,
+        "surface_partial": 0,
+        "unenumerated_registrations": 0
+      },
+      "exit": 0,
+      "findings": [],
+      "repo": "modelcontextprotocol/servers",
+      "route": "src/filesystem",
+      "seconds": 0.81,
+      "server": "filesystem",
+      "tools": 14
+    },
+    {
+      "commit": "9be4674d1ddf8c469e6461a27a337eeb65f76c2e",
+      "coverage": {
+        "annotations_unresolved": 0,
+        "descriptions_unresolved": 0,
+        "surface_partial": 0,
+        "unenumerated_registrations": 0
+      },
+      "exit": 0,
+      "findings": [
+        {
+          "check_id": "SHIP-INVENTORY-NOT-ENUMERABLE",
+          "evidence": {
+            "tool_sources": [
+              "server"
+            ]
+          },
+          "line": null,
+          "policy_eligible": null,
+          "severity": "high",
+          "source_path": "",
+          "tool": ""
+        }
+      ],
+      "repo": "modelcontextprotocol/servers-archived",
+      "route": "src/postgres",
+      "seconds": 0.73,
+      "server": "postgres",
+      "tools": 0
+    },
+    {
+      "commit": "56de4c0f377cda61cfab5b9f0c6c2a70c0b70d60",
+      "coverage": {
+        "annotations_unresolved": 8,
+        "descriptions_unresolved": 3,
+        "surface_partial": 170,
+        "unenumerated_registrations": 349
+      },
+      "exit": 0,
+      "findings": [
+        {
+          "check_id": "SHIP-INVENTORY-TOOL-SURFACE-TOO-LARGE",
+          "evidence": {
+            "threshold": 50,
+            "tool_count": 262
+          },
+          "line": null,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "",
+          "tool": ""
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 90,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/bedrock-kb-retrieval-mcp-server/awslabs/bedrock_kb_retrieval_mcp_server/server.py",
+          "tool": "ListKnowledgeBases"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 46,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/amazon-qbusiness-anonymous-mcp-server/awslabs/amazon_qbusiness_anonymous_mcp_server/server.py",
+          "tool": "QBusinessQueryTool"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 131,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/bedrock-kb-retrieval-mcp-server/awslabs/bedrock_kb_retrieval_mcp_server/server.py",
+          "tool": "QueryKnowledgeBases"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 135,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/amazon-keyspaces-mcp-server/awslabs/amazon_keyspaces_mcp_server/server.py",
+          "tool": "analyzeQueryPerformance"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 1010,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/cloudwatch-applicationsignals-mcp-server/awslabs/cloudwatch_applicationsignals_mcp_server/server.py",
+          "tool": "analyze_canary_failures"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 754,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/cloudwatch-applicationsignals-mcp-server/awslabs/cloudwatch_applicationsignals_mcp_server/server.py",
+          "tool": "audit_service_operations"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 166,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/cloudwatch-applicationsignals-mcp-server/awslabs/cloudwatch_applicationsignals_mcp_server/server.py",
+          "tool": "audit_services"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 500,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/cloudwatch-applicationsignals-mcp-server/awslabs/cloudwatch_applicationsignals_mcp_server/server.py",
+          "tool": "audit_slos"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 187,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py",
+          "tool": "cache_add"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 237,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py",
+          "tool": "cache_append"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 122,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py",
+          "tool": "cache_cas"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 365,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py",
+          "tool": "cache_decr"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 283,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py",
+          "tool": "cache_delete"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 305,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py",
+          "tool": "cache_delete_many"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 328,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py",
+          "tool": "cache_delete_multi"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 430,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py",
+          "tool": "cache_flush_all"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 24,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py",
+          "tool": "cache_get"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 65,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py",
+          "tool": "cache_get_many"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 85,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py",
+          "tool": "cache_get_multi"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 44,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py",
+          "tool": "cache_gets"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 341,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py",
+          "tool": "cache_incr"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 260,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py",
+          "tool": "cache_prepend"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 452,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py",
+          "tool": "cache_quit"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 212,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py",
+          "tool": "cache_replace"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 98,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py",
+          "tool": "cache_set"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 148,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py",
+          "tool": "cache_set_many"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 173,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py",
+          "tool": "cache_set_multi"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 412,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py",
+          "tool": "cache_stats"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 389,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py",
+          "tool": "cache_touch"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 468,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py",
+          "tool": "cache_version"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 484,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/aws-iac-mcp-server/awslabs/aws_iac_mcp_server/server.py",
+          "tool": "cdk_best_practices"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 144,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/aws-iac-mcp-server/awslabs/aws_iac_mcp_server/server.py",
+          "tool": "check_cloudformation_template_compliance"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 284,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/mssql-mcp-server/awslabs/mssql_mcp_server/server.py",
+          "tool": "connect_to_database"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 386,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/mysql-mcp-server/awslabs/mysql_mcp_server/server.py",
+          "tool": "create_cluster"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 97,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/amazon-keyspaces-mcp-server/awslabs/amazon_keyspaces_mcp_server/server.py",
+          "tool": "describeKeyspace"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 109,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/amazon-keyspaces-mcp-server/awslabs/amazon_keyspaces_mcp_server/server.py",
+          "tool": "describeTable"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 499,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/roda-mcp-server/awslabs/roda_mcp_server/server.py",
+          "tool": "discover_by_license"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 460,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/roda-mcp-server/awslabs/roda_mcp_server/server.py",
+          "tool": "discover_by_organization"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 122,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/amazon-keyspaces-mcp-server/awslabs/amazon_keyspaces_mcp_server/server.py",
+          "tool": "executeQuery"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 550,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/roda-mcp-server/awslabs/roda_mcp_server/server.py",
+          "tool": "find_related_datasets"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 605,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/aws-pricing-mcp-server/awslabs/aws_pricing_mcp_server/server.py",
+          "tool": "generate_cost_report"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 143,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/aws-documentation-mcp-server/awslabs/aws_documentation_mcp_server/server_aws_cn.py",
+          "tool": "get_available_services"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 564,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/aws-pricing-mcp-server/awslabs/aws_pricing_mcp_server/server.py",
+          "tool": "get_bedrock_patterns"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 263,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/aws-iac-mcp-server/awslabs/aws_iac_mcp_server/server.py",
+          "tool": "get_cloudformation_pre_deploy_validation_instructions"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 345,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/mssql-mcp-server/awslabs/mssql_mcp_server/server.py",
+          "tool": "get_database_connection_info"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 420,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/roda-mcp-server/awslabs/roda_mcp_server/server.py",
+          "tool": "get_dataset_details"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 383,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/aws-api-mcp-server/awslabs/aws_api_mcp_server/server.py",
+          "tool": "get_execution_plan"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 87,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/amazon-neptune-mcp-server/awslabs/amazon_neptune_mcp_server/server.py",
+          "tool": "get_graph_status"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 589,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/roda-mcp-server/awslabs/roda_mcp_server/server.py",
+          "tool": "get_knowledge_base_stats"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 210,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/mssql-mcp-server/awslabs/mssql_mcp_server/server.py",
+          "tool": "get_table_schema"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 74,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/amazon-keyspaces-mcp-server/awslabs/amazon_keyspaces_mcp_server/server.py",
+          "tool": "listKeyspaces"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 85,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/amazon-keyspaces-mcp-server/awslabs/amazon_keyspaces_mcp_server/server.py",
+          "tool": "listTables"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 1624,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/cloudwatch-applicationsignals-mcp-server/awslabs/cloudwatch_applicationsignals_mcp_server/server.py",
+          "tool": "list_canaries"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 369,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/roda-mcp-server/awslabs/roda_mcp_server/server.py",
+          "tool": "list_datasets"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 603,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/roda-mcp-server/awslabs/roda_mcp_server/server.py",
+          "tool": "preview_dataset"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 118,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/aws-documentation-mcp-server/awslabs/aws_documentation_mcp_server/server_aws.py",
+          "tool": "read_documentation"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 198,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/aws-documentation-mcp-server/awslabs/aws_documentation_mcp_server/server_aws.py",
+          "tool": "read_sections"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 133,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/mssql-mcp-server/awslabs/mssql_mcp_server/server.py",
+          "tool": "run_query"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 880,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/roda-mcp-server/awslabs/roda_mcp_server/server.py",
+          "tool": "sample_dataset"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 296,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/aws-iac-mcp-server/awslabs/aws_iac_mcp_server/server.py",
+          "tool": "search_cdk_documentation"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 415,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/aws-iac-mcp-server/awslabs/aws_iac_mcp_server/server.py",
+          "tool": "search_cdk_samples_and_constructs"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 360,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/aws-iac-mcp-server/awslabs/aws_iac_mcp_server/server.py",
+          "tool": "search_cloudformation_documentation"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 222,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/roda-mcp-server/awslabs/roda_mcp_server/server.py",
+          "tool": "search_datasets"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 1185,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/roda-mcp-server/awslabs/roda_mcp_server/server.py",
+          "tool": "search_stac_endpoints"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 199,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/aws-iac-mcp-server/awslabs/aws_iac_mcp_server/server.py",
+          "tool": "troubleshoot_cloudformation_deployment"
+        },
+        {
+          "check_id": "SHIP-SCHEMA-FREEFORM-OUTPUT",
+          "evidence": {
+            "output_schema": {
+              "type": "string"
+            }
+          },
+          "line": 87,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "src/aws-iac-mcp-server/awslabs/aws_iac_mcp_server/server.py",
+          "tool": "validate_cloudformation_template"
+        }
+      ],
+      "repo": "awslabs/mcp",
+      "route": "src",
+      "seconds": 6.86,
+      "server": "awslabs-mcp",
+      "tools": 262
+    },
+    {
+      "commit": "db9084730dd45ebb6ac4dd5d3181d189cc96e98d",
+      "coverage": {
+        "annotations_unresolved": 0,
+        "descriptions_unresolved": 2,
+        "surface_partial": 0,
+        "unenumerated_registrations": 0
+      },
+      "exit": 0,
+      "findings": [
+        {
+          "check_id": "SHIP-INVENTORY-TOOL-SURFACE-TOO-LARGE",
+          "evidence": {
+            "threshold": 50,
+            "tool_count": 80
+          },
+          "line": null,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "",
+          "tool": ""
+        }
+      ],
+      "repo": "cloudflare/mcp-server-cloudflare",
+      "route": ".",
+      "seconds": 2.01,
+      "server": "mcp-server-cloudflare",
+      "tools": 80
+    },
+    {
+      "commit": "140e3c81fc9c0fc3b4eecd637a54d637a56f9f2e",
+      "coverage": {
+        "annotations_unresolved": 2,
+        "descriptions_unresolved": 0,
+        "surface_partial": 0,
+        "unenumerated_registrations": 0
+      },
+      "exit": 0,
+      "findings": [
+        {
+          "check_id": "SHIP-INVENTORY-TOOL-SURFACE-TOO-LARGE",
+          "evidence": {
+            "threshold": 50,
+            "tool_count": 61
+          },
+          "line": null,
+          "policy_eligible": null,
+          "severity": "medium",
+          "source_path": "",
+          "tool": ""
+        },
+        {
+          "check_id": "SHIP-MCP-ANNOTATION-CONTRADICTION",
+          "evidence": {
+            "annotation_changes": [],
+            "annotation_surface_changed": null,
+            "client_consequence": "MCP clients that honor these annotations may show too little confirmation before a side-effecting call.",
+            "contradictions": [
+              {
+                "annotation": "readOnlyHint",
+                "contradicting_effects": [
+                  "destructive",
+                  "production_operation"
+                ],
+                "published_value": true
+              },
+              {
+                "annotation": "destructiveHint",
+                "contradicting_effects": [
+                  "destructive"
+                ],
+                "published_value": false
+              }
+            ],
+            "form": "static",
+            "independent_evidence": [
+              {
+                "basis": "inferred_keyword",
+                "confidence": "medium",
+                "details": {
+                  "hint_source": "keyword",
+                  "tag": "destructive"
+                },
+                "effect": "destructive",
+                "source": "risk_hint:keyword",
+                "source_pointer": null
+              },
+              {
+                "basis": "inferred_keyword",
+                "confidence": "medium",
+                "details": {
+                  "hint_source": "keyword",
+                  "tag": "infrastructure_change"
+                },
+                "effect": "production_operation",
+                "source": "risk_hint:keyword",
+                "source_pointer": null
+              }
+            ],
+            "independent_evidence_unchanged": null,
+            "published_annotations": {
+              "destructiveHint": false,
+              "readOnlyHint": true
+            }
+          },
+          "line": 18,
+          "policy_eligible": false,
+          "severity": "high",
+          "source_path": "pkg/tools/tfe/get_plan_json_output.go",
+          "tool": "get_plan_json_output"
+        }
+      ],
+      "repo": "hashicorp/terraform-mcp-server",
+      "route": "pkg",
+      "seconds": 1.25,
+      "server": "terraform-mcp-server",
+      "tools": 61
+    },
+    {
+      "commit": "d73f99efbfd40c3aa1b61e88728b3d49fb52608f",
+      "coverage": {
+        "annotations_unresolved": 0,
+        "descriptions_unresolved": 0,
+        "surface_partial": 0,
+        "unenumerated_registrations": 18
+      },
+      "exit": 0,
+      "findings": [
+        {
+          "check_id": "SHIP-INVENTORY-NOT-ENUMERABLE",
+          "evidence": {
+            "tool_sources": [
+              "server"
+            ]
+          },
+          "line": null,
+          "policy_eligible": null,
+          "severity": "high",
+          "source_path": "",
+          "tool": ""
+        }
+      ],
+      "repo": "modelcontextprotocol/servers",
+      "route": "src/everything",
+      "seconds": 0.89,
+      "server": "everything",
+      "tools": 0
+    },
+    {
+      "commit": "d73f99efbfd40c3aa1b61e88728b3d49fb52608f",
+      "coverage": {
+        "annotations_unresolved": 0,
+        "descriptions_unresolved": 0,
+        "surface_partial": 0,
+        "unenumerated_registrations": 0
+      },
+      "exit": 0,
+      "findings": [
+        {
+          "check_id": "SHIP-INVENTORY-NOT-ENUMERABLE",
+          "evidence": {
+            "tool_sources": [
+              "server"
+            ]
+          },
+          "line": null,
+          "policy_eligible": null,
+          "severity": "high",
+          "source_path": "",
+          "tool": ""
+        }
+      ],
+      "repo": "modelcontextprotocol/servers",
+      "route": "src/fetch",
+      "seconds": 0.97,
+      "server": "fetch",
+      "tools": 0
+    }
+  ],
+  "selection_frozen_at": "2026-09-13",
+  "wheel": "agents_shipgate-0.16.0-py3-none-any.whl",
+  "wheel_sha256": "19db41ed74da07d1046c97ae1a29dd01db80d1df23a686447d2e0da5a601d21f"
+}

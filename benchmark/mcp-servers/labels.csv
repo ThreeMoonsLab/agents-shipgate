@@ -1,0 +1,77 @@
+server,check_id,tool,source_path,label,rule,note
+awslabs-mcp,SHIP-INVENTORY-TOOL-SURFACE-TOO-LARGE,,,true,count_exceeds_threshold,262 registered tools exceed the threshold of 50
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,ListKnowledgeBases,src/bedrock-kb-retrieval-mcp-server/awslabs/bedrock_kb_retrieval_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,QBusinessQueryTool,src/amazon-qbusiness-anonymous-mcp-server/awslabs/amazon_qbusiness_anonymous_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,QueryKnowledgeBases,src/bedrock-kb-retrieval-mcp-server/awslabs/bedrock_kb_retrieval_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,analyzeQueryPerformance,src/amazon-keyspaces-mcp-server/awslabs/amazon_keyspaces_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,analyze_canary_failures,src/cloudwatch-applicationsignals-mcp-server/awslabs/cloudwatch_applicationsignals_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,audit_service_operations,src/cloudwatch-applicationsignals-mcp-server/awslabs/cloudwatch_applicationsignals_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,audit_services,src/cloudwatch-applicationsignals-mcp-server/awslabs/cloudwatch_applicationsignals_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,audit_slos,src/cloudwatch-applicationsignals-mcp-server/awslabs/cloudwatch_applicationsignals_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cache_add,src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cache_append,src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cache_cas,src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cache_decr,src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cache_delete,src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cache_delete_many,src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cache_delete_multi,src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cache_flush_all,src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cache_get,src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cache_get_many,src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cache_get_multi,src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cache_gets,src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cache_incr,src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cache_prepend,src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cache_quit,src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cache_replace,src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cache_set,src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cache_set_many,src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cache_set_multi,src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cache_stats,src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cache_touch,src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cache_version,src/memcached-mcp-server/awslabs/memcached_mcp_server/tools/cache.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,cdk_best_practices,src/aws-iac-mcp-server/awslabs/aws_iac_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,check_cloudformation_template_compliance,src/aws-iac-mcp-server/awslabs/aws_iac_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,connect_to_database,src/mssql-mcp-server/awslabs/mssql_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,create_cluster,src/mysql-mcp-server/awslabs/mysql_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,describeKeyspace,src/amazon-keyspaces-mcp-server/awslabs/amazon_keyspaces_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,describeTable,src/amazon-keyspaces-mcp-server/awslabs/amazon_keyspaces_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,discover_by_license,src/roda-mcp-server/awslabs/roda_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,discover_by_organization,src/roda-mcp-server/awslabs/roda_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,executeQuery,src/amazon-keyspaces-mcp-server/awslabs/amazon_keyspaces_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,find_related_datasets,src/roda-mcp-server/awslabs/roda_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,generate_cost_report,src/aws-pricing-mcp-server/awslabs/aws_pricing_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,get_available_services,src/aws-documentation-mcp-server/awslabs/aws_documentation_mcp_server/server_aws_cn.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,get_bedrock_patterns,src/aws-pricing-mcp-server/awslabs/aws_pricing_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,get_cloudformation_pre_deploy_validation_instructions,src/aws-iac-mcp-server/awslabs/aws_iac_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,get_database_connection_info,src/mssql-mcp-server/awslabs/mssql_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,get_dataset_details,src/roda-mcp-server/awslabs/roda_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,get_execution_plan,src/aws-api-mcp-server/awslabs/aws_api_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,get_graph_status,src/amazon-neptune-mcp-server/awslabs/amazon_neptune_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,get_knowledge_base_stats,src/roda-mcp-server/awslabs/roda_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,get_table_schema,src/mssql-mcp-server/awslabs/mssql_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,listKeyspaces,src/amazon-keyspaces-mcp-server/awslabs/amazon_keyspaces_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,listTables,src/amazon-keyspaces-mcp-server/awslabs/amazon_keyspaces_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,list_canaries,src/cloudwatch-applicationsignals-mcp-server/awslabs/cloudwatch_applicationsignals_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,list_datasets,src/roda-mcp-server/awslabs/roda_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,preview_dataset,src/roda-mcp-server/awslabs/roda_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,read_documentation,src/aws-documentation-mcp-server/awslabs/aws_documentation_mcp_server/server_aws.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,read_sections,src/aws-documentation-mcp-server/awslabs/aws_documentation_mcp_server/server_aws.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,run_query,src/mssql-mcp-server/awslabs/mssql_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,sample_dataset,src/roda-mcp-server/awslabs/roda_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,search_cdk_documentation,src/aws-iac-mcp-server/awslabs/aws_iac_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,search_cdk_samples_and_constructs,src/aws-iac-mcp-server/awslabs/aws_iac_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,search_cloudformation_documentation,src/aws-iac-mcp-server/awslabs/aws_iac_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,search_datasets,src/roda-mcp-server/awslabs/roda_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,search_stac_endpoints,src/roda-mcp-server/awslabs/roda_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,troubleshoot_cloudformation_deployment,src/aws-iac-mcp-server/awslabs/aws_iac_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+awslabs-mcp,SHIP-SCHEMA-FREEFORM-OUTPUT,validate_cloudformation_template,src/aws-iac-mcp-server/awslabs/aws_iac_mcp_server/server.py,true,returns_unstructured_text,the handler is annotated `-> str`
+everything,SHIP-INVENTORY-NOT-ENUMERABLE,,,true,registration_names_not_literal,"`server.registerTool(name, config, …)` passes a `name` bound to a constant, so every registration is recorded as name_not_literal and none is enumerated (a missed supported signal)"
+fetch,SHIP-INVENTORY-NOT-ENUMERABLE,,,true,registration_api_not_read,"tools are listed by an `@server.list_tools()` handler in src/fetch/src/mcp_server_fetch/server.py, a low-level API no shipped idiom reads"
+github-mcp-server,SHIP-DOC-MISSING-DESCRIPTION,create_gist,pkg/github/gists.go,true,description_shorter_than_minimum,"`Create a new gist`, 17 characters, below the 20-character minimum"
+github-mcp-server,SHIP-INVENTORY-TOOL-SURFACE-TOO-LARGE,,,true,count_exceeds_threshold,114 registered tools exceed the threshold of 50
+mcp-grafana,SHIP-INVENTORY-TOOL-SURFACE-TOO-LARGE,,,true,count_exceeds_threshold,109 registered tools exceed the threshold of 50
+mcp-server-cloudflare,SHIP-INVENTORY-TOOL-SURFACE-TOO-LARGE,,,true,count_exceeds_threshold,80 registered tools exceed the threshold of 50
+postgres,SHIP-INVENTORY-NOT-ENUMERABLE,,,true,registration_api_not_read,"tools are registered with `server.setRequestHandler(ListToolsRequestSchema, …)` in src/postgres/index.ts, a low-level API no shipped idiom reads"
+terraform-mcp-server,SHIP-INVENTORY-TOOL-SURFACE-TOO-LARGE,,,true,count_exceeds_threshold,61 registered tools exceed the threshold of 50
+terraform-mcp-server,SHIP-MCP-ANNOTATION-CONTRADICTION,get_plan_json_output,pkg/tools/tfe/get_plan_json_output.go,false,description_names_reported_changes,"read-only tool; its description lists create, update and delete as kinds of change it reports (known limit)"
