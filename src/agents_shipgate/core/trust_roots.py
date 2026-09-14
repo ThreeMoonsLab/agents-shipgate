@@ -1050,7 +1050,11 @@ def is_configured_manifest(
                 os.lstat(absolute_config),
                 os.lstat(absolute_candidate),
             )
-        except OSError:
+        except (OSError, ValueError):
+            # ``ValueError`` is a path no filesystem entry can have, such as
+            # the embedded NUL of a refused diff record. It is not the
+            # configured manifest, and the diff reader has already reported
+            # it as an invalid path; raising here crashed ``check`` (#581).
             return False
     if candidate == configured or exact:
         return candidate == configured

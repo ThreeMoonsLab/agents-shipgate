@@ -143,6 +143,15 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
             current_hunk = None
         old_remaining = 0
         new_remaining = 0
+        if not current.get("header_resolved", True) and (
+            current.get("header_old_path") is None
+            or current.get("header_new_path") is None
+        ):
+            # A header whose halves name different files, with no rename or
+            # copy line to say where one name ends (#581). Refuse the record
+            # rather than guess a split.
+            current["old_path"] = "\0invalid-diff-path"
+            current["new_path"] = "\0invalid-diff-path"
         files_out.append(
             DiffFile(
                 old_path=current.get("old_path"),
@@ -161,23 +170,29 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
     for raw_line in diff_text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
         if raw_line.startswith("diff --git "):
             finish()
+            header_resolved = True
             try:
-                old_token, remainder = _parse_git_path_token(
-                    raw_line[len("diff --git ") :]
-                )
-                new_token, trailing = _parse_git_path_token(remainder)
-                if trailing.strip():
-                    raise ValueError("unexpected diff-header suffix")
-                old_path = _strip_diff_prefix(old_token)
-                new_path = _strip_diff_prefix(new_token)
+                pair = _parse_diff_git_header(raw_line[len("diff --git ") :])
             except (UnicodeDecodeError, ValueError):
                 old_path = "\0invalid-diff-path"
                 new_path = "\0invalid-diff-path"
+            else:
+                if pair is None:
+                    # The halves name different files: a rename or a copy
+                    # between names with spaces. Its rename/copy lines name
+                    # the pair, and finish() refuses a record that never does.
+                    header_resolved = False
+                    old_path = None
+                    new_path = None
+                else:
+                    old_path = _strip_diff_prefix(pair[0])
+                    new_path = _strip_diff_prefix(pair[1])
             current = {
                 "old_path": old_path,
                 "new_path": new_path,
                 "header_old_path": old_path,
                 "header_new_path": new_path,
+                "header_resolved": header_resolved,
                 "added_lines": [],
                 "removed_lines": [],
                 "hunks": [],
@@ -218,7 +233,7 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
         # refuse it.
         old_remaining = 0
         new_remaining = 0
-        if raw_line.startswith(("old mode ", "new mode ", "copy from ", "copy to ")):
+        if raw_line.startswith(("old mode ", "new mode ")):
             current["metadata_changed"] = True
         elif raw_line.startswith("deleted file mode"):
             current["is_deleted"] = True
@@ -226,22 +241,26 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
         elif raw_line.startswith("new file mode"):
             current["is_new"] = True
             current["metadata_changed"] = raw_line != "new file mode 100644"
-        elif raw_line.startswith("rename from "):
-            value = _parse_git_path_value(raw_line[len("rename from ") :])
-            current["old_path"] = (
-                value
-                if value == current.get("header_old_path")
-                else "\0invalid-diff-path"
+        elif raw_line.startswith(("rename from ", "copy from ")):
+            is_rename = raw_line.startswith("rename from ")
+            value = _parse_git_path_value(
+                raw_line[len("rename from " if is_rename else "copy from ") :]
             )
-            current["is_rename"] = True
-        elif raw_line.startswith("rename to "):
-            value = _parse_git_path_value(raw_line[len("rename to ") :])
-            current["new_path"] = (
-                value
-                if value == current.get("header_new_path")
-                else "\0invalid-diff-path"
+            _bind_metadata_path(current, "old", value)
+            if is_rename:
+                current["is_rename"] = True
+            else:
+                current["metadata_changed"] = True
+        elif raw_line.startswith(("rename to ", "copy to ")):
+            is_rename = raw_line.startswith("rename to ")
+            value = _parse_git_path_value(
+                raw_line[len("rename to " if is_rename else "copy to ") :]
             )
-            current["is_rename"] = True
+            _bind_metadata_path(current, "new", value)
+            if is_rename:
+                current["is_rename"] = True
+            else:
+                current["metadata_changed"] = True
         elif raw_line.startswith("--- "):
             value = _parse_git_path_value(raw_line[4:])
             parsed = None if value == "/dev/null" else _strip_diff_prefix(value)
@@ -310,21 +329,102 @@ def _strip_diff_prefix(value: str) -> str:
 
 
 def _parse_git_path_value(value: str) -> str:
-    """Decode one Git pathname, failing into a structural-review sentinel."""
+    """Decode the pathname a ``---``/``+++``/``rename``/``copy`` line carries.
+
+    An unquoted name is the whole value, spaces included (#581). Git never
+    quotes a space and never leaves a TAB unquoted, so the first TAB ends the
+    name: Git appends one to a ``---``/``+++`` name that contains a space, and
+    generic unified diffs put a timestamp after one. Keeping the TAB would make
+    it part of the repository pathname and could hide a protected file. A
+    malformed value fails into a structural-review sentinel.
+    """
 
     try:
-        candidate = value
-        if not value.lstrip(" ").startswith('"'):
-            # Generic unified diffs conventionally append a timestamp after a
-            # TAB. Split it before token parsing; otherwise the TAB becomes
-            # part of the repository pathname and can hide a protected file.
-            candidate = value.partition("\t")[0]
-        token, trailing = _parse_git_path_token(candidate)
-        if trailing:
+        if not value.startswith('"'):
+            name = value.partition("\t")[0]
+            if not name:
+                raise ValueError("missing Git path")
+            return name
+        token, trailing = _parse_git_path_token(value)
+        if trailing.partition("\t")[0]:
             raise ValueError("unexpected path suffix")
         return token
     except (UnicodeDecodeError, ValueError):
         return "\0invalid-diff-path"
+
+
+def _bind_metadata_path(record: dict[str, Any], side: str, value: str) -> None:
+    """Take one side of a record's pair from its ``rename``/``copy`` line.
+
+    A resolved header already names the pair, and the line must agree with it.
+    An unresolved header (#581) is named by the first such line, and every
+    later line for that side, ``---``/``+++`` included, must agree with it.
+    """
+
+    header_key = f"header_{side}_path"
+    if not record.get("header_resolved", True) and record.get(header_key) is None:
+        record[header_key] = value
+    record[f"{side}_path"] = (
+        value if value == record.get(header_key) else "\0invalid-diff-path"
+    )
+
+
+def _parse_diff_git_header(text: str) -> tuple[str, str] | None:
+    """The two pathnames of a ``diff --git`` header, as Git spells them.
+
+    Git C-quotes a pathname only when it holds a control character, a double
+    quote, a backslash, or a byte ``core.quotePath`` keeps out of raw output.
+    It never quotes a space, so ``a/new scope/x b/new scope/x`` cannot be split
+    at its first space (#581). ``check`` and ``verify`` also diff with
+    ``core.quotePath=false``, so non-ASCII names arrive unquoted as well.
+
+    An unquoted pair is resolved the way ``git apply`` resolves it: by the one
+    split whose halves name the same file once an ``a/`` or ``b/`` prefix is
+    set aside. A header with a single space has only one split. Anything else,
+    a rename or copy between names with spaces, returns ``None``, and the
+    record's ``rename``/``copy`` lines name the pair.
+
+    Raises ``ValueError`` for a malformed quoted name.
+    """
+
+    if text.startswith('"'):
+        old, remainder = _parse_git_path_token(text)
+        return old, _header_second_name(remainder)
+    quote = text.find(' "')
+    if quote != -1:
+        # An unquoted name cannot contain a double quote, so the first
+        # space-quote pair is where the quoted second name starts.
+        return text[:quote], _header_second_name(text[quote + 1 :])
+    if text.count(" ") == 1:
+        old, _, new = text.partition(" ")
+        if not old or not new:
+            raise ValueError("missing Git path")
+        return old, new
+    length = len(text)
+    # Two names that are equal once a 0- or 2-character prefix is removed put
+    # the separating space at one of three positions. Checking only those keeps
+    # a long header linear.
+    splits = sorted(
+        index
+        for index in {(length - 3) // 2, (length - 1) // 2, (length + 1) // 2}
+        if 0 < index < length - 1
+        and text[index] == " "
+        and _strip_diff_prefix(text[:index]) == _strip_diff_prefix(text[index + 1 :])
+    )
+    if len(splits) != 1:
+        return None
+    return text[: splits[0]], text[splits[0] + 1 :]
+
+
+def _header_second_name(value: str) -> str:
+    if not value:
+        raise ValueError("missing Git path")
+    if not value.startswith('"'):
+        return value
+    token, trailing = _parse_git_path_token(value)
+    if trailing:
+        raise ValueError("unexpected diff-header suffix")
+    return token
 
 
 def _parse_git_path_token(value: str) -> tuple[str, str]:
