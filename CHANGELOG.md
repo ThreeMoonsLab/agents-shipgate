@@ -47,6 +47,7 @@ version.
 
 ### Changes
 
+- Name every kind of host expansion in `preflight`'s explanation, with the total and what was folded. (#681)
 - Publish as `1.0.0` on the advisory channel, state the `1.x` stability line, and keep `codex-boundary-json` and legacy policy discovery through `1.x`.
 - Commit the ten-server MCP findings table: 76 findings, 1 false (1.3%), re-scored in CI against committed labels. (#658)
 - Leave eval-harness and mock tools out of an MCP server's source catalog. (#658)
