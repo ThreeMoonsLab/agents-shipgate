@@ -10,6 +10,11 @@ pip install "agents-shipgate[mcp]"
 agents-shipgate mcp-serve
 ```
 
+The server is built on the MCP Python SDK 2.x, and the extra requires
+`mcp>=2.0.0,<3`. If another requirement holds the SDK at 1.x, `mcp-serve` stops
+with an error that names the installed version and that range. Installing the
+extra again does not change it; find the requirement that pins the older SDK.
+
 Claude Code registration (`.mcp.json`):
 
 ```json

@@ -84,11 +84,12 @@ mcp = [
   # Optional dependency for `agents-shipgate mcp-serve`: a local stdio MCP
   # server exposing read-only Shipgate projection tools; it does not broker
   # general MCP permissions or start implicitly.
-  # Floor is 1.14: the server registers every tool with `ToolAnnotations`
-  # (readOnlyHint / openWorldHint) via `FastMCP.tool(..., annotations=...)`,
-  # which earlier 1.x releases either lack (ToolAnnotations import fails) or
-  # do not accept on the tool decorator (registration fails).
-  "mcp>=2.2.0,<3",
+  # The server is built on the SDK 2.x `MCPServer` (#713). SDK 2.0 renamed
+  # `FastMCP` to `MCPServer` and left `mcp.server.fastmcp` as a module that
+  # raises, so the floor is the first release with the API the server imports.
+  # `MCP_SDK_REQUIREMENT` in `mcp_server/server.py` repeats this range, and CI's
+  # `mcp-extra` job installs its floor and the newest release it admits.
+  "mcp>=2.0.0,<3",
 ]
 dev = [
   "build>=1.6.0,<2",

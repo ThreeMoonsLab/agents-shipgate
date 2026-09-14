@@ -343,6 +343,58 @@ jobs:
           name: sbom
           path: sbom.json
 
+  mcp-extra:
+    # #713: `agents-shipgate[mcp]` is optional and in no lock, so no other job
+    # installs it and `test_build_server_registers_read_only_tools` is skipped
+    # everywhere else. A green suite said nothing about the SDK the extra
+    # actually installs, and the extra shipped a server that could not start.
+    # This job installs the extra's SDK twice, at the floor pyproject.toml
+    # declares and at the newest release that range admits, and fails unless
+    # the real SDK builds the server and answers over stdio.
+    #
+    # The SDK comes from the index, not a hash lock: it is an optional extra
+    # nothing else depends on, and the newest admitted release is the point.
+    # The locked closure underneath it stays hashed.
+    name: mcp extra (${{ matrix.sdk }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: [floor, newest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: constraints/dev.txt
+
+      - name: Install the locked closure and the project
+        run: |
+          python -m pip install --require-hashes --requirement constraints/dev.txt
+          python -m pip install --require-hashes --requirement constraints/build-backend.txt
+          python -m pip install -e . --no-deps --no-build-isolation
+
+      - name: Install the SDK the extra admits
+        env:
+          SDK: ${{ matrix.sdk }}
+        run: |
+          requirement="$(python scripts/mcp_extra_requirement.py "$SDK")"
+          echo "Installing ${requirement}"
+          python -m pip install "${requirement}"
+          python -m pip show mcp
+
+      - name: The real SDK builds the server
+        run: python -m pytest tests/test_mcp_server.py -rs
+
+      - name: The installed command answers over stdio with five read-only tools
+        run: python scripts/mcp_extra_requirement.py --stdio-smoke
+
   clean-checkout-launcher:
     # `./shipgate` has to work on a checkout where Agents Shipgate itself is
     # not installed: no console script on `PATH`, no editable install, no
