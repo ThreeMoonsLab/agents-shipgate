@@ -5,6 +5,9 @@ from __future__ import annotations
 import importlib.util
 import json
 import shutil
+import sys
+import tomllib
+import types
 from pathlib import Path
 
 import pytest
@@ -20,6 +23,22 @@ from agents_shipgate.mcp_server import (
 )
 
 _HAS_MCP_SDK = importlib.util.find_spec("mcp") is not None
+
+
+def _has_mcp_server_api() -> bool:
+    """Whether the installed SDK carries the 2.x ``MCPServer`` the server needs.
+
+    An SDK 1.x environment has ``mcp`` but not this module. Building the server
+    there must fail with a version diagnostic, not register tools.
+    """
+
+    try:
+        return importlib.util.find_spec("mcp.server.mcpserver") is not None
+    except ModuleNotFoundError:
+        return False
+
+
+_HAS_MCP_SERVER_API = _has_mcp_server_api()
 
 
 def _snapshot(root: Path) -> list[str]:
@@ -322,7 +341,44 @@ def test_build_server_without_sdk_raises_config_error() -> None:
         build_server()
 
 
-@pytest.mark.skipif(not _HAS_MCP_SDK, reason="requires the optional mcp extra")
+def test_an_sdk_without_mcpserver_is_named_as_a_version_problem(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#713: reinstalling the extra cannot repair an SDK that lacks the API.
+
+    ``mcp`` imports but ``mcp.server.mcpserver`` does not, which is the shape of
+    an SDK 1.x environment. The diagnostic names the version problem and the
+    required range instead of repeating the install instruction.
+    """
+
+    if not _HAS_MCP_SDK:
+        monkeypatch.setitem(sys.modules, "mcp", types.ModuleType("mcp"))
+    monkeypatch.setitem(sys.modules, "mcp.server.mcpserver", None)
+
+    with pytest.raises(ConfigError) as caught:
+        build_server()
+
+    message = str(caught.value)
+    assert "mcp>=2.0.0,<3" in message
+    assert "MCPServer" in message
+    assert 'pip install --upgrade "agents-shipgate[mcp]"' in message
+    assert "requires the optional [mcp] extra" not in message
+
+
+def test_the_sdk_range_the_server_names_is_the_range_the_extra_declares() -> None:
+    from agents_shipgate.mcp_server.server import MCP_SDK_REQUIREMENT
+
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    extra = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"][
+        "optional-dependencies"
+    ]["mcp"]
+
+    assert extra == [MCP_SDK_REQUIREMENT]
+
+
+@pytest.mark.skipif(
+    not _HAS_MCP_SERVER_API, reason="requires the optional mcp extra (SDK 2.x)"
+)
 def test_build_server_registers_read_only_tools() -> None:
     server = build_server()
 
@@ -340,8 +396,8 @@ def test_build_server_registers_read_only_tools() -> None:
     # machine-readable contract, not just the server prose instructions.
     for tool in listed:
         assert tool.annotations is not None, tool.name
-        assert tool.annotations.readOnlyHint is True, tool.name
-        assert tool.annotations.openWorldHint is False, tool.name
+        assert tool.annotations.read_only_hint is True, tool.name
+        assert tool.annotations.open_world_hint is False, tool.name
 
 
 def _write_json(path: Path, payload: dict) -> None:

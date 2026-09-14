@@ -204,24 +204,64 @@ def shipgate_handoff(
     ).model_dump(mode="json")
 
 
-def create_server():
+# The SDK range the ``[mcp]`` extra declares in ``pyproject.toml``. The server
+# names it when the installed SDK lacks the API below, and a test holds the two
+# spellings equal.
+MCP_SDK_REQUIREMENT = "mcp>=2.0.0,<3"
+
+
+def _installed_mcp_version() -> str:
+    from importlib import metadata
+
     try:
-        from mcp.server.fastmcp import FastMCP
-        from mcp.types import ToolAnnotations
+        return f"mcp {metadata.version('mcp')}"
+    except metadata.PackageNotFoundError:
+        return "version unknown"
+
+
+def _load_mcp_sdk() -> tuple[Any, Any]:
+    """Import the SDK 2.x server API, saying which of two problems stops it.
+
+    A missing SDK is cured by installing the extra. An installed SDK without
+    ``mcp.server.mcpserver`` is not: SDK 2.0 renamed ``FastMCP`` to
+    ``MCPServer`` and left ``mcp.server.fastmcp`` as a module that raises, and
+    an environment holding the SDK at 1.x has only the old name. Telling that
+    user to install the extra again repeats a step that cannot help (#713).
+    """
+
+    try:
+        import mcp  # noqa: F401
     except ImportError as exc:  # pragma: no cover - exercised only without extra.
         raise ConfigError(
             "The MCP server requires the optional [mcp] extra. Install it "
             'with: pip install "agents-shipgate[mcp]"'
         ) from exc
+    try:
+        from mcp.server.mcpserver import MCPServer
+        from mcp.types import ToolAnnotations
+    except ImportError as exc:
+        raise ConfigError(
+            f"The installed MCP Python SDK ({_installed_mcp_version()}) has no "
+            "mcp.server.mcpserver.MCPServer, which this server is built on. "
+            f"The [mcp] extra requires {MCP_SDK_REQUIREMENT}. Upgrade with: "
+            'pip install --upgrade "agents-shipgate[mcp]", and if the SDK stays '
+            "at an older major version, find the requirement in this "
+            "environment that pins it."
+        ) from exc
+    return MCPServer, ToolAnnotations
+
+
+def create_server():
+    MCPServer, ToolAnnotations = _load_mcp_sdk()
 
     # Every tool is a deterministic, local, static projection — it does not
     # modify its environment (``readOnlyHint``) and never reaches an external
     # system: no git, no network, no tool execution, no outbound MCP
     # (``openWorldHint=False``). Advertise that in the machine-readable contract
     # the agent host reads, not just the prose ``instructions`` below.
-    read_only = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+    read_only = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 
-    server = FastMCP(
+    server = MCPServer(
         "agents-shipgate",
         instructions=(
             "Read-only static adapter for Agents Shipgate. Exposes only "
