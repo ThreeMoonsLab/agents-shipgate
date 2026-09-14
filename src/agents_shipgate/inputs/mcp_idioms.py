@@ -233,13 +233,18 @@ SKIP_DIRECTORY_NAMES: frozenset[str] = frozenset(
 #: test's fake tool is not the published surface, and entering one into the
 #: catalog invents a capability nobody ships. Go's ``_test.go`` suffix is
 #: enforced by the toolchain; the rest are conventions strong enough that every
-#: measured server follows them.
+#: measured server follows them. `mongodb-mcp-server` keeps its eval harness's
+#: tools under `packages/eval-tests` and test fakes under
+#: `integration-tests/src/mocks`, and neither is the server's surface (#658).
 TEST_DIRECTORY_NAMES: frozenset[str] = frozenset(
     {
         "__mocks__",
         "__tests__",
         "e2e",
+        "eval-tests",
         "fixtures",
+        "integration-tests",
+        "mocks",
         "test",
         "test-fixtures",
         "testdata",
