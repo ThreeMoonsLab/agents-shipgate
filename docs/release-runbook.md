@@ -663,12 +663,16 @@ identity. Asset *names* are not evidence: draft repair clobbers expected names
 but leaves unlisted ones behind, and an asset can be replaced during the
 approval window.
 
-If re-running is not possible, finalise by hand — the draft already has the
-authoritative assets:
+**Do not undraft by hand.** `gh release edit --draft=false` performs none of the
+checks above, and a draft that was checked once can change before the command
+runs. Re-running `finalize` is the only supported way to finish: it downloads
+the assets again, verifies them, the signatures, the notes and the tag against
+the verified candidate, and only then undrafts.
 
-```bash
-gh release edit v0.16.0 --draft=false --latest
-```
+If the run can no longer be re-run (GitHub keeps a run re-runnable for 30 days),
+or its candidate manifest is unavailable, stop. Leave the release a draft: PyPI
+already serves the version, so it stays installable. Then cut the next patch
+version through the full pipeline. Do not finish this one without verification.
 
 ### Publication failed
 
