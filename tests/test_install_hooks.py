@@ -1685,7 +1685,8 @@ def test_stop_hook_with_other_changes_keeps_the_manifest_advice(tmp_path: Path) 
     result = _run_hook(tmp_path, "verify", {}, diff_payload=json.dumps({"comparison_status": "comparable", "rows": []}))
 
     assert "configured manifest 'shipgate.yaml' does not exist" in json.loads(result.stdout)["systemMessage"]
-    assert not any(call[0] == "diff" for call in _cli_calls(tmp_path))
+    # The host configuration beside the prompt is still compared (#661).
+    assert any(call[0] == "diff" for call in _cli_calls(tmp_path))
 
 
 def test_post_tool_hook_is_quiet_on_host_config_edits_without_manifest(tmp_path: Path) -> None:

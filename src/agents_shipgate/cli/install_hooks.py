@@ -925,9 +925,11 @@ def _trigger(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> i
     if not paths:
         return 0
     _record_in_session_approvals(payload, root, args)
-    if not (root / args.config).is_file() and all(_is_host_config_path(path) for path in paths):
-        # The Stop hook compares host configuration once per change (#661); a
-        # nudge on every edit would repeat itself without naming a row.
+    # The Stop hook compares host configuration with the host readers, through
+    # `diff` without a manifest and `verify` with one (#661). A nudge on every
+    # edit would repeat itself without naming a row.
+    paths = [path for path in paths if not _is_host_config_path(path)]
+    if not paths:
         return 0
     diff_text = _git_diff_for_paths(root, paths)
     if diff_text is None:
@@ -951,7 +953,12 @@ def _trigger(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> i
     )
     if result is None and not protected:
         return 0
-    if not protected and not _trigger_wants_attention(result):
+    status = (
+        _advisory_status(result, protected=protected)
+        if protected or _trigger_wants_attention(result)
+        else None
+    )
+    if not _advisory_is_news(payload, root, args, paths=paths, status=status, at_stop=False):
         return 0
 
     path_preview = ", ".join(paths[:3])
@@ -1060,31 +1067,43 @@ def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> in
     if not config_path.is_file():
         if not snapshot["paths"]:
             return 0
-        if all(_is_host_config_path(path) for path in snapshot["paths"]):
+        signature = str(snapshot["signature"])
+        host_paths = [path for path in snapshot["paths"] if _is_host_config_path(path)]
+        other_paths = [path for path in snapshot["paths"] if path not in host_paths]
+        if not other_paths:
             # Only host configuration changed and nothing is configured: name
             # what the change did rather than advise initializing a manifest.
-            return _route_host_diff(root, args, signature=str(snapshot["signature"]))
+            return _route_host_diff(root, args, signature=signature)
+        messages: list[str] = []
+        if host_paths:
+            # Host configuration beside other edits is still compared with the
+            # host readers, not folded into the manifest advice (#661).
+            _route_host_diff(root, args, signature=signature, collect=messages)
         trigger = _run_trigger_for_paths(
             root,
-            snapshot["paths"],
-            diff_text=snapshot["diff_text"],
+            other_paths,
+            diff_text=_diff_without_paths(snapshot["diff_text"], host_paths),
             manifest_present=False,
         )
         protected = any(
             _protected_surface_for(path, configured_manifest=args.config) is not None
-            for path in snapshot["paths"]
+            for path in other_paths
         )
-        if protected or _trigger_wants_attention(trigger):
+        status = (
+            _advisory_status(trigger, protected=protected)
+            if protected or _trigger_wants_attention(trigger)
+            else None
+        )
+        if _advisory_is_news(payload, root, args, paths=other_paths, status=status, at_stop=True):
             # Advisory: nothing is configured yet, so nobody has decided this
             # repo is gated — advise, never force the turn to continue.
-            return _emit_context(
-                "Stop",
+            messages.append(
                 f"{_trigger_lead(trigger)}, and the configured manifest "
                 f"{args.config!r} does not exist. "
                 "Run `agents-shipgate verify --preview --json` and initialize "
-                "the manifest if this workspace contains an agent.",
+                "the manifest if this workspace contains an agent."
             )
-        return 0
+        return _emit_context("Stop", "\n\n".join(messages)) if messages else 0
 
     if not snapshot["paths"]:
         return 0
@@ -1204,7 +1223,13 @@ _PUBLISH_ONLY_PERMISSIONS: dict[str, bool] = {
 _MAX_ANNOUNCED_HOST_ROWS = 20
 
 
-def _route_host_diff(root: Path, args: argparse.Namespace, *, signature: str) -> int:
+def _route_host_diff(
+    root: Path,
+    args: argparse.Namespace,
+    *,
+    signature: str,
+    collect: list[str] | None = None,
+) -> int:
     """Compare changed host configuration and speak only about widening (#661).
 
     Quiet for a covered comparison with no row marked `expands`. Rows that
@@ -1212,7 +1237,9 @@ def _route_host_diff(root: Path, args: argparse.Namespace, *, signature: str) ->
     the change's snapshot signature, the base and the rows, so an unchanged
     repeat stays quiet and any change is announced again. An incomparable,
     unparsed or unavailable comparison is never quiet. A row is a description,
-    never a permission, and this route grants no authority.
+    never a permission, and this route grants no authority. With ``collect``,
+    the message is added to it instead of emitted, so a Stop that also advises
+    on other paths speaks once.
     """
 
     base = os.environ.get("AGENTS_SHIPGATE_VERIFY_BASE", args.base).strip()
@@ -1221,8 +1248,8 @@ def _route_host_diff(root: Path, args: argparse.Namespace, *, signature: str) ->
         for part in ["agents-shipgate", "diff", "--workspace", ".", *(["--base", base] if base else [])]
     )
     if not base or not _safe_ref_token(base) or not _ref_exists(root, base):
-        return _emit_context(
-            "Stop",
+        return _speak(
+            collect,
             "Agents Shipgate could not compare the host configuration this change "
             f"edits: base ref {base!r} is not available locally. Make it available, "
             f"then run `{manual}`.",
@@ -1243,8 +1270,8 @@ def _route_host_diff(root: Path, args: argparse.Namespace, *, signature: str) ->
             if isinstance(payload, dict)
             else ""
         )
-        return _emit_context(
-            "Stop",
+        return _speak(
+            collect,
             "Agents Shipgate could not compare the host configuration this change edits"
             + (f" ({reasons})" if reasons else "")
             + f". Treat it as unreviewed and run `{manual}`.",
@@ -1266,8 +1293,8 @@ def _route_host_diff(root: Path, args: argparse.Namespace, *, signature: str) ->
     ]
     if len(rows) > _MAX_ANNOUNCED_HOST_ROWS:
         lines.append(f"- and {len(rows) - _MAX_ANNOUNCED_HOST_ROWS} more; run `{manual}`")
-    return _emit_context(
-        "Stop",
+    return _speak(
+        collect,
         "Agents Shipgate compared the host configuration this change edits. "
         "These rows widen what the agent can do:\n"
         + "\n".join(lines)
@@ -2420,6 +2447,120 @@ def _trigger_lead(trigger: dict[str, object] | None) -> str:
     if trigger and trigger.get("evaluation_status") in _WITHHELD_EVALUATION_STATUSES:
         return "Agents Shipgate could not decide whether this diff is relevant"
     return "Agents Shipgate trigger matched"
+
+
+def _speak(collect: list[str] | None, message: str) -> int:
+    """Emit a Stop message, or add it to ``collect`` for one combined message."""
+
+    if collect is None:
+        return _emit_context("Stop", message)
+    collect.append(message)
+    return 0
+
+
+def _diff_without_paths(diff_text: str, drop: list[str]) -> str:
+    """Remove the file sections for ``drop`` from a unified diff.
+
+    A section whose header does not parse is kept: evaluating more of the
+    change can only add advice, never hide it.
+    """
+
+    if not drop:
+        return diff_text
+    dropped = set(drop)
+    kept: list[str] = []
+    keep = True
+    for line in diff_text.splitlines(keepends=True):
+        if line.startswith("diff --git "):
+            header = line[len("diff --git "):].rstrip("\n")
+            _left, separator, right = header.rpartition(" b/")
+            keep = not (separator and not header.startswith('"') and right in dropped)
+        if keep:
+            kept.append(line)
+    return "".join(kept)
+
+
+_QUIET_ADVISORY = "quiet"
+# A verdict withheld because the input could not be read is announced every
+# time: it is missing evidence, not a repeat of evidence already shown.
+_ALWAYS_ANNOUNCED_STATUSES = frozenset({"not_evaluated"})
+
+
+def _advisory_status(trigger: dict[str, object] | None, *, protected: bool) -> str:
+    """Name the verdict an advisory reports, so a repeat can be recognised."""
+
+    if trigger and trigger.get("should_run"):
+        rules = sorted(
+            str(match.get("rule_id") or match.get("id") or "")
+            for match in trigger.get("matched_rules") or []  # type: ignore[union-attr]
+            if isinstance(match, dict)
+        )
+        return "matched:" + ",".join(rules)
+    if trigger and trigger.get("evaluation_status") in _WITHHELD_EVALUATION_STATUSES:
+        return str(trigger.get("evaluation_status"))
+    return "protected" if protected else "matched:"
+
+
+def _advisory_is_news(
+    payload: dict[str, Any],
+    root: Path,
+    args: argparse.Namespace,
+    *,
+    paths: list[str],
+    status: str | None,
+    at_stop: bool,
+) -> bool:
+    """Record this session's advisory verdict per path; say whether it is news (#661).
+
+    Presentation only: the change is still evaluated every time, and this
+    decides whether saying so again tells the agent anything. Each path
+    remembers its last verdict in the session and the verdicts already
+    announced for it. PostToolUse names the edited paths. Stop names the
+    changed paths whose own last verdict was not quiet, or that no hook
+    evaluated in this session. An advisory is news when a path it names has not
+    had that verdict announced. A new session, base or manifest starts over. A
+    verdict withheld because input could not be read, and any advisory without
+    a session id, is always news.
+    """
+
+    session = payload.get("session_id")
+    if not isinstance(session, str) or not session or status in _ALWAYS_ANNOUNCED_STATUSES:
+        return status is not None
+    state = _read_state(root)
+    scope = [
+        session,
+        os.environ.get("AGENTS_SHIPGATE_VERIFY_BASE", args.base).strip(),
+        str(args.config),
+    ]
+    record = state.get("session_advisories")
+    if not isinstance(record, dict) or record.get("scope") != scope:
+        record = {"scope": scope, "paths": {}}
+    verdicts = record.get("paths")
+    if not isinstance(verdicts, dict):
+        verdicts = {}
+
+    def entry(path: str) -> dict[str, Any]:
+        value = verdicts.get(path)
+        if not isinstance(value, dict) or not isinstance(value.get("announced"), list):
+            value = {"last": None, "announced": []}
+        return value
+
+    if at_stop:
+        named = [path for path in paths if entry(path).get("last") != _QUIET_ADVISORY]
+    else:
+        named = list(paths)
+    news = status is not None and any(status not in entry(path)["announced"] for path in named)
+    for path in paths:
+        value = entry(path)
+        if not at_stop or value.get("last") is None:
+            value["last"] = status if status is not None else _QUIET_ADVISORY
+        if news and path in named and status not in value["announced"]:
+            value["announced"] = [*value["announced"], status]
+        verdicts[path] = value
+    record["paths"] = verdicts
+    state["session_advisories"] = record
+    _write_state(root, state)
+    return news
 
 
 def _emit_context(event: str, message: str) -> int:
