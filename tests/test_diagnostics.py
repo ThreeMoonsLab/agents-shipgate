@@ -527,18 +527,13 @@ class TestTopNextActions:
 
 class TestRankOneCommandsAreRoutable:
     def _typer_subcommands(self) -> set[str]:
-        names: set[str] = set()
-        for command_info in typer_app.registered_commands:
-            if command_info.name:
-                names.add(command_info.name)
-            else:
-                # typer derives the command name from the callback name when
-                # `name=` is not set (e.g. `scan`, `init`, `doctor`).
-                names.add(command_info.callback.__name__)
-        for group in typer_app.registered_groups:
-            if group.name:
-                names.add(group.name)
-        return names
+        import typer
+        from typer.main import get_command
+
+        # The root group imports each command on demand (#661), so the
+        # names come from the Click group rather than `registered_commands`.
+        root = get_command(typer_app)
+        return set(root.list_commands(typer.Context(root)))
 
     def test_command_actions_use_known_subcommands(
         self, tmp_path: Path

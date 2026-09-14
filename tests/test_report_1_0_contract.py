@@ -233,11 +233,13 @@ def test_every_command_the_contract_names_exists() -> None:
     something that resolves in the build it names".
     """
 
+    import typer
+    from typer.main import get_command
+
     from agents_shipgate.cli.main import app
 
-    known = {command.name or command.callback.__name__ for command in app.registered_commands}
-    known |= {group.name for group in app.registered_groups}
-    known = {name for name in known if name}
+    root = get_command(app)
+    known = set(root.list_commands(typer.Context(root)))
 
     referenced = set(re.findall(r"agents-shipgate ([a-z][a-z-]+)", CONTRACT_DOC.read_text(encoding="utf-8")))
     unknown = sorted(referenced - known)

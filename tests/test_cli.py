@@ -6,6 +6,7 @@ from types import UnionType
 from typing import Union, get_args, get_origin
 
 import pytest
+import typer
 from pydantic import BaseModel
 from typer.main import get_command
 from typer.testing import CliRunner
@@ -587,7 +588,8 @@ def _unwrap_optional(annotation: object) -> object:
 
 def test_cli_scan_help_hides_deferred_flags():
     result = runner.invoke(app, ["scan", "--help"])
-    scan_command = get_command(app).commands["scan"]
+    root = get_command(app)
+    scan_command = root.get_command(typer.Context(root), "scan")
     public_options = {
         option
         for parameter in scan_command.params
@@ -653,19 +655,20 @@ VISIBLE_CORE_COMMANDS = {
 
 def test_cli_help_hides_niche_commands_but_keeps_them_invokable():
     root = get_command(app)
+    ctx = typer.Context(root)
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     output = _plain_cli_output(result.output)
 
     for name in HIDDEN_TOP_LEVEL_COMMANDS:
-        assert root.commands[name].hidden, f"{name} should be hidden from --help"
+        assert root.get_command(ctx, name).hidden, f"{name} should be hidden from --help"
         assert f"│ {name}" not in output
         # Hidden, not removed: the command still resolves and answers --help.
         invoked = runner.invoke(app, [name, "--help"])
         assert invoked.exit_code == 0, f"{name} must remain invokable: {invoked.output}"
 
     for name in VISIBLE_CORE_COMMANDS:
-        assert not root.commands[name].hidden, f"{name} must stay visible"
+        assert not root.get_command(ctx, name).hidden, f"{name} must stay visible"
         assert re.search(rf"\b{re.escape(name)}\b", output), output
 
 

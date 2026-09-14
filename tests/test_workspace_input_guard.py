@@ -74,10 +74,13 @@ def _commands_with_workspace_option() -> set[str]:
     found: set[str] = set()
 
     def walk(command: object, prefix: tuple[str, ...]) -> None:
-        subcommands = getattr(command, "commands", None)
-        if subcommands:
-            for name, sub in subcommands.items():
-                walk(sub, (*prefix, name))
+        # The root group imports each command on demand (#661): walk it
+        # through the Click group API, not its populated `commands` dict.
+        list_commands = getattr(command, "list_commands", None)
+        if list_commands is not None:
+            ctx = typer.Context(command)
+            for name in list_commands(ctx):
+                walk(command.get_command(ctx, name), (*prefix, name))
             return
         options = [
             opt
