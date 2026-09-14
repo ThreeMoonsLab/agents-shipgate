@@ -36,7 +36,7 @@ version.
 - **The control envelope names the change** in a bounded `capability_rows`
   block, and the generated agent instructions lead with it. (#662)
 - **Measured on the 1.0.0 candidate wheel, including where it falls short.**
-  On the wheel Release Engine Smoke exercised (`071abe4f…`): ten pinned public
+  On the wheel Release Engine Smoke exercised on `747d6080` (`1b846258…`): ten pinned public
   MCP servers gave 76 findings, 1 false (1.3%, bar under 2%); a fresh clone
   reached a correct comparison in 26 of 30 public repositories (bar 24); on 50
   public host-config PRs, row precision is 70 of 70, while widening recall
@@ -48,6 +48,7 @@ version.
 
 ### Changes
 
+- Re-run the three live measurements on the wheel Release Engine Smoke exercised on `747d6080`, after the last engine changes, as the runs of record; every outcome is unchanged. (#658, #659, #660)
 - Build the optional MCP server on the SDK 2.x `MCPServer`, the API the `[mcp]` extra has installed since SDK 2.0, so `mcp-serve` starts again. An SDK without it is named as a version problem, and CI installs the extra at its floor and its newest release. (#713)
 - Read Git pathnames that contain spaces in `check`, `verify` and the MCP `check` tool. A change touching `docs/new scope/notes.md` no longer asks for review of an invalid path, and no longer crashes `check` when a manifest is configured. (#581)
 - Name step action references, named reusable-workflow secrets and remote MCP URL paths as unread host surfaces, say that a hook row does not prove the host loads the file, and state which symlinks refuse a comparison. (#693, #714, #771, #772)
