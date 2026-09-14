@@ -211,11 +211,11 @@ MCP_SDK_REQUIREMENT = "mcp>=2.0.0,<3"
 
 
 def _installed_mcp_version() -> str:
-    from importlib import metadata
+    from importlib.metadata import PackageNotFoundError, version
 
     try:
-        return f"mcp {metadata.version('mcp')}"
-    except metadata.PackageNotFoundError:
+        return f"mcp {version('mcp')}"
+    except PackageNotFoundError:
         return "version unknown"
 
 
