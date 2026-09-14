@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Answer the Stop hook's host comparison in under a second (#661). Every
+  `shipgate` invocation imported every command module before it ran one. `diff`
+  then loaded the verify command and the scan helpers as well, through the
+  `cli.verify` package and the `--workspace` guard. Now:
+  - The root CLI imports a command only when it is resolved.
+  - The workspace guard loads its reporting helpers only to refuse.
+  - `cli.verify` resolves `verify` and `run_verify` on first use.
+
+  On a manifest-free repository the Stop hook's `diff` route went from
+  1.57–1.73 s to 0.90–1.00 s, inside the 1.5 s budget. `shipgate diff` alone
+  went from 1.15 s to 0.55 s. `--help`, `--help-all`, completion and
+  typo suggestions still see every command.
+
 - Stop repeating hook advisories within a Claude Code session (#661). In a
   repository without a manifest, a scripted 50-event session drew 26
   interrupts. It edited docs, tests, the README and plain source, and applied

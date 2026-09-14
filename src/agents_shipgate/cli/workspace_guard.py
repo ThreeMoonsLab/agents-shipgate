@@ -42,15 +42,17 @@ def require_workspace(
     claim to check.
     """
 
-    from agents_shipgate.cli._helpers import _echo_next_action_hint
-    from agents_shipgate.cli.agent_mode import emit_agent_mode_error_action
-    from agents_shipgate.schemas.diagnostics import NextAction
-
     if workspace is None:
         return None
     try:
         return require_workspace_directory(workspace, option=option)
     except ConfigError as exc:
+        # Only a refusal needs the reporting helpers. `_helpers` pulls in the
+        # scan machinery, which cost the Stop hook's `diff` 0.4 s (#661).
+        from agents_shipgate.cli._helpers import _echo_next_action_hint
+        from agents_shipgate.cli.agent_mode import emit_agent_mode_error_action
+        from agents_shipgate.schemas.diagnostics import NextAction
+
         typer.echo(f"Config error: {exc}", err=True)
         action = NextAction(
             kind="review",

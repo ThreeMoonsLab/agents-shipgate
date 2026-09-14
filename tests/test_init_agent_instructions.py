@@ -565,10 +565,11 @@ def test_init_command_documents_agent_instructions() -> None:
     rendering varies across CI runners (Rich truncates option names on
     narrow terminals even with COLUMNS set), and we should not gate merge
     on whether the rendered string fits."""
+    import typer
     from typer.main import get_command
 
     click_app = get_command(app)
-    init_cmd = click_app.commands["init"]
+    init_cmd = click_app.get_command(typer.Context(click_app), "init")
     param_names = {p.name for p in init_cmd.params}
     assert "agent_instructions" in param_names
 

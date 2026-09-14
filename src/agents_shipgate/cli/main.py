@@ -1,47 +1,298 @@
 from __future__ import annotations
 
 import logging
+from difflib import get_close_matches
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import typer
+import typer.core
+import typer.main
 
 from agents_shipgate import __version__
-from agents_shipgate.cli import (
-    _register_baseline,
-    _register_contract,
-    _register_doctor,
-    _register_explain,
-    _register_init,
-    _register_list_checks,
-    _register_scan,
-)
-from agents_shipgate.cli.agent_interface import agent_app
-from agents_shipgate.cli.apply_patches import apply_patches as _apply_patches_command
-from agents_shipgate.cli.attest import _attest_command
-from agents_shipgate.cli.authorization import authorization_app
-from agents_shipgate.cli.bootstrap import bootstrap as _bootstrap_command
-from agents_shipgate.cli.capability import capability_app
-from agents_shipgate.cli.check import check as _check_command
-from agents_shipgate.cli.detect import detect as _detect_command
-from agents_shipgate.cli.diff import diff as _diff_command
-from agents_shipgate.cli.evidence_packet import evidence_packet as _evidence_packet_command
-from agents_shipgate.cli.explain_finding import explain_finding as _explain_finding_command
-from agents_shipgate.cli.feedback import feedback_app
-from agents_shipgate.cli.findings import findings as _findings_command
-from agents_shipgate.cli.fixture import fixture_app
-from agents_shipgate.cli.host_audit import audit as _audit_command
-from agents_shipgate.cli.install_hooks import install_hooks as _install_hooks_command
-from agents_shipgate.cli.mcp import mcp_app
-from agents_shipgate.cli.org import org_app
-from agents_shipgate.cli.preflight import preflight as _preflight_command
-from agents_shipgate.cli.registry import registry_app
-from agents_shipgate.cli.scenario import scenario_app
-from agents_shipgate.cli.self_check import self_check
-from agents_shipgate.cli.skill import skill_app
-from agents_shipgate.cli.trigger import trigger as _trigger_command
-from agents_shipgate.cli.verification import verification_app
-from agents_shipgate.cli.verify import verify as _verify_command
 from agents_shipgate.core.logging import configure_logging
+
+if TYPE_CHECKING:
+    # Typer vendors Click; these are the classes its groups are typed with.
+    from typer._click import Command, Context
+
+# Root commands, in `--help` order, each imported only when it is resolved
+# (#661). Importing every command module cost 0.67 s before any command ran,
+# against 0.19 s for `diff` alone, and the Stop hook runs `diff` once per
+# change with a 1.5 s budget. A row is (name, kind, options), and
+# `_root_callable` imports what the row names: `command` registers the callable
+# as ``app.command(name, **options)``, `group` adds the sub-app with
+# ``app.add_typer(..., name=name, **options)``, and `register` calls the
+# module's ``register`` on a scratch app and keeps the entry named ``name``.
+#
+# Visibility policy: root --help shows the six commands a reader needs to
+# get from a fresh checkout to an answer — `diff`, `check`, `verify`,
+# `audit`, `init`, `doctor`. Three of 53 was not a menu, it was a keyhole:
+# every documented first step (`init`, `doctor`, `fixture run`) was hidden
+# from the one place a stranger looks (#652). Supporting and compatibility
+# commands stay fully invokable and documented through their own --help,
+# and `--help-all` lists every one of them; hiding is presentation, not
+# deprecation.
+_ROOT_COMMANDS: tuple[tuple[str, str, dict[str, Any]], ...] = (
+    ("self-check", "command", {
+        "hidden": True,
+        "help": "Verify install and bundled fixtures. Run this first in a fresh environment.",
+    }),
+    ("detect", "command", {
+        "hidden": True,
+        "help": "Classify a workspace: which agent framework(s), if any. Read-only.",
+    }),
+    ("diff", "command", {
+        "help": (
+            "Show what this change does to the agent's authority: one row per "
+            "host grant, with before, after and why it matters."
+        ),
+    }),
+    ("check", "command", {
+        "help": "Run the fast local agent-boundary check and emit its JSON result.",
+    }),
+    ("preflight", "command", {
+        "hidden": True,
+        "help": (
+            "Run proactive static preflight: protected surfaces, forbidden edits, "
+            "and high-risk capability evidence requirements."
+        ),
+    }),
+    ("apply-patches", "command", {
+        "hidden": True,
+        "help": (
+            "Apply patches from a scan JSON report. Dry-run by default; pass "
+            "--apply to mutate. Containment-checked against the report's "
+            "manifest_dir."
+        ),
+    }),
+    # Hidden from --help (niche re-render utility), still fully invokable.
+    ("evidence-packet", "command", {
+        "hidden": True,
+        "help": (
+            "Re-render a Release Evidence Packet from an existing packet.json "
+            "into md, html, and/or pdf."
+        ),
+    }),
+    ("bootstrap", "command", {
+        "hidden": True,
+        "help": (
+            "Run the canonical 4-call adoption flow in one command: "
+            "detect → init --write --ci → scan --suggest-patches → "
+            "apply-patches --confidence high."
+        ),
+    }),
+    ("explain-finding", "command", {
+        "hidden": True,
+        "help": (
+            "Explain a specific finding from a `report.json`, with evidence "
+            "and a 3–5 sentence prose summary. Companion to `explain "
+            "<check-id>`."
+        ),
+    }),
+    ("findings", "command", {
+        "hidden": True,
+        "help": "Filter findings from a `report.json` by provenance kind for reviewer triage.",
+    }),
+    ("trigger", "command", {
+        "hidden": True,
+        "help": (
+            "Evaluate the trigger catalog against a diff and emit a run/skip "
+            "verdict. Reads --changed-files / --diff, or --base/--head (git)."
+        ),
+    }),
+    ("verify", "command", {
+        "help": (
+            "Run the canonical PR gate: trigger evaluation, optional base scan, "
+            "and one authoritative head scan."
+        ),
+    }),
+    ("attest", "command", {
+        "hidden": True,
+        "help": (
+            "Derive a deterministic local release attestation from verifier.json "
+            "(verdict, capability delta, human-ack state, policy + artifact hashes)."
+        ),
+    }),
+    ("install-hooks", "command", {
+        "hidden": True,
+        "help": "Install advisory local coding-agent hooks. Currently supports --target claude-code.",
+    }),
+    ("audit", "command", {
+        "help": (
+            "Run `shipgate audit --host` for a zero-config permission inventory. "
+            "`audit --host` inventories "
+            "coding-agent host grants (MCP servers, permission rules, hooks, "
+            "workflow scopes) without requiring shipgate.yaml; `--save-baseline` "
+            "records the acknowledged state (writes one JSON file under "
+            ".agents-shipgate/) and `--drift [--fail-on-drift]` reports when "
+            "current grants no longer match it."
+        ),
+    }),
+    ("mcp-serve", "command", {"hidden": True}),
+    ("scan", "register", {}),
+    ("list-checks", "register", {}),
+    ("contract", "register", {}),
+    ("explain", "register", {}),
+    ("init", "register", {}),
+    ("doctor", "register", {}),
+    ("baseline", "register", {}),
+    ("fixture", "group", {"hidden": True}),
+    ("feedback", "group", {"hidden": True}),
+    ("scenario", "group", {"hidden": True}),
+    ("skill", "group", {"hidden": True}),
+    ("capability", "group", {"hidden": True}),
+    ("agent", "group", {"hidden": True}),
+    ("mcp", "group", {"hidden": True}),
+    ("org", "group", {"hidden": True}),
+    ("registry", "group", {"hidden": True}),
+    ("verification", "group", {"hidden": True}),
+    ("authorization", "group", {"hidden": True}),
+)
+
+
+class _OnDemandGroup(typer.core.TyperGroup):
+    """The root group: lists every command, imports one only when resolved.
+
+    Click resolves a subcommand through `get_command`, and help, `--help-all`
+    and completion walk `list_commands` then `get_command`, so those two are
+    the whole seam. A resolved command is cached on this group instance.
+    """
+
+    def list_commands(self, ctx: Context) -> list[str]:
+        return [row[0] for row in _ROOT_COMMANDS]
+
+    def get_command(self, ctx: Context, cmd_name: str) -> Command | None:
+        command = self.commands.get(cmd_name)
+        if command is None and cmd_name in _ROWS:
+            command = _load_root_command(cmd_name)
+            self.commands[cmd_name] = command
+        return command
+
+    def resolve_command(
+        self, ctx: Context, args: list[str]
+    ) -> tuple[str | None, Command | None, list[str]]:
+        # Typer suggests a close name from the commands resolved so far, so a
+        # typo resolves its close names first or it gets no "Did you mean".
+        if args and args[0] not in _ROWS and self.suggest_commands:
+            for name in get_close_matches(args[0], list(_ROWS)):
+                self.get_command(ctx, name)
+        return super().resolve_command(ctx, args)
+
+
+def _load_root_command(name: str) -> Command:
+    _name, kind, options = _ROWS[name]
+    target = _root_callable(name)
+    scratch = typer.Typer()
+    if kind == "command":
+        scratch.command(name, **options)(target)
+    elif kind == "group":
+        scratch.add_typer(target, name=name, **options)
+    else:
+        target(scratch)
+    for command_info in scratch.registered_commands:
+        command = typer.main.get_command_from_info(
+            command_info,
+            pretty_exceptions_short=app.pretty_exceptions_short,
+            rich_markup_mode=app.rich_markup_mode,
+        )
+        if command.name == name:
+            return command
+    for group_info in scratch.registered_groups:
+        if group_info.name == name:
+            return typer.main.get_group_from_info(
+                group_info,
+                pretty_exceptions_short=app.pretty_exceptions_short,
+                suggest_commands=app.suggest_commands,
+                rich_markup_mode=app.rich_markup_mode,
+            )
+    raise RuntimeError(f"the loader for {name!r} does not define that root command")
+
+
+def _root_callable(name: str) -> Any:
+    """Import what one root command row names.
+
+    Every import is a static ``from ... import``, so the static-only scanner
+    check (`tests/test_adapter_static_only.py`) sees each module the CLI can
+    load, with no dynamic import to allowlist. Nothing here runs until Click
+    resolves the command.
+    """
+
+    match name:
+        case "self-check":
+            from agents_shipgate.cli.self_check import self_check as target
+        case "detect":
+            from agents_shipgate.cli.detect import detect as target
+        case "diff":
+            from agents_shipgate.cli.diff import diff as target
+        case "check":
+            from agents_shipgate.cli.check import check as target
+        case "preflight":
+            from agents_shipgate.cli.preflight import preflight as target
+        case "apply-patches":
+            from agents_shipgate.cli.apply_patches import apply_patches as target
+        case "evidence-packet":
+            from agents_shipgate.cli.evidence_packet import evidence_packet as target
+        case "bootstrap":
+            from agents_shipgate.cli.bootstrap import bootstrap as target
+        case "explain-finding":
+            from agents_shipgate.cli.explain_finding import explain_finding as target
+        case "findings":
+            from agents_shipgate.cli.findings import findings as target
+        case "trigger":
+            from agents_shipgate.cli.trigger import trigger as target
+        case "verify":
+            from agents_shipgate.cli.verify import verify as target
+        case "attest":
+            from agents_shipgate.cli.attest import _attest_command as target
+        case "install-hooks":
+            from agents_shipgate.cli.install_hooks import install_hooks as target
+        case "audit":
+            from agents_shipgate.cli.host_audit import audit as target
+        case "mcp-serve":
+            target = _mcp_serve_command
+        case "scan":
+            from agents_shipgate.cli._register_scan import register as target
+        case "list-checks":
+            from agents_shipgate.cli._register_list_checks import register as target
+        case "contract":
+            from agents_shipgate.cli._register_contract import register as target
+        case "explain":
+            from agents_shipgate.cli._register_explain import register as target
+        case "init":
+            from agents_shipgate.cli._register_init import register as target
+        case "doctor":
+            from agents_shipgate.cli._register_doctor import register as target
+        case "baseline":
+            from agents_shipgate.cli._register_baseline import register as target
+        case "fixture":
+            from agents_shipgate.cli.fixture import fixture_app as target
+        case "feedback":
+            from agents_shipgate.cli.feedback import feedback_app as target
+        case "scenario":
+            from agents_shipgate.cli.scenario import scenario_app as target
+        case "skill":
+            from agents_shipgate.cli.skill import skill_app as target
+        case "capability":
+            from agents_shipgate.cli.capability import capability_app as target
+        case "agent":
+            from agents_shipgate.cli.agent_interface import agent_app as target
+        case "mcp":
+            from agents_shipgate.cli.mcp import mcp_app as target
+        case "org":
+            from agents_shipgate.cli.org import org_app as target
+        case "registry":
+            from agents_shipgate.cli.registry import registry_app as target
+        case "verification":
+            from agents_shipgate.cli.verification import verification_app as target
+        case "authorization":
+            from agents_shipgate.cli.authorization import authorization_app as target
+        case _:
+            raise KeyError(name)
+    return target
+
+
+_ROWS = {row[0]: row for row in _ROOT_COMMANDS}
 
 app = typer.Typer(
     name="agents-shipgate",
@@ -50,122 +301,10 @@ app = typer.Typer(
     # not a help dump — so off, not True.
     no_args_is_help=False,
     invoke_without_command=True,
+    cls=_OnDemandGroup,
 )
-app.command(
-    "self-check",
-    hidden=True,
-    help="Verify install and bundled fixtures. Run this first in a fresh environment.",
-)(self_check)
-app.command(
-    "detect",
-    hidden=True,
-    help="Classify a workspace: which agent framework(s), if any. Read-only.",
-)(_detect_command)
-app.command(
-    "diff",
-    help=(
-        "Show what this change does to the agent's authority: one row per "
-        "host grant, with before, after and why it matters."
-    ),
-)(_diff_command)
-app.command(
-    "check",
-    help="Run the fast local agent-boundary check and emit its JSON result.",
-)(_check_command)
-app.command(
-    "preflight",
-    hidden=True,
-    help=(
-        "Run proactive static preflight: protected surfaces, forbidden edits, "
-        "and high-risk capability evidence requirements."
-    ),
-)(_preflight_command)
-app.command(
-    "apply-patches",
-    hidden=True,
-    help=(
-        "Apply patches from a scan JSON report. Dry-run by default; pass "
-        "--apply to mutate. Containment-checked against the report's "
-        "manifest_dir."
-    ),
-)(_apply_patches_command)
-app.command(
-    "evidence-packet",
-    # Hidden from --help (niche re-render utility), still fully invokable —
-    # see the visibility policy note above the sub-app block below.
-    hidden=True,
-    help=(
-        "Re-render a Release Evidence Packet from an existing packet.json "
-        "into md, html, and/or pdf."
-    ),
-)(_evidence_packet_command)
-app.command(
-    "bootstrap",
-    hidden=True,
-    help=(
-        "Run the canonical 4-call adoption flow in one command: "
-        "detect → init --write --ci → scan --suggest-patches → "
-        "apply-patches --confidence high."
-    ),
-)(_bootstrap_command)
-app.command(
-    "explain-finding",
-    hidden=True,
-    help=(
-        "Explain a specific finding from a `report.json`, with evidence "
-        "and a 3–5 sentence prose summary. Companion to `explain "
-        "<check-id>`."
-    ),
-)(_explain_finding_command)
-app.command(
-    "findings",
-    hidden=True,
-    help=("Filter findings from a `report.json` by provenance kind for reviewer triage."),
-)(_findings_command)
-app.command(
-    "trigger",
-    hidden=True,
-    help=(
-        "Evaluate the trigger catalog against a diff and emit a run/skip "
-        "verdict. Reads --changed-files / --diff, or --base/--head (git)."
-    ),
-)(_trigger_command)
-app.command(
-    "verify",
-    help=(
-        "Run the canonical PR gate: trigger evaluation, optional base scan, "
-        "and one authoritative head scan."
-    ),
-)(_verify_command)
-app.command(
-    "attest",
-    hidden=True,
-    help=(
-        "Derive a deterministic local release attestation from verifier.json "
-        "(verdict, capability delta, human-ack state, policy + artifact hashes)."
-    ),
-)(_attest_command)
-app.command(
-    "install-hooks",
-    hidden=True,
-    help=("Install advisory local coding-agent hooks. Currently supports --target claude-code."),
-)(_install_hooks_command)
-
-app.command(
-    "audit",
-    help=(
-        "Run `shipgate audit --host` for a zero-config permission inventory. "
-        "`audit --host` inventories "
-        "coding-agent host grants (MCP servers, permission rules, hooks, "
-        "workflow scopes) without requiring shipgate.yaml; `--save-baseline` "
-        "records the acknowledged state (writes one JSON file under "
-        ".agents-shipgate/) and `--drift [--fail-on-drift]` reports when "
-        "current grants no longer match it."
-    ),
-)(_audit_command)
 
 
-@app.command("mcp-serve", hidden=True)
 def _mcp_serve_command() -> None:
     """Serve the optional read-only MCP server over stdio.
 
@@ -183,32 +322,6 @@ def _mcp_serve_command() -> None:
         raise typer.Exit(2) from exc
 
 
-_register_scan.register(app)
-_register_list_checks.register(app)
-_register_contract.register(app)
-_register_explain.register(app)
-_register_init.register(app)
-_register_doctor.register(app)
-_register_baseline.register(app)
-# Visibility policy: root --help shows the six commands a reader needs to
-# get from a fresh checkout to an answer — `diff`, `check`, `verify`,
-# `audit`, `init`, `doctor`. Three of 53 was not a menu, it was a keyhole:
-# every documented first step (`init`, `doctor`, `fixture run`) was hidden
-# from the one place a stranger looks (#652). Supporting and compatibility
-# commands stay fully invokable and documented through their own --help,
-# and `--help-all` lists every one of them; hiding is presentation, not
-# deprecation.
-app.add_typer(fixture_app, name="fixture", hidden=True)
-app.add_typer(feedback_app, name="feedback", hidden=True)
-app.add_typer(scenario_app, name="scenario", hidden=True)
-app.add_typer(skill_app, name="skill", hidden=True)
-app.add_typer(capability_app, name="capability", hidden=True)
-app.add_typer(agent_app, name="agent", hidden=True)
-app.add_typer(mcp_app, name="mcp", hidden=True)
-app.add_typer(org_app, name="org", hidden=True)
-app.add_typer(registry_app, name="registry", hidden=True)
-app.add_typer(verification_app, name="verification", hidden=True)
-app.add_typer(authorization_app, name="authorization", hidden=True)
 logger = logging.getLogger(__name__)
 
 
