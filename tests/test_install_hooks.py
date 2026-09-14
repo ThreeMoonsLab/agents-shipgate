@@ -1722,3 +1722,28 @@ def test_rendered_host_config_surfaces_match_the_registry(tmp_path: Path) -> Non
         "src/app.py": False,
     }.items():
         assert classify(path) is expected, path
+
+
+def test_real_stop_hook_reports_invalid_permission_shape_with_available_base(tmp_path: Path) -> None:
+    _host_diff_workspace(tmp_path)
+    path = tmp_path / '.claude/settings.json'
+    settings = json.loads(path.read_text())
+    settings['permissions'] = {'allow': 'Bash(synthetic-private-token)'}
+    path.write_text(json.dumps(settings))
+    root = Path(__file__).resolve().parents[1]
+    env = {
+        **os.environ,
+        'CLAUDE_PROJECT_DIR': str(tmp_path),
+        'AGENTS_SHIPGATE_CLI': f'{sys.executable} {root / "shipgate"}',
+        'AGENTS_SHIPGATE_VERIFY_BASE': 'origin/main',
+    }
+    result = subprocess.run(
+        [sys.executable, str(tmp_path / HOOK_SCRIPT_RELATIVE_PATH), 'verify'],
+        input=json.dumps({'cwd': str(tmp_path), 'session_id': 'invalid-permissions'}),
+        capture_output=True, text=True, env=env, cwd=tmp_path, timeout=40,
+    )
+    assert result.returncode == 0, result.stderr
+    message = json.loads(result.stdout)['systemMessage']
+    assert 'could not compare the host configuration' in message
+    assert 'not available locally' not in message
+    assert 'synthetic-private-token' not in result.stdout + result.stderr
