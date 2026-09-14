@@ -25,7 +25,11 @@ A registered adapter reports `complete`, `not_applicable`, `partial`, or
 `experimental` coverage. A relevant malformed, unreadable, binary, oversized,
 external, unresolved-symlink, or unsupported input prevents a complete control
 result. An in-tree symlink at a boundary path is read at its target and recorded
-in `resolved_through` (#700).
+in `resolved_through` (#700), and so is a link anywhere that points at an
+in-tree file. A dangling link, a link that leaves the repository, or a
+directory link outside the boundary paths refuses the whole comparison, even
+when no host file sits behind it (#688). That refusal is deliberate (#659),
+and it caused every widening the 1.0 host-config measurement missed.
 Path classification is case-insensitive so protected files cannot evade review
 on macOS or Windows. Nested `.codex/**`, `.mcp.json`, and
 `.github/workflows/**` copies remain protected for repository-wide drift and
@@ -39,8 +43,8 @@ cross-host trust-root edit from being reported as complete.
 
 ### Known unread surfaces
 
-Two files change what runs with a host's authority, but no adapter reads them.
-Editing either produces no row and no coverage limit:
+These change what runs, or what it can reach, with a host's authority, but no
+adapter reads them. Editing any of them produces no row and no coverage limit:
 
 - **A composite action a workflow invokes** (`uses: ./.github/actions/<name>`).
   It runs inside the calling job, with that job's `permissions` and secrets, so
@@ -50,9 +54,25 @@ Editing either produces no row and no coverage limit:
   `.claude/hooks/session-start`). The hook entry is read; the file it executes
   is not, so editing the script changes what runs without changing the hook
   (#702).
+- **The action reference of a workflow step** (`uses: actions/checkout@<ref>`).
+  Only triggers, token permissions and reusable-workflow calls are read, so
+  moving a step from a pinned SHA to `@main` changes code that runs with the
+  job's token and produces no row (#771).
+- **Named secrets passed to a reusable workflow**
+  (`secrets: { token: ${{ secrets.NAME }} }`). `secrets: inherit` is read; a
+  named mapping is dropped before comparison, so pointing it at a different
+  secret produces no row (#693).
+- **The path of a remote MCP server's URL.** The host and query are compared
+  and the path is not, because a webhook-style path can itself be the secret.
+  Changing `/read` to `/admin` on the same host produces no row (#772).
 
-Review changes to those files as you would a change to the workflow or hook
-that invokes them.
+Review changes to those files and fields as you would a change to the workflow,
+hook or server entry that holds them.
+
+A hook row describes the file, not the host. A `hooks.json` found under
+`.claude/hooks/` is reported as an `execute` grant even when no settings file
+or plugin manifest references it, so the row does not establish that Claude
+Code loads it (#714).
 
 Skill and command frontmatter is read the way Claude Code documents it (#730).
 Frontmatter is optional: a skill without it takes its name from the directory
