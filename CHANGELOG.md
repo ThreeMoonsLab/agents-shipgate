@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Preserve host permission-change semantics when `check` redacts rule arguments; scoped narrowing and widening now agree with `diff` and `verify`. (#767)
+- Report incomplete coverage for malformed Claude permission containers and `allow`/`deny`/`ask` arrays instead of a covered no-change comparison. Unknown extension settings remain allowed. (#768)
 
 ## 1.0.0 - 2026-09-13
 

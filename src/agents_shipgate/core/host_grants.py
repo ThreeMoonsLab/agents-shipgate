@@ -638,6 +638,27 @@ def _safe_read(
         return None, failure.summary(), failure
 
 
+def _claude_permission_shape_error(data: Any) -> str | None:
+    """Validate only the known permission containers; unknown settings stay allowed."""
+
+    if not isinstance(data, dict):
+        return "settings must be an object"
+    if "permissions" not in data:
+        return None
+    permissions = data["permissions"]
+    if not isinstance(permissions, dict):
+        return "permissions must be an object"
+    for disposition in ("allow", "deny", "ask"):
+        if disposition not in permissions:
+            continue
+        rules = permissions[disposition]
+        if not isinstance(rules, list) or any(
+            not isinstance(rule, str) or not rule.strip() for rule in rules
+        ):
+            return f"permissions.{disposition} must be an array of non-empty strings"
+    return None
+
+
 def _load_structured(
     *, path: Path, source: str, host: str, kind: str, scope: HostScope,
     containment_root: Path, cache: HostStaticParseCache,
@@ -661,6 +682,19 @@ def _load_structured(
             resolved_through=resolved_through,
         ))
         return None
+    if host == "claude-code" and kind in {"config", "hooks"}:
+        shape_error = _claude_permission_shape_error(data)
+        if shape_error is not None:
+            issues.append(_inventory_issue(
+                kind="unsupported", host=host, source=source,
+                message=f"Cannot interpret Claude settings: {shape_error}; repair the field and rerun the audit.",
+                blocking=True,
+            ))
+            artifacts.append(_artifact(
+                host=host, scope=scope, source=source, kind=kind, status="unsupported",
+                resolved_through=resolved_through,
+            ))
+            return None
     artifacts.append(_artifact(
         host=host, scope=scope, source=source, kind=kind, status="parsed", data=data,
         resolved_through=resolved_through,

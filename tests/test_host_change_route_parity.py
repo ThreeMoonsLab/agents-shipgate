@@ -295,3 +295,37 @@ def test_scoped_permission_semantics_survive_redaction(repo, before, after, expa
         assert sorted((r['direction'], r['severity'], r['expands']) for r in payload['rows']) == sorted(
             (r['direction'], r['severity'], r['expands']) for r in raw)
         assert 'npm' not in json.dumps(_check(repo, base)['rows'])
+
+
+@pytest.mark.parametrize('before,after', [
+    ({'allow': []}, {'allow': 'Bash(*)'}),
+    ({'allow': 'Bash(*)'}, {'allow': ['Read(*)', 3]}),
+    ({'allow': 'Bash(*)'}, {'allow': []}),
+])
+def test_changed_invalid_permission_shapes_are_not_no_change(repo, before, after):
+    _write(repo, '.claude/settings.json', {'permissions': before})
+    _commit(repo, 'permission baseline')
+    base = _git(repo, 'rev-parse', 'HEAD')
+    _write(repo, '.claude/settings.json', {'permissions': after})
+    _commit(repo, 'permission change')
+    for payload in (_diff(repo, base), _check(repo, base), _verify(repo, base), _mcp(repo, base)):
+        assert payload['comparison_status'] == 'incomparable'
+        assert payload['incomparable_reasons']
+        assert payload['rows'] == []
+    assert _check(repo, base)['control']['permissions']['merge'] is False
+
+
+def test_unchanged_invalid_permissions_keep_explicit_standing_limit(repo):
+    _write(repo, '.claude/settings.json', {'permissions': {'allow': 'Bash(*)'}})
+    _commit(repo, 'unsupported baseline')
+    base = _git(repo, 'rev-parse', 'HEAD')
+    _write(repo, 'README.md', 'Unrelated documentation\n')
+    _commit(repo, 'documentation')
+    for payload in (_diff(repo, base), _verify(repo, base)):
+        assert payload['comparison_status'] == 'comparable', payload
+        assert payload['rows'] == []
+        assert any(limit['source'] == '.claude/settings.json' for limit in payload['unchanged_limits'])
+    # The legacy boundary projection cannot represent standing limits (#721).
+    check = _check(repo, base)
+    assert check["comparison_status"] == "incomparable"
+    assert check["incomparable_reasons"] == ["unchanged_limits_not_representable"]
