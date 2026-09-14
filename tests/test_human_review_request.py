@@ -222,6 +222,18 @@ def test_review_postcondition_does_not_widen_a_published_control_grammar(filenam
 
         assert original["$defs"].pop("CoverageRecovery") == CoverageRecovery.model_json_schema()
         raw = (json.dumps(original, indent=2, sort_keys=True) + "\n").encode()
+    if filename == "agent-result-schema.v3.json":
+        # The generator stamps the running package version as the default of
+        # `AgentResultTool.version`, so a release bump moves that one default.
+        # Only that default is restored to the stamp the digest was taken over;
+        # the rest of the grammar is still compared byte for byte.
+        from agents_shipgate import __version__
+
+        original = copy.deepcopy(schema)
+        stamp = original["$defs"]["AgentResultTool"]["properties"]["version"]
+        assert stamp["default"] == __version__
+        stamp["default"] = "0.16.0"
+        raw = (json.dumps(original, indent=2, sort_keys=True) + "\n").encode()
     assert hashlib.sha256(raw).hexdigest() == digest
     action = {"actor": "human", "kind": "review", "command": None,
               "expects": None, "why": "Review the exact scope"}

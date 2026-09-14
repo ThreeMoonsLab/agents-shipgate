@@ -2,1512 +2,134 @@
 
 ## Unreleased
 
-- Add the ten-server false-finding table under `benchmark/mcp-servers/`
-  (#658). It pins ten public MCP servers, chosen by a rule written from
-  committed text, and runs a candidate over each. Every published finding is
-  labelled against the server's source in `labels.csv`, and
-  `tests/test_mcp_server_findings_table.py` re-scores the committed run so the
-  table stays reproducible. Candidate `9946f80a` publishes 76
-  findings, 1 of them false (1.3%, under the 2% bar). The run
-  also reports what the reader could not establish.
-
-- Leave eval-harness and mock tools out of an MCP server's source catalog
-  (#658). The source reader enumerated 11 tools in `mongodb-mcp-server`
-  that are not the server's. Its eval runner's judge tools live under
-  `packages/eval-tests`, and its test fakes under `integration-tests/src/mocks`.
-  Five of them raised `SHIP-DOC-MISSING-DESCRIPTION`. Both readers now skip
-  `eval-tests`, `integration-tests` and `mocks` directories, alongside the test
-  directories they already skipped.
-
-- Stop reading a topic as a contradiction of `readOnlyHint` (#658).
-  `SHIP-MCP-ANNOTATION-CONTRADICTION` raised 35 false contradictions on two
-  public servers:
-  - `github/github-mcp-server`: 5. Secret-scanning and team tools matched a
-    sensitive keyword, and `search_commits` matched `message`.
-  - `hashicorp/terraform-mcp-server`: 30. Read-only tools matched `terraform`.
-
-  The MCP hint promises the tool does not modify its environment. Now only a
-  modifying effect contradicts it, and a keyword inference counts only when the
-  tool's name or description carries an action verb (`create`, `send`,
-  `delete`, `execute`, and so on). `send_email`, `create_invoice` and
-  `delete_account` still contradict. A retrieval tool whose description names
-  deletes still does, as a known limit.
-
-- Stop reporting an unreadable MCP source description as missing (#658).
-  `SHIP-DOC-MISSING-DESCRIPTION` fired whenever the `mcp_server_source` reader
-  could not resolve a description. That covered `mcp-grafana`'s positional
-  `MustTool` descriptions, `"…" + "…"` concatenations, template literals with
-  `${…}`, f-strings and variables. Across six public servers, 148 of 150 such
-  findings were false. Both readers now record a description written in a form
-  they cannot resolve as `extraction.description: unresolved`, and the check
-  does not report it as missing. An absent or explicitly empty description still
-  is. `MustTool(name, description, handler, …)` now yields its literal second
-  argument.
-
-- Read `.vscode/mcp.json` as JSON with comments (#659). VS Code documents and
-  runs that file with `//` and `/* */` comments and trailing commas, and a
-  public repository in the host-config benchmark committed one. `audit --host`,
-  `diff`, `check` and `verify` rejected it as unparsable, and `diff` refused the
-  whole comparison. For that file only, comments and a trailing comma outside
-  strings are now ignored. Other host files keep strict JSON, and anything else
-  JSON rejects is still rejected.
-
-- Answer the Stop hook's host comparison in under a second (#661). Every
-  `shipgate` invocation imported every command module before it ran one. `diff`
-  then loaded the verify command and the scan helpers as well, through the
-  `cli.verify` package and the `--workspace` guard. Now:
-  - The root CLI imports a command only when it is resolved.
-  - The workspace guard loads its reporting helpers only to refuse.
-  - `cli.verify` resolves `verify` and `run_verify` on first use.
-
-  On a manifest-free repository the Stop hook's `diff` route went from
-  1.57–1.73 s to 0.90–1.00 s, inside the 1.5 s budget. `shipgate diff` alone
-  went from 1.15 s to 0.55 s. `--help`, `--help-all`, completion and
-  typo suggestions still see every command.
-
-- Stop repeating hook advisories within a Claude Code session (#661). In a
-  repository without a manifest, a scripted 50-event session drew 26
-  interrupts. It edited docs, tests, the README and plain source, and applied
-  one supported settings narrowing. PostToolUse and Stop repeated "could not
-  decide whether this diff is relevant" after every source edit, and a
-  narrowing sitting beside other edits fell back to the manifest advice.
-
-  The hooks now remember, per session and per path, the last verdict they
-  reached and the verdicts already announced. An edit that brings nothing new
-  stays quiet. A new path, verdict, base, manifest or session is announced, and
-  so is every result that could not read its input. Host configuration beside
-  other edits is compared by the host readers and advised on in one message.
-  PostToolUse no longer nudges on host configuration in repositories with a
-  manifest either, because Stop runs `verify` there.
-
-- Let a host settings narrowing finish without a human review (#661). In an
-  adopted repository, tightening `.claude/settings.json` from `Bash(*)` to
-  `Bash(git status)` no longer raised an expansion after #745. But `check`
-  still added `SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED` and `verify`
-  raised `SHIP-VERIFY-TRUST-ROOT-TOUCHED`, so the Stop hook ended the agent's
-  turn on a human review. A change to `.claude/settings.json`,
-  `.claude/settings.local.json` or `.cursor/cli.json` now clears both when the
-  permission lattice decides it only narrows. Only the rule lists may change:
-  every added allow rule must be subsumed by an existing one, and no deny rule,
-  nor for Claude Code an ask rule, may be removed. `check` records it as the
-  `host_settings_narrowed` diagnostic. A hook, any other key, or a rule the
-  lattice cannot decide keeps the review.
-
-- Document that `check` and `verify` publish changed-file paths verbatim
-  (#742). The privacy section of `STABILITY.md` now names the fields that carry
-  them and why: they are locators a reviewer or agent opens, and the pull
-  request diff already shows them. The host inventory redacts path bytes (#590);
-  changed-file paths do not. No output changes.
-
-- Read through an in-tree link at a boundary path (#700). `CLAUDE.md -> AGENTS.md`
-  and `.claude/skills -> ../.agents/skills` made every host comparison in the
-  repository refuse as `unreadable`. That was the largest single cause of the
-  refusals left in the #659 and #660 measurements. A link that resolves inside
-  the repository is now read at its target, under its own path, and each
-  artifact records the hops in `resolved_through`. External, escaping and
-  dangling targets, links inside linked directories, chains past eight hops,
-  and directory links that could only hide a `**/` match still refuse.
-  Host-grants schemas move to `0.5` (runtime contract 39). A `0.4` baseline
-  stays comparable.
-
-- Read Go MCP servers' literal tool hints for the contradiction check (#658).
-  `SHIP-MCP-ANNOTATION-CONTRADICTION` could challenge a FastMCP `readOnlyHint`
-  read from source, but not a Go server's. Neither the go-sdk
-  `Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}` field, as
-  `github/github-mcp-server` writes it, nor the mcp-go
-  `mcp.WithReadOnlyHintAnnotation(true)` and `WithDestructiveHintAnnotation(...)`
-  options were read. Both readers now keep a bare `true` or `false` and refuse
-  anything else: pointer helpers, `WithToolAnnotation`, variables, positional
-  fields. As with Python, a hint is a claim the check may challenge and never
-  evidence, so it does not change a tool's effect.
-
-- Stop calling a narrowed allow rule an expanded allowlist in `check` and
-  `verify` (#661). The host boundary evaluator compared rule text by set
-  difference, so tightening `Bash(*)` to `Bash(git status)` in
-  `.claude/settings.json` or `.cursor/cli.json` raised
-  `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED`, and in an adopted repository
-  the Stop hook handed that narrowing to a human as an expansion. An added rule
-  that an old rule already subsumes now raises nothing, read from the same
-  permission lattice the drift reader and the audit table use (#657). A pair
-  the lattice cannot decide still counts as an expansion.
-
-- Keep credential-shaped bytes in a directory or file name out of host inventory
-  output (#590). `artifacts[].path`, `grants[].source`, `grants[].path`,
-  `host_coverage[].sources_observed`, the saved baseline, drift and `verify`'s
-  `host_comparison` published the exact path, so a token-shaped directory name
-  reached them for successful and unreadable sources alike. Each path component
-  is now redacted with the shared sanitizers. A redacted location carries a short
-  digest of the exact source, so two sources that redact alike stay distinct.
-  Ids, reads and policy classification still use the exact path. A path with
-  nothing to redact is byte-identical, so existing ids and baselines are
-  unaffected. Changed-file paths in `check` and `verify` are tracked in #742.
-
-- Name the host capability change in the compact control envelope (#662).
-  `check --format agent-control-json`, `verify --format control` and
-  `agent control` now carry an optional `capability_rows` block in
-  `shipgate.agent_control/v1`. It holds up to five rows, with the rows that
-  widen authority first, plus the count of rows cut, the comparison status
-  and reasons, and how many unchanged partial surfaces were not read. An agent
-  reading only the envelope can now say what changed without a second call.
-  The block grants nothing, and it is omitted when no host comparison ran.
-  **Breaking for strict validators:** the envelope object is closed, so a
-  reader validating against the v37 schema rejects an envelope that carries
-  the block. Runtime contract 38; the minimum control contract stays 21.
-
-- Support `.vscode/mcp.json` as a first-class host surface (#731). It was
-  `experimental`, so a repository with the file refused every host comparison
-  whenever it changed: none of the six such PRs in #659 compared. The server set
-  is now compared as for `.mcp.json`. `sandbox` and a server's `sandboxEnabled`
-  are sandbox grants, so toggling isolation is its own row. An `${input:…}`
-  reference contributes its name to the server's digest, never a value.
-  `envFile` is recorded as a non-blocking limit, and any other top-level key
-  keeps coverage partial. Five of the six #659 replays now compare and name
-  their row; the invalid-JSON case still refuses.
-
-- Digest undocumented skill and command frontmatter keys instead of refusing
-  them, and read a skill without frontmatter by its documented defaults (#730).
-  `version`, `author`, `category` and similar keys made a skill unresolved, which
-  refused every host comparison in its repository: #659 measured 4 of 50 PRs,
-  110 skills in one of them. They now enter the structure digest as written, so
-  changing one is still a change. An unquoted YAML date is digested as its ISO
-  text. Claude Code documents frontmatter as optional, so a skill without it
-  takes its name from the directory and its description from the first
-  non-empty line. Cursor rules still refuse an undocumented key.
-
-- Stop counting a symlink to an in-tree regular file as a coverage limit (#700,
-  owner decision). The audit treated every link as a directory that might hide
-  a host-config match, so one symlinked file anywhere made every host's
-  inventory incomplete and refused its comparisons: #659 measured it on
-  `MetaMask/metamask-mobile#29139` and `bencherdev/bencher#673`. A link is now
-  resolved inside the tree, through at most eight links and never through a
-  linked directory. Its target's kind is recorded in the identity-bound read
-  session, which revalidates it when the snapshot finishes, so a target swapped
-  for a directory mid-read still fails. A dangling, external or directory target
-  is still a limit, and a link at a boundary path is still read as a link until
-  #700's second step. The scoped base tree gives such a link an empty
-  placeholder of its target's type, so both sides judge it the same way.
-
-- Compare host configuration in the Claude Code Stop hook when no manifest
-  exists (#661). A narrowing and a widening edit to `.claude/settings.json` got
-  the same two messages, neither named `Bash(*)`, and both advised initializing
-  a manifest. When every changed file is host configuration, the Stop hook now
-  runs `shipgate diff`. It is quiet when no row expands, names each widening row
-  once, and is never quiet when it cannot compare. The PostToolUse hook no
-  longer nudges on those edits. Mixed changes and repositories with a manifest
-  keep their existing route. The path list is rendered from the boundary
-  registry at install time.
-- Answer with one human stop when an untracked host baseline and a blocked
-  host-capability expansion share a change (#694). The new baseline is an
-  undeclared surface, and that route was chosen before the policy block. So
-  `check` raised `a blocked result cannot authorize publication` in the `text`,
-  `agent-boundary-json` and `agent-control-json` formats and printed nothing,
-  while `codex-boundary-json` sent the coding agent to a configuration command
-  for a blocked result. A block now keeps the stop and the violations'
-  reviewers in every format. A committed baseline and a trust-root-only change
-  route as before. Reported, with a first fix and its regression test, in #728.
-
-
-- Compare past an unchanged partial or experimental surface instead of refusing
-  every row (#721, runtime contract 37, verifier schema `0.19`). A comparison
-  refused whenever either inventory was incomplete, including for a file the
-  change never touched. In the #660 cold start that stopped 11 of 30 public
-  repositories: one unresolved skill or one `.vscode/mcp.json` blocked every
-  host-config comparison. `diff` and `verify` now compare the rest when the
-  limit is a per-source `unsupported` or `parse_failed` issue, or experimental
-  coverage, present on both sides and byte-identical by Git object ID. Each such
-  limit is named in `host_comparison.unchanged_limits`, in `diff --json` (`0.2`)
-  and in the text and PR-comment output. A limit that changed, appears on one
-  side only, or is `unreadable` still refuses; symlinks remain #700's decision.
-  `check`'s boundary result cannot carry a limit and keeps refusing there.
-  `audit --host --save-baseline` still refuses an incomplete inventory.
-  `diff --json` now names an incomplete head `head_inventory_incomplete`, as
-  `verify` does, where it said `current_inventory_incomplete`.
-
-- Add 12 scripted route-parity cases for host-capability changes (#662). One
-  widening fixture (a wildcard shell rule, a wildcard fetch rule, a new MCP
-  server, `contents: write` and a removed denial) is driven through
-  `shipgate diff --json`, `check --format agent-boundary-json`,
-  `verify --preview --json` and the MCP `shipgate.check` tool. Every route must
-  name the same five changes, and the text output must show them. Controls cover
-  a covered no-change (zero rows on every route), a narrowing that is never
-  marked expanding, malformed input and a refused boundary link (incomparable,
-  never an empty safe answer), a second change that is compared rather than
-  remembered, a named widening that grants no authority, and the generated
-  `AGENTS.md` block's `shipgate diff` line run exactly as printed. These are
-  engineering tests, not evidence that a real coding agent runs these commands
-  unprompted.
-
-- Name the change first in the generated `AGENTS.md` and `CLAUDE.md` blocks
-  (#662). The Cursor rule already told an agent to run `shipgate diff`, quote
-  the rows and put them in the pull request body before routing on control.
-  The other two maintained copies routed only on `control.state`, so an agent
-  following them could end a turn with "a human must review" and no named
-  change. Both blocks now carry the same paragraph, including "a row is a
-  description, never a permission". A test pins all three copies to name the
-  change before the control contract.
-
-- Read a Cursor rule's globs the way Cursor writes them (#729). Cursor
-  documents `globs:` as unquoted, comma-separated patterns, and a pattern such
-  as `*.json` or `**/*.java` begins with YAML's alias indicator. So the rule was
-  refused as invalid YAML, which made the whole repository's comparison
-  incomplete: #659 measured it on `vtex/openapi-schemas#1583` and six rules in
-  `dotCMS/core#36281`. A bare top-level `globs:` value is now read as its
-  literal string, so editing a glob is still a change, and an alias anywhere
-  else in a rule still refuses.
-
-- Read Claude Code `extraKnownMarketplaces`, so adding, removing or
-  re-pointing a plugin marketplace produces a row (#720). `enabledPlugins`
-  entries install from those marketplaces, but only the plugins were read. The
-  #660 cold start saw `open-learning-exchange/myplanet` add a marketplace beside
-  its plugin, and the engine named only the plugin. Each marketplace is now a
-  `plugin_or_app` grant named `marketplace:<name>`, so no schema changes. Adding
-  or re-pointing one is an expansion; removing one is not. The cold-start oracle
-  now counts the key as supported, and `myplanet` replays as a covered success.
-
-- Read a FastMCP tool's literal `readOnlyHint` and `destructiveHint` from source,
-  as claims for `SHIP-MCP-ANNOTATION-CONTRADICTION` to challenge (#658). The
-  source route read no hints at all, so a server whose source says
-  `readOnlyHint: True` over a destructive tool had nothing to be contradicted
-  about; it now fires there as it does on an exported `tools.json`. The hints
-  are never evidence. Reading them as the export route does lowered
-  `transfer_funds` from `write` to `read` with no finding and answered three of
-  eight open effect questions on the server's word, so on this route no effect,
-  risk tag, permission class or question moves because of one. Only those two
-  keys, only exact booleans, and `ToolAnnotations` only when bound to
-  `mcp.types`; a value that cannot be read is recorded as
-  `extraction.annotations: unresolved`. A tool whose only side-effect evidence is
-  its body stays quiet, because this route reads no body. A server already
-  scanned with literal hints will see its annotation hash change once.
-- Add the host-config precision harness under `benchmark/host-config/` (#659).
-  It runs `shipgate diff` on 50 merged public PRs, each changing one
-  host-configuration file: `.claude/settings.json`, `.mcp.json`,
-  `.cursor/mcp.json`, `.codex/config.toml`, `.vscode/mcp.json` or a workflow's
-  permissions. It scores row precision, widening recall and the benign zero-row
-  rate against changes derived from the two file versions, never from the
-  engine. An incomparable comparison also records `audit --host --json`, so each
-  refusal maps to its cause. `tests/test_host_config_replay.py` replays every
-  case offline and re-scores the run of record. Against candidate `71ef771d`,
-  precision was 52/52, widening recall 42/63 against a bar of 0.90, and the
-  benign rate 5/6 against 95%. Every miss was a refused comparison (#700, #721,
-  #729, #730, #731).
-
-- Make a URL-based MCP server's query part of its change digest (#723). The
-  digest hashed only the redacted URL, which keeps the scheme and host and drops
-  everything else. So removing `read_only=true` from a Supabase MCP URL, adding
-  `features=` or switching projects produced no row. The #660 cold start found
-  the `features` case on a public repository. Published fields are unchanged and
-  still carry no path, query or secret. A secret-named query parameter
-  contributes only its name, and `env` and `headers` stay out. The path stays out
-  too: a webhook-style path is a secret whose rotation must stay quiet, so a
-  path-only capability change is still not seen. Servers without a query keep
-  their earlier digest. A baseline saved earlier shows each affected URL server
-  as `changed` once.
-
-- Resolve documented Claude skill and command frontmatter instead of refusing it
-  (#722). An unresolved instruction is a blocking coverage issue, so one such
-  file made a repository's whole host inventory partial. Skills now accept
-  `when_to_use`, `arguments`, `disallowed-tools`, `effort`, `background`,
-  `paths` and `shell`. Commands accept `user-invocable`, `disallowed-tools`,
-  `effort`, `arguments`, `name` and `paths`, as the docs say they take the same
-  frontmatter as skills. `argument-hint` may use its documented bracket form,
-  which YAML reads as a list. A skill without `name` takes its directory name,
-  and the default enters the structure digest. Claude booleans accept `yes`,
-  `no`, `on`, `off`, `1` and `0`, while Cursor's `alwaysApply` stays exact.
-  `effort` and `shell` are checked against their documented values, and
-  `description` is still required. Undocumented keys such as `version` and
-  `author` are still refused. The #660 results now name the right cause for
-  `justinstimatze/winze`: its bracket-form `argument-hint`, not a string
-  `allowed-tools`, which was always accepted.
-
-- Add the cold-start harness under `benchmark/cold-start/` (#660). It measures
-  whether `shipgate diff`, run from a fresh clone of a frozen population of 30
-  public repositories, reaches a correct, covered comparison. Expected changes
-  are derived from the files and host documentation, never from the engine.
-  Incomparable, unsupported and unclassified cases never count as success.
-  `tests/test_cold_start_replay.py` replays every case offline against its
-  recorded outcome. The first run, against candidate `8d43106f`, recorded
-  17/30 against a bar of 24. Every comparison that ran was correct, and all 11
-  failures stopped on a surface the commit did not change (#700, #720–#723).
-
-- Resolve local Claude Code settings layers by the documented precedence
-  instead of refusing them. `audit --host --scope local-static` raised a
-  blocking `unresolved_precedence` issue whenever two layers existed, so user
-  settings plus a project's `.claude/settings.json` — the ordinary developer
-  setup — could never save a local baseline. Permission rules, additional
-  directories and hooks now merge across layers; a scalar setting keeps the
-  highest layer that sets it (managed, project local, shared project, user),
-  and the remaining grant's `source` names that layer; a same-named MCP server
-  keeps the local-scope entry over `.mcp.json`; and `allowManagedPermissionRulesOnly`
-  and `allowManagedHooksOnly` restrict rules and hooks only from managed
-  settings. A `defaultMode` of `auto` or `bypassPermissions` in a project file
-  is still reported, beside the lower layer's mode, because older clients
-  honored it. Disagreeing `sandbox` or `enabledPlugins` values, a layer with no
-  documented rank, and Codex and Cursor layers still fail closed; the issue now
-  names the key and each layer. The repository scope, which the PR route uses,
-  is unchanged (#657).
-
-- Publish a version that reviewed code declares advisory through the ordinary
-  release pipeline, with no qualification claim (#648). Each version's channel
-  is declared in `.github/release-channels.json`, and a missing or unknown
-  entry stops the release before anything is built. `release.yml` calls
-  exactly one of `release-verify.yml`, which is unchanged, and the new
-  `release-advisory-verify.yml`; one publisher serves both. An advisory release
-  publishes the wheel Release Engine Smoke exercised, proven byte-identical to
-  the tagged tree's build, with a wheel-scoped SBOM, a provenance record, the
-  candidate manifest and a signed `advisory-statement.json`. Staging and
-  finalisation refuse a manifest whose channel or asset set is not the declared
-  channel's, and the mandatory rehearsal is the declared channel's own file.
-  `release_cadence.py` reads each tag's declaration, so an advisory `v*` tag
-  never counts as a gate-line release. Policy:
-  `docs/release-evidence-policy-decision.md` § Amendment 5.
-
-- Run the FastMCP Context-injection SDK cross-checks on the SDK versions the
-  `[mcp]` extra allows. FastMCP was renamed to MCPServer in mcp 2.x and the
-  extra requires `mcp>=2.1.1,<3`, but both cross-checks imported only the 1.x
-  module, so the eight cases comparing the static reader with the real SDK's
-  `find_context_parameter` skipped on every install that satisfies the extra,
-  CI included; they still ran, but only against an out-of-range mcp 1.x such as 1.27.2. They now try the 2.x location first and the
-  1.x one second, skip only when `mcp` is absent, and fail when an installed
-  SDK exposes neither. All eight pass on mcp 2.2.0 and on 1.27.2 (#716).
-
-- Freeze the report contract at `1.0` and publish what that number promises.
-  `report_schema_version` moves `0.43` → `1.0` and runtime contract `33` → `34`;
-  `minimum_control_contract_version` stays `21`. The shape does not change:
-  `docs/report-schema.v1.0.json` and `docs/report-schema.v0.43.json` are
-  byte-identical apart from `$id`, `title` and the version constant, so a
-  consumer written against `0.43` needs no edit. `1.x` is additive-only, a
-  change that cannot be expressed additively needs `2.0`, a deprecation cycle
-  counts shipped releases rather than time on unreleased `main`, and every
-  published schema URL keeps its bytes. The stable/provisional inventory of
-  report fields, CLI, exit-code, Action and control surfaces, the migration
-  from the shipped `v0.15.0` contract, and the recorded RC exercise are in
-  [`docs/report-1-0-contract.md`](docs/report-1-0-contract.md), checked against
-  the runtime by `tests/test_report_1_0_contract.py`.
-
-  Pre-freeze `0.x` reports are no longer accepted as engine *input*.
-  `scan --diff-from`, `apply-patches`, `explain-finding`, `findings`, `scenario suggest` and
-  `evidence-packet` refuse one by name, with a stable `reason_code` and a
-  regeneration route, instead of validating it against a model whose defaults
-  would stand in for blocks it never recorded. A report from a newer `1.x`
-  minor is read by a projection reader and refused by evidence comparison
-  or patch application.
-  Nothing is converted and no artifact gains current authority through
-  conversion or a restamped digest; every superseded schema stays published, so
-  archived reports remain validatable. An incomparable `--diff-from` base still
-  withholds the verdict rather than downgrading it — that routing is now keyed
-  on the refusal's own reason code instead of on its wording.
-
-  The production `beta` qualification policy's `required_report_schema_version`
-  moves to `1.0` with the engine. Issuance of the `pre_1_0` tier is retired:
-  `scripts/run_safety_qualification.py` produces no artifact carrying it and
-  `--policy-tier pre-1.0` is refused by name. The policy, its thresholds and
-  every reader of it remain, and it keeps its historical `0.43` pin so an
-  artifact already scored against it is still named and diagnosed correctly.
-  No scoring floor moved.
-
-  `docs/distribution-surfaces.md` gains a `report_schema_pin` claim: the five
-  surfaces that tell a reader which `report-schema.v<X>.json` to validate
-  against are now checked from the registry, in both directions (a pin left
-  behind and a pin ahead of the build), instead of by hand-maintained per-file
-  lists. `explain-finding` refuses a report whose findings carry no
-  `agent_action` rather than explaining a null one, the way `findings` already
-  refuses a missing `provenance_kind` (#569).
-
-- Tell a widened permission rule from a narrowed one, and stop rating
-  reading files as critical. Host grants are keyed by rule text, so
-  replacing `Bash(npm *)` with `Bash(npm test:*)` arrived as one removal
-  plus one addition — byte-for-byte the same shape as replacing it with
-  `Bash(*)`. Set arithmetic cannot separate those, so drift reported a
-  tightening as an expansion, and a reviewer who tightens a rule and gets
-  warned for it learns to stop reading the warnings. A new
-  `core/permission_lattice.py` decides which of two rules is wider for the
-  patterns hosts actually use — whole-tool grants, trailing-star prefixes,
-  literals, and the bare `mcp__server__*` spelling — and answers `None`
-  for anything else, including character classes and interior stars, where
-  a guess would be the same wrong direction in a new place. A narrowing no
-  longer contributes to `expansion_signals`; it stays visible in `changes`
-  as the removal and addition it is. A widening is now named
-  (`permission_widened: <host>:<before> -> <after>`) rather than only
-  counted.
-
-  The same lattice sets severity, replacing a model where every wildcard
-  allow was `admin`/`critical`. `Read(**)` sat beside `Bash(*)` at the top
-  of the table. On a carefully written host config — wildcard reads,
-  scoped `Bash` and `Edit`, two deny rules, one MCP server, a
-  least-privilege workflow — `audit --host` rated 7 of 10 grants `high` or
-  `critical`, three of them `critical`/`admin` for reading files. The same
-  config now rates 1 of 10 above `medium`: the MCP server, which is the
-  one row there that can reach anything new. Severity follows what the
-  grant reaches:
-  execution and `*` stay `critical`, network and write are `high`, an
-  unrecognised whole-tool grant is `high` because nothing establishes
-  otherwise, and reading a workspace the agent already has checked out is
-  `low`.
-
-  This narrows a blocking check. `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW`
-  blocked the release on any wildcard allow, so adding `Read(**)` — the
-  ordinary configuration for a coding agent — was a `critical` release
-  blocker, and a gate that stops a release over reading files is one a team
-  turns off. Read-only whole-tool grants now raise
-  `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` (`require_review`, `high`)
-  instead. Nothing else moves: execution, network, write, `*` and unknown
-  tools still block, and the check ID is unchanged for them. The gate had
-  classified wildcards a second time in `core/host_boundary.py`; both
-  readers now share the one lattice, and a test pins that they agree.
-
-  `policies/host-boundary.shipgate.yaml` records why each severity is what
-  it is, one `why:` line per rule — nine of the ten sat at `high` or above
-  with nothing written down. `tests/test_permission_lattice.py`
-  carries twenty widen/narrow/unchanged pairs replayed through the real
-  reader for both hosts with a rule vocabulary, and marks the two pairs
-  this lattice declines so the boundary moves visibly rather than
-  silently. Replayed against pre-fix `main`, 51 of its 78 cases fail
-  (#657).
-
-- Lead the Cursor instruction surface with `shipgate diff`. It opened with
-  the control envelope, so an agent following it reported "a human must
-  review" without naming what changed, while `AGENTS.md` had led with the
-  named rows since #651. The generated file now names the row fields, says
-  a covered comparison with no rows is a real answer, and repeats that a
-  row is a description and never a permission. The committed rule file and
-  the copyable snippet in `docs/target-repo-agent-snippets.md` are
-  regenerated from the one renderer; both are pinned to it by tests (#662).
-
-- Read `.claude/hooks/hooks.json`. A `SessionStart` command is executable code
-  around the agent and was invisible; the document is the same shape as
-  `.codex/hooks.json`, which has been read since the Codex adapter landed, so
-  only the registry entry was missing. Hook rows now name their event rather
-  than rendering as "hook". Found by counting disagreements between the
-  adapter registry and an independent census of host paths, now committed at
-  `benchmark/cold-start/census.py`: it prints unexplained coverage gaps,
-  issue-owned gaps and census bugs on every run, so a path nobody registered
-  can no longer look like a change that did nothing (#689).
-
-- Keep a directory at a recognized host configuration path visible as a failed
-  input. Host audits, worktree diffs and committed-ref comparisons no longer
-  mistake `.mcp.json/` for an absent configuration and report complete coverage.
-  Scoped base trees preserve directory kinds even when their contents are not
-  selected; ordinary containers remain valid (#613).
-
-- Advisory `diff` and manifest-free PR review materialize boundary paths and
-  symlinks from a verified tree instead of copying commit ancestry and writing
-  every file. The original sample improved from 25s to 2.7s; residual latency
-  remains #698, not a universal two-second promise. Shallow comparisons verify
-  that a visible common ancestor does not hide a newer one beyond a graft;
-  unresolved ancestry requests a fetch, while HEAD and proven ancestor
-  comparisons remain usable. Configured release archives retain their existing
-  whole-history validation. Scoped archives preserve links, but the reader
-  remains conservative until link-target identity can be bound (#700/#711):
-  successful materialization is not complete inventory coverage (#686/#688).
-
-- Read the Cursor rule format Cursor actually writes. `globs:` with nothing
-  after it — how Cursor spells a rule that is not glob-scoped — reads as
-  YAML null, and the frontmatter type check rejected null for every field.
-  That made the canonical `.cursor/rules/*.mdc` an unresolved instruction
-  structure, which is a blocking inventory issue, which made the whole
-  repository incomparable: `Doist/todoist-mcp` has eleven readable host
-  files and two such rules, and `diff` produced no rows for any of them on
-  every step of its history. An explicit null is now read as an absent key,
-  which is what it means. Wrong types are still wrong, unknown keys are
-  still unknown, and a skill with an empty `name` or `description` still
-  fails on identity rather than sliding through (#712).
-
-- Manifest-free host PR review now names capability changes in verify, PR comments,
-  and check. Interactive check defaults to readable text; agent mode keeps JSON.
-  Comparison evidence binds its input refs, excludes stale scan artifacts, and
-  never grants application release or merge authority (#684).
-
-- Compare workflow permissions rather than whole-file edits in host diffs.
-  Script-only changes no longer appear as permission changes, and an
-  existing write grant is not reannounced as a widening. Effective job
-  permissions respect explicit overrides; reusable calls that inherit
-  secrets name the receiving workflow. Contract v34 and host schema v0.4
-  preserve legacy readers without inventing missing recipient evidence
-  (#685).
-
-- Read literal TypeScript MCP tool descriptions from both SDK registration
-  shapes. Only the options object's own direct description is used; later
-  overrides invalidate stale text, and a later explicit literal can restore
-  it. Nested parameter descriptions and unsupported member/key expressions
-  never supply the tool's documentation. Package and zero-install readers
-  share all read/refusal cases, including supported CommonJS inputs (#680).
-  TypeScript translation-helper semantics remain deferred in #691.
-
-- Detect shallow checkouts before `diff` scans either side. Print a scoped
-  `git fetch --unshallow` recovery (or `fetch-depth: 0` for CI) instead of
-  an object-integrity traceback; agent-mode errors carry the same runnable
-  next action. Object integrity checks remain unchanged (#683).
-
-- Read Go MCP tool descriptions from struct `Description` fields and
-  direct `WithDescription`/`WithToolDescription` options. Later description
-  options replace earlier ones, including empty or computed values. Nested calls and partial
-  expressions cannot supply the parent tool's description.
-
-  A complete two-string call to a declared `TranslationHelperFunc` parameter
-  can supply its literal default. An arbitrary function with key-shaped
-  arguments, an unbound helper, or a shadowed/reassigned parameter cannot.
-  Go trailing commas and comments are supported. The package reader and
-  zero-install detector share regression inputs for these boundaries.
-  First increment of #658; source annotation projection remains separate.
-
-- Make every emitted next action lead somewhere, and prove it. Following
-  `control.next_action` on a repository with recognized host configuration
-  and no manifest went round three commands forever: `verify --preview`
-  named `init --write`, `init` refused because a host-only repository needs
-  no manifest and named `audit --host`, and `audit --host` named
-  `verify --preview` again. The host-audit footer is now conditional — the
-  baseline comparison where there is no manifest, `verify` where there is,
-  `--drift` once a baseline exists — and it says to record the baseline on
-  the base ref, never on the changed checkout, which would accept the change
-  instead of comparing it. That footer also emitted its command without
-  `--workspace`, so following it ran the next step against the caller's
-  current directory rather than the repository just audited; every emitted
-  command now carries the workspace it was produced for. A preview that
-  evaluated no gate reports `Agents Shipgate verify: not evaluated` instead
-  of `failed`, matching the `not_run` its machine fields already carried.
-  `tests/test_next_action_chains_terminate.py` walks every entry command on
-  two repository shapes and fails on a repeat, a lost workspace, or a step
-  this CLI cannot run (#650).
-
-- Split the release into two lines and measure both. The advisory line
-  publishes `diff`, `check`, `audit --host`, drift and advisory PR comments
-  through the unqualified preview on a 14-day interval; the qualified gate
-  line publishes blocking verdicts, receipts and attestations through a `v*`
-  tag on evidence only. One engine, two promises, neither waiting on the
-  other — the state this ends is a documented workflow that was two months
-  out of an outsider's reach because the only channel that could carry it
-  was blocked behind bars that exist to justify blocking a merge, which the
-  advisory line never does. `scripts/release_cadence.py` now reports both
-  from one renderer, counting `v*` for the gate line and `preview-*` for the
-  advisory line; the separation is load-bearing, because counting previews
-  in the release metric would let the channel that exists *because* the
-  release cadence slipped report that cadence as kept. Neither line fails a
-  pull request, for the reason already recorded for the release cadence:
-  whichever change arrives after an interval lapses is not the one that can
-  cut a release. `--fail-when-overdue` now covers both, for an operator or a
-  scheduled job. Recorded as Amendment 4 in
-  `docs/release-evidence-policy-decision.md`; no gate-line bar moves (#648).
-
-- Compare against the detected base by default in `check`, so a branch's
-  committed work is visible without flags. `shipgate check` compared the
-  working tree with `HEAD`, so on a branch whose changes were already
-  committed it answered `allow` with an empty change set — truthfully
-  reporting "nothing is uncommitted" to someone asking "what does this
-  branch change". Reaching the real answer took `--base <ref> --head HEAD`,
-  a pair the help never suggested and which the CLI rejected unless both
-  were given. A flagless run now compares the detected default branch's
-  merge base against the working tree, one comparison spanning committed
-  and uncommitted work, and `subject.base` names the ref it used. `--base`
-  and `--head` are independent; `--base HEAD` keeps the previous
-  uncommitted-only comparison. On the default branch the working-tree
-  answer is complete and unchanged. Where no base can be detected — no
-  remote and no `main` or `master` — the run stops and names `--base`
-  rather than reporting a pass it did not establish. The implicit local
-  fallback is narrow on purpose: a local `main` is refused while a remote
-  exists, because the remote is the authority it might be stale against,
-  and used only where the repository has no remote at all. `verify`'s own
-  base detection is untouched, and the emitted `verify` command now accepts
-  either ref alone so it cannot disagree with the check that emitted it
-  (#649).
-
-- Show a reader six commands and speak to them in their own language.
-  `--help` listed three of 53 commands while every documented first step —
-  `init`, `doctor` — was hidden from the one place a stranger looks; it now
-  lists `diff`, `check`, `verify`, `audit`, `init` and `doctor`, and the new
-  `--help-all` lists every command, rendered from the same Click command as
-  the real help so the two cannot fall out of step. Prominence is a reading
-  aid, never a claim about what exists. Reader-facing strings are now
-  guarded: `tests/test_reader_vocabulary.py` runs every shipped fixture and
-  fails when a headline, summary, `control.reason` or `why` carries engine
-  vocabulary. It found two — "the agent's tool binding graph is incomplete"
-  and "a complete root-reachable static binding graph is required for
-  passed" — which now say what a reader must fix rather than the model it is
-  fixed in. Enum values are untouched: `release_decision.decision` is still
-  `insufficient_evidence` for the machines that gate on it (#652).
-
-- Add `shipgate diff`: what this change does to the agent's authority, in one
-  row per host grant, with no manifest and no committed baseline. The engine
-  already decided this — `audit --host --drift` names every typed grant
-  change — but it required a baseline recorded in advance and reachable from
-  the branch, so the answer was two checkouts and a committed file away. The
-  new command supplies the other side from Git: materialise the base tree,
-  read it with the same host readers, hand both inventories to the same
-  comparator. Rows carry before, after, direction, why it matters and the
-  engine's own severity, most severe first, with `⚠` on the changes the
-  engine called expansions of authority. A benign change prints one line.
-  `--json` emits the same rows. Every field is read from the drift payload,
-  so the command cannot disagree with the engine about a change it did not
-  decide: `risk` is the engine's severity and `expansion_signals` is the
-  engine's word on widening, and a change the engine has not called an
-  expansion is reported as `changed` rather than guessed to be a narrowing —
-  that needs the pattern lattice in #657. Host route only; tool-source
-  subjects are #655. No verdict is published (#651).
-
-- Stop inventorying machine-written tool caches, so an ordinary concurrent
-  test run no longer collapses the host inventory. `check` run while pytest
-  was active returned `human_review_required` with *"Directory inventory
-  could not complete at tests/__pycache__"*; the refusal was correct — the
-  identity reader revalidates every directory it scanned, and a `.pyc`
-  landing between the two reads really is a directory that changed while it
-  was read — but a bytecode cache should never have been an identity-bound
-  input. `__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`,
-  `.tox` and `.nox` are excluded from the repository walk for the same
-  reason `.venv`, `node_modules` and `.git` already are: no host reads
-  configuration from one, so inventorying them buys no coverage. Nothing
-  else is softened — a recognized host directory that changes mid-read is
-  still refused with no grants, an unreadable one is still fail-closed, and
-  a quiescent rerun still performs a real read rather than serving a cached
-  denial or a cached completion (#598).
-
-- Refuse a required tool source whose declared path is unavailable, once,
-  for every reader. `scan` applies one availability precondition before any
-  adapter runs, reading the same resolver `doctor` renders as
-  `SHIP-DIAG-MISSING-SOURCE-FILE`, so the two agree by construction. The
-  contract `docs/diagnostics.md` already published — a required
-  `tool_sources[].path` that does not resolve is `InputParseError(3)` — was
-  true of the shared loaders and `mcp_server_source` and false of
-  `openai_agents_sdk`, which returned a source warning and let a required,
-  absent entrypoint finish as an advisory exit-0 scan; an integration using
-  execution status to tell bad input from a completed scan got a different
-  answer per reader. The error names each offending source id, its declared
-  path, and whether it was not found or escapes the manifest directory.
-  `optional: true` sources are unchanged, keeping their warning and
-  `coverage_recovery` evidence. `verify` applies the same precondition per
-  tree: a base commit declaring a path absent from that tree reports
-  `base_status: "scan_failed"` with the reason in `base_notes` and no
-  capability delta, and does not move the head gate. Missing input is named,
-  never repaired by an invented declaration (#585).
-
-- Read every counted hunk row, so header-shaped content stops being lost.
-  Hunk state and the header's declared row counts, not a line's spelling,
-  decide what the shared unified-diff parser treats as content: a removed
-  `---` renders as `----` and a removed `-- note` renders as `--- note`,
-  and matching those against the file-header prefixes dropped the row and,
-  in the second case, replaced the file's identity with the invalid-path
-  sentinel. A plain Markdown horizontal-rule removal now reaches a complete
-  structural comparison instead of an unnecessary `human_review_required`.
-  Truncated and over-declared hunks still end at the first line that cannot
-  be hunk data, keep their short row list, and are still refused by the
-  declared-count comparison; path, rename, no-newline and malformed-header
-  contracts are unchanged (#611).
-
-- Name what a change did to the bound each finding depends on.
-  `tool_surface_diff.finding_attributions[]` projects the shipped
-  `openapi_delete/v1` and `sdk_boolean_guard/v1` comparisons onto active
-  findings and separates a standing weakness, an improvement that leaves the
-  finding standing, and a newly widened capability — three cases the identity
-  bucket reports as one. Only evidence naming a finding's own fingerprint
-  classifies; same-capability evidence can withdraw a negative claim but never
-  establish one, a display name is never a join, two active findings sharing one
-  fingerprint are unresolvable, and findings that could not be joined to any
-  profile — including any carrying neither a fingerprint nor an id — are counted
-  in `tool_surface_diff.unattributed_findings` and printed beside the rows. A run with no base asks no diff
-  question and emits no rows. Dependency coverage remains
-  incomplete, exclusion eligibility remains false, and no finding, fingerprint,
-  severity, baseline, exit code or release decision changes. No `--scope`
-  option and no receipt question are added (#515).
-
-- Bind reader-selected input directory names and no-follow entry kinds in the
-  verification plan. Both current-control observations and worker replay now
-  reject changed membership, including ignored additions with unchanged file
-  hashes. Exact output exclusions work across archived and live trees without
-  hiding new source siblings. Cached listings retain bounds; refused captures
-  remain explicit. Plans without directory capture require a fresh run (#630).
-
-- Reconfirm recorded verification inputs before returning current control,
-  including ignored and Git-hidden changes. Preserve each live policy,
-  baseline and comparison origin through portable copying; generated and
-  outside-repository imports remain frozen artifacts. Prepare exports captured
-  auxiliary bytes, and all live reads retain bounded no-follow validation.
-  Legacy external-input plans need a fresh run when their origin is ambiguous.
-  Directory-source membership is captured separately below (#627).
-
-- Route host-only repositories from first discovery to the existing host audit
-  without a placeholder manifest. The CLI and zero-install script retain
-  ignored and malformed config candidates; incomplete traversal and config
-  directories remain explicit inspection routes. `init` and `bootstrap`
-  hand off without setup writes. Contract v33 adds filename-only applicability
-  fields; the release gate and permission model are unchanged (#568).
-  `host_discovery_incomplete_paths` names only what can actually conceal a
-  tree — a link resolving to a file is not listed — and an unreadable or
-  over-budget census names the path that stopped it there instead of refusing
-  the classification, matching what `audit --host` already does with the same
-  failure.
-
-- Compare supported instruction structure across verifier, local control,
-  preflight, host drift and generated Claude Code edit hooks. Complete prose
-  edits no longer imply permission changes; malformed/unknown structure and
-  configured trust roots retain review. Raw byte currency remains mandatory.
-  Contract v32 adds successor schemas and explicit conditional edit rules;
-  legacy host baselines require deliberate review, and automatic prose edits
-  never seed or consume per-path hook approvals (#545, #516).
-
-- Count actual `insufficient_evidence` qualification outcomes per profile with
-  denominators, case IDs, named evidence gaps and explicit unscored cases.
-  Mark the legacy expected-IE metric not applicable on the three-label corpus;
-  all existing scores and thresholds remain unchanged. Qualification v6 adds
-  these diagnostics while preserving old artifacts without inventing coverage
-  they never recorded (#520).
-
-- Label conservative action-effect projections separately from their static
-  evidence in CLI, report, PR and packet summaries. Inferred/default/unknown
-  effects remain visible as provisional risks, with current pass eligibility;
-  declared and structural evidence are distinct. No gate or evidence is
-  upgraded by the presentation (#357).
-
-- Retain base finding evidence for the existing fingerprint comparison and
-  expose changed predicate support, sources, subjects and release contribution.
-  Reports distinguish identity matches from change attribution and disclose
-  missing support or ambiguous matches. The gate and legacy JSON buckets are
-  unchanged; #515's default diff scope awaits dependency-coverage proof (#557).
-
-- Show the bounded human review question at the start of existing PR comments
-  and Check Run summaries, with source links, actor, outcomes, coverage limits
-  and exact omitted-question counts. PR publication permission/context refusals
-  retain the review in the workflow summary without changing the gate. This is
-  #337's presentation slice; authenticated decision recording remains open under
-  the independent signer pilot #555.
-
-- Evaluate externally signed decisions on the bounded human review request
-  without rewriting static evidence or granting authority. Full current scope,
-  external host key trust, reviewer eligibility and expiry are checked;
-  acceptance, rejection and dispute remain separate from the release gate.
-  The host-neutral API returns separate evaluation evidence; GitHub acquisition
-  and persistence remain #337 (runtime contract 31, control floor 21; #537).
-
-- Publish an unsigned, content-bound human review request for one complete-evidence
-  documentation-quality class. Reviewers get an exact question, scope and
-  postcondition; existing gates and permissions remain unchanged. The new
-  standalone schema keeps the shared control union and persisted grammars frozen
-  (runtime contract 30, minimum control contract 21; #536).
-
-- **Deprecated the path-only instruction-weakening check.** (#516)
-  `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` remains registered for compatibility
-  but emits no new findings. Structured permission, MCP and hook
-  readers and the skill-command mention heuristic remain active. Generic trust-root and local instruction routes are
-  unchanged; #545 tracks their remaining prose-only review boundary.
-
-- **Test- and template-only agent names require review.** (#533) Discovery
-  keeps these names visible with their source and rationale, but `init` no
-  longer asserts them as the product's reviewed identity. A name also declared
-  in product code remains eligible under the existing quality and scope rules.
-  Installed and standalone detectors apply the same declaration-site floor;
-  tool discovery remains available and unresolved names use the existing
-  `CHANGE_ME` placeholder. The later identity-specific recovery question is
-  tracked separately in #543; existing purpose/permission review remains.
-
-- **An init generator failure is a product defect, not a request to refill a template.**
-  (#328) Rendering and generated-manifest validation now use the same structured
-  `internal_error` route, with no edit or `--minimal` fallback. Setup writes no
-  manifest, CI workflow or instruction kit on this failure. Genuine malformed
-  user manifests still name the existing file for repair.
-
-- **The FastMCP signature projection now resolves the injected `Context`, and
-  says so when it cannot read a type.** (#539) #535 made Python MCP servers
-  discoverable and read their signatures. Two of the facts it published about
-  those signatures could be wrong, and both were reproduced through the
-  production loader: an application model named `Context` was **erased** — the
-  catalog published `update() -> str` for a tool whose one required input is a
-  model carrying `account_id` — and `from mcp.server.fastmcp import Context as
-  RequestContext` was **not recognised**, so the value the framework supplies
-  became a required `string` the caller is asked for. Both came from the same
-  cause: the request context was matched on the last token of the annotation's
-  spelling, while the SDK matches on the resolved class.
-
-  The reader now answers with the module's own import and class table — the
-  machinery that already follows `@mcp.tool` back to a `FastMCP(...)`
-  construction, with the same prefix rule, the same refusal on a doubly-bound
-  name, and one addition: the base list, because the SDK injects any *subclass*
-  of its context. Qualified spellings, `import ... as` aliases, forward
-  references and same-name application classes are all resolved; a name two
-  statements bind and relative imports without class provenance are not, and those
-  keep the parameter with `unresolved_context_identity` recorded against the
-  tool rather than picking a direction silently.
-
-  Separately, a parameter's type is now whatever its annotation **denotes**,
-  read from the annotation's tree. The shared string-matching emitter answers
-  `string` for everything it does not recognise, so `int | None`,
-  `Annotated[int, Field(ge=1)]`, `typing.List[str]` and a Pydantic model all
-  shipped as concrete string schemas on `enumerated` evidence. Containers and
-  the underlying type in an `Annotated` spelling are projected where known;
-  nullable unions remain partial because this one-type projection cannot
-  express both a value and null. Anything unrepresentable publishes **no** type — an empty property
-  schema, `untyped_parameter` or `unrepresentable_annotation` in the tool's
-  `surface_gaps`, and `partial` for that tool's surface. The return annotation
-  is read by the same rule, because `output_schema` came from the same
-  fallback. A container's kind does not depend on what it holds —
-  `Dict[str, Any]` is an object, and this projection publishes no element
-  schema for any annotation, a bare `list` included — but a mapping's *key*
-  does, so `dict[int, str]` is refused. The broader SDK whole-signature and
-  generic-context injection boundary is tracked separately in #542.
-
-  Nothing about the route changes: the tool keeps its name, its file and line,
-  the `medium` ceiling and the exclusion ledger it already had, and a partial
-  signature closes no effect, authority or binding declaration. Both readers
-  move together — `tools/shipgate-detect.py` carries the same resolution and
-  the shared corpus compares it field by field — and the detector's published
-  verdict, frameworks and evidence are unchanged, so `script_version` stays
-  `0.6.0`.
-
-- **A changed MCP endpoint or credential reference now reaches the reviewer.**
-  (#538) An ADK agent that mounts a remote MCP server declares its authority in
-  the constructor: *this agent will call whatever `https://…/mcp` advertises,
-  under `<ENV_VAR>`, restricted to `<filter>`*. The reader discarded all of it.
-  Two workspaces differing **only** in the endpoint literal and the
-  `os.environ[...]` key — same lines, same filter — produced byte-identical
-  reports: empty `capability_facts`, empty `tool_surface_facts`, and a finding
-  carrying the toolset kind, the source line and one agent name. Reproduced on
-  `20968551`; both verdicts were `insufficient_evidence` and neither named the
-  change.
-
-  This is lost evidence, not a demonstrated unsafe pass, and the fix is
-  scrupulous about the difference. `ADMIN_KEY` proves no privilege level, and
-  nothing in the new output claims it does: an endpoint or credential-reference
-  change is projected with the block's documented opaque-direction bucket and a
-  rationale that says, in the reviewer's own output, that the direction is *not*
-  established. The one axis where a direction **is** established is the tool
-  filter — values gained, values lost, a filter added where there was none, a
-  filter removed entirely — and only there is one claimed.
-
-  The binding is a claim of its own, separate from leaf coverage. Each one rides
-  base-to-head as four independent per-axis rows in `tool_surface_facts.policies`
-  — the carriage `core/toolkit_scope.py` already uses, so there is **no report
-  schema bump, no new check id and no new committed inventory or command** —
-  and `inventory_path` is deliberately not one of the four. Supplying the
-  reviewed inventory the scan asks for therefore *cannot* clear an endpoint,
-  credential-reference or filter delta; it answers a different question.
-
-  Identity is `<agent>:<slot>` and excludes the source line, so moving,
-  reflowing or commenting the call produces no delta at all, while two agents on
-  one endpoint — and one toolset shared by two agents — keep distinct
-  attribution. What could not be read says so per binding: a shadowed
-  constructor, a rebound `connection_params` variable, a dynamic URL, a callable
-  filter and an unreadable header each record a limitation code, and only the
-  claim the doubt actually reaches is dropped. Credentials written literally
-  into source — URL userinfo, a sensitive query value, a hardcoded header — are
-  redacted at the reader before they reach any artifact and are never hashed, so
-  a change confined to those bytes is *not* named; that limit is published
-  rather than implied. Nothing is imported, constructed, connected to or looked
-  up in the environment: every fixture carries a module-level
-  `raise RuntimeError("must never execute")`.
-
-  `release_decision.decision` remains the only gate, the release enum and every
-  qualification threshold are untouched, and the same workspace that was
-  `insufficient_evidence` before still is — with the change named. The design,
-  and the limits it ships with, are written up in
-  [`docs/engineering/remote-binding-evidence.md`](docs/engineering/remote-binding-evidence.md).
-
-  Review found five defects, and three of them were the same mistake: reasoning
-  about a framework's semantics from the shape of the data instead of from the
-  framework. **`tool_filter=[]` is not a filter of nothing, it is no filter** —
-  ADK's `_is_tool_selected` returns `True` for any falsy filter, so an empty
-  list exposes every advertised tool, and comparing it as the empty *set*
-  reported the widest state as the narrowest. **A stdio connection does not
-  carry `env` inline** — `StdioConnectionParams` nests a `StdioServerParameters`
-  under `server_params`, so reading only the outer call answered "this binding
-  has no credential" about one that plainly did. And **a URL query key is
-  classified after decoding, against a credential-*name* rule rather than a
-  fixed list**, because `api%5Fkey` is `api_key` to every server that reads it
-  and `access_token` was in no vocabulary the redaction pass held.
-
-  Two more were silent losses rather than wrong answers. A capability member's
-  id is hashed from its subject, and a subject without the configured source id
-  merged two same-named agents from different sources into one member —
-  deleting one source's endpoint change. And a hardcoded credential added
-  beside an existing environment reference was recorded only as a limitation,
-  which the carried summary and hash never saw, so a *credential being added*
-  produced no delta; the credential axis now lists every entry, with
-  `<literal credential withheld>` in place of a value it will not publish.
-
-- **Python MCP servers get the route the survey said they needed most.**
-  (#484) #431 shipped a built-in registry of tool-registration idioms covering
-  TypeScript and Go, and its own 30-server survey named what it left out:
-  Python's `@mcp.tool` decorator, the largest single shape by both repositories
-  and call sites. `redis/mcp-redis`, `chroma-core/chroma-mcp` and
-  `neo4j-contrib/mcp-neo4j` were all in the state MongoDB and Grafana were in
-  before #431 — `detect` returned `is_agent_project: false` for a first-party
-  server publishing dozens of tools. All three are now read, and so is the one
-  the survey measured as the largest of all: `awslabs/mcp` yields **262 tools**
-  with 179 registrations recorded as unenumerable.
-
-  It is a sixth idiom (`py_fastmcp_decorator`) and a different **extraction
-  mechanism**, which is why it waited for its own increment and its own probe
-  list. Three facts about the shape are why it could not be a sixth pattern:
-  the name is usually *not written down* — `@mcp.tool()` on `def dbsize()`
-  registers `dbsize`, which is all 53 of `redis/mcp-redis`'s registrations; the
-  input schema is the **annotated signature**, so this idiom publishes one
-  where the lexical idioms genuinely have nothing to publish; and whether the
-  decorator registers anything at all is a **binding fact**, since `@app.tool`
-  is a tool registration when `app` is a server and somebody else's decorator
-  otherwise. So it is read with the standard library's parser, it follows the
-  decorated name back to a server construction — across modules, because
-  `redis/mcp-redis` constructs its server in `src/common/server.py` and
-  decorates in `src/tools/*.py` — and it refuses out loud when it cannot.
-
-  Two findings changed the design after it was measured rather than before.
-  The official Python SDK's v2 **renamed `FastMCP` to `MCPServer`** and left
-  `mcp.server.fastmcp` as a module that only raises; 41 of `awslabs/mcp`'s
-  servers had already moved, and a reader that knew one name read 105 tools
-  where there are 334. And every one of `neo4j-contrib/mcp-neo4j`'s 40 tools is
-  registered as `name=namespace_prefix + "…"`, so the rule the lexical idioms
-  use — offer no route without a resolved name — would have reported that
-  repository as "not an agent project" *because* its names are dynamic. A
-  Python site carries its own provenance, having already been followed back to
-  a server construction, so the route is offered and the evidence says "40
-  registration(s), none of which this reader can name". A committed export
-  cannot displace such a route either: containment is the test, and an export
-  contains an empty set of names vacuously.
-
-  Nothing is claimed more loudly for having been read more closely. The
-  ceiling stays `medium`, and every way the registered identity can differ
-  from the one on the page is a recorded omission rather than a guess: a name
-  built at run time, a `**options` unpacking that can carry `name`, a
-  decorator *below* the registration whose return value is what the server
-  actually receives, and an object this reader cannot follow to a server at
-  all — `@self.mcp.tool` on an injected server, `app = create_server()` on a
-  factory's result. All four are measured in `awslabs/mcp`.
-  `IDIOM_REGISTRY_VERSION` is `2` and `TRIGGER-MCP-TOOL-REGISTRATION-SOURCE`
-  routes `@mcp.tool`.
-
-  A committed export displaces this route only when it accounts for
-  *everything* the route found, unreadable registrations included. An export
-  naming every tool the reader could read looks like containment and is not:
-  withholding the route then sends the reader to the export and never to
-  `scan`, so the registration nobody could name reaches no exclusion ledger —
-  a measured miss turning back into a silent one.
-
-  Every dependency table the gate names is reachable, which took a second
-  pass to be true: the walker read a Poetry table's *constraint* where the
-  distribution is the key, so `mcp = "^1.6.0"` produced `^1.6.0` and never
-  `mcp` — three of the five tables named in the constant were dead, and a
-  Poetry-managed server got no route at all. Both halves of a table are
-  admitted now, and all five are exercised.
-
-  The zero-install detector moved in the same commit, to `0.6.0`: #485 made
-  `tools/shipgate-detect.py` a second implementation of this reader, and
-  `tests/mcp_idiom_corpus.py` is what keeps it from becoming a different one —
-  every case either reader has been asked about lives there once, the whole
-  Python probe list and the cross-module trees included, and both are driven
-  through all of it and compared site by site, span by span. Both detectors
-  return identical verdicts, sources and evidence on all four live
-  repositories.
-
-- **Adoption evidence now has a counting mechanism, and its first published
-  number is a zero.** (#475) This project collects nothing — local-first and
-  static by default, no telemetry, no account — and the price of that stance is
-  that it cannot count its own users. Downloads measure CI caches and stars
-  measure sentiment, so neither is adoption. The new root-level
-  [`ADOPTERS.md`](ADOPTERS.md) is the opt-in registry that pays the price
-  honestly: one row per adopter, added by the adopter through an
-  [issue form](.github/ISSUE_TEMPLATE/adopter_entry.yml) or a pull request,
-  naming what they gate, whether it runs as local evaluation, advisory CI or
-  blocking CI, the date, and a link to the public act where they asked. Private
-  repositories are listed at organization granularity — the word `private` and
-  nothing else. An entry is removed on request, without a reason.
-
-  It ships with an eight-rule **claims policy** (no entry, no claim; every
-  number carries its as-of date; external and dogfooding are never summed; an
-  entry is a dated statement rather than a measurement; a tier is self-reported
-  and never upgraded; a badge is not an entry; the design-partner ledger stays
-  separate; removal is unconditional), an optional tier-neutral README badge
-  that links back to the registry, and the maintainer dogfooding entry the
-  acceptance asks for — which reads `advisory CI`, not `blocking CI`, because
-  `main` requires no status check and a red run there stops no merge.
-
-  The policy is enforced rather than promised. `tests/test_adopters_registry.py`
-  parses both tables and fails on a row missing a field, an undefined tier, a
-  non-ISO or future date, a `Repository` that is neither one resolvable public
-  link — on any host, so a GitLab or self-hosted adopter is not pushed into
-  writing `private` about a public repository — nor `private` itself, an entry
-  link that does not point into this repository, **two rows covering the same
-  adopter and repository**, this repository listed as an *external* adopter,
-  counts that disagree with the rows, an as-of date older than the newest
-  entry, a claims rule quietly dropped, a second badge variant, an issue form
-  that drifts from the registry's vocabulary or stops requiring consent — and
-  any adopter number stated anywhere in the repository's prose that these rows
-  cannot source. That last check reads the claim's **own sentence**: a
-  neighbouring sentence about dogfooding does not qualify it, and a claim that
-  calls itself external never borrows the maintainer count. A 50-case
-  perturbation sweep confirmed every one of those fails on the weakening it
-  exists to catch, and that the legitimate edits — a correctly added adopter, a
-  GitLab-hosted one, a second maintainer row, a grammatically singular count —
-  still pass.
-
-- **One unreadable application root no longer rejects every agent name in the
-  repository.** (#398) A declared root whose identity cannot be established
-  statically makes nothing selectable — the #324 rule, and a sound one, because
-  every name still standing is by construction *not* that root. It was being
-  applied with repository scope. On adk-samples that meant one file rejected
-  roughly 55 candidates across 25 projects, `financial_coordinator` and
-  `cyber_guardian_orchestrator` among them, and told the reader so by naming a
-  file in a project they were not adopting. The rejection is now scoped to the
-  project the root sits in — the same grouping `agent_project_candidates`
-  publishes, now computed once and read by both — and the sentence names that
-  project. A name several projects declare is still rejected when any of them
-  is blocked; that direction is the fail-closed one.
-
-  "Which project" is resolved against the projects that grouping actually
-  *established*, not against the nearest project marker. The two are not the
-  same, and reading the marker fails open: a utilities package carrying its own
-  `pyproject.toml` but no agent evidence is not a manifest scope, so a bare
-  `Agent(name="CrmHelper")` found there was exempt from the workspace's refusal
-  and plain `init --write` wrote a helper class's argument as the reviewed
-  identity of a repository whose real application root could not be read at
-  all. A name under no established project belongs to the scope enclosing it.
-
-  Scoping alone would not have unblocked the reproduction, because one of the
-  two observed culprits was `eval/test_eval_arize.py` *inside* the project
-  being adopted and the other was
-  `.agents/skills/**/resources/templates/app/agent.py`. Neither is the
-  application a project ships: a fixture that builds an `App` is a fixture, and
-  a scaffolding template is what a generator copies. The ranker already said so
-  for *selection* and said the opposite for *rejection* — one predicate now
-  answers both, so a scaffolding template is demoted exactly as a test fixture
-  is instead of standing in for the product. The template rule is the directory
-  pair `resources/templates/`, not a bare `templates/`, which real packages
-  use; an unreadable root anywhere else still stops selection, and a project
-  whose own product root is unreadable still refuses with `CHANGE_ME`.
-
-  One consequence is worth stating rather than discovering: where the *only*
-  agent evidence in a workspace is non-product code, an unreadable root there
-  used to force `CHANGE_ME`, and now the fixture or template name is written.
-  That guard was accidental — a readable root in the same file already had its
-  name written before this change — so what this does is make the two cases
-  agree, not open a new one. The general rule it points at, that a name only
-  non-product code declares should never be asserted as the reviewed identity,
-  is [#533](https://github.com/ThreeMoonsLab/agents-shipgate/issues/533); it
-  would close the readable case too and is a wider decision than this fix. The
-  same widening reaches `init --write --allow-unresolved-scope`, whose whole
-  contract is already "adopt the first agent name it parsed" on a workspace
-  with several unrelated projects.
-
-  `tools/shipgate-detect.py` carries the same change (`script_version`
-  `0.6.0`): `agent_name_candidates` is the field the zero-install path pins
-  byte for byte, so a script that scoped the rejection differently would name a
-  different agent than `init` does. Putting the grouping behind one object on
-  each side surfaced two parity breaks that predate this issue.
-
-  The script counted **every** `Agent(name=…)` literal as project evidence,
-  where the CLI counts only framework-attributed ones. A module defining its
-  own `Agent` class and constructing `Agent(name="crm")` is not an agent
-  project (#363 review), so the script drew a boundary the CLI does not: a
-  phantom entry in `agent_project_candidates` and, through it, `agent_scope:
-  "ambiguous"` on a workspace the CLI calls `"single"` — a *verdict*
-  disagreement on the surface whose whole contract is verdict parity. The
-  script now qualifies those literals the same way, snapshotting each Python
-  file's framework attribution right after the Python pass, which is exactly
-  what `_score_python_signals` records on the CLI side.
-
-  And where no marker was found above the evidence at all, the script named the
-  workspace's `requirements.txt` as the project marker while the CLI reported
-  `null`. A weak marker only draws a boundary in a directory that already holds
-  agent evidence, so one that unlocked nothing is not the boundary the project
-  rests on. Every sample carries a `pyproject.toml` and one readable root,
-  which is why the per-sample parity check reached neither; tests do now.
-
-- **The human entry path reaches one useful review, and is checked like every
-  other distribution surface.** (#498) The README was 933 lines with 28
-  second-level sections, and the quickstart opened with three commands before
-  the reader had seen a result. Both were also wrong in ways nobody was
-  checking, because `README.md` and `docs/quickstart.md` were recorded in
-  [`docs/distribution-surfaces.md`](docs/distribution-surfaces.md) as
-  "repository documentation" and therefore registered nowhere: the quickstart's
-  first command was `shipgate check --format agent-boundary-json`, which the
-  release the same page tells a reader to install rejects outright — `v0.15.0`
-  accepts only `codex-boundary-json` — and its placeholder step sent a coding
-  agent to the README for `agent.declared_purpose`, a declaration only a person
-  may make. The README's flagship "what your PR sees" block quoted a comment
-  with an `### Agents Shipgate result: block` heading and an
-  `Impact | Change | Subject | Why` table, called it verbatim, and no code path
-  rendered any of it; `block` is not a value any verdict field takes.
-
-  The README is now a landing page: one before/after capability change, one
-  demo, one install, the accuracy numbers that are still zero, and an
-  audience-routing table. [`docs/quickstart.md`](docs/quickstart.md) is one
-  review end to end on the committed `ai_generated_refund_pr` sample — what
-  changed, why the top result matters, what the run did not establish, that
-  **exit zero is not merge permission**, and who owns the next action — before
-  either adoption route, and it opens with a channel table saying which build
-  provides which commands. Displaced README material moved into the docs that
-  own it, with a mapping table from every retired anchor.
-
-  Three guards keep it there. `README.md` and `docs/quickstart.md` are a
-  registered `human_entry_path` surface and `AGENTS.md`, `docs/agent-recipes.md`,
-  `docs/agents/` and `docs/target-repo-agent-snippets.md` a registered
-  `agent_instructions` surface, so the placeholder-ownership and pin rules that
-  already covered the design-partner runbook now cover them too;
-  `test_the_human_entry_path_states_what_the_published_build_provides` reads the
-  `--format` values the published tag accepts out of the tag and fails if the
-  entry path teaches one it does not, the way #506 reads that tag's
-  `CONTRACT_VERSION`; and
-  `test_the_entry_path_quotes_lines_the_pr_comment_actually_renders` runs the
-  fixture and compares every quoted comment line against the artifact. The
-  vocabulary reader learned to see a Markdown reference table, which is the only
-  shape the entry path states a verdict set in. Four unresolvable
-  `uvx agents-shipgate@0.18.0` pins in `docs/incidents/` and `samples/README.md`
-  named a version the index does not carry; they now name the checkout, and say
-  what to pin once a release carries the fixture.
-
-- **The zero-install detector refuses an oversized candidate instead of
-  reading it.** `tools/shipgate-detect.py` is fetched over `curl | python3`
-  and run against repositories nobody has inspected, and it read every
-  glob-matched MCP/OpenAPI/Conductor candidate — and every n8n and Conductor
-  workflow it scored a framework off — with an unbounded `read_text()`. A
-  multi-hundred-megabyte `*mcp*.json` was pulled into memory whole. The input
-  adapters have always refused such a file before parsing it
-  (`MAX_INPUT_FILE_BYTES`, 10 MB), so this was also a parity break: the file
-  was *excluded* by `agents-shipgate detect --json` and *suggested* by the
-  script, and an agent following the script would write a `tool_sources` entry
-  the next `scan` rejects. Both sides now ask the same content-independent
-  question from `stat` alone, and the script spells the refusal exactly as the
-  CLI does, so `excluded_sources` agrees on the reason and not just the split.
-
-  CLI discovery had the mirror-image hole: `_looks_like_n8n_workflow` and the
-  Conductor framework probe read their glob hits whole to score a framework
-  whose adapter would then refuse the same file, and the MCP host-config sniff
-  in `_probe_failure_reason` re-read a file the adapter had *just* rejected for
-  being too large. All three are bounded now. The size gate is asked before the
-  script's YAML early return: a `.yaml` OpenAPI spec is still never excluded on
-  content the stdlib cannot parse, but size needs no parser.
-
-- **The design-partner pilot now measures a reviewer's decision and the next
-  eligible change — and its first published number is a zero with a reason.**
-  (#521) The runbook counted three partners through one PR each and exited on a
-  first-run feedback note, which cannot answer whether a reviewer made a better
-  decision or whether anyone ran it again.
-  [`docs/design-partner-verifier-pilot.md`](docs/design-partner-verifier-pilot.md)
-  now names two routes under test, six denominators that failures stay inside,
-  first value as four things a reviewer who did not write the change can name
-  plus a recorded decision, a four-week window for the second eligible change,
-  three separately-granted consents, and a **pre-registered**
-  continue/narrow/stop rule. Ten minutes to first value is stated as an
-  experiment target; a test fails if any page later restates it as a result.
-
-  Dry-running the runbook's own commands is what produced the first result,
-  across all three distribution channels. On a synthetic host-boundary change
-  (three permission rules widened to `Bash(*)` / `Read(**)` / `WebFetch(*)`,
-  one remote MCP server added) the released `0.15.0` returns `warn` / `none`
-  with **zero** violations and no coverage surface, while the unqualified
-  preview and the source tree both return `block` / `critical` with all four
-  named. So a build that shows the change *is* installable — the preview —
-  and it carries no qualification of any kind, which is a thing to say to a
-  partner rather than a footnote. The runbook had also demanded "runtime
-  contract 14" in the paragraph that installed it with `pipx install`, a
-  precondition no published build has ever satisfied; #497's channel table and
-  this change both retire it. And `init` then `verify` still dead-ends on
-  exactly the repositories the host-boundary route is for (#498), because they
-  have no tool surface to declare.
-
-  So [`docs/design-partner-pilot-results.md`](docs/design-partner-pilot-results.md)
-  publishes six external denominators at zero, a dated enrollment shortfall
-  naming an unmade channel decision rather than a recruiting gap, the
-  reproduced blockers routed to #506, #497, #520, #498 and #504 → #337 with no
-  new issue opened, and a dated standing decision of **narrow**: invite Route H
-  on the preview channel with its unqualified status stated in the invitation,
-  and withhold the released channel for per-change review. Every finding is
-  build-dated, and a guard fails the day the newest published tag moves so the
-  comparison is re-run instead of carried forward — a guard the page itself
-  records as insufficient, since nothing fails when a new preview is cut.
-
-- **Everything `init` writes into an adopter's repository now names a release
-  that exists.** (#506) `init --write --ci` generated
-  `uses: ThreeMoonsLab/agents-shipgate@v0.16.0`, and no such tag had ever been
-  cut — GitHub fails that job at action-resolution time, so a first-time
-  adopter's very first Shipgate run was a red check carrying an error about
-  *our* repository rather than theirs. The bundled onboarding prompt had the
-  same defect one layer up (`uvx agents-shipgate@0.16.0`, a version the index
-  does not carry). Every render since 2026-07-09 pinned a nonexistent ref — 56
-  days of them by the time #506 was filed.
-
-  Two conventions coexisted and only one was correct. The docs, `llms.txt`,
-  `.well-known` and the Action examples tracked the latest published tag; the
-  one artifact that gets *executed* by a stranger's CI tracked `__version__`,
-  which for the whole interval between releases is a version nothing can
-  fetch. `LATEST_PUBLISHED_VERSION` moves into
-  `src/agents_shipgate/published_release.py` as the single constant every
-  surface — documentation and emitted artifact alike — derives from.
-
-  Pinning the published release keeps the pin resolvable but does not make it
-  *sufficient*, and conflating those is what the previous fix got wrong: the
-  bundled prompts demand runtime contract 21, and `v0.15.0` emits contract 10.
-  So the prompts now state that gap where they state the pin, rendered from
-  `LATEST_PUBLISHED_CONTRACT_VERSION` — which is read back out of the tag
-  itself by the suite, not asserted about it. The honest output when the newest
-  published build predates the floor is to say so; it is never to pin a build
-  that cannot be fetched.
-
-  `tests/test_init_ci.py` asserted the defect, which is why it shipped. It now
-  requires a published tag, and `tests/test_adopter_pins_resolve.py` sweeps
-  every pin shape across everything `init` emits — driven off `SPECS`, the
-  registry `--agent-instructions` itself selects from, so a target added there
-  is swept the day it is registered rather than the day someone remembers.
-  The sweep fails on an empty tag list rather than passing over one, asserts
-  each pin shape was actually found, and carries two negative controls that
-  re-introduce the defect. Cutting `v0.16.0` is not what fixes this: the rule
-  is "names a tag that exists", so it holds on the first commit after the tag
-  too.
-
-- **Four lexer defects in the MCP registration reader, fixed in both
-  implementations.** (#485 review) Found reviewing the zero-install port; all
-  four were in the reader #431 shipped, so the port had copied them rather than
-  introduced them. Two invent a tool name, which is the one outcome a reader of
-  a *name* cannot afford, and two lose a whole file's surface:
-
-  - A `${…}` holds code, so a brace inside a string, comment, regex or nested
-    template is not a structural brace. ``const msg = `brace: ${"{"}`;`` left
-    the substitution open and consumed the rest of the file as one unterminated
-    template — every registration after that line gone, and a workspace
-    declaring an MCP dependency reported as "not an agent project" over a brace
-    in a string.
-  - A line break ends a JavaScript initializer only when what follows cannot
-    continue the expression. `static toolName = "safe"` with `+ "_delete"` on
-    the next line published `safe` at `medium` confidence for a tool the server
-    registers as `safe_delete`.
-  - The regex heuristic now resolves the keyword in front of a slash from the
-    *masked* source. Read from the raw text, a comment between `if` and its
-    condition hid the keyword, the slash was read as division, and the pattern
-    was scanned as code — reporting a tool invented out of a regex body, which
-    is precisely what masking exists to make impossible.
-  - A backslash before CRLF is one line continuation, not `\r` plus a line
-    break. The identical file resolved its registration on a Unix checkout and
-    lost it on a Git-for-Windows one.
-
-  Each is an expected-result case in `tests/mcp_idiom_corpus.py`, so both
-  readers are pinned to the corrected behaviour rather than to each other's
-  agreement, and the CRLF sweep now has a continuation case that actually
-  exercises it. The three vendor servers this input exists for are unaffected —
-  61, 114 and 114 tools before and after.
-
-- **The zero-install detector reads MCP registration sites, so it stops
-  telling vendor MCP server maintainers to stop.** (#485) `tools/shipgate-detect.py`
-  is the documented first command run against a repository that has *not*
-  adopted Shipgate — which is every repository #431 was about. #431 taught the
-  installed CLI to read a tool's name out of a TypeScript or Go registration
-  site; the script did not gain it, so the two disagreed on the one question
-  the script exists to answer: `mongodb-js/mongodb-mcp-server` (61 tools),
-  `github/github-mcp-server` (110) and `grafana/mcp-grafana` (114) were agent
-  projects to the CLI and "Stop, not an agent project" to the script. The
-  masking lexer, the five idioms, the path predicate, the dependency gate and
-  the export-precedence rule are now all in the script too, stdlib-only.
-
-  Porting a load-bearing matcher means a second implementation of it, which is
-  this repository's recurring bug class. What makes it affordable is that the
-  two are not allowed to become *different* implementations: every case either
-  reader has ever been asked about now lives once in `tests/mcp_idiom_corpus.py`
-  — every idiom's positive sample, the whole adversarial sweep, the path
-  predicate's cases and both escape grammars — and both readers are driven
-  through all of it, compared site by site including each site's byte span.
-  `samples/mcp_source_only_server` puts the route inside the existing
-  `samples/` parity sweep, nine constructed workspaces pin the branches around
-  it (covering export, partial export, wildcard export, no dependency, no
-  resolved registration, test-only registrations, two registration
-  directories), and `test_framework_vocabulary_names_every_cli_omission` now
-  passes with an empty `known_omissions`.
-
-  One defect surfaced while porting and is fixed in both: with no MCP export in
-  the workspace at all, `_covering_export` returned every resolved name as
-  "uncovered", and the caller renders a shortfall as *"An MCP tool export is
-  also present and does not name N of these registrations"*. A server whose
-  surface exists only as source is the population this input was built for, so
-  that claim about a file that does not exist was published into the adoption
-  evidence for every one of them.
-
-- **Ten distribution surfaces, one registry, and a test that they agree with
-  the engine.** (#497) One engine is published through `action.yml`, `plugins/`,
-  `skills/`, `adoption-kits/`, `harness/`, `examples/`, `prompts/`, `policies/`,
-  `tools/` and the MCP server, and nothing checked that they said the same
-  thing. `docs/distribution-surfaces.md` now lists every one of them, what it
-  claims, and which test proves the claim;
-  `tests/test_distribution_surface_parity.py` is that test, and
-  `CONTRIBUTING.md` points at both. A surface that answers nothing the engine
-  answers still gets a row saying so — `policies/` are inputs the engine
-  evaluates and the MCP server is transport — because that is what stops the
-  next reader re-deriving it. A new top-level directory now fails the suite
-  until somebody classifies it.
-
-  Four things the registry found, each a surface disagreeing with the engine
-  rather than with itself:
-
-  - **The bundled setup prompt told a coding agent to write a declaration only a
-    person may make.** `add-shipgate-to-repo.md` step 5 said to replace
-    `agent.declared_purpose[]` with "a one-line description of what the agent
-    should do", derived from the prompt or main module. `init` returns
-    `control.next_action.actor: "human"` and `permissions.edit: false` for
-    exactly that field. The prompt now separates the placeholder the agent owns
-    (`agent.name`) from the one it must surface to a person, and quotes the
-    engine's own wording. The Codex kit's recipe page and the design-partner
-    runbook carried the same instruction as a blanket "replace every
-    `CHANGE_ME`", and no longer do.
-  - **The Claude Code kit rendered a GitHub Action tag that does not exist.**
-    Its advisory CI recipe pinned `@v{{ shipgate_version }}` and
-    `shipgate_version: '{{ shipgate_version }}'`, so `init
-    --agent-instructions=claude-code-skill` wrote `@v0.16.0` and
-    `agents-shipgate==0.16.0` into an adopter's CI — a tag and a release that
-    are not published. GitHub resolves `uses:` before any step runs, so that
-    workflow fails on our repository's name, not the adopter's change. Both pins
-    now name the published release, as the Codex kit's identical recipe always
-    did. The drift was invisible because
-    `test_claude_code_skill_source_matches_renderer` skipped this one file; that
-    exemption is gone, which is the actual repair.
-  - **Two published surfaces demanded a runtime contract nobody could reach.**
-    The Claude Code plugin's marketplace description and `plugin.json` both said
-    "runtime contract 15" beside `pipx install agents-shipgate`, which yields
-    contract 10. The number was a second copy of a value the bundled skill
-    already states; it is now removed rather than re-synced.
-  - **The design-partner runbook taught a route its own build could not run.**
-    It named `v0.15.0`, demanded "runtime contract 14" — which that build has
-    never implemented — floored `pip` at `>=0.13`, and then gave a read order
-    starting at `control.state`, which `shipgate.agent_handoff/v1` does not
-    emit. It now names one channel per partner (released, unqualified preview,
-    source checkout) with the contract each implements, and says what the
-    released build does *not* produce instead of implying it does.
-
-  The registry is checked against the code in **both** directions — roots,
-  claims and the proving test named for each claim — and a claim must be proved
-  by a test that both exists and matches at least one file on that surface.
-  Review found both halves of that mattering immediately: the first draft's
-  `harness` row named a proving test that had been renamed out of existence, and
-  `design_partner_runbook` registered `executable_pin` while carrying only a
-  `>=` install floor no pin pattern looked at. Surfaces now also state the
-  engine's verdict vocabulary or none of it: a braced set literal must name the
-  whole set, and a `merge_verdict == '…'` comparison must name a value the
-  engine emits.
-
-  Review of the harness itself found three more, each reproduced before it was
-  fixed. The pin scanner never read the Action's own `shipgate_version:` input,
-  which `action.yml` turns into `pip install agents-shipgate==<value>` — so a
-  workflow could name a valid Action ref beside a package version that was never
-  released. The vocabulary guard projected each documented set onto the expected
-  values before comparing, so adding `needs_a_wizard` to the setup prompt's
-  otherwise-complete release-decision set still compared equal; sets are now
-  judged by all of their members, and a literal mixing the two vocabularies
-  fails instead of being skipped by both. And requiring tags in CI was landed in
-  `ci.yml` only, while `release-verify.yml` — which `release.yml` and
-  `release-rehearsal.yml` both call — still checked out the candidate shallow
-  and tagless before running the whole suite, so the release path would have
-  gone red on a green PR. That checkout is fixed and the contract is now
-  asserted for every job that runs the suite, whichever workflow adds one next.
-
-  #485 and #506 landed while this was in review, which is the first real test of
-  the exemption mechanism: all three registered gaps flipped to `XPASS`, their
-  strict markers failed, and the exemptions had to be removed to get back to
-  green. `KNOWN_GAPS` is empty because it worked, and the registry records what
-  each gap was rather than quietly dropping it. The same merge removed a
-  duplicate: #506's `agents_shipgate.published_release` and its pin-shape table
-  are now imported rather than restated, leaving this harness the half that file
-  does not reach — pins committed under a registered surface, found by path. That
-  immediately caught an `@main` in a committed CI example, which turns out to be
-  the one case #497's rule allows — an explicit version incompatibility rather
-  than an unresolvable pin — so it is enumerated as a declared exception whose
-  file has to say why, and an unexplained `@main` elsewhere still fails.
-
-  Known divergences are rows, not omissions. `#485`'s exact case — a minimized
-  TypeScript and Go MCP server whose tool surface exists only as registration
-  sites — is now a fixture under `tests/fixtures/distribution_parity/` and a
-  parity row that fails today and passes the day the port lands, with
-  `xfail(strict=True)` so the exemption itself fails once it is unnecessary.
-  `#506`'s two unpublished-pin gaps are recorded the same way, against a ledger
-  of exactly the files that diverge, so a newly drifting file fails loudly
-  instead of inheriting a surface-wide excuse. Resolvability is judged offline
-  against committed release metadata; the live tag check stays in
-  `release-tag-consistency`, for the reason that job already records.
-
-- **No corpus case is graded against `insufficient_evidence` any more, and four
-  `blocked` cells hold one case instead of two.** (#520, #508) A verdict exists
-  to route a change somewhere: `passed` merges, `review_required` hands a human
-  a named capability, `blocked` stops. `insufficient_evidence` routes nowhere —
-  it is what the gate says when *its own* extraction failed, which is a
-  statement about shipgate rather than about the change. So it cannot be the
-  answer to "what should a correct gate do here?", and both named release
-  policies stop demanding cases that expect it: `beta` goes from 28 strata /
-  100 cases to 21 / 80, `pre_1_0` from 28 / 56 to 21 / 38. The value stays in
-  the enum, the verifier still emits it, and it is scored as a miss against
-  whatever the case expected — a coverage failure, which is what it is.
-
-  The first blind labelling round is what settled it. All four cases where both
-  independent raters chose `insufficient_evidence` had named a capability the
-  diff introduced, so they could have decided; one slot sourced as
-  `insufficient_evidence` was placed at `blocked` by both raters; and 12 of the
-  15 slots for the outcome had been sourced from the engine's own verdict.
-
-  The same round measured a second thing: of the seven profiles, only four
-  produce a real-world `blocked` case at all, and each produces exactly one. So
-  `openai_agents_sdk`, `langchain_crewai`, `google_adk` and
-  `coding_agent_trust_roots` now ask for one `blocked` case rather than two.
-  Filling those cells to two is reachable today only by building four more
-  constructions, and a cell filled with constructions measures our imagination
-  rather than the world. **No rate moved.** Every exact-match floor is still
-  production's rate applied to the population it governs, rounded up —
-  `minimum_blocked_exact` falls to 10 because there are 10 `blocked` cases, at
-  the same 100% demand — and the origin floor stays 40% of the corpus, which is
-  why holding it at a fixed *count* was refused: that would have raised
-  production's demand to half the corpus as a side effect of deleting a
-  decision. `docs/release-evidence-policy-decision.md` § Amendment 3 records
-  the ruling, and `benchmark/safety-qualification/strata-inventory.md` records
-  the per-cell evidence for the scarcity.
-
-- **A preview wheel now reports one version, not two.** (#491) The first
-  published preview stamped `pyproject.toml` and not
-  `src/agents_shipgate/__init__.py`, so its METADATA said
-  `0.16.0+preview.20260902.gcc59410` while `--version` said plain `0.16.0` —
-  the exact confusion the local version segment exists to prevent. `doctor` was
-  collateral: comparing `installed_version` against `imported_version`, it
-  reported `installed_version_differs` and told the user two copies were
-  shadowing each other, on an environment holding one.
-
-  The build now stamps both sites and proves each with its own round trip over
-  a closed file set, but the durable guard is on the artifact: it opens the
-  wheel it just built and requires `METADATA: Version` to equal the packaged
-  `__version__`. That fails on any future divergence however the stamping is
-  written. A companion test pins the committed tree to exactly two version
-  sites that already agree, so a third one cannot be added and silently left
-  unstamped.
-
-- **Releases run on a cadence, and work that cannot be tagged can still be
-  installed.** (#491) 81% of this changelog had never reached a user: 5,039 of
-  6,242 lines sat under `## Unreleased`, two milestones were complete and
-  untagged, and the newest published build was 56 days old. The cause was not
-  the pipeline, which is sound; it was that releases were gated on a single
-  expensive artifact (#456), so they happened when that artifact happened.
-
-  Three things change. **The cadence is a policy with a number** —
-  `docs/release-runbook.md` § Cadence fixes a 30-day interval and a 45-day
-  defect threshold, and `scripts/release_cadence.py` prints days-since-release
-  into every CI job summary, warning once the interval lapses. It warns rather
-  than fails: a red check would fail whichever unrelated change arrived after
-  the interval lapsed, and that author cannot cut a release.
-
-  **An unqualified preview channel exists**, and the finding that admits it is
-  recorded in `docs/release-evidence-policy-decision.md` § Amendment 2 —
-  including the cases that would have made it inadmissible. `release-preview.yml`
-  publishes a GitHub pre-release at `preview-<version>` carrying one wheel,
-  built from a commit CI has already accepted using the release's own
-  hash-locked toolchain. Five properties keep it from being read as a release,
-  each with a negative control: a PEP 440 **local** version segment, which a
-  public index must refuse — so an unqualified build can never consume the
-  `0.16.0` that PyPI's immutability would then make permanent; a ref outside
-  the `v*` trigger namespace; a separate workflow file, so `stage` cannot find
-  it when it looks for the mandatory rehearsal; no qualification artifact, so
-  `verify_safety_qualification_release.py` rejects it on both the missing
-  artifact and `tag == v<version>`; and `--prerelease`, so it is never
-  `Latest`. Nothing in the release path was widened to accommodate it —
-  `build_manifest` still requires `tag == v<version>`, and a preview simply
-  produces no candidate manifest.
-
-  **The release note is separated from the record.** `## Unreleased` had grown
-  to 338,932 characters — 2.7x the 125,000-character limit the release body is
-  checked against — so no tag could have been cut from it whatever else was
-  green. `CHANGELOG.md` now carries one line per change, and the full reviewed
-  prose moved verbatim to `docs/changelog/<version>.md`. Nothing was dropped:
-  all 165 entries are byte-identical in the record and all 165 have a line in
-  the note.
-
-  This does not shorten what `v0.16.0` still needs. The signed qualification
-  artifact (#456), the four `SAFETY_QUALIFICATION_*` variables and a real
-  `signer_identity` remain preconditions, and a preview is not evidence toward
-  any of them.
-
-## 0.16.0
+## 1.0.0 - 2026-09-13
+
+The first published release since `0.15.0`, on the advisory channel. It
+publishes `diff`, `check`, `audit --host`, drift and advisory PR comments, and
+makes no qualification claim. `0.16.0` was prepared but never published, so
+everything in its section below ships here too.
+
+**The full reviewed prose is in
+[`docs/changelog/1.0.0.md`](docs/changelog/1.0.0.md), and for the `0.16.0`
+line in [`docs/changelog/0.16.0.md`](docs/changelog/0.16.0.md).** This section
+is the release note; those files are the record.
+
+**Migration notes:** read every `Migration Note: 1.0.0` and
+`Migration Note: 0.16.0b*` entry in [`STABILITY.md`](STABILITY.md) before
+upgrading from `0.15.0`. Several change a published schema or a contract
+version.
+
+### Highlights
+
+- **`shipgate diff` names what a change does to an agent's authority**: one row
+  per host grant, with no manifest and no committed baseline. (#651)
+- **Host comparisons reach real repositories.** In-tree links, documented
+  frontmatter, JSON with comments, Cursor globs, plugin marketplaces and
+  unchanged partial surfaces no longer refuse the comparison. (#700, #720,
+  #721, #722, #723, #729, #730, #731)
+- **A narrowing is not an expansion.** Tightening a rule no longer reads as a
+  widened allowlist, and a settings narrowing finishes without a human review.
+  (#657, #661)
+- **The Claude Code hooks stay fast and quiet.** The Stop hook compares host
+  configuration in under a second and repeats no advisory within a session.
+  (#661)
+- **The control envelope names the change** in a bounded `capability_rows`
+  block, and the generated agent instructions lead with it. (#662)
+- **Measured, including where it falls short.** On ten pinned public MCP
+  servers, 76 findings with 1 false (1.3%). Host-config row precision is 69 of
+  69 on 50 public PRs, while widening recall (54 of 64) and the benign zero-row
+  rate (5 of 6) are below their bars; each miss is named in its run. (#658,
+  #659, #660)
+- **The report contract is frozen at `1.0`.** (#569)
+- **An advisory version publishes through the ordinary release pipeline**,
+  declared in `.github/release-channels.json`. (#648)
+
+### Changes
+
+- Publish as `1.0.0` on the advisory channel, state the `1.x` stability line, and keep `codex-boundary-json` and legacy policy discovery through `1.x`.
+- Commit the ten-server MCP findings table: 76 findings, 1 false (1.3%), re-scored in CI against committed labels. (#658)
+- Leave eval-harness and mock tools out of an MCP server's source catalog. (#658)
+- Stop reading a topic as a contradiction of `readOnlyHint`: only a modifying effect contradicts it, and a keyword inference also needs an action verb. (#658)
+- Stop reporting an MCP source description the reader cannot resolve as missing. (#658)
+- Read `.vscode/mcp.json` as JSON with comments. (#659)
+- Answer the Claude Code Stop hook's host comparison in under a second. (#661)
+- Stop repeating hook advisories within a Claude Code session. (#661)
+- Let a host settings narrowing finish without a human review. (#661)
+- Document that `check` and `verify` publish changed-file paths verbatim. (#742)
+- Read through an in-tree link at a boundary path (runtime contract 39, host-grants inventory `0.5`). (#700)
+- Read Go MCP servers' literal tool hints for the contradiction check. (#658)
+- Stop calling a narrowed allow rule an expanded allowlist in `check` and `verify`. (#661)
+- Keep credential-shaped bytes in a directory or file name out of host inventory output. (#590)
+- Name the host capability change in the compact control envelope (runtime contract 38). (#662)
+- Support `.vscode/mcp.json` as a first-class host surface. (#731)
+- Digest undocumented skill and command frontmatter keys, and read a skill without frontmatter by its documented defaults. (#730)
+- Stop counting a symlink to an in-tree regular file as a coverage limit. (#700)
+- Compare host configuration in the Claude Code Stop hook when no manifest exists. (#661)
+- Answer with one human stop when an untracked host baseline and a blocked host-capability expansion share a change. (#694)
+- Compare past an unchanged partial or experimental surface instead of refusing every row (runtime contract 37, verifier schema `0.19`). (#721)
+- Add 12 scripted route-parity cases for host-capability changes. (#662)
+- Name the change first in the generated `AGENTS.md` and `CLAUDE.md` blocks. (#662)
+- Read a Cursor rule's globs the way Cursor writes them. (#729)
+- Read Claude Code `extraKnownMarketplaces`, so a marketplace change produces a row. (#720)
+- Read a FastMCP tool's literal `readOnlyHint` and `destructiveHint` from source, as claims for the contradiction check to challenge. (#658)
+- Add the host-config precision harness under `benchmark/host-config/`. (#659)
+- Make a URL-based MCP server's query part of its change digest. (#723)
+- Resolve documented Claude skill and command frontmatter instead of refusing it. (#722)
+- Add the cold-start harness under `benchmark/cold-start/`. (#660)
+- Resolve local Claude Code settings layers by the documented precedence instead of refusing them. (#657)
+- Publish a version that reviewed code declares advisory through the ordinary release pipeline, with no qualification claim. (#648)
+- Run the FastMCP Context-injection SDK cross-checks on the SDK versions the `[mcp]` extra allows. (#716)
+- Freeze the report contract at `1.0` (report `0.43` → `1.0`, runtime contract 34). (#569)
+- Tell a widened permission rule from a narrowed one, and stop rating reading files as critical. (#657)
+- Lead the Cursor instruction surface with `shipgate diff`. (#662)
+- Read `.claude/hooks/hooks.json`. (#689)
+- Keep a directory at a recognized host configuration path visible as a failed input. (#613)
+- Materialize boundary paths from a verified tree in advisory `diff` and manifest-free PR review. (#686)
+- Read the Cursor rule format Cursor actually writes, where `globs:` has no value. (#712)
+- Name capability changes in manifest-free host PR review across `verify`, PR comments and `check`. (#684)
+- Compare workflow permissions rather than whole-file edits in host diffs. (#685)
+- Read literal TypeScript MCP tool descriptions from both SDK registration shapes. (#680)
+- Detect shallow checkouts before `diff` scans either side, and print a runnable recovery. (#683)
+- Read Go MCP tool descriptions from struct `Description` fields and direct description options. (#658)
+- Make every emitted next action lead somewhere, and prove it. (#650)
+- Split the release into an advisory line and a qualified gate, and measure both. (#648)
+- Compare against the detected base by default in `check`. (#649)
+- Show six commands in `--help`, and speak to a reader in their own language. (#652)
+- Add `shipgate diff`: one row per host grant a change touches, with no manifest and no committed baseline. (#651)
+- Stop inventorying machine-written tool caches. (#598)
+- Refuse a required tool source whose declared path is unavailable, once, for every reader. (#585)
+- Read every counted hunk row, so header-shaped diff content stops being lost. (#611)
+- Name what a change did to the bound each finding depends on. (#515)
+- Bind reader-selected input directory names and no-follow entry kinds in the verification plan. (#630)
+- Reconfirm recorded verification inputs before returning current control. (#627)
+- Route host-only repositories from first discovery to the existing host audit, without a placeholder manifest. (#568)
+- Compare supported instruction structure across verifier, local control, preflight, host drift and generated edit hooks. (#545)
+- Count actual `insufficient_evidence` qualification outcomes per profile, with denominators. (#520)
+- Label conservative action-effect projections separately from their static evidence. (#357)
+- Retain base finding evidence for the fingerprint comparison, and expose what changed in its support. (#557)
+- Show the bounded human review question at the start of existing PR comments and Check Run summaries. (#555)
+- Evaluate externally signed decisions on the bounded human review request, without granting authority. (#537)
+- Publish an unsigned, content-bound human review request for one documentation-quality class. (#536)
+- Deprecate the path-only instruction-weakening check. (#516)
+- Require review for test- and template-only agent names. (#533)
+- Treat an `init` generator failure as a product defect, not a request to refill a template. (#328)
+- Resolve FastMCP's injected `Context` in the signature projection, and say so when a type cannot be read. (#539)
+- Carry a changed MCP endpoint or credential reference to the reviewer. (#538)
+- Read Python MCP server registration idioms. (#484)
+- Add an adopters registry; its first published number is zero. (#475)
+- Stop one unreadable application root from rejecting every agent name in the repository. (#398)
+- Make the human entry path reach one useful review, and check it like every other distribution surface. (#498)
+- Make the zero-install detector refuse an oversized candidate instead of reading it.
+- Measure a reviewer's decision and the next eligible change in the design-partner pilot. (#521)
+- Name only releases that exist in everything `init` writes. (#506)
+- Fix four lexer defects in the MCP registration reader, in both implementations. (#485)
+- Read MCP registration sites in the zero-install detector. (#485)
+- Register ten distribution surfaces and test that they agree with the engine. (#497)
+- Stop grading any corpus case against `insufficient_evidence`. (#520, #508)
+- Report one version from a preview wheel. (#491)
+- Release on a cadence, and publish work that cannot be tagged through an unqualified preview. (#491)
+
+### Also in this release: the unpublished `0.16.0` line
 
 Two milestones of engine work: the evidence-first declaration workflow, the
 capability delta as a standalone attestation, a route for MCP servers whose
@@ -1515,15 +137,7 @@ tool surface exists only as code, the compact agent-control envelope across
 every setup command, and the release-integrity pipeline that binds a published
 wheel to the commit it came from.
 
-**The full reviewed prose for every entry below is in
-[`docs/changelog/0.16.0.md`](docs/changelog/0.16.0.md).** This section is the
-release note; that file is the record. Nothing was dropped in the split.
-
-**Migration notes:** 16 entries in [`STABILITY.md`](STABILITY.md) apply to this
-release. Read them before upgrading from 0.15.0 — several change a published
-schema or a contract version.
-
-### Highlights
+#### Highlights
 
 - **The capability delta is a standalone, independently verifiable
   attestation.** `verify` writes an in-toto Statement whose subject is the
@@ -1556,7 +170,7 @@ schema or a contract version.
   rather than a weaker judgement: zero unsafe auto-passes, the κ floor and the
   holdout fraction are unchanged. (#341)
 
-### Since `0.16.0b7`
+#### Since `0.16.0b7`
 
 - The capability delta is now a standalone attestation any consumer can verify. (#470)
 - An MCP server whose tool surface exists only as code now has a route. (#431)
@@ -1690,14 +304,14 @@ schema or a contract version.
 - Evidence gaps say whether this diff caused them.
 - Framework-correct low-confidence remedy.
 
-### `0.16.0b7`
+#### `0.16.0b7`
 
 - Graded local boundary stop (UX P0, contract v19).
 - Stop hook follows `control.state`.
 - Own-repo CI verify gates on `blocked,unknown` again. (#274)
 - Version advances.
 
-### `0.16.0b6`
+#### `0.16.0b6`
 
 - Reproducible verification identity (P0).
 - Terminal receipts and portable execution boundary.
@@ -1708,13 +322,13 @@ schema or a contract version.
 - Agent-authored coverage proposals (contract v18 clarification).
 - Codex marketplace coverage and plugin-path containment.
 
-### `0.16.0b5`
+#### `0.16.0b5`
 
 - Evidence-basis policy gate (P0).
 - Non-waivable policy applicability gaps.
 - Evidence contract versions.
 
-### `0.16.0b4`
+#### `0.16.0b4`
 
 - Complete zero-config multi-host boundary.
 - Host-neutral boundary contract.
@@ -1722,14 +336,14 @@ schema or a contract version.
 - Boundary beta hardening.
 - Correction to the original host-governance claim.
 
-### `0.16.0b3`
+#### `0.16.0b3`
 
 - Unambiguous agent control contract (P0).
 - Control contract versions.
 - Execution, applicability, and mergeability are separate.
 - Conductor OSS workflow JSON adapter.
 
-### `0.16.0b2`
+#### `0.16.0b2`
 
 - Root-reachable agent binding graph (P0).
 - Binding contract versions.
@@ -1737,7 +351,7 @@ schema or a contract version.
 - Identity-safe policies, diffs, traces, and debt.
 - Identity contract versions.
 
-### `0.16.0b1`
+#### `0.16.0b1`
 
 - Evidence-backed `passed` verdict.
 - Normalized semantic evidence contract.

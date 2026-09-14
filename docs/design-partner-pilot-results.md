@@ -64,18 +64,16 @@ allow list from `Bash(npm test)` / `Read(src/**)` to `Bash(*)` / `Read(**)` /
 capability-change class this pilot exists to observe.
 
 **Published build measured: `0.15.0`.** Preview measured:
-`0.16.0+preview.20260903.gb61aca7`. Source tree: `0.16.0`, rechecked on 2026-09-13 against
-branch commit `2c2e31cb` — #700's read-through of in-tree links at boundary paths, rebased
-on `main` at `faed663b` — with runtime contract 39. The synthetic baseline was recorded and committed on the
+`0.16.0+preview.20260903.gb61aca7`. Source tree: `1.0.0`, rechecked on 2026-09-13 against
+the `1.0.0` version bump, with runtime contract 39. The synthetic baseline was recorded and committed on the
 fixture base before the permission change, so it was not itself under review. The source-tree
 column below was rerun; the released and preview columns retain their earlier
 measurement and were not relabeled as new runs.
 
-The rerun reproduced every source-tree cell except two version numbers:
-runtime contract 39 and host-grant inventory schema 0.5. #700 reads in-tree
-links at boundary paths through to their targets, and this fixture has none,
-so discovery, `check`, the audit route, `verify`'s six rows and drift are
-untouched. That is the point of re-running
+The rerun reproduced every source-tree cell. Only the package version moved:
+runtime contract 39 and host-grant inventory schema 0.5 are unchanged, and
+discovery, `check`, the audit route, `verify`'s six rows and drift return what
+the previous source-tree run returned. That is the point of re-running
 rather than carrying the row forward — "nothing changed" is a measurement, not
 an assumption.
 
@@ -276,7 +274,7 @@ those is a matter of writing more runbook.
   stranger understands.
 - **Findings are build-dated.** They describe three builds as they stood on
   2026-09-05 for the released `0.15.0` and preview
-  `0.16.0+preview.20260903.gb61aca7`, and 2026-09-09 for this source candidate. A release or a new
+  `0.16.0+preview.20260903.gb61aca7`, and 2026-09-13 for this source candidate. A release or a new
   preview invalidates the comparison, and the dry run must be re-run and
   re-dated before any row here is cited again. A standing guard fails the
   build when the newest published tag moves; **nothing fails the build when a

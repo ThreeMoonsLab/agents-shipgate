@@ -1,4 +1,4 @@
-# Stability Contract · 0.16.0
+# Stability Contract · 1.0.0
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
@@ -100,7 +100,171 @@ the Action tag) for reproducible CI.
 
 ---
 
-## Workflow capability comparison (contract v34, #685)
+<a id="link-read-through-at-boundary-paths-contract-v39-700"></a>
+
+## Migration Note: 1.0.0 — link read-through at boundary paths (contract v39, #700)
+
+Host-grants inventory, baseline and drift schemas `0.5` add one optional member to an artifact:
+
+```json
+{
+  "path": ".claude/skills/helper/SKILL.md",
+  "resolved_through": [".agents/skills/helper/SKILL.md"]
+}
+```
+
+- **When it appears.** On an artifact read through a symlink that resolves inside the repository, and nowhere else. Two kinds of link qualify:
+  - a file link that a host adapter names, such as `CLAUDE.md`, `AGENTS.md` or `.mcp.json`;
+  - a directory link at a location an adapter names by a fixed prefix, such as `.claude/skills` or `.cursor/skills`, or above an exact path.
+
+  The artifact keeps the link's own path, because that is what the host reads. `resolved_through` lists each in-tree path the resolution landed on, ending at the file read.
+- **Bound to the read.** Each link's text, and each component's kind, comes from the same identity-bound read session. So a link retargeted, or a target swapped, before the read finishes fails the snapshot. A comparison's base tree materializes the target's bytes, so both sides read the same file.
+- **Still a coverage limit.** Each of these stays `unreadable`, and the comparison refuses as before:
+  - an absolute, escaping or dangling target;
+  - a link as an intermediate component;
+  - a chain longer than eight hops;
+  - a linked directory that contains a link, points into its own ancestor, or sits under a skipped directory such as `node_modules` or `.venv`;
+  - a directory link that could only hide a `**/` match.
+- **Change detection.** Retargeting a linked boundary path changes `resolved_through`, so drift reports an artifact change. A change to the target's content is compared under the link's path.
+
+**Compatibility.**
+- **A `0.4` baseline** is still loaded and compared. A `0.4` inventory refused every boundary link, and an incomplete inventory cannot be saved, so no `0.4` baseline holds an artifact that `0.5` would describe differently.
+- **Validators pinned to the `0.4` schemas** reject a `0.5` inventory, baseline or drift payload. The `0.4` schema files stay published.
+- **`minimum_control_contract_version`** stays `21`.
+
+<a id="host-capability-rows-in-the-control-envelope-contract-v38-662"></a>
+
+## Migration Note: 1.0.0 — host capability rows in the control envelope (contract v38, #662)
+
+`shipgate.agent_control/v1` gains one optional member:
+
+```json
+"capability_rows": {
+  "comparison_status": "comparable",
+  "incomparable_reasons": [],
+  "rows": [
+    {
+      "subject": "claude-code .claude/settings.json",
+      "before": "—",
+      "after": "Bash(*)",
+      "direction": "added",
+      "severity": "critical",
+      "why": "matches any command of this kind, without a prompt",
+      "expands": true
+    }
+  ],
+  "omitted_rows": 0,
+  "unchanged_limit_count": 0
+}
+```
+
+- **Source.** The block copies the host comparison the producer already published. For `check` that is `rows`, `comparison_status` and `incomparable_reasons` on `agent-boundary-json`. For `verify --format control` and `agent control` it is `host_comparison` in `verifier.json`. When no comparison ran, the member is omitted rather than set to `null`.
+- **Cap.** At most five rows are included. Rows with `expands: true` come first, then the rest, each group in the producer's order. `omitted_rows` counts the rows that were cut. Whenever it is non-zero, `rows` holds exactly five. `why` is capped at 400 UTF-8 bytes like the envelope's other prose. `subject`, `before` and `after` are never abridged.
+- **Status.**
+  - An `incomparable` block copies its reasons and carries no rows, with both counts at `0`.
+  - A `comparable` block carries no reasons.
+  - Empty `rows` on a `comparable` block means "no row in the covered comparison", not "safe".
+  - `unchanged_limit_count` counts unchanged partial surfaces the comparison did not read (#721); `verifier.json` names them.
+- **Authority.** None. `control_state`, `permissions`, `next_action` and `human_review` are the same with or without the block.
+
+**Compatibility.** The envelope is a closed object, and its published schema was pinned by hash. Contract v38 widens it in place under the same identifier rather than publishing a `v2`; the owner chose this so a consumer keeps one envelope identifier. The effects are:
+
+- A reader that validates envelopes against the v37 `docs/agent-control-schema.v1.json` rejects any envelope carrying `capability_rows`. That happens only when a host comparison ran, and the reader fails closed. Re-fetch the schema.
+- Readers that parse without validating, or that ignore unknown members, are unaffected.
+- An envelope with no host comparison is byte-identical to v37.
+- `minimum_control_contract_version` stays `21`, because the `AgentControl` union is unchanged, as it was for v23–v25.
+
+<a id="unchanged-comparison-limits-contract-v37-721"></a>
+
+## Migration Note: 1.0.0 — unchanged comparison limits (contract v37, #721)
+
+Verifier schema `0.19` adds `host_comparison.unchanged_limits`, a list of
+`{host, limit, source, detail}`. `limit` is `unsupported`, `parse_failed` or
+`experimental_coverage`. It is non-empty only on a `comparable` comparison, and
+an `incomparable` one names none.
+
+A comparison used to refuse whenever either inventory was partial or
+experimental, even when the surface that made it so was untouched. A limit is
+now named instead of refusing when all three hold:
+
+- it is present with the same kind, host and source on both sides;
+- it is a per-source `unsupported` or `parse_failed` issue, or experimental host
+  coverage;
+- its source is byte-identical at base and head, by Git object ID for a commit
+  and by unfiltered hash for a working tree.
+
+Anything else still refuses, including an `unreadable` source. An unchanged
+symlink whose in-tree target changed must not read as unchanged (#700).
+
+`shipgate diff --json` moves to capability diff `0.2` with the same
+`unchanged_limits` list. Its incomparable reason for an incomplete head is now
+`head_inventory_incomplete`, matching `verify`.
+
+`check --format agent-boundary-json` is unchanged:
+`shipgate.agent_boundary_result/v3` has no field for a limit. Where `diff` and
+`verify` would compare past one, `check` reports
+`incomparable` / `unchanged_limits_not_representable`.
+
+A `0.18` verifier artifact reads as `0.19` with no limits, which is what that
+build knew. One that claims `unchanged_limits` is refused. The published `0.18`
+schema stays frozen. `audit --host --save-baseline` still refuses an incomplete
+inventory.
+
+<a id="mcp-url-capability-digest-723"></a>
+
+## Migration Note: 1.0.0 — MCP URL capability digest (#723)
+
+A URL-based MCP server's query parameters now enter its `config_sha256`, and
+its file's `redacted_sha256`. A change carried in the query now produces a row:
+removing `read_only=true`, adding `features=`, or pointing at a different
+project. Before this change only the redacted URL was hashed, so none of these
+was visible.
+
+The URL path stays out of the digest. A webhook-style path is itself a secret,
+and rotating one must stay quiet, so a capability carried only in the path
+(`/read` → `/admin`) is still not seen.
+
+Published fields are unchanged. `endpoint` still replaces the path with
+`<redacted-path>` and drops the query, and nothing in the inventory, baseline
+or rows carries a path, query or secret. A secret-named query parameter
+contributes its name to the digest, never its value, and `env` and `headers`
+contribute nothing. A server with no URL query keeps its earlier digest.
+
+A host-grants baseline saved by an earlier build reports each URL server that
+has a query as `changed` once, because its digest now covers more.
+Review that row, then re-save the baseline. No schema version moves: the
+digest's inputs changed, not the inventory's shape.
+
+<a id="manifest-free-host-review-contract-v35-684"></a>
+
+## Migration Note: 1.0.0 — manifest-free host review (contract v35, #684)
+
+Verifier schema `0.18` adds `host_comparison`: advisory rows from the existing
+host inventory comparator, the compared commits and captured workspace identity,
+inventory digests, source paths, and explicit comparison health. It never supplies
+an application `release_decision`, a successful release receipt, or merge authority.
+A missing or malformed manifest does not become an invented policy: existing
+manifest routes remain governed by the verifier, and explicit strict/application
+policy inputs retain their existing failure behavior when no manifest exists.
+The published `0.17` schema remains frozen; reading an older verifier does not
+invent host evidence.
+
+Boundary result `shipgate.agent_boundary_result/v3` adds `rows`,
+`comparison_status`, `incomparable_reasons`, and `comparison_scope`. Existing
+local boundary policy decisions remain authoritative. Supplied diffs compare
+only their changed host files; unresolved content is incomparable, not an empty
+successful comparison. `check` continues to hide permission arguments, including
+in its new rows; use the named source file for the exact rule. The older v2
+schema and deprecated Codex v2 projection remain frozen.
+
+Interactive `check` now defaults to text; detected agent mode defaults to the
+current boundary JSON. Automation should always select `--format
+agent-boundary-json` or `--format agent-control-json` explicitly. These existing
+explicit formats are retained, and `--format text` is available in either mode.
+
+<a id="workflow-capability-comparison-contract-v34-685"></a>
+
+## Migration Note: 1.0.0 — workflow capability comparison (contract v34, #685)
 
 Host inventory, baseline and drift advance from `0.3` to `0.4`. Workflow
 grants now carry per-job `permission_contexts`, `effective_write_scopes` and
@@ -127,7 +291,9 @@ review a replacement baseline. Git-backed `diff` scans both refs with the
 current reader and needs no saved-baseline migration. Runtime contract v34
 advertises the new versions; the operational control contract stays unchanged.
 
-## Qualification coverage diagnostics (v6, #520)
+<a id="qualification-coverage-diagnostics-v6-520"></a>
+
+## Migration Note: 1.0.0 — qualification coverage diagnostics (v6, #520)
 
 `EvidenceGap.recovery` is optional explanatory metadata (#561) on the existing
 open gap object. `kind` distinguishes `input_unavailable`, `reader_limitation`
@@ -158,7 +324,7 @@ unscored cases and the limits of named gap evidence.
 
 <a id="migration-note-unreleased-report-1-0-freeze"></a>
 
-## Migration Note: 0.16.0 — the report contract is frozen at 1.0
+## Migration Note: 1.0.0 — the report contract is frozen at 1.0
 
 Runtime contract `33 → 34`; `report_schema_version` moves **`0.43` → `1.0`**;
 the minimum control contract stays at `21`. Packet `0.18`, verifier `0.17`,
@@ -208,7 +374,7 @@ qualification receipt collected against `1.0`.
 
 <a id="migration-note-unreleased-human-review-decision"></a>
 
-## Migration Note: 0.16.0 — external review decisions stay separate from the gate
+## Migration Note: 1.0.0 — external review decisions stay separate from the gate
 
 Runtime contract `30 → 31`; the minimum control contract stays at 21.
 The standalone `shipgate.human_review_decision/v1` and
@@ -227,7 +393,7 @@ signature domain, trust boundary and static-artifact guarantee.
 
 <a id="migration-note-unreleased-human-review-request"></a>
 
-## Migration Note: 0.16.0 — a review question gets a checkable postcondition
+## Migration Note: 1.0.0 — a review question gets a checkable postcondition
 
 Runtime contract `29 → 30`; `minimum_control_contract_version` stays at 21.
 The new standalone `shipgate.human_review_request/v1` artifact binds one
@@ -245,7 +411,7 @@ remains in force. Existing signed push authorization remains push-only.
 
 <a id="migration-note-unreleased-declaration-review"></a>
 
-## Migration Note: 0.16.0 — changed declarations become reviewer evidence
+## Migration Note: 1.0.0 — changed declarations become reviewer evidence
 
 `contract_version` moves **28 → 29**, `report_schema_version` moves
 **0.42 → 0.43**, packet schema moves **0.17 → 0.18**, verifier schema moves
@@ -279,7 +445,7 @@ only release decision signal.
 
 <a id="migration-note-unreleased-capability-delta-attestation"></a>
 
-## Migration Note: 0.16.0 — the capability delta becomes a published attestation
+## Migration Note: 1.0.0 — the capability delta becomes a published attestation
 
 `contract_version` moves **27 → 28**. `minimum_control_contract_version` stays
 at `21`, `report_schema_version` is unchanged, and no already-published schema
@@ -356,7 +522,7 @@ the artifact-manifest digest against a receipt you supply.
 
 <a id="migration-note-unreleased-verifier-explanations"></a>
 
-## Migration Note: 0.16.0 — verifier explanations name the cause that acted
+## Migration Note: 1.0.0 — verifier explanations name the cause that acted
 
 That projection-only change moved no schema or runtime-contract version. It
 landed against the v0.42 report schema with the typed `unattested_surface` gap
@@ -391,7 +557,7 @@ typed fields rather than matching prose.
 
 <a id="migration-note-unreleased-embedded-trigger-routing"></a>
 
-## Migration Note: 0.16.0 — embedded trigger advice is consumed by verifier control
+## Migration Note: 1.0.0 — embedded trigger advice is consumed by verifier control
 
 No schema or runtime-contract version moves, and standalone
 `agents-shipgate trigger --json` output is unchanged. When the same trigger
@@ -415,7 +581,7 @@ not change.
 
 <a id="migration-note-unreleased-pre-1-0-evidence-bar"></a>
 
-## Migration Note: 0.16.0 — the pre-1.0 release evidence bar
+## Migration Note: 1.0.0 — the pre-1.0 release evidence bar
 
 `shipgate.safety_qualification` advances **v4 → v5**. The corpus
 (`shipgate.safety_corpus/v4`) and receipt-index
@@ -451,7 +617,7 @@ every exact-match floor is the production rate rounded up. `1.0` and later still
 require the 80-case `beta` artifact, and there is no promotion shortcut.
 <a id="migration-note-unreleased-setup-error-envelope"></a>
 
-## Migration Note: 0.16.0 — no corpus case targets `insufficient_evidence`
+## Migration Note: 1.0.0 — no corpus case targets `insufficient_evidence`
 
 **No schema version moves.** `shipgate.safety_qualification` stays at v5, the
 corpus and receipt-index envelopes are unchanged, and no field is added,
@@ -485,7 +651,7 @@ is recorded in
 § Amendment 3, under
 [#520](https://github.com/ThreeMoonsLab/agents-shipgate/issues/520).
 
-## Migration Note: 0.16.0 — the setup control envelope reaches both streams
+## Migration Note: 1.0.0 — the setup control envelope reaches both streams
 
 `contract_version` moves **26 → 27**. `minimum_control_contract_version` stays
 at `21`, `report_schema_version` is unchanged, and no published schema document
@@ -590,7 +756,7 @@ for it rather than in the process directory. This is a `next_action` /
 
 <a id="migration-note-unreleased-adopter-vocabulary"></a>
 
-## Migration Note: 0.16.0 — adopter-facing output stops naming internal fields
+## Migration Note: 1.0.0 — adopter-facing output stops naming internal fields
 
 No version moves: `contract_version`, `report_schema_version`,
 `minimum_control_contract_version`, and every published schema document are
@@ -719,7 +885,7 @@ exit code (3) are unchanged.
 
 <a id="migration-note-unreleased-effect-coverage"></a>
 
-## Migration Note: 0.16.0 — effect coverage, and the schemas that stayed frozen
+## Migration Note: 1.0.0 — effect coverage, and the schemas that stayed frozen
 
 Two capability schemas move: `capability_lock_schema_version` `0.6` → `0.7` and
 `capability_lock_diff_schema_version` `0.7` → `0.8`. `report_schema_version`
@@ -776,7 +942,7 @@ action may now see more than one, keyed by `subject_id` with distinct
 
 <a id="migration-note-unreleased-gap-subject-labels"></a>
 
-## Migration Note: 0.16.0 — every gap subject is a label, never a raw id
+## Migration Note: 1.0.0 — every gap subject is a label, never a raw id
 
 No version moves: `contract_version`, `report_schema_version`,
 `minimum_control_contract_version`, and every published schema document are
@@ -827,7 +993,7 @@ text — are unchanged, and keep `subject_id: null`.
 
 <a id="migration-note-unreleased-absent-input"></a>
 
-## Migration Note: 0.16.0 — an absent input is refused, not misreported
+## Migration Note: 1.0.0 — an absent input is refused, not misreported
 
 No version moves: `contract_version`, `report_schema_version`,
 `minimum_control_contract_version`, and every published schema document are
@@ -893,7 +1059,7 @@ is the stable part.
 
 <a id="migration-note-unreleased-doctor-environment"></a>
 
-## Migration Note: 0.16.0 — `doctor --json` reports the environment that answered
+## Migration Note: 1.0.0 — `doctor --json` reports the environment that answered
 
 No version moves: `contract_version`, `report_schema_version`,
 `minimum_control_contract_version`, and every published schema document are
@@ -935,7 +1101,7 @@ changes nothing for an installed Agents Shipgate.
 
 <a id="migration-note-unreleased-setup-control-envelope"></a>
 
-## Migration Note: 0.16.0 — one control vocabulary across the setup commands
+## Migration Note: 1.0.0 — one control vocabulary across the setup commands
 
 Runtime contract `23 → 24`. `minimum_control_contract_version` **stays at 21**,
 and the `AgentControl` union is byte-identical to v21.
@@ -1102,7 +1268,7 @@ boundary verdict, or beside an arbitrary string.
 
 <a id="migration-note-unreleased-invocation-spelled-commands"></a>
 
-## Migration Note: 0.16.0 — commands spelled for the invocation that emitted them
+## Migration Note: 1.0.0 — commands spelled for the invocation that emitted them
 
 Runtime contract `22 → 23`. `minimum_control_contract_version` **stays at 21**:
 the `AgentControl` union is unchanged, and v23 changes only how the commands
@@ -1171,7 +1337,7 @@ canonical for the same reason.
 
 <a id="migration-note-unreleased-compact-control-envelope"></a>
 
-## Migration Note: 0.16.0 — the compact control envelope
+## Migration Note: 1.0.0 — the compact control envelope
 
 Runtime contract `21 → 22`. `minimum_control_contract_version` **stays at 21**:
 v22 adds a projection of the `AgentControl` union and does not change the union
@@ -1260,7 +1426,7 @@ merge".
 
 <a id="migration-note-unreleased-publish-vs-merge"></a>
 
-## Migration Note: 0.16.0 — publish authority is not merge authority
+## Migration Note: 1.0.0 — publish authority is not merge authority
 
 Runtime contract `20 → 21`, and `minimum_control_contract_version` moves
 `14 → 21` because the discriminated `AgentControl` union itself changes. No CLI
@@ -1369,7 +1535,7 @@ schema bump.
 
 <a id="migration-note-unreleased-diff-status"></a>
 
-## Migration Note: 0.16.0 — diff input health
+## Migration Note: 1.0.0 — diff input health
 
 Verifier schema `0.6 → 0.7` and trigger catalog `0.2 → 0.3`. That change did
 not move `contract_version` (see the note above, which does); no CLI surface
@@ -1859,13 +2025,13 @@ Breaking changes from the `0.13.0` line:
 `verifier.json.merge_verdict` is the controller projection for agents and
 PR automation; it is not a second release gate.
 
-## What WILL NOT change in the current `0.x` line
+## What WILL NOT change in the `1.x` line
 
 ### CLI command surface
 
-These commands and flags are stable across the current `0.16.x`
-contract line. Future `0.x` versions may make deliberate breaking
-changes only by bumping `contract_version` and updating this file.
+These commands and flags are stable across the `1.x` line. A deliberate
+breaking change bumps `contract_version`, carries a migration note in this
+file, and follows the deprecation cycle above.
 
 | Command | Stable flags |
 |---|---|
@@ -3457,155 +3623,3 @@ If you encounter behavior that contradicts this document — for example, an uns
 3. The observed behavior (output, error message, JSON fragment)
 
 Stability bugs are prioritized.
-
-### Manifest-free host review (contract v35, #684)
-
-Verifier schema `0.18` adds `host_comparison`: advisory rows from the existing
-host inventory comparator, the compared commits and captured workspace identity,
-inventory digests, source paths, and explicit comparison health. It never supplies
-an application `release_decision`, a successful release receipt, or merge authority.
-A missing or malformed manifest does not become an invented policy: existing
-manifest routes remain governed by the verifier, and explicit strict/application
-policy inputs retain their existing failure behavior when no manifest exists.
-The published `0.17` schema remains frozen; reading an older verifier does not
-invent host evidence.
-
-Boundary result `shipgate.agent_boundary_result/v3` adds `rows`,
-`comparison_status`, `incomparable_reasons`, and `comparison_scope`. Existing
-local boundary policy decisions remain authoritative. Supplied diffs compare
-only their changed host files; unresolved content is incomparable, not an empty
-successful comparison. `check` continues to hide permission arguments, including
-in its new rows; use the named source file for the exact rule. The older v2
-schema and deprecated Codex v2 projection remain frozen.
-
-Interactive `check` now defaults to text; detected agent mode defaults to the
-current boundary JSON. Automation should always select `--format
-agent-boundary-json` or `--format agent-control-json` explicitly. These existing
-explicit formats are retained, and `--format text` is available in either mode.
-
-### MCP URL capability digest (#723)
-
-A URL-based MCP server's query parameters now enter its `config_sha256`, and
-its file's `redacted_sha256`. A change carried in the query now produces a row:
-removing `read_only=true`, adding `features=`, or pointing at a different
-project. Before this change only the redacted URL was hashed, so none of these
-was visible.
-
-The URL path stays out of the digest. A webhook-style path is itself a secret,
-and rotating one must stay quiet, so a capability carried only in the path
-(`/read` → `/admin`) is still not seen.
-
-Published fields are unchanged. `endpoint` still replaces the path with
-`<redacted-path>` and drops the query, and nothing in the inventory, baseline
-or rows carries a path, query or secret. A secret-named query parameter
-contributes its name to the digest, never its value, and `env` and `headers`
-contribute nothing. A server with no URL query keeps its earlier digest.
-
-A host-grants baseline saved by an earlier build reports each URL server that
-has a query as `changed` once, because its digest now covers more.
-Review that row, then re-save the baseline. No schema version moves: the
-digest's inputs changed, not the inventory's shape.
-
-### Unchanged comparison limits (contract v37, #721)
-
-Verifier schema `0.19` adds `host_comparison.unchanged_limits`, a list of
-`{host, limit, source, detail}`. `limit` is `unsupported`, `parse_failed` or
-`experimental_coverage`. It is non-empty only on a `comparable` comparison, and
-an `incomparable` one names none.
-
-A comparison used to refuse whenever either inventory was partial or
-experimental, even when the surface that made it so was untouched. A limit is
-now named instead of refusing when all three hold:
-
-- it is present with the same kind, host and source on both sides;
-- it is a per-source `unsupported` or `parse_failed` issue, or experimental host
-  coverage;
-- its source is byte-identical at base and head, by Git object ID for a commit
-  and by unfiltered hash for a working tree.
-
-Anything else still refuses, including an `unreadable` source. An unchanged
-symlink whose in-tree target changed must not read as unchanged (#700).
-
-`shipgate diff --json` moves to capability diff `0.2` with the same
-`unchanged_limits` list. Its incomparable reason for an incomplete head is now
-`head_inventory_incomplete`, matching `verify`.
-
-`check --format agent-boundary-json` is unchanged:
-`shipgate.agent_boundary_result/v3` has no field for a limit. Where `diff` and
-`verify` would compare past one, `check` reports
-`incomparable` / `unchanged_limits_not_representable`.
-
-A `0.18` verifier artifact reads as `0.19` with no limits, which is what that
-build knew. One that claims `unchanged_limits` is refused. The published `0.18`
-schema stays frozen. `audit --host --save-baseline` still refuses an incomplete
-inventory.
-
-### Host capability rows in the control envelope (contract v38, #662)
-
-`shipgate.agent_control/v1` gains one optional member:
-
-```json
-"capability_rows": {
-  "comparison_status": "comparable",
-  "incomparable_reasons": [],
-  "rows": [
-    {
-      "subject": "claude-code .claude/settings.json",
-      "before": "—",
-      "after": "Bash(*)",
-      "direction": "added",
-      "severity": "critical",
-      "why": "matches any command of this kind, without a prompt",
-      "expands": true
-    }
-  ],
-  "omitted_rows": 0,
-  "unchanged_limit_count": 0
-}
-```
-
-- **Source.** The block copies the host comparison the producer already published. For `check` that is `rows`, `comparison_status` and `incomparable_reasons` on `agent-boundary-json`. For `verify --format control` and `agent control` it is `host_comparison` in `verifier.json`. When no comparison ran, the member is omitted rather than set to `null`.
-- **Cap.** At most five rows are included. Rows with `expands: true` come first, then the rest, each group in the producer's order. `omitted_rows` counts the rows that were cut. Whenever it is non-zero, `rows` holds exactly five. `why` is capped at 400 UTF-8 bytes like the envelope's other prose. `subject`, `before` and `after` are never abridged.
-- **Status.**
-  - An `incomparable` block copies its reasons and carries no rows, with both counts at `0`.
-  - A `comparable` block carries no reasons.
-  - Empty `rows` on a `comparable` block means "no row in the covered comparison", not "safe".
-  - `unchanged_limit_count` counts unchanged partial surfaces the comparison did not read (#721); `verifier.json` names them.
-- **Authority.** None. `control_state`, `permissions`, `next_action` and `human_review` are the same with or without the block.
-
-**Compatibility.** The envelope is a closed object, and its published schema was pinned by hash. Contract v38 widens it in place under the same identifier rather than publishing a `v2`; the owner chose this so a consumer keeps one envelope identifier. The effects are:
-
-- A reader that validates envelopes against the v37 `docs/agent-control-schema.v1.json` rejects any envelope carrying `capability_rows`. That happens only when a host comparison ran, and the reader fails closed. Re-fetch the schema.
-- Readers that parse without validating, or that ignore unknown members, are unaffected.
-- An envelope with no host comparison is byte-identical to v37.
-- `minimum_control_contract_version` stays `21`, because the `AgentControl` union is unchanged, as it was for v23–v25.
-
-### Link read-through at boundary paths (contract v39, #700)
-
-Host-grants inventory, baseline and drift schemas `0.5` add one optional member to an artifact:
-
-```json
-{
-  "path": ".claude/skills/helper/SKILL.md",
-  "resolved_through": [".agents/skills/helper/SKILL.md"]
-}
-```
-
-- **When it appears.** On an artifact read through a symlink that resolves inside the repository, and nowhere else. Two kinds of link qualify:
-  - a file link that a host adapter names, such as `CLAUDE.md`, `AGENTS.md` or `.mcp.json`;
-  - a directory link at a location an adapter names by a fixed prefix, such as `.claude/skills` or `.cursor/skills`, or above an exact path.
-
-  The artifact keeps the link's own path, because that is what the host reads. `resolved_through` lists each in-tree path the resolution landed on, ending at the file read.
-- **Bound to the read.** Each link's text, and each component's kind, comes from the same identity-bound read session. So a link retargeted, or a target swapped, before the read finishes fails the snapshot. A comparison's base tree materializes the target's bytes, so both sides read the same file.
-- **Still a coverage limit.** Each of these stays `unreadable`, and the comparison refuses as before:
-  - an absolute, escaping or dangling target;
-  - a link as an intermediate component;
-  - a chain longer than eight hops;
-  - a linked directory that contains a link, points into its own ancestor, or sits under a skipped directory such as `node_modules` or `.venv`;
-  - a directory link that could only hide a `**/` match.
-- **Change detection.** Retargeting a linked boundary path changes `resolved_through`, so drift reports an artifact change. A change to the target's content is compared under the link's path.
-
-**Compatibility.**
-- **A `0.4` baseline** is still loaded and compared. A `0.4` inventory refused every boundary link, and an incomplete inventory cannot be saved, so no `0.4` baseline holds an artifact that `0.5` would describe differently.
-- **Validators pinned to the `0.4` schemas** reject a `0.5` inventory, baseline or drift payload. The `0.4` schema files stay published.
-- **`minimum_control_contract_version`** stays `21`.

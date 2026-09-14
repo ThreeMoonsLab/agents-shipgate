@@ -162,7 +162,7 @@ answer that is not "read six documents".
 | `shipgate.agent_control/v1`, `agent_boundary_result/v2` | stable | `minimum_control_contract_version` is `21` and unchanged by the freeze. |
 | `contract --json` field set | stable | Additive. |
 | GitHub Action inputs / outputs | stable | The `shipgate_wheel` / `shipgate_wheel_sha256` pair is a local-wheel escape hatch, not a published channel. |
-| `--format codex-boundary-json` | **deprecated** | Compatibility projection through `0.16.x`; use `agent-boundary-json`. Published in `contract --json` → `deprecated_surfaces`. |
+| `--format codex-boundary-json` | **deprecated** | Compatibility projection through `1.x`; use `agent-boundary-json`. Published in `contract --json` → `deprecated_surfaces`. |
 | `preflight` result | provisional | A routing/projection surface. `release_decision.decision` remains the gate; preflight grants no authority. |
 | Org governance, org evidence bundle, registry query | provisional | Ring-2 surfaces; not part of the `1.0` merge-gate promise. |
 | MCP server transport | provisional | Every answer is produced by calling the CLI in-process; it has no contract of its own. |
@@ -192,7 +192,7 @@ floor field at all. That is the real starting point for a migration, not
 | `contract_version: 10`, no floor field | `contract_version: 36`, `minimum_control_contract_version: 21` | Gate on `minimum_control_contract_version`, not on `contract_version`, and treat its absence as "older than 21". |
 | Read `agent-result.json` | Read `verification-receipt.json`, then `agent-handoff.json`, `verifier.json`, `verify-run.json` | Removed in `0.14.0`; see that migration note. |
 | `--format agent` | `--format json` | Removed in `0.14.0`. |
-| `--format codex-boundary-json` | `--format agent-boundary-json` | Deprecated; the projection stays through `0.16.x`. |
+| `--format codex-boundary-json` | `--format agent-boundary-json` | Deprecated; the projection stays through `1.x`. |
 | Gate on `summary.status` | Gate on `release_decision.decision` | `summary.status` is baseline-blind and always was. |
 
 ### Changed defaults
