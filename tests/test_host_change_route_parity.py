@@ -269,3 +269,29 @@ def test_12_the_documented_command_runs_as_printed(repo: Path) -> None:
 
     assert payload["comparison_status"] == "comparable"
     assert _named(payload["rows"]) == WIDENING
+
+
+@pytest.mark.parametrize(
+    ('before', 'after', 'expands'),
+    [('Bash(npm *)', 'Bash(npm test:*)', False),
+     ('Bash(npm test:*)', 'Bash(npm *)', True),
+     ('Bash(npm test:*)', 'Bash(npm test:*)', False)],
+)
+def test_scoped_permission_semantics_survive_redaction(repo, before, after, expands):
+    _write(repo, '.claude/settings.json', {'permissions': {'allow': [before]}})
+    _commit(repo, 'scoped baseline')
+    base = _git(repo, 'rev-parse', 'HEAD')
+    _write(repo, '.claude/settings.json', {'permissions': {'allow': [after]}})
+    if before != after:
+        _commit(repo, 'scoped change')
+    raw = _diff(repo, base)['rows']
+    for payload in (_check(repo, base), _verify(repo, base)):
+        assert payload['comparison_status'] == 'comparable'
+        assert sorted((r['direction'], r['severity'], r['expands']) for r in payload['rows']) == sorted(
+            (r['direction'], r['severity'], r['expands']) for r in raw)
+        assert any(r['expands'] for r in payload['rows']) == expands
+    if before != after:
+        payload = _mcp(repo, base)
+        assert sorted((r['direction'], r['severity'], r['expands']) for r in payload['rows']) == sorted(
+            (r['direction'], r['severity'], r['expands']) for r in raw)
+        assert 'npm' not in json.dumps(_check(repo, base)['rows'])

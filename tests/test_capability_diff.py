@@ -492,3 +492,22 @@ def test_shallow_merge_cannot_select_an_older_visible_common_ancestor(
     result = _diff(clone, "--base", right, "--json")
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["rows"] == []
+
+
+def test_redacted_label_collisions_preserve_each_rows_semantics_and_input():
+    from copy import deepcopy
+
+    changes = [
+        {'baseline': None, 'current': {
+            'host': 'claude-code', 'source': '.claude/settings.json',
+            'kind': 'permission_rule', 'rule': rule, 'risk': 'medium',
+            'disposition': 'allow', 'wildcard': True,
+        }} for rule in ('Bash(npm *)', 'Bash(python *)')
+    ]
+    payload = {'changes': changes, 'expansion_signals': ['wildcard_allow_added: claude-code:Bash(python *)']}
+    original = deepcopy(payload)
+    rows = capability_diff_rows(payload, redact_permission_arguments=True)
+    assert len(rows) == 2
+    assert {r.after for r in rows} == {'Bash(<redacted-arguments>)'}
+    assert sorted(r.expands for r in rows) == [False, True]
+    assert payload == original

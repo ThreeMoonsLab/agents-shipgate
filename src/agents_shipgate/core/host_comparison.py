@@ -10,7 +10,6 @@ from agents_shipgate.core.host_grants import (
     build_host_comparison_payload,
     build_host_drift_payload,
     build_host_grants_baseline,
-    host_grant_expansion_signals,
     host_grants_sha256,
     inventory_is_complete,
     normalized_host_grants,
@@ -132,20 +131,6 @@ def compare_host_inventories(
     reasons.extend(payload.get("incomparable_reasons") or [])
     if reasons:
         limits = []
-    if redact_permission_arguments:
-        from copy import deepcopy
-
-        from agents_shipgate.core.host_boundary import _safe_rule
-
-        payload = deepcopy(payload)
-        # Redact by the producer's typed grant kind, not a display-string regex.
-        # Grant identities/expansion signals retain the original comparison.
-        for change in payload.get("changes", []):
-            for side in ("baseline", "current"):
-                grant = change.get(side)
-                if isinstance(grant, dict) and grant.get("kind") == "permission_rule":
-                    grant["rule"] = _safe_rule(grant["rule"])
-        payload["expansion_signals"] = host_grant_expansion_signals(payload.get("changes", []))
     return HostComparison(
         comparison_status="incomparable" if reasons else "comparable",
         incomparable_reasons=reasons,
@@ -157,6 +142,8 @@ def compare_host_inventories(
         paths=sorted(
             {item["path"] for inventory in (before, after) for item in inventory["artifacts"]}
         ),
-        rows=[] if reasons else capability_diff_rows(payload),
+        rows=[] if reasons else capability_diff_rows(
+            payload, redact_permission_arguments=redact_permission_arguments
+        ),
         unchanged_limits=limits,
     )
