@@ -207,10 +207,21 @@ Without a configured manifest, when every changed file is host configuration —
 stays quiet when no row widens what the agent can do. It names each widening
 row once, and repeats the announcement only when the change or its rows change.
 A missing base ref, an incomparable inventory or unparsed output is never
-quiet. The PostToolUse hook does not nudge on those edits, because the Stop
-hook compares them. Instruction files, skills, commands, rules and policies
-keep the route above, and a repository with a manifest always runs `verify`.
-The hook reads configuration, not the agent's runtime permissions.
+quiet. When host configuration changes beside other files, the Stop hook
+still compares the host configuration that way and advises on the other files
+separately, in one message. The PostToolUse hook never nudges on host
+configuration edits, with or without a manifest, because the Stop hook compares
+them. Instruction files, skills, commands, rules and policies keep the route
+above, and a repository with a manifest always runs `verify`. The hook reads
+configuration, not the agent's runtime permissions.
+
+Within one Claude Code session, the hooks do not repeat an advisory the agent
+has already seen. Each changed path remembers the last verdict the hooks
+reached for it and the verdicts already announced. An edit that brings no new
+verdict for any path it names stays quiet, even though it is evaluated again.
+A new path, a different verdict, a different base or manifest, or a new session
+is announced. So is every result that could not read its input. This is
+presentation only: CI and `verify` evaluate the whole change regardless.
 
 These hooks are advisory local feedback. Local setup failures such as a
 missing CLI or unavailable base ref are surfaced as context, and verifier

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Stop repeating hook advisories within a Claude Code session (#661). In a
+  repository without a manifest, a scripted 50-event session drew 26
+  interrupts. It edited docs, tests, the README and plain source, and applied
+  one supported settings narrowing. PostToolUse and Stop repeated "could not
+  decide whether this diff is relevant" after every source edit, and a
+  narrowing sitting beside other edits fell back to the manifest advice.
+
+  The hooks now remember, per session and per path, the last verdict they
+  reached and the verdicts already announced. An edit that brings nothing new
+  stays quiet. A new path, verdict, base, manifest or session is announced, and
+  so is every result that could not read its input. Host configuration beside
+  other edits is compared by the host readers and advised on in one message.
+  PostToolUse no longer nudges on host configuration in repositories with a
+  manifest either, because Stop runs `verify` there.
+
 - Let a host settings narrowing finish without a human review (#661). In an
   adopted repository, tightening `.claude/settings.json` from `Bash(*)` to
   `Bash(git status)` no longer raised an expansion after #745. But `check`
