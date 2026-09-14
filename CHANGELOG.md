@@ -2,12 +2,6 @@
 
 ## Unreleased
 
-- Build the optional MCP server on the SDK 2.x `MCPServer`, the API the `[mcp]` extra has installed since SDK 2.0, so `mcp-serve` starts again. An SDK without it is named as a version problem, and CI installs the extra at its floor and its newest release. (#713)
-- Read Git pathnames that contain spaces in `check`, `verify` and the MCP `check` tool. A change touching `docs/new scope/notes.md` no longer asks for review of an invalid path, and no longer crashes `check` when a manifest is configured. (#581)
-- Name step action references, named reusable-workflow secrets and remote MCP URL paths as unread host surfaces, say that a hook row does not prove the host loads the file, and state which symlinks refuse a comparison. (#693, #714, #771, #772)
-- Preserve host permission-change semantics when `check` redacts rule arguments; scoped narrowing and widening now agree with `diff` and `verify`. (#767)
-- Report incomplete coverage for malformed Claude permission containers and `allow`/`deny`/`ask` arrays instead of a covered no-change comparison. Unknown extension settings remain allowed. (#768)
-
 ## 1.0.0 - 2026-09-13
 
 The first published release since `0.15.0`, on the advisory channel. It
@@ -54,6 +48,11 @@ version.
 
 ### Changes
 
+- Build the optional MCP server on the SDK 2.x `MCPServer`, the API the `[mcp]` extra has installed since SDK 2.0, so `mcp-serve` starts again. An SDK without it is named as a version problem, and CI installs the extra at its floor and its newest release. (#713)
+- Read Git pathnames that contain spaces in `check`, `verify` and the MCP `check` tool. A change touching `docs/new scope/notes.md` no longer asks for review of an invalid path, and no longer crashes `check` when a manifest is configured. (#581)
+- Name step action references, named reusable-workflow secrets and remote MCP URL paths as unread host surfaces, say that a hook row does not prove the host loads the file, and state which symlinks refuse a comparison. (#693, #714, #771, #772)
+- Preserve host permission-change semantics when `check` redacts rule arguments; scoped narrowing and widening now agree with `diff` and `verify`. (#767)
+- Report incomplete coverage for malformed Claude permission containers and `allow`/`deny`/`ask` arrays instead of a covered no-change comparison. Unknown extension settings remain allowed. (#768)
 - Exercise the #659 oracle with positive, narrowing and neutral controls a bad engine fails, and record how its expectations are labelled. (#659)
 - Give release verification's correctness suite a budget re-derived for today's suite, which had outgrown its 20 minutes. (#648)
 - Re-run the three live measurements on the 1.0.0 candidate wheel as the runs of record, and refuse a committed run with an unmasked local path. (#658, #659, #660)
