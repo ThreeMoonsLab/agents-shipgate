@@ -684,3 +684,114 @@ def test_annotation_hash_preserves_client_visible_keys_and_list_order() -> None:
     ) != tool_annotation_hash(
         {"audience": ["assistant", "user"]}
     )
+
+
+def _contradicting_effects(tool: Tool) -> list[list[str]]:
+    findings = mcp_permissions.run(_context(diff_reference=None, tool=_assessed(tool)))
+    return [
+        item["contradicting_effects"]
+        for finding in findings
+        if finding.check_id == "SHIP-MCP-ANNOTATION-CONTRADICTION"
+        for item in finding.evidence["contradictions"]
+    ]
+
+
+@pytest.mark.parametrize(
+    ("name", "description"),
+    [
+        ("get_secret_scanning_alert", "Get details of a secret scanning alert in a repository."),
+        ("list_credentials", "List the credentials configured for this workspace."),
+        ("search_commits", "Search commits, including their commit messages."),
+        ("get_plan_logs", "Retrieves the logs of a specific Terraform plan."),
+        ("list_terraform_projects", "List the projects in a Terraform organization."),
+        ("list_messages", "List the messages in a mailbox."),
+        ("get_invoice", "Look up an invoice by its number."),
+        ("get_shell_settings", "Show which shell the workspace uses."),
+    ],
+)
+def test_reading_about_a_topic_does_not_contradict_a_read_only_hint(name: str, description: str) -> None:
+    """`readOnlyHint` promises no modification, and a topic noun is not an action (#658).
+
+    github-mcp-server marks `get_secret_scanning_alert` and `search_commits`
+    read-only, and terraform-mcp-server marks `get_plan_logs` and
+    `list_terraform_projects` read-only. The nouns `secret`, `message` and
+    `terraform` raised privileged-data, communication and infrastructure
+    evidence, and the check called each hint contradicted. None of them says
+    the tool does anything.
+    """
+
+    tool = _mcp_tool(name=name, description=description, annotations={"readOnlyHint": True})
+
+    assert _contradicting_effects(tool) == []
+
+
+@pytest.mark.parametrize(
+    ("name", "description", "effect"),
+    [
+        ("send_email", "Send an email to a customer.", {"write", "external_communication"}),
+        ("delete_account", None, {"destructive"}),
+        ("create_invoice", "Create an invoice for a customer.", {"write", "financial_write"}),
+        ("run_shell_command", "Execute a shell command.", {"code_execution"}),
+    ],
+)
+def test_an_action_keyword_still_contradicts_a_read_only_hint(
+    name: str, description: str | None, effect: set[str]
+) -> None:
+    tool = _mcp_tool(name=name, description=description, annotations={"readOnlyHint": True})
+
+    [effects] = _contradicting_effects(tool)
+    assert set(effects) & effect, effects
+
+
+def test_only_modifying_structural_evidence_contradicts_a_read_only_hint() -> None:
+    from agents_shipgate.core.domain import SemanticClaim
+
+    def claim(value: str) -> SemanticClaim:
+        return SemanticClaim(
+            dimension="effect",
+            value=value,
+            confidence="high",
+            provenance_kind="policy_pack",
+            basis="protocol_structure",
+            source="structural-test",
+        )
+
+    assert mcp_permissions._read_only_conflicts([claim("privileged_data_access")], "get_secret") == []
+    assert mcp_permissions._read_only_conflicts([claim("identity_access")], "get_identity") == []
+    assert [item.value for item in mcp_permissions._read_only_conflicts([claim("write")], "get_record")] == ["write"]
+
+
+def test_a_verb_in_a_retrieval_tools_description_still_contradicts_as_a_known_limit() -> None:
+    """terraform-mcp-server's `get_plan_json_output` reports "(create, update, delete)" changes (#658).
+
+    Keyword evidence cannot tell a tool that deletes from one that describes
+    deletes, and a tool's name is not allowed to discount it (#419 keeps
+    name-shaped readings to question ordering). The contradiction stays, as an
+    inferred-only finding, and is labelled false in the ten-server table.
+    """
+
+    tool = _mcp_tool(
+        name="get_plan_json_output",
+        description="Retrieves the JSON output of a plan, including resource changes (create, update, delete).",
+        annotations={"readOnlyHint": True, "destructiveHint": False},
+    )
+
+    assert _contradicting_effects(tool) == [["destructive"], ["destructive"]]
+
+
+def test_a_tool_that_names_a_delete_is_still_contradicted_by_destructive_false() -> None:
+    tool = _mcp_tool(name="delete_account", annotations={"destructiveHint": False})
+
+    assert _contradicting_effects(tool) == [["destructive"]]
+
+
+def test_a_topic_noun_only_in_the_description_does_not_contradict() -> None:
+    """The name must carry a topic noun for it to count, even when the name does not say it retrieves (#658)."""
+
+    tool = _mcp_tool(
+        name="summarize_pull_request",
+        description="Summarize a pull request, including its review messages and any secrets it mentions.",
+        annotations={"readOnlyHint": True},
+    )
+
+    assert _contradicting_effects(tool) == []

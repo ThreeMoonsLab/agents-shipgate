@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Stop reading a topic as a contradiction of `readOnlyHint` (#658).
+  `SHIP-MCP-ANNOTATION-CONTRADICTION` raised 35 false contradictions on two
+  public servers:
+  - `github/github-mcp-server`: 5. Secret-scanning and team tools matched a
+    sensitive keyword, and `search_commits` matched `message`.
+  - `hashicorp/terraform-mcp-server`: 30. Read-only tools matched `terraform`.
+
+  The MCP hint promises the tool does not modify its environment. Now only a
+  modifying effect contradicts it, and a keyword inference counts only when the
+  tool's name or description carries an action verb (`create`, `send`,
+  `delete`, `execute`, and so on). `send_email`, `create_invoice` and
+  `delete_account` still contradict. A retrieval tool whose description names
+  deletes still does, as a known limit.
+
 - Stop reporting an unreadable MCP source description as missing (#658).
   `SHIP-DOC-MISSING-DESCRIPTION` fired whenever the `mcp_server_source` reader
   could not resolve a description. That covered `mcp-grafana`'s positional
