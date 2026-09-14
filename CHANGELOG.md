@@ -48,6 +48,7 @@ version.
 
 ### Changes
 
+- Give release verification's correctness suite a budget re-derived for today's suite, which had outgrown its 20 minutes. (#648)
 - Re-run the three live measurements on the 1.0.0 candidate wheel as the runs of record, and refuse a committed run with an unmasked local path. (#658, #659, #660)
 - Name composite actions and hook-run scripts as unread host surfaces on the support page. (#701, #702)
 - Remove the runbook's manual undraft, which skipped every finalisation check; re-running `finalize` is the only recovery. (#618)

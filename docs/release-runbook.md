@@ -398,12 +398,12 @@ timings rather than an estimate:
 
 | Job | Phase | Observed | Timeout |
 |---|---|---|---|
-| `tests` | correctness suite (`-n auto`, `not perf`) | 407s | 20 min |
+| `tests` | correctness suite (`-n auto`, `not perf`) | ~25 min on one runner (6.6 + 11.3 + 6.3 min across CI's three shards, CI run 34808352261) | 60 min |
 | `tests` | install, lint, compile, schema check, static lint, audit | ~40s | |
 | `artifact` | source build, downloads, signature + qualification + provenance | ~30s | 15 min |
 | `artifact` | isolated SBOM install | ~1–2 min | |
 
-Each leaves roughly 2.5–3.5x headroom. The suite dominates its job; the SBOM
+Each leaves roughly 2.4–3.5x headroom. The suite dominates its job; the SBOM
 step dominates the other, because it installs the wheel's whole runtime closure
 into a fresh environment.
 
@@ -412,6 +412,12 @@ from a rehearsal run and reset the timeout to roughly 2.5x it. Do not raise it
 in response to a single timeout without checking what got slower — a timeout
 that appears without a corresponding change in these phases is more likely a
 hung step than an undersized budget.
+
+That check was made on 2026-09-14. The suite had grown from 3,099 test functions,
+when 407s was measured, to 6,137. CI had already split it into three shards, and
+an Advisory Release Rehearsal timed out 19.7 minutes into the suite. No rehearsal
+had finished, so the budget was reset from CI's sharded timings; replace that
+figure with a finished rehearsal's duration when one exists.
 
 ## Cadence
 

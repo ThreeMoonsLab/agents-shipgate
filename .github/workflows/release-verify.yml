@@ -71,12 +71,16 @@ jobs:
   tests:
     name: Correctness suite
     runs-on: ubuntu-latest
-    # Observed on a hosted runner (CI run 31336011667, the same suite
-    # selection): the correctness suite is 407s and the supporting steps total
-    # ~40s. 20 minutes leaves roughly 2.5x headroom. Re-derive from rehearsal
-    # timings whenever the suite grows materially, and see
+    # Re-derived 2026-09-14. The earlier 407s (CI run 31336011667, at `60ac7e91`,
+    # 3,099 test functions) no longer holds: at `e5ec2311` the suite has 6,137.
+    # CI splits it into three shards, which took 6.6, 11.3 and 6.3 minutes on
+    # hosted runners (CI run 34808352261), about 24 minutes of test time.
+    # Advisory Release Rehearsal run 34808974216 hit the 20-minute limit 19.7
+    # minutes into this step. This job runs the whole selection on one runner,
+    # so it needs about 25 minutes; 60 leaves roughly 2.4x headroom. Re-derive
+    # from rehearsal timings whenever the suite grows materially, and see
     # docs/release-runbook.md before raising it after a single timeout.
-    timeout-minutes: 20
+    timeout-minutes: 60
     permissions:
       contents: read
     outputs:

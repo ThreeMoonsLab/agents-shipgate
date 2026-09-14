@@ -84,7 +84,7 @@ jobs:
     runs-on: ubuntu-latest
     # The same budget as `release-verify.yml`'s suite, which runs the same
     # selection; the measurement behind it is recorded there.
-    timeout-minutes: 20
+    timeout-minutes: 60
     permissions:
       contents: read
     outputs:
