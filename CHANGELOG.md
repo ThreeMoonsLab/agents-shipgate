@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Read `.vscode/mcp.json` as JSON with comments (#659). VS Code documents and
+  runs that file with `//` and `/* */` comments and trailing commas, and a
+  public repository in the host-config benchmark committed one. `audit --host`,
+  `diff`, `check` and `verify` rejected it as unparsable, and `diff` refused the
+  whole comparison. For that file only, comments and a trailing comma outside
+  strings are now ignored. Other host files keep strict JSON, and anything else
+  JSON rejects is still rejected.
+
 - Answer the Stop hook's host comparison in under a second (#661). Every
   `shipgate` invocation imported every command module before it ran one. `diff`
   then loaded the verify command and the scan helpers as well, through the

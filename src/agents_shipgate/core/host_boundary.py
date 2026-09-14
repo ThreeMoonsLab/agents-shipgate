@@ -47,6 +47,7 @@ from agents_shipgate.core.codex_boundary import (
     _dedupe_violations,
     _display_path,
 )
+from agents_shipgate.core.jsonc import is_vscode_mcp_path, loads_jsonc
 from agents_shipgate.core.permission_lattice import subsumes, whole_tool_risk
 from agents_shipgate.core.trust_roots import read_absolute_identity_bound_text
 from agents_shipgate.schemas.agent_result_v1 import (
@@ -1022,6 +1023,8 @@ def _parse_json_pair(resolved, path: str, add) -> tuple[Any, Any] | None:
     content cannot be resolved.
     """
 
+    # VS Code reads `mcp.json` as JSON with comments (#659).
+    loads = loads_jsonc if is_vscode_mcp_path(path) else json.loads
     if resolved.new_text is None:
         add(
             "HOST-CONFIG-PARSE-FAILED",
@@ -1036,7 +1039,7 @@ def _parse_json_pair(resolved, path: str, add) -> tuple[Any, Any] | None:
         new_data = {}
     else:
         try:
-            new_data = json.loads(resolved.new_text)
+            new_data = loads(resolved.new_text)
         except json.JSONDecodeError as exc:
             add(
                 "HOST-CONFIG-PARSE-FAILED",
@@ -1048,7 +1051,7 @@ def _parse_json_pair(resolved, path: str, add) -> tuple[Any, Any] | None:
         old_data: Any = {}
     else:
         try:
-            old_data = json.loads(resolved.old_text)
+            old_data = loads(resolved.old_text)
         except json.JSONDecodeError as exc:
             add(
                 "HOST-CONFIG-PARSE-FAILED",

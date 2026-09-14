@@ -121,9 +121,55 @@ def codex_config(before_text: str | None, after_text: str | None) -> dict[str, A
     return {"scope": scope, "changes": [c if "semantic_direction" in c else _direct(c) for c in changes], "unclassified_keys": unclassified}
 
 
+def _without_jsonc_comments(text: str | None) -> str | None:
+    """VS Code documents `mcp.json` as JSON with comments; drop them before parsing.
+
+    Written here rather than imported, so the oracle does not share the engine's
+    reader. Line and block comments outside strings, and a comma directly before
+    a closing bracket, are removed. Anything else stays for `json` to judge.
+    """
+
+    if text is None:
+        return None
+    out: list[str] = []
+    i, quoted = 0, False
+    while i < len(text):
+        ch = text[i]
+        if quoted:
+            out.append(ch)
+            if ch == "\\" and i + 1 < len(text):
+                out.append(text[i + 1])
+                i += 1
+            elif ch == '"':
+                quoted = False
+        elif ch == '"':
+            quoted = True
+            out.append(ch)
+        elif text.startswith("//", i):
+            end = text.find("\n", i)
+            i = len(text) if end < 0 else end
+            continue
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            if end < 0:
+                return text
+            i = end + 2
+            continue
+        elif ch in "}]":
+            while out and out[-1].isspace():
+                out.pop()
+            if out and out[-1] == ",":
+                out.pop()
+            out.append(ch)
+        else:
+            out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def vscode_mcp(before_text: str | None, after_text: str | None) -> dict[str, Any]:
-    before, bok = cold._parse(before_text)
-    after, aok = cold._parse(after_text)
+    before, bok = cold._parse(_without_jsonc_comments(before_text))
+    after, aok = cold._parse(_without_jsonc_comments(after_text))
     if not (bok and aok):
         return {"scope": "refusal_expected", "changes": [], "unclassified_keys": []}
     changes = [_direct(c) for c in cold._map_changes("mcp_server", "", before.get("servers"), after.get("servers"))]

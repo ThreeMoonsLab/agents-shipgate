@@ -42,6 +42,7 @@ from agents_shipgate.core.host_input_failure import (
     safe_failure_text,
 )
 from agents_shipgate.core.instruction_structure import classify_instruction, instruction_profile
+from agents_shipgate.core.jsonc import is_vscode_mcp_path, loads_jsonc
 from agents_shipgate.core.permission_lattice import (
     scoped_risk,
     subsumes,
@@ -268,6 +269,9 @@ class HostStaticParseCache:
                 data = tomllib.loads(text)
             elif path.suffix in {".yml", ".yaml"}:
                 data = yaml.safe_load(text)
+            elif is_vscode_mcp_path(path.as_posix()):
+                # VS Code reads `mcp.json` as JSON with comments (#659).
+                data = loads_jsonc(text)
             else:
                 data = json.loads(text)
         except (tomllib.TOMLDecodeError, json.JSONDecodeError, yaml.YAMLError) as exc:
