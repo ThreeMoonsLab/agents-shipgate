@@ -971,8 +971,8 @@ SKIP_DIRECTORY_NAMES: frozenset[str] = frozenset(
 #: Path segments whose files declare tools for a test, not for the server.
 TEST_DIRECTORY_NAMES: frozenset[str] = frozenset(
     {
-        "__mocks__", "__tests__", "e2e", "fixtures", "test", "test-fixtures",
-        "testdata", "tests",
+        "__mocks__", "__tests__", "e2e", "eval-tests", "fixtures",
+        "integration-tests", "mocks", "test", "test-fixtures", "testdata", "tests",
     }
 )
 _TEST_FILE_SUFFIXES: tuple[str, ...] = (

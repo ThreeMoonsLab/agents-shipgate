@@ -1295,6 +1295,13 @@ SCANNABLE_PATHS: list[tuple[str, bool]] = [
     ("node_modules/sdk/index.ts", False),
     ("vendor/other/tools.go", False),
     ("testdata/sample.go", False),
+    # mongodb-mcp-server keeps its eval harness's tools (Vercel `ai` SDK
+    # `tool()` wrappers, not MCP registrations) under `packages/eval-tests` and
+    # test fakes under `integration-tests/src/mocks` (#658).
+    ("packages/eval-tests/src/lib/tool/submitScore.ts", False),
+    ("packages/integration-tests/src/mocks/mockTools.ts", False),
+    ("src/mocks/fake_server.ts", False),
+    ("packages/tools-mongodb/src/tools/connect/connect.ts", True),
     ("README.md", False),
     ("src/tools/hash.py", True),
     ("servers/cypher/src/mcp_neo4j_cypher/server.py", True),

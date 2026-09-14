@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Leave eval-harness and mock tools out of an MCP server's source catalog
+  (#658). The source reader enumerated 11 tools in `mongodb-mcp-server`
+  that are not the server's. Its eval runner's judge tools live under
+  `packages/eval-tests`, and its test fakes under `integration-tests/src/mocks`.
+  Five of them raised `SHIP-DOC-MISSING-DESCRIPTION`. Both readers now skip
+  `eval-tests`, `integration-tests` and `mocks` directories, alongside the test
+  directories they already skipped.
+
 - Stop reading a topic as a contradiction of `readOnlyHint` (#658).
   `SHIP-MCP-ANNOTATION-CONTRADICTION` raised 35 false contradictions on two
   public servers:
