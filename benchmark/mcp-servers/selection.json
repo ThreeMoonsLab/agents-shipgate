@@ -1,0 +1,23 @@
+{
+  "frozen_at": "2026-09-13",
+  "issue": "https://github.com/ThreeMoonsLab/agents-shipgate/issues/658",
+  "rule": [
+    "The five servers #658's own text names: github-mcp-server, mongodb-mcp-server, mcp-grafana, filesystem and postgres. filesystem is modelcontextprotocol/servers src/filesystem; postgres is the archived reference server, modelcontextprotocol/servers-archived src/postgres.",
+    "Every other repository named in the committed survey table in docs/mcp-registration-idioms.md: awslabs/mcp, cloudflare/mcp-server-cloudflare and hashicorp/terraform-mcp-server.",
+    "Filled to ten with the reference servers modelcontextprotocol/servers lists in its README, in listed order, skipping one already selected: everything, then fetch.",
+    "Each server is pinned at the head of its default branch when frozen. The scan route is the path `detect` suggested for the repository, or the server's own directory inside modelcontextprotocol/servers and servers-archived.",
+    "The survey's full list of thirty repositories (#431) was never committed, so it cannot be the population; this rule uses only text committed before any scan."
+  ],
+  "accepted": [
+    {"server": "github-mcp-server", "repo": "github/github-mcp-server", "commit": "7d13a7ad6f2a17f351a6d77ce280c85ae1821f4d", "route": "pkg/github", "why": "named in #658"},
+    {"server": "mongodb-mcp-server", "repo": "mongodb-js/mongodb-mcp-server", "commit": "fa089136f4fcc0417a0beeaf8f0ec7aa5d70c4fa", "route": "packages", "why": "named in #658"},
+    {"server": "mcp-grafana", "repo": "grafana/mcp-grafana", "commit": "ffd90536d160ff4f3eb4a4fa79217455b8f22f0c", "route": "tools", "why": "named in #658"},
+    {"server": "filesystem", "repo": "modelcontextprotocol/servers", "commit": "d73f99efbfd40c3aa1b61e88728b3d49fb52608f", "route": "src/filesystem", "why": "named in #658"},
+    {"server": "postgres", "repo": "modelcontextprotocol/servers-archived", "commit": "9be4674d1ddf8c469e6461a27a337eeb65f76c2e", "route": "src/postgres", "why": "named in #658"},
+    {"server": "awslabs-mcp", "repo": "awslabs/mcp", "commit": "56de4c0f377cda61cfab5b9f0c6c2a70c0b70d60", "route": "src", "why": "survey table in docs/mcp-registration-idioms.md"},
+    {"server": "mcp-server-cloudflare", "repo": "cloudflare/mcp-server-cloudflare", "commit": "db9084730dd45ebb6ac4dd5d3181d189cc96e98d", "route": ".", "why": "survey table in docs/mcp-registration-idioms.md"},
+    {"server": "terraform-mcp-server", "repo": "hashicorp/terraform-mcp-server", "commit": "140e3c81fc9c0fc3b4eecd637a54d637a56f9f2e", "route": "pkg", "why": "survey table in docs/mcp-registration-idioms.md"},
+    {"server": "everything", "repo": "modelcontextprotocol/servers", "commit": "d73f99efbfd40c3aa1b61e88728b3d49fb52608f", "route": "src/everything", "why": "reference server, README order"},
+    {"server": "fetch", "repo": "modelcontextprotocol/servers", "commit": "d73f99efbfd40c3aa1b61e88728b3d49fb52608f", "route": "src/fetch", "why": "reference server, README order"}
+  ]
+}

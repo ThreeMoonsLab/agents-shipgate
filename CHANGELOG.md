@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add the ten-server false-finding table under `benchmark/mcp-servers/`
+  (#658). It pins ten public MCP servers, chosen by a rule written from
+  committed text, and runs a candidate over each. Every published finding is
+  labelled against the server's source in `labels.csv`, and
+  `tests/test_mcp_server_findings_table.py` re-scores the committed run so the
+  table stays reproducible. Candidate `9946f80a` publishes 76
+  findings, 1 of them false (1.3%, under the 2% bar). The run
+  also reports what the reader could not establish.
+
 - Leave eval-harness and mock tools out of an MCP server's source catalog
   (#658). The source reader enumerated 11 tools in `mongodb-mcp-server`
   that are not the server's. Its eval runner's judge tools live under
