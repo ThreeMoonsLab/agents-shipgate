@@ -1137,12 +1137,18 @@ def test_rendering_here_is_the_packages_own_rendering():
     """
 
     assert _render_template("{{ shipgate_version }}") == LATEST_PUBLISHED_VERSION
-    assert _render_template("{{ shipgate_version }}") != __version__, (
-        "the source tree and the newest published release are the same version, "
-        "so this assertion no longer distinguishes the two rules. That is the "
-        "state right after a release; re-check it at the next version bump."
-    )
     assert _render_template("no placeholders here") == "no placeholders here"
+    if LATEST_PUBLISHED_VERSION == __version__:
+        pytest.skip(
+            f"the source tree and the newest published release are both "
+            f"{__version__}, so rendering one cannot be told apart from rendering "
+            "the other. That is the state right after a release; the assertion "
+            "below re-arms at the next version bump."
+        )
+    assert _render_template("{{ shipgate_version }}") != __version__, (
+        "the helper rendered this tree's version where the newest published "
+        "release belongs (#506)."
+    )
 
 
 #: A braced set literal, the one shape that is unambiguously a surface saying
@@ -1698,15 +1704,15 @@ def unresolvable_pins(text: str) -> list[tuple[str, str]]:
 #: Refs a committed example deliberately leaves unpinned, and the ref it uses.
 #: ``@main`` resolves — it is a branch — so this is not #506's defect, and it is
 #: the alternative #497 allows: "a resolvable supported path **or an explicit
-#: version/contract incompatibility**". ``check_run_policy`` postdates the newest
-#: release, so the example cannot pin one and says so in its own header.
+#: version/contract incompatibility**". None is excused today:
+#: ``examples/github-actions/10-check-run-annotations.yml`` targeted ``@main``
+#: while ``check_run_policy`` postdated the newest release, and pins ``v1.0.0``
+#: now that that release carries it.
 #:
 #: Enumerated, never inferred, for the same reason #506 enumerates reader
 #: blanks: an allowlist that guessed at "looks deliberate" is one bad guess away
 #: from excusing a silent ``@main`` somewhere nobody meant it.
-DECLARED_UNPINNED_REFS: dict[str, str] = {
-    "examples/github-actions/10-check-run-annotations.yml": "main",
-}
+DECLARED_UNPINNED_REFS: dict[str, str] = {}
 
 
 def test_declared_unpinned_refs_explain_themselves():
@@ -1894,7 +1900,7 @@ def test_runbook_channel_table_states_the_released_contract_correctly():
 _TAUGHT_CHECK_FORMAT = "agent-boundary-json"
 
 
-def _published_check_formats() -> frozenset[str]:
+def _published_check_formats(tag: str | None = None) -> frozenset[str]:
     """The ``--format`` values ``check`` accepts in the newest published release.
 
     Read out of the tag, the way #506 reads that release's ``CONTRACT_VERSION``
@@ -1903,9 +1909,11 @@ def _published_check_formats() -> frozenset[str]:
     entry path told a reader to install ``v0.15.0`` and then run a ``--format``
     that build rejects outright — an unresolvable pin's exact failure, spelled
     as a flag instead of a version.
+
+    ``tag`` reads an earlier release instead, for the non-vacuity witness below.
     """
 
-    tag = f"v{LATEST_PUBLISHED_VERSION}"
+    tag = tag or f"v{LATEST_PUBLISHED_VERSION}"
     relpath = "src/agents_shipgate/cli/check.py"
     result = subprocess.run(
         ["git", "show", f"{tag}:{relpath}"],
@@ -1976,7 +1984,11 @@ def _format_literals(comparators: list[ast.expr], module: ast.Module) -> set[str
 
 
 def _module_level_string_set(name: str, module: ast.Module) -> set[str]:
-    """A module-level ``NAME = {"a", "b"}`` / ``frozenset({...})`` as a set."""
+    """A module-level ``NAME = {"a", "b"}`` / ``frozenset({...})`` as a set.
+
+    An unpacked ``*OTHER`` member is resolved the same way: ``v1.0.0`` spells
+    ``CHECK_FORMATS = frozenset({*_CURRENT_BOUNDARY_FORMATS, "codex-boundary-json"})``.
+    """
 
     for node in module.body:
         targets = (
@@ -1992,11 +2004,17 @@ def _module_level_string_set(name: str, module: ast.Module) -> set[str]:
         if isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
             # `frozenset({...})` / `set({...})` — one argument, the literal.
             value = value.args[0] if len(value.args) == 1 else None
-        if isinstance(value, ast.Set | ast.Tuple | ast.List) and all(
-            isinstance(element, ast.Constant) and isinstance(element.value, str)
-            for element in value.elts
-        ):
-            return {element.value for element in value.elts}
+        if isinstance(value, ast.Set | ast.Tuple | ast.List):
+            members: set[str] = set()
+            for element in value.elts:
+                if isinstance(element, ast.Constant) and isinstance(element.value, str):
+                    members.add(element.value)
+                elif isinstance(element, ast.Starred) and isinstance(element.value, ast.Name):
+                    members |= _module_level_string_set(element.value.id, module)
+                else:
+                    break
+            else:
+                return members
         raise AssertionError(
             f"`{name}` is compared against `format_` in the published release, "
             "and it is not a module-level set of string literals this reader "
@@ -2067,29 +2085,53 @@ def test_the_human_entry_path_states_what_the_published_build_provides():
         )
 
 
+#: An immutable release tag that accepts fewer ``check --format`` values than
+#: this tree. ``v1.0.0`` carries the current option set, so the newest release
+#: can no longer witness the difference the reader exists to see; this tag can.
+_FORMAT_READER_WITNESS_TAG = "v0.15.0"
+
+
 def test_the_published_format_reader_sees_the_difference_it_exists_for():
-    """Non-vacuous: the release really does accept less than this tree.
+    """Non-vacuous: the reader really does see a release that accepts less.
 
     A reader that returned the source tree's answer would pass the guard above
-    on any page, which is the state #498 found. When a release finally carries
-    the current option set this assertion fails, and the honest edit is to drop
-    the caveat from the entry path — not to loosen the reader.
+    on any page, which is the state #498 found. ``v1.0.0`` is the first release
+    to carry the current option set, so the difference is now witnessed on an
+    immutable earlier tag rather than by loosening the reader. The caveat half
+    is held directly: once the published build accepts what the entry path
+    teaches, the entry path's row for that build must stop saying otherwise.
     """
 
     from agents_shipgate.cli.check import CHECK_FORMATS
 
+    witness = _published_check_formats(_FORMAT_READER_WITNESS_TAG)
+    assert witness < set(CHECK_FORMATS), (
+        f"{_FORMAT_READER_WITNESS_TAG} reads as accepting {sorted(witness)} and "
+        f"this tree accepts {sorted(CHECK_FORMATS)}; a tag known to accept less "
+        "reads as accepting no less, so the reader returns the tree's answer."
+    )
+    assert _TAUGHT_CHECK_FORMAT not in witness, (
+        f"{_FORMAT_READER_WITNESS_TAG} reads as accepting {_TAUGHT_CHECK_FORMAT!r}, "
+        "which that release rejects outright."
+    )
+
     published = _published_check_formats()
     assert published, "no published --format value read"
-    assert published < set(CHECK_FORMATS), (
-        f"v{LATEST_PUBLISHED_VERSION} accepts {sorted(published)} and this tree "
-        f"accepts {sorted(CHECK_FORMATS)}; they no longer differ, so the "
-        "quickstart's channel caveat about `--format` is stale. Remove the "
-        "caveat and this assertion together."
-    )
-    assert _TAUGHT_CHECK_FORMAT not in published, (
-        f"v{LATEST_PUBLISHED_VERSION} now accepts {_TAUGHT_CHECK_FORMAT!r}; the "
-        "entry path no longer needs to say otherwise."
-    )
+    if _TAUGHT_CHECK_FORMAT in published:
+        quickstart = (REPO_ROOT / "docs" / "quickstart.md").read_text(encoding="utf-8")
+        row = next(
+            (
+                line
+                for line in quickstart.splitlines()
+                if line.startswith(f"| Published release `v{LATEST_PUBLISHED_VERSION}`")
+            ),
+            "",
+        )
+        assert "accepts only" not in row, (
+            f"v{LATEST_PUBLISHED_VERSION} accepts {_TAUGHT_CHECK_FORMAT!r}, but "
+            "docs/quickstart.md's channel row for that build still says it "
+            "accepts only less. Remove that caveat."
+        )
 
 
 def test_resolvability_is_judged_offline():

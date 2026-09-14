@@ -8,7 +8,7 @@ Nothing identifying appears here without the specific consent it requires.
 Aggregate counts never require consent; names, source links and raw artifacts
 always do.
 
-**Status date: 2026-09-09.** No external repository has been enrolled. The
+**Status date: 2026-09-14.** No external repository has been enrolled. The
 sections below say why, in denominators rather than adjectives.
 
 ## Denominators
@@ -63,36 +63,43 @@ allow list from `Bash(npm test)` / `Read(src/**)` to `Bash(*)` / `Read(**)` /
 `WebFetch(*)` and adds a remote MCP server `payments-remote`. That is the
 capability-change class this pilot exists to observe.
 
-**Published build measured: `0.15.0`.** Preview measured:
-`0.16.0+preview.20260903.gb61aca7`. Source tree: `1.0.0`, rechecked on 2026-09-13 against
-the `1.0.0` version bump, with runtime contract 39. The synthetic baseline was recorded and committed on the
-fixture base before the permission change, so it was not itself under review. The source-tree
-column below was rerun; the released and preview columns retain their earlier
-measurement and were not relabeled as new runs.
+**Published build measured: `1.0.0`.** Preview measured:
+`0.16.0+preview.20260903.gb61aca7`. Source tree: `1.0.0`, runtime contract 39.
+The released and source-tree columns were both rerun on 2026-09-14, after
+`v1.0.0` was published: the released column from `pip install
+agents-shipgate==1.0.0` in a clean virtualenv outside any checkout, the
+source-tree column through `./shipgate`. The preview column retains its
+2026-09-05 measurement and was not relabeled as a new run. The baseline was
+recorded on the fixture base, to a file outside the repository, before the
+permission change, so it was not itself under review.
 
-The rerun reproduced every source-tree cell. Only the package version moved:
-runtime contract 39 and host-grant inventory schema 0.5 are unchanged, and
-discovery, `check`, the audit route, `verify`'s six rows and drift return what
-the previous source-tree run returned. That is the point of re-running
-rather than carrying the row forward — "nothing changed" is a measurement, not
-an assumption.
+The published and source-tree runs returned identical cells: runtime contract
+39, host-grant inventory schema 0.5, `check` blocking with four violations and
+visible coverage, the host-only `init` handoff, manifest-free `verify` exiting
+0 with six advisory rows, and drift naming all four expansion signals. That
+the published build and this tree answer alike on this change class is a
+measurement, not an assumption carried over from the source column.
 
-| | Released `v0.15.0` (`pipx install`) | Preview `0.16.0+preview.20260903` (`gh release download`) | Source tree |
+The previous release, `v0.15.0`, measured on 2026-09-05, did not. It reported
+runtime contract 10 and inventory schema 0.1; `check` returned `warn` / `none`
+with 0 violations and no coverage surface; `init --write --ci` pinned
+`@v0.15.0`; `init` then `verify` exited 3; baseline/drift named all four
+expansion signals. It shipped as a qualified release.
+
+| | Released `v1.0.0` (`pip install`) | Preview `0.16.0+preview.20260903` (`gh release download`) | Source tree |
 | --- | --- | --- | --- |
-| Runtime contract | 10 | 29 | 39 |
-| Host-grant inventory schema | 0.1 | 0.2 | 0.5 |
-| `check` on the fixture | `warn` / `none`, **0 violations** | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** |
-| Coverage limit visible (`host_coverage`, `excluded_scopes`) | no | yes | yes |
-| `init --write --ci` Action pin | `@v0.15.0` — exists | `@v0.16.0+preview.20260903.gb61aca7` — **no such tag** (the release tag is `preview-`-prefixed) | not applicable — host audit handoff, no workflow written |
-| `init` then `verify` on this Route H repo | exit 3 | exit 2 | `init` exits 0 with audit handoff; manifest-free `verify` exits 0 and names six advisory change rows |
-| `audit --host --save-baseline` → `--drift` | works, all 4 expansion signals | works | works |
-| Qualification | qualified release | **none** — no adjudicated corpus, nothing signed | not a distributed build |
+| Runtime contract | 39 | 29 | 39 |
+| Host-grant inventory schema | 0.5 | 0.2 | 0.5 |
+| `check` on the fixture | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** |
+| Coverage limit visible (`host_coverage`, `excluded_scopes`) | yes | yes | yes |
+| `init --write --ci` Action pin | not applicable — host audit handoff, no workflow written | `@v0.16.0+preview.20260903.gb61aca7` — **no such tag** (the release tag is `preview-`-prefixed) | not applicable — host audit handoff, no workflow written |
+| `init` then `verify` on this Route H repo | `init` exits 0 with audit handoff; manifest-free `verify` exits 0 and names six advisory change rows | exit 2 | `init` exits 0 with audit handoff; manifest-free `verify` exits 0 and names six advisory change rows |
+| `audit --host --save-baseline` → `--drift` | works, all 4 expansion signals | works | works, all 4 expansion signals |
+| Qualification | **none** — advisory channel, no qualification claim | **none** — no adjudicated corpus, nothing signed | not a distributed build |
 
-The source rerun reproduced four boundary violations (`block` / `critical`)
-and visible coverage. Discovery now names the two host config candidates and
-routes to audit. `init --write --ci` returns
-`not_applicable_host_review`, writes no manifest or workflow, and offers the
-same read-only audit route. Manifest-free `verify` now succeeds as an advisory
+Both 2026-09-14 reruns reproduced four boundary violations (`block` /
+`critical`) and visible coverage. `init --write --ci` writes no manifest or
+workflow and routes the host-only fixture to the read-only audit route. Manifest-free `verify` now succeeds as an advisory
 comparison: six rows name three added permissions, two removed narrower rules,
 and the added MCP server. It publishes no application release decision or merge
 authority. Baseline/drift
@@ -105,29 +112,28 @@ No reviewer, retention or qualification result is inferred from this rerun.
 Four things follow, and each one is a fact about a build rather than a
 judgement about a partner.
 
-1. **A build that shows the change is installable today — the preview.** It
-   returns `block` / `critical`, names all three widened permission rules and
-   the added MCP server, and carries the coverage surface, so it can deliver
-   all four first-value recognitions. It also carries no qualification at all,
-   which is a thing to say out loud to a partner rather than a footnote.
-2. **The released build cannot show this change class.** `warn` / `none` with
-   zero violations on a diff that grants `Bash(*)`, and no coverage surface at
-   inventory schema 0.1. It reaches three of the four recognitions through the
-   baseline/drift pair; it cannot reach the fourth.
-3. **#506's repair has not reached the measured downloadable builds.**
-   Agent-builder setup in the source tree writes `@v0.15.0`, a tag that exists;
-   this host-only fixture now writes no workflow. The preview wheel a partner can
-   download today was cut on 2026-09-03, before that fix, and still writes
-   `@v0.16.0+preview.20260903.gb61aca7` — which is not the release tag
-   (`preview-0.16.0+preview.20260903.gb61aca7`) and resolves to nothing. A
-   preview cut from current main would not have this. Nothing to file: #506
-   owns it and is fixed; the ledger records that the fix is not yet in a
-   partner's hands.
-4. **The measured release and preview still dead-end through manifest setup**:
-   exit 3 on the release and exit 2 on the preview. The #568 source candidate
-   now hands host-only users to audit without a `CHANGE_ME` scaffold. This
-   repairs the first route in source; it is not yet a distributed-build or
-   external adoption observation.
+1. **The published release shows the change.** `v1.0.0`, installed with
+   `pip install agents-shipgate`, returns `block` / `critical` with four
+   violations and carries the coverage surface, and manifest-free `verify`
+   names six advisory rows, so it can deliver all four first-value
+   recognitions. It is advisory and makes no qualification claim, which is a
+   thing to say out loud to a partner rather than a footnote.
+2. **The previous release could not.** `v0.15.0` returned `warn` / `none`
+   with zero violations on a diff that grants `Bash(*)`, with no coverage
+   surface at inventory schema 0.1. A partner still on it reaches three of the
+   four recognitions through the baseline/drift pair and cannot reach the
+   fourth; `pipx upgrade agents-shipgate` closes that gap.
+3. **#506's repair has reached a downloadable build.** The published
+   `v1.0.0` writes no workflow for this host-only fixture, and where it does
+   generate CI it pins the source commit it was released from. The preview
+   wheel cut on 2026-09-03 still writes `@v0.16.0+preview.20260903.gb61aca7`,
+   which resolves to nothing; for this route the published release
+   supersedes it.
+4. **The published release no longer dead-ends through manifest setup.**
+   `init` exits 0 and hands the host-only fixture to audit, and manifest-free
+   `verify` exits 0 with six advisory rows; the preview still exits 2. This is
+   one synthetic fixture on a distributed build, not an external adoption
+   observation.
 
 An earlier version of this section reported findings 1 and 2 as a single
 claim — that the two entry failures were "mutually exclusive by build", so no
@@ -207,16 +213,17 @@ Every row below was reproduced in the dry run. None of them is a new feature
 request, and none opened a new issue. Status is as of 2026-09-05, after
 [#506](https://github.com/ThreeMoonsLab/agents-shipgate/issues/506),
 [#485](https://github.com/ThreeMoonsLab/agents-shipgate/issues/485) and
-[#497](https://github.com/ThreeMoonsLab/agents-shipgate/issues/497) merged.
+[#497](https://github.com/ThreeMoonsLab/agents-shipgate/issues/497) merged,
+and rechecked on 2026-09-14 against the published `v1.0.0`.
 
 | Reproduced | Existing issue | Status |
 | --- | --- | --- |
-| `init --write --ci` pinned a workflow to a tag that does not exist | [#506](https://github.com/ThreeMoonsLab/agents-shipgate/issues/506) | **Fixed on main** — the tree now writes `@v0.15.0`. Not yet in any downloadable build: the current preview predates the fix and still writes a ref that resolves to nothing |
-| The released build's `check` returns `warn` / `none` on a host-boundary change the tree blocks; released and in-tree evaluators disagree | [#497](https://github.com/ThreeMoonsLab/agents-shipgate/issues/497) | **Parity registered on main.** The disagreement itself remains until a release carries the newer evaluator; the preview channel is the interim answer |
-| The released build's `check --agent claude-code` reports "No **Codex** boundary rule fired" — the pre-multi-host evaluator | [#497](https://github.com/ThreeMoonsLab/agents-shipgate/issues/497), [#506](https://github.com/ThreeMoonsLab/agents-shipgate/issues/506) | Unchanged on the released channel; absent on the preview |
-| The released build's host inventory carries no coverage or excluded-scopes surface, so a reviewer cannot see what was not read | [#520](https://github.com/ThreeMoonsLab/agents-shipgate/issues/520) | Open. Present on the preview at inventory schema 0.2 |
+| `init --write --ci` pinned a workflow to a tag that does not exist | [#506](https://github.com/ThreeMoonsLab/agents-shipgate/issues/506) | **Fixed in `v1.0.0`** — generated CI pins the released source commit, and this host-only fixture writes no workflow. The 2026-09-03 preview predates the fix and still writes a ref that resolves to nothing |
+| The released build's `check` returns `warn` / `none` on a host-boundary change the tree blocks; released and in-tree evaluators disagree | [#497](https://github.com/ThreeMoonsLab/agents-shipgate/issues/497) | **Resolved in `v1.0.0`** — the published `check` returns `block` / `critical` with 4 violations on this fixture, matching the tree |
+| The released build's `check --agent claude-code` reports "No **Codex** boundary rule fired" — the pre-multi-host evaluator | [#497](https://github.com/ThreeMoonsLab/agents-shipgate/issues/497), [#506](https://github.com/ThreeMoonsLab/agents-shipgate/issues/506) | Superseded in `v1.0.0` by the multi-host evaluator, which blocks this fixture; only `v0.15.0` carries the old evaluator |
+| The released build's host inventory carries no coverage or excluded-scopes surface, so a reviewer cannot see what was not read | [#520](https://github.com/ThreeMoonsLab/agents-shipgate/issues/520) | Present in `v1.0.0` at inventory schema 0.5, and on the preview at 0.2; #520 stays open for its wider scope |
 | A `review_required` result has no authenticated continuation | [#504](https://github.com/ThreeMoonsLab/agents-shipgate/issues/504) → [#337](https://github.com/ThreeMoonsLab/agents-shipgate/issues/337) | Open |
-| `init` then `verify` dead-ends on a repository with no tool surface | [#498](https://github.com/ThreeMoonsLab/agents-shipgate/issues/498) | Open on every channel. #498 owns it — "do not make policy authoring a universal prerequisite" — and this runbook mitigates it meanwhile by routing those partners to Route H |
+| `init` then `verify` dead-ends on a repository with no tool surface | [#498](https://github.com/ThreeMoonsLab/agents-shipgate/issues/498) | `v1.0.0` routes this host-only fixture to audit and manifest-free `verify` exits 0; the preview still dead-ends. #498 owns the manifest route — "do not make policy authoring a universal prerequisite" — and this runbook mitigates it meanwhile by routing those partners to Route H |
 | The runbook required a manifest on a route that does not need one | [#498](https://github.com/ThreeMoonsLab/agents-shipgate/issues/498) | Fixed in this runbook |
 | The runbook required a contract floor no published build carries | [#497](https://github.com/ThreeMoonsLab/agents-shipgate/issues/497) | Fixed in this runbook and, independently, by #497's channel table |
 
@@ -265,6 +272,16 @@ lifts the withhold. Three attempted external repositories, with or without a
 favourable result, replace this checkpoint with the terminal decision. None of
 those is a matter of writing more runbook.
 
+**Checkpoint — 2026-09-14.** This records facts; it does not change the
+decision above, which stays with its owner. `v1.0.0` is published on the
+advisory channel, and on the dry-run fixture its `check` matches the tree:
+`block` / `critical`, four violations, visible coverage. The preview is no
+longer the only channel that reaches all four recognitions. The
+pre-registered condition for lifting the withhold names a *qualified*
+release; `v1.0.0` makes no qualification claim, so whether the advisory
+release meets that condition is the owner's question, not this ledger's.
+Every denominator is still 0.
+
 ## Limitations
 
 - **n = 0 external.** Every count above is zero, and zero counts support no
@@ -273,8 +290,8 @@ those is a matter of writing more runbook.
   knows the answers. It shows what a command emits; it cannot show what a
   stranger understands.
 - **Findings are build-dated.** They describe three builds as they stood on
-  2026-09-05 for the released `0.15.0` and preview
-  `0.16.0+preview.20260903.gb61aca7`, and 2026-09-13 for this source candidate. A release or a new
+  2026-09-14 for the released `1.0.0` and this source tree, and 2026-09-05 for
+  the preview `0.16.0+preview.20260903.gb61aca7`. A release or a new
   preview invalidates the comparison, and the dry run must be re-run and
   re-dated before any row here is cited again. A standing guard fails the
   build when the newest published tag moves; **nothing fails the build when a

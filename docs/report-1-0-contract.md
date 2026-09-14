@@ -178,7 +178,8 @@ compatibility.
 
 ## Migrating from the shipped contract
 
-The newest release a stranger can actually install is **`v0.15.0`**. It emits
+Before `v1.0.0`, the newest release a stranger could actually install was
+**`v0.15.0`**. It emits
 `contract_version: 10` and `report_schema_version: 0.28`, and predates
 `minimum_control_contract_version` entirely — its `contract --json` carries no
 floor field at all. That is the real starting point for a migration, not

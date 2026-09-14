@@ -38,7 +38,7 @@ not published:
 The honesty rule: pinning the newest published release keeps the pin
 resolvable, but it does not make it *sufficient*. An adoption prompt states a
 contract floor it needs, and the newest published build may predate that floor
-— it does today: ``v0.15.0`` emits contract ``10`` against a floor of ``21``.
+— ``v0.15.0`` did: it emitted contract ``10`` against a floor of ``21``.
 The answer is to say so, in the prompt, in the same breath as the pin. The
 answer is never to pin a version that does not exist: an agent told to fetch it
 gets an error from the index rather than a build, and learns nothing about why.
@@ -49,12 +49,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 #: The newest published release tag, without its ``v`` prefix.
-LATEST_PUBLISHED_VERSION = "0.15.0"
+LATEST_PUBLISHED_VERSION = "1.0.0"
 
-#: The ``CONTRACT_VERSION`` that release emits. ``v0.15.0`` predates
-#: ``MINIMUM_CONTROL_CONTRACT_VERSION`` entirely, so its ``contract --json``
-#: carries no floor field at all.
-LATEST_PUBLISHED_CONTRACT_VERSION = "10"
+#: The ``CONTRACT_VERSION`` that release emits. ``v1.0.0`` emits ``39``, above
+#: ``MINIMUM_CONTROL_CONTRACT_VERSION`` ``21``.
+LATEST_PUBLISHED_CONTRACT_VERSION = "39"
 
 
 def latest_published_action_ref() -> str:

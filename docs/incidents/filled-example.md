@@ -26,10 +26,8 @@ uses only inert synthetic text and generic release metadata.
 ./shipgate fixture run prompt_change_rides_release
 ```
 
-Once a release carries this fixture, replay it with
-`uvx agents-shipgate@<that version> fixture run prompt_change_rides_release`. No published release
-does yet — the newest, `v0.15.0`, does not carry it — so naming a version here would
-fail at install before the fixture ran.
+The published release carries this fixture; replay it with
+`uvx agents-shipgate@1.0.0 fixture run prompt_change_rides_release`.
 
 Fresh output from the fixture contract:
 
