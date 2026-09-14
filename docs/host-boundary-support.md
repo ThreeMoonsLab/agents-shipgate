@@ -37,6 +37,23 @@ to human review unless a dedicated rule can prove the change safe. This can be
 noisier than the former Codex-only evaluator; it prevents an unclassified
 cross-host trust-root edit from being reported as complete.
 
+### Known unread surfaces
+
+Two files change what runs with a host's authority, but no adapter reads them.
+Editing either produces no row and no coverage limit:
+
+- **A composite action a workflow invokes** (`uses: ./.github/actions/<name>`).
+  It runs inside the calling job, with that job's `permissions` and secrets, so
+  adding a `run:` step to `.github/actions/<name>/action.yml` adds a command
+  holding the caller's scopes. Only the workflow file is read (#701).
+- **A script a hook command runs** (for example
+  `.claude/hooks/session-start`). The hook entry is read; the file it executes
+  is not, so editing the script changes what runs without changing the hook
+  (#702).
+
+Review changes to those files as you would a change to the workflow or hook
+that invokes them.
+
 Skill and command frontmatter is read the way Claude Code documents it (#730).
 Frontmatter is optional: a skill without it takes its name from the directory
 and its description from the first non-empty line. Documented fields are

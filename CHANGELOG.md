@@ -47,6 +47,7 @@ version.
 
 ### Changes
 
+- Name composite actions and hook-run scripts as unread host surfaces on the support page. (#701, #702)
 - Remove the runbook's manual undraft, which skipped every finalisation check; re-running `finalize` is the only recovery. (#618)
 - Make the release rehearsal's provenance drill reach the payload it tampers with, after an untouched control copy passes. (#615)
 - Name every kind of host expansion in `preflight`'s explanation, with the total and what was folded. (#681)
