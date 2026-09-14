@@ -1006,12 +1006,16 @@ def test_every_rehearsal_proves_the_provenance_gate_fails_closed() -> None:
     """The deliberate failure-path exercise is executed, not documented."""
 
     verify = _load_workflow("release-verify.yml")["jobs"]["artifact"]
-    step = verify["steps"][_step_index(verify, "fault-injected.whl")]
+    step = verify["steps"][_step_index(verify, "fault-injection/corrupted")]
 
     assert step["if"] == "inputs.mode == 'rehearsal'"
     assert "does not fail closed" in step["run"]
-    # It must assert the gate *rejects* the tampered wheel.
+    # It must assert the gate *rejects* the tampered wheel, on its payload,
+    # after an untouched copy under the same name passes (#615).
     assert "if python scripts/verify_wheel_provenance.py" in step["run"]
+    assert '--qualified "fault-injection/control/${wheel_name}"' in step["run"]
+    assert "does not match the qualified wheel" in step["run"]
+    assert "--qualified fault-injected.whl" not in step["run"]
 
 
 def test_rehearsal_publishes_inspectable_candidate_artifacts() -> None:

@@ -551,21 +551,54 @@ jobs:
         if: inputs.mode == 'rehearsal'
         run: |
           set -euo pipefail
-          cp -- "${QUALIFIED_WHEEL}" fault-injected.whl
-          python - <<'PY'
+          # Copies keep the candidate's own basename, in separate directories.
+          # The comparison validates filenames before bytes, so a copy renamed
+          # `fault-injected.whl` was refused on its name and never reached the
+          # payload: any failure passed the drill (#615).
+          wheel_name="$(basename "${QUALIFIED_WHEEL}")"
+          rm -rf fault-injection
+          mkdir -p fault-injection/control fault-injection/corrupted
+          cp -- "${QUALIFIED_WHEEL}" "fault-injection/control/${wheel_name}"
+          cp -- "${QUALIFIED_WHEEL}" "fault-injection/corrupted/${wheel_name}"
+          python - "fault-injection/corrupted/${wheel_name}" <<'PY'
+          import sys
           import zipfile
 
-          with zipfile.ZipFile("fault-injected.whl", "a") as archive:
+          with zipfile.ZipFile(sys.argv[1], "a") as archive:
               archive.writestr("agents_shipgate/_fault_injection.py", "raise SystemExit\n")
           PY
+          python - "${QUALIFIED_WHEEL}" "fault-injection/corrupted/${wheel_name}" > fault-injection.log <<'PY'
+          import hashlib
+          import sys
+          from pathlib import Path
+
+          for label, path in zip(("original", "corrupted"), sys.argv[1:]):
+              print(f"{label} sha256 {hashlib.sha256(Path(path).read_bytes()).hexdigest()} {path}")
+          PY
+          # Control: the untouched copy must pass the same comparison, so a
+          # missing file, a bad name or an unreadable archive cannot pass the drill.
+          if ! python scripts/verify_wheel_provenance.py \
+              --built source-build/*.whl \
+              --qualified "fault-injection/control/${wheel_name}" >> fault-injection.log 2>&1; then
+            cat fault-injection.log
+            echo "::error::The untouched control copy was rejected; the drill cannot tell a tampered wheel from a broken setup."
+            exit 1
+          fi
           if python scripts/verify_wheel_provenance.py \
               --built source-build/*.whl \
-              --qualified fault-injected.whl > fault-injection.log 2>&1; then
+              --qualified "fault-injection/corrupted/${wheel_name}" >> fault-injection.log 2>&1; then
+            cat fault-injection.log
             echo "::error::Fault injection was accepted; the provenance gate does not fail closed."
             exit 1
           fi
-          rm -f fault-injected.whl
-          echo "OK: provenance gate rejected a tampered wheel:"
+          if ! grep -F "does not match the qualified wheel" fault-injection.log \
+              | grep -F "agents_shipgate/_fault_injection.py" > /dev/null; then
+            cat fault-injection.log
+            echo "::error::The tampered wheel was refused for another reason; the drill never reached the payload comparison."
+            exit 1
+          fi
+          rm -rf fault-injection
+          echo "OK: provenance gate refused a tampered wheel on its payload:"
           cat fault-injection.log
 
       - name: Generate wheel-scoped SBOM

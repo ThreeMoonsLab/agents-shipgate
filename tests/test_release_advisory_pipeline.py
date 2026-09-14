@@ -12,8 +12,11 @@ The qualified path's own invariants stay in `tests/test_release_pipeline.py`.
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
 import subprocess
+import sys
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -368,8 +371,53 @@ def test_every_advisory_rehearsal_proves_its_provenance_gate_fails_closed() -> N
 
     assert drill["if"] == "inputs.mode == 'rehearsal'"
     assert "if python scripts/verify_wheel_provenance.py" in drill["run"]
-    assert "--exercised fault-injected.whl" in drill["run"]
+    assert '--exercised "fault-injection/control/${wheel_name}"' in drill["run"]
+    assert '--exercised "fault-injection/corrupted/${wheel_name}"' in drill["run"]
+    assert "does not match the exercised wheel" in drill["run"]
     assert "does not fail closed" in drill["run"]
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="the drill is a bash step")
+@pytest.mark.parametrize(
+    ("workflow", "variable"),
+    [("release-advisory-verify.yml", "EXERCISED_WHEEL"), ("release-verify.yml", "QUALIFIED_WHEEL")],
+)
+@pytest.mark.parametrize(
+    ("candidate_name", "built_name", "passes", "said"),
+    [
+        (WHEEL_FILENAME, WHEEL_FILENAME, True, "refused a tampered wheel on its payload"),
+        # The old drill's copy name: refused on the filename, never on the payload.
+        ("fault-injected.whl", WHEEL_FILENAME, False, "untouched control copy was rejected"),
+        (WHEEL_FILENAME, WHEEL_FILENAME.replace(VERSION, "9.9.10"), False, "untouched control copy was rejected"),
+    ],
+)
+def test_the_provenance_drill_passes_only_on_a_payload_refusal(
+    tmp_path: Path, workflow: str, variable: str, candidate_name: str, built_name: str, passes: bool, said: str
+) -> None:
+    """#615: the drill counted any refusal as proof, and its renamed copy was
+    refused on its filename before any byte was compared. Run the step itself."""
+    steps = {step.get("name"): step for step in _load(workflow)["jobs"]["artifact"]["steps"]}
+    run = steps["Prove the provenance gate fails closed"]["run"]
+    (tmp_path / "scripts").symlink_to(REPO_ROOT / "scripts")
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "bin" / "python").symlink_to(sys.executable)
+    built = tmp_path / "source-build" / built_name
+    built.parent.mkdir()
+    with zipfile.ZipFile(built, "w") as archive:
+        archive.writestr("agents_shipgate/__init__.py", "VALUE = 1\n")
+    candidate = tmp_path / "candidate" / candidate_name
+    candidate.parent.mkdir()
+    shutil.copyfile(built, candidate)
+    environment = {**os.environ, "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}", variable: str(candidate)}
+
+    result = subprocess.run(["bash", "-c", run], cwd=tmp_path, env=environment, capture_output=True, text=True, check=False)
+
+    output = result.stdout + result.stderr
+    assert (result.returncode == 0) is passes, output
+    assert said in output
+    if passes:
+        assert "original sha256" in output and "corrupted sha256" in output
+        assert "agents_shipgate/_fault_injection.py" in output
 
 
 def test_the_advisory_rehearsal_cannot_publish_and_calls_the_advisory_verification() -> None:
