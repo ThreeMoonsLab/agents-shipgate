@@ -21,7 +21,7 @@ still needed to prove the shipping cadence.
 
 
 - `agents-shipgate` is published on PyPI.
-- Pinned GitHub Action release tags are published, including `v0.15.0`.
+- Pinned GitHub Action release tags are published, including `v1.0.0`.
 - GitHub Releases attach the independently qualified wheel, SBOM,
   `safety-qualification.json`, and their Sigstore bundles. The tag workflow
   does not rebuild or publish an unqualified sdist.

@@ -463,10 +463,11 @@ def test_an_unreadable_contract_floor_is_treated_as_unmet():
 def test_the_shipped_floor_is_decided_against_the_release_the_prompts_pin():
     """The two constants the prompts render from must be compared, not assumed.
 
-    Today they disagree — `v0.15.0` predates the control contract entirely, so
-    its `contract --json` carries no floor field at all — and the prompts say
-    so. This asserts the comparison is live: whichever way it resolves, the
-    rendered prose is the one that matches.
+    They disagreed through `v0.15.0`, which predates the control contract
+    entirely — its `contract --json` carries no floor field at all — and the
+    prompts said so; `v1.0.0` reports contract 39 against a floor of 21. This
+    asserts the comparison is live: whichever way it resolves, the rendered
+    prose is the one that matches.
     """
 
     prose = contract_floor_prose(MINIMUM_CONTROL_CONTRACT_VERSION)

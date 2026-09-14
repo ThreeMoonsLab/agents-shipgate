@@ -334,6 +334,11 @@ def test_the_entry_path_quotes_lines_the_pr_comment_actually_renders(tmp_path: P
 
     So: a quoted line must be rendered by *some* channel, and a line only one
     channel renders must sit in a step that names the published release.
+
+    ``v1.0.0`` renders every line the entry path shows, so its per-step release
+    notes were dropped together with the assertion that at least one quoted
+    line differs between the two channels; the rule above still fires on the
+    first line a later tree renders that the published release does not.
     """
 
     source = _run_refund_fixture(tmp_path / "source")
@@ -342,7 +347,6 @@ def test_the_entry_path_quotes_lines_the_pr_comment_actually_renders(tmp_path: P
     )
 
     checked = 0
-    channel_specific = 0
     for relpath in _ENTRY_PATH_SURFACES:
         text = (REPO_ROOT / relpath).read_text(encoding="utf-8")
         for artifact, segment, section in _quoted_artifact_segments(text):
@@ -358,7 +362,6 @@ def test_the_entry_path_quotes_lines_the_pr_comment_actually_renders(tmp_path: P
             )
             if in_source and in_released:
                 continue
-            channel_specific += 1
             assert _RELEASE_MARKER in section, (
                 f"{relpath} quotes a `{artifact}` line that only the "
                 f"{'source tree' if in_source else f'v{LATEST_PUBLISHED_VERSION} release'} "
@@ -372,13 +375,6 @@ def test_the_entry_path_quotes_lines_the_pr_comment_actually_renders(tmp_path: P
         f"{list(_ENTRY_PATH_SURFACES)}; this guard is checking nothing. Either "
         "the entry path stopped showing the artifacts, or its blocks are no "
         "longer introduced by prose naming one of them."
-    )
-    assert channel_specific >= 1, (
-        "no quoted line differs between the source tree and "
-        f"v{LATEST_PUBLISHED_VERSION}, so the channel half of this guard is "
-        "checking nothing. If a release finally renders everything the entry "
-        "path shows, drop the per-step release notes and this assertion "
-        "together."
     )
 
 

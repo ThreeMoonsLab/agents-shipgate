@@ -16,10 +16,8 @@ GitHub's instructions or any vendor vulnerability.
 ./shipgate fixture run governed_edits_governance
 ```
 
-Once a release carries this fixture, replay it with
-`uvx agents-shipgate@<that version> fixture run governed_edits_governance`. No published release
-does yet — the newest, `v0.15.0`, does not carry it — so naming a version here would
-fail at install before the fixture ran.
+The published release carries this fixture; replay it with
+`uvx agents-shipgate@1.0.0 fixture run governed_edits_governance`.
 
 Current engine output is intentionally an **expected-fail**:
 

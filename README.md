@@ -73,10 +73,7 @@ change is still `blocked`. Exit status is a CI policy choice; the verdict is
 the answer. Teaching the two apart is the first thing
 [the quickstart](docs/quickstart.md) does.
 
-These excerpts are from a source checkout. On the published `v0.15.0` build the
-verdict, the exit status and all four check IDs are the same; two of the
-messages are worded differently ("adds destructive capability without rollback
-controls"). The quickstart walks the differences step by step —
+These excerpts are from a source checkout. For an older install, see
 [which build you get](docs/quickstart.md#which-build-you-get).
 
 Now the move every reviewer fears — the agent deletes the Shipgate CI gate so
@@ -127,10 +124,6 @@ Abridged from the artifact:
 ```
 
 A second fenced block carries `control` and `fix_task` for the coding agent.
-On the published `v0.15.0` build this comment is flatter: it counts changes
-rather than subjects (`Capability delta: +2, 3 modified, -0`), lists them
-without the per-subject grouping, and omits the static-verdict boundary line —
-see [which build you get](docs/quickstart.md#which-build-you-get).
 
 ## What static evidence cannot prove
 
@@ -190,12 +183,12 @@ two months out of reach.
 | **Qualified gate** | blocking verdicts, receipts, attestations | a `v*` release tag | every bar in [`release-evidence-policy-decision.md`](docs/release-evidence-policy-decision.md) | on evidence only |
 
 **Read [which build you get](docs/quickstart.md#which-build-you-get) before you
-start.** The newest published release is `v0.15.0`, which implements runtime
-contract `10`. Parts of the workflow this repository documents — the agent
-control envelope, `current-control.json`, `--format agent-boundary-json` —
-landed after that tag and are not in it. The quickstart names, per step, which
-channel provides what, and what the unqualified preview does and does not come
-with.
+start.** The newest published release is `v1.0.0`, which implements runtime
+contract `39` — the agent control envelope, `current-control.json` and
+`--format agent-boundary-json` included — and is what `pipx install
+agents-shipgate` installs. It ships on the advisory channel and makes no
+qualification claim. The quickstart says what an older `v0.15.0` install lacks,
+and what the unqualified preview does and does not come with.
 
 ## Where to go next
 

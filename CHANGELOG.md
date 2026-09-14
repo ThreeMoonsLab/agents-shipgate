@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Move the published-release pins, examples and adoption prompts to `v1.0.0` (contract 39) now that it is published, and re-measure the pilot ledger's Route H dry run on the published build. (#570, #648)
+
 ## 1.0.0 - 2026-09-13
 
 The first published release since `0.15.0`, on the advisory channel. It

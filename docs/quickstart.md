@@ -22,22 +22,24 @@ a manifest at all — see [Route H](#route-h--no-manifest).
 
 Read this before you install. Agents Shipgate is published through more than
 one channel, and they do not all implement the same runtime contract. The
-newest published release is **`v0.15.0`**, which implements **runtime contract
-`10`**; the agent-control envelope that later sections of the in-repo
-documentation describe landed after that tag.
+newest published release is **`v1.0.0`**, which implements **runtime contract
+`39`**, including the agent-control envelope that later sections describe. It
+ships on the advisory channel and makes no qualification claim. An older
+install may still be the previous release, `v0.15.0` (contract `10`), which
+predates that envelope and renders several steps below differently;
+`pipx upgrade agents-shipgate` replaces it.
 
 | Channel | How you get it | Runtime contract | Has `control.*` / `current-control.json` | Accepts `check --format agent-boundary-json` | Qualification |
 | --- | --- | --- | --- | --- | --- |
-| Published release `v0.15.0` | `pipx install agents-shipgate` | 10 | **No.** `agent-handoff.json` is `shipgate.agent_handoff/v1`; read its `gate` block instead | **No.** That build accepts only `--format codex-boundary-json` | Qualified release |
+| Published release `v1.0.0` | `pipx install agents-shipgate` | 39 | Yes | Yes | **None.** Declared `advisory` in `.github/release-channels.json`; see [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) § Amendment 5 |
 | Unqualified preview | `gh release download preview-<version> --repo ThreeMoonsLab/agents-shipgate --pattern '*.whl'`, then `pip install ./<wheel>` | that of the source commit it was cut from | Yes | Yes | **None**, by construction — no adjudicated corpus, no qualification artifact, nothing signed. See [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) § Amendment 2 |
 | Source checkout | `git clone`, then `./shipgate …` from the checkout | that of the checkout | Yes | Yes | Not a distributed build |
 
 Pick one channel and stay on it for the whole walkthrough. **Every command in
 [One review, end to end](#one-review-end-to-end) runs on the published
 release, and reaches the same verdict there** — `blocked`, `can merge without
-human: false`, exit `0`. What differs is how much the artifacts *say*. The
-excerpts below are from a source checkout; where the released build renders
-something else, the step names `v0.15.0` and shows what it prints instead —
+human: false`, exit `0`. The excerpts below are from a source checkout, and the
+published release renders the same lines —
 a test fails if a step quotes output only one channel produces without saying
 which.
 
@@ -186,22 +188,6 @@ That is the answer to "what did this capability change": one tool added, one
 existing tool whose binding moved. You did not have to read the identity model
 to get it — the subject is the tool you would open.
 
-**On the published `v0.15.0` build this step reads differently.** Per-subject
-grouping postdates that release, so its `pr-comment.md` counts changes rather
-than subjects and lists them flat, with no `support.search_kb` row:
-
-```text
-- Capability delta: +2, 3 modified, -0
-- Top capability changes:
-  - `stripe.create_refund`: blocks release; Capability added. (tools.json)
-  - `stripe.create_refund`: blocks release; tool added (tools.json)
-  - `stripe.create_refund`: blocks release; high-risk effect financial_action added (tools.json)
-  - `stripe.create_refund`: blocks release; high-risk effect destructive added (tools.json)
-  - `stripe.create_refund:stripe:*`: blocks release; scope added (tools.json)
-```
-
-Same change, same verdict; you read it per change instead of per subject.
-
 ### 4. Why the top result matters
 
 `report.md` in that same directory orders findings by subject, most urgent
@@ -220,11 +206,8 @@ Blockers (4):
 
 The top blocker is not "a new tool appeared". It is that a tool which moves
 real money can be called with no declared approval gate, under a `stripe:*`
-scope the manifest never granted. The published `v0.15.0` build names the same
-four check IDs in the same order; two of the messages are worded differently
-("adds destructive capability without rollback controls", "adds financial write
-capability without required controls"). Match on the check ID, not the
-sentence. Each finding names the evidence it rests on —
+scope the manifest never granted. Match on the check ID, not the sentence.
+Each finding names the evidence it rests on —
 in this fixture, the MCP export at `tools.json#/tools/1`. Run
 `agents-shipgate explain SHIP-POLICY-APPROVAL-MISSING` for the check's own
 description, or see [`checks.md`](checks.md) for the catalog.
@@ -244,11 +227,6 @@ Evidence coverage: static (2/2 catalog tools reachable; 1 semantic review
 concern(s); 2/2 actions pass-eligible; human review recommended)
 ```
 
-**On the published `v0.15.0` build that line carries no counts** — it reads
-`Evidence coverage: static (human review recommended)`. The limit is stated;
-what it is a limit *on* is not enumerated. That enumeration is the part of this
-step you need a newer build for.
-
 The same boundary is repeated in `pr-comment.md`:
 
 ```text
@@ -256,12 +234,6 @@ The same boundary is repeated in `pr-comment.md`:
   only. Agents Shipgate did not execute the agent or prove runtime behavior,
   tool routing, credential enforcement, or safety.
 ```
-
-`v0.15.0` prints that sentence nowhere — not in its comment, not in its
-artifacts, not on stdout. What it carries instead is the `## Disclaimer`
-section at the foot of `report.md`, which makes the same point in the report
-rather than beside the verdict: "Runtime behavior, actual tool routing, and
-output interpretation are not verified."
 
 Nothing here proves the refund tool behaves as described at runtime, that the
 credential is really scoped, or that a human is really in the loop. It proves
@@ -318,10 +290,7 @@ here:
 `actor: "human"` is the operative field, and `safe_to_attempt: false` says the
 same thing to a machine. Every instruction is a declaration about approval,
 control or safety — a claim only a person can make. A coding agent may report
-this, and may not resolve it. The published `v0.15.0` build carries the same
-`fix_task` with the same `actor` and `safe_to_attempt`; its instruction list
-differs in wording and adds one about replacing the wildcard scope. This step
-reads the same on either channel.
+this, and may not resolve it.
 
 On a build that implements contract `21` or newer, the same answer arrives as
 an explicit state machine. **Validate the pointer before you read anything it
@@ -359,11 +328,6 @@ commit it still reports the old state. Only once `agent control` succeeds do
 you read `current-control.json` — whose own spelling is nested, `control.state`
 rather than `control_state` — and then `agent-handoff.json` (`control.state`,
 then `gate.merge_verdict`).
-
-On the published `v0.15.0` build none of this exists: no `agent control`
-command, no pointer, no `control` block. Read `agent-handoff.json`'s `gate`
-block and `report.json`'s `release_decision.decision` instead. See
-[Which build you get](#which-build-you-get).
 
 **Where a human-review route still lets an agent work.** Contract v20 separates
 two states. `human_review_required` is a full stop. `review_publishable` means
@@ -469,9 +433,7 @@ control signal, and never infer control from prose. `check` is necessary but
 not sufficient for a capability-expanding diff: if a change adds dynamic,
 undeclared or otherwise ambiguous tool capability, do not read
 `decision="allow"` as merge readiness — run `verify` and read
-`release_decision.decision`. On the published `v0.15.0` build this command
-accepts only `--format codex-boundary-json` and emits no `control` block; see
-[Which build you get](#which-build-you-get).
+`release_decision.decision`.
 
 ### Route A — a repository that builds a tool surface
 
@@ -672,13 +634,13 @@ jobs:
         with:
           fetch-depth: 0
       - id: shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v0.15.0
+        uses: ThreeMoonsLab/agents-shipgate@v1.0.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
           diff_base: target
           pr_comment: "true"
-          shipgate_version: "0.15.0"
+          shipgate_version: "1.0.0"
 ```
 
 The action delegates to `verify` and never fetches — keep `fetch-depth: 0`.

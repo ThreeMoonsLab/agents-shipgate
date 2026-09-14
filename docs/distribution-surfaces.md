@@ -140,10 +140,11 @@ gap without an owner is not a gap, it is a defect.
 Different from a gap, and not a divergence at all: a surface that cannot pin a
 release because the capability it demonstrates postdates one. #497's rule allows
 "a resolvable supported path **or an explicit version/contract incompatibility"**
-— so `examples/github-actions/10-check-run-annotations.yml` targets `@main`,
-which resolves, and says in its own header which input postdates the release and
-what to do once one carries it. `DECLARED_UNPINNED_REFS` enumerates these; the
-guard checks that the file really uses that ref and really explains itself, so an
+— so such a file may target `@main`, which resolves, provided its own header
+says which input postdates the release and what to do once one carries it.
+`DECLARED_UNPINNED_REFS` enumerates these, and is empty today:
+`examples/github-actions/10-check-run-annotations.yml` targeted `@main` until
+`v1.0.0` carried `check_run_policy`, and now pins that release. The guard checks that the file really uses that ref and really explains itself, so an
 unexplained `@main` elsewhere is still the defect it looks like.
 
 ## Release channels

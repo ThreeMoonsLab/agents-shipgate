@@ -147,12 +147,10 @@ Skip emission with `--no-packet`; re-render later with
 
 ## Is it production-ready?
 
-v0.15.0 is the latest published pre-1.0 beta. The in-tree runtime is
-`0.16.0b7`, which adds content-addressed verification receipts and reproducible
-distributed-execution boundaries on top of typed policy evidence, the
-multi-host boundary, and root-reachable binding contracts. The manifest schema
-remains stable across the 0.x series; see
-[`STABILITY.md`](../STABILITY.md). Public preview.
+v1.0.0 is the latest published release. It ships on the advisory channel —
+runtime contract 39, report schema `1.0` — and makes no qualification claim:
+`.github/release-channels.json` declares it `advisory`, not `qualified`. What
+is frozen, and how it may change, is in [`STABILITY.md`](../STABILITY.md).
 
 ## How do I add it to GitHub Actions?
 

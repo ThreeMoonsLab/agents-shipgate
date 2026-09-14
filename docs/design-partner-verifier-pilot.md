@@ -56,18 +56,19 @@ that workflow. Do not recruit for Route A to balance the cohort.
 
 The read order, the tracker and the agent prompt below all name `control.state`
 and `control.next_action.actor`. Those come from the agent-control envelope,
-which landed **after** the newest published tag — so this runbook is not
-runnable end to end on the released build, and saying so is part of the
-instructions rather than a footnote:
+which the newest published release, `v1.0.0`, carries. The previous release,
+`v0.15.0`, predates it, so a partner still on that build cannot follow this
+runbook end to end — and saying so is part of the instructions rather than a
+footnote:
 
 | Channel | How a partner gets it | Runtime contract | Emits `control.*`? | Qualification |
 | --- | --- | --- | --- | --- |
-| Published release `v0.15.0` | `pipx install agents-shipgate` | 10 | **No.** `agent-handoff.json` is `shipgate.agent_handoff/v1`; its nearest field is `controller`, and there is no `control.state` | Qualified release |
+| Published release `v1.0.0` | `pipx install agents-shipgate` | 39 | Yes | **None.** Declared `advisory` in `.github/release-channels.json`; see [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) § Amendment 5 |
 | Unqualified preview | `gh release download preview-<version> --repo ThreeMoonsLab/agents-shipgate --pattern '*.whl'`, then `pip install ./<wheel>` | that of the source commit it was cut from | Yes | **None.** No adjudicated corpus, no qualification artifact, nothing signed — see [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) § Amendment 2 |
 | Source checkout | `git clone`, then `./shipgate …` from the checkout | that of the checkout | Yes | Not a distributed build |
 
-Pick one channel per partner and stay on it. The released build against this
-runbook's read order produces a partner asking where `control.state` went;
+Pick one channel per partner and stay on it. A stale `v0.15.0` install against
+this runbook's read order produces a partner asking where `control.state` went;
 a preview quoted without its qualification status sells an evaluation build as
 a release. `agents-shipgate contract --json` prints the `contract_version` the
 installed build actually implements — run it first and record it in the
@@ -91,8 +92,8 @@ result** when all of these are true:
   `control.next_action.actor: "human"`, naming the fields and lines — because a
   purpose, effect, authority or binding claim a coding agent supplied is a
   declaration nobody made, and this pilot is measuring exactly the gate that
-  would have caught it. On the released build nothing but the instruction
-  enforces it, so check it by hand before counting the row.
+  would have caught it. On a build without the envelope, such as `v0.15.0`,
+  nothing but the instruction enforces it, so check it by hand before counting the row.
 - On Route A, a reviewer read `agent-handoff.json` first and used
   `report.json.release_decision.decision` as the release gate.
 - `agents-shipgate-reports/` is ignored and not committed.
@@ -293,17 +294,17 @@ success path.
 Run these from the target repo root, on the channel you settled above.
 
 **Record what was installed before running anything else.** The build a
-partner can install and the build this tree carries are not the same, and that
+partner can install and the build this tree carries can differ, and that
 difference has decided every pilot attempt so far. The two commands below are
 the first observation of the run, not preamble.
 
 `verify` and `feedback export` are present in every channel, including the
 released build. The runbook's **read order** is what needs the newer contract:
 `control.state` requires the agent-control envelope, which the released
-`v0.15.0` (contract 10) does not emit. So either take a partner down the
-preview or source-checkout route, or run the released build and read
-`controller` / `gate` instead — do not quote a contract floor the build you
-just told them to install cannot reach.
+`v1.0.0` (contract 39) emits and the previous release, `v0.15.0` (contract 10),
+does not. So a partner still on `v0.15.0` either upgrades or reads
+`controller` / `gate` instead — do not quote a contract floor the build they
+have installed cannot reach.
 
 On the released channel the block leads with `pipx install` then
 `pipx upgrade`: a plain `pipx install` is a no-op when an older build is
@@ -411,9 +412,9 @@ reviewed is the coding-host configuration.
 ## Read Order
 
 Route A — read `agents-shipgate-reports/agent-handoff.json` first. This order
-needs a build that emits the agent-control envelope (preview or source
-checkout); on the released `v0.15.0` build start at step 2 and read
-`controller` in place of `control`:
+needs a build that emits the agent-control envelope (the released `v1.0.0`, a
+preview, or a source checkout); on the previous release, `v0.15.0`, start at
+step 2 and read `controller` in place of `control`:
 
 1. `control.state`
 2. `gate.can_merge_without_human`

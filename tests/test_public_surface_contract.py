@@ -134,7 +134,7 @@ VERSION_LITERAL_TARGETS = (
     ),
     (
         "docs/faq.md",
-        re.compile(rf"v({VERSION_RE}) is the latest published pre-1\.0 beta"),
+        re.compile(rf"v({VERSION_RE}) is the latest published release"),
     ),
     (
         "ROADMAP.md",
