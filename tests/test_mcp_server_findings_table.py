@@ -20,7 +20,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1] / "benchmark" / "mcp-servers"
-RUN_OF_RECORD = ROOT / "results" / "2026-09-14-e5ec2311"
+RUN_OF_RECORD = ROOT / "results" / "2026-09-14-747d6080"
 
 
 def _score_module():
