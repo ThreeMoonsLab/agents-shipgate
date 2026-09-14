@@ -13,7 +13,7 @@
 - Publisher URL: https://threemoonslab.com/
 - License: Apache-2.0
 - Latest public release: v0.15.0
-- Current source-tree runtime: 0.16.0 (contract 33; pre-release)
+- Current source-tree runtime: 1.0.0 (contract 39; advisory release candidate, not yet published)
 - Canonical repository: https://github.com/ThreeMoonsLab/agents-shipgate
 - Do not use: Agent Shipcheck, Agent Shipgate, agents shipgate, Agents-Shipgate
 

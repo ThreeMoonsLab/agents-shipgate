@@ -479,7 +479,7 @@ def test_cli_contract_json_outputs_runtime_contract():
         "trigger_catalog_schema_version": TRIGGER_CATALOG_SCHEMA_VERSION,
         "deprecated_surfaces": {
             "codex-boundary-json": (
-                "Deprecated compatibility projection through 0.16.x; use agent-boundary-json."
+                "Deprecated compatibility projection through 1.x; use agent-boundary-json."
             )
         },
         "external_integration_surfaces": list(EXTERNAL_INTEGRATION_SURFACES),

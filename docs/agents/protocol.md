@@ -258,7 +258,7 @@ Policy discovery is deterministic:
 
 Coexisting unified and legacy workspace policies, duplicate inconsistent rule
 definitions, invalid explicit policy, and unknown explicit policy fields fail
-closed. Legacy policy discovery is deprecated through `0.16.x` and never
+closed. Legacy policy discovery is deprecated through `1.x` and never
 auto-migrated.
 
 Every result includes:

@@ -613,7 +613,7 @@ Downstream repos generated with
 `.shipgate/agent-contract.json`.
 
 - Latest release: `v0.15.0`
-- In-tree runtime: `0.16.0` — see [pyproject.toml](../pyproject.toml)
+- In-tree runtime: `1.0.0` — see [pyproject.toml](../pyproject.toml)
 - Runtime contract: `39` (minimum control contract: `21`)
 - Current report schema: `1.0`, frozen, superseding `0.43` — [`docs/report-schema.v1.0.json`](report-schema.v1.0.json); the `1.x` rules are in [`docs/report-1-0-contract.md`](report-1-0-contract.md)
 - Current packet schema: `0.18` — [`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json)
@@ -1330,8 +1330,8 @@ agent-boundary-json` is the local static multi-host boundary command. The
 exactly one stdout JSON object using
 `schema_version: "shipgate.agent_boundary_result/v3"` and the schema in
 [`agent-boundary-result-schema.v3.json`](agent-boundary-result-schema.v3.json).
-The old `codex-boundary-json` spelling remains a deprecated `0.16.x`
-compatibility projection of the same assessment.
+The old `codex-boundary-json` spelling remains a deprecated compatibility
+projection of the same assessment, kept through `1.x`.
 
 Read `input_coverage`, `host_coverage[]`, `affected_hosts[]`, `policies[]`,
 `issues[]`, `pending_review[]`, and `excluded_scopes[]` before relying on the
