@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from itertools import product
@@ -18,6 +19,7 @@ from agents_shipgate.core.lenses.tool_surface import (
     ToolSurfaceDiffReference,
     tool_annotation_hash,
 )
+from agents_shipgate.core.risk_hints import DESTRUCTIVE_KEYWORDS, WRITE_KEYWORDS
 from agents_shipgate.core.semantic_assessment import (
     MCP_SOURCE_TYPES,
     acknowledged_effect_claim_ids,
@@ -149,7 +151,9 @@ def _annotation_contradiction_findings(
         used_claims: list[EffectClaim] = []
 
         if tool.annotations.get("readOnlyHint") is True:
-            read_only_conflicts = _read_only_conflicts(claims)
+            read_only_conflicts = _read_only_conflicts(
+                claims, f"{tool.name} {tool.description or ''}"
+            )
             if read_only_conflicts:
                 contradictions.append(
                     {
@@ -235,8 +239,45 @@ def _independent_effect_claims(claims: Iterable[EffectClaim]) -> list[EffectClai
     ]
 
 
-def _read_only_conflicts(claims: list[EffectClaim]) -> list[EffectClaim]:
-    conflicts = [claim for claim in claims if claim.value != "read"]
+#: What `readOnlyHint: true` says a tool does not do, by the MCP definition:
+#: modify its environment. Reading privileged data or an identity modifies
+#: nothing, so neither contradicts the hint (#658).
+_MODIFYING_EFFECTS = frozenset(
+    {
+        "write",
+        "external_communication",
+        "financial_write",
+        "production_operation",
+        "code_execution",
+        "destructive",
+    }
+)
+#: Keyword evidence is inferred from words, and a published read-only hint is
+#: challenged by it only when the tool's words describe an action (#658). A
+#: keyword tag raised by a topic noun (`secret`, `message`, `terraform`,
+#: `invoice`, `shell`) says what a tool is about, and a tool can read about any
+#: topic: `search_commits`, `list_terraform_projects` and `get_invoice` stay
+#: read-only, while `send_email`, `create_invoice` and "Execute a shell command"
+#: do not. The words are the tool's name and description together; no
+#: name-shaped reading is involved (#419).
+_ACTION_VERBS = (WRITE_KEYWORDS - {"issue"}) | DESTRUCTIVE_KEYWORDS | {"deploy", "execute"}
+
+
+def _words(text: str) -> set[str]:
+    return set(re.findall(r"[a-z]+", text.lower()))
+
+
+def _contradicts_read_only(claim: EffectClaim, words: set[str]) -> bool:
+    if claim.value not in _MODIFYING_EFFECTS:
+        return False
+    if claim.basis != "inferred_keyword":
+        return True
+    return bool(words & _ACTION_VERBS)
+
+
+def _read_only_conflicts(claims: list[EffectClaim], tool_text: str = "") -> list[EffectClaim]:
+    words = _words(tool_text)
+    conflicts = [claim for claim in claims if _contradicts_read_only(claim, words)]
     if not conflicts:
         return []
     # A medium keyword or regex hit must not overrule a policy-eligible read
