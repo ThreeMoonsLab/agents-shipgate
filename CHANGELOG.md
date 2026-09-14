@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Stop reporting an unreadable MCP source description as missing (#658).
+  `SHIP-DOC-MISSING-DESCRIPTION` fired whenever the `mcp_server_source` reader
+  could not resolve a description. That covered `mcp-grafana`'s positional
+  `MustTool` descriptions, `"…" + "…"` concatenations, template literals with
+  `${…}`, f-strings and variables. Across six public servers, 148 of 150 such
+  findings were false. Both readers now record a description written in a form
+  they cannot resolve as `extraction.description: unresolved`, and the check
+  does not report it as missing. An absent or explicitly empty description still
+  is. `MustTool(name, description, handler, …)` now yields its literal second
+  argument.
+
 - Read `.vscode/mcp.json` as JSON with comments (#659). VS Code documents and
   runs that file with `//` and `/* */` comments and trailing commas, and a
   public repository in the host-config benchmark committed one. `audit --host`,

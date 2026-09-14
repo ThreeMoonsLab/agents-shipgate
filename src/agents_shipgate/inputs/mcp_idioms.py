@@ -526,6 +526,11 @@ class RegistrationSite:
     #: establishes, and an unread hint is one the check has nothing to say
     #: about rather than one it may assume.
     annotations_unresolved: bool = False
+    #: A description is written at the registration and is not a constant this
+    #: reader can resolve: an f-string, a template literal with a substitution,
+    #: a variable, a call. The tool has a description this reader cannot read,
+    #: which is a different statement from a tool that has none (#658).
+    description_unresolved: bool = False
 
 
 @dataclass(frozen=True)
@@ -1429,6 +1434,7 @@ def _call_sites(
     annotate: Callable[
         [MaskedSource, int, int], tuple[tuple[tuple[str, bool], ...], bool]
     ] | None = None,
+    describes_unresolved: Callable[[MaskedSource, int, int], bool] | None = None,
 ) -> list[RegistrationSite]:
     """Sites for a ``Name(<literal>, …)`` idiom.
 
@@ -1474,6 +1480,11 @@ def _call_sites(
             else ((), False)
         )
         line, column = source.line_column(match.start())
+        description = (
+            describe(source, open_paren, close)
+            if describe is not None and close is not None
+            else None
+        )
         sites.append(
             RegistrationSite(
                 idiom=idiom,
@@ -1481,14 +1492,16 @@ def _call_sites(
                 line=line,
                 column=column,
                 span=span,
-                description=(
-                    describe(source, open_paren, close)
-                    if describe is not None and close is not None
-                    else None
-                ),
+                description=description,
                 unresolved_reason=unresolved,
                 annotation_hints=hints,
                 annotations_unresolved=hints_unresolved,
+                description_unresolved=(
+                    description is None
+                    and describes_unresolved is not None
+                    and close is not None
+                    and describes_unresolved(source, open_paren, close)
+                ),
             )
         )
     return sites
@@ -1521,11 +1534,13 @@ def _ts_static_tool_name_sites(source: MaskedSource) -> list[RegistrationSite]:
         block = _enclosing_block(pairs, match.start())
         operation_type: str | None = None
         description: str | None = None
+        description_unresolved = False
         if block is not None and name is not None:
             operation_type = _first_literal_in(
                 source, _TS_STATIC_OPERATION_TYPE_RE, block
             )
             description = _first_literal_in(source, _TS_DESCRIPTION_RE, block)
+            description_unresolved = description is None and _ts_static_description_unresolved(source, block)
         # The construct, never the enclosing class body. `block` is the scope
         # the sibling literals are looked up in; using it as the span made
         # `_contains_another_site` read *any* registration written inside the
@@ -1543,6 +1558,7 @@ def _ts_static_tool_name_sites(source: MaskedSource) -> list[RegistrationSite]:
                 description=description,
                 operation_type=operation_type,
                 unresolved_reason=unresolved,
+                description_unresolved=description_unresolved,
             )
         )
     return sites
@@ -1600,6 +1616,7 @@ def _go_tool_struct_site(
         name, unresolved = None, "name_not_literal"
     line, column = source.line_column(start)
     hints, hints_unresolved = _go_struct_annotations(source, open_brace, close)
+    description = _go_struct_description(source, open_brace, close)
     return [
         RegistrationSite(
             idiom="go_tool_struct",
@@ -1607,10 +1624,14 @@ def _go_tool_struct_site(
             line=line,
             column=column,
             span=(start, close),
-            description=_go_struct_description(source, open_brace, close),
+            description=description,
             unresolved_reason=unresolved,
             annotation_hints=hints,
             annotations_unresolved=hints_unresolved,
+            description_unresolved=(
+                description is None
+                and _go_struct_description_unresolved(source, open_brace, close)
+            ),
         )
     ]
 
@@ -1703,6 +1724,86 @@ def _ts_object_description(
         if found and value and literal_end == end:
             description = value
     return description
+
+
+def _ts_call_description_unresolved(source: MaskedSource, open_paren: int, close: int) -> bool:
+    """A `registerTool`/`tool` description is written and is not a whole constant literal (#658).
+
+    A template literal with a substitution, a concatenation, or an options
+    object whose `description` is computed, spread in or overridden by a member
+    this reader cannot place is a description it cannot read. An absent
+    description, or a plain empty string, is not.
+    """
+
+    found, _name, name_end = source.literal_at(open_paren + 1)
+    if not found:
+        return False
+    after = source.skip_space(name_end)
+    if after >= len(source.masked) or source.masked[after] != ",":
+        return False
+    second = source.skip_space(after + 1)
+    found, value, end = source.literal_at(second)
+    if found:
+        return value is None or not _literal_is_whole_value(source, end, ",)")
+    if second < len(source.masked) and source.masked[second] == "{":
+        object_close = _matching_close(source.masked, second, "{", "}")
+        if (
+            object_close is None
+            or object_close > close
+            or not _literal_is_whole_value(source, object_close, ",)")
+        ):
+            return False
+        return _ts_object_description_unresolved(source, second, object_close)
+    return False
+
+
+def _ts_object_description_unresolved(source: MaskedSource, open_brace: int, close: int) -> bool:
+    """Mirror `_ts_object_description`: whether its members leave a description unread."""
+
+    unresolved = False
+    for start, end in _go_arguments(source, open_brace, close):
+        found, key, key_end = source.literal_at(start)
+        if found and key is None:
+            unresolved = True
+            continue
+        if not found:
+            match = _TS_OBJECT_PROPERTY_RE.match(source.masked, start, end)
+            if match is None:
+                unresolved = True
+                continue
+            key, key_end = match.group(), match.end()
+        after = source.skip_space(key_end)
+        if key in {"get", "set"} and after < end and source.masked[after] != ":":
+            accessor = _TS_OBJECT_PROPERTY_RE.match(source.masked, after, end)
+            if (
+                accessor is None
+                or accessor.group() == "description"
+                or source.skip_space(accessor.end()) >= end
+                or source.masked[source.skip_space(accessor.end())] != "("
+            ):
+                unresolved = True
+            continue
+        if key != "description":
+            if after < end and source.masked[after] not in ":(":
+                unresolved = True
+            continue
+        if after >= end or source.masked[after] != ":":
+            unresolved = True
+            continue
+        found, value, literal_end = source.literal_at(after + 1)
+        unresolved = not (found and value is not None and literal_end == end)
+    return unresolved
+
+
+def _ts_static_description_unresolved(source: MaskedSource, block: tuple[int, int]) -> bool:
+    """A class declares `description =` and no declaration is a whole constant literal (#658)."""
+
+    start, end = block
+    for match in _TS_DESCRIPTION_RE.finditer(source.masked, start, end):
+        found, value, literal_end = source.literal_at(match.end())
+        if not (found and value is not None and _literal_is_whole_value(source, literal_end, ";}")):
+            return True
+    return False
 
 
 def _ts_call_description(
@@ -1880,6 +1981,81 @@ def _go_description_value(source: MaskedSource, start: int, end: int) -> str | N
     if found:
         return (value or None) if literal_end == end else None
     return _go_translated_default(source, start, end)
+
+
+def _go_description_value_unresolved(source: MaskedSource, start: int, end: int) -> bool:
+    """A Go description value is written here and is not a constant this reader resolves (#658).
+
+    A whole string literal counts as resolved even when it is empty. Anything
+    else in the description position (a variable, a call, a concatenation) is a
+    description the tool has and this reader cannot read, which is a different
+    statement from a tool that has none.
+    """
+
+    if source.skip_space(start) >= end:
+        return False
+    found, value, literal_end = source.literal_at(start)
+    if found and literal_end == end:
+        return value is None
+    return True
+
+
+def _go_option_description_unresolved(source: MaskedSource, open_paren: int, close: int) -> bool:
+    """Whether the last applied `WithDescription` option is one this reader cannot resolve."""
+
+    unresolved = False
+    for start, end in _go_arguments(source, open_paren, close)[1:]:
+        match = _GO_WITH_DESCRIPTION_RE.match(source.masked, start)
+        if match is None:
+            continue
+        opening = source.masked.rfind("(", match.start(), match.end())
+        option_close = _matching_close(source.masked, opening, "(", ")")
+        if option_close != end:
+            unresolved = True
+            continue
+        args = _go_arguments(source, opening, option_close)
+        if len(args) != 1:
+            unresolved = True
+            continue
+        arg_start, arg_end = args[0]
+        unresolved = _go_description_value(
+            source, arg_start, arg_end
+        ) is None and _go_description_value_unresolved(source, arg_start, arg_end)
+    return unresolved
+
+
+def _go_must_tool_description(source: MaskedSource, open_paren: int, close: int) -> str | None:
+    """`MustTool(name, description, handler, options…)` passes the description second (#658).
+
+    grafana/mcp-grafana writes it as a plain literal. A `WithDescription`
+    option among the options is applied after it and wins.
+    """
+
+    arguments = _go_arguments(source, open_paren, close)
+    if any(_GO_WITH_DESCRIPTION_RE.match(source.masked, start) for start, _end in arguments[1:]):
+        return _go_option_description(source, open_paren, close)
+    if len(arguments) < 3:
+        return None
+    start, end = arguments[1]
+    return _go_description_value(source, start, end)
+
+
+def _go_must_tool_description_unresolved(source: MaskedSource, open_paren: int, close: int) -> bool:
+    arguments = _go_arguments(source, open_paren, close)
+    if any(_GO_WITH_DESCRIPTION_RE.match(source.masked, start) for start, _end in arguments[1:]):
+        return _go_option_description_unresolved(source, open_paren, close)
+    if len(arguments) < 3:
+        return False
+    start, end = arguments[1]
+    return _go_description_value_unresolved(source, start, end)
+
+
+def _go_struct_description_unresolved(source: MaskedSource, open_brace: int, close: int) -> bool:
+    for start, end in _go_arguments(source, open_brace, close):
+        match = _GO_STRUCT_DESCRIPTION_FIELD_RE.match(source.masked, start)
+        if match is not None:
+            return _go_description_value_unresolved(source, source.skip_space(match.end()), end)
+    return False
 
 
 def _go_struct_description(source: MaskedSource, open_brace: int, close: int) -> str | None:
@@ -2748,6 +2924,7 @@ def _python_site(
         column=column,
         span=span,
         description=_python_tool_description(node, decorator),
+        description_unresolved=_python_tool_description_unresolved(decorator),
         unresolved_reason=unresolved,
         # Withheld with the name: the schema comes from the same object, so a
         # signature published beside an unreadable name would be a parameter
@@ -2794,6 +2971,17 @@ def _python_tool_name(
         if given is not None:
             return _resolve_name(_python_string(given), True)
     return _resolve_name(node.name, True)
+
+
+def _python_tool_description_unresolved(decorator: ast.expr) -> bool:
+    """`description=` is given and is not a whole string literal: an f-string, a name, a call (#658)."""
+
+    if not isinstance(decorator, ast.Call):
+        return False
+    given = _python_keyword(decorator, "description")
+    if given is None or (isinstance(given, ast.Constant) and given.value is None):
+        return False
+    return _python_string(given) is None
 
 
 def _python_tool_description(
@@ -3541,6 +3729,7 @@ def scan_source(
                 _TS_REGISTER_TOOL_RE,
                 "ts_sdk_register_tool",
                 describe=_ts_call_description,
+                describes_unresolved=_ts_call_description_unresolved,
             )
         )
     else:
@@ -3549,8 +3738,9 @@ def scan_source(
                 source,
                 _GO_MUST_TOOL_RE,
                 "go_must_tool",
-                describe=_go_option_description,
+                describe=_go_must_tool_description,
                 annotate=_go_option_annotations,
+                describes_unresolved=_go_must_tool_description_unresolved,
             )
         )
         sites.extend(
@@ -3560,6 +3750,7 @@ def scan_source(
                 "go_new_tool",
                 describe=_go_option_description,
                 annotate=_go_option_annotations,
+                describes_unresolved=_go_option_description_unresolved,
             )
         )
         sites.extend(_go_tool_struct_sites(source))

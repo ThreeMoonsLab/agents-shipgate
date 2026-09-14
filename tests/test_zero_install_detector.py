@@ -1651,6 +1651,7 @@ def _site_fields(site: Any) -> dict[str, Any]:
         "column": site.column,
         "span": tuple(site.span),
         "description": site.description,
+        "description_unresolved": site.description_unresolved,
         "operation_type": site.operation_type,
         "unresolved_reason": site.unresolved_reason,
         # `proves_server` decides whether a route exists at all for a server

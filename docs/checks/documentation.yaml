@@ -20,7 +20,9 @@ checks:
   description: Tool description is missing or too short.
   rationale: Poor tool descriptions increase wrong-tool and reviewer misunderstanding
     risk.
-  fires_when: A tool description is missing or shorter than the minimum.
+  fires_when: A tool description is missing or shorter than the minimum. A description
+    an MCP source reader found but could not resolve, such as an f-string or a template
+    literal with a substitution, is not reported as missing.
   evidence_fields:
   - description_length
   recommendation: Add a clear capability description.

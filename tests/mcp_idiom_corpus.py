@@ -2200,3 +2200,30 @@ SOURCE_CASES += tuple(
     SourceCase("go_annotations:" + name, "go", "package p\n" + body)
     for name, body, _expected in GO_ANNOTATION_CASES
 )
+
+
+# Unreadable descriptions (#658): a description written in a form the readers
+# cannot resolve is recorded as unresolved, never read as absent. Both readers
+# receive every case; `tests/test_unresolved_descriptions.py` owns the answers.
+DESCRIPTION_UNRESOLVED_CASES: tuple[tuple[str, str, str, str | None, bool], ...] = (
+    ("go_option_computed", "go", 'func F() mcp.Tool { return mcp.NewTool("tool", mcp.WithDescription(compute())) }', None, True),
+    ("go_option_empty", "go", 'func F() mcp.Tool { return mcp.NewTool("tool", mcp.WithDescription("")) }', None, False),
+    ("go_option_absent", "go", 'func F() mcp.Tool { return mcp.NewTool("tool", mcp.WithReadOnlyHintAnnotation(true)) }', None, False),
+    ("go_struct_variable", "go", 'func F() mcp.Tool { return mcp.Tool{Name: "tool", Description: toolDescription} }', None, True),
+    ("go_struct_absent", "go", 'func F() mcp.Tool { return mcp.Tool{Name: "tool"} }', None, False),
+    ("go_must_tool_positional_literal", "go", 'var T = mcpgrafana.MustTool("tool", "Create a Grafana folder and return it.", handler, mcp.WithReadOnlyHintAnnotation(false))', "Create a Grafana folder and return it.", False),
+    ("go_must_tool_positional_variable", "go", 'var T = mcpgrafana.MustTool("tool", toolDescription, handler)', None, True),
+    ("go_must_tool_option_wins", "go", 'var T = mcpgrafana.MustTool("tool", "The positional description.", handler, mcp.WithDescription("The option description wins."))', "The option description wins.", False),
+    ("ts_options_template_substitution", "typescript", 'server.registerTool("tool", { description: `Search ${names}`, inputSchema: {} }, fn);', None, True),
+    ("ts_options_absent", "typescript", 'server.registerTool("tool", { inputSchema: {} }, fn);', None, False),
+    ("ts_positional_empty", "typescript", 'server.tool("tool", "", fn);', None, False),
+    ("ts_positional_concatenation", "typescript", 'server.tool("tool", "Search " + suffix, fn);', None, True),
+    ("ts_static_template_substitution", "typescript", 'class T { static toolName = "tool"; public override description = `Connect ${where}`; }', None, True),
+    ("ts_static_empty", "typescript", 'class T { static toolName = "tool"; public description = ""; }', None, False),
+    ("python_fstring", "python", 'from mcp.server.fastmcp import FastMCP\n\nmcp = FastMCP("s")\n\n\n@mcp.tool(description=f"Run {WHAT}")\ndef tool() -> str:\n    return ""\n', None, True),
+    ("python_docstring", "python", 'from mcp.server.fastmcp import FastMCP\n\nmcp = FastMCP("s")\n\n\n@mcp.tool()\ndef tool() -> str:\n    """Return a value for the caller."""\n    return ""\n', "Return a value for the caller.", False),
+)
+SOURCE_CASES += tuple(
+    SourceCase("description_unresolved:" + name, language, ("package p\n" + text) if language == "go" else text)
+    for name, language, text, _description, _unresolved in DESCRIPTION_UNRESOLVED_CASES
+)

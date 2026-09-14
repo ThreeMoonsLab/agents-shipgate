@@ -191,6 +191,8 @@ A production target depends on lower-confidence extraction, such as SDK AST enri
 
 A tool has no description or a description too short for reliable review. Add a concise capability description.
 
+On `mcp_server_source`, a description written in a form the reader cannot resolve, such as a variable, an f-string or a template literal with a substitution, is recorded as `extraction.description: unresolved` and is not reported as missing (#658).
+
 ### SHIP-DOC-INJECTION-RISK
 
 A tool description contains instruction-override-like language. Rewrite it as neutral metadata.
