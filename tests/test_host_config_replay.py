@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1] / "benchmark" / "host-config"
-RUN_OF_RECORD = ROOT / "results" / "2026-09-13-9d7d145d"
+RUN_OF_RECORD = ROOT / "results" / "2026-09-14-e5ec2311"
 QUOTAS = {
     ".claude/settings.json": 10,
     ".mcp.json": 10,
