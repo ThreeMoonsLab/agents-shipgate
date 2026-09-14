@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Name step action references, named reusable-workflow secrets and remote MCP URL paths as unread host surfaces, say that a hook row does not prove the host loads the file, and state which symlinks refuse a comparison. (#693, #714, #771, #772)
 - Preserve host permission-change semantics when `check` redacts rule arguments; scoped narrowing and widening now agree with `diff` and `verify`. (#767)
 - Report incomplete coverage for malformed Claude permission containers and `allow`/`deny`/`ask` arrays instead of a covered no-change comparison. Unknown extension settings remain allowed. (#768)
 
