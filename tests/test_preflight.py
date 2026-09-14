@@ -1591,3 +1591,63 @@ def test_high_risk_capability_without_evidence_does_not_pass(tmp_path: Path) -> 
         "SHIP-POLICY-APPROVAL-MISSING",
         "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
     } & active_check_ids
+
+
+def test_host_drift_reason_names_every_expansion_kind_and_what_it_folded() -> None:
+    """#681: the reason printed the first five signals of a list sorted by
+    kind, so five `allow_rule_added` entries hid `Bash(*)`, the removed deny
+    rule, the new MCP server, the permission mode and the workflow write, and
+    said nothing about the cut."""
+    from agents_shipgate.core.preflight import signals_for_host_grant_drift
+
+    folded = [f"allow_rule_added: claude-code:Bash(npm run {name})" for name in "abcde"]
+    distinct = [
+        "deny_rule_removed: claude-code:WebFetch",
+        "mcp_server_added: claude-code:postgres",
+        "permission_mode_added: claude-code:.claude/settings.json",
+        "wildcard_allow_added: claude-code:Bash(*)",
+        "workflow_write_changed: .github/workflows/ci.yml",
+    ]
+    [signal] = signals_for_host_grant_drift(
+        {
+            "comparison_status": "comparable",
+            "has_drift": True,
+            "expansion_signals": sorted(folded + distinct),
+        }
+    )
+
+    assert "Expansion signals (10): " in signal.reason
+    for entry in distinct:
+        assert entry in signal.reason
+    assert f"{folded[0]} (+4 more of this kind)" in signal.reason
+    assert all(entry not in signal.reason for entry in folded[1:])
+
+
+def test_host_drift_reason_marks_a_lone_signal_as_complete() -> None:
+    from agents_shipgate.core.preflight import signals_for_host_grant_drift
+
+    [signal] = signals_for_host_grant_drift(
+        {
+            "comparison_status": "comparable",
+            "has_drift": True,
+            "expansion_signals": ["mcp_server_added: claude-code:postgres"],
+        }
+    )
+
+    assert signal.reason.endswith(
+        "Expansion signals (1): mcp_server_added: claude-code:postgres"
+    )
+
+
+def test_host_drift_reason_says_how_many_incomparable_reasons_it_left_out() -> None:
+    from agents_shipgate.core.preflight import signals_for_host_grant_drift
+
+    [signal] = signals_for_host_grant_drift(
+        {
+            "comparison_status": "incomparable",
+            "incomparable_reasons": [f"reason_{index}" for index in range(7)],
+        }
+    )
+
+    assert "reason_4 (+2 more)" in signal.reason
+    assert "reason_5" not in signal.reason

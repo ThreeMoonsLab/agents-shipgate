@@ -1146,6 +1146,28 @@ def signals_for_policy_drift(
     return signals
 
 
+def _expansion_signal_summary(signals: list[Any]) -> str:
+    """Name every kind of expansion signal, with the total and what was folded.
+
+    The drift sorts its signals as strings, and each begins with its kind, so
+    a fixed prefix of the list kept whichever kinds sort first. Five
+    `allow_rule_added` entries pushed `Bash(*)`, a removed deny rule and a new
+    MCP server out of the reason, and nothing said the list was cut (#681).
+    One entry per kind keeps every kind visible without ranking one kind above
+    another; the count per kind says how many were folded.
+    """
+
+    by_kind: dict[str, list[str]] = {}
+    for item in signals:
+        text = str(item)
+        by_kind.setdefault(text.split(": ", 1)[0], []).append(text)
+    parts = []
+    for entries in by_kind.values():
+        folded = len(entries) - 1
+        parts.append(entries[0] + (f" (+{folded} more of this kind)" if folded else ""))
+    return f"Expansion signals ({len(signals)}): " + ", ".join(parts)
+
+
 def signals_for_host_grant_drift(
     host_grant_drift: dict[str, Any] | None,
     *,
@@ -1163,12 +1185,13 @@ def signals_for_host_grant_drift(
     )
     incomparable_reasons = host_grant_drift.get("incomparable_reasons") or []
     if incomparable_reasons:
-        reason += " Reasons: " + ", ".join(
-            str(item) for item in incomparable_reasons[:5]
-        )
+        shown = incomparable_reasons[:5]
+        reason += " Reasons: " + ", ".join(str(item) for item in shown)
+        if len(incomparable_reasons) > len(shown):
+            reason += f" (+{len(incomparable_reasons) - len(shown)} more)"
     expansion = host_grant_drift.get("expansion_signals") or []
     if expansion:
-        reason += " Expansion signals: " + ", ".join(str(item) for item in expansion[:5])
+        reason += " " + _expansion_signal_summary(expansion)
     rerun = None
     if comparable and workspace is not None:
         baseline_path = baseline or DEFAULT_BASELINE_FILE
