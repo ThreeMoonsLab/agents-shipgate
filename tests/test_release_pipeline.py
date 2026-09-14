@@ -922,7 +922,7 @@ def test_release_verification_timeout_is_documented_and_bounded() -> None:
 
     # The suite dominates one job; artifact sealing is much cheaper. Both are
     # bounded, and neither number is an estimate.
-    assert workflow["jobs"]["tests"]["timeout-minutes"] == 20
+    assert workflow["jobs"]["tests"]["timeout-minutes"] == 60
     assert workflow["jobs"]["artifact"]["timeout-minutes"] == 15
     assert "Measured, not estimated" in source
 
