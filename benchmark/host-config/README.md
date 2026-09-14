@@ -32,6 +32,13 @@ An incomparable, failed, timed-out or unparsed comparison names nothing: it coun
 - **Expected changes cover the selected file only.** Rows on other files the PR touched are not scored.
 - **Coding-agent co-authorship** is recorded as metadata, never as a selection or risk signal.
 
+## How expectations are labelled, and what they have seen
+
+- **No human review.** `expected.py` derives every expected change and its direction from the two file versions and the hosts' documentation. No person labels the cases, no second rater exists, and no agreement score is published or implied.
+- **Uncertain inputs stay visible.** A setting the oracle cannot classify is recorded as `unsupported_setting` and excluded from the rates. A case whose file carries a key the oracle does not know is scoped `unclassified` and listed with its keys in `scores.csv`. A comparison that refuses stays in every denominator.
+- **Independent of the engine.** Neither oracle imports `agents_shipgate`. `tests/test_host_config_oracle_controls.py` checks that, and runs positive, narrowing and neutral-inside-config controls: a zero-output implementation and a false-widening implementation both fail them, and the engine itself passes.
+- **Prior-output exposure.** The oracle was amended after its author had seen engine output, twice, each time to follow host documentation the first version missed: #734 taught `../cold-start/expected.py` Claude Code's `extraKnownMarketplaces`, and #754 taught `expected.py` that VS Code reads `.vscode/mcp.json` as JSON with comments. Each landed in the same PR as the engine change it measured. A reader should weigh those two kinds accordingly.
+
 ## Replaying, and what replay does not measure
 
 `tests/test_host_config_replay.py` rebuilds each vendored case as a two-commit repository that holds **only the selected file**, runs the same comparison offline, and fails whenever a case's outcome differs from its committed `replay.json`. It also re-scores the run of record, so the published rates stay reproducible from `runs.json`.
