@@ -79,6 +79,10 @@ def _zero_output(expectation: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
+def _non_expanding(expectation: dict[str, Any]) -> list[dict[str, Any]]:
+    return [_row(c, expands=False) for c in expectation["changes"]]
+
+
 def _false_widening(expectation: dict[str, Any]) -> list[dict[str, Any]]:
     rows = [_row(c, expands=True) for c in expectation["changes"]]
     if not expectation["changes"]:
@@ -100,6 +104,7 @@ def _passes(name: str, record: dict[str, Any]) -> bool:
     if name == "positive":
         return (
             outcome["expected_widenings"] >= 1
+            and sum(row.get("expands") is True for row in on_file) == outcome["expected_widenings"]
             and outcome["widenings_named"] == outcome["expected_widenings"]
             and outcome["correct_rows"] == outcome["rows_on_file"]
         )
@@ -130,8 +135,8 @@ def test_the_controls_derive_the_directions_they_stand_for() -> None:
 
 @pytest.mark.parametrize(
     ("implementation", "failing"),
-    [(_correct, set()), (_zero_output, {"positive", "narrowing"}), (_false_widening, {"narrowing", "neutral"})],
-    ids=["correct", "zero-output", "false-widening"],
+    [(_correct, set()), (_non_expanding, {"positive"}), (_zero_output, {"positive", "narrowing"}), (_false_widening, {"narrowing", "neutral"})],
+    ids=["correct", "non-expanding", "zero-output", "false-widening"],
 )
 def test_a_zero_output_or_false_widening_implementation_fails_the_controls(implementation, failing: set[str]) -> None:
     failed = set()

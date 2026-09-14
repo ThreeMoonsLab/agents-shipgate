@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Preserve host permission-change semantics when `check` redacts rule arguments; scoped narrowing and widening now agree with `diff` and `verify`. (#767)
+
 ## 1.0.0 - 2026-09-13
 
 The first published release since `0.15.0`, on the advisory channel. It

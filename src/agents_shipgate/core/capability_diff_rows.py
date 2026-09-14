@@ -30,7 +30,7 @@ WIDENED = "widened"
 CHANGED = "changed"
 
 
-def _grant_value(grant: dict[str, Any] | None) -> str:
+def _grant_value(grant: dict[str, Any] | None, *, redact_permission_arguments: bool = False) -> str:
     """What a reader recognises this grant by.
 
     A workflow has no single name — its authority *is* the combination of
@@ -41,6 +41,10 @@ def _grant_value(grant: dict[str, Any] | None) -> str:
     if not grant:
         return ABSENT
     kind = str(grant.get("kind") or "")
+    if kind == "permission_rule" and redact_permission_arguments:
+        from agents_shipgate.core.host_boundary import _safe_rule
+
+        return _safe_rule(str(grant.get("rule") or ""))
     if kind == "workflow":
         parts = [str(grant.get("access") or "")]
         if grant.get("write_all"):
@@ -132,7 +136,9 @@ def _why(grant: dict[str, Any], direction: str) -> str:
     return f"changes a {kind or 'host'} grant"
 
 
-def capability_diff_rows(payload: dict[str, Any]) -> list[CapabilityDiffRow]:
+def capability_diff_rows(
+    payload: dict[str, Any], *, redact_permission_arguments: bool = False
+) -> list[CapabilityDiffRow]:
     """Every typed grant change in ``payload``, one row each."""
 
     expansions = set(payload.get("expansion_signals") or [])
@@ -149,14 +155,15 @@ def capability_diff_rows(payload: dict[str, Any]) -> list[CapabilityDiffRow]:
             direction = REMOVED
         else:
             direction = CHANGED
+        # Classify original typed evidence; redaction affects display values only.
         expands = bool(expansions.intersection(host_grant_expansion_signals([change])))
         if direction == CHANGED and expands:
             direction = WIDENED
         rows.append(
             CapabilityDiffRow(
                 subject=_subject(grant),
-                before=_grant_value(before_grant),
-                after=_grant_value(after_grant),
+                before=_grant_value(before_grant, redact_permission_arguments=redact_permission_arguments),
+                after=_grant_value(after_grant, redact_permission_arguments=redact_permission_arguments),
                 direction=direction,
                 why=_why(grant, direction),
                 severity=str(grant.get("risk") or "unknown"),
