@@ -942,3 +942,49 @@ def test_no_tagged_version_in_this_repository_has_changed_channel() -> None:
             tagged[tag[1:]] = channel
 
     rc.assert_history_preserved(rc.load_declaration(REPO_ROOT / rc.DECLARATION_PATH), tagged)
+
+
+# --------------------------------------------------------------------------
+# Finalisation recovery (#618)
+# --------------------------------------------------------------------------
+
+
+def test_the_runbook_offers_no_undraft_that_skips_finalisation() -> None:
+    """A documented `gh release edit --draft=false` proved none of the checks
+    `finalize` runs, on a draft that could have changed since it was checked."""
+    runbook = (REPO_ROOT / "docs/release-runbook.md").read_text(encoding="utf-8")
+    commands = re.findall(r"```(?:bash|sh|shell)?\n(.*?)```", runbook, flags=re.DOTALL)
+
+    assert commands, "the runbook's command blocks were not found"
+    assert not [block for block in commands if "--draft=false" in block]
+    assert "Do not undraft by hand." in runbook
+    assert "Re-running `finalize` is the only supported way to finish" in runbook
+
+
+def test_finalisation_refuses_a_mutated_draft_or_a_missing_manifest_before_undrafting(tmp_path: Path) -> None:
+    """The recovery the runbook names is `finalize`. Exercise its validation on a
+    disposable candidate: a changed asset and a missing manifest both stop it,
+    and the workflow runs that validation before the step that undrafts."""
+    wheel, assets = _candidate_dir(tmp_path, set(CHANNEL_ASSETS[ADVISORY]))
+    manifest = tmp_path / "candidate-manifest.json"
+    build_manifest(
+        tag=TAG, source_commit=SOURCE, wheel_path=wheel, asset_paths=assets,
+        output_path=manifest, channel=ADVISORY,
+    )
+    digest = __import__("hashlib").sha256(manifest.read_bytes()).hexdigest()
+    assert verify_manifest(manifest_path=manifest, expected_sha256=digest, expected_channel=ADVISORY)
+
+    assets[0].write_text('{"edited": true}\n', encoding="utf-8")
+    with pytest.raises(ReleaseError, match="does not match the verified"):
+        verify_manifest(manifest_path=manifest, expected_sha256=digest, expected_channel=ADVISORY)
+
+    manifest.unlink()
+    with pytest.raises(ReleaseError, match="Candidate manifest not found"):
+        verify_manifest(manifest_path=manifest, expected_sha256=digest, expected_channel=ADVISORY)
+
+    jobs = _load("release.yml")["jobs"]
+    [steps] = [job["steps"] for job in jobs.values() if any("--draft=false" in step.get("run", "") for step in job.get("steps", []))]
+    runs = [step.get("run", "") for step in steps]
+    validate = next(index for index, run in enumerate(runs) if "verify-manifest" in run)
+    undraft = next(index for index, run in enumerate(runs) if "--draft=false" in run)
+    assert validate < undraft

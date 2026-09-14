@@ -47,6 +47,7 @@ version.
 
 ### Changes
 
+- Remove the runbook's manual undraft, which skipped every finalisation check; re-running `finalize` is the only recovery. (#618)
 - Make the release rehearsal's provenance drill reach the payload it tampers with, after an untouched control copy passes. (#615)
 - Name every kind of host expansion in `preflight`'s explanation, with the total and what was folded. (#681)
 - Publish as `1.0.0` on the advisory channel, state the `1.x` stability line, and keep `codex-boundary-json` and legacy policy discovery through `1.x`.
