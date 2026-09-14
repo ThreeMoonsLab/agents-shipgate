@@ -23,7 +23,10 @@ def run(context: ScanContext):
     findings = []
     for tool in context.tools:
         description = tool.description or ""
-        if not description.strip() or len(description.strip()) < 20:
+        # A description the source reader found and could not resolve (an
+        # f-string, a template literal with a substitution) is not missing (#658).
+        unreadable = (tool.extraction or {}).get("description") == "unresolved"
+        if not unreadable and (not description.strip() or len(description.strip()) < 20):
             findings.append(
                 tool_finding(
                     tool=tool,

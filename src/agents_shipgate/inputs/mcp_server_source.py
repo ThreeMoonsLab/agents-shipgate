@@ -404,6 +404,9 @@ def _unread_reason(path: Path) -> str | None:
 #: the absence of a contradiction on that tool is not mistaken for a hint that
 #: was read and agreed with the evidence.
 ANNOTATIONS_UNRESOLVED = "unresolved"
+#: ``Tool.extraction["description"]`` when the registration writes a description
+#: this reader cannot resolve, so it is not reported as missing (#658).
+DESCRIPTION_UNRESOLVED = "unresolved"
 
 
 def _tool_from_site(
@@ -432,6 +435,8 @@ def _tool_from_site(
         extraction["surface_gaps"] = gaps
     if site.annotations_unresolved:
         extraction["annotations"] = ANNOTATIONS_UNRESOLVED
+    if site.description_unresolved:
+        extraction["description"] = DESCRIPTION_UNRESOLVED
     parameters = _signature_parameters(site)
     return Tool(
         id=stable_tool_id(site.name),

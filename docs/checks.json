@@ -1869,7 +1869,7 @@
       "evidence_fields": [
         "description_length"
       ],
-      "fires_when": "A tool description is missing or shorter than the minimum.",
+      "fires_when": "A tool description is missing or shorter than the minimum. A description an MCP source reader found but could not resolve, such as an f-string or a template literal with a substitution, is not reported as missing.",
       "floor_severity": null,
       "id": "SHIP-DOC-MISSING-DESCRIPTION",
       "mvp_tier": "hygiene",
