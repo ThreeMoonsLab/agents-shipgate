@@ -1118,6 +1118,37 @@ def _workflow_permissions(value: Any, job: str) -> dict[str, Any]:
 #: never resolved: a branch, tag and commit SHA are equally opaque here (#771).
 _REMOTE_STEP_ACTION_RE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[^@\s]+)?@[^@\s]+")
 _DOCKER_STEP_ACTION_RE = re.compile(r"docker://\S+")
+#: ``algorithm:hex`` after ``@`` is an image digest, not registry userinfo.
+_DOCKER_DIGEST_RE = re.compile(r"[A-Za-z0-9_+.-]+:[0-9a-fA-F]{32,}")
+_UNREADABLE_STEP_REASONS = frozenset({"steps_not_a_list", "step_not_a_mapping"})
+
+
+def _redact_step_text(value: str) -> str:
+    """Step text as it may be published.
+
+    Known token shapes (``ghp_…``, ``AKIA…``, ``xoxb-…``) go through the
+    report redactor, then credential assignments and URLs through the host one.
+    """
+
+    return _sanitize_sensitive_string(redact_text(value) or "")
+
+
+def _redact_step_reference(text: str) -> str:
+    """A ``uses:`` value as it may be published; differs from ``text`` when redacted.
+
+    ``docker://user:password@registry/image`` carries registry credentials in
+    its userinfo, which neither redactor recognises, so the userinfo is
+    replaced whole. ``docker://image@sha256:<hex>`` is a digest and is kept.
+    """
+
+    display = _redact_step_text(text)
+    if display[: len("docker://")].lower() == "docker://":
+        authority, slash, path = display[len("docker://"):].partition("/")
+        if "@" in authority:
+            host = authority.rpartition("@")[2]
+            if slash or not _DOCKER_DIGEST_RE.fullmatch(host):
+                display = f"docker://<redacted>@{host}{slash}{path}"
+    return display
 
 
 def _step_label(step: dict[Any, Any], index: int) -> str:
@@ -1130,8 +1161,17 @@ def _step_label(step: dict[Any, Any], index: int) -> str:
     for key in ("id", "name"):
         value = step.get(key)
         if isinstance(value, str) and value.strip():
-            return _sanitize_sensitive_string(value.strip())
+            return _redact_step_text(value.strip())
     return f"steps[{index}]"
+
+
+def _unreadable_step(job: str, step: str, reason: str) -> dict[str, Any]:
+    """A ``steps`` shape GitHub would reject, recorded rather than read as empty.
+
+    Nothing from the value is published: it may be any text at all.
+    """
+
+    return {"job": job, "step": step, "uses": None, "form": "unresolved", "unresolved_reason": reason}
 
 
 def _step_action(job: str, step: dict[Any, Any], index: int) -> dict[str, Any] | None:
@@ -1160,7 +1200,7 @@ def _step_action(job: str, step: dict[Any, Any], index: int) -> dict[str, Any] |
     text = value.strip()
     if text.startswith("./"):
         return None
-    display = _sanitize_sensitive_string(text)
+    display = _redact_step_reference(text)
     if display != text:
         return {**entry, "uses": display, "unresolved_reason": "redacted"}
     if "${{" in text:
@@ -1224,13 +1264,20 @@ def _workflow_grant(data: Any, *, source: str) -> dict[str, Any] | None:
                         "uses": _sanitize_sensitive_string(uses.strip()),
                         "secrets_inherit": job.get("secrets") == "inherit",
                     })
-                steps = job.get("steps")
-                if isinstance(steps, list):
+                if "steps" in job:
+                    steps = job["steps"]
+                    if not isinstance(steps, list):
+                        step_actions.append(_unreadable_step(str(job_name), "steps", "steps_not_a_list"))
+                        steps = []
                     for index, step in enumerate(steps):
-                        if isinstance(step, dict):
-                            action = _step_action(str(job_name), step, index)
-                            if action is not None:
-                                step_actions.append(action)
+                        if not isinstance(step, dict):
+                            step_actions.append(
+                                _unreadable_step(str(job_name), f"steps[{index}]", "step_not_a_mapping")
+                            )
+                            continue
+                        action = _step_action(str(job_name), step, index)
+                        if action is not None:
+                            step_actions.append(action)
     pull_target = "pull_request_target" in triggers
     write_all = any(entry.endswith(": write-all") for entry in effective_write_scopes)
     unknown = not permission_contexts or any(

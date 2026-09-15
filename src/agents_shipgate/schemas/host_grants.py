@@ -477,7 +477,10 @@ class HostWorkflowStepActionV6(BaseModel):
 
     ``form`` is ``remote`` for ``owner/repo[/path]@ref``, ``docker`` for
     ``docker://…``, and ``unresolved`` for a value Shipgate does not resolve
-    to an action identity; ``unresolved_reason`` then says which. A local
+    to an action identity; ``unresolved_reason`` then says which. A job whose
+    ``steps`` is not a list, or a step that is not a mapping, is listed as
+    unresolved too, with no ``uses``, so an absent list still means the steps
+    were read and declare nothing. A local
     ``./…`` reference is not listed: composite actions remain unread (#701).
     ``step`` is the step's ``id``, else its ``name``, else ``steps[N]`` — the
     evidence a reviewer uses to find it, not part of the comparison.
@@ -490,7 +493,12 @@ class HostWorkflowStepActionV6(BaseModel):
     uses: str | None
     form: Literal["remote", "docker", "unresolved"]
     unresolved_reason: Literal[
-        "expression", "unsupported_reference", "not_a_string", "redacted"
+        "expression",
+        "unsupported_reference",
+        "not_a_string",
+        "redacted",
+        "steps_not_a_list",
+        "step_not_a_mapping",
     ] | None = None
 
 

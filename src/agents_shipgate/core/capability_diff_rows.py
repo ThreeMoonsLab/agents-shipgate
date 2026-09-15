@@ -56,10 +56,40 @@ def _step_action_changes(
 
 
 def _step_action_value(item: dict[str, Any]) -> str:
-    uses = "<not a string>" if item.get("uses") is None else str(item["uses"])
     reason = item.get("unresolved_reason")
     suffix = f" (unresolved: {str(reason).replace('_', ' ')})" if reason else ""
+    if reason in {"steps_not_a_list", "step_not_a_mapping"}:
+        return f"{item['job']}/{item['step']}: not a readable step{suffix}"
+    uses = "<not a string>" if item.get("uses") is None else str(item["uses"])
     return f"{item['job']}/{item['step']}: uses {uses}{suffix}"
+
+
+def _moved_between_jobs(
+    gone: list[dict[str, Any]], new: list[dict[str, Any]]
+) -> tuple[list[tuple[dict[str, Any], dict[str, Any]]], list[dict[str, Any]]]:
+    """Pair a reference that left one job with the same reference arriving in another.
+
+    What remains is a reference that changed, was added or was removed.
+    """
+
+    arriving = list(new)
+    moved: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    changed: list[dict[str, Any]] = []
+    for item in gone:
+        reference = step_action_key(item)[1:]
+        match = next(
+            (
+                other for other in arriving
+                if step_action_key(other)[1:] == reference and other["job"] != item["job"]
+            ),
+            None,
+        )
+        if match is None:
+            changed.append(item)
+        else:
+            arriving.remove(match)
+            moved.append((item, match))
+    return moved, [*changed, *arriving]
 
 #: Direction is deliberately coarse here. Presence is certain: a grant is
 #: in one side and not the other. *Width* is not — deciding that
@@ -142,7 +172,8 @@ def _why(
     grant: dict[str, Any],
     direction: str,
     *,
-    changed_steps: list[dict[str, Any]] | None = None,
+    gone_steps: list[dict[str, Any]] | None = None,
+    new_steps: list[dict[str, Any]] | None = None,
 ) -> str:
     """Why a reviewer should care, in the reviewer's terms.
 
@@ -182,6 +213,16 @@ def _why(
         for call in grant.get("reusable_calls") or []:
             if call.get("secrets_inherit"):
                 reasons.append(f"passes the caller's available secrets to {call['uses']}")
+        moved, changed_steps = _moved_between_jobs(gone_steps or [], new_steps or [])
+        if moved:
+            # The same declared code, now under another job's token context.
+            pairs = ", ".join(
+                f"{old['job']}/{old['step']} → {now['job']}/{now['step']}" for old, now in moved
+            )
+            reasons.append(
+                f"a step's action reference moved between jobs ({pairs}); the same "
+                "reference now runs with the receiving job's token permissions and adds no scope"
+            )
         if changed_steps:
             # A reference names code, not scopes: moving a SHA to a branch
             # changes what runs under the job's token, and adds no permission.
@@ -238,7 +279,7 @@ def capability_diff_rows(
                     step_actions=new_steps,
                 ),
                 direction=direction,
-                why=_why(grant, direction, changed_steps=[*gone_steps, *new_steps]),
+                why=_why(grant, direction, gone_steps=gone_steps, new_steps=new_steps),
                 severity=str(grant.get("risk") or "unknown"),
                 expands=expands,
             )

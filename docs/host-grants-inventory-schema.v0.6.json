@@ -1437,7 +1437,7 @@
     },
     "HostWorkflowStepActionV6": {
       "additionalProperties": false,
-      "description": "One step's declared action reference, read as text and never fetched.\n\n``form`` is ``remote`` for ``owner/repo[/path]@ref``, ``docker`` for\n``docker://\u2026``, and ``unresolved`` for a value Shipgate does not resolve\nto an action identity; ``unresolved_reason`` then says which. A local\n``./\u2026`` reference is not listed: composite actions remain unread (#701).\n``step`` is the step's ``id``, else its ``name``, else ``steps[N]`` \u2014 the\nevidence a reviewer uses to find it, not part of the comparison.",
+      "description": "One step's declared action reference, read as text and never fetched.\n\n``form`` is ``remote`` for ``owner/repo[/path]@ref``, ``docker`` for\n``docker://\u2026``, and ``unresolved`` for a value Shipgate does not resolve\nto an action identity; ``unresolved_reason`` then says which. A job whose\n``steps`` is not a list, or a step that is not a mapping, is listed as\nunresolved too, with no ``uses``, so an absent list still means the steps\nwere read and declare nothing. A local\n``./\u2026`` reference is not listed: composite actions remain unread (#701).\n``step`` is the step's ``id``, else its ``name``, else ``steps[N]`` \u2014 the\nevidence a reviewer uses to find it, not part of the comparison.",
       "properties": {
         "form": {
           "enum": [
@@ -1463,7 +1463,9 @@
                 "expression",
                 "unsupported_reference",
                 "not_a_string",
-                "redacted"
+                "redacted",
+                "steps_not_a_list",
+                "step_not_a_mapping"
               ],
               "type": "string"
             },

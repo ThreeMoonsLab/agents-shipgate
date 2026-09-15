@@ -147,6 +147,26 @@ def test_moving_a_reference_to_another_job_is_a_change():
     row, = _rows(before, after)
     assert "a/steps[0]: uses org/tool@v1" in row.before
     assert "b/steps[0]: uses org/tool@v1" in row.after
+    # The same reference, not different code (review nit 1).
+    assert "moved between jobs (a/steps[0] → b/steps[0])" in row.why
+    assert "names different code" not in row.why
+    assert not row.expands
+
+
+def test_a_moved_reference_and_a_changed_one_are_explained_separately():
+    before = _workflow(jobs={
+        "a": {"steps": [{"uses": "org/tool@v1"}, {"id": "fetch", "uses": "actions/checkout@v4"}]},
+        "b": {"steps": []},
+    })
+    after = _workflow(jobs={
+        "a": {"steps": [{"id": "fetch", "uses": "actions/checkout@main"}]},
+        "b": {"steps": [{"uses": "org/tool@v1"}]},
+    })
+
+    row, = _rows(before, after)
+    assert "moved between jobs (a/steps[0] → b/steps[0])" in row.why
+    assert "action reference changed (a/fetch)" in row.why
+    assert "a/steps[0]" not in row.why.split("action reference changed")[1]
 
 
 def test_a_duplicate_reference_is_counted():
@@ -537,3 +557,241 @@ def test_the_stop_hook_does_not_invent_an_interruption_for_the_change(pr, tmp_pa
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == ""
     assert any(call[0] == "diff" for call in _cli_calls(hooked))
+
+
+# --- review cycle 1: unreadable steps (P2-1) ---------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("steps", "label", "reason"),
+    [
+        ({"uses": "actions/checkout@v4"}, "steps", "steps_not_a_list"),
+        ("actions/checkout@v4", "steps", "steps_not_a_list"),
+        (None, "steps", "steps_not_a_list"),
+        (["actions/checkout@v4"], "steps[0]", "step_not_a_mapping"),
+        ([{"uses": "org/tool@v1"}, ["nested"]], "steps[1]", "step_not_a_mapping"),
+    ],
+    ids=["mapping", "string", "null", "string-item", "list-item"],
+)
+def test_steps_that_are_not_a_list_of_mappings_are_listed_as_unresolved(steps, label, reason):
+    grant = _workflow_grant(_workflow(jobs={"test": {"steps": steps}}), source=SOURCE)
+
+    entry, = [item for item in grant["step_actions"] if item["step"] == label]
+    assert entry == {
+        "job": "test", "step": label, "uses": None, "form": "unresolved", "unresolved_reason": reason,
+    }
+
+
+def test_a_job_without_steps_or_with_an_empty_list_declares_none():
+    for job in ({"uses": "org/repo/.github/workflows/build.yml@v1"}, {"steps": []}, {"runs-on": "ubuntu-latest"}):
+        assert "step_actions" not in _workflow_grant(_workflow(jobs={"test": job}), source=SOURCE)
+
+
+def test_an_unreadable_steps_shape_appearing_is_a_change_that_publishes_no_text():
+    canary = "ghp_" + "U" * 36
+    before = _workflow({"uses": "actions/checkout@v4"})
+    after = _workflow(jobs={"test": {"steps": {"uses": "actions/checkout@v4", "note": canary}}})
+
+    row, = _rows(before, after)
+    assert "test/steps: not a readable step (unresolved: steps not a list)" in row.after
+    assert "test/steps[0]: uses actions/checkout@v4" in row.before
+    assert not row.expands
+    assert canary not in json.dumps(_workflow_grant(after, source=SOURCE))
+    assert canary not in row.before + row.after + row.why
+
+
+def test_an_unreadable_step_reaches_the_published_inventory(tmp_path):
+    from agents_shipgate.cli.host_audit import host_audit_inventory
+
+    path = tmp_path / SOURCE
+    path.parent.mkdir(parents=True)
+    path.write_text("on: push\njobs:\n  test:\n    steps:\n      uses: actions/checkout@v4\n")
+
+    workflow, = [grant for grant in host_audit_inventory(tmp_path)["grants"] if grant["kind"] == "workflow"]
+    assert workflow["step_actions"] == [
+        {"job": "test", "step": "steps", "uses": None, "form": "unresolved", "unresolved_reason": "steps_not_a_list"}
+    ]
+
+
+# --- review cycle 1: token shapes and docker userinfo (P2-2) -----------------------
+
+_GITHUB_TOKEN = "ghp_" + "Q" * 36
+_AWS_KEY = "AKIA" + "ABCDEFGHIJKLMNOP"
+_SLACK_TOKEN = "xoxb-" + "123456789012-abcdefghij"
+
+
+@pytest.mark.parametrize(
+    ("value", "secret", "published"),
+    [
+        (f"org/tool@{_GITHUB_TOKEN}", _GITHUB_TOKEN, "org/tool@[REDACTED:github_token]"),
+        (f"org/{_AWS_KEY}@v1", _AWS_KEY, "org/[REDACTED:aws_access_key]@v1"),
+        (f"org/tool@{_SLACK_TOKEN}", _SLACK_TOKEN, "org/tool@[REDACTED:slack_token]"),
+        (
+            "docker://robotuser:HUNTER2CANARYPASS@registry.example.com/team/image:1.0",
+            "HUNTER2CANARYPASS",
+            "docker://<redacted>@registry.example.com/team/image:1.0",
+        ),
+        (
+            "docker://robotuser@registry.example.com/team/image:1.0",
+            "robotuser",
+            "docker://<redacted>@registry.example.com/team/image:1.0",
+        ),
+        (
+            "DOCKER://robotuser:HUNTER2CANARYPASS@registry.example.com",
+            "HUNTER2CANARYPASS",
+            "docker://<redacted>@registry.example.com",
+        ),
+    ],
+    ids=["github-token", "aws-key", "slack-token", "docker-password", "docker-user", "docker-host-only"],
+)
+def test_token_shapes_and_docker_userinfo_take_the_redacted_path(value, secret, published):
+    grant = _workflow_grant(_workflow({"uses": value}), source=SOURCE)
+
+    entry, = grant["step_actions"]
+    assert entry["form"] == "unresolved" and entry["unresolved_reason"] == "redacted"
+    assert entry["uses"] == published
+    assert secret not in json.dumps(grant)
+
+
+def test_a_token_shaped_step_name_is_redacted_in_its_label():
+    grant = _workflow_grant(_workflow({"name": f"deploy with {_GITHUB_TOKEN}", "uses": "org/deploy@v1"}), source=SOURCE)
+
+    entry, = grant["step_actions"]
+    assert entry["form"] == "remote" and entry["unresolved_reason"] is None
+    assert _GITHUB_TOKEN not in json.dumps(grant)
+
+
+@pytest.mark.parametrize(
+    ("value", "form"),
+    [
+        (f"actions/checkout@{PINNED}", "remote"),
+        ("actions/checkout@v4.2.1", "remote"),
+        ("actions/checkout@main", "remote"),
+        ("github/codeql-action/init@v3", "remote"),
+        ("org/actions/path/to/action@release/2026-09", "remote"),
+        ("aws-actions/configure-aws-credentials@v4", "remote"),
+        ("org/secret-scanner@v1", "remote"),
+        ("org/token-refresh@v2", "remote"),
+        ("slackapi/slack-github-action@v1.27.0", "remote"),
+        ("docker://alpine:3.18", "docker"),
+        ("docker://alpine@sha256:" + "a" * 64, "docker"),
+        ("docker://ghcr.io/org/image@sha256:" + "0123abcd" * 8, "docker"),
+        ("docker://registry.example.com:5000/team/image:1.0", "docker"),
+    ],
+)
+def test_ordinary_references_are_never_marked_redacted(value, form):
+    entry, = _workflow_grant(_workflow({"uses": value}), source=SOURCE)["step_actions"]
+
+    assert (entry["form"], entry["unresolved_reason"], entry["uses"]) == (form, None, value)
+
+
+def _output(result) -> str:
+    text = result.output
+    try:
+        text += result.stderr
+    except (AttributeError, ValueError):
+        pass
+    if result.exception is not None:
+        text += repr(result.exception)
+    return text
+
+
+@pytest.mark.parametrize(
+    ("reference", "canaries"),
+    [
+        (f"org/tool@{_GITHUB_TOKEN}", [_GITHUB_TOKEN]),
+        (
+            "docker://robotuser:HUNTER2CANARYPASS@registry.example.com/team/image:1.0",
+            ["HUNTER2CANARYPASS", "robotuser"],
+        ),
+    ],
+    ids=["github-token", "docker-userinfo"],
+)
+def test_no_canary_reaches_json_markdown_baselines_or_errors(tmp_path, reference, canaries):
+    repo = _repo(tmp_path, {SOURCE: _yaml({"uses": f"actions/checkout@{PINNED}"})})
+    baseline = tmp_path / "baseline.json"
+    saved = CliRunner().invoke(
+        app, ["audit", "--host", "--workspace", str(repo), "--save-baseline", "--baseline-file", str(baseline)]
+    )
+    assert saved.exit_code == 0, saved.output
+    _write(repo, {SOURCE: _yaml({"uses": reference})})
+
+    inventory_run = CliRunner().invoke(app, ["audit", "--host", "--workspace", str(repo), "--json"])
+    inventory = json.loads(inventory_run.stdout)
+    workflow, = [grant for grant in inventory["grants"] if grant["kind"] == "workflow"]
+    assert workflow["step_actions"][0]["unresolved_reason"] == "redacted"
+    assert any(
+        issue["host"] == "github" and issue["kind"] == "unsupported" and issue["blocking"]
+        for issue in inventory["issues"]
+    )
+
+    refused = tmp_path / "second.json"
+    texts = [_output(inventory_run), baseline.read_text()]
+    for args in (
+        ["audit", "--host", "--workspace", str(repo)],
+        ["audit", "--host", "--workspace", str(repo), "--drift", "--baseline-file", str(baseline), "--json"],
+        ["audit", "--host", "--workspace", str(repo), "--drift", "--baseline-file", str(baseline)],
+        ["audit", "--host", "--workspace", str(repo), "--save-baseline", "--baseline-file", str(refused)],
+        ["diff", "--workspace", str(repo), "--base", "main", "--json"],
+        ["diff", "--workspace", str(repo), "--base", "main"],
+    ):
+        texts.append(_output(CliRunner().invoke(app, args)))
+
+    # An incomplete inventory is never acknowledged, so no baseline holds it.
+    assert not refused.exists()
+    combined = "\n".join(texts)
+    for canary in canaries:
+        assert canary not in combined
+
+
+# --- review cycle 1: migrating a committed legacy baseline (P2-4) ------------------
+
+
+def test_the_documented_migration_from_a_legacy_baseline_holding_a_workflow(tmp_path):
+    from agents_shipgate.cli.host_audit import host_audit_inventory
+    from agents_shipgate.core.host_grants import build_host_grants_baseline, host_grants_sha256
+    from tests.test_preflight import _workspace
+
+    root = _workspace(tmp_path)
+    workflow = root / SOURCE
+    workflow.parent.mkdir(parents=True, exist_ok=True)
+    workflow.write_text(_yaml({"uses": f"actions/checkout@{PINNED}"}))
+    legacy = build_host_grants_baseline(host_audit_inventory(root))
+    legacy["host_grants_schema_version"] = "0.5"
+    for grant in legacy["inventory"]["grants"]:
+        if grant["kind"] == "workflow":
+            grant.pop("step_actions", None)
+    legacy["inventory_sha256"] = host_grants_sha256(legacy["inventory"])
+    path = root / ".agents-shipgate" / "host-grants.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    original = json.dumps(legacy, indent=2, sort_keys=True) + "\n"
+    path.write_text(original)
+    audit = ["audit", "--host", "--workspace", str(root), "--baseline-file", str(path)]
+
+    drift = CliRunner().invoke(app, [*audit, "--drift", "--json"])
+    payload = json.loads(drift.stdout)
+    assert payload["comparison_status"] == "incomparable"
+    assert payload["incomparable_reasons"] == ["baseline_workflow_step_actions_unavailable"]
+    assert payload["has_drift"] is None and payload["next_action"] is None
+    assert CliRunner().invoke(app, [*audit, "--drift", "--fail-on-drift", "--json"]).exit_code == 20
+
+    preflight = CliRunner().invoke(app, ["preflight", "--workspace", str(root), "--json"])
+    assert preflight.exit_code == 0, preflight.output
+    signal, = [item for item in json.loads(preflight.stdout)["signals"] if item["kind"] == "host_grant_drift"]
+    assert (signal["severity"], signal["actor"]) == ("high", "human")
+    assert "baseline_workflow_step_actions_unavailable" in json.dumps(signal)
+
+    refused = CliRunner().invoke(app, [*audit, "--save-baseline"])
+    assert refused.exit_code != 0
+    assert "Refusing to overwrite existing host-grants baseline" in _output(refused)
+    assert "unsupported_baseline_schema" in _output(refused)
+    assert path.read_text() == original
+
+    # Steps 2-4 of the note: move it aside, re-save, and drift is comparable.
+    path.rename(path.with_name("host-grants.v0.5.json"))
+    resaved = CliRunner().invoke(app, [*audit, "--save-baseline"])
+    assert resaved.exit_code == 0, resaved.output
+    assert json.loads(path.read_text())["host_grants_schema_version"] == "0.6"
+    after = json.loads(CliRunner().invoke(app, [*audit, "--drift", "--json"]).stdout)
+    assert (after["comparison_status"], after["has_drift"]) == ("comparable", False)
+    assert path.with_name("host-grants.v0.5.json").read_text() == original

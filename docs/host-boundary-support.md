@@ -76,8 +76,11 @@ scope was added, and it never marks the row as widening. Reordering or renaming
 steps that declare the same references is quiet. A local `./…` reference is
 not part of this read and stays unread (#701). An expression, a string in
 neither form, or a non-string value is listed as `unresolved` with its reason:
-its text is compared, and what it evaluates to is not. A reference containing
-credential-shaped text is published redacted and cannot be compared, so it
+its text is compared, and what it evaluates to is not. A `steps` value that is
+not a list of mappings is listed as `unresolved` as well, and none of its text
+is published. A reference containing credential-shaped text — a token such as
+`ghp_…` or `AKIA…`, a credential assignment, or `docker://user:password@…`
+userinfo — is published redacted and cannot be compared, so it
 makes GitHub coverage partial and a comparison of that changed workflow refuses.
 
 A hook row describes the file, not the host. A `hooks.json` found under
