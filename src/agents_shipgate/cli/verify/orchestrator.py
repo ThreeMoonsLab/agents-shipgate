@@ -1722,6 +1722,8 @@ def _base_capability_lock_cache_path(cache_report: Path) -> Path:
 # the run. Both go through ``read_regular_file_beneath`` so a FIFO or other
 # non-regular entry is refused instead of blocking verify (#577).
 _MAX_CACHED_CAPABILITY_LOCK_BYTES = 64 * 1024 * 1024
+# A receipt over this cap is refused like any unreadable one, which fails
+# closed: the publish-only route is simply not offered.
 _MAX_DECLARATION_CONTINUATION_BYTES = 1024 * 1024
 
 
