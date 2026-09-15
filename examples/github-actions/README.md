@@ -26,21 +26,31 @@ Copy-paste-ready workflows. Each one is a complete file — drop it into `.githu
 
 [`14-host-only-advisory-pr.yml`](14-host-only-advisory-pr.yml) runs the comparison a local `agents-shipgate diff` makes — the PR against its base branch in Git history — on every pull request, with no `shipgate.yaml` and no saved baseline. It needs no inputs beyond the advisory recipe's: with no manifest present, the Action's `verify` takes its manifest-free host route.
 
-Each run leaves one comment, which later pushes update in place rather than adding new ones. Its summary is one of:
+Each run leaves one comment, which later pushes update in place rather than adding new ones. Its human summary opens with one of:
 
 - **Changes** — `Repository-declared host capability changes:`, then one entry per changed grant with before → after and why it matters.
-- **No change** — `No static host-grant changes detected in the covered comparison.`
-- Either of those can add **Not compared** — `Not compared: unchanged in this change and not read, so no claim is made about them:` and the sources it skipped. Nothing is claimed about those.
-- **Cannot compare** — `Host capability comparison unavailable:` with the reason, such as `head_inventory_incomplete`. That is an input limit, not a finding and not a pass.
+- **No change** — `Repository-declared host capability changes:`, then `No static host-grant changes detected in the covered comparison. No verdict is implied.`
+- Either of those can add **Not compared** — `Not compared: unchanged in this change and not read, so no claim is made about them:` and the sources it skipped, such as an unparseable `.cursor/mcp.json` the PR did not touch. Nothing is claimed about those.
+- **Cannot compare** — `Host capability comparison unavailable:` with the reason, such as `head_inventory_incomplete` for a configuration file the PR leaves unreadable, or `shallow_history` for a clone without the base branch's history. That is an input limit, not a finding and not a pass.
 
-Every summary ends `Advisory: no application release policy configured. This comparison grants no merge authority.` The job does not fail on what it finds, so a failed job is a setup problem — the install step, a missing base branch — never a review result. `verifier.json`, `agent-handoff.json` and `pr-comment.md` are in the `agents-shipgate-report` artifact, and `verifier.json`'s `host_comparison` carries the same rows, `comparison_status` and `unchanged_limits` as `agents-shipgate diff --json`.
+Next comes `Advisory: no application release policy configured. This comparison grants no merge authority.`, then — when the comparison was unavailable — the next actor, action and command, and an `Evidence:` line naming `verifier.json`. An agent instruction block follows the summary. `verifier.json`, `agent-handoff.json` and `pr-comment.md` are in the `agents-shipgate-report` artifact, and `verifier.json`'s `host_comparison` carries the same `rows`, `comparison_status`, `unchanged_limits` and `incomparable_reasons` as `agents-shipgate diff --json` on the same refs.
+
+**What fails the job.** Nothing the comparison finds, and not missing history: a shallow clone or an unfetched base branch shows in the comment as `Host capability comparison unavailable`. The job does fail on setup and execution errors, which are not review results:
+
+- the install step fails, for example when PyPI cannot be reached;
+- the CLI exits non-zero, which the Action applies as the job's exit code — for example when a PR adds an invalid `shipgate.yaml` at the root, which switches off the host-only route, and `verify` exits 2;
+- posting the comment hits a GitHub API error other than a missing permission (403 or 404), including rate limiting.
+
+The `merge_verdict` and `agent_control_state` outputs are not a pass/fail signal for this recipe: with no application release policy, a docs-only PR still reports `unknown` and `agent_action_required`.
 
 - **Permissions.** `contents: read` checks out the repository; `pull-requests: write` is only for the comment. Without it — including on every PR from a fork, which `pull_request` gives a read-only token — the comment step writes the same review to the job summary and says publication was unavailable. Do not switch to `pull_request_target` to reach forks: it runs with a write token against untrusted PR contents.
 - **History.** Keep `fetch-depth: 0`. With `diff_base: target` the Action compares against `origin/<the PR's base branch>`, so a PR into `develop` is compared with `develop`. The Action never fetches.
-- **What runs.** `shipgate_version` installs the pinned release from PyPI, and the Action's own code comes from the pinned tag. Nothing from the PR is installed or executed, and no agent, tool or MCP server is started.
+- **One run per PR.** The `concurrency` group runs one job per pull request and cancels the older run when a new push arrives, so two quick pushes cannot both create a comment, and an older result cannot overwrite a newer one.
+- **What runs.** `shipgate_version: '1.0.0'` installs `agents-shipgate==1.0.0` from PyPI; pip resolves that package's dependencies within their declared ranges when the job runs, so they are not frozen. The Action's steps come from the `v1.0.0` tag, which can be moved. For an immutable ref, replace `v1.0.0` in the `uses:` line with the commit it names, `bace7c1871834e0b3eb98e6f60c0627725c53a59`, and keep `# v1.0.0` as a trailing comment; that commit is what `agents-shipgate init --ci` from the 1.0.0 release writes. No agent, tool or MCP server is started.
+- **Known issue in the `v1.0.0` Action.** Its install step runs `python -m pip` inside the checkout, so a PR that adds a `pip/` package runs its own code before the engine is installed and can forge this job's result. A fork's PR has only a read-only token, and a same-repository author can already change the workflow, but do not read the result as independent of the PR until the next release's Action, which runs Python with `-P` so nothing is imported from the checkout.
 - **Not a gate.** It adds no required check, failure policy or branch protection. Making a result blocking is a separate, explicit choice (recipes 07, 08 and 10).
 
-Evidence so far: on 2026-09-14 this recipe's inputs were run through the Action's own run step against this repository's source, on repositories with no manifest (`tests/test_host_only_advisory_recipe.py`), and the same `verify` invocation was run with the published `1.0.0` from PyPI. A GitHub-hosted run on a real pull request is still outstanding ([#780](https://github.com/ThreeMoonsLab/agents-shipgate/issues/780), [#570](https://github.com/ThreeMoonsLab/agents-shipgate/issues/570)).
+A GitHub-hosted run of this recipe on a real pull request is still outstanding; see [#780](https://github.com/ThreeMoonsLab/agents-shipgate/issues/780) and [#570](https://github.com/ThreeMoonsLab/agents-shipgate/issues/570).
 
 ## Permissions
 
@@ -67,6 +77,8 @@ For reproducible CI, pin both the action and the underlying CLI:
 ```
 
 When `shipgate_version` is empty the action installs the CLI from the action source — convenient for local action development, less reproducible for CI.
+
+`shipgate_version` pins the `agents-shipgate` package only; pip resolves its dependencies when the job runs. A tag such as `v1.0.0` can be moved, so the hardened form replaces it with the commit it names and keeps the tag as a comment — see *What runs* under [Host-only advisory PR review](#host-only-advisory-pr-review).
 
 ## Action outputs
 

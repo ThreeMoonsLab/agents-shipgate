@@ -96,9 +96,11 @@ def install_wheel(*, workspace: Path, wheel: str, sha256: str, version: str = ""
             ]:
                 raise ValueError("Candidate wheel METADATA disagrees with its filename")
         # Reinstall even when the runner already has the same version: its
-        # bytes may be a different development build of that version.
+        # bytes may be a different development build of that version. `-P`:
+        # this runs in GITHUB_WORKSPACE, and `-m` would otherwise import a
+        # `pip/` package from the pull request's checkout instead of pip.
         subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--force-reinstall", "--no-deps", str(snapshot)],
+            [sys.executable, "-P", "-m", "pip", "install", "--force-reinstall", "--no-deps", str(snapshot)],
             check=True,
         )
 

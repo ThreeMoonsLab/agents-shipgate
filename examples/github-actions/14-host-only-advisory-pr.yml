@@ -4,16 +4,27 @@
 # (.claude/settings.json, .mcp.json, .codex/, .cursor/, .vscode/mcp.json,
 # hooks, workflow permissions) and which has no shipgate.yaml. Each run
 # compares the PR with its base branch in Git history, posts one comment that
-# later pushes update in place, uploads the artifacts, and never fails the job.
+# later pushes update in place, and uploads the artifacts.
 #
+# What the comparison finds never fails the job, and missing base history is
+# reported in the comment as "Host capability comparison unavailable", not as
+# a failure. The job does fail when the install fails, when the CLI exits
+# non-zero (for example a PR that adds an invalid shipgate.yaml at the root,
+# which turns the host-only route off), or when posting the comment hits a
+# GitHub API error other than a missing permission.
+#
+# - concurrency: one run per PR at a time; a newer push cancels the older run,
+#   so an older result cannot overwrite the newer comment.
 # - fetch-depth: 0 — the comparison reads the base branch from this clone; the
 #   Action never fetches.
 # - pull_request, not pull_request_target: a fork's PR gets a read-only token,
 #   so the comment cannot be posted there and the same review goes to the job
 #   summary instead. pull_request_target would run with a write token on
 #   untrusted PR contents.
-# - shipgate_version installs this pinned release from PyPI, never package
-#   code from the PR's checkout.
+# - shipgate_version pins the agents-shipgate package from PyPI; pip still
+#   resolves its dependencies at run time, and the @v1.0.0 tag is a movable
+#   ref. The README shows the full-commit-SHA form, and why the v1.0.0 Action's
+#   install step can still import files from the PR's checkout.
 #
 # See examples/github-actions/README.md § Host-only advisory PR review.
 name: Agents Shipgate (host-only advisory)
@@ -24,6 +35,10 @@ on:
 permissions:
   contents: read
   pull-requests: write   # the PR comment only
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   shipgate:

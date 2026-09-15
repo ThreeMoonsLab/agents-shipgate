@@ -788,9 +788,12 @@ deciding, and `verify --preview --json` answers it for one workspace.
 **Host-only repository — no `shipgate.yaml`?** Use
 [`examples/github-actions/14-host-only-advisory-pr.yml`](../examples/github-actions/14-host-only-advisory-pr.yml)
 instead of the block below. It runs the comparison `agents-shipgate diff`
-makes on every PR, keeps one comment up to date, and never fails the job;
+makes on every PR and keeps one comment up to date. What it finds never fails
+the job, and missing base history shows as `Host capability comparison
+unavailable`;
 [its notes](../examples/github-actions/README.md#host-only-advisory-pr-review)
-cover permissions, forks and what each comment means.
+cover the setup errors that do fail it, permissions, forks, pinning and what
+each comment means.
 
 With a manifest, drop this into `.github/workflows/agents-shipgate.yml`. It runs
 on every PR, posts the verdict as a comment, uploads artifacts, and never fails

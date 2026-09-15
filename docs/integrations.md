@@ -7,11 +7,15 @@
 A repository whose pull requests change coding-agent host configuration needs
 no `shipgate.yaml` for PR review. Use
 [`examples/github-actions/14-host-only-advisory-pr.yml`](../examples/github-actions/14-host-only-advisory-pr.yml):
-the Action compares each PR with its base branch in Git history, posts one
-comment that later pushes update, and never fails the job. The
+the Action compares each PR with its base branch in Git history and posts one
+comment that later pushes update. What it finds never fails the job, and
+missing base history shows in the comment as `Host capability comparison
+unavailable`. The job does fail on a setup or execution error — the install, a
+non-zero CLI exit such as an invalid `shipgate.yaml` added by the PR, or a
+comment API error other than a missing permission. The
 [examples README](../examples/github-actions/README.md#host-only-advisory-pr-review)
-covers permissions, forks and what each comment means. The recipes below apply
-to a repository with a `shipgate.yaml`.
+covers those, permissions, forks, pinning and what each comment means. The
+recipes below apply to a repository with a `shipgate.yaml`.
 
 ### With a manifest
 
