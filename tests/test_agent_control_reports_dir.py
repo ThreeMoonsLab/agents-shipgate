@@ -21,6 +21,7 @@ The rules pinned here:
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import shutil
@@ -309,6 +310,197 @@ def test_verify_format_control_reads_its_own_outside_output(
     payload = json.loads(result.stdout)
     assert payload["control_state"] == "complete", payload
     assert payload["current_control_id"] == _pointer_id(outside)
+
+
+def _dirty(repo: Path, kind: str) -> str | None:
+    """Leave one uncommitted change of ``kind``; return the path Git reports."""
+
+    if kind == "tracked":
+        path = repo / "tools.json"
+        path.write_text(path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        return "tools.json"
+    if kind == "untracked":
+        (repo / "agent.py").write_text("print('hello')\n", encoding="utf-8")
+        return "agent.py"
+    return None
+
+
+def _outcome(result) -> tuple[int, str]:
+    """A refresh's exit code and its refusal line, or its control state."""
+
+    if result.exit_code == 0:
+        return 0, json.loads(result.stdout)["control_state"]
+    lines = [
+        line
+        for line in _plain(result.output).splitlines()
+        if line.startswith("Current control is unavailable")
+    ]
+    assert lines, _plain(result.output)
+    return result.exit_code, lines[-1]
+
+
+def _run_into(tmp_path: Path, where: str, before: str, *extra: str):
+    """One verify of a fresh repository, into its own reports or a sibling.
+
+    The workspace is named relative to the caller, who stands in the parent
+    directory: the layout a user writing reports beside a checkout has.
+    """
+
+    repo = _committed_sample(tmp_path / where / "repo")
+    dirty = _dirty(repo, before)
+    workspace = f"{where}/repo"
+    reports = repo / REPORTS
+    args = ["verify", "--workspace", workspace, "--config", "shipgate.yaml"]
+    if where == "outside":
+        reports = tmp_path / where / "sibling-reports"
+        args += ["--out", str(reports)]
+    verified = runner.invoke(app, [*args, *extra, "--format", "control"], env=ENV)
+    assert verified.exit_code == 0, _plain(verified.output)
+    verifier = json.loads((reports / "verifier.json").read_text(encoding="utf-8"))
+    return repo, workspace, reports, dirty, json.loads(verified.stdout), verifier
+
+
+@pytest.mark.parametrize("before", ["clean", "tracked", "untracked"])
+def test_plain_verify_into_an_outside_directory_matches_the_in_repository_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, before: str
+):
+    """The normal local loop — no `--head` — with reports written beside the checkout.
+
+    The writing run handed the sibling directory to Git as a change-set
+    exclusion; the helper refused it, the refusal was swallowed, and the run
+    recorded no input census: exit 2, "input directory capture is
+    unavailable", and a refresh that could never succeed (#575 review). Nothing
+    outside the repository can appear in its change set, so the run and its
+    refresh must answer exactly as they do for reports inside it — including
+    what a change before or after the run does.
+    """
+
+    monkeypatch.chdir(tmp_path)
+    outcomes = {}
+    for where in ("inside", "outside"):
+        repo, workspace, reports, dirty, payload, verifier = _run_into(
+            tmp_path, where, before
+        )
+        assert payload["control_state"] == "complete", payload
+        assert payload["current_control_id"] == _pointer_id(reports)
+        # A change made before the run is part of what it decided, not hidden.
+        if dirty is not None:
+            assert dirty in verifier["changed_files"], verifier["changed_files"]
+
+        refreshed = _control("--workspace", workspace, "--reports-dir", str(reports))
+        assert _outcome(refreshed) == (0, "complete")
+        assert json.loads(refreshed.stdout)["current_control_id"] == payload[
+            "current_control_id"
+        ]
+
+        # A change made after the run is one it never saw.
+        unseen = _dirty(repo, "tracked" if before == "untracked" else "untracked")
+        drifted = _outcome(
+            _control("--workspace", workspace, "--reports-dir", str(reports))
+        )
+        assert drifted[0] == 4
+        assert "(workspace_changed)" in drifted[1] and f"({unseen})" in drifted[1]
+        outcomes[where] = (sorted(verifier["changed_files"]), drifted)
+
+    assert outcomes["outside"] == outcomes["inside"]
+
+
+@pytest.mark.parametrize("before", ["clean", "untracked"])
+def test_preview_into_an_outside_directory_matches_the_in_repository_preview(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, before: str
+):
+    """`verify --preview` reads the working tree and binds its overlay by the same rule.
+
+    With a sibling `--out` it could read neither: the preview evaluated an empty
+    change set ("Preview could not read the working tree"), its pointer bound no
+    overlay, and an untracked `agent.py` the preview had in fact been run on was
+    then reported as "an uncommitted change this decision never saw" — on every
+    rerun (#575 review). It must see what an in-repository preview sees and its
+    pointer must refresh the same way.
+    """
+
+    monkeypatch.chdir(tmp_path)
+    outcomes = {}
+    for where in ("inside", "outside"):
+        repo, workspace, reports, dirty, payload, verifier = _run_into(
+            tmp_path, where, before, "--preview"
+        )
+        assert "could not read the working tree" not in json.dumps(verifier)
+        if dirty is not None:
+            assert dirty in verifier["changed_files"], verifier["changed_files"]
+        refreshed = _outcome(
+            _control("--workspace", workspace, "--reports-dir", str(reports))
+        )
+        _dirty(repo, "tracked")
+        drifted = _outcome(
+            _control("--workspace", workspace, "--reports-dir", str(reports))
+        )
+        assert drifted[0] == 4
+        assert "(workspace_changed)" in drifted[1] and "(tools.json)" in drifted[1]
+        outcomes[where] = (
+            payload["control_state"],
+            payload["next_action"]["why"],
+            sorted(verifier["changed_files"]),
+            refreshed,
+            drifted,
+        )
+
+    assert outcomes["outside"] == outcomes["inside"]
+    assert "never saw" not in outcomes["outside"][1]
+
+
+def test_only_a_directory_disjoint_from_the_repository_loses_its_exclusion(
+    tmp_path: Path,
+):
+    """One containment rule for every output directory handed to Git."""
+
+    from agents_shipgate.cli.current_workspace import worktree_exclusion
+    from agents_shipgate.cli.verify.git import working_tree_context
+    from agents_shipgate.core.errors import ConfigError
+
+    repo = _committed_sample(tmp_path / "repo")
+    inside = repo / REPORTS
+
+    # Inside the repository — however it is spelled — the exclusion is kept.
+    assert worktree_exclusion(repo, inside) == inside
+    folded = repo / ".." / "repo" / REPORTS
+    assert worktree_exclusion(repo, folded) == folded
+    # A name that merely shares the repository's prefix is not inside it.
+    sibling = tmp_path / "repo-reports"
+    assert worktree_exclusion(repo, sibling) is None
+
+    # The root and its parent are still handed over, and still refused.
+    for refused in (repo, tmp_path):
+        assert worktree_exclusion(repo, refused) == refused
+        with pytest.raises(ConfigError):
+            working_tree_context(repo, exclude=worktree_exclusion(repo, refused))
+
+    # Dropping the exclusion can only surface changes, never hide one.
+    (repo / "agent.py").write_text("print('hello')\n", encoding="utf-8")
+    changed, _ = working_tree_context(repo, exclude=worktree_exclusion(repo, sibling))
+    assert "agent.py" in changed
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Directory symlinks need privileges on Windows.")
+def test_a_symlinked_output_spelling_keeps_the_exclusion_rule_it_had(tmp_path: Path):
+    """Only a directory disjoint by both spellings changes behaviour."""
+
+    from agents_shipgate.cli.current_workspace import worktree_exclusion
+
+    repo = _committed_sample(tmp_path / "repo")
+    inside = repo / REPORTS
+    inside.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    # Spelled outside, resolving inside: still excluded, exactly as before.
+    into_repo = tmp_path / "link-into-repo"
+    into_repo.symlink_to(inside, target_is_directory=True)
+    assert worktree_exclusion(repo, into_repo) == into_repo
+    # Spelled inside, resolving outside: still handed to the Git helper.
+    out_of_repo = repo / "link-out-of-repo"
+    out_of_repo.symlink_to(elsewhere, target_is_directory=True)
+    assert worktree_exclusion(repo, out_of_repo) == out_of_repo
 
 
 def test_verify_and_agent_control_share_one_default_rule(tmp_path: Path):

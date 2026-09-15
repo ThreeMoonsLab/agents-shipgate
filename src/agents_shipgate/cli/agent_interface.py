@@ -23,6 +23,7 @@ from agents_shipgate.core.current_control import (
     read_current_control,
 )
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.invocation import render_command
 from agents_shipgate.schemas.contract import DEFAULT_PATHS
 from agents_shipgate.schemas.current_control import (
     CURRENT_CONTROL_ARTIFACT_NAME,
@@ -209,7 +210,7 @@ def control(
         )
     except CurrentControlUnavailable as exc:
         guidance = (
-            "Re-run `agents-shipgate verify` and read "
+            f"Re-run `{render_command(['verify'])}` and read "
             f"{reports_dir / CURRENT_CONTROL_ARTIFACT_NAME} again. Until it "
             "reads cleanly, treat completion, merge, and any cached must_stop "
             "as unavailable rather than acting on a remembered result."
