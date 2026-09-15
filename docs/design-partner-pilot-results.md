@@ -76,7 +76,10 @@ permission change, so it was not itself under review.
 The published and source-tree runs returned identical cells: runtime contract
 39, host-grant inventory schema 0.5, `check` blocking with four violations and
 visible coverage, the host-only `init` handoff, manifest-free `verify` exiting
-0 with six advisory rows, and drift naming all four expansion signals. That
+0 with six advisory rows, drift naming all four expansion signals, and `diff`
+against the fixture base exiting 0 with `comparison_status: comparable` and the
+same six rows, four of them widening — byte-identical `--json` apart from the
+workspace path. That
 the published build and this tree answer alike on this change class is a
 measurement, not an assumption carried over from the source column.
 
@@ -95,6 +98,7 @@ expansion signals. It shipped as a qualified release.
 | `init --write --ci` Action pin | not applicable — host audit handoff, no workflow written | `@v0.16.0+preview.20260903.gb61aca7` — **no such tag** (the release tag is `preview-`-prefixed) | not applicable — host audit handoff, no workflow written |
 | `init` then `verify` on this Route H repo | `init` exits 0 with audit handoff; manifest-free `verify` exits 0 and names six advisory change rows | exit 2 | `init` exits 0 with audit handoff; manifest-free `verify` exits 0 and names six advisory change rows |
 | `audit --host --save-baseline` → `--drift` | works, all 4 expansion signals | works | works, all 4 expansion signals |
+| `diff` against the fixture base (Git-backed Route H) | exit 0, `comparable`, 6 rows, 4 widening | not measured | exit 0, `comparable`, the same 6 rows |
 | Qualification | **none** — advisory channel, no qualification claim | **none** — no adjudicated corpus, nothing signed | not a distributed build |
 
 Both 2026-09-14 reruns reproduced four boundary violations (`block` /
@@ -227,7 +231,58 @@ and rechecked on 2026-09-14 against the published `v1.0.0`.
 | The runbook required a manifest on a route that does not need one | [#498](https://github.com/ThreeMoonsLab/agents-shipgate/issues/498) | Fixed in this runbook |
 | The runbook required a contract floor no published build carries | [#497](https://github.com/ThreeMoonsLab/agents-shipgate/issues/497) | Fixed in this runbook and, independently, by #497's channel table |
 
+## Standing decision — 2026-09-14: **narrow**
+
+The successor to the 2026-09-05 checkpoint below, recorded in
+[#571](https://github.com/ThreeMoonsLab/agents-shipgate/issues/571) after
+`v1.0.0` was published and the owner accepted the post-release adoption plan
+([#778](https://github.com/ThreeMoonsLab/agents-shipgate/issues/778)). It
+changes the channel and the route. It does not change the pre-registered
+[decision rule](design-partner-verifier-pilot.md#decision-rule), the
+first-value definition, the consent rules or any denominator.
+
+Applying the ladder to today's counts gives the same rung as before: every
+denominator is 0, so rung 1 (`first_value` ≥ 2) and rung 2
+(`first_valid_result` ≥ 1) do not match, and rung 3 takes it — **narrow**, now
+to one entry route on the published channel.
+
+- **Channel: the published `v1.0.0` advisory release** for non-blocking Route H
+  review, installed with `pipx install agents-shipgate`. Record the exact
+  installed version for each observation and any later patch upgrade.
+  Qualification stays `none` unless separate evidence establishes otherwise,
+  and the invitation says so. The preview-only invitation and the
+  released-channel withhold below are superseded for this experiment; they are
+  kept as recorded, not deleted, and no historical preview is reclassified.
+- **Route: Git-backed Route H.** The partner compares a real change with
+  `agents-shipgate diff` against the PR's base in Git history — no manifest,
+  policy, previously committed baseline or legacy skill. The route's artifact
+  mapping is frozen in the runbook's
+  [Definition of running](design-partner-verifier-pilot.md#definition-of-running)
+  before the first observation; results recorded under the earlier
+  baseline-route definition keep it.
+- **Persona and workflow to invite:** unchanged — the developer or
+  platform/DevEx reviewer who already meets permission and MCP changes in pull
+  requests, with base/head history and another reviewer.
+- **Blocking CI:** no partner has asked for it, and nobody will be asked to
+  enable it before first value and repeat use are evidenced. An advisory PR
+  recipe is offered only after first value.
+
+What the published build does on this route was measured, not assumed: on the
+dry-run fixture, `v1.0.0` installed outside a checkout and this source tree
+return the same six `diff` rows (see the matrix above). That is one synthetic
+fixture, not an external observation.
+
+**What would change this decision.** Three attempted external repositories,
+with or without a favourable result, replace this checkpoint with the terminal
+decision under the ladder. A published build that changes what `diff` reports
+on this change class re-dates the dry run before it is cited again. Too few
+recruits or eligible changes is recorded as a dated shortfall and a narrowing,
+never as retention.
+
 ## Standing decision — 2026-09-05: **narrow**
+
+Superseded for the advisory Route H experiment by the 2026-09-14 decision
+above, and kept here as it was recorded.
 
 This is a checkpoint against the pre-registered
 [decision rule](design-partner-verifier-pilot.md#decision-rule), not the

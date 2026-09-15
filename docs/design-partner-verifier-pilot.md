@@ -5,9 +5,9 @@ repositories through an actual review workflow: someone introduces a
 capability or permission change, someone else reviews it, and the next
 eligible change tests whether the integration stayed useful.
 
-It teaches the **current** loop, which is ahead of the newest published
-release — settle [which build a partner is on](#which-build-this-runbook-is-for)
-and [which route their repository is on](#routes-under-test) before you quote a
+It teaches the loop the newest published release, `v1.0.0`, runs — settle
+[which build a partner is on](#which-build-this-runbook-is-for) and
+[which route their repository is on](#routes-under-test) before you quote a
 command at them. Those two choices decide what the partner can see, and both
 belong in the tracker.
 
@@ -41,13 +41,16 @@ prerequisites, and mixing them in one denominator hides which one earned use.
 | Who | Any team whose repo declares what its coding agents may do | Teams that build and declare a tool surface in-repo |
 | Manifest | None | `shipgate.yaml` required |
 | Inputs | `.mcp.json`, `.claude/settings.json`, `.codex/`, `.cursor/`, hooks, workflow scopes | MCP/OpenAPI exports, framework source, plus the host inputs |
-| Per-change surface | `check`, and `audit --host --drift` against a committed baseline | `verify --base … --head …` |
-| First result | `audit --host` | `verify --preview` |
+| Per-change surface | `agents-shipgate diff` against the PR's base in Git history; optionally `audit --host --drift` against a committed baseline, and `check` for a coding agent | `verify --base … --head …` |
+| First result | `agents-shipgate diff` | `verify --preview` |
 
 Do not require a partner on Route H to maintain a manifest. `init --write`
 on a repository with no tool surface writes a `CHANGE_ME` scaffold, and the
 `verify` that follows exits non-zero on it — that is a setup dead end, not a
-verdict, and it must be recorded as one if it happens.
+verdict, and it must be recorded as one if it happens. Nor require a saved
+baseline: `diff` supplies the base side from Git, so the partner's first step
+is the [quickstart's host-change review](quickstart.md#review-a-host-configuration-change)
+on a real PR.
 
 Include tool-building teams on Route A only where a real partner already has
 that workflow. Do not recruit for Route A to balance the cohort.
@@ -83,9 +86,17 @@ result** when all of these are true:
 - The change under review touches a capability: tools, prompts, MCP/OpenAPI
   surfaces, permissions, hooks, policy, CI, `shipgate.yaml`, or another trust
   root.
-- The route produced its artifact: on Route H a host-grant inventory and, for
-  a change, a drift record against a committed baseline; on Route A
-  `agent-handoff.json`, `verifier.json`, `pr-comment.md` and `report.json`.
+- The route produced its artifact. On **Git-backed Route H**, the route from
+  2026-09-14: a complete, comparable `agents-shipgate diff` result about the
+  intended base and head — changed rows, or a covered no-change answer, with
+  `comparison_status: comparable`. An incomplete comparison (`incomparable`),
+  missing or shallow history, an install or load failure, or abandonment
+  counts in `attempted` with its reason and is never a first valid result;
+  recovery information it offered is recorded separately. Observations
+  recorded before 2026-09-14 under the **baseline Route H** definition — a
+  host-grant inventory and, for a change, a drift record against a committed
+  baseline — keep that definition. On Route A: `agent-handoff.json`,
+  `verifier.json`, `pr-comment.md` and `report.json`.
 - On Route A, `shipgate.yaml` has been reviewed and has no unresolved
   `CHANGE_ME` values, **and every human-owned one was filled by a person**. On
   a build that emits the agent-control envelope `init` routes those itself —

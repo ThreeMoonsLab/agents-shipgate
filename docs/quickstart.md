@@ -1,6 +1,15 @@
 # Quickstart
 
-One review, end to end, on a sample committed to this repository.
+Two ways in, depending on what the pull request in front of you changes:
+
+- **What a coding agent may do** — `.claude/settings.json`, `.mcp.json`,
+  `.codex/`, `.cursor/` or VS Code MCP configuration. Start at
+  [Review a host-configuration change](#review-a-host-configuration-change):
+  one command, no manifest.
+- **A tool surface your repository builds** — MCP or OpenAPI exports,
+  framework tool definitions. Follow
+  [One review, end to end](#one-review-end-to-end), on a sample committed to
+  this repository.
 
 By the end you should be able to say four things about the change under
 review, from the artifacts alone:
@@ -14,9 +23,9 @@ The target is about 10 minutes. That is a target used to size this guide, not
 a measured result — observed times are recorded in
 [`design-partner-pilot-results.md`](design-partner-pilot-results.md).
 
-Nothing here asks you to author a policy first. If you are evaluating a
+Nothing here asks you to author a policy first. If you are reviewing a
 coding-agent host boundary rather than building a tool surface, you never need
-a manifest at all — see [Route H](#route-h--no-manifest).
+a manifest at all.
 
 ## Which build you get
 
@@ -75,6 +84,132 @@ an older runtime, install the CLI with `pipx` or `uv` against a 3.12+
 interpreter rather than into the project environment — your agent project does
 not need Python 3.12 itself.
 
+## Review a host-configuration change
+
+Use this when a pull request changes what a coding agent may do and you want
+to know what changed before deciding anything. No manifest, policy, saved
+baseline, skill or account is involved, and nothing is written to the
+repository.
+
+### 1. Make the base branch visible to Git
+
+`diff` reads history from your clone and never fetches. Check out the PR, and
+make sure its base branch exists locally or as a remote-tracking ref:
+
+```bash
+git fetch origin main        # your repository's base branch
+git switch <pr-branch>
+```
+
+### 2. Run it
+
+```bash
+agents-shipgate diff
+```
+
+With no `--base`, `diff` uses the repository's detected default branch and
+compares its merge base with your working tree. `--json` prints the same rows
+as data.
+
+### 3. Read the answer
+
+The output below is from `agents-shipgate` `1.0.0`, installed from PyPI into a
+clean virtualenv and run outside any checkout, on 2026-09-14. The repository
+has two commits. On `main`, `.claude/settings.json` allows `Bash(npm test:*)`
+and denies `Bash(rm -rf:*)`, and `.mcp.json` configures one server, `docs`.
+The PR branch allows `Bash(npm *)`, drops the denial, and adds a `billing`
+server. There are three shapes of answer.
+
+**Changes.** One row per grant that differs. `⚠` marks a row that widens what
+the agent may do:
+
+```text
+Agent capability diff  main (389cbed0) -> working tree
+
+⚠ high    added    claude-code .mcp.json
+                  billing
+                  an MCP tool surface the agent may call has changed
+
+⚠ medium  added    claude-code .claude/settings.json
+                  Bash(npm *)
+                  runs without a prompt
+
+  medium  removed  claude-code .claude/settings.json
+                  Bash(npm test:*) → gone
+                  removes a permission the agent previously had here
+
+⚠ low     removed  claude-code .claude/settings.json
+                  Bash(rm -rf:*) → gone
+                  removes a denial the agent was subject to
+
+4 change(s), 3 widening what the agent may do (⚠).
+Static configuration only: this is what the files permit, not what the agent did. No verdict is implied.
+```
+
+From this alone a reviewer can name the change (a broader `npm` rule, a lost
+`rm -rf` denial, a new `billing` server), the evidence (the file and entry each
+row names) and the limit (static configuration, not observed behaviour). The
+next action is theirs: ask for the narrower rule back, accept the change, or
+find out what `billing` exposes.
+
+**No change.** On a branch from `main` that only edits `README.md`:
+
+```text
+Agent capability diff  main (389cbed0) -> working tree
+
+No static host-grant changes detected. No verdict is implied.
+```
+
+That answer covers the surfaces in the
+[support matrix](host-boundary-support.md). It says nothing about the
+[surfaces `diff` does not read](host-boundary-support.md#known-unread-surfaces).
+
+**Cannot compare.** When one side cannot be read — here the PR leaves
+`.mcp.json` as truncated JSON:
+
+```text
+Cannot compare against main: head_inventory_incomplete
+This is an input limit, not a finding about the change. Nothing below is a claim that the change is safe.
+```
+
+This is not a pass. `--json` reports it as `comparison_status: "incomparable"`
+with the same `incomparable_reasons`. Repair the named side and run it again;
+never read the missing rows as no change.
+
+All three exit `0`: the exit code says the comparison ran, not that the change
+may merge.
+
+### When no base can be detected
+
+In a clone with no default branch to compare against — a single local branch,
+say — `diff` stops rather than guessing, and exits `2`:
+
+```text
+Invalid value for --base: No base ref could be detected. Pass --base <ref>
+explicitly (use --base HEAD for uncommitted changes only).
+```
+
+Make the base available and name it:
+
+```bash
+git fetch origin main
+agents-shipgate diff --base origin/main
+```
+
+`--base HEAD` compares uncommitted edits with the last commit only; it does not
+review a PR's commits. A shallow clone is refused with a `git fetch
+--unshallow` instruction, because a merge base it cannot see would compare the
+wrong trees.
+
+### Next
+
+- Run it again on the next PR that touches these files. The second use is the
+  one that tells you whether this is worth keeping.
+- [Route H](#route-h--no-manifest) adds a snapshot audit and an optional
+  committed baseline for jobs that need one.
+- If the repository builds its own tool surface, continue with
+  [One review, end to end](#one-review-end-to-end).
+
 ## Does this repository need Shipgate?
 
 One fetch, no install, stdlib only:
@@ -100,9 +235,11 @@ Action variants that also avoid a local install.
 
 If `host_boundary_candidates` is non-empty, the repository has recognized
 host configuration paths. For a **host-only** repository with no manifest,
-builder or plugin candidates, and complete discovery, follow
-[Route H](#route-h--no-manifest) with
-`agents-shipgate audit --host --workspace . --json`; no manifest is needed.
+builder or plugin candidates, and complete discovery, no manifest is needed:
+review a change with
+[`agents-shipgate diff`](#review-a-host-configuration-change), and take a
+snapshot with [Route H](#route-h--no-manifest)'s
+`agents-shipgate audit --host --workspace . --json`, the route discovery names.
 Mixed builder/host repositories retain agent setup; an existing manifest
 retains its doctor route. Follow the emitted typed `control.next_action`:
 incomplete discovery and unresolved project scope take precedence over setup
@@ -114,10 +251,11 @@ could not read. A link to a file conceals nothing and is not listed. Inspect
 them before interpreting an empty candidate list; the rest of the
 classification still stands.
 
-These host discovery fields require the current source/candidate (runtime
-contract 33). On an older install, absence of the fields is not an empty
-answer: use the existing Route H audit directly when your repository carries
-supported host configuration.
+The published release `v1.0.0` (runtime contract 39) emits these host
+discovery fields. On an older install such as `v0.15.0`, absence of the fields
+is not an empty answer: upgrade, or go straight to
+[Review a host-configuration change](#review-a-host-configuration-change) when
+your repository carries supported host configuration.
 
 ## One review, end to end
 
@@ -393,6 +531,11 @@ For any repository that declares what its **coding agents** may do: `.mcp.json`,
 `.claude/settings.json`, `.codex/`, `.cursor/`, hooks, workflow scopes. There is
 no manifest and no policy authoring.
 
+To review a change, [`agents-shipgate diff`](#review-a-host-configuration-change)
+compares against Git history directly and needs no baseline. The commands below
+serve two other jobs: a snapshot of what the repository grants today, and a
+committed baseline for drift that lands outside PR review.
+
 ```bash
 shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 ```
@@ -404,7 +547,8 @@ excluded sources; neither proves session or runtime authority. Inspect
 `host_coverage`, `issues` and `excluded_scopes` before relying on the result,
 and see the [static host-boundary support matrix](host-boundary-support.md).
 
-Record a baseline once, on the default branch, then check drift per change:
+To check drift against an acknowledged state rather than a PR's base, record a
+baseline once, on the default branch, then check drift per change:
 
 ```bash
 shipgate audit --host --save-baseline      # then commit .agents-shipgate/
@@ -606,8 +750,9 @@ agents-shipgate verify --workspace . --config shipgate.yaml \
   --ci-mode advisory --format json --base origin/main --head HEAD
 ```
 
-On Route H, the same shape: `shipgate audit --host --drift` against the
-baseline you already committed, then `shipgate check`. Not every PR needs a
+On Route H, run `agents-shipgate diff` again on the next PR; where you keep a
+committed baseline, `shipgate audit --host --drift` checks against it, and
+`shipgate check` is the coding agent's local boundary check. Not every PR needs a
 run — [`triggers.json`](triggers.json) is the machine-readable rule set for
 deciding, and `verify --preview --json` answers it for one workspace.
 

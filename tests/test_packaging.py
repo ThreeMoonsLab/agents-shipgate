@@ -99,6 +99,26 @@ def test_wheel_includes_adoption_kits(built_wheel: Path) -> None:
     assert "agents_shipgate/_meta/claude-command/shipgate.md" in names
 
 
+def test_wheel_description_leads_with_the_host_diff_entry(built_wheel: Path) -> None:
+    """#779: the description a next release publishes carries the current entry.
+
+    The description inside the published `1.0.0` metadata is immutable and
+    still opens on a constructed fixture under a pre-1.0 status. Editing
+    `README.md` on main cannot change those bytes, so this reads the wheel this
+    tree builds, which is what the next release's PyPI page will show.
+    """
+    with zipfile.ZipFile(built_wheel) as archive:
+        metadata = next(
+            name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
+        )
+        body = message_from_bytes(archive.read(metadata)).get_payload()
+    assert body.index("## What did this PR change?") < body.index(
+        "## One capability change, one verdict"
+    )
+    assert "agents-shipgate diff" in body
+    assert "Status: pre-1.0" not in body
+
+
 def test_wheel_includes_nested_sample_fixtures(built_wheel: Path) -> None:
     with zipfile.ZipFile(built_wheel) as archive:
         names = set(archive.namelist())

@@ -197,4 +197,4 @@
 - Three Moons Lab: https://threemoonslab.com/
 - Contact: help@threemoonslab.com
 
-- Current candidate discovery (contract 33) routes filename-only `host_boundary_candidates` to host audit without a manifest; `host_discovery_incomplete_paths` inhibits complete negatives. See docs/agent-contract-current.md.
+- Host discovery (introduced in contract 33; the published `v1.0.0` emits contract 39) routes filename-only `host_boundary_candidates` to host audit without a manifest; `host_discovery_incomplete_paths` inhibits complete negatives. To review a host-configuration change, `agents-shipgate diff` compares against Git history with no manifest or baseline. See docs/agent-contract-current.md and docs/quickstart.md#review-a-host-configuration-change.
