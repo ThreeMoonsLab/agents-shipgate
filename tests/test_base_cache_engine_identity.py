@@ -136,6 +136,15 @@ def _cache_entry(repo):
     return entry
 
 
+def _cache_valid(report):
+    from agents_shipgate.cli.verify import orchestrator
+
+    # <metadata>/agents-shipgate/base-scans/<key>/report.json
+    return orchestrator._cache_report_valid(
+        orchestrator._BaseCacheEntry(metadata_root=report.parents[3], key=report.parent.name)
+    )
+
+
 @pytest.mark.parametrize('damage', [
     'missing_checksum', 'non_ascii_checksum', 'oversized_checksum', 'wrong_checksum',
     'invalid_json', 'invalid_model', 'missing_schema', 'old_schema',
@@ -145,13 +154,11 @@ def test_corrupt_cache_is_regenerated_from_git(tmp_path, monkeypatch, damage):
 
     from test_verify_weakening import _policy_kinds, _run_verify
 
-    from agents_shipgate.cli.verify import orchestrator
-
     repo = _weakened_repo(tmp_path, sample_dir=Path('samples/clean_read_only_agent'))
     scans = _base_scan_observer(monkeypatch)
     _run_verify(repo)
     entry = _cache_entry(repo)
-    assert orchestrator._cache_report_valid(entry)
+    assert _cache_valid(entry)
     _run_verify(repo)
     assert len(scans) == 1  # Positive control: this engine reuses a valid entry.
     checksum = entry.with_suffix('.sha256')
@@ -177,12 +184,12 @@ def test_corrupt_cache_is_regenerated_from_git(tmp_path, monkeypatch, damage):
             entry.write_text(json.dumps(payload))
         # A matching checksum is insufficient for malformed/incompatible data.
         checksum.write_text(hashlib.sha256(entry.read_bytes()).hexdigest())
-    assert not orchestrator._cache_report_valid(entry)
+    assert not _cache_valid(entry)
     verifier, report, _ = _run_verify(repo)
     assert len(scans) == 2
     assert 'ci_mode_weakened' in _policy_kinds(report)
     assert 'Regenerating cached base report.json from Git' in verifier.model_dump_json()
-    assert orchestrator._cache_report_valid(entry)
+    assert _cache_valid(entry)
     _run_verify(repo)
     assert len(scans) == 2
 
@@ -248,7 +255,7 @@ def test_missing_engine_identity_refuses_even_a_valid_warm_cache(tmp_path, monke
     _run_verify(repo)
     entry = _cache_entry(repo)
     original_bytes = entry.read_bytes()
-    assert orchestrator._cache_report_valid(entry)
+    assert _cache_valid(entry)
 
     def unavailable():
         raise OSError('private install details must not leak')
@@ -272,8 +279,6 @@ def test_missing_engine_identity_refuses_even_a_valid_warm_cache(tmp_path, monke
 def test_cache_repair_replaces_file_link_without_changing_target(tmp_path, monkeypatch, linked_file):
     from test_verify_weakening import _policy_kinds, _run_verify
 
-    from agents_shipgate.cli.verify import orchestrator
-
     repo = _weakened_repo(tmp_path, sample_dir=Path("samples/clean_read_only_agent"))
     scans = _base_scan_observer(monkeypatch)
     _run_verify(repo)
@@ -284,10 +289,10 @@ def test_cache_repair_replaces_file_link_without_changing_target(tmp_path, monke
     target.write_bytes(original_bytes)
     selected.unlink()
     selected.symlink_to(target)
-    assert not orchestrator._cache_report_valid(entry)
+    assert not _cache_valid(entry)
     _, report, _ = _run_verify(repo)
     assert len(scans) == 2
     assert "ci_mode_weakened" in _policy_kinds(report)
     assert not selected.is_symlink()
     assert target.read_bytes() == original_bytes
-    assert orchestrator._cache_report_valid(entry)
+    assert _cache_valid(entry)

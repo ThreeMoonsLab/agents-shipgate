@@ -21,6 +21,7 @@ import pytest
 import agents_shipgate
 from agents_shipgate.cli.discovery.local_review import ensure_local_review_excludes
 from agents_shipgate.cli.verify.orchestrator import (
+    _BaseCacheEntry,
     _declaration_continuation_holds,
     _load_cached_capability_lock,
 )
@@ -326,10 +327,15 @@ def test_declaration_continuation_directory_is_refused(tmp_path: Path) -> None:
 _CACHED_LOCK_CHILD = """
     import json, sys, time
     from pathlib import Path
-    from agents_shipgate.cli.verify.orchestrator import _load_cached_capability_lock
+    from agents_shipgate.cli.verify.orchestrator import (
+        _BaseCacheEntry,
+        _load_cached_capability_lock,
+    )
 
     started = time.monotonic()
-    lock, notes = _load_cached_capability_lock(Path(sys.argv[1]) / "report.json")
+    lock, notes = _load_cached_capability_lock(
+        _BaseCacheEntry(metadata_root=Path(sys.argv[1]), key="entry")
+    )
     print(json.dumps({
         "loaded": lock is not None,
         "notes": notes,
@@ -338,9 +344,19 @@ _CACHED_LOCK_CHILD = """
 """
 
 
+def _lock_cache_entry(metadata_root: Path) -> tuple[_BaseCacheEntry, Path]:
+    """A cache entry anchored where Git's metadata directory would be (#638)."""
+
+    entry = _BaseCacheEntry(metadata_root=metadata_root, key="entry")
+    directory = metadata_root.joinpath(*entry.components)
+    directory.mkdir(parents=True)
+    return entry, directory
+
+
 @needs_fifo
 def test_cached_capability_lock_fifo_is_refused_promptly(tmp_path: Path) -> None:
-    os.mkfifo(tmp_path / "capabilities.lock.json")
+    _, directory = _lock_cache_entry(tmp_path)
+    os.mkfifo(directory / "capabilities.lock.json")
 
     outcome = _run_bounded(_CACHED_LOCK_CHILD, str(tmp_path))
 
@@ -353,9 +369,10 @@ def test_cached_capability_lock_fifo_is_refused_promptly(tmp_path: Path) -> None
 
 @needs_dir_fd
 def test_cached_capability_lock_directory_is_refused(tmp_path: Path) -> None:
-    (tmp_path / "capabilities.lock.json").mkdir()
+    entry, directory = _lock_cache_entry(tmp_path)
+    (directory / "capabilities.lock.json").mkdir()
 
-    lock, notes = _load_cached_capability_lock(tmp_path / "report.json")
+    lock, notes = _load_cached_capability_lock(entry)
 
     assert lock is None
     assert notes == [
@@ -406,18 +423,16 @@ def _rendered_capability_lock() -> str:
 @needs_dir_fd
 def test_cached_capability_lock_symlink_is_refused(tmp_path: Path) -> None:
     rendered = _rendered_capability_lock()
-    regular = tmp_path / "regular"
-    regular.mkdir()
+    regular_entry, regular = _lock_cache_entry(tmp_path / "regular")
     (regular / "capabilities.lock.json").write_text(rendered, encoding="utf-8")
-    lock, notes = _load_cached_capability_lock(regular / "report.json")
+    lock, notes = _load_cached_capability_lock(regular_entry)
     assert lock is not None and notes == []
 
     (tmp_path / "elsewhere.lock.json").write_text(rendered, encoding="utf-8")
-    linked = tmp_path / "linked"
-    linked.mkdir()
+    linked_entry, linked = _lock_cache_entry(tmp_path / "linked")
     (linked / "capabilities.lock.json").symlink_to(tmp_path / "elsewhere.lock.json")
 
-    lock, notes = _load_cached_capability_lock(linked / "report.json")
+    lock, notes = _load_cached_capability_lock(linked_entry)
 
     assert lock is None
     assert len(notes) == 1
@@ -429,11 +444,12 @@ def test_cached_capability_lock_symlink_is_refused(tmp_path: Path) -> None:
 
 @needs_dir_fd
 def test_cached_capability_lock_that_is_not_utf8_falls_back(tmp_path: Path) -> None:
-    (tmp_path / "capabilities.lock.json").write_bytes(
+    entry, directory = _lock_cache_entry(tmp_path)
+    (directory / "capabilities.lock.json").write_bytes(
         _rendered_capability_lock().encode("utf-8").replace(b"{", b"{\xff", 1)
     )
 
-    lock, notes = _load_cached_capability_lock(tmp_path / "report.json")
+    lock, notes = _load_cached_capability_lock(entry)
 
     assert lock is None
     assert len(notes) == 1

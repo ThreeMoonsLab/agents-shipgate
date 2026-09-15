@@ -58,8 +58,11 @@ def test_committed_verify_reconstructs_operation_predicate_evidence(tmp_path, va
 def test_self_consistent_forged_cache_is_rebuilt(tmp_path, monkeypatch):
     root = repository(tmp_path)
     base = git(root, "rev-parse", "HEAD")
-    cache = tmp_path / "cache" / "entry" / "report.json"
-    monkeypatch.setattr(orchestrator, "_cache_report_path", lambda **kwargs: cache)
+    # The anchor stands in for Git's metadata directory, which always exists.
+    entry = orchestrator._BaseCacheEntry(metadata_root=tmp_path / "cache", key="entry")
+    entry.metadata_root.mkdir()
+    cache = entry.report
+    monkeypatch.setattr(orchestrator, "_base_cache_entry", lambda **kwargs: entry)
     _verify(root, base=base)
     cached = json.loads(cache.read_text())
     cached["tool_surface_facts"]["operation_attributions"][0]["operation"]["declared_targets"] = [
@@ -68,7 +71,7 @@ def test_self_consistent_forged_cache_is_rebuilt(tmp_path, monkeypatch):
     cache.write_text(json.dumps(cached))
     # Both files are writable by a local report producer; they prove no origin.
     cache.with_suffix(".sha256").write_text(hashlib.sha256(cache.read_bytes()).hexdigest())
-    assert orchestrator._cache_report_valid(cache)
+    assert orchestrator._cache_report_valid(entry)
     _verify(root, base=base)
     report = json.loads((root / "agents-shipgate-reports/report.json").read_text())
     (row,) = report["tool_surface_diff"]["operation_comparisons"]

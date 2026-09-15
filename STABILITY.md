@@ -3165,7 +3165,11 @@ Successful base reports are cached under git metadata
 (`git rev-parse --git-path agents-shipgate/base-scans/...`), not under the
 working tree or report output directory. The cache is a local-iteration
 optimization, safe to miss on ephemeral CI, and verify prunes stale entries
-best-effort after writes.
+best-effort after writes. Cache access never follows a link below the metadata
+directory Git selected; a linked, non-directory or unopenable cache component
+makes the cache unavailable for that run, and verify regenerates the base from
+Git and names the component in `base_notes` (#638; limits in
+[`docs/verification-reproducibility.md`](docs/verification-reproducibility.md#base-scan-cache-namespace)).
 
 ### Verify Check IDs
 
