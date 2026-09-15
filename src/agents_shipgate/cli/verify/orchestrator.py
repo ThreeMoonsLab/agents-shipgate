@@ -13,7 +13,7 @@ import stat
 import tempfile
 import unicodedata
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextvars import Token
 from datetime import date
 from pathlib import Path, PurePosixPath
@@ -94,19 +94,24 @@ from agents_shipgate.core.surface_exclusions import (
     nameable_subject,
 )
 from agents_shipgate.core.trust_roots import (
-    IdentityBoundReadSession,
+    PathIdentityIssue,
     conditional_instruction_edits,
     inspect_lexical_path_identity,
     is_configured_manifest,
+    read_identity_bound_bytes,
     read_identity_bound_text,
 )
 from agents_shipgate.core.verification_identity import (
+    UnsafeDirectoryComponent,
     build_engine_requirement,
     build_executor,
     build_terminal_receipt,
     build_unit_result,
     build_verification_plan,
+    open_directory_beneath,
+    read_regular_file_at,
     read_regular_file_beneath,
+    replace_file_at,
     worktree_overlay,
 )
 from agents_shipgate.invocation import render_command, retarget_command
@@ -979,6 +984,16 @@ def run_verify(
         nonlocal operation_base
         operation_base = ReconstructedOperationBase(tree=tree, rows=tuple(rows))
 
+    uncached_base: tempfile.TemporaryDirectory[str] | None = None
+
+    def uncached_base_report_dir() -> Path:
+        # A base regenerated while the cache is unavailable (#638) must outlive
+        # ``_prepare_base_report`` and nothing else: it belongs to this run.
+        nonlocal uncached_base
+        if uncached_base is None:
+            uncached_base = tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-base-")
+        return Path(uncached_base.name)
+
     try:
         if diff_from is not None:
             base_status = "diff_from_provided"
@@ -1006,6 +1021,7 @@ def run_verify(
                 evaluation_date=verification_date,
                 operation_callback=capture_base_operations,
                 engine_requirement_factory=engine_requirement,
+                uncached_report_dir=uncached_base_report_dir,
             )
             base_notes.extend(cache_notes)
 
@@ -1035,6 +1051,8 @@ def run_verify(
             changed_files=changed_files,
         )
     except Exception:
+        if uncached_base is not None:
+            uncached_base.cleanup()
         reset_static_input_snapshot(static_snapshot_token)
         raise
 
@@ -1380,6 +1398,8 @@ def run_verify(
         finally:
             if head_tmp is not None:
                 head_tmp.cleanup()
+            if uncached_base is not None:
+                uncached_base.cleanup()
             if static_snapshot_token is not None:
                 reset_static_input_snapshot(static_snapshot_token)
     return verifier, report, head_exit_code
@@ -1398,6 +1418,7 @@ def _prepare_base_report(
     evaluation_date: str,
     operation_callback=None,
     engine_requirement_factory: Callable[[], VerificationEngineRequirement] | None = None,
+    uncached_report_dir: Callable[[], Path] | None = None,
 ) -> tuple[
     VerifierBaseStatus,
     str | None,
@@ -1405,6 +1426,13 @@ def _prepare_base_report(
     CapabilityLockFileV1 | None,
     list[str],
 ]:
+    """Resolve the base report from the cache, or regenerate it from Git.
+
+    When the cache is unavailable (#638) the regenerated report is kept in
+    ``uncached_report_dir()``, a directory the caller owns for the whole run.
+    Without one, an unavailable cache reports the base comparison unavailable.
+    """
+
     notes: list[str] = []
     try:
         base_tree = tree_sha(git_root, base)
@@ -1423,7 +1451,7 @@ def _prepare_base_report(
             f"Run {render_command(['doctor', '--json'])} and rerun verification "
             "after repairing the install."
         ]
-    cache_report = _cache_report_path(
+    cache_entry = _base_cache_entry(
         base_tree=base_tree,
         config_relative=config_relative,
         git_root=git_root,
@@ -1434,9 +1462,25 @@ def _prepare_base_report(
         evaluation_date=evaluation_date,
         engine_requirement=engine,
     )
-    cache_valid = cache_report.exists() and _cache_report_valid(cache_report)
+    cache_report = cache_entry.report
+    # One no-follow probe settles the cache for this run: absent (cold),
+    # unavailable (a namespace component is a link, a non-directory or cannot
+    # be opened), or present and validated (#638).
+    cache_unavailable: OSError | None = None
+    report_present = False
+    cache_valid = False
+    try:
+        with _base_cache_directory(
+            cache_entry.metadata_root, cache_entry.components, create=False
+        ) as cache:
+            report_present = cache.present(_BASE_CACHE_REPORT_NAME)
+            cache_valid = report_present and _cache_directory_report_valid(cache)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        cache_unavailable = exc
     if cache_valid and operation_callback is None:
-        base_lock, lock_notes = _load_cached_capability_lock(cache_report)
+        base_lock, lock_notes = _load_cached_capability_lock(cache_entry)
         return (
             "succeeded",
             base_tree,
@@ -1444,7 +1488,7 @@ def _prepare_base_report(
             base_lock,
             [f"Base report resolved for tree {base_tree}.", *lock_notes],
         )
-    if cache_report.exists() and not cache_valid:
+    if report_present and not cache_valid:
         notes.append(
             "Regenerating cached base report.json from Git: the report or its checksum "
             "is unreadable, corrupt or incompatible with this engine."
@@ -1511,7 +1555,7 @@ def _prepare_base_report(
         ):
             operation_callback(base_tree, [])
             if cache_valid:
-                base_lock, lock_notes = _load_cached_capability_lock(cache_report)
+                base_lock, lock_notes = _load_cached_capability_lock(cache_entry)
                 return "succeeded", base_tree, cache_report, base_lock, [
                     f"Base report resolved for tree {base_tree}.", *lock_notes
                 ]
@@ -1600,26 +1644,287 @@ def _prepare_base_report(
             json.dumps(report_json_payload(base_report_model), indent=2),
             encoding="utf-8",
         )
-        try:
-            _copy_report_to_cache(source_report, cache_report)
-            if base_capability_lock is not None:
-                _write_capability_lock_to_cache(base_capability_lock, cache_report)
+        if base_capability_lock is None:
+            notes.append("Base scan did not produce a capability lock; diff artifact disabled.")
+        if cache_unavailable is None:
+            try:
+                # Report, checksum and lock share this one anchored directory.
+                with _base_cache_directory(
+                    cache_entry.metadata_root, cache_entry.components, create=True
+                ) as cache:
+                    _copy_report_to_cache(source_report, cache)
+                    if base_capability_lock is not None:
+                        _write_capability_lock_to_cache(base_capability_lock, cache)
+            except UnsafeDirectoryComponent as exc:
+                cache_unavailable = exc
+            except OSError:
+                return "scan_failed", base_tree, None, None, [
+                    *notes,
+                    "Could not store the regenerated base report; diff enrichment is unavailable. "
+                    f"Check that {cache_report.parent} is a writable cache directory and that "
+                    "report.json, report.sha256 and capabilities.lock.json are regular files, "
+                    "then rerun verification.",
+                ]
             else:
-                notes.append("Base scan did not produce a capability lock; diff artifact disabled.")
-        except OSError:
-            return "scan_failed", base_tree, None, None, [
-                *notes,
-                "Could not store the regenerated base report; diff enrichment is unavailable. "
-                f"Check that {cache_report.parent} is a writable cache directory and that "
-                "report.json, report.sha256 and capabilities.lock.json are regular files, "
-                "then rerun verification.",
-            ]
-        _prune_base_scan_cache(cache_report.parents[1], keep=BASE_CACHE_KEEP_ENTRIES)
+                _prune_base_scan_cache(cache_entry.metadata_root, keep=BASE_CACHE_KEEP_ENTRIES)
+        if cache_unavailable is not None:
+            # Never written through the link: this run keeps its own copy.
+            unavailable = _base_cache_unavailable_note(cache_unavailable, cache_entry)
+            try:
+                if uncached_report_dir is None:
+                    raise OSError("no run-scoped directory for an uncached base report")
+                cache_report = uncached_report_dir() / _BASE_CACHE_REPORT_NAME
+                shutil.copyfile(source_report, cache_report)
+            except OSError:
+                return "scan_failed", base_tree, None, None, [*notes, unavailable]
+            notes.append(unavailable)
         notes.append(f"Base report resolved for tree {base_tree}.")
     return "succeeded", base_tree, cache_report, base_capability_lock, notes
 
 
-def _cache_report_path(
+# The base cache lives at ``<git metadata>/agents-shipgate/base-scans/<key>/``.
+# Git selects the metadata directory: a checkout's ``.git``, a linked
+# worktree's own Git dir, or wherever a ``.git`` link points. ``git_path``
+# resolves that selection once and it is the anchor. Everything below it is the
+# cache's lexical namespace, and every cache read, publication and prune goes
+# through ``_base_cache_directory``, which follows no link there (#638).
+_BASE_CACHE_NAMESPACE = ("agents-shipgate", "base-scans")
+_BASE_CACHE_REPORT_NAME = "report.json"
+_BASE_CACHE_CHECKSUM_NAME = "report.sha256"
+_BASE_CAPABILITY_LOCK_NAME = "capabilities.lock.json"
+_MAX_CACHED_REPORT_BYTES = 64 * 1024 * 1024
+_MAX_CACHED_CHECKSUM_BYTES = 128
+
+# Descriptor-relative lookup, creation, rename, stat and removal are POSIX
+# facilities. Where one is missing (Windows), the boundary inspects each
+# namespace component lexically before a pathname operation instead: a settled
+# link, junction or non-directory is still refused, but a component replaced
+# between that inspection and the operation is not detected.
+_DESCRIPTOR_RELATIVE_BASE_CACHE = (
+    os.open in os.supports_dir_fd
+    and os.mkdir in os.supports_dir_fd
+    and os.rename in os.supports_dir_fd
+    and os.unlink in os.supports_dir_fd
+    and os.stat in os.supports_dir_fd
+    and os.scandir in os.supports_fd
+    and bool(shutil.rmtree.avoids_symlink_attacks)
+)
+
+
+@dataclasses.dataclass(frozen=True)
+class _BaseCacheEntry:
+    """One cache entry: Git's metadata directory and the key below the namespace."""
+
+    metadata_root: Path
+    key: str
+
+    @property
+    def components(self) -> tuple[str, ...]:
+        return (*_BASE_CACHE_NAMESPACE, self.key)
+
+    @property
+    def report(self) -> Path:
+        return self.metadata_root.joinpath(*self.components, _BASE_CACHE_REPORT_NAME)
+
+
+class _BaseCacheDirectory:
+    """An opened cache directory: the one boundary every cache file goes through.
+
+    Report, checksum and capability-lock reads and publication, and pruning,
+    all use this handle. With descriptor support it holds a descriptor reached
+    from the anchor without following a link, and names each file relative to
+    it; otherwise the namespace was inspected lexically when it was opened.
+    """
+
+    def __init__(
+        self,
+        *,
+        anchor: Path,
+        components: tuple[str, ...],
+        descriptor: int | None,
+    ) -> None:
+        self.anchor = anchor
+        self.components = components
+        self.path = anchor.joinpath(*components)
+        self._descriptor = descriptor
+
+    def present(self, name: str) -> bool:
+        """Whether any entry, of any kind, has this name; nothing is followed."""
+
+        try:
+            if self._descriptor is None:
+                (self.path / name).lstat()
+            else:
+                os.stat(name, dir_fd=self._descriptor, follow_symlinks=False)
+        except FileNotFoundError:
+            return False
+        except OSError:
+            return True
+        return True
+
+    def read(self, name: str, *, max_bytes: int, label: str) -> bytes:
+        """Read one singly-linked regular file; a link or other kind is refused."""
+
+        if self._descriptor is None:
+            return read_identity_bound_bytes(
+                self.anchor, Path(*self.components, name), max_bytes=max_bytes
+            )
+        return read_regular_file_at(
+            self._descriptor, name, max_size=max_bytes, label=label, single_link=True
+        )
+
+    def replace(self, name: str, data: bytes, *, temporary_prefix: str) -> None:
+        """Publish ``data`` atomically; a link at ``name`` is replaced, not followed."""
+
+        if self._descriptor is not None:
+            replace_file_at(self._descriptor, name, data, temporary_prefix=temporary_prefix)
+            return
+        handle, temporary = tempfile.mkstemp(
+            dir=self.path, prefix=temporary_prefix, suffix=".tmp"
+        )
+        try:
+            with os.fdopen(handle, "wb") as stream:
+                stream.write(data)
+            os.replace(temporary, self.path / name)
+        finally:
+            with contextlib.suppress(OSError):
+                os.unlink(temporary)
+
+    def subdirectories(self) -> list[tuple[str, float]]:
+        """Real subdirectories and their mtimes. Links and junctions are not entries."""
+
+        found: list[tuple[str, float]] = []
+        target = self.path if self._descriptor is None else self._descriptor
+        with os.scandir(target) as iterator:
+            for item in iterator:
+                try:
+                    if not item.is_dir(follow_symlinks=False) or item.is_junction():
+                        continue
+                except OSError:
+                    continue
+                try:
+                    mtime = item.stat(follow_symlinks=False).st_mtime
+                except OSError:
+                    mtime = 0.0
+                found.append((item.name, mtime))
+        return found
+
+    def remove_tree(self, name: str) -> None:
+        """Remove one subdirectory tree without traversing a link at or below it."""
+
+        if self._descriptor is not None:
+            # ``avoids_symlink_attacks``: a link swapped in for ``name`` is refused.
+            shutil.rmtree(name, dir_fd=self._descriptor, ignore_errors=True)
+            return
+        target = self.path / name
+        metadata = target.lstat()
+        if (
+            stat.S_ISDIR(metadata.st_mode)
+            and not stat.S_ISLNK(metadata.st_mode)
+            and not target.is_junction()
+        ):
+            shutil.rmtree(target, ignore_errors=True)
+
+
+@contextlib.contextmanager
+def _base_cache_directory(
+    anchor: Path,
+    components: Sequence[str],
+    *,
+    create: bool,
+) -> Iterator[_BaseCacheDirectory]:
+    """Open one cache directory below Git's metadata directory (#638).
+
+    ``anchor`` is the Git-selected metadata directory; links at or above it
+    are Git's selection and are not second-guessed. No component below it is
+    followed. A missing component raises ``FileNotFoundError`` unless
+    ``create``. A link, a non-directory, or a component that cannot be opened
+    or created raises ``UnsafeDirectoryComponent``: the cache is unavailable.
+    """
+
+    parts = tuple(components)
+    if _DESCRIPTOR_RELATIVE_BASE_CACHE:
+        descriptor = open_directory_beneath(anchor, parts, create=create)
+        try:
+            yield _BaseCacheDirectory(anchor=anchor, components=parts, descriptor=descriptor)
+        finally:
+            os.close(descriptor)
+        return
+    _inspect_base_cache_components(anchor, parts, create=create)
+    yield _BaseCacheDirectory(anchor=anchor, components=parts, descriptor=None)
+
+
+def _inspect_base_cache_components(
+    anchor: Path,
+    components: tuple[str, ...],
+    *,
+    create: bool,
+) -> None:
+    """The lexical fallback: refuse settled links, junctions and non-directories."""
+
+    current = anchor
+    for part in components:
+        current = current / part
+        for _attempt in range(2):
+            issue = inspect_lexical_path_identity(current.parent, Path(part))
+            if issue is not None:
+                raise UnsafeDirectoryComponent(current, _lexical_refusal_reason(issue))
+            try:
+                metadata = current.lstat()
+            except FileNotFoundError:
+                if not create:
+                    raise
+                try:
+                    current.mkdir()
+                except FileExistsError:
+                    pass
+                except OSError as exc:
+                    raise UnsafeDirectoryComponent(
+                        current, f"could not be created ({exc.strerror or exc})"
+                    ) from exc
+                continue
+            except OSError as exc:
+                raise UnsafeDirectoryComponent(
+                    current, f"could not be opened ({exc.strerror or exc})"
+                ) from exc
+            if not stat.S_ISDIR(metadata.st_mode):
+                raise UnsafeDirectoryComponent(current, "is not a directory")
+            try:
+                with os.scandir(current):
+                    pass
+            except OSError as exc:
+                raise UnsafeDirectoryComponent(
+                    current, f"could not be opened ({exc.strerror or exc})"
+                ) from exc
+            break
+        else:
+            raise UnsafeDirectoryComponent(current, "could not be created")
+
+
+def _lexical_refusal_reason(issue: PathIdentityIssue) -> str:
+    if issue.kind == "symlink":
+        return "is a symbolic link"
+    if issue.kind == "reparse_point":
+        return "is a junction or reparse point"
+    if issue.kind == "alias":
+        return "is spelled differently on disk"
+    return f"could not be inspected ({issue.detail})"
+
+
+def _base_cache_unavailable_note(exc: OSError, entry: _BaseCacheEntry) -> str:
+    if isinstance(exc, UnsafeDirectoryComponent):
+        subject = f"{exc.path} {exc.reason}"
+    else:
+        subject = f"{entry.metadata_root} could not be opened ({exc.strerror or exc})"
+    return (
+        f"Base-scan cache unavailable: {subject}. This run neither read nor wrote "
+        "the cache and regenerated the base report from Git. Make that path a "
+        "plain directory (or remove it so verification recreates it), then rerun "
+        "verification to reuse cached base reports."
+    )
+
+
+def _base_cache_entry(
     *,
     base_tree: str,
     config_relative: Path,
@@ -1630,7 +1935,7 @@ def _cache_report_path(
     no_heuristics: bool,
     evaluation_date: str,
     engine_requirement: VerificationEngineRequirement | None = None,
-) -> Path:
+) -> _BaseCacheEntry:
     engine = engine_requirement or build_engine_requirement(plugins_enabled=plugins_enabled)
     payload = {
         "version": BASE_CACHE_KEY_EPOCH,
@@ -1660,47 +1965,45 @@ def _cache_report_path(
     key = hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()[:24]
-    # Resolve Git's metadata root only. Resolving the report path itself would
-    # erase a refused file link before the recovery writer can replace it.
-    return git_path(git_root, "") / "agents-shipgate" / "base-scans" / key / "report.json"
+    # Resolve Git's metadata root only; the namespace below it stays lexical.
+    # Resolving the report path itself would erase a refused link before the
+    # boundary could refuse it.
+    return _BaseCacheEntry(metadata_root=git_path(git_root, ""), key=key)
 
 
-def _copy_report_to_cache(source_report: Path, cache_report: Path) -> None:
-    cache_report.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        dir=cache_report.parent,
-        prefix="report-",
-        suffix=".tmp",
-        delete=False,
-    ) as handle:
-        temp_path = Path(handle.name)
-    digest_temp: Path | None = None
+def _copy_report_to_cache(source_report: Path, cache: _BaseCacheDirectory) -> None:
+    data = source_report.read_bytes()
+    cache.replace(_BASE_CACHE_REPORT_NAME, data, temporary_prefix="report-")
+    # Recovery must replace a refused checksum alias, never follow it.
+    cache.replace(
+        _BASE_CACHE_CHECKSUM_NAME,
+        f"{hashlib.sha256(data).hexdigest()}\n".encode("ascii"),
+        temporary_prefix="checksum-",
+    )
+
+
+def _cache_report_valid(entry: _BaseCacheEntry) -> bool:
     try:
-        shutil.copy2(source_report, temp_path)
-        digest = _sha256_file(temp_path)
-        with tempfile.NamedTemporaryFile(
-            dir=cache_report.parent, prefix="checksum-", suffix=".tmp",
-            delete=False, mode="w", encoding="ascii",
-        ) as handle:
-            digest_temp = Path(handle.name)
-            handle.write(f"{digest}\n")
-        temp_path.replace(cache_report)
-        # Recovery must replace a refused checksum alias, never follow it.
-        digest_temp.replace(cache_report.with_suffix(".sha256"))
-    finally:
-        temp_path.unlink(missing_ok=True)
-        if digest_temp is not None:
-            digest_temp.unlink(missing_ok=True)
+        with _base_cache_directory(
+            entry.metadata_root, entry.components, create=False
+        ) as cache:
+            return _cache_directory_report_valid(cache)
+    except (OSError, ValueError):
+        return False
 
 
-def _cache_report_valid(cache_report: Path) -> bool:
-    digest_path = cache_report.with_suffix(".sha256")
+def _cache_directory_report_valid(cache: _BaseCacheDirectory) -> bool:
     try:
-        session = IdentityBoundReadSession(
-            cache_report.parent, max_entries=64, max_total_bytes=64 * 1024 * 1024 + 128,
+        data = cache.read(
+            _BASE_CACHE_REPORT_NAME,
+            max_bytes=_MAX_CACHED_REPORT_BYTES,
+            label="cached base report",
         )
-        data = session.read_bytes(Path(cache_report.name), max_bytes=64 * 1024 * 1024)
-        expected = session.read_bytes(Path(digest_path.name), max_bytes=128).decode("ascii").strip()
+        expected = cache.read(
+            _BASE_CACHE_CHECKSUM_NAME,
+            max_bytes=_MAX_CACHED_CHECKSUM_BYTES,
+            label="cached base report checksum",
+        ).decode("ascii").strip()
         if re.fullmatch(r"[0-9a-f]{64}", expected) is None:
             return False
         if expected != hashlib.sha256(data).hexdigest():
@@ -1713,19 +2016,14 @@ def _cache_report_valid(cache_report: Path) -> bool:
             ].default
         ):
             return False
-        session.finish()
     except (OSError, ValueError):
         return False
     return True
 
 
-def _base_capability_lock_cache_path(cache_report: Path) -> Path:
-    return cache_report.with_name("capabilities.lock.json")
-
-
 # Bounds for the two small verify-side reads of files an agent can place before
-# the run. Both go through ``read_regular_file_beneath`` so a FIFO or other
-# non-regular entry is refused instead of blocking verify (#577).
+# the run. Both refuse a FIFO or other non-regular entry instead of blocking
+# verify (#577).
 _MAX_CACHED_CAPABILITY_LOCK_BYTES = 64 * 1024 * 1024
 # A receipt over this cap is refused like any unreadable one, which fails
 # closed: the publish-only route is simply not offered.
@@ -1733,59 +2031,54 @@ _MAX_DECLARATION_CONTINUATION_BYTES = 1024 * 1024
 
 
 def _load_cached_capability_lock(
-    cache_report: Path,
+    entry: _BaseCacheEntry,
 ) -> tuple[CapabilityLockFileV1 | None, list[str]]:
-    cache_lock = _base_capability_lock_cache_path(cache_report)
-    if not cache_lock.exists():
-        return None, ["Cached base capability lock missing; capability diff may fall back."]
+    missing = "Cached base capability lock missing; capability diff may fall back."
     try:
-        content = read_regular_file_beneath(
-            cache_lock.parent,
-            cache_lock.name,
-            max_size=_MAX_CACHED_CAPABILITY_LOCK_BYTES,
-            label="cached base capability lock",
-        ).decode("utf-8")
-        return load_capability_lock_json(content, source=str(cache_lock)), []
+        with _base_cache_directory(
+            entry.metadata_root, entry.components, create=False
+        ) as cache:
+            if not cache.present(_BASE_CAPABILITY_LOCK_NAME):
+                return None, [missing]
+            content = cache.read(
+                _BASE_CAPABILITY_LOCK_NAME,
+                max_bytes=_MAX_CACHED_CAPABILITY_LOCK_BYTES,
+                label="cached base capability lock",
+            ).decode("utf-8")
+        source = entry.report.with_name(_BASE_CAPABILITY_LOCK_NAME)
+        return load_capability_lock_json(content, source=str(source)), []
+    except FileNotFoundError:
+        return None, [missing]
     except (OSError, ValueError, InputParseError) as exc:
         return None, [f"Cached base capability lock invalid; capability diff may fall back: {exc}"]
 
 
 def _write_capability_lock_to_cache(
     lock: CapabilityLockFileV1,
-    cache_report: Path,
+    cache: _BaseCacheDirectory,
 ) -> None:
-    cache_lock = _base_capability_lock_cache_path(cache_report)
-    cache_lock.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        dir=cache_lock.parent,
-        prefix="capabilities-",
-        suffix=".tmp",
-        delete=False,
-        mode="w",
-        encoding="utf-8",
-    ) as handle:
-        temp_path = Path(handle.name)
-        handle.write(render_capability_lock_json(lock))
-    try:
-        temp_path.replace(cache_lock)
-    finally:
-        temp_path.unlink(missing_ok=True)
+    cache.replace(
+        _BASE_CAPABILITY_LOCK_NAME,
+        render_capability_lock_json(lock).encode("utf-8"),
+        temporary_prefix="capabilities-",
+    )
 
 
-def _prune_base_scan_cache(cache_root: Path, *, keep: int) -> None:
-    if keep <= 0 or not cache_root.is_dir():
+def _prune_base_scan_cache(metadata_root: Path, *, keep: int) -> None:
+    """Keep the newest ``keep`` entries; best effort, and never through a link."""
+
+    if keep <= 0:
         return
-    entries = [path for path in cache_root.iterdir() if path.is_dir()]
-    entries.sort(key=_safe_mtime, reverse=True)
-    for stale in entries[keep:]:
-        shutil.rmtree(stale, ignore_errors=True)
-
-
-def _safe_mtime(path: Path) -> float:
     try:
-        return path.stat().st_mtime
-    except OSError:
-        return 0.0
+        with _base_cache_directory(
+            metadata_root, _BASE_CACHE_NAMESPACE, create=False
+        ) as cache:
+            entries = cache.subdirectories()
+            entries.sort(key=lambda item: item[1], reverse=True)
+            for name, _mtime in entries[keep:]:
+                cache.remove_tree(name)
+    except (OSError, ValueError):
+        return
 
 
 def _bind_changed_files(
