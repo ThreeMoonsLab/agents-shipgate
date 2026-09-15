@@ -475,6 +475,11 @@ def check(
                 config_relative=Path("shipgate.yaml"),
                 require_unconfigured=False,
                 redact_permission_arguments=True,
+                # The boundary result cannot name a limit, and check routes no
+                # plugin file, so a plugin-reference limit both sides share on
+                # an untouched source must not refuse it. One only one side
+                # carries still does, so no row is built from it (#714).
+                exclude_plugin_reference_limits=True,
             )
         except (OSError, ValueError, RuntimeError, ConfigError) as exc:
             comparison = HostComparison(

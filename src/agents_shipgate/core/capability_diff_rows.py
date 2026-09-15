@@ -15,7 +15,11 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
-from agents_shipgate.core.host_grants import host_grant_expansion_signals, step_action_key
+from agents_shipgate.core.host_grants import (
+    hook_loading_basis,
+    host_grant_expansion_signals,
+    step_action_key,
+)
 from agents_shipgate.schemas.capability_diff import CapabilityDiffRow as CapabilityDiffRow
 
 ABSENT = "—"
@@ -235,7 +239,38 @@ def _why(
             )
         return "; ".join(reasons) or "changes the workflow's own authority"
     if kind == "hook":
-        return "changes what runs around the agent's actions"
+        # The basis, stated in the row, because the row is what a reviewer
+        # reads: a parsed hook file is not proof a host loads it (#714).
+        basis = hook_loading_basis(grant)
+        if basis == "host_configuration":
+            return "changes what runs around the agent's actions"
+        if direction == REMOVED:
+            # A removal is described from the baseline's grant, which may have
+            # been recorded without its basis. Claim nothing about selection.
+            return (
+                "removes a hook declared in this file; whether a host loaded it "
+                "is not established"
+            )
+        if basis == "project_enabled_plugin":
+            # Loaded like a settings hook, so it reads as one, and names why.
+            return (
+                "changes what runs around the agent's actions; this repository's project "
+                "settings enable the plugin that selects this hook"
+            )
+        if basis == "declared_only":
+            return (
+                "declares a hook that no settings file, plugin manifest or marketplace entry "
+                "in this repository selects; whether a host loads it is not established"
+            )
+        if basis == "plugin_selected":
+            return (
+                "changes a hook a plugin in this repository selects; whether that plugin "
+                "is installed or enabled is not established"
+            )
+        return (
+            "changes a hook declared in this file; how a host would load it is not "
+            "established"
+        )
     if kind == "instruction_trust_root":
         return "changes instructions the agent is given"
     return f"changes a {kind or 'host'} grant"

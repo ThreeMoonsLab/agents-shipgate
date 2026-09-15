@@ -14,6 +14,18 @@ names different code, not new token scopes. Local `./` actions stay unread
 comparable, and `minimum_control_contract_version` stays `21`. See
 [the migration note](#workflow-step-action-references-contract-v40-771).
 
+Unreleased, still contract v40: a hook grant states its loading basis (#714).
+A Claude Code hook file nothing in the repository selects is published with
+`access: unknown` and earns no expansion signal. A hook a plugin manifest or
+marketplace entry selects is `execute`/`medium` and earns none either, unless
+the repository's own project settings enable that plugin from a marketplace
+inside the repository: then it is `execute`/`high` and an expansion, as it was
+in `1.0.0`. Settings hooks are unchanged. No schema moves. A baseline that
+recorded an unselected file as `execute`/`high` reports one changed,
+non-widening row. `check` decides as `1.0.0` did when a plugin reference cannot
+be read, and its host comparison refuses when only one side carries that limit.
+See [the migration note](#hook-loading-basis-714).
+
 Previous runtime contract v39 reads through an in-tree link at a boundary path (#700).
 A link such as `CLAUDE.md -> AGENTS.md` or `.claude/skills -> ../.agents/skills`
 that resolves inside the repository is read at its target and published under
@@ -147,6 +159,39 @@ Host-grants inventory, baseline and drift schemas `0.6` add one member to a work
 - **Git-backed `diff`, `check` and manifest-free `verify`** read both refs with the current reader and need no migration.
 - **Validators pinned to the `0.5` schemas** reject a `0.6` inventory, baseline or drift payload. The `0.5` schema files stay published.
 - **`minimum_control_contract_version`** stays `21`.
+
+---
+
+<a id="hook-loading-basis-714"></a>
+
+## Migration Note: Unreleased — hook loading basis (#714)
+
+No schema, contract or `minimum_control_contract_version` moves. What changes is the value of existing fields on `hook` grants, and which of them earn an expansion signal. A parsed hook file proves the file exists, not that a host loads it.
+
+| Hook | `access` / `risk` | `hook_added` / `hook_changed` signal | Row |
+| --- | --- | --- | --- |
+| Declared in Claude Code settings, or Codex `.codex/hooks.json` | `execute` / `high` (unchanged) | yes (unchanged) | expands (unchanged) |
+| Selected by a plugin that the repository's project settings (`.claude/settings.json` or `.claude/settings.local.json`) enable with `enabledPlugins` `true`, from a marketplace they register in `extraKnownMarketplaces` as a relative `directory` or `file` source inside the repository that lists the plugin with an in-repository source | `execute` / `high` (as in `1.0.0`) | yes (as in `1.0.0`) | expands, and says the project settings enable the plugin |
+| Selected by a plugin in the repository without that enablement: `hooks/hooks.json` at a root a `.claude-plugin/plugin.json` or a `./`-sourced `.claude-plugin/marketplace.json` entry names, a `./` path in `hooks`, or inline hooks | `execute` / `medium` | no | a row that says plugin installation or enablement is not established |
+| A Claude Code hook file nothing selects, such as `.claude/hooks/hooks.json` | `unknown` / `unknown` | no | a row that says loading is not established |
+
+- **Identity is unchanged.** `grant_id` and `config_sha256` do not depend on the basis, so the same file is the same grant before and after. An inline marketplace hook's `source` is `<marketplace>#plugins.<name>`.
+- **Enablement is read only where the repository proves it.** A `github`, `git`, `url` or `settings` marketplace source, an absolute, home-relative or escaping path, a plugin the marketplace does not list, and a value other than `true` leave the plugin's hooks at `execute`/`medium`. A `true` in either project settings file counts even when the other sets `false`, because a `false` in `.claude/settings.local.json` is one machine's opt-out. That file is usually uncommitted, but Claude Code reads it whenever it exists, so reading it errs toward showing the hook. User settings, installation state and workspace trust are never read.
+- **The basis is read only from these exact pairs.** A plugin hook's `source` is a hook file, a manifest or a marketplace entry, never a settings layer, which separates it from a settings hook with the same pair. A hook-file grant with none of the plugin pairs was recorded without a basis and is not described as selected. `1.0.0` recorded every hook file as `execute`/`high`, the enabled-plugin pair, and no field can tell them apart without a schema change. The engine reads a basis only from the current side of a change, and a removal row, the only row built from a baseline's grant, names no basis. So nothing a `1.0.0` baseline holds is described as selected or enabled.
+- **A saved baseline that recorded an unselected hook file as `execute`/`high`** stays comparable. Drift reports one `changed` grant for each of its events, with no expansion signal, so `--fail-on-drift` exits `20` once. Review the row, then re-save the baseline. Nothing is hidden, and nothing is reported as a widening. Separately, #771 makes a `0.4` or `0.5` baseline holding a workflow grant incomparable; see [its migration note](#workflow-step-action-references-contract-v40-771).
+- **Plugin hook files are newly read.** A repository whose plugin selects a hook file sees that file as a new grant, artifact and observed source, so a saved baseline drifts once there too. That drift carries a `hook_added` expansion signal only where the project settings enable the plugin, because such a hook was loaded all along. A `.claude/hooks/hooks.json` an enabled plugin selects keeps `1.0.0`'s `execute`/`high` and does not drift. A manifest or marketplace appears in the inventory only when it declares `hooks`, and only that part is digested, so a version bump is not drift.
+- **A hook file is no longer read as a settings file.** A `permissions`, `enabledPlugins` or `sandbox` key inside a hook file used to publish grants no host grants. It publishes none now, and a baseline holding one reports it removed.
+- **New limits in `audit --host`, `diff` and `verify`.** These are blocking coverage limits:
+  - a plugin manifest that cannot be parsed or is not an object;
+  - a manifest `hooks` member of the wrong type;
+  - a manifest reference that is not a `./` path inside the plugin;
+  - a manifest reference to a file not named `hooks.json` or `<name>-hooks.json`;
+  - a read limit of a hook file only a plugin selects.
+
+  `diff` and `verify` name a parse or shape limit (`parse_failed`, `unsupported`) that both sides share on an unchanged file, and refuse any other. A read limit is never named as unchanged: an untouched plugin hook file over the read bound makes `diff` and `verify` incomparable even on a README-only change, as an oversize settings file already did in `1.0.0`. The same problems in a marketplace entry are named without blocking, and so is a `metadata.pluginRoot` that is not a `./` path inside the marketplace. So are a reference to a missing file, a reference into a directory the reader never walks (`node_modules`, `.venv`, …) and a selected file with no `hooks` object. A reference beneath a link that leaves the workspace gets only the blocking limit on that link.
+- **`check` decides as `1.0.0` did for plugin references.** Its boundary result cannot name a limit, and it routes no plugin manifest, marketplace or plugin-selected hook file, so a plugin-reference limit never enters its input completeness. An untouched malformed plugin manifest no longer turns a README-only change into `require_review`. Its host comparison leaves out a plugin-reference limit both sides share on an untouched source, so an unrelated row stays in `rows` and `capability_rows`. A limit only one side carries, or one on a source the change touched, makes that comparison `incomparable` (`base_inventory_incomplete` or `head_inventory_incomplete`), with no rows. A head that breaks a plugin manifest therefore gives `allow` with `control_state: complete`, as `1.0.0` did, and an incomparable host comparison instead of a "removed" row built from the unread manifest. A head-broken `.claude/settings.json` still gives `require_review`: `check` routes that file. A changed `.claude/hooks/hooks.json` still routes to protected-surface review; only its rows change.
+
+---
 
 <a id="link-read-through-at-boundary-paths-contract-v39-700"></a>
 
