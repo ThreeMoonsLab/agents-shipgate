@@ -1135,8 +1135,8 @@ def _redact_step_text(value: str) -> str:
     return _sanitize_sensitive_string(redact_text(value) or "")
 
 
-def _redact_step_reference(text: str) -> str:
-    """A ``uses:`` value as it may be published; differs from ``text`` when redacted.
+def _redact_reference(text: str) -> str:
+    """A ``uses:`` value or a name as it may be published; differs from ``text`` when redacted.
 
     ``docker://user:password@registry/image`` carries registry credentials in
     its userinfo, which neither redactor recognises, so the userinfo is
@@ -1170,6 +1170,21 @@ def _redact_step_reference(text: str) -> str:
         return display
     prefix = scheme.group().lower() if scheme else ""
     return f"{prefix}<redacted>@{remainder}{suffix}"
+
+
+def _published(text: str) -> tuple[str, bool]:
+    """``text`` as it may be published, and whether redaction rewrote it (#767).
+
+    The one rule for workflow text that is both published and compared: a
+    step's ``uses:``, a job's reusable-workflow ``uses:``, and the destination
+    and source names of a secret it passes. Rewritten text cannot be compared.
+    Two distinct values may publish alike, and a digest of either would be a
+    digest of the credential, so a caller marks the entry redacted and
+    :func:`_uncompared_workflow_text` makes the workflow a blocking limit.
+    """
+
+    display = _redact_reference(text)
+    return display, display != text
 
 
 def _step_label(step: dict[Any, Any], index: int) -> str:
@@ -1221,8 +1236,8 @@ def _step_action(job: str, step: dict[Any, Any], index: int) -> dict[str, Any] |
     text = value.strip()
     if text.startswith("./"):
         return None
-    display = _redact_step_reference(text)
-    if display != text:
+    display, redacted = _published(text)
+    if redacted:
         return {**entry, "uses": display, "unresolved_reason": "redacted"}
     if "${{" in text:
         return {**entry, "uses": text, "unresolved_reason": "expression"}
@@ -1242,6 +1257,130 @@ def step_action_key(entry: dict[str, Any]) -> tuple[str, str, str, str]:
         str(entry.get("unresolved_reason") or ""),
         "" if entry.get("uses") is None else str(entry["uses"]),
     )
+
+
+#: A whole ``secrets:`` value of this form names its source (#693). Only the
+#: property form is read; ``secrets['NAME']`` and every other expression stay
+#: unresolved rather than guessed.
+_SECRET_SOURCE_RE = re.compile(r"\$\{\{\s*secrets\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
+
+
+def _secret_mapping(destination: object, value: Any) -> dict[str, Any]:
+    """One ``destination: value`` a reusable call passes, without its value.
+
+    Only a ``${{ secrets.NAME }}`` source name is published. A literal value
+    may be the credential itself and an expression may contain one, so for
+    anything else nothing of the value is kept — no text, no digest — and the
+    entry says only why it is unresolved.
+    """
+
+    shown, destination_redacted = _published(str(destination))
+    entry: dict[str, Any] = {
+        "destination": shown, "source": None, "form": "unresolved", "unresolved_reason": None,
+    }
+    match = _SECRET_SOURCE_RE.fullmatch(value.strip()) if isinstance(value, str) else None
+    if match is not None:
+        source, source_redacted = _published(match.group(1))
+        if destination_redacted or source_redacted:
+            return {**entry, "source": source, "unresolved_reason": "redacted"}
+        return {**entry, "source": source, "form": "secret"}
+    if destination_redacted:
+        return {**entry, "unresolved_reason": "redacted"}
+    if not isinstance(value, str):
+        return {**entry, "unresolved_reason": "not_a_string"}
+    if "${{" in value:
+        return {**entry, "unresolved_reason": "expression"}
+    return {**entry, "unresolved_reason": "literal_value"}
+
+
+def secret_mapping_key(entry: dict[str, Any]) -> tuple[str, str, str, str]:
+    """What a named secret mapping is compared by: every published fact."""
+
+    return (
+        "" if entry.get("destination") is None else str(entry["destination"]),
+        str(entry["form"]),
+        str(entry.get("unresolved_reason") or ""),
+        "" if entry.get("source") is None else str(entry["source"]),
+    )
+
+
+def _secret_mappings(value: Any) -> list[dict[str, Any]]:
+    """The named secrets a reusable call passes, in a canonical order.
+
+    Sorted, so reordering the ``secrets:`` keys changes nothing. A value that
+    is neither ``inherit`` nor a mapping is one unresolved entry with no
+    destination, so an absent list always means "read, none declared".
+    """
+
+    if not isinstance(value, dict):
+        return [{
+            "destination": None, "source": None, "form": "unresolved",
+            "unresolved_reason": "secrets_not_a_mapping",
+        }]
+    return sorted(
+        (_secret_mapping(destination, item) for destination, item in value.items()),
+        key=secret_mapping_key,
+    )
+
+
+def _reusable_call(job_name: str, job: dict[Any, Any]) -> dict[str, Any] | None:
+    """A job's reusable-workflow call: its target and what secrets it passes."""
+
+    uses = job.get("uses")
+    if not (isinstance(uses, str) and uses.strip()):
+        return None
+    display, redacted = _published(uses.strip())
+    secrets = job.get("secrets")
+    call: dict[str, Any] = {"job": job_name, "uses": display, "secrets_inherit": secrets == "inherit"}
+    if redacted:
+        call["uses_redacted"] = True
+    if "secrets" in job and secrets != "inherit":
+        mappings = _secret_mappings(secrets)
+        if mappings:
+            call["secret_mappings"] = mappings
+    return call
+
+
+def _uncompared_workflow_text(grant: dict[str, Any]) -> str | None:
+    """Why part of a workflow grant is published but cannot be compared, or ``None``.
+
+    One rule for every compared workflow text (#767, #693). A redacted step
+    reference, reusable target, or secret name could publish the same text as
+    a different one, so comparing the display would read a change as equal.
+    An unresolved secret mapping publishes nothing of its value, so there is
+    nothing to compare at all. Either makes the workflow a blocking limit: a
+    changed workflow refuses, and an unchanged one is named (#721).
+    """
+
+    calls = grant.get("reusable_calls", [])
+    mappings = [entry for call in calls for entry in call.get("secret_mappings", [])]
+    redacted = [
+        label for label, present in (
+            ("a step action reference", any(
+                item["unresolved_reason"] == "redacted" for item in grant.get("step_actions", [])
+            )),
+            ("a reusable workflow reference", any(call.get("uses_redacted") for call in calls)),
+            ("a reusable workflow secret name", any(
+                entry["unresolved_reason"] == "redacted" for entry in mappings
+            )),
+        ) if present
+    ]
+    clauses = []
+    if len(redacted) == 1:
+        clauses.append(
+            f"{redacted[0]} contains credential-shaped text; it is published redacted and cannot be compared"
+        )
+    elif redacted:
+        clauses.append(
+            f"{', '.join(redacted[:-1])} and {redacted[-1]} contain credential-shaped text; "
+            "they are published redacted and cannot be compared"
+        )
+    if any(entry["form"] == "unresolved" and entry["unresolved_reason"] != "redacted" for entry in mappings):
+        clauses.append(
+            "a reusable workflow secret mapping is a literal value, an expression or another "
+            "unsupported form; its value is neither published nor compared"
+        )
+    return "; ".join(clauses) or None
 
 
 def _workflow_grant(data: Any, *, source: str) -> dict[str, Any] | None:
@@ -1278,13 +1417,9 @@ def _workflow_grant(data: Any, *, source: str) -> dict[str, Any] | None:
                     f"{job_name}: " + ("write-all" if scope == "*" else f"{scope}: write")
                     for scope, level in effective["permissions"].items() if level == "write"
                 )
-                uses = job.get("uses")
-                if isinstance(uses, str) and uses.strip():
-                    reusable_calls.append({
-                        "job": str(job_name),
-                        "uses": _sanitize_sensitive_string(uses.strip()),
-                        "secrets_inherit": job.get("secrets") == "inherit",
-                    })
+                call = _reusable_call(str(job_name), job)
+                if call is not None:
+                    reusable_calls.append(call)
                 if "steps" in job:
                     steps = job["steps"]
                     if not isinstance(steps, list):
@@ -1424,17 +1559,11 @@ def _collect_file(
         grant = _workflow_grant(data, source=source)
         if grant is not None:
             grants.append(grant)
-            if any(item["unresolved_reason"] == "redacted" for item in grant.get("step_actions", [])):
-                # Two such references could publish the same redacted text, and
-                # a digest of either would be a digest of the credential. Refuse
-                # rather than let a distinct change compare as equal (#767).
+            uncompared = _uncompared_workflow_text(grant)
+            if uncompared is not None:
+                # Refuse rather than let a distinct change compare as equal (#767).
                 issues.append(_inventory_issue(
-                    kind="unsupported", host=host, source=source,
-                    message=(
-                        "a step action reference contains credential-shaped text; "
-                        "it is published redacted and cannot be compared"
-                    ),
-                    blocking=True,
+                    kind="unsupported", host=host, source=source, message=uncompared, blocking=True,
                 ))
     elif host == "codex" and kind == "requirements":
         grants.extend(_codex_requirement_grants(data, scope=scope, source=source))
@@ -2511,6 +2640,17 @@ def _same_workflow_grant(before: dict | None, after: dict | None) -> bool:
         projection["step_actions"] = sorted(
             step_action_key(item) for item in grant.get("step_actions", [])
         )
+        # Named secrets compare as each call's set of facts, whatever order a
+        # saved snapshot lists them in (#693).
+        projection["reusable_calls"] = [
+            {
+                **call,
+                "secret_mappings": sorted(
+                    secret_mapping_key(entry) for entry in call.get("secret_mappings", [])
+                ),
+            }
+            for call in grant.get("reusable_calls", [])
+        ]
         return projection
 
     return comparable(before) == comparable(after)
@@ -2747,11 +2887,17 @@ def build_host_drift_payload(
         reasons.append(
             str(baseline.get("_load_error") or "unsupported_baseline_schema")
         )
-    elif baseline.get("host_grants_schema_version") in _STEP_ACTIONS_UNREAD_BASELINE_SCHEMA_VERSIONS and any(
-        grant.get("kind") == "workflow"
-        for grant in (baseline.get("inventory") or {}).get("grants", [])
-    ):
-        reasons.append("baseline_workflow_step_actions_unavailable")
+    elif baseline.get("host_grants_schema_version") in _STEP_ACTIONS_UNREAD_BASELINE_SCHEMA_VERSIONS:
+        workflows = [
+            grant for grant in (baseline.get("inventory") or {}).get("grants", [])
+            if grant.get("kind") == "workflow"
+        ]
+        if workflows:
+            reasons.append("baseline_workflow_step_actions_unavailable")
+        if any(grant.get("reusable_calls") for grant in workflows):
+            # Such a call's missing ``secret_mappings`` is not evidence that it
+            # passed no named secret: those snapshots never read them (#693).
+            reasons.append("baseline_reusable_workflow_secret_mappings_unavailable")
     if not inventory_is_complete(inventory):
         reasons.append("current_inventory_incomplete")
     baseline_scope = baseline.get("scope")

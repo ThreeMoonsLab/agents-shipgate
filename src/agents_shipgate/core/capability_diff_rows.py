@@ -15,10 +15,108 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
-from agents_shipgate.core.host_grants import host_grant_expansion_signals, step_action_key
+from agents_shipgate.core.host_grants import (
+    host_grant_expansion_signals,
+    secret_mapping_key,
+    step_action_key,
+)
 from agents_shipgate.schemas.capability_diff import CapabilityDiffRow as CapabilityDiffRow
 
 ABSENT = "—"
+
+#: A job and one named secret mapping its reusable call declares (#693).
+SecretMapping = tuple[str, dict[str, Any]]
+
+
+def _is_workflow_pair(before: dict[str, Any] | None, after: dict[str, Any] | None) -> bool:
+    return bool(
+        before and after
+        and before.get("kind") == after.get("kind") == "workflow"
+        and "permission_contexts" in before and "permission_contexts" in after
+    )
+
+
+def _secret_mapping_changes(
+    before: dict[str, Any] | None, after: dict[str, Any] | None
+) -> tuple[list[SecretMapping], list[SecretMapping]]:
+    """The named secret mappings only one side of a changed workflow declares (#693).
+
+    Compared as each job's set of facts, the way the comparator decides
+    whether the grant changed, so reordering the ``secrets:`` keys or
+    re-quoting a value appears on neither side.
+    """
+
+    if not _is_workflow_pair(before, after):
+        return [], []
+
+    def mappings(grant: dict[str, Any]) -> list[SecretMapping]:
+        return [
+            (str(call["job"]), entry)
+            for call in grant.get("reusable_calls", [])
+            for entry in call.get("secret_mappings", [])
+        ]
+
+    def only_in(side: list[SecretMapping], other: list[SecretMapping]) -> list[SecretMapping]:
+        surplus = Counter((job, secret_mapping_key(entry)) for job, entry in side) - Counter(
+            (job, secret_mapping_key(entry)) for job, entry in other
+        )
+        picked: list[SecretMapping] = []
+        for job, entry in side:
+            key = (job, secret_mapping_key(entry))
+            if surplus[key] > 0:
+                surplus[key] -= 1
+                picked.append((job, entry))
+        return picked
+
+    old, new = mappings(before or {}), mappings(after or {})
+    return only_in(old, new), only_in(new, old)
+
+
+def _secret_mapping_value(item: SecretMapping) -> str:
+    job, entry = item
+    reason = entry.get("unresolved_reason")
+    suffix = f" (unresolved: {str(reason).replace('_', ' ')})" if reason else ""
+    if entry.get("destination") is None:
+        return f"{job}: secrets{suffix}"
+    source = f" ← secrets.{entry['source']}" if entry.get("source") is not None else ""
+    return f"{job}: secret {entry['destination']}{source}{suffix}"
+
+
+def _secret_mapping_reasons(gone: list[SecretMapping], new: list[SecretMapping]) -> list[str]:
+    """Say whether a destination was added, removed, or now names another source.
+
+    A destination on both sides whose facts differ is a changed source; one
+    on a single side was added or removed. The wording never ranks the names.
+    """
+
+    def label(item: SecretMapping) -> str:
+        job, entry = item
+        return f"{job}/{entry['destination']}" if entry.get("destination") is not None else f"{job}/secrets"
+
+    def destination(item: SecretMapping) -> tuple[str, str | None]:
+        return item[0], item[1].get("destination")
+
+    arriving = {destination(item) for item in new}
+    leaving = {destination(item) for item in gone}
+    changed = [item for item in new if destination(item) in leaving]
+    added = [item for item in new if destination(item) not in leaving]
+    removed = [item for item in gone if destination(item) not in arriving]
+    reasons = []
+    for items, wording in (
+        (changed, "a reusable workflow's secret now comes from a different named source"),
+        (added, "a reusable workflow is now passed a named secret"),
+        (removed, "a reusable workflow is no longer passed a named secret"),
+    ):
+        if items:
+            labels = ", ".join(dict.fromkeys(label(item) for item in items))
+            reasons.append(f"{wording} ({labels})")
+    if reasons:
+        reasons.append(
+            "a secret's name does not establish its privilege, whether the caller "
+            "has it, or what the called workflow does with it, so this is not "
+            "reported as a widening"
+        )
+    return reasons
 
 
 def _step_action_changes(
@@ -31,11 +129,7 @@ def _step_action_changes(
     appears on neither side. Each entry keeps its job and step as evidence.
     """
 
-    if not (
-        before and after
-        and before.get("kind") == after.get("kind") == "workflow"
-        and "permission_contexts" in before and "permission_contexts" in after
-    ):
+    if not _is_workflow_pair(before, after):
         return [], []
 
     def only_in(side: list[dict[str, Any]], other: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -51,7 +145,7 @@ def _step_action_changes(
         return picked
 
     # A workflow whose steps declare no listed reference omits the key.
-    old, new = before.get("step_actions", []), after.get("step_actions", [])
+    old, new = (before or {}).get("step_actions", []), (after or {}).get("step_actions", [])
     return only_in(old, new), only_in(new, old)
 
 
@@ -107,13 +201,15 @@ def _grant_value(
     *,
     redact_permission_arguments: bool = False,
     step_actions: list[dict[str, Any]] | None = None,
+    secret_mappings: list[SecretMapping] | None = None,
 ) -> str:
     """What a reader recognises this grant by.
 
     A workflow has no single name — its authority *is* the combination of
     access and triggers, so both sides render that combination or the row
-    reads "workflow -> workflow" and says nothing. ``step_actions`` are the
-    step references this side alone declares; unchanged ones are not repeated.
+    reads "workflow -> workflow" and says nothing. ``step_actions`` and
+    ``secret_mappings`` are the step references and named secrets this side
+    alone declares; unchanged ones are not repeated.
     """
 
     if not grant:
@@ -148,6 +244,7 @@ def _grant_value(
         for call in grant.get("reusable_calls") or []:
             forwarding = "secrets: inherit → " if call.get("secrets_inherit") else "uses: "
             parts.append(f"{call['job']}: {forwarding}{call['uses']}")
+        parts.extend(_secret_mapping_value(item) for item in secret_mappings or [])
         parts.extend(_step_action_value(item) for item in step_actions or [])
         return ", ".join(part for part in parts if part) or kind
     # `event` names a hook's trigger. Without it a hook row rendered as
@@ -174,6 +271,8 @@ def _why(
     *,
     gone_steps: list[dict[str, Any]] | None = None,
     new_steps: list[dict[str, Any]] | None = None,
+    gone_secrets: list[SecretMapping] | None = None,
+    new_secrets: list[SecretMapping] | None = None,
 ) -> str:
     """Why a reviewer should care, in the reviewer's terms.
 
@@ -213,6 +312,7 @@ def _why(
         for call in grant.get("reusable_calls") or []:
             if call.get("secrets_inherit"):
                 reasons.append(f"passes the caller's available secrets to {call['uses']}")
+        reasons.extend(_secret_mapping_reasons(gone_secrets or [], new_secrets or []))
         moved, changed_steps = _moved_between_jobs(gone_steps or [], new_steps or [])
         if moved:
             # The same declared code, now under another job's token context.
@@ -265,6 +365,7 @@ def capability_diff_rows(
         if direction == CHANGED and expands:
             direction = WIDENED
         gone_steps, new_steps = _step_action_changes(before_grant, after_grant)
+        gone_secrets, new_secrets = _secret_mapping_changes(before_grant, after_grant)
         rows.append(
             CapabilityDiffRow(
                 subject=_subject(grant),
@@ -272,14 +373,20 @@ def capability_diff_rows(
                     before_grant,
                     redact_permission_arguments=redact_permission_arguments,
                     step_actions=gone_steps,
+                    secret_mappings=gone_secrets,
                 ),
                 after=_grant_value(
                     after_grant,
                     redact_permission_arguments=redact_permission_arguments,
                     step_actions=new_steps,
+                    secret_mappings=new_secrets,
                 ),
                 direction=direction,
-                why=_why(grant, direction, gone_steps=gone_steps, new_steps=new_steps),
+                why=_why(
+                    grant, direction,
+                    gone_steps=gone_steps, new_steps=new_steps,
+                    gone_secrets=gone_secrets, new_secrets=new_secrets,
+                ),
                 severity=str(grant.get("risk") or "unknown"),
                 expands=expands,
             )
