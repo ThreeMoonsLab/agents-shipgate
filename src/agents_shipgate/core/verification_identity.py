@@ -11,7 +11,7 @@ import platform
 import stat
 import tempfile
 import tomllib
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -796,33 +796,154 @@ def read_regular_file_beneath(
     parts = Path(logical_path).parts
     if not parts or Path(logical_path).is_absolute() or any(part in {"", ".", ".."} for part in parts):
         raise ValueError(f"{label} path is not portable: {logical_path!r}")
-    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        directory = open_directory_beneath(root, parts[:-1])
+    except OSError as exc:
+        raise ValueError(f"could not safely read {label} {logical_path!r}: {exc}") from exc
+    try:
+        return read_regular_file_at(
+            directory, parts[-1], max_size=max_size, label=label, display=logical_path
+        )
+    finally:
+        with contextlib.suppress(OSError):
+            os.close(directory)
+
+
+# A FIFO or other non-directory fails ``O_DIRECTORY`` before the open can wait
+# for a writer, and ``O_NOFOLLOW`` refuses a link at the component itself.
+_DIRECTORY_BENEATH_FLAGS = (
+    os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+)
+
+
+class UnsafeDirectoryComponent(OSError):
+    """A directory below an anchor is a link, a non-directory, or unopenable.
+
+    ``path`` is the lexical spelling of the refused component and ``reason``
+    completes a sentence about it, so a caller can say what to repair.
+    """
+
+    def __init__(self, path: Path, reason: str) -> None:
+        super().__init__(f"{path} {reason}")
+        self.path = path
+        self.reason = reason
+
+
+def _require_single_component(name: str, label: str) -> None:
+    if name in {"", ".", ".."} or os.sep in name or (os.altsep is not None and os.altsep in name):
+        raise ValueError(f"{label} path is not portable: {name!r}")
+
+
+def _refused_component_reason(name: str, parent: int, exc: OSError) -> str | None:
+    """Describe why ``name`` could not be opened, or ``None`` if it is absent."""
+
+    try:
+        metadata = os.stat(name, dir_fd=parent, follow_symlinks=False)
+    except FileNotFoundError:
+        if isinstance(exc, FileNotFoundError):
+            return None
+        return f"could not be opened ({exc.strerror or exc})"
+    except OSError:
+        return f"could not be opened ({exc.strerror or exc})"
+    if stat.S_ISLNK(metadata.st_mode):
+        return "is a symbolic link"
+    if not stat.S_ISDIR(metadata.st_mode):
+        return "is not a directory"
+    return f"could not be opened ({exc.strerror or exc})"
+
+
+def open_directory_beneath(
+    root: Path,
+    parts: Sequence[str],
+    *,
+    create: bool = False,
+) -> int:
+    """Open ``root/parts...`` as one descriptor without following a link below ``root``.
+
+    ``root`` is the caller's anchor and is opened as given. Each later component
+    is opened relative to its parent's descriptor with ``O_NOFOLLOW |
+    O_DIRECTORY``; with ``create``, a missing component is first made inside
+    that same parent descriptor, so creation never resolves a pathname either.
+    A missing component raises ``FileNotFoundError`` when not creating. A link,
+    a non-directory, or a component that cannot be opened or created raises
+    :class:`UnsafeDirectoryComponent`. POSIX only: it needs ``dir_fd`` support.
+    The caller closes the returned descriptor.
+    """
+
+    for part in parts:
+        _require_single_component(part, "directory")
+    current = os.open(root, _DIRECTORY_BENEATH_FLAGS)
+    lexical = Path(root)
+    try:
+        for part in parts:
+            lexical = lexical / part
+            if create:
+                try:
+                    os.mkdir(part, 0o777, dir_fd=current)
+                except FileExistsError:
+                    pass
+                except OSError as exc:
+                    raise UnsafeDirectoryComponent(
+                        lexical, f"could not be created ({exc.strerror or exc})"
+                    ) from exc
+            try:
+                child = os.open(part, _DIRECTORY_BENEATH_FLAGS, dir_fd=current)
+            except OSError as exc:
+                reason = _refused_component_reason(part, current, exc)
+                if reason is None:
+                    raise
+                raise UnsafeDirectoryComponent(lexical, reason) from exc
+            os.close(current)
+            current = child
+            if not stat.S_ISDIR(os.fstat(current).st_mode):
+                raise UnsafeDirectoryComponent(lexical, "is not a directory")
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.close(current)
+        raise
+    return current
+
+
+def read_regular_file_at(
+    directory: int,
+    name: str,
+    *,
+    max_size: int,
+    label: str,
+    display: str | None = None,
+    single_link: bool = False,
+) -> bytes:
+    """Read one regular file ``name`` inside an open directory descriptor.
+
+    The file is opened with ``O_NOFOLLOW`` relative to ``directory``. Its stat
+    identity is compared before and after the read so a file swapped mid-read
+    is rejected rather than hashed as two generations. ``single_link`` also
+    refuses a hard-linked file, an alias of bytes that live elsewhere.
+    """
+
+    shown = name if display is None else display
+    _require_single_component(name, label)
     # O_NONBLOCK makes opening a FIFO return at once, so the type check below
     # refuses it; without it the open waits for a writer that may never come
-    # (#577). A non-directory parent already fails on O_DIRECTORY. POSIX gives
-    # O_NONBLOCK no effect on a regular file's reads; Windows has neither the
-    # flag nor filesystem FIFOs. O_BINARY stops the Windows C runtime rewriting
-    # the bytes that are hashed.
+    # (#577). POSIX gives O_NONBLOCK no effect on a regular file's reads;
+    # Windows has neither the flag nor filesystem FIFOs. O_BINARY stops the
+    # Windows C runtime rewriting the bytes that are hashed.
     file_flags = (
         os.O_RDONLY
         | getattr(os, "O_NOFOLLOW", 0)
         | getattr(os, "O_NONBLOCK", 0)
         | getattr(os, "O_BINARY", 0)
     )
-    descriptors: list[int] = []
+    file_descriptor: int | None = None
     try:
-        current = os.open(root, directory_flags)
-        descriptors.append(current)
-        for part in parts[:-1]:
-            current = os.open(part, directory_flags, dir_fd=current)
-            descriptors.append(current)
-        file_descriptor = os.open(parts[-1], file_flags, dir_fd=current)
-        descriptors.append(file_descriptor)
+        file_descriptor = os.open(name, file_flags, dir_fd=directory)
         before = os.fstat(file_descriptor)
         if not stat.S_ISREG(before.st_mode):
-            raise ValueError(f"{label} is not a regular file: {logical_path}")
+            raise ValueError(f"{label} is not a regular file: {shown}")
+        if single_link and before.st_nlink != 1:
+            raise ValueError(f"{label} is not a singly-linked file: {shown}")
         if before.st_size > max_size:
-            raise ValueError(f"{label} exceeds its size limit: {logical_path}")
+            raise ValueError(f"{label} exceeds its size limit: {shown}")
         chunks: list[bytes] = []
         remaining = max_size + 1
         while remaining:
@@ -844,16 +965,66 @@ def read_regular_file_beneath(
             after.st_size,
             after.st_mtime_ns,
         ):
-            raise ValueError(f"{label} changed while it was read: {logical_path}")
+            raise ValueError(f"{label} changed while it was read: {shown}")
         if len(data) > max_size:
-            raise ValueError(f"{label} exceeds its size limit: {logical_path}")
+            raise ValueError(f"{label} exceeds its size limit: {shown}")
         return data
     except OSError as exc:
-        raise ValueError(f"could not safely read {label} {logical_path!r}: {exc}") from exc
+        raise ValueError(f"could not safely read {label} {shown!r}: {exc}") from exc
     finally:
-        for descriptor in reversed(descriptors):
+        if file_descriptor is not None:
             with contextlib.suppress(OSError):
-                os.close(descriptor)
+                os.close(file_descriptor)
+
+
+def replace_file_at(
+    directory: int,
+    name: str,
+    data: bytes,
+    *,
+    temporary_prefix: str,
+) -> None:
+    """Atomically publish ``data`` as ``name`` inside an open directory descriptor.
+
+    The temporary file is created exclusively in that directory and renamed
+    over ``name`` relative to the same descriptor, so no step resolves a
+    pathname: an existing link at ``name`` is replaced, never followed, and a
+    directory at ``name`` fails the rename and is left as it was.
+    """
+
+    _require_single_component(name, "published file")
+    flags = (
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_BINARY", 0)
+    )
+    temporary = ""
+    descriptor = -1
+    for _attempt in range(16):
+        temporary = f"{temporary_prefix}{os.urandom(8).hex()}.tmp"
+        try:
+            descriptor = os.open(temporary, flags, 0o644, dir_fd=directory)
+        except FileExistsError:
+            continue
+        break
+    if descriptor < 0:
+        raise FileExistsError(f"could not create a temporary file for {name}")
+    published = False
+    try:
+        try:
+            view = memoryview(data)
+            while view:
+                view = view[os.write(descriptor, view):]
+        finally:
+            os.close(descriptor)
+        os.replace(temporary, name, src_dir_fd=directory, dst_dir_fd=directory)
+        published = True
+    finally:
+        if not published:
+            with contextlib.suppress(OSError):
+                os.unlink(temporary, dir_fd=directory)
 
 
 

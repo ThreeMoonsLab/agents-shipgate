@@ -3367,8 +3367,8 @@ def test_retained_manifest_probe_fails_closed_on_non_utf8_yaml(
 
 
 def test_prune_base_scan_cache_keeps_newest_entries(tmp_path: Path) -> None:
-    cache_root = tmp_path / "base-scans"
-    cache_root.mkdir()
+    cache_root = tmp_path / "agents-shipgate" / "base-scans"
+    cache_root.mkdir(parents=True)
     old = cache_root / "old"
     new = cache_root / "new"
     newest = cache_root / "newest"
@@ -3376,7 +3376,7 @@ def test_prune_base_scan_cache_keeps_newest_entries(tmp_path: Path) -> None:
         path.mkdir()
         os.utime(path, (index, index))
 
-    _prune_base_scan_cache(cache_root, keep=2)
+    _prune_base_scan_cache(tmp_path, keep=2)
 
     assert not old.exists()
     assert new.exists()
