@@ -232,6 +232,10 @@ enough to contain it compares normally.
 
 - Run it again on the next PR that touches these files. The second use is the
   one that tells you whether this is worth keeping.
+- To get the same comparison on every PR without a manifest, add
+  [`examples/github-actions/14-host-only-advisory-pr.yml`](../examples/github-actions/14-host-only-advisory-pr.yml);
+  [its notes](../examples/github-actions/README.md#host-only-advisory-pr-review)
+  cover permissions, forks and what fails the job.
 - [Route H](#route-h--no-manifest) adds a snapshot audit and an optional
   committed baseline for jobs that need one.
 - If the repository builds its own tool surface, continue with

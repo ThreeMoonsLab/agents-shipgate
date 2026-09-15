@@ -195,7 +195,7 @@ def _run_step(
 
 #: Every Python interpreter a shell line starts, however it is spelled: bare,
 #: `python3`, an absolute path or `"${pythonLocation}/bin/python"`.
-_PYTHON_INVOCATION = re.compile(r'(?<![\w.-])(?:[\w${}./"-]*/)?python3?(?![\w.-])"?')
+_PYTHON_INVOCATION = re.compile(r'(?<![\w.-])(?:[\w${}./"-]*/)?python(?:3(?:\.\d+)?)?(?![\w.-])"?')
 #: What may follow one: `-P` (workspace off `sys.path`), or a script path, whose
 #: own directory goes first instead.
 _SAFE_PYTHON_ARGUMENTS = re.compile(r' (?:-P(?= )|"\$\{GITHUB_ACTION_PATH\}/scripts/\w+\.py"(?=\s|$))')
@@ -217,6 +217,8 @@ def _unsafe_python_invocations(line: str) -> list[str]:
     'python -P -m pip install "agents-shipgate==1.0.0" && python -m evil',
     '"${pythonLocation}/bin/python" -m pip install agents-shipgate',
     "/usr/bin/python3 -m pip install agents-shipgate",
+    "python3.12 -m pip install agents-shipgate",
+    '"${pythonLocation}/bin/python3.12" -m pip install agents-shipgate',
     "if python - <<PY; then",
 ])
 def test_the_python_rule_flags_every_unsafe_spelling(line: str) -> None:

@@ -394,3 +394,14 @@ def test_an_invalid_manifest_added_by_the_pr_fails_the_job(
     apply = _named_step("Apply Agents Shipgate exit code")
     assert "steps.scan.outputs.exit_code != '0'" in apply["if"]
     assert apply["run"] == 'exit "${EXIT_CODE}"'
+
+
+def test_the_entry_pages_hand_off_to_the_recipe() -> None:
+    """#780: after local `diff` value, the README and quickstart name the recipe."""
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    quickstart = (REPO_ROOT / "docs/quickstart.md").read_text(encoding="utf-8")
+    first_task = readme.split("## What did this PR change?", 1)[1].split("\n## ", 1)[0]
+    assert "(examples/github-actions/14-host-only-advisory-pr.yml)" in first_task
+    review = quickstart.split("## Review a host-configuration change", 1)[1].split("\n## ", 1)[0]
+    next_steps = review.split("### Next", 1)[1]
+    assert "(../examples/github-actions/14-host-only-advisory-pr.yml)" in next_steps

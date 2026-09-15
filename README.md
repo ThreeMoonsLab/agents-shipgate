@@ -84,6 +84,11 @@ answer, the `--base <ref>` recovery when no base can be detected, and the
 The output above is from `agents-shipgate` `1.0.0` installed from PyPI and run
 in a clone, outside any source checkout of this project.
 
+When the answer is useful and you want it on every pull request, add
+[`examples/github-actions/14-host-only-advisory-pr.yml`](examples/github-actions/14-host-only-advisory-pr.yml):
+the same comparison as an advisory PR comment, with no manifest or saved
+baseline, and a failing job only for setup errors.
+
 ## One capability change, one verdict
 
 If your repository builds its own tool surface — MCP or OpenAPI exports,
