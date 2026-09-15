@@ -6,9 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from agents_shipgate.schemas.instruction_structure import InstructionStructureEvidence
 
-HOST_GRANTS_INVENTORY_SCHEMA_VERSION = "0.5"
-HOST_GRANTS_BASELINE_SCHEMA_VERSION = "0.5"
-HOST_GRANTS_DRIFT_SCHEMA_VERSION = "0.5"
+HOST_GRANTS_INVENTORY_SCHEMA_VERSION = "0.6"
+HOST_GRANTS_BASELINE_SCHEMA_VERSION = "0.6"
+HOST_GRANTS_DRIFT_SCHEMA_VERSION = "0.6"
 
 HostName = Literal["codex", "claude-code", "cursor", "vscode", "github"]
 HostGrantScope = Literal["repository", "local_static"]
@@ -467,6 +467,95 @@ class HostGrantsBaselineArtifactV5(RootModel[HostGrantsBaselineV5]):
 
 class HostGrantsDriftArtifactV5(RootModel[HostGrantsDriftV5]):
     root: HostGrantsDriftV5
+
+
+# v0.6 records the action references a workflow's steps declare (#771). The
+# closed v0.5 workflow grant above stays frozen: a v0.4/v0.5 snapshot did not
+# read step references, so its silence cannot assert that none changed.
+class HostWorkflowStepActionV6(BaseModel):
+    """One step's declared action reference, read as text and never fetched.
+
+    ``form`` is ``remote`` for ``owner/repo[/path]@ref``, ``docker`` for
+    ``docker://…``, and ``unresolved`` for a value Shipgate does not resolve
+    to an action identity; ``unresolved_reason`` then says which. A job whose
+    ``steps`` is not a list, or a step that is not a mapping, is listed as
+    unresolved too, with no ``uses``, so an absent list still means the steps
+    were read and declare nothing. A local
+    ``./…`` reference is not listed: composite actions remain unread (#701).
+    ``step`` is the step's ``id``, else its ``name``, else ``steps[N]`` — the
+    evidence a reviewer uses to find it, not part of the comparison.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    job: str
+    step: str
+    uses: str | None
+    form: Literal["remote", "docker", "unresolved"]
+    unresolved_reason: Literal[
+        "expression",
+        "unsupported_reference",
+        "not_a_string",
+        "redacted",
+        "steps_not_a_list",
+        "step_not_a_mapping",
+    ] | None = None
+
+
+class HostWorkflowGrantV6(HostWorkflowGrantV4):
+    # Present only when a step declares a listed reference. In a v0.6 grant
+    # its absence means the steps were read and declare none; the schema
+    # version, not the key, separates that from a legacy grant that never
+    # read them.
+    step_actions: list[HostWorkflowStepActionV6] = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
+
+
+HostGrantV6 = Annotated[
+    HostMcpServerGrantV2
+    | HostPermissionRuleGrantV2
+    | HostPermissionModeGrantV2
+    | HostHookGrantV2
+    | HostSandboxGrantV2
+    | HostAdditionalPathGrantV2
+    | HostPluginGrantV2
+    | HostProfileGrantV2
+    | HostRequirementGrantV2
+    | HostWorkflowGrantV6
+    | HostInstructionGrantV2,
+    Field(discriminator="kind"),
+]
+
+
+class HostGrantsInventoryV6(HostGrantsInventoryV5):
+    host_grants_inventory_schema_version: Literal["0.6"] = "0.6"
+    grants: list[HostGrantV6] = Field(default_factory=list)
+
+
+class HostGrantsNormalizedSnapshotV6(HostGrantsNormalizedSnapshotV5):
+    grants: list[HostGrantV6] = Field(default_factory=list)
+
+
+class HostGrantsBaselineV6(HostGrantsBaselineV5):
+    host_grants_schema_version: Literal["0.6"] = "0.6"
+    inventory: HostGrantsNormalizedSnapshotV6
+
+
+class HostGrantsDriftV6(HostGrantsDriftV5):
+    host_grants_schema_version: Literal["0.6"] = "0.6"
+
+
+class HostGrantsInventoryArtifactV6(RootModel[HostGrantsInventoryV6]):
+    root: HostGrantsInventoryV6
+
+
+class HostGrantsBaselineArtifactV6(RootModel[HostGrantsBaselineV6]):
+    root: HostGrantsBaselineV6
+
+
+class HostGrantsDriftArtifactV6(RootModel[HostGrantsDriftV6]):
+    root: HostGrantsDriftV6
 
 
 __all__ = [name for name in globals() if name.startswith("Host") or name.startswith("HOST_")]

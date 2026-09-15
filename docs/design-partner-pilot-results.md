@@ -64,7 +64,7 @@ allow list from `Bash(npm test)` / `Read(src/**)` to `Bash(*)` / `Read(**)` /
 capability-change class this pilot exists to observe.
 
 **Published build measured: `1.0.0`.** Preview measured:
-`0.16.0+preview.20260903.gb61aca7`. Source tree: `1.0.0`, runtime contract 39.
+`0.16.0+preview.20260903.gb61aca7`. Source tree: `1.0.0`, runtime contract 40.
 The released and source-tree columns were both rerun on 2026-09-14, after
 `v1.0.0` was published: the released column from `pip install
 agents-shipgate==1.0.0` in a clean virtualenv outside any checkout, the
@@ -73,14 +73,16 @@ source-tree column through `./shipgate`. The preview column retains its
 recorded on the fixture base, to a file outside the repository, before the
 permission change, so it was not itself under review.
 
-The published and source-tree runs returned identical cells: runtime contract
-39, host-grant inventory schema 0.5, `check` blocking with four violations and
+The source-tree column was rerun once more on 2026-09-14 after #771 moved the
+runtime contract to 40. The published and source-tree runs returned identical
+cells except two version numbers, runtime contract 39 against 40 and host-grant
+inventory schema 0.5 against 0.6: `check` blocking with four violations and
 visible coverage, the host-only `init` handoff, manifest-free `verify` exiting
 0 with six advisory rows, drift naming all four expansion signals, and `diff`
 against the fixture base exiting 0 with `comparison_status: comparable` and the
 same six rows, four of them widening — byte-identical `--json` apart from the
-workspace path. That
-the published build and this tree answer alike on this change class is a
+workspace path. #771 reads workflow step action references, and this fixture
+has no workflow. That the published build and this tree answer alike on this change class is a
 measurement, not an assumption carried over from the source column.
 
 The previous release, `v0.15.0`, measured on 2026-09-05, did not. It reported
@@ -91,8 +93,8 @@ expansion signals. It shipped as a qualified release.
 
 | | Released `v1.0.0` (`pip install`) | Preview `0.16.0+preview.20260903` (`gh release download`) | Source tree |
 | --- | --- | --- | --- |
-| Runtime contract | 39 | 29 | 39 |
-| Host-grant inventory schema | 0.5 | 0.2 | 0.5 |
+| Runtime contract | 39 | 29 | 40 |
+| Host-grant inventory schema | 0.5 | 0.2 | 0.6 |
 | `check` on the fixture | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** |
 | Coverage limit visible (`host_coverage`, `excluded_scopes`) | yes | yes | yes |
 | `init --write --ci` Action pin | not applicable — host audit handoff, no workflow written | `@v0.16.0+preview.20260903.gb61aca7` — **no such tag** (the release tag is `preview-`-prefixed) | not applicable — host audit handoff, no workflow written |

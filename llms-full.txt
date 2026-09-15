@@ -855,9 +855,9 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Verifier schema (current) | [`docs/verifier-schema.v0.19.json`](docs/verifier-schema.v0.19.json) | `0.19` |
 | Agent handoff schema (current) | [`docs/agent-handoff-schema.v9.json`](docs/agent-handoff-schema.v9.json) | `shipgate.agent_handoff/v9` |
 | Preflight schema (current) | [`docs/preflight-schema.v0.5.json`](docs/preflight-schema.v0.5.json) | `0.5` |
-| Host-grants inventory schema | [`docs/host-grants-inventory-schema.v0.5.json`](docs/host-grants-inventory-schema.v0.5.json) | `0.5` |
-| Host-grants baseline schema | [`docs/host-grants-baseline-schema.v0.5.json`](docs/host-grants-baseline-schema.v0.5.json) | `0.5` |
-| Host-grants drift schema | [`docs/host-grants-drift-schema.v0.5.json`](docs/host-grants-drift-schema.v0.5.json) | `0.5` |
+| Host-grants inventory schema | [`docs/host-grants-inventory-schema.v0.6.json`](docs/host-grants-inventory-schema.v0.6.json) | `0.6` |
+| Host-grants baseline schema | [`docs/host-grants-baseline-schema.v0.6.json`](docs/host-grants-baseline-schema.v0.6.json) | `0.6` |
+| Host-grants drift schema | [`docs/host-grants-drift-schema.v0.6.json`](docs/host-grants-drift-schema.v0.6.json) | `0.6` |
 | Capability standard | [`docs/capability-standard.md`](docs/capability-standard.md) | `0.5` |
 | Capability lock schema | [`docs/capability-lock-schema.v0.8.json`](docs/capability-lock-schema.v0.8.json) | `0.8` |
 | Capability lock diff schema | [`docs/capability-lock-diff-schema.v0.9.json`](docs/capability-lock-diff-schema.v0.9.json) | `0.9` |
@@ -1572,7 +1572,19 @@ up with an explicit edit.
 
 # Current Agent Contract
 
-Runtime contract v39 reads through an in-tree link at a boundary path (#700).
+Runtime contract v40 reads the action reference each workflow step declares
+(#771). Host-grants inventory, baseline and drift schemas move to `0.6`, and a
+workflow grant adds `step_actions[]`: the job, the step (`id`, else `name`,
+else `steps[N]`), the declared `uses`, and its `form` — `remote`, `docker`, or
+`unresolved` with a reason. Moving a step from a pinned SHA to `@main` is a
+`changed` row naming the job and step, with `expands: false`: a reference
+names different code, not new token scopes. Local `./` actions stay unread
+(#701). A `0.4` or `0.5` baseline holding a workflow grant is incomparable
+(`baseline_workflow_step_actions_unavailable`); one without a workflow stays
+comparable, and `minimum_control_contract_version` stays `21`. See
+[the migration note](../STABILITY.md#workflow-step-action-references-contract-v40-771).
+
+Previous runtime contract v39 reads through an in-tree link at a boundary path (#700).
 A link such as `CLAUDE.md -> AGENTS.md` or `.claude/skills -> ../.agents/skills`
 that resolves inside the repository is read at its target and published under
 its own path. Host-grants inventory, baseline and drift schemas move to `0.5`,
@@ -2186,7 +2198,7 @@ Downstream repos generated with
 
 - Latest release: `v1.0.0`
 - In-tree runtime: `1.0.0` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `39` (minimum control contract: `21`)
+- Runtime contract: `40` (minimum control contract: `21`)
 - Current report schema: `1.0`, frozen, superseding `0.43` — [`docs/report-schema.v1.0.json`](report-schema.v1.0.json); the `1.x` rules are in [`docs/report-1-0-contract.md`](report-1-0-contract.md)
 - Current packet schema: `0.18` — [`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
@@ -2209,7 +2221,7 @@ Downstream repos generated with
 - Current attestation schema: `0.5` — [`docs/attestation-schema.v0.5.json`](attestation-schema.v0.5.json)
 - Current registry schema: `0.4` — [`docs/registry-schema.v0.4.json`](registry-schema.v0.4.json)
 - Current org evidence bundle schema: `shipgate.org_evidence_bundle/v2` — [`docs/org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json)
-- Current host-grants inventory, baseline, and drift schemas: `0.5` — [`inventory`](host-grants-inventory-schema.v0.5.json), [`baseline`](host-grants-baseline-schema.v0.5.json), [`drift`](host-grants-drift-schema.v0.5.json)
+- Current host-grants inventory, baseline, and drift schemas: `0.6` — [`inventory`](host-grants-inventory-schema.v0.6.json), [`baseline`](host-grants-baseline-schema.v0.6.json), [`drift`](host-grants-drift-schema.v0.6.json)
 - Current trigger catalog schema: `0.4` — [`docs/triggers.json`](triggers.json)
 - Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
 - Current governance benchmark result schema: `0.2` — [`docs/governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json)

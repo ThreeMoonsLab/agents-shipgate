@@ -195,7 +195,12 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # inventory, baseline and drift move to 0.5 with an optional
 # ``artifacts[].resolved_through``. A 0.4 baseline stays comparable, and
 # ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21: operational control is unchanged.
-CONTRACT_VERSION: Literal["39"] = "39"
+# v40 reads the action reference each workflow step declares (#771). Host-grants
+# inventory, baseline and drift move to 0.6 with ``step_actions[]`` on a
+# workflow grant, omitted when no step declares a listed reference. A 0.4/0.5 baseline holding a workflow
+# grant is incomparable, since it never read step references; one without a
+# workflow stays comparable. ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21.
+CONTRACT_VERSION: Literal["40"] = "40"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"

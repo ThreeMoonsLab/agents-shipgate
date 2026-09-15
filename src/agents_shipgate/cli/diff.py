@@ -20,6 +20,7 @@ from pathlib import Path
 import typer
 
 from agents_shipgate.cli.workspace_guard import require_workspace
+from agents_shipgate.core.agent_control_envelope import single_line_text
 from agents_shipgate.core.boundary_registry import is_boundary_surface_path
 from agents_shipgate.core.capability_diff_rows import (
     ABSENT,
@@ -122,30 +123,40 @@ def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
     return requested, resolved
 
 
+def _one_line(value: object) -> str:
+    return single_line_text(str(value))
+
+
 def _render_table(rows: list[CapabilityDiffRow]) -> list[str]:
     """Two lines per change: the fact, then why it matters.
 
     One line per row put `why` in a seventh column and ran to about 190
     characters, so the column a reviewer most needs was the one their
     terminal wrapped or truncated.
+
+    Every field carries repository text — a step name, a `uses:` value, a
+    permission rule — so each is rendered on one line: a newline, escape or
+    bidi control inside one is shown, and cannot print a row of its own.
     """
 
-    severity_width = max(len(row.severity) for row in rows)
-    direction_width = max(len(row.direction) for row in rows)
+    severity_width = max(len(_one_line(row.severity)) for row in rows)
+    direction_width = max(len(_one_line(row.direction)) for row in rows)
+    indent = " " * (severity_width + direction_width + 5)
     lines: list[str] = []
     for row in rows:
         marker = "⚠" if row.expands else " "
+        before, after = _one_line(row.before), _one_line(row.after)
         transition = (
-            f"{row.before} → {row.after}"
+            f"{before} → {after}"
             if row.before != ABSENT and row.after != ABSENT
-            else (row.after if row.before == ABSENT else f"{row.before} → gone")
+            else (after if row.before == ABSENT else f"{before} → gone")
         )
         lines.append(
-            f"{marker} {row.severity.ljust(severity_width)}  "
-            f"{row.direction.ljust(direction_width)}  {row.subject}"
+            f"{marker} {_one_line(row.severity).ljust(severity_width)}  "
+            f"{_one_line(row.direction).ljust(direction_width)}  {_one_line(row.subject)}"
         )
-        lines.append(f"{' ' * (severity_width + direction_width + 5)}{transition}")
-        lines.append(f"{' ' * (severity_width + direction_width + 5)}{row.why}")
+        lines.append(f"{indent}{transition}")
+        lines.append(f"{indent}{_one_line(row.why)}")
         lines.append("")
     return lines[:-1]
 
@@ -220,8 +231,8 @@ def run_capability_diff(
 
     if payload.get("comparison_status") != "comparable":
         typer.echo(
-            f"Cannot compare against {base_ref}: "
-            + "; ".join(str(reason) for reason in payload.get("incomparable_reasons") or [])
+            f"Cannot compare against {_one_line(base_ref)}: "
+            + "; ".join(_one_line(reason) for reason in payload.get("incomparable_reasons") or [])
         )
         typer.echo(
             "This is an input limit, not a finding about the change. Nothing "
@@ -229,14 +240,19 @@ def run_capability_diff(
         )
         return 0
 
-    typer.echo(f"Agent capability diff  {base_ref} ({base_commit[:8]}) -> working tree")
+    typer.echo(
+        f"Agent capability diff  {_one_line(base_ref)} ({base_commit[:8]}) -> working tree"
+    )
     typer.echo("")
     if limits:
         typer.echo(
             "Not compared: unchanged in this change and not read, so no claim is made about them:"
         )
         for limit in limits:
-            typer.echo(f"  {limit['host']} {limit['source']} — {limit['limit']}")
+            typer.echo(
+                f"  {_one_line(limit['host'])} {_one_line(limit['source'])} — "
+                f"{_one_line(limit['limit'])}"
+            )
         typer.echo("")
     if not rows:
         typer.echo("No static host-grant changes detected. No verdict is implied.")

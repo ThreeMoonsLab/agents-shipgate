@@ -19,7 +19,7 @@ and `audit --host`.
 | Claude Code | first-class | `.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json`, `CLAUDE.md`, Claude skills | permission modes/rules, sandbox/network, additional paths, MCP restrictions, plugins and their marketplaces (`extraKnownMarketplaces`), hooks |
 | Cursor | first-class | `.cursor/cli.json`, `.cursor/mcp.json`, `.cursor/rules/**` | Shell/Read/Write rules, MCP declarations, instruction trust roots |
 | VS Code MCP | first-class | `.vscode/mcp.json` | MCP servers; `sandbox` and per-server `sandboxEnabled`; `${input:…}` references by name, never value; `envFile` recorded as a limit; other top-level keys partial |
-| Shared/GitHub | first-class | `AGENTS.md`, Shipgate policies/state, skills, `.github/workflows/*` | instruction/gate weakening, workflow permissions and triggers |
+| Shared/GitHub | first-class | `AGENTS.md`, Shipgate policies/state, skills, `.github/workflows/*` | instruction/gate weakening, workflow permissions and triggers, remote step action references |
 
 A registered adapter reports `complete`, `not_applicable`, `partial`, or
 `experimental` coverage. A relevant malformed, unreadable, binary, oversized,
@@ -54,10 +54,6 @@ adapter reads them. Editing any of them produces no row and no coverage limit:
   `.claude/hooks/session-start`). The hook entry is read; the file it executes
   is not, so editing the script changes what runs without changing the hook
   (#702).
-- **The action reference of a workflow step** (`uses: actions/checkout@<ref>`).
-  Only triggers, token permissions and reusable-workflow calls are read, so
-  moving a step from a pinned SHA to `@main` changes code that runs with the
-  job's token and produces no row (#771).
 - **Named secrets passed to a reusable workflow**
   (`secrets: { token: ${{ secrets.NAME }} }`). `secrets: inherit` is read; a
   named mapping is dropped before comparison, so pointing it at a different
@@ -68,6 +64,25 @@ adapter reads them. Editing any of them produces no row and no coverage limit:
 
 Review changes to those files and fields as you would a change to the workflow,
 hook or server entry that holds them.
+
+A workflow step's remote action reference is read (#771). Each step's
+`uses: owner/repo[/path]@ref` or `uses: docker://…` is listed on the workflow
+grant with its job and step: the step's `id`, else its `name`, else
+`steps[N]`. Adding, removing or changing one, such as moving
+`actions/checkout` from a pinned SHA to `@main`, is a `changed` row that names
+`job/step` on both sides. The reference is compared as text and never fetched,
+so the row says different code runs with that job's token. It does not say a
+scope was added, and it never marks the row as widening. Reordering or renaming
+steps that declare the same references is quiet. A local `./…` reference is
+not part of this read and stays unread (#701). An expression, a string in
+neither form, or a non-string value is listed as `unresolved` with its reason:
+its text is compared, and what it evaluates to is not. A `steps` value that is
+not a list of mappings is listed as `unresolved` as well, and none of its text
+is published. A reference containing credential-shaped text — a token such as
+`ghp_…` or `AKIA…`, a credential assignment, or registry userinfo such as
+`docker://user:password@…`, whose password may itself hold `/`, `:` or `@` —
+is published redacted and cannot be compared, so it
+makes GitHub coverage partial and a comparison of that changed workflow refuses.
 
 A hook row describes the file, not the host. A `hooks.json` found under
 `.claude/hooks/` is reported as an `execute` grant even when no settings file

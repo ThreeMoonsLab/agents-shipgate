@@ -1,16 +1,18 @@
 """The support page names the host surfaces no adapter reads.
 
-A composite action (#701), a hook-run script (#702), a step's action reference
-(#771), a named reusable-workflow secret (#693) and a remote MCP server's URL
-path (#772) can each change what runs, or what it can reach, with no row. Until
-a reader exists, the published boundary has to say so, or advertised coverage
-would exceed measured behavior.
+A composite action (#701), a hook-run script (#702), a named reusable-workflow
+secret (#693) and a remote MCP server's URL path (#772) can each change what
+runs, or what it can reach, with no row. Until a reader exists, the published
+boundary has to say so, or advertised coverage would exceed measured behavior.
 
 The behavioral cases pin that silence on the page's own examples. The day a
 reader starts producing a row for one of them, its case fails, and the page
 entry has to leave in the same change. Each silent fixture also has a control
 change the reader does see, so the silence cannot come from a fixture that is
 never read at all.
+
+A workflow step's remote action reference was on this list until #771 read it.
+Its fixture now pins the row, and the page names the read and its limits.
 """
 
 from __future__ import annotations
@@ -35,32 +37,48 @@ def _section() -> str:
     return " ".join(text[start : end if end != -1 else len(text)].split())
 
 
-def test_composite_actions_are_named_as_unread() -> None:
+def _bullets() -> str:
+    """Only the list of unread surfaces, not the prose that follows it."""
+
     section = _section()
+    return section[: section.index("Review changes to those files")]
+
+
+def test_composite_actions_are_named_as_unread() -> None:
+    section = _bullets()
     assert ".github/actions/<name>/action.yml" in section
     assert "(#701)" in section
 
 
 def test_hook_run_scripts_are_named_as_unread() -> None:
-    section = _section()
+    section = _bullets()
     assert "script a hook command runs" in section
     assert "(#702)" in section
 
 
-def test_step_action_references_are_named_as_unread() -> None:
+def test_step_action_references_are_no_longer_named_as_unread() -> None:
+    assert "action reference of a workflow step" not in _bullets()
+    assert "(#771)" not in _bullets()
+
+
+def test_the_step_action_read_names_its_limits() -> None:
     section = _section()
-    assert "action reference of a workflow step" in section
-    assert "(#771)" in section
+    assert "A workflow step's remote action reference is read (#771)" in section
+    # Only the remote slice is read: local composites stay #701's.
+    assert "A local `./…` reference is not part of this read and stays unread (#701)" in section
+    assert "listed as `unresolved` with its reason" in section
+    assert "it never marks the row as widening" in section
+    assert "a comparison of that changed workflow refuses" in section
 
 
 def test_named_reusable_workflow_secrets_are_named_as_unread() -> None:
-    section = _section()
+    section = _bullets()
     assert "Named secrets passed to a reusable workflow" in section
     assert "(#693)" in section
 
 
 def test_mcp_url_paths_are_named_as_unread() -> None:
-    section = _section()
+    section = _bullets()
     assert "path of a remote MCP server's URL" in section
     assert "(#772)" in section
 
@@ -84,7 +102,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@{ref}
+      - uses: {ref}
 """
 
 _REUSABLE_CALL = """on: pull_request
@@ -104,11 +122,11 @@ _PINNED = "11bd71901bbe5b1630ceea73d27597364c9af683"
 # (case, file, base, silent head, seen head)
 _CASES = [
     (
-        "step action reference (#771)",
+        "local composite action reference (#701)",
         ".github/workflows/ci.yml",
-        _WORKFLOW_STEP.format(access="read", ref=_PINNED),
-        _WORKFLOW_STEP.format(access="read", ref="main"),
-        _WORKFLOW_STEP.format(access="write", ref=_PINNED),
+        _WORKFLOW_STEP.format(access="read", ref="./.github/actions/build"),
+        _WORKFLOW_STEP.format(access="read", ref="./.github/actions/deploy"),
+        _WORKFLOW_STEP.format(access="write", ref="./.github/actions/build"),
     ),
     (
         "named reusable-workflow secret (#693)",
@@ -184,3 +202,31 @@ def test_each_silent_fixture_is_read_when_a_covered_field_changes(
     payload = _diff_after(tmp_path, file, base, seen)
 
     assert len(payload["rows"]) == 1, (case, payload["rows"])
+
+
+def test_the_formerly_silent_step_reference_fixture_now_produces_its_row(tmp_path: Path) -> None:
+    """The page's own #771 example: a pinned SHA moved to `@main`."""
+
+    payload = _diff_after(
+        tmp_path,
+        ".github/workflows/ci.yml",
+        _WORKFLOW_STEP.format(access="read", ref=f"actions/checkout@{_PINNED}"),
+        _WORKFLOW_STEP.format(access="read", ref="actions/checkout@main"),
+    )
+
+    row, = payload["rows"]
+    assert row["subject"] == "github .github/workflows/ci.yml"
+    assert f"test/steps[0]: uses actions/checkout@{_PINNED}" in row["before"]
+    assert "test/steps[0]: uses actions/checkout@main" in row["after"]
+    assert row["direction"] == "changed"
+    assert row["expands"] is False
+    assert "test/steps[0]" in row["why"]
+
+
+def test_an_unchanged_step_reference_fixture_stays_quiet(tmp_path: Path) -> None:
+    unchanged = _WORKFLOW_STEP.format(access="read", ref=f"actions/checkout@{_PINNED}")
+    payload = _diff_after(
+        tmp_path, ".github/workflows/ci.yml", unchanged, unchanged + "# a comment\n"
+    )
+
+    assert payload["rows"] == []
