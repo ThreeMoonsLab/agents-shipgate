@@ -40,138 +40,133 @@ blocking CI. Organization-wide adoption must be demonstrated. New surface
 follows the [non-goals](#explicit-non-goals) and
 [`CONTRIBUTING.md`](CONTRIBUTING.md#surface-discipline).
 
-## Roadmap to v1.0 (plan of record, 2026-09-11)
+## Post-1.0 adoption (plan of record, 2026-09-14)
 
-**Adoption > completeness. v1.0 contains only what this repository can
-independently implement, verify and deliver.** First make the selected product
-ready; then actively expand adoption. Customer replies, installs, weekly-active
-users, second changes on other people's repositories and recruited reviewers
-are post-readiness measurements, never prerequisites.
+**Adoption > completeness.** `v1.0.0` is published on PyPI and GitHub from
+`bace7c1871834e0b3eb98e6f60c0627725c53a59`, and #777 moves the current pins to it.
+The [advisory statement](https://github.com/ThreeMoonsLab/agents-shipgate/releases/download/v1.0.0/advisory-statement.json)
+records advisory defaults, blocking opt-in and no qualification claim. That
+publication supersedes the pre-release sequencing in the historical record
+below; it does not satisfy the separate qualified-gate obligations in #572.
 
-The first release focuses on **advisory review of repository-declared host
-capability changes**: a platform or DevEx engineer sees the changes in plain
-language within two commands, sees zero rows for a fully covered no-change
-comparison, and gets an honest explanation when coverage or human authority is
-missing. Existing tool-source and machine-control contracts retain their
-compatibility and regression obligations; completing every route is not a
-condition for this first release.
+[#778](https://github.com/ThreeMoonsLab/agents-shipgate/issues/778) owns this execution sequence. The next product question is whether a
+reviewer can act on the declared capability diff of a real PR, without a
+maintainer translating it, and voluntarily use it on the next relevant change.
+The primary user is a developer or platform/DevEx reviewer with such a PR, an
+available base/head and another reviewer. Merely using a coding agent does not
+establish the need for a new tool.
 
-[#643](https://github.com/ThreeMoonsLab/agents-shipgate/issues/643) owns that
-product acceptance. [#572](https://github.com/ThreeMoonsLab/agents-shipgate/issues/572)
-records the release decision, including which claims the candidate may make.
-Readiness is not a qualification certificate. The existing `v*` publisher
-still requires the qualified-gate evidence: before a stable advisory 1.0 tag
-can be selected, [#648](https://github.com/ThreeMoonsLab/agents-shipgate/issues/648)
-must reconcile its version, claims and publication path with the release policy.
-Changing this roadmap neither changes that workflow nor clears its gates.
+### Publication and evidence
 
-The 2026-09-10 study measured an older source checkpoint, not today's installed
-product. Since then #649, #650, #651 and #652 delivered default comparison,
-terminating next actions, host diff and clearer output; #679 delivered Go MCP
-description extraction. At `d27c8cc0`, TypeScript descriptions (#682), shallow
-recovery (#692 / #683), and effective workflow permissions and reusable-secret
-recipients (#695 / #685) are merged. Permission semantics (#678) remains open.
-The next question is whether
-an actual installed candidate delivers the repaired workflow with bounded noise,
-coverage and latency.
+| Record | What it establishes | Remaining work |
+| --- | --- | --- |
+| #648 / #644 | Published advisory package, installed current contract and host workflow; actual source/Action identity in the candidate smoke; #777 current pins | Publication delivery is complete. #570 retains the literal post-publication hosted Action replay. |
+| #645 / #659 / #660 / #658 | Selected engineering workflow and fixed corpora: row precision 70/70, widening recall 55/65, benign zero-row 5/6, 41/50 comparable; cold start 26/30; 76 MCP findings, one false | Recall and benign rate remain below their original bars under the [owner retained-refusal decision](https://github.com/ThreeMoonsLab/agents-shipgate/issues/643#issuecomment-5657575213). They are not relabeled as passes. |
+| #643 / #646 / #570 | The advisory product has shipped; the PyPI/local replay and generated immutable pin are recorded | Finish and link the actual published tag/Action observation before closing the remaining delivery record. It does not block supported, nonblocking user research. |
+| #653 / #571 | Existing interview and pilot protocols | The [2026-09-14 ledger](docs/design-partner-pilot-results.md) records zero external invitations, attempts, first values and second-change observations. This is an experiment count, not a claim that no other users exist. |
+| #572 | Qualified-gate evidence and historical release decisions | Preserve unmet human-label, independent qualification and authority obligations; no qualification or merge authority follows from this roadmap. |
 
-### Two release lines
+The corpus measures candidate engineering behavior, not human comprehension or
+adoption. The [support boundary](docs/host-boundary-support.md) also names
+unread surfaces that produce no change row. Report precision, recall, coverage
+and noise together; never treat refused or unobserved input as a quiet success.
 
-| Line | Carries | Current publication path | Promise | Measurement |
-| --- | --- | --- | --- | --- |
-| Advisory | capability diffs, host inventory, advisory review | `preview-*` GitHub release with a PEP 440 local-version wheel; outside `v*`, not PyPI | declared static changes and explicit limits; no qualification claim | 14-day cadence target, warning-only |
-| Qualified gate | blocking verdicts, receipts, attestations | `v*` publisher, only with its required evidence | the bars in `docs/release-evidence-policy-decision.md` | evidence-bound release decision |
+### First value and repeated use
 
-This is the implemented Amendment 4 policy, delivered in #676. The latest
-preview predates the new diff workflow, so refresh a CI-accepted preview and
-test its downloaded bytes. #647's PyPI prerelease proposal is owner-deferred;
-it is not an installation prerequisite. #648 owns the remaining publication
-contract decision. Waiting for two consecutive releases is an operating metric,
-not a gate on the first ready candidate.
+Lead with the existing manifest-free host `shipgate diff` on the user's PR.
+[#779](https://github.com/ThreeMoonsLab/agents-shipgate/issues/779) makes that the clear current entry; [#780](https://github.com/ThreeMoonsLab/agents-shipgate/issues/780) carries it into optional,
+nonblocking CI. [#781](https://github.com/ThreeMoonsLab/agents-shipgate/issues/781) repairs stale executable instructions already shipped
+in the optional kit, without restoring #690's suspended legacy skill. These
+repairs can proceed while #653 starts conversations; completing every entry,
+reader or qualification issue is not a prerequisite for the local pilot.
+
+Use the existing [pilot protocol](docs/design-partner-verifier-pilot.md) and
+[aggregate ledger](docs/design-partner-pilot-results.md), not a new telemetry
+platform. Record attempts, valid results, unaided versus assisted first value,
+second-change eligibility and observed reuse separately. First value means a
+non-author reviewer can name the capability change, evidence, coverage and
+next action/owner, and records a concrete decision or fix from the artifacts
+alone; an exit code, finding count or fixture pass is not that result.
+
+Evaluate the existing ladder in order: **Continue** when at least two unaided
+first values and one observed second change occur on the same route; **Stop**
+when at least one valid result produces zero first values; **Narrow** otherwise.
+Read those counts against their full denominators. These are exploratory
+investment decisions, not a claim of product-market fit. No second opportunity
+is neither a retained user nor a churned one. Observe second reviewers and
+voluntary second-repository adoption only after repeat use, not instead of it.
 
 ### Milestones
 
-| Milestone | Window | Exit evidence | Tracker |
+Windows start with this plan on 2026-09-14. They assume two engineers and a
+product/research owner; they are capacity estimates, not promises about other
+people's replies. Record a dated shortfall when recruitment or observation is
+incomplete. Reserve about 20% of engineering capacity for reproduced reliability
+problems, initially triaging #577/#638/#575 rather than starting a broad rewrite.
+
+| Window | Product/research work in parallel | Engineering work | Exit evidence |
 | --- | --- | --- | --- |
-| v1.0 M1 — installable and navigable | to 2026-10-10 | a documented clean install executes the candidate's expected contract and its Action ref resolves; all widenings in the first-value fixture are named in <= 2 commands and <= 2 minutes; emitted next-action chains terminate | [#644](https://github.com/ThreeMoonsLab/agents-shipgate/issues/644) |
-| v1.0 M2 — diff first value | to 2026-11-10 | selected host route needs zero manifest fields; CLI, PR and maintained coding-agent JSON show the same supported changes; 50 fixed public PRs measure precision >= 0.95, widening recall >= 0.90 and benign zero-row rate >= 95%; >= 24/30 public repositories yield a correct covered comparison in <= 2 commands and <= 5 minutes | [#645](https://github.com/ThreeMoonsLab/agents-shipgate/issues/645) |
-| v1.0 M3 — release ready | to 2026-12-10 | repeat-change CI/local fixtures, truthful human routing, supported-reader regressions, compatibility/migration and clean-install/upgrade/Action smoke all pass against the same candidate; its publication path and claims are resolved | [#646](https://github.com/ThreeMoonsLab/agents-shipgate/issues/646) |
+| Now — days 0–7 | #571 records the current advisory channel decision; #653 selects people with recent relevant PRs and starts wave one | [#779](https://github.com/ThreeMoonsLab/agents-shipgate/issues/779) current docs and diff-first entry; [#780](https://github.com/ThreeMoonsLab/agents-shipgate/issues/780) host-only recipe and #570 hosted replay; [#781](https://github.com/ThreeMoonsLab/agents-shipgate/issues/781) installed-kit repair; prepare #771/#693 fixtures | A clear installed route and first research attempts; no invented recruitment or qualification record |
+| Now — days 8–30 | #653 aims for two waves of five conversations and at least three live repository attempts; #571 begins the four-week second-change window | Merge #771 then #693 in their shared reader; #772 privacy/noise design and #714 loading-evidence semantics in parallel; fix the top observed entry/report failures under #328/#440 | Attempt → valid result → unaided value denominators, observed failure causes and a dated shortfall if needed |
+| Next — days 31–60 | #571 observes the next eligible change, a second reviewer and whether CI stays enabled; apply Continue/Narrow/Stop | #699 interruption reduction and #698 measured latency where user evidence supports them; #714 → #702 and workflow-reader work → #701 only for bounded real cases | The selected route earns repeat use, or its persona/entry/scope is explicitly narrowed; no automatic feature expansion |
+| Later — days 61–90 | Observe voluntary second-repository use, maintenance ownership and budget decisions; publish examples only with consent | #664's small App/onboarding MVP only if repeated value exists and workflow installation is an observed blocker; #666 consumer conversations before integration formats | An evidence-backed expansion decision, or an explicit decision not to expand |
 
-Windows are capacity estimates. An unmet exit narrows scope or triggers a
-repair; it is never counted as passed. #654's blanket freeze was closed as not
-planned. New work must address a measured failure on the selected path.
+### Order and concurrency
 
-The engineering corpus records exact source commits, label provenance and the
-actual review method. Coding-agent review is not independent human blind
-qualification. Input expectations come from an independent source-file census,
-not the engine's own adapter registry. Correct no-change output counts as value;
-empty output caused by missing history, unsupported input or a parse failure
-does not. Positive controls and widening recall keep silence from becoming the
-objective.
+1. **Entry and research run together.** [#779](https://github.com/ThreeMoonsLab/agents-shipgate/issues/779), [#780](https://github.com/ThreeMoonsLab/agents-shipgate/issues/780) and [#781](https://github.com/ThreeMoonsLab/agents-shipgate/issues/781) are
+   separate reviewable repairs. #653/#571 can use the existing local 1.0.0
+   diff while they land. The current pilot-channel decision supersedes the
+   old release-selection hold; qualified promotion requirements are unchanged.
+2. **Repair silent omissions before adding host families.** #771 records step
+   Action references and #693 named reusable-workflow secret mappings. Design
+   and fixtures can run in parallel; merge changes to the shared workflow
+   reader sequentially. This is an implementation order, not a functional
+   dependency. A changed reference is not automatically a permission widening.
+3. **Set semantics before deeper readers.** #772 decides how to expose an MCP
+   URL-path change without exposing secret material; it cannot promise both
+   every path change visible and every rotation quiet. #714 separates discovered
+   hook files from declared/known loading, then #702 can follow bounded local
+   scripts. #701 follows the workflow work and must account for consumed input
+   defaults; unchanged `runs` text does not prove unchanged behavior.
+4. **Reduce actual interruption and waiting.** #699 needs proof that an edit is
+   semantically inert; #698 measures startup, tree and inventory costs before
+   optimizing. Keep unknown coverage visible and existing no-change/dedup
+   behavior intact. #328/#440 prioritize failures observed in real attempts.
+5. **Expand only after the workflow earns it.** Three repositories running a
+   command alone do not justify #664. Require observed repeat value and an
+   installation obstacle. Keep its first scope to advisory onboarding; org
+   policy, approval authentication and baseline governance remain separate.
 
-### Order of work
+Implementation PRs keep the established one-to-three independent review/address
+loops, recorded in GitHub, with applicable checks before merge. Newly discovered
+uncertainties or unrelated defects get bounded issues with evidence and a later
+selection decision; they do not silently enlarge the current PR.
 
-1. **Deliver the current workflow.** #648 refreshes the existing advisory
-   channel and records the remaining stable-publication decision. Replay the
-   downloaded candidate and actual Action (#570), keeping #649/#650/#651/#652
-   as completed prerequisites. This does not wait for PyPI or outside users.
-2. **Repair correctness and latency in parallel.** #683 shallow-history
-   recovery and #685 workflow comparison are complete; #686 still bounds
-   base-tree materialization. #657 distinguishes actual widening under host
-   permission precedence. Complete the existing #678 review/CI path rather
-   than opening a duplicate implementation. #658 retains MCP annotation and description
-   precision work on existing readers.
-3. **Join the workflow and its evidence in parallel.** #684 carries host
-   changes into manifest-free PR review; #662 aligns CLI, PR and coding-agent
-   guidance without granting authority from prose. #659 and #660 can collect
-   fixed inputs, independently derived labels and red cases while those repairs
-   land. Final acceptance replays the installed candidate, not a source-only
-   harness.
-4. **Prove the second change after the diff is correct.** #661 exercises local
-   triggers and quiet no-change runs; #684/#662 cover repeat PR changes and
-   actionable human routing with controlled fixtures. Freeze the supported host
-   file inventory and its blind spots; additional host families in #663 are
-   deferred. #658's ten-server sample checks precision without requiring new
-   adapters.
-5. **Converge on one release candidate.** #569 (existing PR #642) freezes
-   compatibility; #570 supplies clean-install, upgrade and CLI/Action parity
-   for the final bytes. #648 resolves the actual advisory publication contract
-   and #572 records the decision. Real authenticated human continuation
-   (#337/#555) and qualified release evidence remain separately open; fixtures
-   cannot manufacture either.
+### Deferred scope
 
-### Deferred from the first advisory release
+#690 remains suspended; user interruption is a cost, not an activation metric.
+[#781](https://github.com/ThreeMoonsLab/agents-shipgate/issues/781) fixes existing shipped instructions only. #663's new host families need
+a real attempt blocked by an absent surface before selection. #655/#656/#474's
+tool-source base and manifest/lock-state proposals are not prerequisites for the
+already manifest-free host route. #496's broad decomposition and #665's content
+library remain deferred; demonstrated reliability failures can select a bounded
+repair. #696's provider scorer repair precedes a provider experiment, not the
+human-reviewer pilot. #666 starts with consumer conversations, not new formats.
 
-The old Agents Shipgate skill is suspended for this implementation phase by
-the owner (#690). Revisit its workflow interruption cost after the core route
-works; skill activation is not an acceptance condition for this release.
-
-#655's synthesized tool-source base, #656/#474's manifest/lock-state redesign,
-#557/#515/#580's deeper attribution and historical tool-source scope, #663's
-additional host families, #496's broad decomposition and #665's incident
-content remain open. They are not prerequisites for a correct host-diff
-workflow. A demonstrated blocker on that workflow can bring a bounded repair
-back into scope; technical completeness alone cannot.
-
-The qualified-gate obligations below remain unmet where their evidence is
-missing. They are not all independently finishable by repository automation:
-real labels, independent signing and responsible people's acceptance cannot be
-substituted with synthetic records. No previously required evidence is marked
-satisfied by this scope decision.
-
-### After v1.0 readiness — actively expand adoption
-
-Start design-partner conversations (#653), the consent-based pilot (#571),
-actual opt-in adopter entries (#475), and second-change observations after
-readiness. Use those results to decide whether a GitHub App (#664), delta
-consumers (#666), wider host coverage or the generated-state model is worth
-building. No outreach or recruitment is a prerequisite in M1, M2 or M3.
-
-The historical "Direction" record below preserves the gate-track audit and
-its no-go evidence. It is not a second checklist requiring every older issue
-to close before the selected advisory product is ready.
+#572, #504/#337/#555, and #456/#509/#510/#511/#512 retain their qualified or
+human-authority obligations. An advisory PR comment does not authenticate an
+approval, establish runtime-effective authority or authorize merge. Nothing in
+this plan changes release gates, published machine contracts or declarations.
 
 ## Direction
+
+The following record is **historical**, through the pre-publication 2026-09-14
+checkpoint. Its no-go statements and future-tense release tasks describe the
+commits named there, not the current published advisory product. The plan above
+is current; unmet qualified obligations remain in #572.
+
+<details>
+<summary>Historical readiness and qualified-gate audit</summary>
 
 **v1.0 is no-go at the audited `main` commit `452bdeb80` (2026-09-08).**
 [#572](https://github.com/ThreeMoonsLab/agents-shipgate/issues/572) owns the
@@ -574,7 +569,9 @@ and replay machinery already exist; redacted bundles cannot rerun omitted source
 Implementation, preview availability and stable qualification remain distinct;
 see the [distribution contract](docs/distribution.md) and latest tag above.
 
-### Explicit non-goals
+</details>
+
+## Explicit non-goals
 
 - **More framework adapters is not the roadmap.** The differentiation to prove
   is trustworthy capability review and resistance to gate weakening. New
