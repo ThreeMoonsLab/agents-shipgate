@@ -165,7 +165,8 @@ ability to disagree with it. The whole fixture is two files and one edit:
 ```
 
 Commit the base as `main`, commit the change on a branch, then run the
-runbook's Route H and Route A command blocks against each build. The published
+runbook's command blocks against each build — `agents-shipgate diff` for
+Git-backed Route H, the baseline Route H block, and Route A. The published
 build goes into a clean virtualenv (`pip install agents-shipgate`); this tree
 runs through `./shipgate`.
 

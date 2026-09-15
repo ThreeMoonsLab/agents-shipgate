@@ -109,7 +109,7 @@ agents-shipgate diff
 
 With no `--base`, `diff` compares your working tree with its merge base on
 `origin/HEAD`, `origin/main` or `origin/master`, the first that exists; a local
-`main` is used only in a repository with no remote. The header names the base
+`main` or `master` is used only in a repository with no remote. The header names the base
 it chose. **If the PR targets another branch, name it** —
 `agents-shipgate diff --base origin/<pr-base>` — or the comparison is against
 the default branch instead. `--json` prints the same rows as data.
@@ -202,8 +202,9 @@ the change may merge.
 ### When no base can be detected
 
 When none of `origin/HEAD`, `origin/main` or `origin/master` exists — a
-single-branch clone of the PR branch, or a clone whose default branch has
-another name — `diff` stops rather than guessing, and exits `2`:
+single-branch clone of the PR branch, or a checkout with no `origin/HEAD` whose
+default branch is named neither `main` nor `master` — `diff` stops rather than
+guessing, and exits `2`:
 
 ```text
 Invalid value for --base: No base ref could be detected. Pass --base <ref>
@@ -275,10 +276,10 @@ them before interpreting an empty candidate list; the rest of the
 classification still stands.
 
 The published release `v1.0.0` (runtime contract 39) emits these host
-discovery fields. On an older install such as `v0.15.0`, absence of the fields
-is not an empty answer: upgrade, or go straight to
-[Review a host-configuration change](#review-a-host-configuration-change) when
-your repository carries supported host configuration.
+discovery fields, and is also the first release with `agents-shipgate diff`. On
+an older install such as `v0.15.0`, absence of the fields is not an empty
+answer, and [Review a host-configuration change](#review-a-host-configuration-change)
+is not available either: upgrade first.
 
 ## One review, end to end
 

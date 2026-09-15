@@ -16,10 +16,12 @@ copy of the answer.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from pathlib import Path
 
+import click
 import pytest
 from typer.testing import CliRunner
 
@@ -55,11 +57,27 @@ _SHA = re.compile(r"\(([0-9a-f]{8})\)")
 _NO_CHANGE = "No static host-grant changes detected. No verdict is implied."
 
 
+#: Git that ignores the caller's repository, hooks and global configuration, so a
+#: run under `rebase --exec`, a hook, or a customized `~/.gitconfig` builds the
+#: same fixture.
+_GIT_ENV = {
+    **{key: value for key, value in os.environ.items() if not key.startswith("GIT_")},
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_NOSYSTEM": "1",
+}
+
+#: The CLI's output as a terminal-less reader sees it. Rich colors output under
+#: `GITHUB_ACTIONS` and wraps its error panel to `COLUMNS`; neither is part of
+#: what the pages quote.
+_CLI_ENV = {"NO_COLOR": "1", "GITHUB_ACTIONS": None, "FORCE_COLOR": None, "COLUMNS": "200"}
+
+
 def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", "-c", "user.name=Docs", "-c", "user.email=docs@example.invalid",
-         "-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main", *args],
-        cwd=cwd, check=True, capture_output=True, text=True,
+         "-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main",
+         "-c", f"core.hooksPath={os.devnull}", *args],
+        cwd=cwd, check=True, capture_output=True, text=True, env=_GIT_ENV,
     )
 
 
@@ -105,8 +123,13 @@ def _clone(remote: Path, branch: str, *extra: str) -> Path:
 
 
 def _diff(repo: Path, *args: str) -> tuple[int, str]:
-    result = CliRunner().invoke(app, ["diff", "--workspace", str(repo), *args])
-    return result.exit_code, result.output
+    result = CliRunner().invoke(app, ["diff", "--workspace", str(repo), *args], env=_CLI_ENV)
+    return result.exit_code, click.unstyle(result.output)
+
+
+def _flat(output: str) -> str:
+    """Error-panel text with the box drawing and wrapping removed."""
+    return " ".join(re.sub(r"[│╭╮╰╯─]", " ", output).split())
 
 
 def _normalize(text: str) -> list[str]:
@@ -178,17 +201,16 @@ def test_the_documented_missing_base_recovery_holds(documented_remote: Path) -> 
 
     code, output = _diff(clone)
     assert code == 2
-    flat = " ".join(re.sub(r"[│╭╮╰╯─]", " ", output).split())
     documented = " ".join(
         "Invalid value for --base: No base ref could be detected. Pass --base <ref> "
         "explicitly (use --base HEAD for uncommitted changes only).".split()
     )
-    assert documented in flat and documented in quickstart
+    assert documented in _flat(output) and documented in quickstart
 
     # The trap the page warns about: a plain fetch updates only FETCH_HEAD.
     _git(clone, "fetch", "-q", "origin", "main")
     code, output = _diff(clone, "--base", "origin/main")
-    assert code == 2 and "not available locally" in output
+    assert code == 2 and "not available locally" in _flat(output)
 
     recovery = "git fetch origin main:refs/remotes/origin/main"
     assert recovery in quickstart
@@ -221,13 +243,23 @@ def test_entry_pages_state_the_declared_channel_of_the_published_release() -> No
         advisory = _table_row(text, "**Advisory**")
         qualified = _table_row(text, "**Qualified gate**")
         install = advisory.split("|")[3]
+        gate_install = " ".join(qualified.split("|")[3].split())
+        # The exact pre-#779 cell: every `v*` tag on the qualified line.
+        assert gate_install != "a `v*` release tag", f"{name}: the qualified row claims every `v*` tag"
+        assert "qualified line" in gate_install, f"{name}: the qualified row does not name its line"
         if channel == "advisory":
             assert published in install, f"{name}: the advisory install cell omits {published}"
             assert "preview" in install, f"{name}: the preview channel left the advisory row"
-            gate_install = qualified.split("|")[3]
-            assert published not in gate_install or "not" in gate_install, (
-                f"{name}: the qualified row claims {published}"
-            )
+            if published in gate_install:
+                assert f"{published} is not one" in gate_install, (
+                    f"{name}: the qualified row claims {published}"
+                )
+        else:
+            assert published not in install, f"{name}: the advisory row claims a qualified {published}"
+    cadence = " ".join(distribution.split())
+    assert "reads each `v*` tag's declared channel" in cadence, (
+        "docs/distribution.md no longer says the cadence splits `v*` tags by declared channel"
+    )
     flat = " ".join(readme.split())
     article = "an" if channel[0] in "aeiou" else "a"
     assert f"{published} is {article} {channel} release" in flat
