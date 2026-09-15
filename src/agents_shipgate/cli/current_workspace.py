@@ -8,13 +8,43 @@ into one decision must apply one currency test; when they did not, ``verify
 workspace ``agent control`` was simultaneously refusing as ``workspace_changed``.
 And ``verify/git.py`` carries line-pinned static-analysis allowlists for its
 subprocess surfaces, so inserting unrelated code there churns a security pin.
+
+Where a workspace's reports live by default is defined here for the same
+reason: ``verify`` writes there and ``agent control`` reads there, and when the
+two resolved that default differently a valid run read as ``missing`` (#575).
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from agents_shipgate.core.current_control import LiveWorkspace
+
+#: The reports directory name used when no output directory is named — the
+#: published ``DEFAULT_PATHS["reports_dir"]``, spelled here rather than imported
+#: so this leaf does not load every schema the contract module does.
+DEFAULT_REPORTS_DIR = Path("agents-shipgate-reports")
+
+
+def default_reports_dir(workspace: Path) -> Path:
+    """Where ``verify --workspace <workspace>`` publishes when ``--out`` is omitted.
+
+    Beneath the requested workspace — not the Git root, and not the invoking
+    directory. This is the one definition for both sides of the control loop:
+    ``verify`` writes its default output here and ``agent control`` reads its
+    default here. When the reader resolved the same relative name against the
+    caller's current directory instead, a run published under
+    ``<repo>/agents-shipgate-reports`` read as ``missing`` from anywhere else,
+    and a caller standing in another verified repository had that repository's
+    pointer checked against this one (#575).
+
+    The final component is deliberately left unresolved. The reader opens the
+    directory without following a symlink, and resolving it here would quietly
+    follow one that read refuses; ``verify`` resolves the result itself.
+    """
+
+    return workspace.resolve() / DEFAULT_REPORTS_DIR
 
 
 def live_workspace(workspace: Path, reports_dir: Path) -> LiveWorkspace | None:
@@ -52,7 +82,9 @@ def live_workspace(workspace: Path, reports_dir: Path) -> LiveWorkspace | None:
     try:
         root = ensure_git_workspace(workspace.resolve())
         try:
-            changed, _ = working_tree_context(root, exclude=reports_dir)
+            changed, _ = working_tree_context(
+                root, exclude=worktree_exclusion(root, reports_dir)
+            )
             changed_paths: tuple[str, ...] | None = tuple(changed)
         except Exception:  # noqa: BLE001 - an unreadable worktree is "unverified".
             changed_paths = None
@@ -67,6 +99,49 @@ def live_workspace(workspace: Path, reports_dir: Path) -> LiveWorkspace | None:
         )
     except Exception:  # noqa: BLE001 - an unresolvable workspace is "unverified".
         return None
+
+
+def worktree_exclusion(root: Path, reports_dir: Path) -> Path | None:
+    """The reports directory as a Git change-set exclusion, or ``None``.
+
+    The one rule for every place that hands an output directory to the Git
+    worktree readers as ``exclude=``: the writing run (``verify``, ``verify
+    --preview``, the pointer's worktree overlay, the manifest-free host
+    comparison) and the refresh that checks it (``live_workspace``). Two
+    spellings of it would let the writer and the reader disagree about which
+    paths make up the change set.
+
+    Excluding the directory only matters where Git could report it: beneath the
+    repository. A directory wholly outside the checkout never appears in its
+    change set, so there is nothing to exclude — and the Git helpers refuse it
+    as an exclusion ("must remain inside workspace"). Every caller swallowed
+    that refusal: plain ``verify`` recorded no input census and exited 2,
+    ``--preview`` bound no worktree overlay and then read an untracked file as
+    a change it never saw, the host comparison went ``incomparable``, and the
+    refresh could not observe the workspace (#575, #785).
+
+    Only the disjoint case changes. A directory inside the repository, the root
+    itself, or one of its ancestors — under either the spelling given or the
+    resolved one — is returned unchanged, so an in-repository exclusion applies
+    exactly as it did, and the root or a parent still reaches the helpers'
+    refusal and still withholds authority. Dropping an exclusion can only
+    surface more changed paths, never hide one.
+    """
+
+    roots = {_absolute(root), root.resolve()}
+    for spelling in {_absolute(reports_dir), reports_dir.resolve()}:
+        if any(
+            spelling.is_relative_to(candidate) or candidate.is_relative_to(spelling)
+            for candidate in roots
+        ):
+            return reports_dir
+    return None
+
+
+def _absolute(path: Path) -> Path:
+    """The lexical absolute spelling: no symlink followed, ``..`` folded."""
+
+    return Path(os.path.abspath(os.path.normpath(os.fspath(path))))
 
 
 def _safe_commit_sha(root: Path, ref: str) -> str | None:
@@ -94,4 +169,9 @@ def _safe_merge_base(root: Path, base: str, head: str) -> str | None:
         return None
 
 
-__all__ = ["live_workspace"]
+__all__ = [
+    "DEFAULT_REPORTS_DIR",
+    "default_reports_dir",
+    "live_workspace",
+    "worktree_exclusion",
+]

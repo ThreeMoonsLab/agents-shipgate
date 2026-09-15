@@ -87,6 +87,43 @@ def test_first_pr_route_names_s1_rows_before_advisory_footer(s1, preview):
     assert not verifier["control"]["permissions"]["merge"]
 
 
+@pytest.mark.parametrize("head", ["HEAD", None])
+def test_reports_outside_the_workspace_keep_the_host_comparison(s1, tmp_path, head):
+    """#785: `--out` beside the checkout is not an input the comparison can lose.
+
+    The comparison binds the working tree's overlay, and that capture handed
+    the output directory to Git as an exclusion. Outside the workspace the Git
+    helper refused it, so every such run went `incomparable` with
+    `comparison_input_unavailable:ValueError` and no rows — for an explicit
+    head, `HEAD`, and the worktree alike. Nothing outside the repository can
+    appear in its change set, so the rows must be the in-workspace run's.
+    """
+
+    def run(out: Path) -> tuple[dict, str]:
+        args = [
+            "verify", "--workspace", str(s1), "--config", "shipgate.yaml",
+            "--ci-mode", "advisory", "--out", str(out), "--format", "json",
+            "--pr-comment-style", "capability-review", "--base", "main",
+        ]
+        if head is not None:
+            args += ["--head", head]
+        result = CliRunner().invoke(app, args)
+        assert result.exit_code == 0, result.output
+        verifier = json.loads((out / "verifier.json").read_text())
+        return verifier["host_comparison"], (out / "pr-comment.md").read_text()
+
+    outside, comment = run(tmp_path / "outside-reports")
+    inside, _ = run(s1 / "agents-shipgate-reports")
+
+    assert outside["comparison_status"] == "comparable", outside
+    assert outside["incomparable_reasons"] == []
+    assert "comparison unavailable" not in comment
+    assert len(outside["rows"]) == 5
+    assert outside["rows"] == inside["rows"]
+    for name in NAMES:
+        assert name in comment
+
+
 def test_check_names_same_five_changes_in_explicit_text_and_json(s1):
     args = ["check", "--workspace", str(s1), "--base", "main", "--head", "HEAD"]
     rendered = CliRunner().invoke(app, [*args, "--format", "text"])
