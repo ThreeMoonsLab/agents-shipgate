@@ -136,7 +136,7 @@ _PACKAGE_PINS = (
     re.compile(r"shipgate_version:\s*['\"](\d+\.\d+\.\d+)['\"]"),
 )
 #: Blanks `upgrade-shipgate-version.md` prints for the reader to fill in.
-_READER_BLANKS = frozenset({"v<NEW>", "v…"})
+_READER_BLANKS = frozenset({"v<NEW>"})
 
 
 @pytest.fixture
@@ -245,6 +245,48 @@ def test_the_stamped_engine_reports_this_builds_contract(record_path: Path) -> N
         contract_version=CONTRACT_VERSION, stamped=True,
     )
     assert int(CONTRACT_VERSION) >= int(MINIMUM_CONTROL_CONTRACT_VERSION)
+
+
+@pytest.mark.parametrize("flags", [
+    ["--minimal", "--agent-instructions=claude-code-skill,codex-skill"],
+    ["--write", "--agent-instructions=agents-md,claude-code-skill"],
+    ["--write", "--ci"],
+])
+def test_init_refuses_a_malformed_record_before_writing_anything(
+    record_path: Path, tmp_path: Path, flags: list[str],
+) -> None:
+    """A malformed record is a setup error with a recovery, not a traceback
+    after `shipgate.yaml` and `AGENTS.md` are already on disk (#781 review)."""
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+
+    record_path.write_text('{"schema_version": "shipgate.release_source/v1"')
+    workspace = tmp_path / "adopter"
+    workspace.mkdir()
+    result = CliRunner().invoke(app, ["init", "--workspace", str(workspace), *flags, "--json"])
+    assert result.exit_code == 2, result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "Invalid candidate release-source record" in result.output
+    assert not any(workspace.iterdir()), sorted(p.name for p in workspace.iterdir())
+
+
+def test_init_without_a_pin_rendering_target_ignores_a_malformed_record(
+    record_path: Path, tmp_path: Path,
+) -> None:
+    """Only the targets that render a pin read the record."""
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+
+    record_path.write_text("{")
+    workspace = tmp_path / "adopter"
+    workspace.mkdir()
+    result = CliRunner().invoke(
+        app, ["init", "--workspace", str(workspace), "--minimal", "--agent-instructions=agents-md", "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "release-source" not in result.output
 
 
 def _git(root: Path, *args: str) -> str:

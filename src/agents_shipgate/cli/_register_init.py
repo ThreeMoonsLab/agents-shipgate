@@ -1798,6 +1798,56 @@ def register(app: typer.Typer) -> None:
                 )
                 raise typer.Exit(2) from exc
 
+        # The workflow `--ci` writes and every bundled skill kit render their
+        # pins from the wheel's release-source record (#781). A malformed record
+        # is refused here, before anything is written, as a setup error with a
+        # recovery, rather than as a traceback after the manifest is on disk.
+        if ci or any(_AI_SPECS[name].is_file_tree for name in (requested_targets or ())):
+            from agents_shipgate.release_source import release_engine
+
+            try:
+                release_engine()
+            except ValueError as exc:
+                typer.echo(str(exc), err=True)
+                _emit_agent_mode_error_routing(
+                    "config_error",
+                    routing=setup_failure_routing(
+                        operation="init",
+                        workspace=workspace_resolved,
+                        reason=str(exc),
+                        exit_code=2,
+                        action=NextAction(
+                            kind="review",
+                            why=(
+                                f"{exc}. The installed Agents Shipgate wheel carries a "
+                                "malformed release-source record, so no Action or "
+                                "package pin can be written from it. Reinstall the "
+                                "package from its published distribution, then rerun."
+                            ),
+                        ),
+                        recheck_command=_recovery_command(
+                            workspace=workspace_resolved,
+                            write=write,
+                            local_review=local_review,
+                            json_output=json_output,
+                            setup_flags=_invocation_flags(
+                                minimal=minimal,
+                                ci=ci,
+                                claude_code=claude_code,
+                                agent_instructions=agent_instructions,
+                                control_pack=control_pack,
+                                allow_unresolved_scope=allow_unresolved_scope,
+                                agent_instructions_kit=agent_instructions_kit,
+                                max_python_files=max_python_files,
+                            ),
+                        ),
+                    ),
+                    path=None,
+                    message=str(exc),
+                    exit_code=2,
+                )
+                raise typer.Exit(2) from exc
+
         # Manifest action — orthogonal to --ci. Track outcome instead of
         # exiting immediately so --ci can still run when the manifest exists.
         manifest_status = "not_attempted"

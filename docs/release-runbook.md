@@ -220,7 +220,9 @@ Action source. It cannot hide a malformed embedded source record. Ordinary and
 preview builds keep their published fallback.
 
 A malformed record refuses the things it decides — the pins `init --ci` and
-`init --agent-instructions` for the skill kits write — and nothing else. `doctor`,
+`init --agent-instructions` for the skill kits write — and nothing else. `init`
+refuses before writing any file, exits 2 and names the record, with an agent-mode
+`config_error` routing to a reinstall. `doctor`,
 `check` and `verify` keep running on that install, so the diagnostic that names
 the broken wheel is still available.
 

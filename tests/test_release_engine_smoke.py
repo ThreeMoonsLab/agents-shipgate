@@ -14,6 +14,43 @@ ROOT = Path(__file__).resolve().parents[1]
 _ENV = "AGENTS_SHIPGATE_CANDIDATE_SOURCE_COMMIT"
 
 
+def _kit_payload(*texts: str) -> dict:
+    return {"agent_instructions": {"targets": [
+        {"files": [{"path": f"f{index}", "content": text}]} for index, text in enumerate(texts)
+    ]}}
+
+
+_CANDIDATE_KIT = (
+    "- uses: ThreeMoonsLab/agents-shipgate@" + "c" * 40 + "\n"
+    "  shipgate_version: '1.0.1'\n"
+    'SG="uvx agents-shipgate@1.0.1"\n'
+    "references `ThreeMoonsLab/agents-shipgate@v<NEW>` while you bump it\n"
+    "This release, `agents-shipgate` `1.0.1`, reports it.\n"
+)
+
+
+@pytest.mark.parametrize("text,refusal", [
+    (_CANDIDATE_KIT, None),
+    (_CANDIDATE_KIT.replace("c" * 40, "v1.0.0"), "Action refs"),
+    (_CANDIDATE_KIT + "- uses: ThreeMoonsLab/agents-shipgate@v…\n", "Action refs"),
+    (_CANDIDATE_KIT.replace("uvx agents-shipgate@1.0.1", "uvx agents-shipgate@0.15.0"), "package versions"),
+    (_CANDIDATE_KIT + "No published release reports that contract yet.\n", "denies the contract"),
+    ("no pins rendered at all {{ shipgate_action_ref }}\n", "Action refs"),
+])
+def test_kit_pin_check_accepts_only_the_candidates_own_engine(
+    monkeypatch: pytest.MonkeyPatch, text: str, refusal: str | None,
+) -> None:
+    """#781: the smoke's kit check, on each of its refusal branches."""
+    monkeypatch.setattr(release_engine_smoke, "_cli", lambda *args, **kwargs: _kit_payload(text))
+    if refusal is None:
+        assert release_engine_smoke._kit_pins("c" * 40, "1.0.1") == {
+            "action_refs": ["c" * 40], "package_versions": ["1.0.1"],
+        }
+        return
+    with pytest.raises(ValueError, match=refusal):
+        release_engine_smoke._kit_pins("c" * 40, "1.0.1")
+
+
 def _current_report_schema_version() -> str:
     from agents_shipgate.schemas.report import ReadinessReport
 

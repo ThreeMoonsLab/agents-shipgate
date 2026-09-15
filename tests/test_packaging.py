@@ -273,7 +273,7 @@ def test_a_stamped_installed_wheel_kit_does_not_downgrade_or_stop_at_the_floor(
     }), encoding="utf-8")
     stamped = kit("stamped")
     actions = set(re.findall(r"ThreeMoonsLab/agents-shipgate@([^\s\"'`)\],;{}]+)", stamped))
-    assert actions - {"v<NEW>", "v…"} == {sha}
+    assert actions - {"v<NEW>"} == {sha}
     assert set(re.findall(r"shipgate_version:\s*'([^']+)'", stamped)) - {"<NEW>"} == {__version__}
     assert set(re.findall(r"agents-shipgate(?:@|==)(\d+\.\d+\.\d+)", stamped)) == {__version__}
     assert "0.15.0" not in stamped

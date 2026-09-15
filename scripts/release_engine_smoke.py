@@ -113,7 +113,8 @@ _KIT_ACTION_REF = re.compile(r"ThreeMoonsLab/agents-shipgate@([^\s\"'`)\],;{}]+)
 _KIT_PACKAGE_PIN = re.compile(
     r"(?:agents-shipgate(?:@|==)|shipgate_version:\s*['\"])(\d+\.\d+\.\d+)"
 )
-_KIT_READER_BLANKS = frozenset({"v<NEW>", "v…"})
+#: The one blank `upgrade-shipgate-version.md` prints for a reader to fill in.
+_KIT_READER_BLANKS = frozenset({"v<NEW>"})
 
 
 def _kit_pins(source_commit: str, version: str) -> dict:
