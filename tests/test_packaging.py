@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -191,6 +192,92 @@ def test_installed_wheel_replays_incident_fixtures(
         check_ids = {finding["check_id"] for finding in report["findings"]}
         assert set(required_checks) <= check_ids
         assert not (set(absent_checks) & check_ids)
+
+
+def test_a_stamped_installed_wheel_kit_does_not_downgrade_or_stop_at_the_floor(
+    installed_wheel_site: Path,
+    tmp_path: Path,
+) -> None:
+    """#781, on installed bytes and the real `init` route, outside any checkout.
+
+    A final wheel is built before the published-release constants move, so it
+    carries the *previous* release in them — `1.0.0` carried `0.15.0` and
+    contract `10`. Its adoption kit rendered those constants and told adopters
+    to install `0.15.0` and stop at a contract floor the running build met.
+    This rewrites the installed copy's constants to that pre-publication state
+    and adds the release-source record the candidate build stamps, then reads
+    what the installed CLI emits. The unstamped run is the control: it must
+    still show the published fallback, or the substitution did not take.
+    """
+
+    from agents_shipgate import __version__
+
+    site = tmp_path / "site"
+    shutil.copytree(installed_wheel_site, site, symlinks=True)
+    package = site / "agents_shipgate"
+    constants = package / "published_release.py"
+    text = constants.read_text(encoding="utf-8")
+    for name, stale in (
+        ("LATEST_PUBLISHED_VERSION", "0.15.0"),
+        ("LATEST_PUBLISHED_CONTRACT_VERSION", "10"),
+    ):
+        text, count = re.subn(rf'^{name} = "[^"]*"$', f'{name} = "{stale}"', text, flags=re.M)
+        assert count == 1, name
+    constants.write_text(text, encoding="utf-8")
+    shutil.rmtree(package / "__pycache__", ignore_errors=True)
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(site)
+    env["PYTHONNOUSERSITE"] = "1"
+    env.pop("AGENTS_SHIPGATE_WORKFLOW_REF", None)
+    located = subprocess.run(
+        [sys.executable, "-c", "import agents_shipgate; print(agents_shipgate.__file__)"],
+        cwd=tmp_path, env=env, check=True, capture_output=True, text=True,
+    )
+    assert Path(located.stdout.strip()).resolve().is_relative_to(site.resolve())
+
+    def kit(name: str) -> str:
+        workspace = tmp_path / name
+        workspace.mkdir()
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "agents_shipgate", "init",
+                "--workspace", str(workspace), "--minimal",
+                "--agent-instructions=claude-code-skill,codex-skill", "--json",
+            ],
+            cwd=tmp_path, env=env, check=False, capture_output=True, text=True,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert not any(workspace.iterdir()), "the dry run wrote into the workspace"
+        payload = json.loads(result.stdout)
+        files = [
+            entry
+            for target in payload["agent_instructions"]["targets"]
+            for entry in target["files"]
+        ]
+        assert any(entry["path"].endswith("ci-recipes/advisory-pr-comment.yml") for entry in files)
+        assert any(entry["path"].endswith("assets/advisory-pr-comment.yml") for entry in files)
+        return "\n".join(entry["content"] for entry in files)
+
+    control = kit("unstamped")
+    assert "ThreeMoonsLab/agents-shipgate@v0.15.0" in control
+    assert "No published release reports that contract yet" in control
+
+    sha = "c" * 40
+    record = package / "_meta" / "release-source.json"
+    record.parent.mkdir(exist_ok=True)
+    record.write_text(json.dumps({
+        "schema_version": "shipgate.release_source/v1",
+        "source_commit": sha,
+        "package_version": __version__,
+    }), encoding="utf-8")
+    stamped = kit("stamped")
+    actions = set(re.findall(r"ThreeMoonsLab/agents-shipgate@([^\s\"'`)\],;{}]+)", stamped))
+    assert actions - {"v<NEW>", "v…"} == {sha}
+    assert set(re.findall(r"shipgate_version:\s*'([^']+)'", stamped)) - {"<NEW>"} == {__version__}
+    assert set(re.findall(r"agents-shipgate(?:@|==)(\d+\.\d+\.\d+)", stamped)) == {__version__}
+    assert "0.15.0" not in stamped
+    assert "No published release reports that contract" not in stamped
 
 
 def test_wheel_emits_a_capability_delta_attestation(

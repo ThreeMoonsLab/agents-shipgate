@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import textwrap
@@ -12,9 +13,11 @@ from pathlib import Path
 
 import pytest
 
-from agents_shipgate import __version__, release_source
+from agents_shipgate import __version__, published_release, release_source
+from agents_shipgate.cli.discovery.agent_instructions.apply import render_targets
 from agents_shipgate.cli.discovery.ci_workflow import _action_ref, write_ci_workflow
 from agents_shipgate.published_release import latest_published_action_ref
+from agents_shipgate.schemas.contract import CONTRACT_VERSION, MINIMUM_CONTROL_CONTRACT_VERSION
 from scripts._release_support import ReleaseError
 from scripts.verify_wheel_provenance import verify_wheel_provenance
 
@@ -121,6 +124,127 @@ def test_a_corrupt_record_only_fails_the_pin_it_could_get_wrong(tmp_path: Path) 
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "refused: Invalid candidate release-source record" in result.stdout
+
+
+# --- the bundled adoption kit selects the same engine (#781) -----------------
+
+_KIT_TARGETS = ("claude-code-skill", "codex-skill")
+_ACTION_REF = re.compile(r"ThreeMoonsLab/agents-shipgate@([^\s\"'`)\],;{}]+)")
+_PACKAGE_PINS = (
+    re.compile(r"(?<![\w-])agents-shipgate@(\d+\.\d+\.\d+)"),
+    re.compile(r"agents-shipgate==(\d+\.\d+\.\d+)"),
+    re.compile(r"shipgate_version:\s*['\"](\d+\.\d+\.\d+)['\"]"),
+)
+#: Blanks `upgrade-shipgate-version.md` prints for the reader to fill in.
+_READER_BLANKS = frozenset({"v<NEW>", "v…"})
+
+
+@pytest.fixture
+def pre_publication_constants(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The published constants a final wheel is necessarily built beside.
+
+    They move only after the tag exists (runbook § Cutting the release), so the
+    wheel that becomes ``X.Y.Z`` still names the previous release. These are
+    the values the released ``1.0.0`` carried.
+    """
+    monkeypatch.setattr(published_release, "LATEST_PUBLISHED_VERSION", "0.15.0")
+    monkeypatch.setattr(published_release, "LATEST_PUBLISHED_CONTRACT_VERSION", "10")
+
+
+def _kit_text(tmp_path: Path) -> str:
+    workspace = (tmp_path / "kit-adopter").resolve()
+    workspace.mkdir()
+    return "\n".join(
+        entry["content"]
+        for outcome in render_targets(workspace, _KIT_TARGETS)
+        for entry in outcome.files or ()
+    )
+
+
+def _pins(text: str) -> tuple[set[str], set[str]]:
+    actions = {ref for ref in _ACTION_REF.findall(text) if ref not in _READER_BLANKS}
+    packages = {version for pattern in _PACKAGE_PINS for version in pattern.findall(text)}
+    return actions, packages
+
+
+def test_a_stamped_wheel_kit_pins_its_own_release_not_the_previous_one(
+    record_path: Path, tmp_path: Path, pre_publication_constants: None,
+) -> None:
+    """The reproduced 1.0.0 defect: kit runners installed 0.15.0 and claimed no
+    release reports contract 21, while the running build reported 39."""
+    record_path.write_text(json.dumps(_record()))
+    text = _kit_text(tmp_path)
+    actions, packages = _pins(text)
+    assert actions == {SHA}
+    assert packages == {__version__}
+    assert "0.15.0" not in text
+    assert "No published release reports that contract" not in text
+    assert f"This release, `agents-shipgate` `{__version__}`, reports it" in text
+    assert "{{" not in text.replace("${{", "")
+
+
+def test_an_unstamped_build_kit_keeps_the_published_fallback(
+    record_path: Path, tmp_path: Path, pre_publication_constants: None,
+) -> None:
+    """The control for the test above: without a record nothing pins itself (#506)."""
+    text = _kit_text(tmp_path)
+    actions, packages = _pins(text)
+    assert actions == {"v0.15.0"}
+    assert packages == {"0.15.0"}
+    assert "No published release reports that contract yet" in text
+    assert __version__ == "0.15.0" or f"agents-shipgate@{__version__}" not in text
+
+
+def test_init_ci_and_the_kit_recipes_name_one_engine(
+    record_path: Path, tmp_path: Path, pre_publication_constants: None,
+) -> None:
+    record_path.write_text(json.dumps(_record()))
+    workspace = tmp_path / "workflow-adopter"
+    assert write_ci_workflow(workspace).status == "written"
+    workflow = (workspace / ".github/workflows/agents-shipgate.yml").read_text()
+    assert _pins(workflow) == _pins(_kit_text(tmp_path)) == ({SHA}, {__version__})
+
+
+def test_the_workflow_override_does_not_reach_the_kit(
+    record_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`AGENTS_SHIPGATE_WORKFLOW_REF` selects the Action source of the workflow
+    `init --ci` writes and drops its package selector. A zero-install runner
+    pin cannot name an Action source, so the kit keeps the release engine."""
+    record_path.write_text(json.dumps(_record()))
+    monkeypatch.setenv("AGENTS_SHIPGATE_WORKFLOW_REF", "main")
+    assert _action_ref() == "main"
+    assert _pins(_kit_text(tmp_path)) == ({SHA}, {__version__})
+
+
+def test_a_malformed_record_refuses_the_kit_even_with_an_override(
+    record_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record_path.write_text(json.dumps(_record(version="0.0.1")))
+    monkeypatch.setenv("AGENTS_SHIPGATE_WORKFLOW_REF", "main")
+    with pytest.raises(ValueError, match="release-source"):
+        _kit_text(tmp_path)
+
+
+def test_a_stamped_engine_below_the_floor_states_its_own_gap() -> None:
+    engine = published_release.ReleaseEngine(
+        package_version="9.9.9", action_ref=SHA, contract_version="20", stamped=True,
+    )
+    prose = published_release.contract_floor_prose("21", engine)
+    assert not prose.satisfied
+    assert "This release does not report that contract" in prose.notice
+    assert "`9.9.9` reports contract `20`" in prose.notice
+    assert "or newer" not in prose.source
+    assert "published" not in prose.notice
+
+
+def test_the_stamped_engine_reports_this_builds_contract(record_path: Path) -> None:
+    record_path.write_text(json.dumps(_record()))
+    assert release_source.release_engine() == published_release.ReleaseEngine(
+        package_version=__version__, action_ref=SHA,
+        contract_version=CONTRACT_VERSION, stamped=True,
+    )
+    assert int(CONTRACT_VERSION) >= int(MINIMUM_CONTROL_CONTRACT_VERSION)
 
 
 def _git(root: Path, *args: str) -> str:

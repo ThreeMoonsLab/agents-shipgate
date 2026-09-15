@@ -13,10 +13,8 @@ from typing import Any, Literal
 import yaml
 
 from agents_shipgate import __version__
-from agents_shipgate.published_release import (
-    LATEST_PUBLISHED_VERSION,
-    contract_floor_prose,
-)
+from agents_shipgate.published_release import contract_floor_prose
+from agents_shipgate.release_source import release_engine
 from agents_shipgate.schemas.contract import MINIMUM_CONTROL_CONTRACT_VERSION
 
 DEFAULT_CONFIG_RELATIVE_PATH = ".agents-shipgate/adoption-kit.yaml"
@@ -465,9 +463,18 @@ def _render_template(text: str) -> str:
     # ``contract_floor_prose`` states — in the prompt, beside the pin — whether
     # that release reports the floor. When it does not, the honest output is to
     # say so; it is never to pin a build that cannot be fetched.
-    floor = contract_floor_prose(MINIMUM_CONTROL_CONTRACT_VERSION)
+    #
+    # Hand-written pins were the third attempt's hole: the bundled CI recipes
+    # carried literal release pins, and a pinned floor was judged against the
+    # published constants a final wheel is necessarily built *beside*, so the
+    # released 1.0.0 told adopters to install 0.15.0 and that no release reports
+    # contract 21 (#781). Every pin and the floor now come from one engine,
+    # selected by the same rule ``init --ci`` uses.
+    engine = release_engine()
+    floor = contract_floor_prose(MINIMUM_CONTROL_CONTRACT_VERSION, engine)
     context = {
-        "shipgate_version": LATEST_PUBLISHED_VERSION,
+        "shipgate_version": engine.package_version,
+        "shipgate_action_ref": engine.action_ref,
         "minimum_control_contract_version": MINIMUM_CONTROL_CONTRACT_VERSION,
         "contract_floor_notice": floor.notice,
         "contract_floor_source": floor.source,

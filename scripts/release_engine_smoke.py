@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -94,6 +95,7 @@ def prepare(root: Path, source_commit: str, wheel: Path, *, disposable: bool = F
         raise ValueError("Installed candidate generated a different Action source")
     if f'shipgate_version: "{contract["cli_version"]}"' not in generated_text:
         raise ValueError("Installed candidate did not pin its package version")
+    kit_pins = _kit_pins(source_commit, contract["cli_version"])
     _cli(root, "verify", "--workspace", str(root), "--config", str(fixture / "shipgate.yaml"),
          "--base", base, "--head", "HEAD", "--ci-mode", "advisory",
          "--out", str(root / ".shipgate-smoke/local"), "--format", "json")
@@ -101,10 +103,41 @@ def prepare(root: Path, source_commit: str, wheel: Path, *, disposable: bool = F
         "source_commit": source_commit, "action_ref": source_commit,
         "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
         "contract": contract, "base_ref": base, "head_ref": _git(root, "rev-parse", "HEAD"),
-        "generated_workflow": generated_text, "qualified": False,
+        "generated_workflow": generated_text, "generated_kit_pins": kit_pins, "qualified": False,
     }
     (root / ".shipgate-smoke/prepared.json").write_text(json.dumps(result, indent=2) + "\n")
     return result
+
+
+_KIT_ACTION_REF = re.compile(r"ThreeMoonsLab/agents-shipgate@([^\s\"'`)\],;{}]+)")
+_KIT_PACKAGE_PIN = re.compile(
+    r"(?:agents-shipgate(?:@|==)|shipgate_version:\s*['\"])(\d+\.\d+\.\d+)"
+)
+_KIT_READER_BLANKS = frozenset({"v<NEW>", "v…"})
+
+
+def _kit_pins(source_commit: str, version: str) -> dict:
+    """The optional adoption kit must select the candidate's own engine (#781).
+
+    Rendered by the installed CLI in an empty directory, as an adopter's dry
+    run would be. A kit that names the previous release, or states that no
+    release reports the contract floor this candidate reports, fails here
+    rather than after publication.
+    """
+    with tempfile.TemporaryDirectory(prefix="shipgate-distribution-kit-") as directory:
+        payload = _cli(Path(directory), "init", "--workspace", directory, "--minimal",
+                       "--agent-instructions=claude-code-skill,codex-skill", "--json")
+    text = "\n".join(entry["content"] for target in payload["agent_instructions"]["targets"]
+                     for entry in target.get("files") or ())
+    actions = sorted(set(_KIT_ACTION_REF.findall(text)) - _KIT_READER_BLANKS)
+    packages = sorted(set(_KIT_PACKAGE_PIN.findall(text)))
+    if actions != [source_commit]:
+        raise ValueError(f"Installed candidate adoption kit names Action refs {actions}")
+    if packages != [version]:
+        raise ValueError(f"Installed candidate adoption kit names package versions {packages}")
+    if "No published release reports that contract" in text:
+        raise ValueError("Installed candidate adoption kit denies the contract it reports")
+    return {"action_refs": actions, "package_versions": packages}
 
 
 def _cli_refusal(root: Path, *args: str) -> str:
