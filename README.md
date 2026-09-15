@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/pypi/l/agents-shipgate)](LICENSE)
 [![CI](https://github.com/ThreeMoonsLab/agents-shipgate/actions/workflows/ci.yml/badge.svg)](https://github.com/ThreeMoonsLab/agents-shipgate/actions/workflows/ci.yml)
 
-**Your coding agent changed what your AI agent can do — Agents Shipgate tells you whether it can merge.**
+**Your coding agent changed what your AI agent can do — Agents Shipgate shows you what changed before it merges.**
 
 **The deterministic merge gate for AI-generated agent capability changes.**
 
@@ -41,12 +41,14 @@ pipx install agents-shipgate
 agents-shipgate diff
 ```
 
-`diff` compares the detected default branch's merge base with your working
-tree and prints one row per changed grant. On a PR that widens a Claude Code
-allow rule, drops a denial and adds an MCP server:
+`diff` compares your working tree with its merge base on the repository's
+default branch (`origin/HEAD`, `origin/main` or `origin/master`) and prints one
+row per changed grant. If the PR targets another branch, pass
+`--base origin/<that-branch>`. On a PR that widens a Claude Code allow rule,
+drops a denial and adds an MCP server:
 
 ```text
-Agent capability diff  main (389cbed0) -> working tree
+Agent capability diff  origin/main (ff8c5029) -> working tree
 
 ⚠ high    added    claude-code .mcp.json
                   billing
@@ -68,16 +70,18 @@ Agent capability diff  main (389cbed0) -> working tree
 Static configuration only: this is what the files permit, not what the agent did. No verdict is implied.
 ```
 
-There are three possible answers, and they mean different things: named
-changes, like these; `No static host-grant changes detected.` when both sides
-were read and no supported grant differs; or `Cannot compare against <base>:
-<reason>` when an input could not be read, which is an input limit and never a
-quiet pass. The rows are for a reviewer to act on, not merge authority. The
-[quickstart](docs/quickstart.md#review-a-host-configuration-change) shows all
-three, the `--base <ref>` recovery when no base can be detected, and the
+The answer is one of these, and they mean different things: named changes,
+like these; `No static host-grant changes detected.` when no compared grant
+differs; or `Cannot compare against <base>: <reason>` when an input could not be
+read, which is an input limit and never a quiet pass. Either of the first two
+can open with `Not compared:` and a list of sources the change did not touch
+and `diff` could not read; nothing is claimed about those. The rows are for a
+reviewer to act on, not merge authority. The
+[quickstart](docs/quickstart.md#review-a-host-configuration-change) shows each
+answer, the `--base <ref>` recovery when no base can be detected, and the
 [surfaces `diff` does not read](docs/host-boundary-support.md#known-unread-surfaces).
 The output above is from `agents-shipgate` `1.0.0` installed from PyPI and run
-outside any checkout.
+in a clone, outside any source checkout of this project.
 
 ## One capability change, one verdict
 
@@ -199,7 +203,8 @@ declared and statically discoverable surface says. See
 > explicitly. The decision engine is deterministic; the accuracy evidence is
 > small-n and incomplete, and the parts below their bars are stated here rather
 > than in a footnote. On the fixed host-configuration corpora measured for 1.0,
-> change-row precision is 70/70, widening recall 55/65 and benign zero-row 5/6;
+> change-row precision is 70/70, widening recall 55/65, benign zero-row 5/6 and
+> comparable coverage 41/50 — nine of fifty comparisons answer `Cannot compare`;
 > recall and the benign rate remain below their original bars, recorded as such
 > in [ROADMAP.md](ROADMAP.md#publication-and-evidence) rather than relabeled as
 > passes. The real-history numbers that follow are older, measured on

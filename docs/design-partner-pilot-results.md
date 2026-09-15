@@ -272,9 +272,11 @@ dry-run fixture, `v1.0.0` installed outside a checkout and this source tree
 return the same six `diff` rows (see the matrix above). That is one synthetic
 fixture, not an external observation.
 
-**What would change this decision.** Three attempted external repositories,
-with or without a favourable result, replace this checkpoint with the terminal
-decision under the ladder. A published build that changes what `diff` reports
+**What would change this decision.** The terminal decision is taken when the
+cohort closes, as the runbook's [decision rule](design-partner-verifier-pilot.md#decision-rule)
+says; three attempted external repositories, with or without a favourable
+result, make the next checkpoint due, and it stays interim while any
+observation window is open. A published build that changes what `diff` reports
 on this change class re-dates the dry run before it is cited again. Too few
 recruits or eligible changes is recorded as a dated shortfall and a narrowing,
 never as retention.

@@ -94,10 +94,10 @@ repository.
 ### 1. Make the base branch visible to Git
 
 `diff` reads history from your clone and never fetches. Check out the PR, and
-make sure its base branch exists locally or as a remote-tracking ref:
+update the remote-tracking ref for its base branch:
 
 ```bash
-git fetch origin main        # your repository's base branch
+git fetch origin
 git switch <pr-branch>
 ```
 
@@ -107,24 +107,27 @@ git switch <pr-branch>
 agents-shipgate diff
 ```
 
-With no `--base`, `diff` uses the repository's detected default branch and
-compares its merge base with your working tree. `--json` prints the same rows
-as data.
+With no `--base`, `diff` compares your working tree with its merge base on
+`origin/HEAD`, `origin/main` or `origin/master`, the first that exists; a local
+`main` is used only in a repository with no remote. The header names the base
+it chose. **If the PR targets another branch, name it** —
+`agents-shipgate diff --base origin/<pr-base>` — or the comparison is against
+the default branch instead. `--json` prints the same rows as data.
 
 ### 3. Read the answer
 
 The output below is from `agents-shipgate` `1.0.0`, installed from PyPI into a
-clean virtualenv and run outside any checkout, on 2026-09-14. The repository
-has two commits. On `main`, `.claude/settings.json` allows `Bash(npm test:*)`
-and denies `Bash(rm -rf:*)`, and `.mcp.json` configures one server, `docs`.
-The PR branch allows `Bash(npm *)`, drops the denial, and adds a `billing`
-server. There are three shapes of answer.
+clean virtualenv and run on 2026-09-14 in a clone, outside any source checkout
+of this project. On the remote's `main`, `.claude/settings.json` allows
+`Bash(npm test:*)` and denies `Bash(rm -rf:*)`, and `.mcp.json` configures one
+server, `docs`. The PR branch allows `Bash(npm *)`, drops the denial, and adds
+a `billing` server.
 
 **Changes.** One row per grant that differs. `⚠` marks a row that widens what
 the agent may do:
 
 ```text
-Agent capability diff  main (389cbed0) -> working tree
+Agent capability diff  origin/main (ff8c5029) -> working tree
 
 ⚠ high    added    claude-code .mcp.json
                   billing
@@ -155,20 +158,37 @@ find out what `billing` exposes.
 **No change.** On a branch from `main` that only edits `README.md`:
 
 ```text
-Agent capability diff  main (389cbed0) -> working tree
+Agent capability diff  origin/main (ff8c5029) -> working tree
 
 No static host-grant changes detected. No verdict is implied.
 ```
 
-That answer covers the surfaces in the
+That answer covers the sources both sides read, within the
 [support matrix](host-boundary-support.md). It says nothing about the
 [surfaces `diff` does not read](host-boundary-support.md#known-unread-surfaces).
 
-**Cannot compare.** When one side cannot be read — here the PR leaves
-`.mcp.json` as truncated JSON:
+**Not compared.** A source the change did not touch, but that `diff` cannot
+read on either side, is listed before the answer rather than silently counted
+as unchanged. Here `main` already carries a truncated `.cursor/mcp.json`, and
+the PR only edits `README.md`:
 
 ```text
-Cannot compare against main: head_inventory_incomplete
+Agent capability diff  origin/main (938c8aee) -> working tree
+
+Not compared: unchanged in this change and not read, so no claim is made about them:
+  cursor .cursor/mcp.json — parse_failed
+
+No static host-grant changes detected. No verdict is implied.
+```
+
+The no-change answer covers only the other sources; `--json` lists the skipped
+ones in `unchanged_limits`. The same list can precede changed rows.
+
+**Cannot compare.** When a side of the change cannot be read — here the PR
+leaves `.mcp.json` as truncated JSON:
+
+```text
+Cannot compare against origin/main: head_inventory_incomplete
 This is an input limit, not a finding about the change. Nothing below is a claim that the change is safe.
 ```
 
@@ -176,30 +196,33 @@ This is not a pass. `--json` reports it as `comparison_status: "incomparable"`
 with the same `incomparable_reasons`. Repair the named side and run it again;
 never read the missing rows as no change.
 
-All three exit `0`: the exit code says the comparison ran, not that the change
-may merge.
+Every one of these exits `0`: the exit code says the comparison ran, not that
+the change may merge.
 
 ### When no base can be detected
 
-In a clone with no default branch to compare against — a single local branch,
-say — `diff` stops rather than guessing, and exits `2`:
+When none of `origin/HEAD`, `origin/main` or `origin/master` exists — a
+single-branch clone of the PR branch, or a clone whose default branch has
+another name — `diff` stops rather than guessing, and exits `2`:
 
 ```text
 Invalid value for --base: No base ref could be detected. Pass --base <ref>
 explicitly (use --base HEAD for uncommitted changes only).
 ```
 
-Make the base available and name it:
+Fetch the base branch into its remote-tracking ref and name it:
 
 ```bash
-git fetch origin main
+git fetch origin main:refs/remotes/origin/main
 agents-shipgate diff --base origin/main
 ```
 
-`--base HEAD` compares uncommitted edits with the last commit only; it does not
-review a PR's commits. A shallow clone is refused with a `git fetch
---unshallow` instruction, because a merge base it cannot see would compare the
-wrong trees.
+In a single-branch clone a plain `git fetch origin main` updates only
+`FETCH_HEAD`, and `--base origin/main` is then refused as not available
+locally. `--base HEAD` compares uncommitted edits with the last commit only; it
+does not review a PR's commits. A shallow clone whose history does not reach
+the merge base is refused with a `git fetch --unshallow` instruction; one deep
+enough to contain it compares normally.
 
 ### Next
 
