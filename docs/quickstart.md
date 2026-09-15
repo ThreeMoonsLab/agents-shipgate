@@ -112,7 +112,10 @@ With no `--base`, `diff` compares your working tree with its merge base on
 `main` or `master` is used only in a repository with no remote. The header names the base
 it chose. **If the PR targets another branch, name it** —
 `agents-shipgate diff --base origin/<pr-base>` — or the comparison is against
-the default branch instead. `--json` prints the same rows as data.
+the default branch instead. In a clone of a fork, `origin` is the fork and its
+`main` may be stale: `git fetch upstream`, then
+`agents-shipgate diff --base upstream/<pr-base>`. `--json` prints the same rows
+as data.
 
 ### 3. Read the answer
 

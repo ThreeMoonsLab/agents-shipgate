@@ -44,7 +44,8 @@ agents-shipgate diff
 `diff` compares your working tree with its merge base on the repository's
 default branch (`origin/HEAD`, `origin/main` or `origin/master`) and prints one
 row per changed grant. If the PR targets another branch, pass
-`--base origin/<that-branch>`. On a PR that widens a Claude Code allow rule,
+`--base origin/<that-branch>`; in a fork clone, fetch `upstream` and pass
+`--base upstream/<pr-base>`. On a PR that widens a Claude Code allow rule,
 drops a denial and adds an MCP server:
 
 ```text

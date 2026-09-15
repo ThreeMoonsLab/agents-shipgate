@@ -60,8 +60,8 @@ that workflow. Do not recruit for Route A to balance the cohort.
 The read order, the tracker and the agent prompt below all name `control.state`
 and `control.next_action.actor`. Those come from the agent-control envelope,
 which the newest published release, `v1.0.0`, carries. The previous release,
-`v0.15.0`, predates it, so a partner still on that build cannot follow this
-runbook end to end — and saying so is part of the instructions rather than a
+`v0.15.0`, predates it — and has no `diff`, the Git-backed Route H command — so
+a partner still on that build cannot follow this runbook end to end — and saying so is part of the instructions rather than a
 footnote:
 
 | Channel | How a partner gets it | Runtime contract | Emits `control.*`? | Qualification |
@@ -361,7 +361,8 @@ agents-shipgate diff --json > shipgate-diff.json
 
 With no `--base`, `diff` compares against `origin/HEAD`, `origin/main` or
 `origin/master`. If the PR targets another branch, pass
-`--base origin/<pr-base>`; a single-branch clone needs
+`--base origin/<pr-base>`; in a fork clone, where `origin` is the fork, run
+`git fetch upstream` and pass `--base upstream/<pr-base>`; a single-branch clone needs
 `git fetch origin <pr-base>:refs/remotes/origin/<pr-base>` first. An
 `incomparable` result, a missing base or a refused shallow clone is recorded as
 an attempt with its reason, never as a result. See the quickstart's
@@ -520,6 +521,8 @@ Add Agents Shipgate as an advisory reviewer for this agent-capability change.
    agents-shipgate diff
    agents-shipgate diff --json > shipgate-diff.json
    If the PR does not target the default branch, add --base origin/<pr-base>.
+   In a fork clone, where origin is the fork, run git fetch upstream and use
+   --base upstream/<pr-base> instead.
    Lead with comparison_status, then each row (subject, before -> after, why,
    expands), then unchanged_limits, which nothing is claimed about. If the
    result is incomparable, or no base can be detected, or a shallow clone is

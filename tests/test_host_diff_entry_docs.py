@@ -21,7 +21,6 @@ import re
 import subprocess
 from pathlib import Path
 
-import click
 import pytest
 from typer.testing import CliRunner
 
@@ -124,7 +123,9 @@ def _clone(remote: Path, branch: str, *extra: str) -> Path:
 
 def _diff(repo: Path, *args: str) -> tuple[int, str]:
     result = CliRunner().invoke(app, ["diff", "--workspace", str(repo), *args], env=_CLI_ENV)
-    return result.exit_code, click.unstyle(result.output)
+    # `click` is not in the locked test environment (typer 0.27 dropped it), so
+    # strip ANSI escapes the way tests/test_verify_auto_base.py does.
+    return result.exit_code, re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", result.output)
 
 
 def _flat(output: str) -> str:
@@ -234,7 +235,7 @@ def test_entry_pages_state_the_declared_channel_of_the_published_release() -> No
     while `v1.0.0` — a `v*` tag on PyPI — was declared advisory. The rows are
     read, not phrases, so rewording a cell cannot slip past the check.
     """
-    channel = load_declaration()[LATEST_PUBLISHED_VERSION]
+    channel = load_declaration(REPO_ROOT / ".github/release-channels.json")[LATEST_PUBLISHED_VERSION]
     assert channel in {"advisory", "qualified"}
     published = f"`v{LATEST_PUBLISHED_VERSION}`"
     readme = README.read_text(encoding="utf-8")
