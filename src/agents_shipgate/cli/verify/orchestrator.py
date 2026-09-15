@@ -25,6 +25,7 @@ from agents_shipgate.checks.verify_policy import touched_policy_surfaces
 from agents_shipgate.ci.release_decision import SUGGESTED_DECLARATIONS_FILENAME
 from agents_shipgate.cli._artifact_lifecycle import clear_verifier_route_artifacts
 from agents_shipgate.cli._helpers import _apply_strict_plugins
+from agents_shipgate.cli.current_workspace import DEFAULT_REPORTS_DIR, default_reports_dir
 from agents_shipgate.cli.discovery.scope import (
     ChangeScope,
     ScopeResolution,
@@ -225,7 +226,7 @@ HEAD_FORMATS = ["markdown", "json", "sarif"]
 # Verify owns the PR artifact contract and writes packet.json only; the
 # reviewer-facing Markdown surface is pr-comment.md.
 HEAD_PACKET_FORMATS = ["json"]
-DEFAULT_OUT_DIR = Path("agents-shipgate-reports")
+DEFAULT_OUT_DIR = DEFAULT_REPORTS_DIR
 BASE_CACHE_KEEP_ENTRIES = 16
 # Cache-key epoch for base-scan reuse.
 #
@@ -5262,11 +5263,14 @@ def _resolve_out_dir(
     An explicit ``--out`` keeps resolving against the repository root, so
     every existing invocation that names a directory still writes exactly
     where it wrote before.
+
+    The default is :func:`default_reports_dir`, the rule `agent control` reads
+    by, so a refresh from any directory finds what this run published (#575).
     """
 
     if out is not None:
         return _resolve_under_workspace(git_root, out)
-    return _resolve_under_workspace(requested_workspace, DEFAULT_OUT_DIR)
+    return default_reports_dir(requested_workspace).resolve()
 
 
 def _resolve_under_workspace(workspace: Path, path: Path) -> Path:
