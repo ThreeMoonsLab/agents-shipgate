@@ -1,9 +1,9 @@
 """The support page names the host surfaces no adapter reads.
 
-A composite action (#701), a hook-run script (#702), a named reusable-workflow
-secret (#693) and a remote MCP server's URL path (#772) can each change what
-runs, or what it can reach, with no row. Until a reader exists, the published
-boundary has to say so, or advertised coverage would exceed measured behavior.
+A composite action (#701), a hook-run script (#702) and a remote MCP server's
+URL path (#772) can each change what runs, or what it can reach, with no row.
+Until a reader exists, the published boundary has to say so, or advertised
+coverage would exceed measured behavior.
 
 The behavioral cases pin that silence on the page's own examples. The day a
 reader starts producing a row for one of them, its case fails, and the page
@@ -11,8 +11,9 @@ entry has to leave in the same change. Each silent fixture also has a control
 change the reader does see, so the silence cannot come from a fixture that is
 never read at all.
 
-A workflow step's remote action reference was on this list until #771 read it.
-Its fixture now pins the row, and the page names the read and its limits.
+A workflow step's remote action reference was on this list until #771 read it,
+and a named reusable-workflow secret until #693 did. Their fixtures now pin the
+row, and the page names each read and its limits.
 """
 
 from __future__ import annotations
@@ -71,10 +72,21 @@ def test_the_step_action_read_names_its_limits() -> None:
     assert "a comparison of that changed workflow refuses" in section
 
 
-def test_named_reusable_workflow_secrets_are_named_as_unread() -> None:
-    section = _bullets()
-    assert "Named secrets passed to a reusable workflow" in section
-    assert "(#693)" in section
+def test_named_reusable_workflow_secrets_are_no_longer_named_as_unread() -> None:
+    assert "Named secrets passed to a reusable workflow" not in _bullets()
+    assert "(#693)" not in _bullets()
+
+
+def test_the_named_secret_read_names_its_limits() -> None:
+    section = _section()
+    assert "A named secret passed to a reusable workflow is read (#693)" in section
+    assert "the secret's value is never read" in section
+    # A name is not a privilege: the row never widens.
+    assert "does not establish the secret's privilege" in section
+    assert "never marks the row as widening" in section
+    # Unsupported forms stay a limit, not a guess.
+    assert "publishes nothing of its value and cannot be compared" in section
+    assert "two values that redact alike never compare as unchanged" in section
 
 
 def test_mcp_url_paths_are_named_as_unread() -> None:
@@ -127,15 +139,6 @@ _CASES = [
         _WORKFLOW_STEP.format(access="read", ref="./.github/actions/build"),
         _WORKFLOW_STEP.format(access="read", ref="./.github/actions/deploy"),
         _WORKFLOW_STEP.format(access="write", ref="./.github/actions/build"),
-    ),
-    (
-        "named reusable-workflow secret (#693)",
-        ".github/workflows/ci.yml",
-        _REUSABLE_CALL.format(secrets="      token: ${{ secrets.READ_TOKEN }}"),
-        _REUSABLE_CALL.format(secrets="      token: ${{ secrets.ADMIN_TOKEN }}"),
-        _REUSABLE_CALL.format(secrets="      inherit_marker: x").replace(
-            "    secrets:\n      inherit_marker: x", "    secrets: inherit"
-        ),
     ),
     (
         "remote MCP server URL path (#772)",
@@ -221,6 +224,51 @@ def test_the_formerly_silent_step_reference_fixture_now_produces_its_row(tmp_pat
     assert row["direction"] == "changed"
     assert row["expands"] is False
     assert "test/steps[0]" in row["why"]
+
+
+def test_the_formerly_silent_named_secret_fixture_now_produces_its_row(tmp_path: Path) -> None:
+    """The page's own #693 example: the same destination now names another source."""
+
+    payload = _diff_after(
+        tmp_path,
+        ".github/workflows/ci.yml",
+        _REUSABLE_CALL.format(secrets="      token: ${{ secrets.READ_TOKEN }}"),
+        _REUSABLE_CALL.format(secrets="      token: ${{ secrets.ADMIN_TOKEN }}"),
+    )
+
+    row, = payload["rows"]
+    assert row["subject"] == "github .github/workflows/ci.yml"
+    assert "build: secret token ← secrets.READ_TOKEN" in row["before"]
+    assert "build: secret token ← secrets.ADMIN_TOKEN" in row["after"]
+    assert row["direction"] == "changed"
+    assert row["expands"] is False
+    assert "different named source (build/token)" in row["why"]
+
+
+def test_an_unchanged_named_secret_fixture_stays_quiet(tmp_path: Path) -> None:
+    unchanged = _REUSABLE_CALL.format(secrets="      token: ${{ secrets.READ_TOKEN }}")
+    payload = _diff_after(
+        tmp_path,
+        ".github/workflows/ci.yml",
+        unchanged,
+        unchanged.replace("${{ secrets.READ_TOKEN }}", '"${{secrets.READ_TOKEN}}"') + "# a comment\n",
+    )
+
+    assert payload["rows"] == []
+
+
+def test_the_named_secret_fixture_still_sees_inherited_secrets(tmp_path: Path) -> None:
+    payload = _diff_after(
+        tmp_path,
+        ".github/workflows/ci.yml",
+        _REUSABLE_CALL.format(secrets="      token: ${{ secrets.READ_TOKEN }}"),
+        _REUSABLE_CALL.format(secrets="      inherit_marker: x").replace(
+            "    secrets:\n      inherit_marker: x", "    secrets: inherit"
+        ),
+    )
+
+    row, = payload["rows"]
+    assert row["expands"] is True and "secrets: inherit" in row["after"]
 
 
 def test_an_unchanged_step_reference_fixture_stays_quiet(tmp_path: Path) -> None:

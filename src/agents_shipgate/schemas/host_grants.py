@@ -502,7 +502,47 @@ class HostWorkflowStepActionV6(BaseModel):
     ] | None = None
 
 
+class HostReusableWorkflowSecretV6(BaseModel):
+    """One named secret a job passes to the reusable workflow it calls (#693).
+
+    ``destination`` is the callee's secret input name as the caller writes it.
+    ``source`` is ``NAME`` from a whole-value ``${{ secrets.NAME }}``, and
+    ``form`` is then ``secret``. The name is a reference, never a value: it
+    does not establish the secret's privilege, whether the caller has it, or
+    what the called workflow does with it. Anything else is ``unresolved``,
+    and none of its value is published or digested: a literal value, any
+    other expression, a non-string, or a ``secrets`` that is neither
+    ``inherit`` nor a mapping (``destination`` is then ``null``). A name the
+    credential redactors rewrite is ``redacted``. Every unresolved mapping
+    records a blocking coverage issue, because it cannot be compared.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    destination: str | None
+    source: str | None
+    form: Literal["secret", "unresolved"]
+    unresolved_reason: Literal[
+        "literal_value",
+        "expression",
+        "not_a_string",
+        "redacted",
+        "secrets_not_a_mapping",
+    ] | None = None
+
+
+class HostReusableWorkflowCallV6(HostReusableWorkflowCallV4):
+    # Both present only when set, so a call with no named mapping and an
+    # ordinary target keeps its v0.6 shape from #771. The schema version, not
+    # the key, separates "read, none declared" from a legacy call.
+    uses_redacted: bool = Field(default=False, exclude_if=lambda value: not value)
+    secret_mappings: list[HostReusableWorkflowSecretV6] = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
+
+
 class HostWorkflowGrantV6(HostWorkflowGrantV4):
+    reusable_calls: list[HostReusableWorkflowCallV6]
     # Present only when a step declares a listed reference. In a v0.6 grant
     # its absence means the steps were read and declare none; the schema
     # version, not the key, separates that from a legacy grant that never
