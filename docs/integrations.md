@@ -221,7 +221,10 @@ Without a configured manifest, when every changed file is host configuration —
 `.claude/settings.json`, `.mcp.json`, `.cursor/mcp.json`, `.codex/config.toml`,
 `.vscode/mcp.json` or a GitHub workflow — the Stop hook runs
 `agents-shipgate diff` instead of advising you to initialize a manifest. It
-stays quiet when no row widens what the agent can do. It names each widening
+stays quiet when no row widens what the agent can do. A workflow step moved to
+a different action reference, such as a pinned SHA to `@main`, is a
+non-widening row, so the hook stays quiet about it; `diff` and the PR comment
+still show it. It names each widening
 row once, and repeats the announcement only when the change or its rows change.
 A missing base ref, an incomparable inventory or unparsed output is never
 quiet. When host configuration changes beside other files, the Stop hook

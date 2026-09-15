@@ -12,12 +12,54 @@ three cannot describe one change three ways.
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
-from agents_shipgate.core.host_grants import host_grant_expansion_signals
+from agents_shipgate.core.host_grants import host_grant_expansion_signals, step_action_key
 from agents_shipgate.schemas.capability_diff import CapabilityDiffRow as CapabilityDiffRow
 
 ABSENT = "—"
+
+
+def _step_action_changes(
+    before: dict[str, Any] | None, after: dict[str, Any] | None
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The step references only one side of a changed workflow declares (#771).
+
+    Compared as each job's multiset of references, the way the comparator
+    decides whether the grant changed at all, so a reordered or renamed step
+    appears on neither side. Each entry keeps its job and step as evidence.
+    """
+
+    if not (
+        before and after
+        and before.get("kind") == after.get("kind") == "workflow"
+        and "permission_contexts" in before and "permission_contexts" in after
+    ):
+        return [], []
+
+    def only_in(side: list[dict[str, Any]], other: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        surplus = Counter(step_action_key(item) for item in side) - Counter(
+            step_action_key(item) for item in other
+        )
+        picked: list[dict[str, Any]] = []
+        for item in side:
+            key = step_action_key(item)
+            if surplus[key] > 0:
+                surplus[key] -= 1
+                picked.append(item)
+        return picked
+
+    # A workflow whose steps declare no listed reference omits the key.
+    old, new = before.get("step_actions", []), after.get("step_actions", [])
+    return only_in(old, new), only_in(new, old)
+
+
+def _step_action_value(item: dict[str, Any]) -> str:
+    uses = "<not a string>" if item.get("uses") is None else str(item["uses"])
+    reason = item.get("unresolved_reason")
+    suffix = f" (unresolved: {str(reason).replace('_', ' ')})" if reason else ""
+    return f"{item['job']}/{item['step']}: uses {uses}{suffix}"
 
 #: Direction is deliberately coarse here. Presence is certain: a grant is
 #: in one side and not the other. *Width* is not — deciding that
@@ -30,12 +72,18 @@ WIDENED = "widened"
 CHANGED = "changed"
 
 
-def _grant_value(grant: dict[str, Any] | None, *, redact_permission_arguments: bool = False) -> str:
+def _grant_value(
+    grant: dict[str, Any] | None,
+    *,
+    redact_permission_arguments: bool = False,
+    step_actions: list[dict[str, Any]] | None = None,
+) -> str:
     """What a reader recognises this grant by.
 
     A workflow has no single name — its authority *is* the combination of
     access and triggers, so both sides render that combination or the row
-    reads "workflow -> workflow" and says nothing.
+    reads "workflow -> workflow" and says nothing. ``step_actions`` are the
+    step references this side alone declares; unchanged ones are not repeated.
     """
 
     if not grant:
@@ -70,6 +118,7 @@ def _grant_value(grant: dict[str, Any] | None, *, redact_permission_arguments: b
         for call in grant.get("reusable_calls") or []:
             forwarding = "secrets: inherit → " if call.get("secrets_inherit") else "uses: "
             parts.append(f"{call['job']}: {forwarding}{call['uses']}")
+        parts.extend(_step_action_value(item) for item in step_actions or [])
         return ", ".join(part for part in parts if part) or kind
     # `event` names a hook's trigger. Without it a hook row rendered as
     # "hook", which tells a reviewer a hook changed and not which one (#689).
@@ -89,7 +138,12 @@ def _subject(grant: dict[str, Any]) -> str:
     return source or host or kind
 
 
-def _why(grant: dict[str, Any], direction: str) -> str:
+def _why(
+    grant: dict[str, Any],
+    direction: str,
+    *,
+    changed_steps: list[dict[str, Any]] | None = None,
+) -> str:
     """Why a reviewer should care, in the reviewer's terms.
 
     Stated as what the grant *permits*, never as a prediction about what the
@@ -128,6 +182,16 @@ def _why(grant: dict[str, Any], direction: str) -> str:
         for call in grant.get("reusable_calls") or []:
             if call.get("secrets_inherit"):
                 reasons.append(f"passes the caller's available secrets to {call['uses']}")
+        if changed_steps:
+            # A reference names code, not scopes: moving a SHA to a branch
+            # changes what runs under the job's token, and adds no permission.
+            labels = list(dict.fromkeys(f"{item['job']}/{item['step']}" for item in changed_steps))
+            reasons.append(
+                "a step's action reference changed ("
+                + ", ".join(labels)
+                + "); it names different code to run with that job's existing "
+                "token permissions and adds no scope"
+            )
         return "; ".join(reasons) or "changes the workflow's own authority"
     if kind == "hook":
         return "changes what runs around the agent's actions"
@@ -159,13 +223,22 @@ def capability_diff_rows(
         expands = bool(expansions.intersection(host_grant_expansion_signals([change])))
         if direction == CHANGED and expands:
             direction = WIDENED
+        gone_steps, new_steps = _step_action_changes(before_grant, after_grant)
         rows.append(
             CapabilityDiffRow(
                 subject=_subject(grant),
-                before=_grant_value(before_grant, redact_permission_arguments=redact_permission_arguments),
-                after=_grant_value(after_grant, redact_permission_arguments=redact_permission_arguments),
+                before=_grant_value(
+                    before_grant,
+                    redact_permission_arguments=redact_permission_arguments,
+                    step_actions=gone_steps,
+                ),
+                after=_grant_value(
+                    after_grant,
+                    redact_permission_arguments=redact_permission_arguments,
+                    step_actions=new_steps,
+                ),
                 direction=direction,
-                why=_why(grant, direction),
+                why=_why(grant, direction, changed_steps=[*gone_steps, *new_steps]),
                 severity=str(grant.get("risk") or "unknown"),
                 expands=expands,
             )

@@ -2,7 +2,19 @@
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
-Runtime contract v39 reads through an in-tree link at a boundary path (#700).
+Runtime contract v40 reads the action reference each workflow step declares
+(#771). Host-grants inventory, baseline and drift schemas move to `0.6`, and a
+workflow grant adds `step_actions[]`: the job, the step (`id`, else `name`,
+else `steps[N]`), the declared `uses`, and its `form` — `remote`, `docker`, or
+`unresolved` with a reason. Moving a step from a pinned SHA to `@main` is a
+`changed` row naming the job and step, with `expands: false`: a reference
+names different code, not new token scopes. Local `./` actions stay unread
+(#701). A `0.4` or `0.5` baseline holding a workflow grant is incomparable
+(`baseline_workflow_step_actions_unavailable`); one without a workflow stays
+comparable, and `minimum_control_contract_version` stays `21`. See
+[the migration note](#workflow-step-action-references-contract-v40-771).
+
+Previous runtime contract v39 reads through an in-tree link at a boundary path (#700).
 A link such as `CLAUDE.md -> AGENTS.md` or `.claude/skills -> ../.agents/skills`
 that resolves inside the repository is read at its target and published under
 its own path. Host-grants inventory, baseline and drift schemas move to `0.5`,
@@ -99,6 +111,32 @@ from the shipped `v0.15.0` contract are in
 the Action tag) for reproducible CI.
 
 ---
+
+<a id="workflow-step-action-references-contract-v40-771"></a>
+
+## Migration Note: 1.0.x — workflow step action references (contract v40, #771)
+
+Host-grants inventory, baseline and drift schemas `0.6` add one member to a workflow grant, present only when a step declares a listed reference. In a `0.6` grant its absence means the steps were read and declare none:
+
+```json
+{
+  "step_actions": [
+    {"job": "test", "step": "steps[0]", "uses": "actions/checkout@main", "form": "remote", "unresolved_reason": null}
+  ]
+}
+```
+
+- **What is read.** Each mapping step with a `uses:` key, in file order. `owner/repo[/path]@ref` is `remote` and `docker://…` is `docker`; the reference is compared as declared text and never fetched, so a branch, tag and SHA are equally opaque. `step` is the step's `id`, else its `name`, else `steps[N]` (zero-based). It is evidence for finding the step, not part of the comparison.
+- **What is compared.** Each job's multiset of references. An added, removed or changed reference is one `changed` row on the workflow, naming `job/step` on each side, with `expands: false`. Reordering, renaming or re-id-ing steps that declare the same references is quiet; no execution-order dependency is evaluated. Permission widening and narrowing are still decided by the permission contexts alone.
+- **What is not read.** A local `./…` reference is not listed and does not count as inspected: composite actions stay unread (#701).
+- **Unresolved values.** An expression (`${{ … }}`), a string outside both forms, and a non-string value are listed as `unresolved` with `unresolved_reason` (`expression`, `unsupported_reference`, `not_a_string`). Their text is compared; what an expression evaluates to is not. A value the credential redactor rewrites is `redacted` and also records a blocking `unsupported` coverage issue. Two such values could publish the same text, and a digest of either would be a digest of the credential, so the comparison refuses rather than read a distinct change as equal (#767).
+
+**Compatibility.**
+- **A `0.4` or `0.5` baseline holding a workflow grant** is loaded but incomparable, with `baseline_workflow_step_actions_unavailable`. It never read step references, so its silence is not evidence that none changed. Preserve it and review a replacement baseline deliberately.
+- **A `0.4` or `0.5` baseline with no workflow grant** stays comparable. Every workflow the current inventory holds is then an added grant, and no side claims its references were compared.
+- **Git-backed `diff`, `check` and manifest-free `verify`** read both refs with the current reader and need no migration.
+- **Validators pinned to the `0.5` schemas** reject a `0.6` inventory, baseline or drift payload. The `0.5` schema files stay published.
+- **`minimum_control_contract_version`** stays `21`.
 
 <a id="link-read-through-at-boundary-paths-contract-v39-700"></a>
 

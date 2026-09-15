@@ -63,8 +63,9 @@ from agents_shipgate.schemas.host_grants import (
     HostGrantsBaselineV3,
     HostGrantsBaselineV4,
     HostGrantsBaselineV5,
-    HostGrantsDriftV5,
-    HostGrantsInventoryV5,
+    HostGrantsBaselineV6,
+    HostGrantsDriftV6,
+    HostGrantsInventoryV6,
 )
 
 HOST_GRANTS_SCHEMA_VERSION = HOST_GRANTS_BASELINE_SCHEMA_VERSION
@@ -1113,6 +1114,75 @@ def _workflow_permissions(value: Any, job: str) -> dict[str, Any]:
     return {"job": job, "state": state, "permissions": permissions}
 
 
+#: ``owner/repo[/path]@ref``. The reference is compared as declared text and
+#: never resolved: a branch, tag and commit SHA are equally opaque here (#771).
+_REMOTE_STEP_ACTION_RE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[^@\s]+)?@[^@\s]+")
+_DOCKER_STEP_ACTION_RE = re.compile(r"docker://\S+")
+
+
+def _step_label(step: dict[Any, Any], index: int) -> str:
+    """The step's ``id``, else its ``name``, else ``steps[N]`` (zero-based).
+
+    Evidence for finding the step, never part of the comparison, so renaming
+    a step or reordering steps that declare the same references stays quiet.
+    """
+
+    for key in ("id", "name"):
+        value = step.get(key)
+        if isinstance(value, str) and value.strip():
+            return _sanitize_sensitive_string(value.strip())
+    return f"steps[{index}]"
+
+
+def _step_action(job: str, step: dict[Any, Any], index: int) -> dict[str, Any] | None:
+    """One step's declared ``uses:``, or ``None`` when it declares no remote one.
+
+    A local ``./…`` reference is outside this reader: composite actions stay
+    unread (#701), so it is neither listed nor counted as inspected. Anything
+    Shipgate does not resolve to an action identity is kept, as ``unresolved``
+    with the reason, rather than guessed or dropped. A value the credential
+    redactor rewrites cannot be both published and compared, so it is
+    ``redacted``, and the reader records a blocking coverage issue for it.
+    """
+
+    if "uses" not in step:
+        return None
+    value = step["uses"]
+    entry: dict[str, Any] = {
+        "job": job,
+        "step": _step_label(step, index),
+        "uses": None,
+        "form": "unresolved",
+        "unresolved_reason": None,
+    }
+    if not isinstance(value, str):
+        return {**entry, "unresolved_reason": "not_a_string"}
+    text = value.strip()
+    if text.startswith("./"):
+        return None
+    display = _sanitize_sensitive_string(text)
+    if display != text:
+        return {**entry, "uses": display, "unresolved_reason": "redacted"}
+    if "${{" in text:
+        return {**entry, "uses": text, "unresolved_reason": "expression"}
+    if _DOCKER_STEP_ACTION_RE.fullmatch(text):
+        return {**entry, "uses": text, "form": "docker"}
+    if _REMOTE_STEP_ACTION_RE.fullmatch(text):
+        return {**entry, "uses": text, "form": "remote"}
+    return {**entry, "uses": text, "unresolved_reason": "unsupported_reference"}
+
+
+def step_action_key(entry: dict[str, Any]) -> tuple[str, str, str, str]:
+    """What a step reference is compared by: its job and the reference, not the step."""
+
+    return (
+        str(entry["job"]),
+        str(entry["form"]),
+        str(entry.get("unresolved_reason") or ""),
+        "" if entry.get("uses") is None else str(entry["uses"]),
+    )
+
+
 def _workflow_grant(data: Any, *, source: str) -> dict[str, Any] | None:
     if not isinstance(data, dict):
         return None
@@ -1122,6 +1192,7 @@ def _workflow_grant(data: Any, *, source: str) -> dict[str, Any] | None:
     effective_write_scopes: list[str] = []
     permission_contexts: list[dict[str, Any]] = []
     reusable_calls: list[dict[str, Any]] = []
+    step_actions: list[dict[str, Any]] = []
 
     def collect(perms: Any, where: str) -> None:
         if perms == "write-all":
@@ -1153,6 +1224,13 @@ def _workflow_grant(data: Any, *, source: str) -> dict[str, Any] | None:
                         "uses": _sanitize_sensitive_string(uses.strip()),
                         "secrets_inherit": job.get("secrets") == "inherit",
                     })
+                steps = job.get("steps")
+                if isinstance(steps, list):
+                    for index, step in enumerate(steps):
+                        if isinstance(step, dict):
+                            action = _step_action(str(job_name), step, index)
+                            if action is not None:
+                                step_actions.append(action)
     pull_target = "pull_request_target" in triggers
     write_all = any(entry.endswith(": write-all") for entry in effective_write_scopes)
     unknown = not permission_contexts or any(
@@ -1169,6 +1247,10 @@ def _workflow_grant(data: Any, *, source: str) -> dict[str, Any] | None:
         "effective_write_scopes": sorted(effective_write_scopes),
         "reusable_calls": reusable_calls,
     }
+    if step_actions:
+        # Omitted when empty, as the schema omits it, so a workflow whose steps
+        # declare no listed reference keeps its earlier fingerprint.
+        projection["step_actions"] = step_actions
     return {
         **_grant_base(
             host="github", scope="repository", source=source, kind="workflow",
@@ -1274,6 +1356,18 @@ def _collect_file(
         grant = _workflow_grant(data, source=source)
         if grant is not None:
             grants.append(grant)
+            if any(item["unresolved_reason"] == "redacted" for item in grant.get("step_actions", [])):
+                # Two such references could publish the same redacted text, and
+                # a digest of either would be a digest of the credential. Refuse
+                # rather than let a distinct change compare as equal (#767).
+                issues.append(_inventory_issue(
+                    kind="unsupported", host=host, source=source,
+                    message=(
+                        "a step action reference contains credential-shaped text; "
+                        "it is published redacted and cannot be compared"
+                    ),
+                    blocking=True,
+                ))
     elif host == "codex" and kind == "requirements":
         grants.extend(_codex_requirement_grants(data, scope=scope, source=source))
     elif host == "codex" and path.suffix == ".toml":
@@ -2038,7 +2132,7 @@ def build_host_boundary_snapshot(
         "static_analysis_only": True,
         "runtime_session_verified": False,
     }
-    inventory = HostGrantsInventoryV5.model_validate(payload).model_dump(mode="json")
+    inventory = HostGrantsInventoryV6.model_validate(payload).model_dump(mode="json")
     return HostBoundarySnapshot(
         inventory=inventory, cache=cache, input_failures=dict(cache.input_failures),
     )
@@ -2055,7 +2149,7 @@ def host_audit_inventory(
 
     if snapshot is None:
         snapshot = build_host_boundary_snapshot(workspace, scope=scope, cache=cache)
-    inventory = HostGrantsInventoryV5.model_validate(snapshot.inventory)
+    inventory = HostGrantsInventoryV6.model_validate(snapshot.inventory)
     if inventory.scope != scope:
         raise ValueError(
             f"Host boundary snapshot scope {inventory.scope!r} does not match {scope!r}"
@@ -2106,7 +2200,7 @@ def build_host_grants_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
         "inventory_sha256": host_grants_sha256(normalized),
         "inventory": normalized,
     }
-    return HostGrantsBaselineV5.model_validate(payload).model_dump(mode="json")
+    return HostGrantsBaselineV6.model_validate(payload).model_dump(mode="json")
 
 
 def load_host_grants_baseline(path: Path) -> dict[str, Any]:
@@ -2150,14 +2244,15 @@ def load_host_grants_baseline_with_text(
                 "and repair or replace it deliberately."
             )
         return data, text
-    if version not in {"0.2", "0.3", "0.4", HOST_GRANTS_BASELINE_SCHEMA_VERSION}:
+    if version not in {"0.2", "0.3", "0.4", "0.5", HOST_GRANTS_BASELINE_SCHEMA_VERSION}:
         raise ValueError(
             f"Host-grants baseline {path} has unsupported schema version "
             f"{version!r}. A human must review migration or replacement."
         )
     try:
         model = {"0.2": HostGrantsBaselineV2, "0.3": HostGrantsBaselineV3,
-                 "0.4": HostGrantsBaselineV4, "0.5": HostGrantsBaselineV5}[version]
+                 "0.4": HostGrantsBaselineV4, "0.5": HostGrantsBaselineV5,
+                 "0.6": HostGrantsBaselineV6}[version]
         parsed = model.model_validate(data).model_dump(mode="json")
     except ValidationError:
         return (
@@ -2336,11 +2431,21 @@ def _same_workflow_grant(before: dict | None, after: dict | None) -> bool:
         return False
     # Raw declaration placement is retained for inspection, but replacing
     # inherited permissions by an identical explicit map changes no grant.
-    ignored = {"write_scopes", "config_sha256"}
-    return (
-        {key: value for key, value in before.items() if key not in ignored}
-        == {key: value for key, value in after.items() if key not in ignored}
-    )
+    # Step references compare as each job's multiset of declared references:
+    # a reordered, renamed or re-id'd step that declares the same reference
+    # changes no modeled fact, and no execution-order dependency is evaluated.
+    ignored = {"write_scopes", "config_sha256", "step_actions"}
+
+    def comparable(grant: dict[str, Any]) -> dict[str, Any]:
+        # Both sides are v0.4+ shapes here, and a drift payload refuses a
+        # v0.4/v0.5 baseline holding a workflow, so a missing key is "none".
+        projection = {key: value for key, value in grant.items() if key not in ignored}
+        projection["step_actions"] = sorted(
+            step_action_key(item) for item in grant.get("step_actions", [])
+        )
+        return projection
+
+    return comparable(before) == comparable(after)
 
 
 def _diff_host_artifacts(
@@ -2543,7 +2648,7 @@ def _incomparable_payload(
         # and also route to a human before any first acknowledgement.
         "next_action": None,
     }
-    return HostGrantsDriftV5.model_validate(payload).model_dump(mode="json")
+    return HostGrantsDriftV6.model_validate(payload).model_dump(mode="json")
 
 
 #: Baseline versions a drift comparison reads as current. v0.5 only adds
@@ -2551,7 +2656,17 @@ def _incomparable_payload(
 #: v0.4 inventory refused such a link as unreadable, and an incomplete
 #: inventory can never be saved, so a v0.4 baseline holds no artifact that v0.5
 #: would describe differently. Accepting it keeps every saved baseline usable.
-_COMPARABLE_BASELINE_SCHEMA_VERSIONS = frozenset({"0.4", HOST_GRANTS_BASELINE_SCHEMA_VERSION})
+#: v0.6 adds workflow step references (#771); the rule below narrows which
+#: v0.4/v0.5 baselines that acceptance still covers.
+_COMPARABLE_BASELINE_SCHEMA_VERSIONS = frozenset({"0.4", "0.5", HOST_GRANTS_BASELINE_SCHEMA_VERSION})
+
+#: Baseline versions whose workflow grants never read step action references
+#: (#771). Such a grant's missing ``step_actions`` is not evidence that no
+#: step declared one, so a baseline holding a workflow grant is incomparable.
+#: A baseline with no workflow grant stays comparable: every workflow the
+#: current inventory holds is then an added grant, whose references no side
+#: claims were compared.
+_STEP_ACTIONS_UNREAD_BASELINE_SCHEMA_VERSIONS = frozenset({"0.4", "0.5"})
 
 
 def build_host_drift_payload(
@@ -2564,6 +2679,11 @@ def build_host_drift_payload(
         reasons.append(
             str(baseline.get("_load_error") or "unsupported_baseline_schema")
         )
+    elif baseline.get("host_grants_schema_version") in _STEP_ACTIONS_UNREAD_BASELINE_SCHEMA_VERSIONS and any(
+        grant.get("kind") == "workflow"
+        for grant in (baseline.get("inventory") or {}).get("grants", [])
+    ):
+        reasons.append("baseline_workflow_step_actions_unavailable")
     if not inventory_is_complete(inventory):
         reasons.append("current_inventory_incomplete")
     baseline_scope = baseline.get("scope")
@@ -2609,7 +2729,7 @@ def _comparable_drift_payload(
         "incomparable_reasons": [],
         "next_action": None,
     }
-    return HostGrantsDriftV5.model_validate(payload).model_dump(mode="json")
+    return HostGrantsDriftV6.model_validate(payload).model_dump(mode="json")
 
 
 def build_host_comparison_payload(
