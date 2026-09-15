@@ -462,7 +462,8 @@ def test_a_malformed_marketplace_reference_is_named_without_blocking(
 
 def test_activation_state_is_never_read_as_proof(tmp_path: Path) -> None:
     """Enabling the plugin in project settings does not make its hook a
-    loaded one: installation from the marketplace is still external."""
+    loaded one when no project settings layer registers its marketplace in
+    this repository: installation from that marketplace is still external."""
 
     root = _workspace(
         tmp_path,
@@ -622,11 +623,15 @@ def test_a_removal_against_a_1_0_0_baseline_claims_no_selection(tmp_path: Path) 
     rows = capability_diff_rows(payload)
     recorded = [g for g in baseline["inventory"]["grants"] if g["kind"] == "hook"]
 
-    assert [hook_loading_basis(grant) for grant in recorded] == ["unestablished"]
+    # 1.0.0's pair for every hook file is the pair an enabled plugin's hook
+    # carries now. The removal is described from that baseline grant, so it
+    # must name no basis at all: neither selection nor enablement.
+    assert [hook_loading_basis(grant) for grant in recorded] == ["project_enabled_plugin"]
     assert [(row.direction, row.expands, row.why) for row in rows] == [
         ("removed", False, NEUTRAL_REMOVAL_WHY)
     ]
     assert "plugin" not in rows[0].why
+    assert "enable" not in rows[0].why
 
 
 @pytest.mark.parametrize(
@@ -635,10 +640,19 @@ def test_a_removal_against_a_1_0_0_baseline_claims_no_selection(tmp_path: Path) 
         ({"source": ".claude/settings.json", "access": "execute", "risk": "high"}, "host_configuration"),
         ({"source": "hooks/hooks.json", "access": "execute", "risk": "medium"}, "plugin_selected"),
         ({"source": ".claude/hooks/hooks.json", "access": "unknown", "risk": "unknown"}, "declared_only"),
-        ({"source": ".claude/hooks/hooks.json", "access": "execute", "risk": "high"}, "unestablished"),
+        # The one pair shared with history: 1.0.0 recorded every hook file as
+        # execute/high. Only a current grant's basis is ever read (see
+        # test_a_removal_against_a_1_0_0_baseline_claims_no_selection).
+        ({"source": ".claude/hooks/hooks.json", "access": "execute", "risk": "high"}, "project_enabled_plugin"),
+        ({"source": ".claude/hooks/hooks.json", "access": "execute", "risk": "low"}, "unestablished"),
+        ({"source": ".claude/hooks/hooks.json", "access": "read", "risk": "medium"}, "unestablished"),
         (
             {"source": ".claude-plugin/marketplace.json#plugins.demo", "access": "execute", "risk": "medium"},
             "plugin_selected",
+        ),
+        (
+            {"source": ".claude-plugin/marketplace.json#plugins.demo", "access": "execute", "risk": "high"},
+            "project_enabled_plugin",
         ),
     ],
 )
@@ -843,3 +857,389 @@ def test_diff_refuses_a_newly_malformed_manifest(tmp_path: Path) -> None:
 
     assert payload["comparison_status"] == "incomparable"
     assert "head_inventory_incomplete" in payload["incomparable_reasons"]
+
+
+# --- review cycle 2, P1: a plugin the repository itself enables is loaded -------
+
+SELF_MARKETPLACE = {**MARKETPLACE, "plugins": [{"name": "demo", "source": "./"}]}
+SELF_PLUGIN = {**PLUGIN, "hooks": "./.claude/hooks/hooks.json"}
+IN_REPOSITORY_MARKETPLACE = {"market": {"source": {"source": "directory", "path": "."}}}
+LOADED_WHY = "changes what runs around the agent's actions"
+ENABLED_WHY = "project settings enable the plugin that selects this hook"
+
+
+def _self_enabled(
+    *,
+    enabled: object = True,
+    marketplaces: object = None,
+    plugin_id: str = "demo@market",
+    settings_file: str = ".claude/settings.json",
+) -> dict[str, object]:
+    """The repository is its own marketplace and its settings enable the plugin."""
+
+    layer = {
+        "extraKnownMarketplaces": IN_REPOSITORY_MARKETPLACE if marketplaces is None else marketplaces,
+        "enabledPlugins": {plugin_id: enabled},
+    }
+    return {
+        ".claude-plugin/marketplace.json": SELF_MARKETPLACE,
+        ".claude-plugin/plugin.json": SELF_PLUGIN,
+        ".claude/hooks/hooks.json": HOOK,
+        settings_file: {**SETTINGS, **layer} if settings_file == ".claude/settings.json" else layer,
+    }
+
+
+@pytest.mark.parametrize("settings_file", [".claude/settings.json", ".claude/settings.local.json"])
+def test_a_plugin_the_project_settings_enable_from_the_repository_is_loaded(
+    tmp_path: Path, settings_file: str
+) -> None:
+    root = _workspace(tmp_path, _self_enabled(settings_file=settings_file))
+    before = _inventory(root)
+    _write(root, ".claude/hooks/hooks.json", CHANGED_HOOK)
+
+    after = _inventory(root)
+    grant = _hooks(after)[".claude/hooks/hooks.json#SessionStart"]
+    payload, rows = _compare(before, after)
+
+    assert (grant["access"], grant["risk"]) == ("execute", "high")
+    assert hook_loading_basis(grant) == "project_enabled_plugin"
+    assert payload["expansion_signals"] == ["hook_changed: claude-code:.claude/hooks/hooks.json"]
+    assert [(row.subject, row.direction, row.expands, row.severity) for row in rows] == [
+        ("claude-code .claude/hooks/hooks.json", "widened", True, "high")
+    ]
+    assert rows[0].why.startswith(LOADED_WHY)
+    assert ENABLED_WHY in rows[0].why
+    assert inventory_is_complete(after)
+    _never_executed(root)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        {"source": "directory", "path": "./"},
+        {"source": "file", "path": ".claude-plugin/marketplace.json"},
+        {"source": "file", "path": "./.claude-plugin/marketplace.json"},
+    ],
+    ids=["directory-dot-slash", "file", "file-dot-slash"],
+)
+def test_a_directory_or_file_marketplace_in_the_repository_establishes_enablement(
+    tmp_path: Path, source: dict
+) -> None:
+    root = _workspace(tmp_path, _self_enabled(marketplaces={"market": {"source": source}}))
+
+    grant = _hooks(_inventory(root))[".claude/hooks/hooks.json#SessionStart"]
+
+    assert hook_loading_basis(grant) == "project_enabled_plugin"
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        {"enabled": False},
+        {"enabled": "true"},
+        {"plugin_id": "demo@elsewhere"},
+        {"marketplaces": {"market": {"source": {"source": "github", "repo": "o/r"}}}},
+        {"marketplaces": {"market": {"source": {"source": "git", "url": "https://example.invalid/r.git"}}}},
+        {"marketplaces": {"market": {"source": {"source": "url", "url": "https://example.invalid/m.json"}}}},
+        {"marketplaces": {"market": {"source": {"source": "directory", "path": "/abs/repo"}}}},
+        {"marketplaces": {"market": {"source": {"source": "directory", "path": "../repo"}}}},
+        {"marketplaces": {"market": {"source": {"source": "directory", "path": "~/repo"}}}},
+        {"marketplaces": {"market": {"source": {"source": "file", "path": "marketplace.json"}}}},
+        {
+            "marketplaces": {
+                "market": {
+                    "source": {
+                        "source": "settings", "name": "market",
+                        "plugins": [{"name": "demo", "source": {"source": "github", "repo": "o/r"}}],
+                    }
+                }
+            }
+        },
+    ],
+    ids=[
+        "disabled", "non-boolean", "unknown-marketplace", "github", "git", "url",
+        "absolute-directory", "escaping-directory", "home-directory", "file-not-a-marketplace",
+        "settings-source",
+    ],
+)
+def test_without_in_repository_enablement_a_plugin_hook_stays_selected_only(
+    tmp_path: Path, variant: dict
+) -> None:
+    root = _workspace(tmp_path, _self_enabled(**variant))
+    before = _inventory(root)
+    _write(root, ".claude/hooks/hooks.json", CHANGED_HOOK)
+
+    after = _inventory(root)
+    grant = _hooks(after)[".claude/hooks/hooks.json#SessionStart"]
+    payload, rows = _compare(before, after)
+
+    assert (grant["access"], grant["risk"]) == ("execute", "medium")
+    assert hook_loading_basis(grant) == "plugin_selected"
+    assert payload["expansion_signals"] == []
+    assert [(row.direction, row.expands, row.severity) for row in rows] == [("changed", False, "medium")]
+
+
+def test_enabling_a_plugin_the_marketplace_does_not_list_selects_nothing(tmp_path: Path) -> None:
+    root = _workspace(
+        tmp_path,
+        {
+            ".claude/settings.json": {
+                **SETTINGS,
+                "extraKnownMarketplaces": IN_REPOSITORY_MARKETPLACE,
+                "enabledPlugins": {"ghost@market": True},
+            },
+            ".claude-plugin/marketplace.json": {
+                **MARKETPLACE, "plugins": [{"name": "demo", "source": "./plugins/demo"}],
+            },
+            ".claude/hooks/hooks.json": HOOK,
+            "plugins/demo/hooks/hooks.json": HOOK,
+        },
+    )
+
+    grants = _hooks(_inventory(root))
+
+    assert {key: hook_loading_basis(grant) for key, grant in grants.items()} == {
+        ".claude/hooks/hooks.json#SessionStart": "declared_only",
+        "plugins/demo/hooks/hooks.json#SessionStart": "plugin_selected",
+    }
+
+
+def test_only_the_enabled_plugins_hooks_are_loaded(tmp_path: Path) -> None:
+    root = _workspace(
+        tmp_path,
+        {
+            ".claude/settings.json": {
+                **SETTINGS,
+                "extraKnownMarketplaces": IN_REPOSITORY_MARKETPLACE,
+                "enabledPlugins": {"demo@market": True, "other@market": False},
+            },
+            ".claude-plugin/marketplace.json": {
+                **MARKETPLACE,
+                "plugins": [
+                    {"name": "demo", "source": "./plugins/demo", "strict": False, "hooks": CHANGED_HOOK["hooks"]},
+                    {"name": "other", "source": "./plugins/other"},
+                ],
+            },
+            "plugins/demo/hooks/hooks.json": HOOK,
+            "plugins/other/hooks/hooks.json": HOOK,
+        },
+    )
+
+    grants = _hooks(_inventory(root))
+
+    assert {key: hook_loading_basis(grant) for key, grant in grants.items()} == {
+        ".claude-plugin/marketplace.json#plugins.demo#SessionStart": "project_enabled_plugin",
+        "plugins/demo/hooks/hooks.json#SessionStart": "project_enabled_plugin",
+        "plugins/other/hooks/hooks.json#SessionStart": "plugin_selected",
+    }
+
+
+def test_a_1_0_0_baseline_of_an_enabled_plugin_hook_does_not_drift(tmp_path: Path) -> None:
+    """1.0.0 recorded this file as `execute`/`high`, and so does this reader."""
+
+    root = _workspace(tmp_path, _self_enabled())
+    current = _inventory(root)
+
+    payload = build_host_drift_payload(
+        baseline=_recorded_by_1_0_0(current), inventory=current, baseline_file="b"
+    )
+
+    assert payload["has_drift"] is False
+
+
+def test_diff_marks_an_enabled_plugin_hook_change_as_widening_as_1_0_0_did(tmp_path: Path) -> None:
+    root = _repository(tmp_path, _self_enabled(), {".claude/hooks/hooks.json": CHANGED_HOOK})
+
+    text = runner.invoke(app, ["diff", "--workspace", str(root), "--base", "main"])
+    data = runner.invoke(app, ["diff", "--workspace", str(root), "--base", "main", "--json"])
+
+    assert text.exit_code == 0, text.output
+    # Published 1.0.0 printed exactly this line for the same change.
+    assert "⚠ high  widened  claude-code .claude/hooks/hooks.json" in text.output
+    assert "1 widening what the agent may do" in text.output
+    payload = json.loads(data.output)
+    assert [
+        (row["subject"], row["direction"], row["expands"], row["severity"]) for row in payload["rows"]
+    ] == [("claude-code .claude/hooks/hooks.json", "widened", True, "high")]
+    _never_executed(root)
+
+
+def test_verify_publishes_the_enabled_plugin_hook_as_widening(tmp_path: Path) -> None:
+    root = _repository(
+        tmp_path,
+        {**_self_enabled(), ".gitignore": "agents-shipgate-reports/\n"},
+        {".claude/hooks/hooks.json": CHANGED_HOOK},
+    )
+
+    result = runner.invoke(
+        app,
+        ["verify", "--workspace", str(root), "--base", "main", "--head", "HEAD", "--format", "text"],
+    )
+
+    assert result.exit_code == 0, result.output
+    verifier = json.loads((root / "agents-shipgate-reports/verifier.json").read_text())
+    assert [
+        (row["subject"], row["direction"], row["expands"], row["severity"])
+        for row in verifier["host_comparison"]["rows"]
+    ] == [("claude-code .claude/hooks/hooks.json", "widened", True, "high")]
+    comment = (root / "agents-shipgate-reports/pr-comment.md").read_text()
+    assert "claude-code .claude/hooks/hooks.json" in comment
+    assert "widened" in comment
+
+
+@pytest.mark.parametrize("fmt", ["text", "agent-boundary-json", "agent-control-json"])
+def test_check_orders_the_enabled_plugin_hook_as_an_expansion(tmp_path: Path, fmt: str) -> None:
+    root = _repository(tmp_path, _self_enabled(), {".claude/hooks/hooks.json": CHANGED_HOOK})
+
+    result = _check(root, fmt)
+
+    assert result.exit_code == 0, result.output
+    if fmt == "text":
+        assert "high / widened — claude-code .claude/hooks/hooks.json" in result.output
+        return
+    payload = json.loads(result.output)
+    assert payload["decision"] == "require_review"
+    rows = payload["rows"] if fmt == "agent-boundary-json" else payload["capability_rows"]["rows"]
+    assert [(row["direction"], row["expands"], row["severity"]) for row in rows] == [
+        ("widened", True, "high")
+    ]
+
+
+# --- review cycle 2, P2: a plugin limit on one side only refuses check's rows ---
+
+PLUGIN_HOOK_FILE_BASE = {
+    "plugins/demo/.claude-plugin/plugin.json": {**PLUGIN, "hooks": "./cfg/hooks.json"},
+    "plugins/demo/cfg/hooks.json": HOOK,
+}
+
+
+@pytest.mark.parametrize("edit_hook", [False, True], ids=["manifest-only", "manifest-and-hook"])
+@pytest.mark.parametrize("fmt", ["text", "agent-boundary-json", "agent-control-json"])
+def test_check_refuses_rows_when_the_head_breaks_a_plugin_manifest(
+    tmp_path: Path, fmt: str, edit_hook: bool
+) -> None:
+    """No row is built from a manifest the head cannot be read from. The
+    decision stays what 1.0.0 gave, `allow`: `check` routes no plugin file."""
+
+    head: dict[str, object] = {"plugins/demo/.claude-plugin/plugin.json": "{not json"}
+    if edit_hook:
+        head["plugins/demo/cfg/hooks.json"] = CHANGED_HOOK
+    root = _repository(tmp_path, PLUGIN_HOOK_FILE_BASE, head)
+
+    result = _check(root, fmt)
+
+    assert result.exit_code == 0, result.output
+    if fmt == "text":
+        assert "Host capability comparison unavailable: head_inventory_incomplete" in result.output
+        assert "removed" not in result.output
+        assert "Control: complete" in result.output
+        return
+    payload = json.loads(result.output)
+    assert payload["decision"] == "allow"
+    if fmt == "agent-boundary-json":
+        assert payload["violations"] == []
+        assert payload["input_coverage"] == "complete"
+        comparison = payload
+    else:
+        assert payload["control_state"] == "complete"
+        comparison = payload["capability_rows"]
+    assert comparison["comparison_status"] == "incomparable"
+    assert comparison["incomparable_reasons"] == ["head_inventory_incomplete"]
+    assert comparison["rows"] == []
+
+
+@pytest.mark.parametrize(
+    ("base_manifest", "head_manifest", "reasons"),
+    [
+        ("{not json", {**PLUGIN, "hooks": "./cfg/hooks.json"}, ["base_inventory_incomplete"]),
+        ("{not json", "{still not json", ["base_inventory_incomplete", "head_inventory_incomplete"]),
+    ],
+    ids=["base-only", "changed-on-both-sides"],
+)
+def test_check_refuses_rows_unless_both_sides_share_an_untouched_plugin_limit(
+    tmp_path: Path, base_manifest: object, head_manifest: object, reasons: list[str]
+) -> None:
+    root = _repository(
+        tmp_path,
+        {**PLUGIN_HOOK_FILE_BASE, "plugins/demo/.claude-plugin/plugin.json": base_manifest},
+        {"plugins/demo/.claude-plugin/plugin.json": head_manifest},
+    )
+
+    payload = json.loads(_check(root, "agent-boundary-json").output)
+
+    assert payload["decision"] == "allow"
+    assert payload["comparison_status"] == "incomparable"
+    assert payload["incomparable_reasons"] == reasons
+    assert payload["rows"] == []
+
+
+# --- review cycle 2, nits ------------------------------------------------------
+
+
+def test_a_source_with_a_slash_is_not_a_bare_name_under_plugin_root(tmp_path: Path) -> None:
+    root = _workspace(
+        tmp_path,
+        {
+            ".claude-plugin/marketplace.json": {
+                **MARKETPLACE,
+                "metadata": {"pluginRoot": "./plugins"},
+                "plugins": [{"name": "demo", "source": "team/demo"}],
+            },
+            "plugins/team/demo/hooks/hooks.json": HOOK,
+        },
+    )
+
+    inventory = _inventory(root)
+
+    assert _hooks(inventory) == {}
+    assert inventory["issues"] == []
+
+
+@pytest.mark.parametrize("plugin_root", ["./..", "../plugins", "/plugins"])
+def test_a_plugin_root_outside_the_marketplace_is_named_without_blocking(
+    tmp_path: Path, plugin_root: str
+) -> None:
+    root = _workspace(
+        tmp_path,
+        {
+            ".claude-plugin/marketplace.json": {
+                **MARKETPLACE,
+                "metadata": {"pluginRoot": plugin_root},
+                "plugins": [{"name": "demo", "source": "demo"}],
+            },
+            "plugins/demo/hooks/hooks.json": HOOK,
+        },
+    )
+
+    inventory = _inventory(root)
+
+    assert [(issue["source"], issue["blocking"]) for issue in inventory["issues"]] == [
+        (".claude-plugin/marketplace.json", False)
+    ]
+    assert "`metadata.pluginRoot`" in inventory["issues"][0]["message"]
+    assert inventory_is_complete(inventory)
+    assert _hooks(inventory) == {}
+
+
+def test_a_reference_through_a_link_leaving_the_workspace_keeps_only_the_link_limit(
+    tmp_path: Path,
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "hooks.json").write_text(json.dumps(HOOK), encoding="utf-8")
+    root = _workspace(
+        tmp_path, {"plugins/demo/.claude-plugin/plugin.json": {**PLUGIN, "hooks": "./cfg/hooks.json"}}
+    )
+    try:
+        (root / "plugins" / "demo" / "cfg").symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("symbolic links are unavailable")
+
+    inventory = _inventory(root)
+
+    assert {(issue["source"], issue["blocking"]) for issue in inventory["issues"]} == {
+        ("plugins/demo/cfg", True)
+    }
+    assert not any("not in the repository" in issue["message"] for issue in inventory["issues"])
+    assert _hooks(inventory) == {}
+    _never_executed(root)

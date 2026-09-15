@@ -53,10 +53,13 @@ debt, not exempt debt. `--as-of YYYY-MM-DD` pins the reference date for
 reproducible CI output.
 
 The host-grant drift gate (`shipgate audit --host --drift --fail-on-drift`)
-can exit 20 once after upgrading past `1.0.0`, with no expansion signal. Claude
-Code hook files nothing selects now read as `access: unknown`, and plugin
-hook files are newly read (#714). Workflow step references may add a separate
-one-time drift (#771, PR #788). Read the `changes` in
+can exit 20 once after upgrading past `1.0.0`. Claude Code hook files nothing
+selects now read as `access: unknown`, with no expansion signal, and plugin
+hook files are newly read (#714). A newly read hook file carries a `hook_added`
+signal only when the repository's project settings enable the plugin that
+selects it, because that hook was loaded all along. Separately, a `0.4` or `0.5` baseline holding a
+workflow grant is incomparable after #771; move it aside and re-save it as the
+workflow step action references migration note in `STABILITY.md` describes. Read the `changes` in
 `shipgate audit --host --drift --json`, then re-save the host-grants baseline.
 
 ## Apply The Baseline

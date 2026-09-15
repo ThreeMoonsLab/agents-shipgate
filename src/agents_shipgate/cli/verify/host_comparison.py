@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 from agents_shipgate.cli.verify.git import (
@@ -16,7 +17,11 @@ from agents_shipgate.cli.verify.git import (
 )
 from agents_shipgate.core.boundary_registry import is_boundary_surface_path
 from agents_shipgate.core.host_comparison import compare_host_inventories
-from agents_shipgate.core.host_grants import build_host_boundary_snapshot, without_host_issues
+from agents_shipgate.core.host_grants import (
+    HostBoundarySnapshot,
+    build_host_boundary_snapshot,
+    without_host_issues,
+)
 from agents_shipgate.schemas.host_comparison import HostComparison
 
 
@@ -41,8 +46,10 @@ def compare_host_refs(
     ``exclude_plugin_reference_limits`` is for `check` only (#714). Its result
     cannot name a limit, so an unchanged one would refuse the whole
     comparison, and `check` does not route plugin manifests or plugin hook
-    files. The limits they raise are dropped from both inventories there.
-    `diff` and `verify` keep them and name them.
+    files. A plugin-reference limit both sides share on an untouched source
+    is dropped there; one only one side has, or one the change touched, still
+    refuses the comparison. `diff` and `verify` keep every limit: they name a
+    shared parse or shape limit on an unchanged source, and refuse otherwise.
     """
     from agents_shipgate.cli.verify.orchestrator import (
         _safe_repository_identity,
@@ -115,16 +122,18 @@ def compare_host_refs(
             (before / config_relative).exists() or (after / config_relative).exists()
         ):
             return None
+        def unchanged(source: str) -> bool:
+            return blob_path_unchanged(
+                workspace, base_commit, head_commit if head is not None else None, source
+            )
+
         base_snapshot = build_host_boundary_snapshot(before)
         head_snapshot = build_host_boundary_snapshot(after)
         base_inventory = base_snapshot.inventory
         head_inventory = head_snapshot.inventory
         if exclude_plugin_reference_limits:
-            base_inventory = without_host_issues(
-                base_inventory, base_snapshot.plugin_reference_issue_ids
-            )
-            head_inventory = without_host_issues(
-                head_inventory, head_snapshot.plugin_reference_issue_ids
+            base_inventory, head_inventory = _without_shared_plugin_reference_limits(
+                base_snapshot, head_snapshot, unchanged=unchanged
             )
         result = compare_host_inventories(
             base_inventory,
@@ -133,9 +142,7 @@ def compare_host_refs(
             base_commit=base_commit,
             head_commit=head_commit,
             redact_permission_arguments=redact_permission_arguments,
-            unchanged=lambda source: blob_path_unchanged(
-                workspace, base_commit, head_commit if head is not None else None, source
-            ),
+            unchanged=unchanged,
         )
         if identity() != captured_identity:
             raise ValueError("Host comparison inputs moved during the run")
@@ -143,6 +150,53 @@ def compare_host_refs(
         if not result.paths and result.comparison_status == "comparable":
             return None
         return result
+
+
+def _without_shared_plugin_reference_limits(
+    base: HostBoundarySnapshot,
+    head: HostBoundarySnapshot,
+    *,
+    unchanged: Callable[[str], bool],
+) -> tuple[dict, dict]:
+    """Both inventories without the plugin-reference limits `check` may leave out (#714).
+
+    `check` cannot name a limit and routes no plugin file, so a blocking
+    plugin-reference limit both sides carry, on a source the change did not
+    touch, is dropped: `1.0.0` never read plugin files, and nothing about that
+    plugin changed. A blocking one only one side carries, or one on a source
+    the change touched, is kept. The comparison then refuses with
+    `base_inventory_incomplete` or `head_inventory_incomplete`, instead of
+    publishing an added or removed row built from evidence it could not read.
+    A non-blocking plugin-reference issue never affects completeness and is
+    dropped.
+    """
+
+    def key(issue: dict) -> tuple[str, str, str]:
+        return (str(issue.get("kind")), str(issue.get("host")), str(issue.get("source")))
+
+    def blocking(snapshot: HostBoundarySnapshot) -> set[tuple[str, str, str]]:
+        return {
+            key(issue)
+            for issue in snapshot.inventory.get("issues", [])
+            if issue.get("blocking") and issue.get("issue_id") in snapshot.plugin_reference_issue_ids
+        }
+
+    shared = {
+        item for item in blocking(base) & blocking(head) if unchanged(item[2])
+    }
+
+    def dropped(snapshot: HostBoundarySnapshot) -> set[str]:
+        return {
+            str(issue["issue_id"])
+            for issue in snapshot.inventory.get("issues", [])
+            if issue.get("issue_id") in snapshot.plugin_reference_issue_ids
+            and (not issue.get("blocking") or key(issue) in shared)
+        }
+
+    return (
+        without_host_issues(base.inventory, dropped(base)),
+        without_host_issues(head.inventory, dropped(head)),
+    )
 
 
 def host_comparison_failure(

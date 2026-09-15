@@ -93,17 +93,25 @@ def test_a_hook_row_is_not_described_as_proof_of_loading() -> None:
     section = _section()
     assert "A hook row states its loading basis (#714)" in section
     assert "No row is proof that a hook ran" in section
-    # The three published bases and the limit that remains for each.
-    assert "Selected by a plugin" in section
+    # The four published bases and the limit that remains for each.
+    assert "Selected by a plugin this repository's project settings enable" in section
+    assert "`extraKnownMarketplaces`" in section
+    assert "Selected by a plugin** in the repository, without that enablement" in section
     assert "`.claude-plugin/marketplace.json`" in section
     assert "`risk: medium`" in section
     assert "Selected by nothing" in section
     assert "`access: unknown`" in section
     assert "A removal names no basis" in section
-    assert "Installation and enablement are never read" in section
-    # The `check` claim the #714 review found wrong: unread plugin references
-    # leave a check as 1.0.0 decided it.
-    assert "leaves their limits out of its completeness" in section
+    # Review cycle 2: enablement is read only where the repository proves it.
+    assert "Enablement is read only from the repository's project settings" in section
+    assert "Installation state, user settings and workspace trust are never read" in section
+    # A read limit is never an unchanged limit, as for an oversize settings file.
+    assert "A read limit is never named as unchanged" in section
+    # The `check` claims the #714 reviews found wrong: unread plugin references
+    # leave a check decision as 1.0.0 had it, and a limit only one side
+    # carries refuses the comparison rather than building a row.
+    assert "never changes a `check` decision from what `1.0.0` gave" in section
+    assert "makes that comparison incomparable" in section
 
 
 def test_link_refusals_are_named_on_the_page() -> None:

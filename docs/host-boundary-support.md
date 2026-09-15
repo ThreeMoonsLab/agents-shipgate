@@ -89,54 +89,84 @@ is published redacted and cannot be compared, so it
 makes GitHub coverage partial and a comparison of that changed workflow refuses.
 
 A hook row states its loading basis (#714). Parsing a hook file proves the
-file exists, not that a host loads it, so hooks are published three ways:
+file exists, not that a host loads it, so hooks are published four ways:
 
 - **Declared by a file the host loads for this scope**: Claude Code
   settings (`.claude/settings.json`, `.claude/settings.local.json`, user or
   managed settings) or Codex `.codex/hooks.json`. `access: execute`,
   `risk: high`, and adding or changing one is an expansion.
-- **Selected by a plugin** in the repository. The plugin's root is
-  recognised by its `.claude-plugin/plugin.json`, or by a
+- **Selected by a plugin this repository's project settings enable.** A
+  project settings file (`.claude/settings.json` or
+  `.claude/settings.local.json`) sets `enabledPlugins` `<plugin>@<marketplace>`
+  to `true`; a project settings file registers that marketplace in
+  `extraKnownMarketplaces` (or its `additionalMarketplaces` alias) as a
+  `directory` source whose relative `path` holds a
+  `.claude-plugin/marketplace.json`, or a `file` source whose relative `path`
+  is one; and that marketplace lists the plugin with a `./` or
+  `metadata.pluginRoot` source. Claude Code leaves only a plugin from an
+  external source waiting for a manual install, so this plugin loads once the
+  folder is trusted. Its selected hooks are `access: execute`, `risk: high`,
+  and adding or changing one is an expansion, as in `1.0.0`. The row says the
+  project settings enable the plugin.
+- **Selected by a plugin** in the repository, without that enablement. The
+  plugin's root is recognised by its `.claude-plugin/plugin.json`, or by a
   `.claude-plugin/marketplace.json` entry whose `source` is a `./` path or a
-  name under `metadata.pluginRoot`. A plugin selects `hooks/hooks.json` at its
-  root, a `./` path or array named by `hooks` in its manifest or marketplace
-  entry, or hooks written inline in either, including a `strict: false`
-  entry. `access: execute`, `risk: medium`, the event and every command
-  change. It is not an expansion, and the row says whether the plugin is
-  installed or enabled is not established.
+  bare name (no `/`) under `metadata.pluginRoot`. A plugin selects
+  `hooks/hooks.json` at its root, a `./` path or array named by `hooks` in its
+  manifest or marketplace entry, or hooks written inline in either, including
+  a `strict: false` entry. `access: execute`, `risk: medium`, the event and
+  every command change. It is not an expansion, and the row says whether the
+  plugin is installed or enabled is not established.
 - **Selected by nothing**, such as a standalone or nested
   `.claude/hooks/hooks.json`, which is not a location Claude Code documents.
   `access: unknown`, `risk: unknown`. Every change is still a row; none is an
   expansion.
 
 A removal names no basis, because the grant it describes may come from a
-baseline recorded before the basis was published. A hook-file grant with
-neither signature, such as one a `1.0.0` baseline recorded as
-`execute`/`high`, claims no selection.
+baseline recorded before the basis was published. `1.0.0` recorded every hook
+file as `execute`/`high`, the pair an enabled plugin's hook carries now, so a
+removal never claims selection or enablement. A hook-file grant with any other
+pair claims no selection.
 
 No row is proof that a hook ran. What remains unread:
 
-- Installation and enablement are never read, even when `enabledPlugins`
-  names the plugin. A marketplace entry with a remote `source` names nothing
-  in the repository.
+- Enablement is read only from the repository's project settings, and only
+  for a marketplace registered inside the repository. A `github`, `git`,
+  `url` or `settings` marketplace source, an absolute or home-relative path, a
+  path leaving the repository, a plugin the marketplace does not list, and a
+  value other than `true` establish nothing, and the plugin's hooks stay
+  `medium`. A `true` in either project settings file counts, even when the
+  other sets `false`: a `false` in `.claude/settings.local.json` is one
+  machine's opt-out. Installation state, user settings and workspace trust are
+  never read. A marketplace entry with a remote `source` names nothing in the
+  repository.
 - A reference is followed only to a file named `hooks.json`, or
   `<name>-hooks.json` (`_` or `.` also separate). In a plugin manifest, any
   other name, a path outside the plugin directory, a `hooks` member of the
-  wrong type, and an unreadable manifest are blocking coverage limits: `diff`
-  and `verify` refuse the comparison, or name the limit when the manifest is
-  unchanged.
-- The same problems in a marketplace entry are named without blocking. So
-  are a reference to a file that does not exist, a reference into a directory
-  the reader never walks (`node_modules`, `.venv` and the like), and a
-  selected file with no `hooks` object.
+  wrong type, and an unreadable manifest are blocking coverage limits. `diff`
+  and `verify` refuse the comparison when the limit is new, changed or on one
+  side only, and name a parse or shape limit when the manifest is unchanged.
+  A read limit is never named as unchanged: an untouched plugin hook file over
+  the read bound makes `diff` and `verify` incomparable, as an oversize
+  settings file already did in `1.0.0`.
+- The same problems in a marketplace entry are named without blocking, and so
+  is a `metadata.pluginRoot` that is not a `./` path inside the marketplace.
+  So are a reference to a file that does not exist, a reference into a
+  directory the reader never walks (`node_modules`, `.venv` and the like), and
+  a selected file with no `hooks` object. A reference beneath a link that
+  leaves the workspace is covered by the blocking limit on that link alone.
 - A reference matches a file case-insensitively when exactly one file
   matches, erring toward showing a hook a case-insensitive filesystem would
   load.
 - `check` routes a changed `.claude/hooks/hooks.json` to protected-surface
   review whatever its basis. It does not route a plugin manifest, a
-  marketplace or a plugin-selected hook file. It leaves their limits out of
-  its completeness, because its result cannot name a limit, so an unread
-  plugin reference decides a `check` exactly as it did in `1.0.0`.
+  marketplace or a plugin-selected hook file, so a plugin-reference limit
+  never changes a `check` decision from what `1.0.0` gave. Its host
+  comparison leaves out a limit both sides share on an untouched source,
+  because its result cannot name a limit. A limit only one side carries, or
+  one on a source the change touched, makes that comparison incomparable
+  (`base_inventory_incomplete` or `head_inventory_incomplete`), so no added or
+  removed row is built from a manifest that could not be read.
 
 Skill and command frontmatter is read the way Claude Code documents it (#730).
 Frontmatter is optional: a skill without it takes its name from the directory

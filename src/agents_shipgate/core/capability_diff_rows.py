@@ -251,6 +251,12 @@ def _why(
                 "removes a hook declared in this file; whether a host loaded it "
                 "is not established"
             )
+        if basis == "project_enabled_plugin":
+            # Loaded like a settings hook, so it reads as one, and names why.
+            return (
+                "changes what runs around the agent's actions; this repository's project "
+                "settings enable the plugin that selects this hook"
+            )
         if basis == "declared_only":
             return (
                 "declares a hook that no settings file, plugin manifest or marketplace entry "
