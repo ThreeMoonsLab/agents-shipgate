@@ -1,0 +1,63 @@
+# Host-only advisory PR review — no shipgate.yaml, no saved baseline.
+#
+# For a repository whose pull requests change what a coding agent may do
+# (.claude/settings.json, .mcp.json, .codex/, .cursor/, .vscode/mcp.json,
+# hooks, workflow permissions) and which has no shipgate.yaml. Each run
+# compares the PR with its base branch in Git history, posts one comment that
+# later pushes update in place, and uploads the artifacts.
+#
+# What the comparison finds never fails the job, and missing base history is
+# reported in the comment as "Host capability comparison unavailable", not as
+# a failure. The job does fail on setup and execution errors, for example when
+# the install fails, when the CLI exits non-zero (such as a PR that adds an
+# invalid shipgate.yaml at the root, which turns the host-only route off), when
+# posting the comment hits a GitHub API error other than a missing permission,
+# or when the run times out or is cancelled.
+#
+# On pull_request GitHub runs this workflow file from the PR's merge commit, so
+# the PR can change it: treat the result as advisory output of a job the PR
+# controls, never as an independent check.
+#
+# - concurrency: one run per PR at a time; a newer push cancels the older run
+#   and waits for it, so the newer push's result is written last.
+# - fetch-depth: 0 — the comparison reads the base branch from this clone; the
+#   Action never fetches.
+# - pull_request, not pull_request_target: a fork's PR gets a read-only token,
+#   so the comment cannot be posted there and the same review goes to the job
+#   summary instead. pull_request_target would run with a write token on
+#   untrusted PR contents.
+# - shipgate_version pins the agents-shipgate package from PyPI; pip still
+#   resolves its dependencies at run time, and the @v1.0.0 tag is a movable
+#   ref. The README shows the full-commit-SHA form, and why the v1.0.0 Action's
+#   install step can import files from the PR's checkout (its merge-verdict
+#   step can too, but this recipe does not enable it).
+#
+# See examples/github-actions/README.md § Host-only advisory PR review.
+name: Agents Shipgate (host-only advisory)
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write   # the PR comment only
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  shipgate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ThreeMoonsLab/agents-shipgate@v1.0.0
+        with:
+          ci_mode: advisory
+          diff_base: target
+          pr_comment: 'true'
+          shipgate_version: '1.0.0'

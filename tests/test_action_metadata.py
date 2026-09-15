@@ -44,7 +44,7 @@ def test_action_installs_from_source_when_no_pypi_version_is_set():
     text = Path("action.yml").read_text(encoding="utf-8")
 
     assert 'default: ""' in text
-    assert 'python -m pip install "${GITHUB_ACTION_PATH}"' in text
+    assert 'python -P -m pip install "${GITHUB_ACTION_PATH}"' in text
     assert "agents-shipgate==${SHIPGATE_VERSION}" in text
 
 

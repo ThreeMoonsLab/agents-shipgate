@@ -348,12 +348,17 @@ runs:
         SHIPGATE_WHEEL: ${{ inputs.shipgate_wheel }}
         SHIPGATE_WHEEL_SHA256: ${{ inputs.shipgate_wheel_sha256 }}
       run: |
+        # This step runs in GITHUB_WORKSPACE, the pull request's own files.
+        # `python -m` puts that directory first on sys.path, so a PR adding
+        # `pip/__main__.py` would run before the engine is installed; `-P`
+        # leaves it off. A script path puts the script's directory first, not
+        # the workspace, and the installer passes `-P` to its own pip.
         if [ -n "${SHIPGATE_WHEEL}" ] || [ -n "${SHIPGATE_WHEEL_SHA256}" ]; then
           python "${GITHUB_ACTION_PATH}/scripts/install_action_engine.py"
         elif [ -n "${SHIPGATE_VERSION}" ]; then
-          python -m pip install "agents-shipgate==${SHIPGATE_VERSION}"
+          python -P -m pip install "agents-shipgate==${SHIPGATE_VERSION}"
         else
-          python -m pip install "${GITHUB_ACTION_PATH}"
+          python -P -m pip install "${GITHUB_ACTION_PATH}"
         fi
 
     - name: Run Agents Shipgate
@@ -663,7 +668,10 @@ runs:
         FAIL_ON_MERGE_VERDICTS: ${{ inputs.fail_on_merge_verdicts }}
         MERGE_VERDICT: ${{ steps.report_outputs.outputs.merge_verdict }}
       run: |
-        python - <<'PY'
+        # `-P`: a script read from stdin puts the workspace (the pull
+        # request's files) on sys.path ahead of site-packages, where an
+        # `agents_shipgate/` package there would stand in for the engine.
+        python -P - <<'PY'
         import os
         import sys
 

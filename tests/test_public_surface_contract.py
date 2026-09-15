@@ -250,6 +250,7 @@ ACTION_PIN_FILES = (
     "examples/github-actions/05-sarif-to-code-scanning.yml",
     "examples/github-actions/07-block-on-blocked-verdict.yml",
     "examples/github-actions/08-require-mergeable.yml",
+    "examples/github-actions/14-host-only-advisory-pr.yml",
     "examples/circleci/01-advisory.yml",
     "examples/circleci/02-strict-with-baseline.yml",
     "examples/circleci/03-sarif-artifact-retention.yml",

@@ -232,6 +232,10 @@ enough to contain it compares normally.
 
 - Run it again on the next PR that touches these files. The second use is the
   one that tells you whether this is worth keeping.
+- To get the same comparison on every PR without a manifest, add
+  [`examples/github-actions/14-host-only-advisory-pr.yml`](../examples/github-actions/14-host-only-advisory-pr.yml);
+  [its notes](../examples/github-actions/README.md#host-only-advisory-pr-review)
+  cover permissions, forks and what fails the job.
 - [Route H](#route-h--no-manifest) adds a snapshot audit and an optional
   committed baseline for jobs that need one.
 - If the repository builds its own tool surface, continue with
@@ -785,8 +789,19 @@ deciding, and `verify --preview --json` answers it for one workspace.
 
 ### Advisory CI
 
-Drop this into `.github/workflows/agents-shipgate.yml`. It runs on every PR,
-posts the verdict as a comment, uploads artifacts, and never fails the job:
+**Host-only repository — no `shipgate.yaml`?** Use
+[`examples/github-actions/14-host-only-advisory-pr.yml`](../examples/github-actions/14-host-only-advisory-pr.yml)
+instead of the block below. It runs the comparison `agents-shipgate diff`
+makes on every PR and keeps one comment up to date. What it finds never fails
+the job, and missing base history shows as `Host capability comparison
+unavailable`;
+[its notes](../examples/github-actions/README.md#host-only-advisory-pr-review)
+cover the setup errors that do fail it, permissions, forks, pinning and what
+each comment means.
+
+With a manifest, drop this into `.github/workflows/agents-shipgate.yml`. It runs
+on every PR, posts the verdict as a comment, uploads artifacts, and does not fail
+the job on the verdict (setup and execution errors still fail it):
 
 ```yaml
 name: Agents Shipgate
