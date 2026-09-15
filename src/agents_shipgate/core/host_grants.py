@@ -1118,8 +1118,10 @@ def _workflow_permissions(value: Any, job: str) -> dict[str, Any]:
 #: never resolved: a branch, tag and commit SHA are equally opaque here (#771).
 _REMOTE_STEP_ACTION_RE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[^@\s]+)?@[^@\s]+")
 _DOCKER_STEP_ACTION_RE = re.compile(r"docker://\S+")
-#: ``algorithm:hex`` after ``@`` is an image digest, not registry userinfo.
-_DOCKER_DIGEST_RE = re.compile(r"[A-Za-z0-9_+.-]+:[0-9a-fA-F]{32,}")
+#: ``@algorithm:hex`` ending a reference is an image digest, not registry userinfo.
+_TRAILING_DIGEST_RE = re.compile(r"@[A-Za-z0-9_+.-]+:[0-9a-fA-F]{32,}\Z")
+#: ``scheme://`` opening a reference, in any letter case.
+_REFERENCE_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://")
 _UNREADABLE_STEP_REASONS = frozenset({"steps_not_a_list", "step_not_a_mapping"})
 
 
@@ -1138,17 +1140,36 @@ def _redact_step_reference(text: str) -> str:
 
     ``docker://user:password@registry/image`` carries registry credentials in
     its userinfo, which neither redactor recognises, so the userinfo is
-    replaced whole. ``docker://image@sha256:<hex>`` is a digest and is kept.
+    replaced whole. A password may itself hold ``/``, ``:`` or ``@`` (a base64
+    key file routinely does), so the authority is never taken to end at the
+    first ``/``: once a trailing ``@algorithm:hex`` image digest is set aside,
+    the userinfo is everything before the *last* ``@``.
+
+    - After any ``scheme://`` (``docker://`` in any letter case, or a scheme
+      GitHub would reject), every remaining ``@`` belongs to userinfo.
+    - Without a scheme, the last ``@`` opens the ref of ``owner/repo[/path]@ref``,
+      so what precedes it is userinfo only when it holds a ``:`` or another
+      ``@``. An owner or repository name holds neither; an action path that does
+      is refused as redacted rather than risk publishing a password. A marker
+      the redactors already wrote is not itself read as userinfo.
+
+    ``docker://image@sha256:<hex>``, a tag, a port and ``owner/repo/path@ref``
+    are kept as written.
     """
 
     display = _redact_step_text(text)
-    if display[: len("docker://")].lower() == "docker://":
-        authority, slash, path = display[len("docker://"):].partition("/")
-        if "@" in authority:
-            host = authority.rpartition("@")[2]
-            if slash or not _DOCKER_DIGEST_RE.fullmatch(host):
-                display = f"docker://<redacted>@{host}{slash}{path}"
-    return display
+    scheme = _REFERENCE_SCHEME_RE.match(display)
+    rest = display[scheme.end():] if scheme else display
+    digest = _TRAILING_DIGEST_RE.search(rest)
+    body, suffix = (rest[: digest.start()], rest[digest.start():]) if digest else (rest, "")
+    userinfo, at, remainder = body.rpartition("@")
+    if not at:
+        return display
+    unmarked = _PATH_REDACTION_MARKER.sub("", userinfo)
+    if scheme is None and ":" not in unmarked and "@" not in unmarked:
+        return display
+    prefix = scheme.group().lower() if scheme else ""
+    return f"{prefix}<redacted>@{remainder}{suffix}"
 
 
 def _step_label(step: dict[Any, Any], index: int) -> str:

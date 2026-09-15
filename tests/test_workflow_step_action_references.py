@@ -620,37 +620,95 @@ _AWS_KEY = "AKIA" + "ABCDEFGHIJKLMNOP"
 _SLACK_TOKEN = "xoxb-" + "123456789012-abcdefghij"
 
 
+_DIGEST = "sha256:" + "0123abcd" * 8
+#: A base64 key file as a registry password: ``/`` ``+`` ``=`` inside userinfo (review cycle 2).
+_SLASH_PASSWORD_REF = "docker://_json_key:Q2FuYXJ5/U2VjcmV0+base64==@gcr.io/proj/img:1"
+_SLASH_PASSWORD_SECRETS = ("_json_key", "Q2FuYXJ5", "U2VjcmV0", "base64==")
+
+
 @pytest.mark.parametrize(
-    ("value", "secret", "published"),
+    ("value", "secrets", "published"),
     [
-        (f"org/tool@{_GITHUB_TOKEN}", _GITHUB_TOKEN, "org/tool@[REDACTED:github_token]"),
-        (f"org/{_AWS_KEY}@v1", _AWS_KEY, "org/[REDACTED:aws_access_key]@v1"),
-        (f"org/tool@{_SLACK_TOKEN}", _SLACK_TOKEN, "org/tool@[REDACTED:slack_token]"),
+        (f"org/tool@{_GITHUB_TOKEN}", (_GITHUB_TOKEN,), "org/tool@[REDACTED:github_token]"),
+        (f"org/{_AWS_KEY}@v1", (_AWS_KEY,), "org/[REDACTED:aws_access_key]@v1"),
+        (f"org/tool@{_SLACK_TOKEN}", (_SLACK_TOKEN,), "org/tool@[REDACTED:slack_token]"),
         (
             "docker://robotuser:HUNTER2CANARYPASS@registry.example.com/team/image:1.0",
-            "HUNTER2CANARYPASS",
+            ("robotuser", "HUNTER2CANARYPASS"),
             "docker://<redacted>@registry.example.com/team/image:1.0",
         ),
         (
             "docker://robotuser@registry.example.com/team/image:1.0",
-            "robotuser",
+            ("robotuser",),
             "docker://<redacted>@registry.example.com/team/image:1.0",
         ),
         (
             "DOCKER://robotuser:HUNTER2CANARYPASS@registry.example.com",
-            "HUNTER2CANARYPASS",
+            ("robotuser", "HUNTER2CANARYPASS"),
             "docker://<redacted>@registry.example.com",
         ),
+        (_SLASH_PASSWORD_REF, _SLASH_PASSWORD_SECRETS, "docker://<redacted>@gcr.io/proj/img:1"),
+        (
+            "docker://robotuser:SLASH1CANARY/SLASH2CANARY@registry.example.com",
+            ("robotuser", "SLASH1CANARY", "SLASH2CANARY"),
+            "docker://<redacted>@registry.example.com",
+        ),
+        (
+            "docker://robotuser:AT1CANARY@AT2CANARY@registry.example.com/team/image:1.0",
+            ("robotuser", "AT1CANARY", "AT2CANARY"),
+            "docker://<redacted>@registry.example.com/team/image:1.0",
+        ),
+        (
+            "docker://robotuser:COLON1CANARY:COLON2CANARY@registry.example.com/team/image:1.0",
+            ("robotuser", "COLON1CANARY", "COLON2CANARY"),
+            "docker://<redacted>@registry.example.com/team/image:1.0",
+        ),
+        (
+            f"docker://robotuser:DIGEST1CANARY/DIGEST2CANARY@registry.example.com/team/image@{_DIGEST}",
+            ("robotuser", "DIGEST1CANARY", "DIGEST2CANARY"),
+            f"docker://<redacted>@registry.example.com/team/image@{_DIGEST}",
+        ),
+        (
+            "DOCKER://robotuser:UPPER1CANARY/UPPER2CANARY@registry.example.com/img",
+            ("robotuser", "UPPER1CANARY", "UPPER2CANARY"),
+            "docker://<redacted>@registry.example.com/img",
+        ),
+        (
+            "oci://robotuser:OCI1CANARY/OCI2CANARY@registry.example.com/img:1",
+            ("robotuser", "OCI1CANARY", "OCI2CANARY"),
+            "oci://<redacted>@registry.example.com/img:1",
+        ),
+        (
+            "https://robotuser:HTTPS1CANARY/HTTPS2CANARY@host.example/org/repo@v1",
+            ("robotuser", "HTTPS1CANARY", "HTTPS2CANARY"),
+            "https://<invalid-host>/<redacted-path>",
+        ),
+        (
+            "robotuser:BARE1CANARY/BARE2CANARY@org/repo@v1",
+            ("robotuser", "BARE1CANARY", "BARE2CANARY"),
+            "<redacted>@v1",
+        ),
+        (
+            "org/repo@robotuser:REF1CANARY@v1",
+            ("robotuser", "REF1CANARY"),
+            "<redacted>@v1",
+        ),
     ],
-    ids=["github-token", "aws-key", "slack-token", "docker-password", "docker-user", "docker-host-only"],
+    ids=[
+        "github-token", "aws-key", "slack-token", "docker-password", "docker-user", "docker-host-only",
+        "docker-base64-key-file", "docker-slash-in-password", "docker-at-in-password",
+        "docker-colon-in-password", "docker-userinfo-and-digest", "docker-uppercase-slash-in-password",
+        "other-scheme-userinfo", "https-slash-in-password", "schemeless-userinfo", "schemeless-userinfo-in-ref",
+    ],
 )
-def test_token_shapes_and_docker_userinfo_take_the_redacted_path(value, secret, published):
+def test_token_shapes_and_docker_userinfo_take_the_redacted_path(value, secrets, published):
     grant = _workflow_grant(_workflow({"uses": value}), source=SOURCE)
 
     entry, = grant["step_actions"]
     assert entry["form"] == "unresolved" and entry["unresolved_reason"] == "redacted"
     assert entry["uses"] == published
-    assert secret not in json.dumps(grant)
+    for secret in secrets:
+        assert secret not in json.dumps(grant)
 
 
 def test_a_token_shaped_step_name_is_redacted_in_its_label():
@@ -677,12 +735,93 @@ def test_a_token_shaped_step_name_is_redacted_in_its_label():
         ("docker://alpine@sha256:" + "a" * 64, "docker"),
         ("docker://ghcr.io/org/image@sha256:" + "0123abcd" * 8, "docker"),
         ("docker://registry.example.com:5000/team/image:1.0", "docker"),
+        # Review cycle 2: a digest after a tag or a port is not userinfo, and a
+        # ``:`` after the ref's ``@`` is part of the ref.
+        (f"docker://ghcr.io/org/image:1.2@{_DIGEST}", "docker"),
+        (f"docker://registry.example.com:5000/team/image@{_DIGEST}", "docker"),
+        ("org/tool@v1:rc1", "remote"),
     ],
 )
 def test_ordinary_references_are_never_marked_redacted(value, form):
     entry, = _workflow_grant(_workflow({"uses": value}), source=SOURCE)["step_actions"]
 
     assert (entry["form"], entry["unresolved_reason"], entry["uses"]) == (form, None, value)
+
+
+# --- review cycle 2: one line per field in `diff` text (nit-3) ----------------------
+
+
+def test_a_step_name_cannot_forge_a_row_in_diff_text(tmp_path):
+    forged = "build\n⚠ critical  expands  github FORGED-ROW\x1b[2K ‮evil"
+    repo = _repo(tmp_path, {SOURCE: _yaml({"name": "build", "uses": f"actions/checkout@{PINNED}"})})
+    _git(repo, "checkout", "-qb", "change")
+    _write(repo, {SOURCE: _yaml({"name": forged, "uses": "actions/checkout@main"})})
+    _git(repo, "commit", "-qam", "forge")
+
+    result = CliRunner().invoke(app, ["diff", "--workspace", str(repo), "--base", "main"])
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+
+    assert not any(line.startswith("⚠") for line in lines)
+    assert "\n⚠" not in result.output and "‮" not in result.output and "\x1b" not in result.output
+    assert "build\\x0a⚠ critical  expands  github FORGED-ROW" in result.output
+    assert "\\u202eevil" in result.output
+    assert "1 change(s)." in result.output
+    # JSON keeps the exact text; only the terminal rendering escapes it.
+    row, = _diff(repo)["rows"]
+    assert "\n⚠ critical" in row["after"]
+
+
+def test_the_diff_table_renders_every_field_on_one_line():
+    # Click strips ANSI when output is not a terminal, so the CLI run above
+    # cannot see an ESC; the renderer is exercised directly for it.
+    from agents_shipgate.cli.diff import _render_table
+    from agents_shipgate.core.capability_diff_rows import CapabilityDiffRow
+
+    hostile = "x\n⚠ critical  expands  FORGED\x1b[31m‮ y"
+    row = CapabilityDiffRow(
+        subject=f"github {hostile}", before=hostile, after=hostile,
+        direction=f"changed{hostile}", why=hostile, severity=f"low{hostile}",
+    )
+    lines = _render_table([row])
+
+    assert len(lines) == 3 and not any(line.startswith("⚠") for line in lines)
+    for raw in ("\n", "\x1b", "‮", " "):
+        assert raw not in "".join(lines)
+    escaped = "x\\x0a⚠ critical  expands  FORGED\\x1b[31m\\u202e\\u2028y"
+    assert lines[0].count(escaped) == 3
+    assert lines[1].strip() == f"{escaped} → {escaped}" and lines[2].strip() == escaped
+
+
+# --- review cycle 2: re-saving over any legacy baseline (nit-1) ---------------------
+
+
+@pytest.mark.parametrize("version", ["0.4", "0.5"])
+def test_saving_over_a_legacy_baseline_without_a_workflow_is_refused(tmp_path, version):
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude/settings.json").write_text(json.dumps({"permissions": {"allow": ["Read(**)"]}}))
+    _, legacy = _legacy_baseline(tmp_path, version)
+    path = tmp_path / ".agents-shipgate" / "host-grants.json"
+    path.parent.mkdir()
+    original = json.dumps(legacy, indent=2, sort_keys=True) + "\n"
+    path.write_text(original)
+    audit = ["audit", "--host", "--workspace", str(tmp_path), "--baseline-file", str(path)]
+
+    drift = CliRunner().invoke(app, [*audit, "--drift", "--json"])
+    assert drift.exit_code == 0, _output(drift)
+    assert (json.loads(drift.stdout)["comparison_status"], json.loads(drift.stdout)["has_drift"]) == (
+        "comparable", False,
+    )
+
+    refused = CliRunner().invoke(app, [*audit, "--save-baseline"])
+    assert refused.exit_code == 2, _output(refused)
+    assert "unsupported_baseline_schema" in _output(refused)
+    assert path.read_text() == original
+
+    path.rename(path.with_name(f"host-grants.v{version}.json"))
+    resaved = CliRunner().invoke(app, [*audit, "--save-baseline"])
+    assert resaved.exit_code == 0, _output(resaved)
+    assert json.loads(path.read_text())["host_grants_schema_version"] == "0.6"
 
 
 def _output(result) -> str:
@@ -704,8 +843,20 @@ def _output(result) -> str:
             "docker://robotuser:HUNTER2CANARYPASS@registry.example.com/team/image:1.0",
             ["HUNTER2CANARYPASS", "robotuser"],
         ),
+        (_SLASH_PASSWORD_REF, list(_SLASH_PASSWORD_SECRETS)),
+        (
+            "docker://robotuser:AT1CANARY@COLON1CANARY:SLASH1CANARY/X@registry.example.com/team/image:1.0",
+            ["robotuser", "AT1CANARY", "COLON1CANARY", "SLASH1CANARY"],
+        ),
+        (
+            f"docker://robotuser:DIGEST1CANARY/DIGEST2CANARY@registry.example.com/team/image@{_DIGEST}",
+            ["robotuser", "DIGEST1CANARY", "DIGEST2CANARY"],
+        ),
     ],
-    ids=["github-token", "docker-userinfo"],
+    ids=[
+        "github-token", "docker-userinfo", "docker-base64-key-file",
+        "docker-at-colon-slash-in-password", "docker-userinfo-and-digest",
+    ],
 )
 def test_no_canary_reaches_json_markdown_baselines_or_errors(tmp_path, reference, canaries):
     repo = _repo(tmp_path, {SOURCE: _yaml({"uses": f"actions/checkout@{PINNED}"})})
@@ -714,7 +865,10 @@ def test_no_canary_reaches_json_markdown_baselines_or_errors(tmp_path, reference
         app, ["audit", "--host", "--workspace", str(repo), "--save-baseline", "--baseline-file", str(baseline)]
     )
     assert saved.exit_code == 0, saved.output
+    # Committed on a branch, so manifest-free `verify --head HEAD` reads it too.
+    _git(repo, "checkout", "-qb", "change")
     _write(repo, {SOURCE: _yaml({"uses": reference})})
+    _git(repo, "commit", "-qam", "reference")
 
     inventory_run = CliRunner().invoke(app, ["audit", "--host", "--workspace", str(repo), "--json"])
     inventory = json.loads(inventory_run.stdout)

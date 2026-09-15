@@ -664,7 +664,17 @@ def control_headline_lines(envelope: AgentControlEnvelope) -> list[str]:
 
 # C0 and C1 control characters, plus DEL. Newlines are the dangerous ones here,
 # but a bare CR overwrites a rendered line and ANSI escapes can repaint one.
-_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+# U+2028 and U+2029 end a line wherever they are honoured, and the bidi controls
+# (the set `core.evidence_actions` escapes) reorder the rest of a line on screen
+# without changing a byte of it.
+_CONTROL_CHARACTERS = re.compile(
+    r"[\x00-\x1f\x7f-\x9f؜‎‏  ‪-‮⁦-⁩]"
+)
+
+
+def _escaped_control(match: re.Match[str]) -> str:
+    point = ord(match.group())
+    return f"\\x{point:02x}" if point <= 0xFF else f"\\u{point:04x}"
 
 
 def single_line_text(value: str) -> str:
@@ -675,13 +685,14 @@ def single_line_text(value: str) -> str:
     error, or a ref, none of which is under Shipgate's control. A path
     containing newlines produced forged ``Control: complete`` and ``You may:
     ... merge`` lines *below* the real denial, which is the reading a human or a
-    line-scraping tool takes away.
+    line-scraping tool takes away. A bidi override does the same on screen
+    without a newline, so it is shown as ``\\u202e`` too.
 
     JSON output is unaffected and keeps the exact bytes: ``json.dumps`` already
     escapes these, and a consumer parsing structure cannot be confused by them.
     """
 
-    return _CONTROL_CHARACTERS.sub(lambda match: f"\\x{ord(match.group()):02x}", value)
+    return _CONTROL_CHARACTERS.sub(_escaped_control, value)
 
 
 _PERMISSION_ORDER = ("edit", "commit", "push", "update_pr", "merge", "report_complete")
