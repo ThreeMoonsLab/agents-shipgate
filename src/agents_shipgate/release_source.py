@@ -13,8 +13,32 @@ import stat
 from pathlib import Path
 
 from agents_shipgate import __version__
+from agents_shipgate.published_release import ReleaseEngine, published_engine
 
 _RECORD = Path(__file__).parent / "_meta" / "release-source.json"
+
+
+def release_engine() -> ReleaseEngine:
+    """Select the engine for every pin ``init`` writes, by one rule (#781).
+
+    A valid record means this wheel is a final release build: it pins its own
+    version, its immutable Action source and the contract it emits. Absence
+    means an ordinary build, which keeps the published fallback (#506). A
+    malformed record raises here, so no caller can fall back past it.
+    """
+    source_commit = candidate_action_ref()
+    if source_commit is None:
+        return published_engine()
+    # Imported here: the contract module pulls in every schema, and this
+    # function is reached from modules that every command imports.
+    from agents_shipgate.schemas.contract import CONTRACT_VERSION
+
+    return ReleaseEngine(
+        package_version=__version__,
+        action_ref=source_commit,
+        contract_version=CONTRACT_VERSION,
+        stamped=True,
+    )
 
 
 def candidate_action_ref() -> str | None:

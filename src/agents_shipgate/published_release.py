@@ -10,13 +10,16 @@ executes.
 
 For source checkouts and ordinary/preview builds, the ``uses:`` pin in the
 workflow ``init --ci`` writes, the runner pins in the bundled adoption prompts,
-the ``shipgate_version`` input in the bundled CI recipe — comes from
-``LATEST_PUBLISHED_VERSION`` here, which is the same rule ``llms.txt``,
+the ``uses:`` and ``shipgate_version`` pins in the bundled CI recipes — comes
+from ``LATEST_PUBLISHED_VERSION`` here, which is the same rule ``llms.txt``,
 ``.well-known``, the docs and the Action examples already follow. One rule, one
 constant. A final candidate wheel instead carries its verified full source
-commit in ``_meta/release-source.json``; its generated workflow uses that
-immutable Action source before and after publication (#570). The record is
-provenance, not qualification. It never changes these published constants.
+commit in ``_meta/release-source.json``; every one of those pins then names
+that wheel's own version and immutable Action source, and the contract floor
+beside them is judged against the contract it emits, before and after
+publication (#570, #781). ``release_source.release_engine`` makes that
+selection once for all of them. The record is provenance, not qualification.
+It never changes these published constants.
 
 Both constants are bumped together, after the tag is pushed and never before —
 ``docs/release-runbook.md`` § Cutting the release, step 8. Bumping them is not
@@ -71,8 +74,47 @@ def published_release_meets_contract_floor(floor: str) -> bool:
     build, and the safe answer to "I cannot tell" is to state the gap.
     """
 
+    return _meets_floor(LATEST_PUBLISHED_CONTRACT_VERSION, floor)
+
+
+@dataclass(frozen=True)
+class ReleaseEngine:
+    """The one engine every pin written into an adopter's repository selects.
+
+    ``package_version`` is what a runner or ``shipgate_version`` installs,
+    ``action_ref`` what ``uses:`` resolves, and ``contract_version`` what that
+    engine reports. They are chosen together so a pin and the contract floor
+    stated beside it cannot describe different builds (#781).
+
+    ``stamped`` is true only for a wheel carrying a valid release-source record
+    (``agents_shipgate.release_source.release_engine``); every other build uses
+    :func:`published_engine`.
+    """
+
+    package_version: str
+    action_ref: str
+    contract_version: str
+    stamped: bool
+
+
+def published_engine() -> ReleaseEngine:
+    """The fallback for source checkouts and ordinary/preview builds.
+
+    Read at call time rather than bound at import, so the constants above stay
+    the single place this is decided.
+    """
+
+    return ReleaseEngine(
+        package_version=LATEST_PUBLISHED_VERSION,
+        action_ref=latest_published_action_ref(),
+        contract_version=LATEST_PUBLISHED_CONTRACT_VERSION,
+        stamped=False,
+    )
+
+
+def _meets_floor(contract: str, floor: str) -> bool:
     try:
-        return int(LATEST_PUBLISHED_CONTRACT_VERSION) >= int(floor)
+        return int(contract) >= int(floor)
     except ValueError:
         return False
 
@@ -91,11 +133,20 @@ class ContractFloorProse:
     satisfied: bool
 
 
-def contract_floor_prose(floor: str) -> ContractFloorProse:
-    """Render what is true about ``floor`` and the newest published release."""
+def contract_floor_prose(floor: str, engine: ReleaseEngine | None = None) -> ContractFloorProse:
+    """Render what is true about ``floor`` and the engine the pins select.
 
-    version = LATEST_PUBLISHED_VERSION
-    if published_release_meets_contract_floor(floor):
+    Without ``engine`` this describes the newest published release. A stamped
+    final wheel pins itself, so it is judged against the contract *it* emits:
+    judging it against the published constants it was built beside is how a
+    released ``1.0.0`` came to say no release reports the contract it reports.
+    """
+
+    engine = engine or published_engine()
+    if engine.stamped:
+        return _stamped_floor_prose(floor, engine)
+    version = engine.package_version
+    if _meets_floor(engine.contract_version, floor):
         return ContractFloorProse(
             notice=(
                 f"The newest published release, `agents-shipgate` `{version}`, reports it, "
@@ -104,7 +155,7 @@ def contract_floor_prose(floor: str) -> ContractFloorProse:
             source=f"`{version}` or newer",
             satisfied=True,
         )
-    published = LATEST_PUBLISHED_CONTRACT_VERSION
+    published = engine.contract_version
     return ContractFloorProse(
         notice=(
             "**No published release reports that contract yet — say so before you start.** "
@@ -123,11 +174,40 @@ def contract_floor_prose(floor: str) -> ContractFloorProse:
     )
 
 
+def _stamped_floor_prose(floor: str, engine: ReleaseEngine) -> ContractFloorProse:
+    version = engine.package_version
+    if _meets_floor(engine.contract_version, floor):
+        return ContractFloorProse(
+            notice=(
+                f"This release, `agents-shipgate` `{version}`, reports it, "
+                "and every pin below names that release."
+            ),
+            source=f"`{version}` or newer",
+            satisfied=True,
+        )
+    return ContractFloorProse(
+        notice=(
+            "**This release does not report that contract — say so before you start.** "
+            f"`agents-shipgate` `{version}` reports contract `{engine.contract_version}`, "
+            f"and every pin below names it. Run the steps `{version}` supports, and at the "
+            f"first step that needs contract `{floor}`, stop and tell the user this release "
+            "does not provide it rather than reporting that step as done."
+        ),
+        source=(
+            f"this release, `{version}`, reports contract `{engine.contract_version}`, "
+            "below that floor"
+        ),
+        satisfied=False,
+    )
+
+
 __all__ = [
     "LATEST_PUBLISHED_CONTRACT_VERSION",
     "LATEST_PUBLISHED_VERSION",
     "ContractFloorProse",
+    "ReleaseEngine",
     "contract_floor_prose",
     "latest_published_action_ref",
+    "published_engine",
     "published_release_meets_contract_floor",
 ]

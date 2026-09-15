@@ -24,9 +24,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from agents_shipgate import __version__
-from agents_shipgate.published_release import latest_published_action_ref
-from agents_shipgate.release_source import candidate_action_ref
+from agents_shipgate.release_source import release_engine
 
 
 def _action_ref() -> str:
@@ -36,17 +34,19 @@ def _action_ref() -> str:
 def _engine_selection() -> tuple[str, str | None]:
     """Use the candidate's source SHA, or an ordinary build's published pin.
 
-    An explicit operator override still wins, but cannot hide a malformed
-    embedded record. No future tag, runtime network lookup, or wheel rewrite
-    is involved: the source SHA resolves before and after publication (#570).
+    The engine comes from ``release_engine``, the rule the bundled adoption-kit
+    recipes also render from (#781). An explicit operator override still wins,
+    but cannot hide a malformed embedded record. No future tag, runtime network
+    lookup, or wheel rewrite is involved: the source SHA resolves before and
+    after publication (#570).
     """
     import os
 
-    candidate_ref = candidate_action_ref()
+    engine = release_engine()
     override = os.environ.get("AGENTS_SHIPGATE_WORKFLOW_REF")
     if override:
         return override, None
-    return (candidate_ref, __version__) if candidate_ref else (latest_published_action_ref(), None)
+    return engine.action_ref, (engine.package_version if engine.stamped else None)
 
 
 # Inputs/outputs mirror ``action.yml``; update both when adding inputs.

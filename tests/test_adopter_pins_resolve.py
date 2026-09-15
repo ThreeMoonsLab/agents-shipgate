@@ -98,7 +98,7 @@ PIN_SHAPES: tuple[tuple[str, re.Pattern[str], str], ...] = (
 #: from excusing `@main`. `test_the_reader_blanks_are_blanks_and_are_still_in_use`
 #: holds both ends —
 #: every entry is visibly unfillable, and every entry is still in use.
-READER_BLANK_REFS = frozenset({"v<NEW>", "v…"})
+READER_BLANK_REFS = frozenset({"v<NEW>"})
 
 
 def _expected(shape: str) -> str:

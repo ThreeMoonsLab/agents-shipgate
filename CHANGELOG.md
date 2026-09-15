@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Move the published-release pins, examples and adoption prompts to `v1.0.0` (contract 39) now that it is published, and re-measure the pilot ledger's Route H dry run on the published build. (#570, #648)
+- Fix the optional skill adoption kits in a released wheel naming the previous release. `init --agent-instructions=claude-code-skill,codex-skill` from the published `1.0.0` wheel rendered runners and CI recipes that install `0.15.0`, and said no published release reports contract `21`. A release-stamped wheel now renders its own version, immutable Action source and contract into every kit pin and contract-floor statement, by the same rule `init --ci` already used; source checkouts and ordinary builds keep the published fallback. The distribution smoke checks the installed candidate's kit pins. Already-published `1.0.0` bytes are unchanged; the fix reaches adopters in the next patch release. (#781)
 
 ## 1.0.0 - 2026-09-13
 

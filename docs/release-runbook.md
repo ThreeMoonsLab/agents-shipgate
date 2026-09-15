@@ -205,13 +205,26 @@ reviewed lock first; this candidate route uses `--no-deps`. It cannot be mixed
 with `shipgate_version`. Missing halves, bad hashes and conflicting wheel
 metadata fail before installation.
 
-An explicit `AGENTS_SHIPGATE_WORKFLOW_REF` still selects the operator's requested
-Action source and omits the candidate version selector. It cannot hide a malformed
-embedded source record. Ordinary and preview builds keep their published fallback.
+The same record selects every other pin `init` renders from the wheel: the
+optional adoption kit's zero-install runners, its bundled CI recipes' `uses:` and
+`shipgate_version`, and the contract-floor statement beside them, which is judged
+against the contract the wheel itself emits (#781). The wheel is built before the
+published-release constants move, so judging it against those constants would tell
+adopters to install the previous release. The distribution smoke renders the kit
+from the installed candidate and refuses any other Action ref or package version.
 
-A malformed record refuses the one thing it decides — the pin `init --ci` writes —
-and nothing else. `doctor`, `check` and `verify` keep running on that install, so
-the diagnostic that names the broken wheel is still available.
+An explicit `AGENTS_SHIPGATE_WORKFLOW_REF` still selects the operator's requested
+Action source for the workflow `init --ci` writes and omits the candidate version
+selector there. It does not change the kit's runner pins, which cannot name an
+Action source. It cannot hide a malformed embedded source record. Ordinary and
+preview builds keep their published fallback.
+
+A malformed record refuses the things it decides — the pins `init --ci` and
+`init --agent-instructions` for the skill kits write — and nothing else. `init`
+refuses before writing any file, exits 2 and names the record, with an agent-mode
+`config_error` routing to a reinstall. `doctor`,
+`check` and `verify` keep running on that install, so the diagnostic that names
+the broken wheel is still available.
 
 ### Distribution smoke before and after publication
 

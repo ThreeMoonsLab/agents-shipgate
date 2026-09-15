@@ -196,5 +196,5 @@ Common errors and fixes:
 - `report.json` carries a non-null `release_decision.decision` — this is the field to surface to the user
 - `shipgate.yaml` has no `CHANGE_ME` values (comments containing the literal `CHANGE_ME` are informational and OK)
 - `.gitignore` contains `agents-shipgate-reports/` (or equivalent)
-- If `--ci` ran with `workflow.status: "written"`: `.github/workflows/agents-shipgate.yml` exists and references `ThreeMoonsLab/agents-shipgate@v…`
+- If `--ci` ran with `workflow.status: "written"`: `.github/workflows/agents-shipgate.yml` exists and its `uses:` line names the `ThreeMoonsLab/agents-shipgate` Action at a release tag, or at the full 40-character source commit a release wheel records (or at the ref `AGENTS_SHIPGATE_WORKFLOW_REF` names, when that override is set)
 - The user knows the top 3 findings and at least one suggested next step

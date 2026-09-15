@@ -235,8 +235,18 @@ SURFACES: tuple[Surface, ...] = (
         "adoption_kits",
         ("adoption-kits",),
         {
-            "executable_pin": _PIN,
-            "contract_floor": _FLOOR,
+            # The renderer's input is the only surface a release-stamped wheel
+            # renders differently (#781); the checked-in mirrors are source
+            # renderings, so the stamped proofs belong to this row alone.
+            "executable_pin": (
+                *_PIN,
+                "tests/test_release_source.py::test_a_stamped_wheel_kit_pins_its_own_release_not_the_previous_one",
+                "tests/test_packaging.py::test_a_stamped_installed_wheel_kit_does_not_downgrade_or_stop_at_the_floor",
+            ),
+            "contract_floor": (
+                *_FLOOR,
+                "tests/test_release_source.py::test_a_stamped_engine_below_the_floor_states_its_own_gap",
+            ),
             "release_decision_vocabulary": _VOCABULARY,
             "placeholder_ownership": _OWNERSHIP,
             "report_schema_pin": _REPORT_SCHEMA,
@@ -498,7 +508,7 @@ def _defined_test_names() -> set[str]:
     """
 
     names = set(_test_names_in(Path(__file__)))
-    for relpath in {_ADOPTER_PINS, "tests/test_release_source.py"}:
+    for relpath in {_ADOPTER_PINS, "tests/test_release_source.py", "tests/test_packaging.py"}:
         module = REPO_ROOT / relpath
         assert module.is_file(), f"registry names tests in {relpath}, which is gone"
         names |= {f"{relpath}::{name}" for name in _test_names_in(module)}
