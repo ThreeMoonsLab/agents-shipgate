@@ -796,8 +796,8 @@ cover the setup errors that do fail it, permissions, forks, pinning and what
 each comment means.
 
 With a manifest, drop this into `.github/workflows/agents-shipgate.yml`. It runs
-on every PR, posts the verdict as a comment, uploads artifacts, and never fails
-the job:
+on every PR, posts the verdict as a comment, uploads artifacts, and does not fail
+the job on the verdict (setup and execution errors still fail it):
 
 ```yaml
 name: Agents Shipgate

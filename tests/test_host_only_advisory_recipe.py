@@ -315,8 +315,8 @@ def test_the_action_steps_give_distinct_advisory_answers(
         assert "Repository-declared host capability changes:" in summary
         assert "Bash(npm *)" in summary and "billing" in summary
     elif branch == "narrow":
-        # A narrowing must not read as a widening: every row removes a grant
-        # or adds a denial, and none is an expansion.
+        # A narrowing must not read as a widening: no row is `widened` or
+        # `expands`, and at least one removes a grant.
         assert comparison["comparison_status"] == "comparable"
         directions = sorted(row["direction"] for row in rows)
         assert directions and "widened" not in directions and "removed" in directions, rows

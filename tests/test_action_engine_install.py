@@ -193,19 +193,54 @@ def _run_step(
     )
 
 
-_SAFE_PYTHON = re.compile(r'python (?:-P |"\$\{GITHUB_ACTION_PATH\}/scripts/\w+\.py"$)')
+#: Every Python interpreter a shell line starts, however it is spelled: bare,
+#: `python3`, an absolute path or `"${pythonLocation}/bin/python"`.
+_PYTHON_INVOCATION = re.compile(r'(?<![\w.-])(?:[\w${}./"-]*/)?python3?(?![\w.-])"?')
+#: What may follow one: `-P` (workspace off `sys.path`), or a script path, whose
+#: own directory goes first instead.
+_SAFE_PYTHON_ARGUMENTS = re.compile(r' (?:-P(?= )|"\$\{GITHUB_ACTION_PATH\}/scripts/\w+\.py"(?=\s|$))')
+
+
+def _unsafe_python_invocations(line: str) -> list[str]:
+    stripped = line.strip()
+    if stripped.startswith("#"):
+        return []
+    return [
+        match.group(0)
+        for match in _PYTHON_INVOCATION.finditer(stripped)
+        if not _SAFE_PYTHON_ARGUMENTS.match(stripped, match.end())
+    ]
+
+
+@pytest.mark.parametrize("line", [
+    "python -m pip install agents-shipgate",
+    'python -P -m pip install "agents-shipgate==1.0.0" && python -m evil',
+    '"${pythonLocation}/bin/python" -m pip install agents-shipgate',
+    "/usr/bin/python3 -m pip install agents-shipgate",
+    "if python - <<PY; then",
+])
+def test_the_python_rule_flags_every_unsafe_spelling(line: str) -> None:
+    assert _unsafe_python_invocations(line), line
+
+
+@pytest.mark.parametrize("line", [
+    'python -P -m pip install "agents-shipgate==${SHIPGATE_VERSION}"',
+    'python "${GITHUB_ACTION_PATH}/scripts/github_action_outputs.py"',
+    "python -P - <<PY",
+    "# python -m pip is what v1.0.0 ran",
+])
+def test_the_python_rule_accepts_the_safe_spellings(line: str) -> None:
+    assert not _unsafe_python_invocations(line), line
 
 
 def test_every_python_the_action_starts_keeps_the_workspace_off_sys_path() -> None:
     """`python -P …`, or a script path, whose own directory goes first instead."""
 
     offenders = [
-        (name, line.strip())
+        (name, line.strip(), _unsafe_python_invocations(line))
         for name, step in _action_steps().items()
         for line in str(step.get("run", "")).splitlines()
-        if not line.strip().startswith("#")
-        and re.search(r"(?<![\w./-])python3?(?![\w.-])", line)
-        and not _SAFE_PYTHON.fullmatch(line.strip()) and not _SAFE_PYTHON.match(line.strip())
+        if _unsafe_python_invocations(line)
     ]
     assert not offenders, offenders
     installer = (REPO_ROOT / "scripts/install_action_engine.py").read_text(encoding="utf-8")
