@@ -11,6 +11,14 @@ names different code, not new token scopes. Local `./` actions stay unread
 (`baseline_workflow_step_actions_unavailable`); one without a workflow stays
 comparable, and `minimum_control_contract_version` stays `21`. See
 [the migration note](../STABILITY.md#workflow-step-action-references-contract-v40-771).
+The same unreleased contract and `0.6` schemas also read the named secrets a
+job passes to a reusable workflow (#693): a reusable call adds
+`secret_mappings[]` (the destination, the source name from
+`${{ secrets.NAME }}`, `form` and `unresolved_reason`) and `uses_redacted`.
+Pointing a destination at a different source is a `changed` row with
+`expands: false`; a literal, another expression, or a reusable target or
+secret name that redacts is a blocking limit rather than a comparison. See
+[the migration note](../STABILITY.md#reusable-workflow-secret-mappings-contract-v40-693).
 
 Previous runtime contract v39 reads through an in-tree link at a boundary path (#700).
 A link such as `CLAUDE.md -> AGENTS.md` or `.claude/skills -> ../.agents/skills`

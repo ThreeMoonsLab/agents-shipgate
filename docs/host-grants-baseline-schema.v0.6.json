@@ -1096,12 +1096,19 @@
       "title": "HostRequirementGrantV2",
       "type": "object"
     },
-    "HostReusableWorkflowCallV4": {
+    "HostReusableWorkflowCallV6": {
       "additionalProperties": false,
       "properties": {
         "job": {
           "title": "Job",
           "type": "string"
+        },
+        "secret_mappings": {
+          "items": {
+            "$ref": "#/$defs/HostReusableWorkflowSecretV6"
+          },
+          "title": "Secret Mappings",
+          "type": "array"
         },
         "secrets_inherit": {
           "title": "Secrets Inherit",
@@ -1110,6 +1117,11 @@
         "uses": {
           "title": "Uses",
           "type": "string"
+        },
+        "uses_redacted": {
+          "default": false,
+          "title": "Uses Redacted",
+          "type": "boolean"
         }
       },
       "required": [
@@ -1117,7 +1129,69 @@
         "uses",
         "secrets_inherit"
       ],
-      "title": "HostReusableWorkflowCallV4",
+      "title": "HostReusableWorkflowCallV6",
+      "type": "object"
+    },
+    "HostReusableWorkflowSecretV6": {
+      "additionalProperties": false,
+      "description": "One named secret a job passes to the reusable workflow it calls (#693).\n\n``destination`` is the callee's secret input name as the caller writes it.\n``source`` is ``NAME`` from a whole-value ``${{ secrets.NAME }}``, and\n``form`` is then ``secret``. The name is a reference, never a value: it\ndoes not establish the secret's privilege, whether the caller has it, or\nwhat the called workflow does with it. Anything else is ``unresolved``,\nand none of its value is published or digested: a literal value, any\nother expression, a non-string, or a ``secrets`` that is neither\n``inherit`` nor a mapping (``destination`` is then ``null``). A name the\ncredential redactors rewrite is ``redacted``. Every unresolved mapping\nrecords a blocking coverage issue, because it cannot be compared.",
+      "properties": {
+        "destination": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Destination"
+        },
+        "form": {
+          "enum": [
+            "secret",
+            "unresolved"
+          ],
+          "title": "Form",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source"
+        },
+        "unresolved_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "literal_value",
+                "expression",
+                "not_a_string",
+                "redacted",
+                "secrets_not_a_mapping"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unresolved Reason"
+        }
+      },
+      "required": [
+        "destination",
+        "source",
+        "form"
+      ],
+      "title": "HostReusableWorkflowSecretV6",
       "type": "object"
     },
     "HostSandboxGrantV2": {
@@ -1270,7 +1344,7 @@
         },
         "reusable_calls": {
           "items": {
-            "$ref": "#/$defs/HostReusableWorkflowCallV4"
+            "$ref": "#/$defs/HostReusableWorkflowCallV6"
           },
           "title": "Reusable Calls",
           "type": "array"

@@ -13,6 +13,14 @@ names different code, not new token scopes. Local `./` actions stay unread
 (`baseline_workflow_step_actions_unavailable`); one without a workflow stays
 comparable, and `minimum_control_contract_version` stays `21`. See
 [the migration note](#workflow-step-action-references-contract-v40-771).
+The same unreleased contract and `0.6` schemas also read the named secrets a
+job passes to a reusable workflow (#693): a reusable call adds
+`secret_mappings[]` (the destination, the source name from
+`${{ secrets.NAME }}`, `form` and `unresolved_reason`) and `uses_redacted`.
+Pointing a destination at a different source is a `changed` row with
+`expands: false`; a literal, another expression, or a reusable target or
+secret name that redacts is a blocking limit rather than a comparison. See
+[the migration note](#reusable-workflow-secret-mappings-contract-v40-693).
 
 Unreleased, still contract v40: a hook grant states its loading basis (#714).
 A Claude Code hook file nothing in the repository selects is published with
@@ -123,6 +131,37 @@ from the shipped `v0.15.0` contract are in
 the Action tag) for reproducible CI.
 
 ---
+
+<a id="reusable-workflow-secret-mappings-contract-v40-693"></a>
+
+## Migration Note: 1.0.x — named reusable-workflow secret mappings (contract v40, #693)
+
+This extends host-grants `0.6` and runtime contract `40` in place rather than minting `0.7`/`41`. Neither has shipped in a tagged release: published `1.0.0` emits contract `39` and host-grants `0.5`, and the `0.5` schemas stay untouched. A reusable call gains two members, each present only when set, so a call with no named mapping and an ordinary target keeps the shape #771 gave it:
+
+```json
+{
+  "reusable_calls": [
+    {
+      "job": "deploy", "uses": "./.github/workflows/deploy.yml", "secrets_inherit": false,
+      "secret_mappings": [
+        {"destination": "credential", "source": "PRODUCTION_TOKEN", "form": "secret", "unresolved_reason": null}
+      ]
+    }
+  ]
+}
+```
+
+- **What is read.** For a job with a reusable `uses:`, each `secrets:` entry whose whole value is `${{ secrets.NAME }}` (any spacing or YAML quoting) is `form: secret`, with `destination` the called workflow's secret input and `source` the name `NAME`. The secret's value is never read. `secrets: inherit` is unchanged: `secrets_inherit: true`, no `secret_mappings`.
+- **What is compared.** Each call's set of mappings. Adding or removing a destination, or pointing one at a different source name, is a `changed` row on the workflow naming `job/destination`. Its `why` says which of the three it is, and that a name does not establish the secret's privilege, whether the caller has it, or what the called workflow does with it. No expansion signal is raised, so `expands` is `false`; `secrets: inherit` keeps its own widening signal. Reordering the entries is quiet. Source names are compared as written.
+- **Unresolved values.** Any other entry is `form: unresolved` with `source: null`, and nothing of its value is published or digested: `literal_value`, `expression` (including `${{ github.token }}` and `${{ secrets['NAME'] }}`), or `not_a_string`. A `secrets:` that is neither `inherit` nor a mapping is one entry with `destination: null` and `secrets_not_a_mapping`. Each records a blocking `unsupported` coverage issue, because there is nothing to compare: a changed workflow holding one refuses, and an unchanged one is named in `unchanged_limits` (#721).
+- **Redacted values (#767).** A job's reusable `uses:` now passes through the same redaction as a step reference. When it is rewritten, the call carries `uses_redacted: true`. A destination or source name that is rewritten makes the entry `unresolved` / `redacted`. Both record the blocking coverage issue. Before this change, `org/repo/.github/workflows/x.yml@token=aaaaaaaa` → `@token=bbbbbbbb` compared as unchanged with no row and no limit, on published `1.0.0` and on contract `40` as #771 left it. A token such as `ghp_…` in a reusable target, which `1.0.0` published verbatim, is now redacted.
+
+**Compatibility.**
+- **A committed `0.4` or `0.5` baseline holding a reusable call** is incomparable with `baseline_reusable_workflow_secret_mappings_unavailable` beside `baseline_workflow_step_actions_unavailable`; it never read mappings. Migrate as [the #771 note](#workflow-step-action-references-contract-v40-771) describes.
+- **A `0.6` baseline saved from a source tree between #771 and this change** has no `secret_mappings`. It reads as "none declared", so a named mapping it held shows as an added destination: a row, never silence. Review and re-save it.
+- **A workflow whose reusable call passes a literal, `${{ github.token }}` or another unsupported value** now has partial GitHub coverage. `audit --host --save-baseline` refuses the incomplete inventory, and `diff` and `verify` name the file as an unchanged limit, or refuse when it changed. `${{ secrets.GITHUB_TOKEN }}` is the supported spelling of the workflow token.
+- **Validators pinned to earlier `0.6` schema bytes** from the source tree reject the new members. The regenerated `0.6` schemas carry them.
+- **`minimum_control_contract_version`** stays `21`.
 
 <a id="workflow-step-action-references-contract-v40-771"></a>
 

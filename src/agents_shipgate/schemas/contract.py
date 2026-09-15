@@ -200,6 +200,11 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # workflow grant, omitted when no step declares a listed reference. A 0.4/0.5 baseline holding a workflow
 # grant is incomparable, since it never read step references; one without a
 # workflow stays comparable. ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21.
+# v40 also reads the named secrets a job passes to a reusable workflow (#693),
+# extended in place because neither v40 nor host-grants 0.6 has shipped: a
+# reusable call adds ``secret_mappings[]`` and ``uses_redacted``, both omitted
+# when unset. A 0.4/0.5 baseline holding a reusable call also names
+# ``baseline_reusable_workflow_secret_mappings_unavailable``.
 CONTRACT_VERSION: Literal["40"] = "40"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
