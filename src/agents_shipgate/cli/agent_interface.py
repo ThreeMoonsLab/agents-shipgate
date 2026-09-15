@@ -7,7 +7,7 @@ from typing import Any
 import typer
 
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
-from agents_shipgate.cli.current_workspace import live_workspace
+from agents_shipgate.cli.current_workspace import default_reports_dir, live_workspace
 from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.agent_control_envelope import (
     AgentControlRouteUnavailable,
@@ -15,7 +15,7 @@ from agents_shipgate.core.agent_control_envelope import (
     envelope_from_routeless_pointer,
     render_agent_control_envelope,
 )
-from agents_shipgate.core.agent_controls import verify_command_for
+from agents_shipgate.core.agent_controls import _cwd_anchored, verify_command_for
 from agents_shipgate.core.agent_handoff import build_agent_handoff
 from agents_shipgate.core.current_control import (
     CurrentControlRead,
@@ -130,10 +130,16 @@ def control(
             "tree, or the worktree overlay refuses the read."
         ),
     ),
-    reports_dir: Path = typer.Option(
-        Path(DEFAULT_PATHS["reports_dir"]),
+    reports_dir: Path | None = typer.Option(
+        None,
         "--reports-dir",
-        help="Directory holding current-control.json.",
+        help=(
+            "Directory holding current-control.json. Defaults to "
+            f"{DEFAULT_PATHS['reports_dir']} under --workspace, where `verify "
+            "--workspace` writes it by default. An explicit relative path "
+            "resolves against the current directory."
+        ),
+        show_default=False,
     ),
     format_: str = typer.Option(
         "control",
@@ -160,6 +166,11 @@ def control(
     by joining the pointer's currency guarantee to the route the bound verifier
     already published.  ``--format pointer`` returns the underlying artifact
     unchanged.
+
+    Without ``--reports-dir`` the pointer is read from where a default ``verify
+    --workspace`` published it — under the workspace, from any current
+    directory (#575). An explicit ``--reports-dir`` is read exactly as given,
+    and no other directory is ever searched in its place.
     """
     require_workspace(workspace)
 
@@ -178,6 +189,11 @@ def control(
             ],
         )
         raise typer.Exit(2)
+
+    # From here on the directory is absolute, so every refusal and recovery
+    # names one that opens from wherever it is read; `artifact_root` is how the
+    # envelope spells artifact paths for this caller.
+    reports_dir, artifact_root = _reports_location(workspace, reports_dir)
 
     try:
         result = read_current_control(
@@ -245,7 +261,7 @@ def control(
             verifier=bound_verifier,
             # The exit code the producing run recorded, not this reader's.
             exit_code=bound_verifier.head_exit_code,
-            artifact_root=reports_dir.as_posix(),
+            artifact_root=artifact_root,
         )
     elif result.pointer.lifecycle_state == "terminal" and result.pointer.operation == "scan":
         # Current, but published by a command that reaches no release decision.
@@ -257,7 +273,7 @@ def control(
             result.pointer,
             verify_command=_recovery_verify_command(workspace, reports_dir),
             decision_withheld=_scan_verdict_unavailable(),
-            artifact_root=reports_dir.as_posix(),
+            artifact_root=artifact_root,
         )
     elif result.pointer.lifecycle_state == "terminal":
         _refuse_route(
@@ -282,6 +298,41 @@ def control(
         raise typer.Exit(4)
 
     typer.echo(render_agent_control_envelope(envelope))
+
+
+def _reports_location(workspace: Path, requested: Path | None) -> tuple[Path, str]:
+    """The directory this refresh reads, and the spelling its artifacts print under.
+
+    Omitted, it is where a default ``verify --workspace`` published: the rule is
+    :func:`default_reports_dir`, the same one ``verify`` writes by, so the two
+    cannot drift. Resolving the bare default against the caller's directory made
+    a valid run under ``<repo>/agents-shipgate-reports`` read as ``missing``
+    from anywhere else, and a caller standing in another verified repository
+    had that repository's pointer read and checked against this one (#575).
+
+    An explicit ``--reports-dir`` keeps its meaning — absolute as given,
+    relative against the current directory — and is never retargeted. When it
+    holds no pointer the read refuses; nothing else is searched.
+
+    The directory returned first is absolute, so each refusal and recovery
+    command names one that opens from wherever it is read. ``verify`` resolves a
+    relative ``--out`` against the Git root rather than the caller, so echoing a
+    relative spelling there would name a different directory.
+
+    The spelling is unchanged wherever it already worked: the caller's own for
+    an explicit path, and for the default, relative to the current directory
+    when the directory lies beneath it — so ``--workspace .`` prints exactly
+    what it always did — and absolute otherwise.
+    """
+
+    if requested is not None:
+        return Path(_cwd_anchored(requested)), requested.as_posix()
+    location = default_reports_dir(workspace)
+    try:
+        spelling = location.relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        spelling = location.as_posix()
+    return location, spelling
 
 
 def _superseded_recovery_command(
