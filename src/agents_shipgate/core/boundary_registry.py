@@ -158,17 +158,49 @@ __all__ = [
 ]
 
 
+#: Where a Claude Code plugin keeps its manifest, relative to the plugin root
+#: (code.claude.com/docs/en/plugins-reference).
+CLAUDE_PLUGIN_MANIFEST = ".claude-plugin/plugin.json"
+#: The hook configuration a plugin loads by default, relative to its root.
+CLAUDE_PLUGIN_DEFAULT_HOOKS = "hooks/hooks.json"
+
+
+def is_claude_plugin_manifest_path(path: str) -> bool:
+    """A `.claude-plugin/plugin.json`, at the root or under any directory."""
+
+    folded = path.replace("\\", "/").removeprefix("./").casefold()
+    return folded == CLAUDE_PLUGIN_MANIFEST or folded.endswith(f"/{CLAUDE_PLUGIN_MANIFEST}")
+
+
+def is_hook_declaration_file_name(path: str) -> bool:
+    """A file named like a hook declaration (`hooks.json`, `security-hooks.json`).
+
+    Only such a file is followed from a plugin manifest's `hooks` reference
+    (#714). The name is what lets a base tree be materialized from paths
+    alone; a reference to any other name is recorded as a limit instead.
+    """
+
+    return path.replace("\\", "/").rsplit("/", 1)[-1].casefold().endswith("hooks.json")
+
+
 def is_boundary_surface_path(path: str) -> bool:
-    """Whether any adapter reads this path.
+    """Whether any reader may open this path.
 
     The one place that answers "would a reader open this file", so a
     materialized base tree and the live reader agree on what the surface is
     (#686, #688). Directory prefixes count: a reader that walks `.claude/`
     needs the directory to exist before it can find `settings.json` in it.
+
+    Plugin manifests and hook-named files are included although no adapter
+    names them (#714): the reader opens a manifest to learn which hook file a
+    plugin selects, and opens that file only when one selects it. They are
+    not protected surfaces, so `check` and the triggers do not route them.
     """
 
     normalized = path.replace("\\", "/").removeprefix("./")
     if any(adapter.matches(normalized) for adapter in BOUNDARY_ADAPTERS):
+        return True
+    if is_claude_plugin_manifest_path(normalized) or is_hook_declaration_file_name(normalized):
         return True
     folded = normalized.casefold()
     prefix = f"{folded}/"

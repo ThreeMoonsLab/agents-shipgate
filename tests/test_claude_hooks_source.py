@@ -84,7 +84,38 @@ def test_the_path_is_registered_surface() -> None:
     assert is_boundary_surface_path("packages/app/.claude/hooks/hooks.json")
 
 
+#: The two `Archive228/loopkit` steps that touched `.claude/hooks/hooks.json`,
+#: and what each commit held that could select it. Read with the GitHub
+#: contents and trees APIs on 2026-09-14, independently of the engine; no
+#: Claude session or hook was run.
+LOOPKIT_HOOK_STEPS = {
+    # Added the hook file.
+    "b3e551474bbf7311a54d0f8722817c131d092968": ("SessionStart",),
+    # Added a `PreCompact` event beside it.
+    "5ae033e63e698bc7cedacdea1483d8af677f52e1": ("PreCompact", "SessionStart"),
+}
+#: The selection evidence at both commits, identical at each:
+#: - `.claude-plugin/plugin.json` names `loopkit` with no `hooks` member;
+#: - `.claude-plugin/marketplace.json` lists it with `"source": "./"`, so the
+#:   plugin root is the repository root, where `hooks/hooks.json` does not
+#:   exist (only `hooks/pre-commit`);
+#: - `.claude/settings.json` declares its own `PostToolUse` command and does
+#:   not name the hook file.
+#: No supported reference selected the file at either step.
+LOOPKIT_SELECTION_EVIDENCE = "no plugin `hooks` member, no default hooks/hooks.json, no settings reference"
+
+
 def test_the_hook_is_read_as_a_claude_code_grant(repo: Path) -> None:
+    """The file is still read, and still a Claude Code grant naming its event.
+
+    Oracle corrected 2026-09-14 (#714). #704 at
+    `dea35e55973ba20c99767b6163075a3bbb600e54` pinned `("execute", "high")`
+    here from the path alone. Claude Code documents no project
+    `.claude/hooks/hooks.json` location, and nothing in this fixture — or in
+    loopkit at either step in `LOOPKIT_HOOK_STEPS` — selects the file, so its
+    loading is not established and its access is published as unknown.
+    """
+
     (repo / ".claude" / "hooks").mkdir()
     (repo / ".claude" / "hooks" / "hooks.json").write_text(
         json.dumps(SESSION_START_HOOK), encoding="utf-8"
@@ -97,12 +128,18 @@ def test_the_hook_is_read_as_a_claude_code_grant(repo: Path) -> None:
     assert len(grants) == 1
     assert grants[0]["host"] == "claude-code"
     assert grants[0]["event"] == "SessionStart"
-    assert (grants[0]["access"], grants[0]["risk"]) == ("execute", "high")
+    assert (grants[0]["access"], grants[0]["risk"]) == ("unknown", "unknown")
 
 
 def test_adding_the_hook_is_a_row_that_names_the_event(repo: Path) -> None:
     """The measured step: a `SessionStart` command appears and the tool said
-    nothing. It must now say what appeared, not merely that something did."""
+    nothing. It must now say what appeared, not merely that something did.
+
+    Oracle corrected 2026-09-14 (#714): the row stays, and is no longer an
+    expansion. #704 at `dea35e55973ba20c99767b6163075a3bbb600e54` asserted
+    `expands` for this unselected file; the measurements taken then keep what
+    that engine reported and are not relabeled. See `LOOPKIT_HOOK_STEPS`.
+    """
 
     before = _inventory(repo)
     (repo / ".claude" / "hooks").mkdir()
@@ -123,7 +160,10 @@ def test_adding_the_hook_is_a_row_that_names_the_event(repo: Path) -> None:
     assert len(rows) == 1
     assert rows[0].direction == "added"
     assert rows[0].after == "SessionStart", "a row saying 'hook' names nothing"
-    assert rows[0].expands
+    assert not rows[0].expands, "nothing selects this file; an expansion would be fabricated"
+    assert rows[0].severity == "unknown"
+    assert "not established" in rows[0].why
+    assert payload["expansion_signals"] == []
 
 
 def test_changing_what_the_hook_runs_is_a_row(repo: Path) -> None:

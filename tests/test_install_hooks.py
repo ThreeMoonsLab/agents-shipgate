@@ -1632,6 +1632,50 @@ def test_stop_hook_without_manifest_is_quiet_when_no_host_row_expands(tmp_path: 
     assert any(call[0] == "diff" for call in _cli_calls(tmp_path))
 
 
+def test_stop_hook_is_quiet_on_the_engines_declared_only_hook_row(tmp_path: Path) -> None:
+    """#714: the engine's own row for a hook file nothing selects reaches the
+    Stop hook, which must not interrupt the session as though it were active
+    authority. The payload comes from a real `diff`, not a hand-written row."""
+
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+
+    engine = tmp_path / "engine"
+    (engine / ".claude").mkdir(parents=True)
+    (engine / ".claude" / "settings.json").write_text(
+        '{"permissions": {"allow": ["Read(**)"]}}', encoding="utf-8"
+    )
+    for args in (
+        ["init", "-q", "-b", "main"],
+        ["config", "user.email", "t@example.invalid"],
+        ["config", "user.name", "T"],
+        ["add", "-A"],
+        ["commit", "-qm", "base"],
+    ):
+        subprocess.run(["git", *args], cwd=engine, check=True, capture_output=True)
+    (engine / ".claude" / "hooks").mkdir()
+    (engine / ".claude" / "hooks" / "hooks.json").write_text(
+        json.dumps({"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "true"}]}]}}),
+        encoding="utf-8",
+    )
+    diff = CliRunner().invoke(app, ["diff", "--workspace", str(engine), "--base", "main", "--json"])
+    assert diff.exit_code == 0, diff.output
+    payload = json.loads(diff.output)
+    assert [(row["subject"], row["expands"]) for row in payload["rows"]] == [
+        ("claude-code .claude/hooks/hooks.json", False)
+    ]
+
+    hook_root = tmp_path / "hook"
+    hook_root.mkdir()
+    _host_diff_workspace(hook_root)
+    result = _run_hook(hook_root, "verify", {}, diff_payload=json.dumps(payload))
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""
+    assert any(call[0] == "diff" for call in _cli_calls(hook_root))
+
+
 def test_stop_hook_without_manifest_names_widening_rows_once(tmp_path: Path) -> None:
     _host_diff_workspace(tmp_path)
     payload = json.dumps({"comparison_status": "comparable", "rows": [_WIDENING]})

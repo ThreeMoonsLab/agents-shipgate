@@ -14,6 +14,14 @@ names different code, not new token scopes. Local `./` actions stay unread
 comparable, and `minimum_control_contract_version` stays `21`. See
 [the migration note](#workflow-step-action-references-contract-v40-771).
 
+Unreleased, still contract v40: a hook grant states its loading basis (#714).
+A Claude Code hook file nothing in the repository selects is published with
+`access: unknown` and earns no expansion signal; a hook a plugin manifest
+selects keeps `execute` but earns none either. Settings hooks are unchanged.
+No schema moves, and a baseline that recorded such a file as `execute` reports
+one changed, non-widening row. See
+[the migration note](#hook-loading-basis-714).
+
 Previous runtime contract v39 reads through an in-tree link at a boundary path (#700).
 A link such as `CLAUDE.md -> AGENTS.md` or `.claude/skills -> ../.agents/skills`
 that resolves inside the repository is read at its target and published under
@@ -147,6 +155,29 @@ Host-grants inventory, baseline and drift schemas `0.6` add one member to a work
 - **Git-backed `diff`, `check` and manifest-free `verify`** read both refs with the current reader and need no migration.
 - **Validators pinned to the `0.5` schemas** reject a `0.6` inventory, baseline or drift payload. The `0.5` schema files stay published.
 - **`minimum_control_contract_version`** stays `21`.
+
+---
+
+<a id="hook-loading-basis-714"></a>
+
+## Migration Note: Unreleased — hook loading basis (#714)
+
+No schema, contract or `minimum_control_contract_version` moves. What changes is the value of existing fields on `hook` grants, and which of them earn an expansion signal. A parsed hook file proves the file exists, not that a host loads it.
+
+| Hook | `access` / `risk` | `hook_added` / `hook_changed` signal | Row |
+| --- | --- | --- | --- |
+| Declared in Claude Code settings, or Codex `.codex/hooks.json` | `execute` / `high` (unchanged) | yes (unchanged) | expands (unchanged) |
+| Selected by a `.claude-plugin/plugin.json` in the repository (default `hooks/hooks.json`, a `./` path in `hooks`, or inline hooks) | `execute` / `high` | no | a row that says plugin installation or enablement is not established |
+| A Claude Code hook file nothing selects, such as `.claude/hooks/hooks.json` | `unknown` / `unknown` | no | a row that says loading is not established |
+
+- **Identity is unchanged.** `grant_id` and `config_sha256` do not depend on the basis, so the same file is the same grant before and after.
+- **A saved baseline that recorded an unselected hook file as `execute`/`high`** stays comparable. Drift reports one `changed` grant for each of its events, with no expansion signal, so `--fail-on-drift` exits `20` once. Review the row, then re-save the baseline. Nothing is hidden, and nothing is reported as a widening.
+- **Plugin hook files are newly read.** A repository whose plugin manifest selects a hook file sees that file as a new grant, artifact and observed source, so a saved baseline drifts once there too. A plugin manifest appears in the inventory only when it has a `hooks` member, and only that member is digested, so a version bump is not drift.
+- **A hook file is no longer read as a settings file.** A `permissions`, `enabledPlugins` or `sandbox` key inside a hook file used to publish grants no host grants. It publishes none now, and a baseline holding one reports it removed.
+- **New blocking limits.** A plugin manifest that cannot be parsed, a `hooks` member of the wrong type, a reference that is not a `./` path inside the plugin, and a reference whose file name does not end in `hooks.json` are blocking coverage limits. A reference to a missing file is recorded without blocking.
+- **`check` decisions are unchanged.** A changed `.claude/hooks/hooks.json` still routes to protected-surface review; only its rows change. A plugin's manifest and its own hook file are not routed.
+
+---
 
 <a id="link-read-through-at-boundary-paths-contract-v39-700"></a>
 

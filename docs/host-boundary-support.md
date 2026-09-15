@@ -84,10 +84,35 @@ is published. A reference containing credential-shaped text — a token such as
 is published redacted and cannot be compared, so it
 makes GitHub coverage partial and a comparison of that changed workflow refuses.
 
-A hook row describes the file, not the host. A `hooks.json` found under
-`.claude/hooks/` is reported as an `execute` grant even when no settings file
-or plugin manifest references it, so the row does not establish that Claude
-Code loads it (#714).
+A hook row states its loading basis (#714). Parsing a hook file proves the
+file exists, not that a host loads it, so hooks are published three ways:
+
+- **Declared by a file the host loads for this scope**: Claude Code
+  settings (`.claude/settings.json`, `.claude/settings.local.json`, user or
+  managed settings) or Codex `.codex/hooks.json`. `access: execute`,
+  `risk: high`, and adding or changing one is an expansion.
+- **Selected by a plugin manifest** in the repository: `hooks/hooks.json`
+  beside a `.claude-plugin/plugin.json`, a `./` path its `hooks` member names,
+  or hooks written inline in it. The grant keeps `execute`/`high`, its event
+  and every command change. It is not an expansion, and the row says whether
+  the plugin is installed or enabled is not established.
+- **Selected by nothing**, such as a standalone or nested
+  `.claude/hooks/hooks.json`, which is not a location Claude Code documents.
+  `access: unknown`, `risk: unknown`. Every change is still a row; none is an
+  expansion.
+
+No row is proof that a hook ran. What remains unread:
+
+- Installation and enablement are never read, even when `enabledPlugins`
+  names the plugin.
+- A plugin root is recognised only by its manifest. A marketplace entry that
+  points at a directory without one is not followed.
+- A manifest reference is followed only to a file whose name ends in
+  `hooks.json`. Any other name, a path outside the plugin directory, and an
+  unreadable manifest are blocking coverage limits.
+- `check` routes a changed `.claude/hooks/hooks.json` to protected-surface
+  review whatever its basis. It does not route a plugin's manifest or its own
+  hook file.
 
 Skill and command frontmatter is read the way Claude Code documents it (#730).
 Frontmatter is optional: a skill without it takes its name from the directory

@@ -25,7 +25,13 @@ from urllib.parse import parse_qsl, urlsplit, urlunsplit
 import yaml
 from pydantic import ValidationError
 
-from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS, is_explicit_boundary_file_path
+from agents_shipgate.core.boundary_registry import (
+    BOUNDARY_ADAPTERS,
+    CLAUDE_PLUGIN_DEFAULT_HOOKS,
+    is_claude_plugin_manifest_path,
+    is_explicit_boundary_file_path,
+    is_hook_declaration_file_name,
+)
 from agents_shipgate.core.host_boundary import (
     _is_wildcard_allow,
     _is_write,
@@ -684,7 +690,13 @@ def _load_structured(
         ))
         return None
     if host == "claude-code" and kind in {"config", "hooks"}:
-        shape_error = _claude_permission_shape_error(data)
+        # A hook file is not a settings file: no host reads `permissions`
+        # from it, so only its top-level shape is checked (#714).
+        shape_error = (
+            _claude_permission_shape_error(data)
+            if kind == "config"
+            else None if isinstance(data, dict) else "a hook file must be an object"
+        )
         if shape_error is not None:
             issues.append(_inventory_issue(
                 kind="unsupported", host=host, source=source,
@@ -868,20 +880,64 @@ def _setting_grant(
     }
 
 
-def _hooks_grants(data: Any, *, host: str, scope: HostScope, source: str) -> list[dict[str, Any]]:
+#: Why a hook grant is in the inventory (#714). Parsing a hook file proves the
+#: file exists; it does not prove a host loads it.
+#:
+#: * ``host_configuration`` — declared in a file the host documents loading for
+#:   this scope (Claude Code settings layers, Codex `hooks.json`).
+#: * ``plugin_manifest`` — a hook file or inline object a Claude Code plugin
+#:   manifest in this repository selects. Whether the plugin is installed or
+#:   enabled is external state, so selection is established and loading is not.
+#: * ``declared_only`` — a hook file nothing in this repository selects.
+HookLoadingBasis = Literal["host_configuration", "plugin_manifest", "declared_only"]
+
+_HOOK_ACCESS_BY_BASIS: dict[str, tuple[str, str]] = {
+    "host_configuration": ("execute", "high"),
+    "plugin_manifest": ("execute", "high"),
+    # Nothing establishes what this file can do, because nothing establishes
+    # that anything runs it. Not "none": the declaration is kept visible.
+    "declared_only": ("unknown", "unknown"),
+}
+
+
+def _hooks_grants(
+    data: Any, *, host: str, scope: HostScope, source: str,
+    basis: HookLoadingBasis = "host_configuration",
+) -> list[dict[str, Any]]:
     hooks = data.get("hooks") if isinstance(data, dict) else None
     if not isinstance(hooks, dict):
         return []
+    access, risk = _HOOK_ACCESS_BY_BASIS[basis]
     return [
         {
             **_grant_base(
                 host=host, scope=scope, source=source, kind="hook",
-                identity=str(event), config=config, access="execute", risk="high",
+                identity=str(event), config=config, access=access, risk=risk,
             ),
             "event": str(event),
         }
         for event, config in sorted(hooks.items())
     ]
+
+
+def hook_loading_basis(grant: dict[str, Any]) -> HookLoadingBasis:
+    """The loading basis of one published hook grant (#714).
+
+    Read back from the published fields, so a saved baseline, a drift payload
+    and a capability row classify one grant the same way. A declared-only
+    grant is the only one published with ``access: unknown``. A Claude Code
+    hook whose source is a hook file or a plugin manifest, rather than a
+    settings layer, is one a plugin manifest selected.
+    """
+
+    if grant.get("access") == "unknown":
+        return "declared_only"
+    source = str(grant.get("source") or "").replace("\\", "/")
+    if grant.get("host") == "claude-code" and (
+        is_hook_declaration_file_name(source) or is_claude_plugin_manifest_path(source)
+    ):
+        return "plugin_manifest"
+    return "host_configuration"
 
 
 def _claude_grants(data: Any, *, scope: HostScope, source: str) -> list[dict[str, Any]]:
@@ -1356,6 +1412,7 @@ def _collect_file(
     containment_root: Path, cache: HostStaticParseCache,
     artifacts: list[dict[str, Any]], grants: list[dict[str, Any]], issues: list[dict[str, Any]],
     resolved_through: tuple[str, ...] = (),
+    hook_basis: HookLoadingBasis = "host_configuration",
 ) -> Any:
     if kind == "instructions":
         text, error = cache.read(path, containment_root=containment_root)
@@ -1458,13 +1515,169 @@ def _collect_file(
                         blocking=True,
                     )
                 )
+    elif kind == "hooks":
+        # A hook file contributes hooks only. Claude Code reads `permissions`,
+        # `enabledPlugins` or `sandbox` from settings, never from a hook file,
+        # so reading one as settings published authority no host grants (#714).
+        grants.extend(_hooks_grants(data, host=host, scope=scope, source=source, basis=hook_basis))
     elif host == "claude-code":
         grants.extend(_claude_grants(data, scope=scope, source=source))
     elif host == "cursor":
         grants.extend(_cursor_grants(data, scope=scope, source=source))
-    elif kind == "hooks":
-        grants.extend(_hooks_grants(data, host=host, scope=scope, source=source))
     return data
+
+
+def _claude_plugin_hook_issue(*, source: str, message: str, blocking: bool) -> dict[str, Any]:
+    return _inventory_issue(
+        kind="unsupported", host="claude-code", source=source, message=message, blocking=blocking,
+    )
+
+
+def _resolve_claude_plugin_hooks(
+    *, candidates: dict[str, tuple[Path, tuple[str, ...]]], root: Path,
+    cache: HostStaticParseCache, artifacts: list[dict[str, Any]],
+    grants: list[dict[str, Any]], issues: list[dict[str, Any]],
+) -> dict[str, str]:
+    """Which hook files a Claude Code plugin manifest selects, statically (#714).
+
+    Returns ``{hook file: manifest}``. Per the plugin reference, a plugin
+    loads `hooks/hooks.json` relative to its root, and its manifest's `hooks`
+    may add a `./`-relative path, an array of such paths, or an inline object;
+    custom paths add to the default rather than replace it. A plugin root is
+    recognised only by its `.claude-plugin/plugin.json`; a marketplace entry
+    naming a root without a manifest is not followed.
+
+    Selection is what the repository can prove. Whether the plugin is
+    installed or enabled is not in the repository, so a selected hook is
+    published as ``plugin_manifest``, never as loaded.
+
+    A reference that cannot be followed is a blocking limit, because the
+    hooks it names are unread. Its issue names the exact file when there is
+    one, so an unchanged-limit comparison checks that file's bytes and not
+    the manifest's. A reference to a file that does not exist selects
+    nothing a host could load and is recorded without blocking.
+    """
+
+    by_path = dict(candidates)
+    by_folded: dict[str, list[str]] = {}
+    for relative in by_path:
+        by_folded.setdefault(relative.casefold(), []).append(relative)
+
+    def existing(relative: str) -> str | None:
+        if relative in by_path:
+            return relative
+        matches = by_folded.get(relative.casefold(), [])
+        return matches[0] if len(matches) == 1 else None
+
+    selected: dict[str, str] = {}
+    for manifest in sorted(relative for relative in by_path if is_claude_plugin_manifest_path(relative)):
+        path, resolved_through = by_path[manifest]
+        plugin_root = posixpath.dirname(posixpath.dirname(manifest))
+
+        def under(relative: str, plugin_root: str = plugin_root) -> str:
+            return posixpath.join(plugin_root, relative) if plugin_root else relative
+
+        data, error_kind, error_message = cache.parse(path, containment_root=root)
+        if error_kind is not None:
+            assert error_message is not None
+            issues.append(cache.read_issue(
+                path=path, containment_root=root, kind=error_kind, host="claude-code",
+                source=manifest,
+                message=(
+                    f"{error_message}; the hook files this plugin manifest may select were not read"
+                ),
+            ))
+            artifacts.append(_artifact(
+                host="claude-code", scope="repository", source=manifest, kind="config",
+                status="failed", resolved_through=resolved_through,
+            ))
+            continue
+        if not isinstance(data, dict):
+            issues.append(_claude_plugin_hook_issue(
+                source=manifest, blocking=True,
+                message=(
+                    "Cannot interpret a Claude Code plugin manifest that is not an object; "
+                    "the hook files it may select were not read."
+                ),
+            ))
+            artifacts.append(_artifact(
+                host="claude-code", scope="repository", source=manifest, kind="config",
+                status="unsupported", resolved_through=resolved_through,
+            ))
+            continue
+        default = existing(under(CLAUDE_PLUGIN_DEFAULT_HOOKS))
+        if default is not None:
+            selected.setdefault(default, manifest)
+        if "hooks" not in data:
+            # Only the `hooks` member is published, so editing a plugin's
+            # version or description is not host-grant drift.
+            continue
+        declared = data["hooks"]
+        artifacts.append(_artifact(
+            host="claude-code", scope="repository", source=manifest, kind="config",
+            status="parsed", data={"hooks": declared}, resolved_through=resolved_through,
+        ))
+        if isinstance(declared, dict):
+            grants.extend(_hooks_grants(
+                {"hooks": declared}, host="claude-code", scope="repository",
+                source=manifest, basis="plugin_manifest",
+            ))
+            continue
+        if isinstance(declared, str):
+            references = [declared]
+        elif isinstance(declared, list) and all(isinstance(item, str) for item in declared):
+            references = list(declared)
+        else:
+            issues.append(_claude_plugin_hook_issue(
+                source=manifest, blocking=True,
+                message=(
+                    "plugin manifest `hooks` must be a `./` path, an array of such paths or "
+                    "an object of hook events; the hooks it names were not read"
+                ),
+            ))
+            continue
+        for reference in sorted(set(references)):
+            shown = _sanitize_sensitive_string(reference)
+            relative = posixpath.normpath(reference[2:]) if reference.startswith("./") else ""
+            if (
+                not reference.startswith("./")
+                or "\\" in reference
+                or relative in {"", "."}
+                or relative == ".."
+                or relative.startswith("../")
+                or posixpath.isabs(relative)
+            ):
+                issues.append(_claude_plugin_hook_issue(
+                    source=manifest, blocking=True,
+                    message=(
+                        f"plugin manifest hooks reference {shown!r} is not a `./` path inside "
+                        "the plugin directory; the hooks it names were not read"
+                    ),
+                ))
+                continue
+            target = under(relative)
+            if not is_hook_declaration_file_name(target):
+                issues.append(_claude_plugin_hook_issue(
+                    source=target, blocking=True,
+                    message=(
+                        f"plugin manifest {manifest} selects this hook file, whose name does not "
+                        "end in `hooks.json`; the static reader follows only such names, so its "
+                        "hooks were not read"
+                    ),
+                ))
+                continue
+            found = existing(target)
+            if found is None:
+                issues.append(_claude_plugin_hook_issue(
+                    source=target, blocking=False,
+                    message=(
+                        f"plugin manifest {manifest} selects this hook file, which is not in the "
+                        "repository; no hooks were read from it"
+                    ),
+                ))
+                continue
+            selected.setdefault(found, manifest)
+    return selected
 
 
 def _source_kind(path: str) -> str:
@@ -1502,6 +1715,7 @@ def _repository_paths(
     reader: IdentityBoundReadSession,
     limits: tuple[tuple[str, int], ...] = (),
     include_directory_candidates: bool = False,
+    plugin_candidates: dict[str, tuple[Path, tuple[str, ...]]] | None = None,
 ) -> tuple[list[tuple[Path, str, str, str, tuple[str, ...]]], int]:
     """Enumerate repository sources exclusively from the boundary registry.
 
@@ -1620,6 +1834,14 @@ def _repository_paths(
         else:
             entries.append((path, relative, ()))
     entries.extend(read_through)
+
+    if plugin_candidates is not None:
+        # Not adapter surfaces: a plugin manifest and the hook-named files it
+        # may select are opened only to decide selection (#714). Taken from the
+        # same entries, so links and read-through resolve exactly as above.
+        for path, relative, resolved_through in entries:
+            if is_claude_plugin_manifest_path(relative) or is_hook_declaration_file_name(relative):
+                plugin_candidates[relative] = (path, resolved_through)
 
     for path, relative, resolved_through in entries:
         for adapter in BOUNDARY_ADAPTERS:
@@ -2089,11 +2311,13 @@ def build_host_boundary_snapshot(
     issues: list[dict[str, Any]] = []
 
     inventory_failures: list[HostInputFailure] = []
+    plugin_candidates: dict[str, tuple[Path, tuple[str, ...]]] = {}
     try:
         repository_paths, _inventory_entries = _repository_paths(
             root,
             reader=cache.reader_for(root),
             limits=cache.configured_limits,
+            plugin_candidates=plugin_candidates,
         )
     except HostInventoryReadError as exc:
         repository_paths = []
@@ -2110,12 +2334,35 @@ def build_host_boundary_snapshot(
             reason="input_unreadable", phase="inventory_enumeration",
             source="<repository>",
         ))
+    selected_hooks = (
+        {}
+        if inventory_failures
+        else _resolve_claude_plugin_hooks(
+            candidates=plugin_candidates, root=root, cache=cache,
+            artifacts=artifacts, grants=grants, issues=issues,
+        )
+    )
+    collected_claude_sources: set[str] = set()
     for path, source, host, kind, resolved_through in repository_paths:
+        hook_basis: HookLoadingBasis = "host_configuration"
+        if host == "claude-code" and kind == "hooks":
+            # Claude Code documents no project `.claude/hooks/hooks.json`
+            # location; only a plugin manifest can select one (#714).
+            hook_basis = "plugin_manifest" if source in selected_hooks else "declared_only"
+            collected_claude_sources.add(source)
         _collect_file(
             path=path, source=source, host=host, scope="repository", kind=kind,
             containment_root=root, cache=cache,
             artifacts=artifacts, grants=grants, issues=issues,
-            resolved_through=resolved_through,
+            resolved_through=resolved_through, hook_basis=hook_basis,
+        )
+    for source in sorted(set(selected_hooks) - collected_claude_sources):
+        path, resolved_through = plugin_candidates[source]
+        _collect_file(
+            path=path, source=source, host="claude-code", scope="repository", kind="hooks",
+            containment_root=root, cache=cache,
+            artifacts=artifacts, grants=grants, issues=issues,
+            resolved_through=resolved_through, hook_basis="plugin_manifest",
         )
 
     excluded = [
@@ -2609,7 +2856,15 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
                 continue
             marker = "wildcard_allow" if after.get("wildcard") else "allow_rule"
             signals.append(f"{marker}_{prefix}: {after['host']}:{after['rule']}")
-        elif kind in {"permission_mode", "sandbox", "additional_path", "plugin_or_app", "hook"}:
+        elif kind == "hook":
+            # An expansion is claimed only for a hook a host-loaded file
+            # declares. A hook nothing selects, or one a plugin selects whose
+            # installation is unknown, is still a row, never an expansion
+            # (#714). This is also what keeps a baseline that recorded such a
+            # file as `execute` from reporting a widening when it is re-read.
+            if hook_loading_basis(after) == "host_configuration":
+                signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
+        elif kind in {"permission_mode", "sandbox", "additional_path", "plugin_or_app"}:
             signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
         elif kind == "workflow":
             previous = before or {}
@@ -2930,6 +3185,7 @@ __all__ = [
     "build_host_drift_payload",
     "build_host_grants_baseline",
     "diff_host_grants",
+    "hook_loading_basis",
     "host_audit_inventory",
     "host_grant_expansion_signals",
     "host_grants_sha256",

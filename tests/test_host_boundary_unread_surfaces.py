@@ -85,8 +85,13 @@ def test_mcp_url_paths_are_named_as_unread() -> None:
 
 def test_a_hook_row_is_not_described_as_proof_of_loading() -> None:
     section = _section()
-    assert "does not establish that Claude Code loads it" in section
-    assert "(#714)" in section
+    assert "A hook row states its loading basis (#714)" in section
+    assert "No row is proof that a hook ran" in section
+    # The three published bases and the limit that remains for each.
+    assert "Selected by a plugin manifest" in section
+    assert "Selected by nothing" in section
+    assert "`access: unknown`" in section
+    assert "Installation and enablement are never read" in section
 
 
 def test_link_refusals_are_named_on_the_page() -> None:

@@ -15,7 +15,11 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
-from agents_shipgate.core.host_grants import host_grant_expansion_signals, step_action_key
+from agents_shipgate.core.host_grants import (
+    hook_loading_basis,
+    host_grant_expansion_signals,
+    step_action_key,
+)
 from agents_shipgate.schemas.capability_diff import CapabilityDiffRow as CapabilityDiffRow
 
 ABSENT = "—"
@@ -235,6 +239,21 @@ def _why(
             )
         return "; ".join(reasons) or "changes the workflow's own authority"
     if kind == "hook":
+        # The basis, stated in the row, because the row is what a reviewer
+        # reads: a parsed hook file is not proof a host loads it (#714).
+        basis = hook_loading_basis(grant)
+        if basis == "declared_only":
+            subject = "a hook declaration" if direction == REMOVED else "declares a hook"
+            return (
+                f"{'removes ' + subject if direction == REMOVED else subject} that no settings "
+                "file or plugin manifest in this repository selects; whether a host loads it "
+                "is not established"
+            )
+        if basis == "plugin_manifest":
+            return (
+                "changes a hook a plugin manifest in this repository selects; whether that "
+                "plugin is installed or enabled is not established"
+            )
         return "changes what runs around the agent's actions"
     if kind == "instruction_trust_root":
         return "changes instructions the agent is given"
