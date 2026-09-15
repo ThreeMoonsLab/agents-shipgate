@@ -6,12 +6,18 @@ These items require release infrastructure, registry credentials, domains, or Gi
 
 | Line | Carries | Install | Promises | Cadence |
 | --- | --- | --- | --- | --- |
-| **Advisory** | `diff`, `check`, `audit --host`, drift, advisory PR comments | the unqualified preview pre-release | plain-language capability rows; **no blocking authority** | 14 days |
-| **Qualified gate** | blocking verdicts, receipts, attestations | a `v*` release tag | every bar in [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) | on evidence only |
+| **Advisory** | `diff`, `check`, `audit --host`, drift, advisory PR comments | a `v*` release declared `advisory` — `v1.0.0` is one, on PyPI — or an unqualified preview pre-release | plain-language capability rows; **no blocking authority** unless an adopter configures a blocking policy | 14 days |
+| **Qualified gate** | blocking verdicts backed by qualification evidence, receipts, attestations | a `v*` release on the qualified line | every bar in [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) | on evidence only |
+
+A `v*` tag's shape does not say which line it is on. Each release version is
+declared once, in `.github/release-channels.json`, as `advisory` or
+`qualified` (Amendment 5 of the policy decision); a tag whose own tree has no
+declaration predates advisory `v*` releases and is on the qualified line.
 
 The two cadences are measured separately by `scripts/release_cadence.py`,
-which counts `v*` tags for the gate line and `preview-*` for the advisory
-line. Counting previews in the release metric would let the channel that
+which reads each `v*` tag's declared channel: qualified tags count for the gate
+line, and advisory `v*` releases and `preview-*` pre-releases for the advisory
+line. Counting advisory releases in the gate metric would let the channel that
 exists *because* the release cadence slipped report that cadence as kept.
 
 For previews, the offline script uses the UTC build date stamped into the
@@ -22,9 +28,15 @@ still needed to prove the shipping cadence.
 
 - `agents-shipgate` is published on PyPI.
 - Pinned GitHub Action release tags are published, including `v1.0.0`.
-- GitHub Releases attach the independently qualified wheel, SBOM,
-  `safety-qualification.json`, and their Sigstore bundles. The tag workflow
-  does not rebuild or publish an unqualified sdist.
+- A **qualified** `v*` GitHub Release attaches the independently qualified
+  wheel, SBOM, `safety-qualification.json`, and their Sigstore bundles.
+- An **advisory** `v*` GitHub Release attaches the wheel, a wheel-scoped SBOM,
+  `provenance.json`, `candidate-manifest.json` and a signed
+  `advisory-statement.json`, with Sigstore bundles for the wheel, SBOM and
+  statement, and no qualification artifact. `v1.0.0` is published this way;
+  its statement records advisory defaults, blocking opt-in and no
+  qualification claim.
+- The tag workflow does not rebuild or publish an unqualified sdist.
 - **Unqualified previews** are published as GitHub *pre-releases* at
   `preview-<version>`, carrying one wheel and no qualification artifact. They
   exist so merged work is installable while a tag is blocked, and they reach no

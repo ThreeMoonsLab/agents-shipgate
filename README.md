@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/pypi/l/agents-shipgate)](LICENSE)
 [![CI](https://github.com/ThreeMoonsLab/agents-shipgate/actions/workflows/ci.yml/badge.svg)](https://github.com/ThreeMoonsLab/agents-shipgate/actions/workflows/ci.yml)
 
-**Your coding agent changed what your AI agent can do — Agents Shipgate tells you whether it can merge.**
+**Your coding agent changed what your AI agent can do — Agents Shipgate shows you what changed before it merges.**
 
 **The deterministic merge gate for AI-generated agent capability changes.**
 
@@ -28,8 +28,66 @@ config, Codex plugin, n8n, and Conductor OSS workflow artifacts, then writes a
 deterministic **Tool-Use Readiness Report** before your agent gets
 production-like permissions.
 
+## What did this PR change?
+
+Start with a pull request you already have that changes what a coding agent
+may do: `.claude/settings.json`, `.mcp.json`, Codex, Cursor or VS Code MCP
+configuration. No manifest, policy, saved baseline, skill or account is
+needed, and nothing is written to your repository. From the PR branch, with its
+base branch available in your clone:
+
+```bash
+pipx install agents-shipgate
+agents-shipgate diff
+```
+
+`diff` compares your working tree with its merge base on the repository's
+default branch (`origin/HEAD`, `origin/main` or `origin/master`) and prints one
+row per changed grant. If the PR targets another branch, pass
+`--base origin/<that-branch>`; in a fork clone, fetch `upstream` and pass
+`--base upstream/<pr-base>`. On a PR that widens a Claude Code allow rule,
+drops a denial and adds an MCP server:
+
+```text
+Agent capability diff  origin/main (ff8c5029) -> working tree
+
+⚠ high    added    claude-code .mcp.json
+                  billing
+                  an MCP tool surface the agent may call has changed
+
+⚠ medium  added    claude-code .claude/settings.json
+                  Bash(npm *)
+                  runs without a prompt
+
+  medium  removed  claude-code .claude/settings.json
+                  Bash(npm test:*) → gone
+                  removes a permission the agent previously had here
+
+⚠ low     removed  claude-code .claude/settings.json
+                  Bash(rm -rf:*) → gone
+                  removes a denial the agent was subject to
+
+4 change(s), 3 widening what the agent may do (⚠).
+Static configuration only: this is what the files permit, not what the agent did. No verdict is implied.
+```
+
+The answer is one of these, and they mean different things: named changes,
+like these; `No static host-grant changes detected.` when no compared grant
+differs; or `Cannot compare against <base>: <reason>` when an input could not be
+read, which is an input limit and never a quiet pass. Either of the first two
+can open with `Not compared:` and a list of sources the change did not touch
+and `diff` could not read; nothing is claimed about those. The rows are for a
+reviewer to act on, not merge authority. The
+[quickstart](docs/quickstart.md#review-a-host-configuration-change) shows each
+answer, the `--base <ref>` recovery when no base can be detected, and the
+[surfaces `diff` does not read](docs/host-boundary-support.md#known-unread-surfaces).
+The output above is from `agents-shipgate` `1.0.0` installed from PyPI and run
+in a clone, outside any source checkout of this project.
+
 ## One capability change, one verdict
 
+If your repository builds its own tool surface — MCP or OpenAPI exports,
+framework tool definitions — the same engine gates that too, with a manifest.
 A coding agent adds a refund tool to a support agent. The MCP export goes from
 one read-only tool to two, and the new one carries a wildcard Stripe scope:
 
@@ -93,12 +151,12 @@ One engine decides (`report.json.release_decision.decision`); everything else �
 projection of it. Five-minute version:
 [`docs/mental-model.md`](docs/mental-model.md).
 
-Host configuration alone is a supported review target: `.claude/settings.json`,
-`.mcp.json`, Codex, Cursor and VS Code MCP configuration need no manifest.
-Use [Route H](docs/quickstart.md#route-h--no-manifest) for the existing audit.
-Current candidate discovery (contract 33) routes these repositories there
-through `host_boundary_candidates`; the published release predates that
-discovery field. Filename detection never establishes verified permissions.
+Host configuration alone needs none of this: [What did this PR
+change?](#what-did-this-pr-change) is the whole route. [Route
+H](docs/quickstart.md#route-h--no-manifest) adds a snapshot audit and an
+optional committed baseline for jobs that want them, and `v1.0.0`'s discovery
+routes host-only repositories there through `host_boundary_candidates`.
+Filename detection never establishes verified permissions.
 
 ## What your PR sees
 
@@ -141,11 +199,19 @@ declared and statically discoverable surface says. See
 [Limitations](#limitations) and [ROADMAP.md](ROADMAP.md).
 
 > [!IMPORTANT]
-> **Status: pre-1.0 (beta).** The decision engine is deterministic and stable.
-> The accuracy evidence is small-n and incomplete, and the parts that are zero
-> are stated here rather than in a footnote. On the **19 unique labeled
-> engine-engaged PRs** mined from **8 distinct** real agent repos and re-run on
-> the released `v0.15.0` engine, the gate **never auto-passed an unsafe
+> **Status: `v1.0.0`, advisory.** The published release makes no qualification
+> claim. Its defaults are advisory, and blocking CI is a policy you opt into
+> explicitly. The decision engine is deterministic; the accuracy evidence is
+> small-n and incomplete, and the parts below their bars are stated here rather
+> than in a footnote. On the fixed host-configuration corpora measured for 1.0,
+> change-row precision is 70/70, widening recall 55/65, benign zero-row 5/6 and
+> comparable coverage 41/50 — nine of fifty comparisons answer `Cannot compare`;
+> recall and the benign rate remain below their original bars, recorded as such
+> in [ROADMAP.md](ROADMAP.md#publication-and-evidence) rather than relabeled as
+> passes. The real-history numbers that follow are older, measured on
+> 2026-07-08 on the released `v0.15.0` engine and not re-run on `v1.0.0`: on
+> the **19 unique labeled engine-engaged PRs** mined from **8 distinct** real
+> agent repos, the gate **never auto-passed an unsafe
 > change** (`must_block_caught` / `needs_human_caught` = 1.0). **But it routes
 > to review, it does not block:** real-history `blocked_recall` is still
 > **0.0** — both `must_block` PRs return `human_review_required` /
@@ -169,18 +235,20 @@ no-op over one. Alternatives — `pip`, `uv`, and zero-install `uvx` — are in
 [`docs/quickstart.md`](docs/quickstart.md#install). Your agent project does
 **not** need Python 3.12; the CLI installs separately.
 
-**Two lines, two promises.** The advisory line exists so the engine is
-installable while a qualified tag is blocked; it publishes rows a reviewer
-reads, and no authority to block anything. The gate line publishes blocking
-verdicts and keeps every qualification bar. Neither waits on the other, and
+**Two lines, two promises.** The advisory line publishes rows a reviewer
+reads, and no authority to block anything by default; `v1.0.0` is an advisory
+release. The gate line publishes blocking verdicts and keeps every
+qualification bar. Each `v*` version is declared on exactly one line in
+[`.github/release-channels.json`](.github/release-channels.json). Neither line
+waits on the other, and
 [`docs/release-cadence`](docs/distribution.md#package-channels) measures both
 separately — one number could not have shown that the documented workflow was
 two months out of reach.
 
 | Line | Carries | Install | Promises | Cadence |
 | --- | --- | --- | --- | --- |
-| **Advisory** | `diff`, `check`, `audit --host`, drift, advisory PR comments | the unqualified preview pre-release | plain-language capability rows; **no blocking authority** | 14 days |
-| **Qualified gate** | blocking verdicts, receipts, attestations | a `v*` release tag | every bar in [`release-evidence-policy-decision.md`](docs/release-evidence-policy-decision.md) | on evidence only |
+| **Advisory** | `diff`, `check`, `audit --host`, drift, advisory PR comments | `pipx install agents-shipgate` (`v1.0.0`), or an unqualified preview pre-release | plain-language capability rows; **no blocking authority** unless you configure a blocking policy | 14 days |
+| **Qualified gate** | blocking verdicts backed by qualification evidence, receipts, attestations | a `v*` release declared on the qualified line; `v1.0.0` is not one | every bar in [`release-evidence-policy-decision.md`](docs/release-evidence-policy-decision.md) | on evidence only |
 
 **Read [which build you get](docs/quickstart.md#which-build-you-get) before you
 start.** The newest published release is `v1.0.0`, which implements runtime

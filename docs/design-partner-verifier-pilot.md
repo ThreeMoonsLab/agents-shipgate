@@ -5,9 +5,9 @@ repositories through an actual review workflow: someone introduces a
 capability or permission change, someone else reviews it, and the next
 eligible change tests whether the integration stayed useful.
 
-It teaches the **current** loop, which is ahead of the newest published
-release — settle [which build a partner is on](#which-build-this-runbook-is-for)
-and [which route their repository is on](#routes-under-test) before you quote a
+It teaches the loop the newest published release, `v1.0.0`, runs — settle
+[which build a partner is on](#which-build-this-runbook-is-for) and
+[which route their repository is on](#routes-under-test) before you quote a
 command at them. Those two choices decide what the partner can see, and both
 belong in the tracker.
 
@@ -41,13 +41,16 @@ prerequisites, and mixing them in one denominator hides which one earned use.
 | Who | Any team whose repo declares what its coding agents may do | Teams that build and declare a tool surface in-repo |
 | Manifest | None | `shipgate.yaml` required |
 | Inputs | `.mcp.json`, `.claude/settings.json`, `.codex/`, `.cursor/`, hooks, workflow scopes | MCP/OpenAPI exports, framework source, plus the host inputs |
-| Per-change surface | `check`, and `audit --host --drift` against a committed baseline | `verify --base … --head …` |
-| First result | `audit --host` | `verify --preview` |
+| Per-change surface | `agents-shipgate diff` against the PR's base in Git history; optionally `audit --host --drift` against a committed baseline, and `check` for a coding agent | `verify --base … --head …` |
+| First result | `agents-shipgate diff` | `verify --preview` |
 
 Do not require a partner on Route H to maintain a manifest. `init --write`
 on a repository with no tool surface writes a `CHANGE_ME` scaffold, and the
 `verify` that follows exits non-zero on it — that is a setup dead end, not a
-verdict, and it must be recorded as one if it happens.
+verdict, and it must be recorded as one if it happens. Nor require a saved
+baseline: `diff` supplies the base side from Git, so the partner's first step
+is the [quickstart's host-change review](quickstart.md#review-a-host-configuration-change)
+on a real PR.
 
 Include tool-building teams on Route A only where a real partner already has
 that workflow. Do not recruit for Route A to balance the cohort.
@@ -57,8 +60,8 @@ that workflow. Do not recruit for Route A to balance the cohort.
 The read order, the tracker and the agent prompt below all name `control.state`
 and `control.next_action.actor`. Those come from the agent-control envelope,
 which the newest published release, `v1.0.0`, carries. The previous release,
-`v0.15.0`, predates it, so a partner still on that build cannot follow this
-runbook end to end — and saying so is part of the instructions rather than a
+`v0.15.0`, predates it — and has no `diff`, the Git-backed Route H command — so
+a partner still on that build cannot follow this runbook end to end — and saying so is part of the instructions rather than a
 footnote:
 
 | Channel | How a partner gets it | Runtime contract | Emits `control.*`? | Qualification |
@@ -83,9 +86,23 @@ result** when all of these are true:
 - The change under review touches a capability: tools, prompts, MCP/OpenAPI
   surfaces, permissions, hooks, policy, CI, `shipgate.yaml`, or another trust
   root.
-- The route produced its artifact: on Route H a host-grant inventory and, for
-  a change, a drift record against a committed baseline; on Route A
-  `agent-handoff.json`, `verifier.json`, `pr-comment.md` and `report.json`.
+- The route produced its artifact. On **Git-backed Route H**, the route from
+  2026-09-14: a complete, comparable `agents-shipgate diff` result about the
+  intended base and head — changed rows or a no-change answer, with
+  `comparison_status: comparable`. Any `unchanged_limits` it lists (the
+  `Not compared:` sources) are recorded with the result as its coverage limit
+  and are never counted as inspected. The change must touch a surface `diff`
+  reads: a change confined to one of the support page's
+  [known unread surfaces](host-boundary-support.md#known-unread-surfaces)
+  produces no row and counts in `attempted` with that reason, never as a
+  no-change result. An incomplete comparison (`incomparable`),
+  missing or shallow history, an install or load failure, or abandonment
+  counts in `attempted` with its reason and is never a first valid result;
+  recovery information it offered is recorded separately. Observations
+  recorded before 2026-09-14 under the **baseline Route H** definition — a
+  host-grant inventory and, for a change, a drift record against a committed
+  baseline — keep that definition. On Route A: `agent-handoff.json`,
+  `verifier.json`, `pr-comment.md` and `report.json`.
 - On Route A, `shipgate.yaml` has been reviewed and has no unresolved
   `CHANGE_ME` values, **and every human-owned one was filled by a person**. On
   a build that emits the agent-control envelope `init` routes those itself —
@@ -238,7 +255,14 @@ agents-shipgate feedback capture \
 ```
 
 Route H has no `verifier.json`, so `feedback export` and `feedback capture`
-do not apply. Preserve the pair the route does produce, plus the note:
+do not apply. On Git-backed Route H, preserve the comparison itself, plus the
+note:
+
+```bash
+agents-shipgate diff --json > shipgate-diff.json   # add --base origin/<pr-base> if the PR does not target the default branch
+```
+
+Observations recorded under baseline Route H keep the pair that route produced:
 
 ```bash
 # on the base ref, once, committed
@@ -263,8 +287,8 @@ It prints the repo's current coding-agent grants (MCP servers, permission
 rules with wildcard flags, hooks, workflow write scopes). Reviewing that one
 page together usually surfaces the first governance question. It is a
 *snapshot*, not a review of a change: on its own it cannot reach first value,
-because there is no changed capability to name. `--save-baseline` on the base
-ref then `--drift` on the change is the step that can.
+because there is no changed capability to name. `agents-shipgate diff` on a
+real change is the step that can.
 
 ## Partner Fit
 
@@ -310,7 +334,8 @@ On the released channel the block leads with `pipx install` then
 `pipx upgrade`: a plain `pipx install` is a no-op when an older build is
 already installed, and the follow-up `pipx upgrade` brings a stale copy
 current. If `pipx` is unavailable, use
-`python -m pip install -U "agents-shipgate>=0.15"`. For committed PR/CI refs,
+`python -m pip install -U "agents-shipgate>=1.0"` — Git-backed Route H needs
+`diff`, which first shipped in `v1.0.0`. For committed PR/CI refs,
 make `origin/main` and `HEAD` available before the final verify command.
 
 ```bash
@@ -324,7 +349,29 @@ Record `cli_version` and `contract_version` from `contract --json` in the
 tracker, alongside the channel. Do not assume a contract floor that the build
 you just installed may not carry.
 
-Route H — no manifest. Once, on the default branch:
+Route H (Git-backed) — no manifest, no baseline. On each change under review,
+from the PR's branch in a clone that has its base branch as a remote-tracking
+ref:
+
+```bash
+git fetch origin
+agents-shipgate diff
+agents-shipgate diff --json > shipgate-diff.json
+```
+
+With no `--base`, `diff` compares against `origin/HEAD`, `origin/main` or
+`origin/master`. If the PR targets another branch, pass
+`--base origin/<pr-base>`; in a fork clone, where `origin` is the fork, run
+`git fetch upstream` and pass `--base upstream/<pr-base>`; a single-branch clone needs
+`git fetch origin <pr-base>:refs/remotes/origin/<pr-base>` first. An
+`incomparable` result, a missing base or a refused shallow clone is recorded as
+an attempt with its reason, never as a result. See the quickstart's
+[host-change review](quickstart.md#review-a-host-configuration-change) for what
+each answer means.
+
+Baseline Route H — only for observations recorded under that definition, or a
+team that also wants drift checked outside pull requests. Once, on the default
+branch:
 
 ```bash
 agents-shipgate audit --host
@@ -378,11 +425,10 @@ agents-shipgate audit --host --drift --baseline-file "$pilot_baseline_file" \
 ```
 
 The baseline is otherwise recorded once and re-acknowledged only after a human
-has reviewed the drift. Before pointing a partner at `check`, read
+has reviewed the drift. `check` is a coding agent's local boundary check, not
+the partner's per-change review; the invited route and channel are recorded in
 § Standing decision in
-[`design-partner-pilot-results.md`](design-partner-pilot-results.md): it
-records which surfaces are invitable on a build a partner can install today,
-and which are not.
+[`design-partner-pilot-results.md`](design-partner-pilot-results.md).
 
 Route A — manifest:
 
@@ -426,7 +472,11 @@ Then read `agents-shipgate-reports/report.json.release_decision.decision`.
 `merge_verdict` is the reviewer-facing projection; `release_decision.decision`
 remains the release gate.
 
-Route H — read the drift record first: the expansion signals, then the
+Git-backed Route H — read `shipgate-diff.json`: `comparison_status` first (only
+`comparable` is a result), then each row's subject, before → after, the stated
+reason and `expands`, then `unchanged_limits`, the sources nothing is claimed
+about.
+Baseline Route H — read the drift record first: the expansion signals, then the
 per-surface added/removed rules, then the re-acknowledge next action. Then
 read `check`'s `decision`, `risk_level`, and its coverage fields.
 
@@ -440,9 +490,10 @@ suppression, or policy-weakening evidence.
 
 Paste this into the partner's coding agent from the target repo root, with the
 install line for the channel you settled above — the block below carries the
-released one. Steps 3 and 5 name the agent-control envelope; on the released
-build there is none, so the agent reads `controller` and `gate` instead. The
-ownership boundary in step 3 is the rule either way: on a build with the
+released one. Step 4 names the agent-control envelope, which the released
+`v1.0.0` carries; on the previous release, `v0.15.0`, there is none, so the
+agent reads `controller` and `gate` instead. The
+ownership boundary in step 4 is the rule either way: on a build with the
 envelope the tool enforces it, and on one without it, nothing but the
 instruction does.
 
@@ -456,44 +507,59 @@ Add Agents Shipgate as an advisory reviewer for this agent-capability change.
    agents-shipgate contract --json
    A plain pipx install is a no-op when an older build is already installed,
    so the follow-up pipx upgrade brings a stale copy current. If pipx is
-   unavailable, use python -m pip install -U "agents-shipgate>=0.15".
+   unavailable, use python -m pip install -U "agents-shipgate>=1.0".
    Then report what you actually installed, and stop if either command fails:
    agents-shipgate --version
    agents-shipgate contract --json
-2. Decide the route. Run:
-   agents-shipgate audit --host
-   If this repository declares coding-agent host configuration and publishes
+2. Decide the route. If the change under review edits coding-agent host
+   configuration (.claude/settings.json, .mcp.json, .codex/, .cursor/,
+   .vscode/mcp.json, hooks, workflow permissions) and the repository publishes
    no tool surface of its own, use route H and skip the manifest entirely.
-3. Route H. Record the baseline on the default branch, from the unchanged
-   tree, and make it reachable from the change under review. If the change's
-   branch was cut before the baseline commit, checking it out removes the
-   baseline file and drift exits 2 — so do one of these two:
-     a. commit the baseline on the default branch, then merge or rebase that
-        branch into the change branch; or
-     b. leave the change branch untouched and keep the snapshot outside the
-        repository:
-        git checkout <default-branch>
-        pilot_baseline_file="$(python3 -c 'from pathlib import Path; import tempfile; print(Path(tempfile.mkdtemp(prefix="agents-shipgate-pilot-")).resolve() / "base-grants.json")')"
-        agents-shipgate audit --host --save-baseline \
-          --baseline-file "$pilot_baseline_file"
-        git checkout <change-ref>
-        and pass --baseline-file "$pilot_baseline_file" to every drift command
-        below, in the same shell. To record the exact path for another shell:
-        printf '%s\n' "$pilot_baseline_file"
-        The temporary directory is private and resolved first: macOS's /tmp
-        alias must not reach the no-symlink baseline reader. If a path contains
-        a symbolic link, return to the base ref and rerun this snapshot recipe;
-        never replace it by saving a snapshot from the changed checkout.
-   Never run --save-baseline from the changed checkout to clear a missing
-   baseline error, even though the CLI's recovery line says to record one:
-   from that checkout it acknowledges the expansion being reviewed and the
-   drift then reports nothing. Report the error instead.
-   Per change under review:
-   agents-shipgate audit --host --drift --json --out shipgate-drift.json
-   agents-shipgate check --agent <codex|claude-code|cursor> \
-     --base <base-ref> --head <change-ref>
-   Lead with the drift expansion signals, the added/removed rules per
-   surface, and check's decision, risk_level and coverage fields.
+   agents-shipgate audit --host lists what the repository declares today.
+3. Route H. From the change's branch, with its base branch fetched:
+   git fetch origin
+   agents-shipgate diff
+   agents-shipgate diff --json > shipgate-diff.json
+   If the PR does not target the default branch, add --base origin/<pr-base>.
+   In a fork clone, where origin is the fork, run git fetch upstream and use
+   --base upstream/<pr-base> instead.
+   Lead with comparison_status, then each row (subject, before -> after, why,
+   expands), then unchanged_limits, which nothing is claimed about. If the
+   result is incomparable, or no base can be detected, or a shallow clone is
+   refused, report that and stop; it is not a no-change answer.
+   Route H ends here. Continue with 3a-3c only if the team also asked for
+   drift against a committed baseline; otherwise skip to step 5.
+   3a. Record the baseline on the default branch, from the unchanged
+       tree, and make it reachable from the change under review. If the
+       change's branch was cut before the baseline commit, checking it out
+       removes the baseline file and drift exits 2 — so do one of these two:
+         a. commit the baseline on the default branch, then merge or rebase
+            that branch into the change branch; or
+         b. leave the change branch untouched and keep the snapshot outside
+            the repository:
+            git checkout <default-branch>
+            pilot_baseline_file="$(python3 -c 'from pathlib import Path; import tempfile; print(Path(tempfile.mkdtemp(prefix="agents-shipgate-pilot-")).resolve() / "base-grants.json")')"
+            agents-shipgate audit --host --save-baseline \
+              --baseline-file "$pilot_baseline_file"
+            git checkout <change-ref>
+            and pass --baseline-file "$pilot_baseline_file" to every drift command
+            below, in the same shell. To record the exact path for another
+            shell: printf '%s\n' "$pilot_baseline_file"
+            The temporary directory is private and resolved first: macOS's
+            /tmp alias must not reach the no-symlink baseline reader. If a path
+            contains a symbolic link, return to the base ref and rerun this
+            snapshot recipe; never replace it by saving a snapshot from the
+            changed checkout.
+   3b. Never run --save-baseline from the changed checkout to clear a missing
+       baseline error, even though the CLI's recovery line says to record one:
+       from that checkout it acknowledges the expansion being reviewed and the
+       drift then reports nothing. Report the error instead.
+   3c. Per change under review, with that baseline:
+       agents-shipgate audit --host --drift --json --out shipgate-drift.json
+       agents-shipgate check --agent <codex|claude-code|cursor> \
+         --base <base-ref> --head <change-ref>
+       Lead with the drift expansion signals, the added/removed rules per
+       surface, and check's decision, risk_level and coverage fields.
 4. Route A, per change:
    agents-shipgate verify --preview --json
    agents-shipgate init --workspace . --write --ci \
@@ -533,7 +599,8 @@ Add Agents Shipgate as an advisory reviewer for this agent-capability change.
      --from agents-shipgate-reports/verifier.json \
      --redact \
      --out shipgate-feedback.json
-   Route H: keep the committed baseline and shipgate-drift.json.
+   Route H: keep shipgate-diff.json (and, with a baseline, the committed
+   baseline and shipgate-drift.json).
 6. Ensure agents-shipgate-reports/ is ignored and not committed.
 
 Report, in this order: which route you used, the build and contract you ran,
@@ -574,7 +641,7 @@ Template: copy into a private tracker, one row per repository.
 | --- | --- |
 | Partner |  |
 | Repo / agent type |  |
-| Route (H / A) |  |
+| Route (Git-backed H / baseline H / A) |  |
 | Entry point (how they arrived) |  |
 | Build installed (`cli_version`) |  |
 | Contract (`contract_version`) |  |
@@ -585,6 +652,8 @@ Template: copy into a private tracker, one row per repository.
 | Setup steps performed |  |
 | Maintainer assistance given |  |
 | Failed commands and their errors |  |
+| Installation time |  |
+| Comparison (command) time |  |
 | Time to first valid result |  |
 
 ### First value
@@ -597,6 +666,7 @@ Template: copy into a private tracker, one row per repository.
 | Named the coverage limit |  |
 | Named the next action and owner |  |
 | Concrete decision or fix recorded |  |
+| Reading time (result to first value) |  |
 | Time to first value |  |
 | Reached unaided / with translation |  |
 | Existing alternative in place |  |
@@ -607,7 +677,8 @@ Template: copy into a private tracker, one row per repository.
 
 | Field | Value |
 | --- | --- |
-| `merge_verdict` (A) / drift + `decision` (H) |  |
+| `merge_verdict` (A) / `comparison_status`, rows and `unchanged_limits` (Git-backed H) / drift + `decision` (baseline H) |  |
+| Base compared (`--base` or detected) |  |
 | `can_merge_without_human` (A) |  |
 | `control.next_action.actor` |  |
 | `fix_task.actor` |  |
@@ -660,9 +731,12 @@ Ask these after the first result lands:
   action — did the reviewer get, and which did they not?
 - Did the result match what the reviewer would have decided anyway? If it
   matched, what did it save? If it differed, who was right?
-- Was `control.next_action` clear enough to route work to the right actor?
-- Did `fix_task` draw the right boundary between mechanical fixes and human
-  authority?
+- Route A: was `control.next_action` clear enough to route work to the right
+  actor?
+- Route A: did `fix_task` draw the right boundary between mechanical fixes and
+  human authority?
+- Git-backed Route H: could the reviewer tell a changed row, a no-change
+  answer, a `Not compared:` source and `Cannot compare` apart without help?
 - Which finding was useful, noisy, confusing, or missing context?
 - What were you doing about these changes before?
 - Should this change become a benchmark scenario?
