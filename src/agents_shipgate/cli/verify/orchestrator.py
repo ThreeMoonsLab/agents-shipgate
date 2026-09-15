@@ -101,6 +101,7 @@ from agents_shipgate.core.verification_identity import (
     build_terminal_receipt,
     build_unit_result,
     build_verification_plan,
+    read_regular_file_beneath,
     worktree_overlay,
 )
 from agents_shipgate.invocation import render_command, retarget_command
@@ -1717,6 +1718,15 @@ def _base_capability_lock_cache_path(cache_report: Path) -> Path:
     return cache_report.with_name("capabilities.lock.json")
 
 
+# Bounds for the two small verify-side reads of files an agent can place before
+# the run. Both go through ``read_regular_file_beneath`` so a FIFO or other
+# non-regular entry is refused instead of blocking verify (#577).
+_MAX_CACHED_CAPABILITY_LOCK_BYTES = 64 * 1024 * 1024
+# A receipt over this cap is refused like any unreadable one, which fails
+# closed: the publish-only route is simply not offered.
+_MAX_DECLARATION_CONTINUATION_BYTES = 1024 * 1024
+
+
 def _load_cached_capability_lock(
     cache_report: Path,
 ) -> tuple[CapabilityLockFileV1 | None, list[str]]:
@@ -1724,14 +1734,14 @@ def _load_cached_capability_lock(
     if not cache_lock.exists():
         return None, ["Cached base capability lock missing; capability diff may fall back."]
     try:
-        return (
-            load_capability_lock_json(
-                cache_lock.read_text(encoding="utf-8"),
-                source=str(cache_lock),
-            ),
-            [],
-        )
-    except (OSError, InputParseError) as exc:
+        content = read_regular_file_beneath(
+            cache_lock.parent,
+            cache_lock.name,
+            max_size=_MAX_CACHED_CAPABILITY_LOCK_BYTES,
+            label="cached base capability lock",
+        ).decode("utf-8")
+        return load_capability_lock_json(content, source=str(cache_lock)), []
+    except (OSError, ValueError, InputParseError) as exc:
         return None, [f"Cached base capability lock invalid; capability diff may fall back: {exc}"]
 
 
@@ -2474,10 +2484,14 @@ def _declaration_continuation_holds(
 
     if comparison_ref is None:
         return False
-    receipt_path = out_dir / DECLARATION_CONTINUATION_ARTIFACT_NAME
     try:
         receipt = DeclarationContinuationV1.model_validate_json(
-            receipt_path.read_bytes()
+            read_regular_file_beneath(
+                out_dir,
+                DECLARATION_CONTINUATION_ARTIFACT_NAME,
+                max_size=_MAX_DECLARATION_CONTINUATION_BYTES,
+                label="declaration continuation receipt",
+            )
         )
     except (OSError, ValueError):
         return False

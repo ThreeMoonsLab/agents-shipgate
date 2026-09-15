@@ -797,7 +797,18 @@ def read_regular_file_beneath(
     if not parts or Path(logical_path).is_absolute() or any(part in {"", ".", ".."} for part in parts):
         raise ValueError(f"{label} path is not portable: {logical_path!r}")
     directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-    file_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    # O_NONBLOCK makes opening a FIFO return at once, so the type check below
+    # refuses it; without it the open waits for a writer that may never come
+    # (#577). A non-directory parent already fails on O_DIRECTORY. POSIX gives
+    # O_NONBLOCK no effect on a regular file's reads; Windows has neither the
+    # flag nor filesystem FIFOs. O_BINARY stops the Windows C runtime rewriting
+    # the bytes that are hashed.
+    file_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+        | getattr(os, "O_BINARY", 0)
+    )
     descriptors: list[int] = []
     try:
         current = os.open(root, directory_flags)

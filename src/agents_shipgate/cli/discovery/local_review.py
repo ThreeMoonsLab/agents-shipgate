@@ -305,7 +305,9 @@ def _local_review_paths(workspace: Path) -> tuple[Path, Path, Path, str]:
 def _read_regular_file(
     path: Path,
 ) -> tuple[bool, bytes, tuple[int, int] | None, int | None]:
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    # O_NONBLOCK: a FIFO at the path must reach the non-regular refusal below
+    # rather than block the open until a writer appears (#577).
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
         descriptor = os.open(path, flags)
     except FileNotFoundError:
@@ -318,8 +320,12 @@ def _read_regular_file(
             raise ConfigError(f"Refusing to use a non-regular file: {path}")
         if metadata.st_nlink != 1:
             raise ConfigError(f"Refusing to use a multiply-linked file: {path}")
-        with os.fdopen(descriptor, "rb", closefd=False) as stream:
-            payload = stream.read()
+        # Read the descriptor directly, as the other #577 readers do: a buffered
+        # stream over an O_NONBLOCK descriptor can return None instead of raising.
+        chunks: list[bytes] = []
+        while chunk := os.read(descriptor, 1024 * 1024):
+            chunks.append(chunk)
+        payload = b"".join(chunks)
         return True, payload, (metadata.st_dev, metadata.st_ino), stat.S_IMODE(metadata.st_mode)
     finally:
         os.close(descriptor)
