@@ -123,8 +123,8 @@ before it first landed:
 | Gap | Surface | Owner | Outcome |
 | --- | --- | --- | --- |
 | `detector-mcp-server-source` | `zero_install_detector` | [#485](https://github.com/ThreeMoonsLab/agents-shipgate/issues/485) | Closed. The detector reads MCP registration sites; `known_omissions` is empty again. |
-| `emitted-workflow-unpublished-pin` | `emitted_ci_workflow` | [#506](https://github.com/ThreeMoonsLab/agents-shipgate/issues/506) | Closed. `init --ci` pins `LATEST_PUBLISHED_VERSION`. |
-| `rendered-prompt-unpublished-pin` | `prompts`, `skills`, `plugins`, `adoption_kits` | [#506](https://github.com/ThreeMoonsLab/agents-shipgate/issues/506) | Closed. The rendered prompts pin the published release and state the contract gap beside it. |
+| `emitted-workflow-unpublished-pin` | `emitted_ci_workflow` | [#506](https://github.com/ThreeMoonsLab/agents-shipgate/issues/506) | Closed. Ordinary builds' `init --ci` pins `LATEST_PUBLISHED_VERSION`; a release-stamped wheel pins its own source SHA (#570, #781). |
+| `rendered-prompt-unpublished-pin` | `prompts`, `skills`, `plugins`, `adoption_kits` | [#506](https://github.com/ThreeMoonsLab/agents-shipgate/issues/506) | Closed. Source-rendered prompts pin the published release and state the contract gap beside it; a release-stamped wheel's kit pins its own release and contract (#781). |
 
 Every row flipped to `XPASS`, every strict marker failed, and the exemptions had
 to be removed to get back to green. That is what a self-cleaning exemption is
