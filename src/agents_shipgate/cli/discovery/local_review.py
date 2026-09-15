@@ -305,7 +305,9 @@ def _local_review_paths(workspace: Path) -> tuple[Path, Path, Path, str]:
 def _read_regular_file(
     path: Path,
 ) -> tuple[bool, bytes, tuple[int, int] | None, int | None]:
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    # O_NONBLOCK: a FIFO at the path must reach the non-regular refusal below
+    # rather than block the open until a writer appears (#577).
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
         descriptor = os.open(path, flags)
     except FileNotFoundError:

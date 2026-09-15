@@ -149,7 +149,9 @@ def _read_trust_policy_no_follow(path: Path) -> tuple[bytes, os.stat_result]:
             "human authorization trust policy path must be absolute",
         )
     directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-    file_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    # O_NONBLOCK: a FIFO at the policy path must reach the regular-file refusal
+    # below rather than block the open until a writer appears (#577).
+    file_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     descriptors: list[int] = []
     try:
         current = os.open(os.path.sep, directory_flags)
