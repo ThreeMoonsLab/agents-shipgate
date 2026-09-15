@@ -46,7 +46,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": "c474cec05fdba44430a0c42857fc7b761e5aa84791b1c64042aebdcb3bac86e3",
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": "73576619d8d140935949f1ca2b7ccbcea8109ad3546f649b53cd2d3e71cb6672",
-    ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": "9ac853f0d5eabd1e79812c74587d9af27916309e7ad3154ff880fc3e8b9ff5fc",
+    ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": "ae1495dc5c950baac583813076c59bb602dc42f84c39a6f4b32b7c4250f4728f",
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": "0f4285d7261dbaaab5a201061d9e2187d57e6d2af839fbfb170eae0630acaa62",
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829",
     ".claude/skills/agents-shipgate/prompts/fix-top-finding.md": "1956133a2d1003326e471f8ecab7b781e655dc9c33fbd2d1d681711f9ac0f08c",

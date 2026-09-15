@@ -1821,8 +1821,8 @@ def register(app: typer.Typer) -> None:
                             why=(
                                 f"{exc}. The installed Agents Shipgate wheel carries a "
                                 "malformed release-source record, so no Action or "
-                                "package pin can be written from it. Reinstall the "
-                                "package from its published distribution, then rerun."
+                                "package pin can be written from it; rerun after "
+                                "reinstalling."
                             ),
                         ),
                         recheck_command=_recovery_command(

@@ -138,6 +138,8 @@ def _kit_pins(source_commit: str, version: str) -> dict:
         raise ValueError(f"Installed candidate adoption kit names package versions {packages}")
     if "No published release reports that contract" in text:
         raise ValueError("Installed candidate adoption kit denies the contract it reports")
+    if "{{" in text.replace("${{", ""):
+        raise ValueError("Installed candidate adoption kit left an unrendered template placeholder")
     return {"action_refs": actions, "package_versions": packages}
 
 

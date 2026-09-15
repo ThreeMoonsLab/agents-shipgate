@@ -264,11 +264,53 @@ def test_init_refuses_a_malformed_record_before_writing_anything(
     record_path.write_text('{"schema_version": "shipgate.release_source/v1"')
     workspace = tmp_path / "adopter"
     workspace.mkdir()
-    result = CliRunner().invoke(app, ["init", "--workspace", str(workspace), *flags, "--json"])
+    result = CliRunner().invoke(
+        app, ["init", "--workspace", str(workspace), *flags, "--json"],
+        env={"AGENTS_SHIPGATE_AGENT_MODE": "1"},
+    )
     assert result.exit_code == 2, result.output
     assert result.exception is None or isinstance(result.exception, SystemExit)
     assert "Invalid candidate release-source record" in result.output
     assert not any(workspace.iterdir()), sorted(p.name for p in workspace.iterdir())
+
+    # The agent-mode line a coding agent routes on, not only the human message.
+    routed = [
+        json.loads(line) for line in result.output.splitlines()
+        if line.startswith("{") and '"error"' in line
+    ]
+    assert len(routed) == 1, result.output
+    assert routed[0]["error"] == "config_error"
+    assert routed[0]["exit_code"] == 2
+    assert "release-source" in routed[0]["message"]
+    assert "setup_incomplete" in json.dumps(routed[0])
+
+
+@pytest.mark.parametrize("stamped", [False, True])
+def test_the_prompts_workflow_check_accepts_the_ref_init_writes(
+    record_path: Path, tmp_path: Path, stamped: bool,
+) -> None:
+    """The checked-in prompt copies render from source, but the engine they pin
+    is a release wheel whose `init --ci` writes a source SHA (#783 review). The
+    verification line must accept what either build writes, not name one ref."""
+    if stamped:
+        record_path.write_text(json.dumps(_record()))
+    workspace = tmp_path / "workflow-adopter"
+    assert write_ci_workflow(workspace).status == "written"
+    written = re.search(
+        r"ThreeMoonsLab/agents-shipgate@(\S+)",
+        (workspace / ".github/workflows/agents-shipgate.yml").read_text(),
+    ).group(1)
+    assert re.fullmatch(r"v\d+\.\d+\.\d+|[0-9a-f]{40}", written), written
+
+    prompt = next(
+        entry["content"]
+        for outcome in render_targets((tmp_path / "kit").resolve(), ["claude-code-skill"])
+        for entry in outcome.files or ()
+        if entry["path"].endswith("prompts/add-shipgate-to-repo.md")
+    )
+    line = next(line for line in prompt.splitlines() if 'workflow.status: "written"' in line)
+    assert "agents-shipgate@" not in line, "a concrete ref here is false for the other build"
+    assert "release tag" in line and "40-character source commit" in line
 
 
 def test_init_without_a_pin_rendering_target_ignores_a_malformed_record(

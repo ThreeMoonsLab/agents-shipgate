@@ -36,6 +36,8 @@ _CANDIDATE_KIT = (
     (_CANDIDATE_KIT.replace("uvx agents-shipgate@1.0.1", "uvx agents-shipgate@0.15.0"), "package versions"),
     (_CANDIDATE_KIT + "No published release reports that contract yet.\n", "denies the contract"),
     ("no pins rendered at all {{ shipgate_action_ref }}\n", "Action refs"),
+    (_CANDIDATE_KIT + "- uses: ThreeMoonsLab/agents-shipgate@{{ shipgate_action_ref }}\n", "unrendered"),
+    (_CANDIDATE_KIT + "if: ${{ github.event_name == 'pull_request' }}\n", None),
 ])
 def test_kit_pin_check_accepts_only_the_candidates_own_engine(
     monkeypatch: pytest.MonkeyPatch, text: str, refusal: str | None,
