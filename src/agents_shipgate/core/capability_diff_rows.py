@@ -242,19 +242,29 @@ def _why(
         # The basis, stated in the row, because the row is what a reviewer
         # reads: a parsed hook file is not proof a host loads it (#714).
         basis = hook_loading_basis(grant)
-        if basis == "declared_only":
-            subject = "a hook declaration" if direction == REMOVED else "declares a hook"
+        if basis == "host_configuration":
+            return "changes what runs around the agent's actions"
+        if direction == REMOVED:
+            # A removal is described from the baseline's grant, which may have
+            # been recorded without its basis. Claim nothing about selection.
             return (
-                f"{'removes ' + subject if direction == REMOVED else subject} that no settings "
-                "file or plugin manifest in this repository selects; whether a host loads it "
+                "removes a hook declared in this file; whether a host loaded it "
                 "is not established"
             )
-        if basis == "plugin_manifest":
+        if basis == "declared_only":
             return (
-                "changes a hook a plugin manifest in this repository selects; whether that "
-                "plugin is installed or enabled is not established"
+                "declares a hook that no settings file, plugin manifest or marketplace entry "
+                "in this repository selects; whether a host loads it is not established"
             )
-        return "changes what runs around the agent's actions"
+        if basis == "plugin_selected":
+            return (
+                "changes a hook a plugin in this repository selects; whether that plugin "
+                "is installed or enabled is not established"
+            )
+        return (
+            "changes a hook declared in this file; how a host would load it is not "
+            "established"
+        )
     if kind == "instruction_trust_root":
         return "changes instructions the agent is given"
     return f"changes a {kind or 'host'} grant"

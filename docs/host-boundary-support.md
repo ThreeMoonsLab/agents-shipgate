@@ -61,6 +61,10 @@ adapter reads them. Editing any of them produces no row and no coverage limit:
 - **The path of a remote MCP server's URL.** The host and query are compared
   and the path is not, because a webhook-style path can itself be the secret.
   Changing `/read` to `/admin` on the same host produces no row (#772).
+- **Hooks in subagent frontmatter** (`.claude/agents/*.md`). Claude Code runs
+  them while that subagent runs; no adapter reads the file. A skill's `hooks`
+  frontmatter is type-checked with the skill's instructions, never read as a
+  hook grant, so its events get no hook row (#714).
 
 Review changes to those files and fields as you would a change to the workflow,
 hook or server entry that holds them.
@@ -91,28 +95,48 @@ file exists, not that a host loads it, so hooks are published three ways:
   settings (`.claude/settings.json`, `.claude/settings.local.json`, user or
   managed settings) or Codex `.codex/hooks.json`. `access: execute`,
   `risk: high`, and adding or changing one is an expansion.
-- **Selected by a plugin manifest** in the repository: `hooks/hooks.json`
-  beside a `.claude-plugin/plugin.json`, a `./` path its `hooks` member names,
-  or hooks written inline in it. The grant keeps `execute`/`high`, its event
-  and every command change. It is not an expansion, and the row says whether
-  the plugin is installed or enabled is not established.
+- **Selected by a plugin** in the repository. The plugin's root is
+  recognised by its `.claude-plugin/plugin.json`, or by a
+  `.claude-plugin/marketplace.json` entry whose `source` is a `./` path or a
+  name under `metadata.pluginRoot`. A plugin selects `hooks/hooks.json` at its
+  root, a `./` path or array named by `hooks` in its manifest or marketplace
+  entry, or hooks written inline in either, including a `strict: false`
+  entry. `access: execute`, `risk: medium`, the event and every command
+  change. It is not an expansion, and the row says whether the plugin is
+  installed or enabled is not established.
 - **Selected by nothing**, such as a standalone or nested
   `.claude/hooks/hooks.json`, which is not a location Claude Code documents.
   `access: unknown`, `risk: unknown`. Every change is still a row; none is an
   expansion.
 
+A removal names no basis, because the grant it describes may come from a
+baseline recorded before the basis was published. A hook-file grant with
+neither signature, such as one a `1.0.0` baseline recorded as
+`execute`/`high`, claims no selection.
+
 No row is proof that a hook ran. What remains unread:
 
 - Installation and enablement are never read, even when `enabledPlugins`
-  names the plugin.
-- A plugin root is recognised only by its manifest. A marketplace entry that
-  points at a directory without one is not followed.
-- A manifest reference is followed only to a file whose name ends in
-  `hooks.json`. Any other name, a path outside the plugin directory, and an
-  unreadable manifest are blocking coverage limits.
+  names the plugin. A marketplace entry with a remote `source` names nothing
+  in the repository.
+- A reference is followed only to a file named `hooks.json`, or
+  `<name>-hooks.json` (`_` or `.` also separate). In a plugin manifest, any
+  other name, a path outside the plugin directory, a `hooks` member of the
+  wrong type, and an unreadable manifest are blocking coverage limits: `diff`
+  and `verify` refuse the comparison, or name the limit when the manifest is
+  unchanged.
+- The same problems in a marketplace entry are named without blocking. So
+  are a reference to a file that does not exist, a reference into a directory
+  the reader never walks (`node_modules`, `.venv` and the like), and a
+  selected file with no `hooks` object.
+- A reference matches a file case-insensitively when exactly one file
+  matches, erring toward showing a hook a case-insensitive filesystem would
+  load.
 - `check` routes a changed `.claude/hooks/hooks.json` to protected-surface
-  review whatever its basis. It does not route a plugin's manifest or its own
-  hook file.
+  review whatever its basis. It does not route a plugin manifest, a
+  marketplace or a plugin-selected hook file. It leaves their limits out of
+  its completeness, because its result cannot name a limit, so an unread
+  plugin reference decides a `check` exactly as it did in `1.0.0`.
 
 Skill and command frontmatter is read the way Claude Code documents it (#730).
 Frontmatter is optional: a skill without it takes its name from the directory

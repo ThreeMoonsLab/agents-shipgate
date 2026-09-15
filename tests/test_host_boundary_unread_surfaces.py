@@ -83,15 +83,27 @@ def test_mcp_url_paths_are_named_as_unread() -> None:
     assert "(#772)" in section
 
 
+def test_subagent_frontmatter_hooks_are_named_as_unread() -> None:
+    section = _section()
+    assert "Hooks in subagent frontmatter" in section
+    assert "`.claude/agents/*.md`" in section
+
+
 def test_a_hook_row_is_not_described_as_proof_of_loading() -> None:
     section = _section()
     assert "A hook row states its loading basis (#714)" in section
     assert "No row is proof that a hook ran" in section
     # The three published bases and the limit that remains for each.
-    assert "Selected by a plugin manifest" in section
+    assert "Selected by a plugin" in section
+    assert "`.claude-plugin/marketplace.json`" in section
+    assert "`risk: medium`" in section
     assert "Selected by nothing" in section
     assert "`access: unknown`" in section
+    assert "A removal names no basis" in section
     assert "Installation and enablement are never read" in section
+    # The `check` claim the #714 review found wrong: unread plugin references
+    # leave a check as 1.0.0 decided it.
+    assert "leaves their limits out of its completeness" in section
 
 
 def test_link_refusals_are_named_on_the_page() -> None:

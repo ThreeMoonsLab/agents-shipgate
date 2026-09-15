@@ -16,7 +16,7 @@ from agents_shipgate.cli.verify.git import (
 )
 from agents_shipgate.core.boundary_registry import is_boundary_surface_path
 from agents_shipgate.core.host_comparison import compare_host_inventories
-from agents_shipgate.core.host_grants import build_host_boundary_snapshot
+from agents_shipgate.core.host_grants import build_host_boundary_snapshot, without_host_issues
 from agents_shipgate.schemas.host_comparison import HostComparison
 
 
@@ -30,12 +30,19 @@ def compare_host_refs(
     require_unconfigured: bool = True,
     out_dir: Path | None = None,
     redact_permission_arguments: bool = False,
+    exclude_plugin_reference_limits: bool = False,
 ) -> HostComparison | None:
     """None means no host route, or an application manifest must still be gated.
 
     Exceptions remain input failures; callers must never turn one into an empty
     comparable result. Explicit heads are archived even when they equal HEAD:
     dirty files in the checkout do not belong to that requested commit.
+
+    ``exclude_plugin_reference_limits`` is for `check` only (#714). Its result
+    cannot name a limit, so an unchanged one would refuse the whole
+    comparison, and `check` does not route plugin manifests or plugin hook
+    files. The limits they raise are dropped from both inventories there.
+    `diff` and `verify` keep them and name them.
     """
     from agents_shipgate.cli.verify.orchestrator import (
         _safe_repository_identity,
@@ -108,8 +115,17 @@ def compare_host_refs(
             (before / config_relative).exists() or (after / config_relative).exists()
         ):
             return None
-        base_inventory = build_host_boundary_snapshot(before).inventory
-        head_inventory = build_host_boundary_snapshot(after).inventory
+        base_snapshot = build_host_boundary_snapshot(before)
+        head_snapshot = build_host_boundary_snapshot(after)
+        base_inventory = base_snapshot.inventory
+        head_inventory = head_snapshot.inventory
+        if exclude_plugin_reference_limits:
+            base_inventory = without_host_issues(
+                base_inventory, base_snapshot.plugin_reference_issue_ids
+            )
+            head_inventory = without_host_issues(
+                head_inventory, head_snapshot.plugin_reference_issue_ids
+            )
         result = compare_host_inventories(
             base_inventory,
             head_inventory,

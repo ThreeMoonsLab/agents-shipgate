@@ -96,13 +96,16 @@ LOOPKIT_HOOK_STEPS = {
 }
 #: The selection evidence at both commits, identical at each:
 #: - `.claude-plugin/plugin.json` names `loopkit` with no `hooks` member;
-#: - `.claude-plugin/marketplace.json` lists it with `"source": "./"`, so the
-#:   plugin root is the repository root, where `hooks/hooks.json` does not
-#:   exist (only `hooks/pre-commit`);
+#: - `.claude-plugin/marketplace.json` lists it with `"source": "./"` and no
+#:   `hooks` or `strict` member, so the plugin root is the repository root,
+#:   where `hooks/hooks.json` does not exist (only `hooks/pre-commit`);
 #: - `.claude/settings.json` declares its own `PostToolUse` command and does
 #:   not name the hook file.
 #: No supported reference selected the file at either step.
-LOOPKIT_SELECTION_EVIDENCE = "no plugin `hooks` member, no default hooks/hooks.json, no settings reference"
+LOOPKIT_SELECTION_EVIDENCE = (
+    "no plugin.json `hooks` member; marketplace entry `./` with no `hooks` or `strict`; "
+    "no default hooks/hooks.json at that root; no settings reference"
+)
 
 
 def test_the_hook_is_read_as_a_claude_code_grant(repo: Path) -> None:

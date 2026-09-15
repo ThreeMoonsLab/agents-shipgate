@@ -15,6 +15,12 @@
 #
 # After reviewing a legitimate drift, re-acknowledge the new state with
 # the same command. Do not re-save to silence drift nobody reviewed.
+#
+# Upgrading past 1.0.0 can drift once with no expansion signal. Claude Code
+# hook files nothing selects now read as `access: unknown` (#714), and hook
+# files a plugin selects are newly read. #771 (PR #788) may add a separate
+# one-time drift for workflow step references. Read the changed rows with
+# `shipgate audit --host --drift --json` before re-saving.
 
 name: host-grant-drift
 
