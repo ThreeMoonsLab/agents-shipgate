@@ -282,6 +282,35 @@ def test_reports_verified_outside_the_repository_are_read(tmp_path: Path, monkey
     assert drifted.exit_code == 4, _plain(drifted.output)
 
 
+def test_verify_format_control_reads_its_own_outside_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """`verify --format control` shares the same live-workspace observer.
+
+    Its in-process read of the pointer it just published went through the same
+    Git exclusion, so a run written beside the repository withheld authority as
+    unverifiable even though nothing had moved.
+    """
+
+    repo = _committed_sample(tmp_path / "repo")
+    outside = tmp_path / "sibling-reports"
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "verify", "--workspace", str(repo), "--config", "shipgate.yaml",
+            "--head", "HEAD", "--out", str(outside), "--format", "control",
+        ],
+        env=ENV,
+    )
+
+    assert result.exit_code == 0, _plain(result.output)
+    payload = json.loads(result.stdout)
+    assert payload["control_state"] == "complete", payload
+    assert payload["current_control_id"] == _pointer_id(outside)
+
+
 def test_verify_and_agent_control_share_one_default_rule(tmp_path: Path):
     """One definition, not a second implementation that can drift.
 
@@ -289,8 +318,17 @@ def test_verify_and_agent_control_share_one_default_rule(tmp_path: Path):
     below the Git root; an explicit `verify --out` keeps its own Git-root rule.
     """
 
-    from agents_shipgate.cli.current_workspace import default_reports_dir
-    from agents_shipgate.cli.verify.orchestrator import _resolve_out_dir
+    from agents_shipgate.cli.current_workspace import (
+        DEFAULT_REPORTS_DIR,
+        default_reports_dir,
+    )
+    from agents_shipgate.cli.verify.orchestrator import DEFAULT_OUT_DIR, _resolve_out_dir
+    from agents_shipgate.schemas.contract import DEFAULT_PATHS
+
+    # The leaf spells the name rather than importing the contract module; pin
+    # that spelling to the published default so the two cannot drift apart.
+    assert DEFAULT_REPORTS_DIR.as_posix() == DEFAULT_PATHS["reports_dir"] == REPORTS
+    assert DEFAULT_OUT_DIR is DEFAULT_REPORTS_DIR
 
     root = (tmp_path / "root").resolve()
     nested = root / "project"
