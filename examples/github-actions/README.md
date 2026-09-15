@@ -1,6 +1,8 @@
 # GitHub Actions examples
 
-Copy-paste-ready workflows. Each one is a complete file — drop it into `.github/workflows/` in a repo that has `shipgate.yaml` at the root.
+Copy-paste-ready workflows. Each one is a complete file — drop it into `.github/workflows/`. Recipes 01–13 expect `shipgate.yaml` at the repository root; recipe 14 needs none.
+
+**No `shipgate.yaml`?** If the repository's pull requests change coding-agent host configuration — `.claude/settings.json`, `.mcp.json`, Codex, Cursor or VS Code MCP configuration — start with [`14-host-only-advisory-pr.yml`](14-host-only-advisory-pr.yml). It is the team version of a local `agents-shipgate diff`; see [Host-only advisory PR review](#host-only-advisory-pr-review).
 
 | File | When to use |
 |---|---|
@@ -16,8 +18,29 @@ Copy-paste-ready workflows. Each one is a complete file — drop it into `.githu
 | [`11-fail-on-insufficient-evidence.yml`](11-fail-on-insufficient-evidence.yml) | Evidence policy: fail when static evidence is too weak to gate confidently. |
 | [`12-host-grant-drift.yml`](12-host-grant-drift.yml) | Scheduled drift gate: fail when current coding-agent host grants (MCP servers, permission rules, hooks, workflow scopes) no longer match the acknowledged `.agents-shipgate/host-grants.json` baseline. Catches authority changes that land outside PR review. |
 | [`13-org-governance.yml`](13-org-governance.yml) | Scheduled organization governance gate: exception hygiene, policy-pack pinning, and host-grant drift. Does not create a second release verdict. |
+| [`14-host-only-advisory-pr.yml`](14-host-only-advisory-pr.yml) | No `shipgate.yaml` and no saved baseline. Compares each PR's coding-agent host configuration with its base branch, comments, and never blocks. **Recommended starting point for host-only repositories**, after a local `agents-shipgate diff` was useful. |
 
 > **Retired:** the `on-tool-source-changes` recipe was removed. A change-prefilter cannot gate Shipgate safely. `TRIGGER-EXISTING-MANIFEST-PRESENT` is `force_run`, so an adopted repo (one with `shipgate.yaml`) is contracted to run on **every** PR — the prefilter was not saving the scan it claimed to save. Worse, every prefilter language here matches paths case-sensitively while the trigger catalog does not, so an allowlist silently drops governance edits such as `services/foo/Policies/refund.yaml` — with no job, no check, and no signal. Run the advisory recipe on every PR and let the in-job trigger evaluator decide.
+
+## Host-only advisory PR review
+
+[`14-host-only-advisory-pr.yml`](14-host-only-advisory-pr.yml) runs the comparison a local `agents-shipgate diff` makes — the PR against its base branch in Git history — on every pull request, with no `shipgate.yaml` and no saved baseline. It needs no inputs beyond the advisory recipe's: with no manifest present, the Action's `verify` takes its manifest-free host route.
+
+Each run leaves one comment, which later pushes update in place rather than adding new ones. Its summary is one of:
+
+- **Changes** — `Repository-declared host capability changes:`, then one entry per changed grant with before → after and why it matters.
+- **No change** — `No static host-grant changes detected in the covered comparison.`
+- Either of those can add **Not compared** — `Not compared: unchanged in this change and not read, so no claim is made about them:` and the sources it skipped. Nothing is claimed about those.
+- **Cannot compare** — `Host capability comparison unavailable:` with the reason, such as `head_inventory_incomplete`. That is an input limit, not a finding and not a pass.
+
+Every summary ends `Advisory: no application release policy configured. This comparison grants no merge authority.` The job does not fail on what it finds, so a failed job is a setup problem — the install step, a missing base branch — never a review result. `verifier.json`, `agent-handoff.json` and `pr-comment.md` are in the `agents-shipgate-report` artifact, and `verifier.json`'s `host_comparison` carries the same rows, `comparison_status` and `unchanged_limits` as `agents-shipgate diff --json`.
+
+- **Permissions.** `contents: read` checks out the repository; `pull-requests: write` is only for the comment. Without it — including on every PR from a fork, which `pull_request` gives a read-only token — the comment step writes the same review to the job summary and says publication was unavailable. Do not switch to `pull_request_target` to reach forks: it runs with a write token against untrusted PR contents.
+- **History.** Keep `fetch-depth: 0`. With `diff_base: target` the Action compares against `origin/<the PR's base branch>`, so a PR into `develop` is compared with `develop`. The Action never fetches.
+- **What runs.** `shipgate_version` installs the pinned release from PyPI, and the Action's own code comes from the pinned tag. Nothing from the PR is installed or executed, and no agent, tool or MCP server is started.
+- **Not a gate.** It adds no required check, failure policy or branch protection. Making a result blocking is a separate, explicit choice (recipes 07, 08 and 10).
+
+Evidence so far: on 2026-09-14 this recipe's inputs were run through the Action's own run step against this repository's source, on repositories with no manifest (`tests/test_host_only_advisory_recipe.py`), and the same `verify` invocation was run with the published `1.0.0` from PyPI. A GitHub-hosted run on a real pull request is still outstanding ([#780](https://github.com/ThreeMoonsLab/agents-shipgate/issues/780), [#570](https://github.com/ThreeMoonsLab/agents-shipgate/issues/570)).
 
 ## Permissions
 

@@ -1,0 +1,42 @@
+# Host-only advisory PR review — no shipgate.yaml, no saved baseline.
+#
+# For a repository whose pull requests change what a coding agent may do
+# (.claude/settings.json, .mcp.json, .codex/, .cursor/, .vscode/mcp.json,
+# hooks, workflow permissions) and which has no shipgate.yaml. Each run
+# compares the PR with its base branch in Git history, posts one comment that
+# later pushes update in place, uploads the artifacts, and never fails the job.
+#
+# - fetch-depth: 0 — the comparison reads the base branch from this clone; the
+#   Action never fetches.
+# - pull_request, not pull_request_target: a fork's PR gets a read-only token,
+#   so the comment cannot be posted there and the same review goes to the job
+#   summary instead. pull_request_target would run with a write token on
+#   untrusted PR contents.
+# - shipgate_version installs this pinned release from PyPI, never package
+#   code from the PR's checkout.
+#
+# See examples/github-actions/README.md § Host-only advisory PR review.
+name: Agents Shipgate (host-only advisory)
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write   # the PR comment only
+
+jobs:
+  shipgate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ThreeMoonsLab/agents-shipgate@v1.0.0
+        with:
+          ci_mode: advisory
+          diff_base: target
+          pr_comment: 'true'
+          shipgate_version: '1.0.0'

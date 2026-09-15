@@ -2,6 +2,19 @@
 
 ## GitHub Actions
 
+### Host-only advisory PR review (no manifest)
+
+A repository whose pull requests change coding-agent host configuration needs
+no `shipgate.yaml` for PR review. Use
+[`examples/github-actions/14-host-only-advisory-pr.yml`](../examples/github-actions/14-host-only-advisory-pr.yml):
+the Action compares each PR with its base branch in Git history, posts one
+comment that later pushes update, and never fails the job. The
+[examples README](../examples/github-actions/README.md#host-only-advisory-pr-review)
+covers permissions, forks and what each comment means. The recipes below apply
+to a repository with a `shipgate.yaml`.
+
+### With a manifest
+
 The public Marketplace action installs from its tagged source by default; set
 `shipgate_version` when you want the action to install a pinned PyPI package
 version.
