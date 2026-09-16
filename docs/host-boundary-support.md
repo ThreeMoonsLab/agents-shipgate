@@ -114,6 +114,23 @@ reusable `uses:` target, containing credential-shaped text is published
 redacted and refuses the same way a step reference does, so two values that
 redact alike never compare as unchanged.
 
+A workflow's labels are published redacted (#802). A job id, a step's `id` or
+`name`, a trigger and a permission scope name go through the same redaction as
+step text, and the userinfo of any `scheme://…@` inside one is replaced, so a
+job id shaped like `ghp_…` reads `[REDACTED:github_token]` and a step named
+`Pull docker://ci:<password>@gcr.io/proj/img` reads
+`Pull docker://<redacted>@gcr.io/proj/img`. Each label is computed once and
+used by every field, row and `check` evidence entry that names it, and
+`config_sha256` is computed over it. Ordinary names such as `build`,
+`deploy-prod`, `secret-scan` or `token-refresh` are unchanged; a name that only
+looks like a token, such as `sk-integration-tests-matrix`, is redacted too. A
+single redacted label still compares, so it costs nothing on any route. Two
+distinct job ids, triggers or scope names in one workflow that publish alike
+would compare as one, so they refuse the same way a redacted step reference
+does. Renaming a lone redacted label to another that redacts alike is not a
+row, and a step label is read for userinfo only after `scheme://`, so a
+scheme-less `user:password@host` in a step name is not read as userinfo.
+
 A hook row states its loading basis (#714). Parsing a hook file proves the
 file exists, not that a host loads it, so hooks are published four ways:
 

@@ -22,6 +22,14 @@ Pointing a destination at a different source is a `changed` row with
 limit rather than a comparison, while a literal or another expression is a
 named non-blocking limit that leaves coverage complete. See
 [the migration note](#reusable-workflow-secret-mappings-contract-v40-693).
+The same unreleased contract and `0.6` schemas publish every workflow label
+redacted (#802): a job id, a step's `id` or `name`, a trigger and a
+permission scope name shaped like a credential (`ghp_…`, `AKIA…`) or holding
+`scheme://user:password@` are redacted in every field, row and `check`
+evidence that names them, and `config_sha256` is computed over the redacted
+labels. Ordinary names are unchanged. One redacted label still compares; two
+distinct labels of one kind in a workflow that publish alike are a blocking
+limit. See [the migration note](#workflow-label-redaction-contract-v40-802).
 
 Unreleased, still contract v40: a hook grant states its loading basis (#714).
 A Claude Code hook file nothing in the repository selects is published with
@@ -132,6 +140,27 @@ from the shipped `v0.15.0` contract are in
 the Action tag) for reproducible CI.
 
 ---
+
+<a id="workflow-label-redaction-contract-v40-802"></a>
+
+## Migration Note: 1.0.x — redacted workflow job, step, trigger and scope labels (contract v40, #802)
+
+This extends host-grants `0.6` and runtime contract `40` in place, as #693 did: neither has shipped in a tagged release. No member is added or removed; only the value of existing string fields changes, and only for a label that holds credential-shaped text. Published `1.0.0` already printed a job id verbatim in `permission_contexts[].job`, `reusable_calls[].job`, the `write_scopes` and `effective_write_scopes` prefixes and the row text; #771 and #693 added `step_actions[].job` and the `job/step` and `job/destination` labels in `why`. A job id GitHub accepts may be shaped like a token (`ghp_` followed by 36 characters), and a step name may carry registry credentials (`Pull docker://ci:<password>@gcr.io/proj/img`), so each of those surfaces republished them.
+
+- **What is redacted.** Every workflow label — a job id, a step's `id` or `name`, an `on:` trigger and a permission scope name — is published by one rule: the report redactor (known token shapes such as `ghp_…`, `AKIA…`, `xoxb-…`), then the host sanitizer (credential assignments such as `token=…`, and URLs), then the userinfo of every `scheme://…@` token inside the label, which becomes `scheme://<redacted>@`. As for a step reference, the userinfo is everything before the token's last `@` once a trailing `@algorithm:hex` digest is set aside, so a password holding `/`, `:` or `@` is covered. `Pull docker://ci:<password>@gcr.io/proj/img` publishes as `Pull docker://<redacted>@gcr.io/proj/img`, and a job id `ghp_…` as `[REDACTED:github_token]`.
+- **Where.** The label is computed once, where the workflow grant is built, and used in every field that names the job, trigger or scope: `permission_contexts[].job` and its `permissions` keys, `reusable_calls[].job`, `step_actions[].job` and `.step`, `triggers`, and the `write_scopes` and `effective_write_scopes` entries. The inventory, saved baselines, drift, `diff`, `check` rows, manifest-free `verify`, `verifier.json`, the PR comment and the control envelope read those fields, so they print the same label. `check`'s own workflow evidence (`evidence.job` and `evidence.scope` on `SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL` and `-PERMISSIONS-EXPANDED`) uses the same rule; it still compares the raw declarations, and two violations whose redacted evidence is identical dedupe into one, with the same rule, path and decision.
+- **`config_sha256` follows the published labels.** It is computed over the redacted projection, so no published digest is taken over a raw token-shaped label. A grant whose labels hold no credential-shaped text keeps its digest.
+- **What still compares.** A redacted label is still a label: one token-shaped job id, alone in its workflow, identifies its job, so its permissions, reusable call and step references compare as before and nothing refuses. A GitHub workflow holding one keeps complete coverage, and an unrelated change in the same pull request, such as a Claude Code shell permission, keeps its row.
+- **Labels that publish alike refuse.** When two distinct job ids, two triggers, or two scope names in one `permissions` mapping of the same workflow publish alike, they would compare as one, so the inventory records a blocking `unsupported` coverage issue ("distinct job ids in this workflow publish alike once credential-shaped text is redacted, so they cannot be compared apart"), as it does for a redacted step reference (#767): a changed workflow refuses, and an unchanged one is named in `unchanged_limits`. Step labels are not compared, so two steps whose labels publish alike refuse nothing.
+- **Ordinary names are unchanged.** `build`, `test`, `deploy-prod`, `release_notes`, `secret-scan`, `token-refresh`, the documented triggers and scopes, `Tag v1:beta@2` and `docker://image:tag@sha256:<hex>` are published as written.
+
+**Compatibility and limits.**
+- **Over-redaction is display-only, except for a collision.** A name matching a token pattern is redacted even when it is not a credential: `sk-` followed by 16 or more characters (`sk-integration-tests-matrix`), `gh[opusr]_` followed by 20 or more, or `(sk|rk|pk)_(live|test)_` followed by 16 or more. One such job id still compares; two in one workflow collide and refuse.
+- **Renaming a lone redacted label to another that publishes alike is not a row.** `ghp_A…` → `ghp_B…` publishes the same job, whose permissions, calls and step references still compare. A digest that told them apart would be a digest of the credential.
+- **Scheme-less userinfo in a step label is not read.** Only a token opening with `scheme://` is read for userinfo, so `ci:<password>@gcr.io` without a scheme is published as written unless its password matches a token pattern. A label is free text, and reading every `a:b@c` as userinfo would rewrite ordinary prose.
+- **A `0.6` baseline saved from a source tree before this change** that holds a credential-shaped label drifts once: the relabelled job reads as a changed grant, a write scope under it may read as a widening, and the row repeats the raw label from that baseline file. Review it, then re-save the baseline. A baseline holding only ordinary labels is unaffected.
+- **Validators pinned to the `0.6` schemas** accept every payload: no member changed. The regenerated `0.6` schemas describe the labels.
+- **`minimum_control_contract_version`** stays `21`.
 
 <a id="reusable-workflow-secret-mappings-contract-v40-693"></a>
 
