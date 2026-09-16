@@ -88,6 +88,12 @@ A named secret passed to a reusable workflow is read (#693). For a job that
 calls a reusable workflow, each `secrets:` entry whose whole value is
 `${{ secrets.NAME }}` is listed on the workflow grant as the called workflow's
 secret input and the source name `NAME`; the secret's value is never read.
+`${{ github.token }}` is read as the same source as
+`${{ secrets.GITHUB_TOKEN }}`, because GitHub documents the two as functionally
+equivalent, so moving between the spellings is quiet. Source names are compared
+case-insensitively, as GitHub references them; the callee's secret id is
+compared as written, because GitHub does not document it as case-insensitive,
+so a case-only edit there reads as a removal plus an addition.
 Adding or removing a destination, or pointing one at a different source name
 (`STAGING_TOKEN` to `PRODUCTION_TOKEN`), is a `changed` row that names
 `job/destination`. A name does not establish the secret's privilege, whether
@@ -95,15 +101,16 @@ the caller has it, or what the called workflow does with it, so the read
 never marks the row as widening; `secrets: inherit` keeps its own widening
 row. Reordering the entries or re-spacing or re-quoting the expression is
 quiet. Any other value — a literal, another expression such as
-`${{ github.token }}` or `${{ secrets['NAME'] }}`, a non-string, or a
-`secrets:` that is neither `inherit` nor a mapping — publishes nothing of its
-value and cannot be compared. It makes GitHub coverage partial: a comparison
-of that changed workflow refuses, and an unchanged one is named as a limit.
-Writing `${{ secrets.GITHUB_TOKEN }}` instead of `${{ github.token }}` keeps
-the entry comparable. A destination or source name, or a job's reusable
-`uses:` target, containing credential-shaped text is published redacted and
-refuses the same way a step reference does, so two values that redact alike
-never compare as unchanged.
+`${{ secrets['NAME'] }}`, `${{ inputs.x }}` or `${{ SECRETS.X }}`, a
+non-string, or a `secrets:` that is neither `inherit` nor a mapping — publishes
+nothing of its value. That entry is a named, non-blocking limit that says which
+`job/destination` it is: GitHub coverage stays complete, so `check`, baselines
+and every other row on the file are unaffected, and adding, removing or
+re-forming such an entry is still a row. Only an edit between two values of the
+same unreadable form is not reported. A destination or source name, or a job's
+reusable `uses:` target, containing credential-shaped text is published
+redacted and refuses the same way a step reference does, so two values that
+redact alike never compare as unchanged.
 
 A hook row states its loading basis (#714). Parsing a hook file proves the
 file exists, not that a host loads it, so hooks are published four ways:

@@ -203,7 +203,10 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # v40 also reads the named secrets a job passes to a reusable workflow (#693),
 # extended in place because neither v40 nor host-grants 0.6 has shipped: a
 # reusable call adds ``secret_mappings[]`` and ``uses_redacted``, both omitted
-# when unset. A 0.4/0.5 baseline holding a reusable call also names
+# when unset. ``${{ github.token }}`` reads as the ``GITHUB_TOKEN`` source and
+# source names compare case-insensitively. An unreadable value is a named
+# non-blocking limit, so coverage stays complete; only a redacting name or
+# target blocks. A 0.4/0.5 baseline holding a reusable call also names
 # ``baseline_reusable_workflow_secret_mappings_unavailable``.
 CONTRACT_VERSION: Literal["40"] = "40"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"

@@ -1366,8 +1366,29 @@ def step_action_key(entry: dict[str, Any]) -> tuple[str, str, str, str]:
 
 #: A whole ``secrets:`` value of this form names its source (#693). Only the
 #: property form is read; ``secrets['NAME']`` and every other expression stay
-#: unresolved rather than guessed.
+#: unresolved rather than guessed. The ``secrets`` context name is matched as
+#: written: GitHub's expressions reference states case-insensitivity only for
+#: string comparison, never for a context name, so ``${{ SECRETS.X }}`` is not
+#: assumed to be the same reference.
 _SECRET_SOURCE_RE = re.compile(r"\$\{\{\s*secrets\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
+
+#: GitHub's contexts reference calls ``github.token`` "functionally equivalent
+#: to the GITHUB_TOKEN secret", so both spellings name one source and moving
+#: between them is not a change (#693).
+_WORKFLOW_TOKEN_RE = re.compile(r"\$\{\{\s*github\.token\s*\}\}")
+_WORKFLOW_TOKEN_SOURCE = "GITHUB_TOKEN"
+
+
+def _secret_source_name(value: Any) -> str | None:
+    """The declared secret a whole ``secrets:`` value names, or ``None``."""
+
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    match = _SECRET_SOURCE_RE.fullmatch(text)
+    if match is not None:
+        return match.group(1)
+    return _WORKFLOW_TOKEN_SOURCE if _WORKFLOW_TOKEN_RE.fullmatch(text) else None
 
 
 def _secret_mapping(destination: object, value: Any) -> dict[str, Any]:
@@ -1383,9 +1404,9 @@ def _secret_mapping(destination: object, value: Any) -> dict[str, Any]:
     entry: dict[str, Any] = {
         "destination": shown, "source": None, "form": "unresolved", "unresolved_reason": None,
     }
-    match = _SECRET_SOURCE_RE.fullmatch(value.strip()) if isinstance(value, str) else None
-    if match is not None:
-        source, source_redacted = _published(match.group(1))
+    name = _secret_source_name(value)
+    if name is not None:
+        source, source_redacted = _published(name)
         if destination_redacted or source_redacted:
             return {**entry, "source": source, "unresolved_reason": "redacted"}
         return {**entry, "source": source, "form": "secret"}
@@ -1399,13 +1420,21 @@ def _secret_mapping(destination: object, value: Any) -> dict[str, Any]:
 
 
 def secret_mapping_key(entry: dict[str, Any]) -> tuple[str, str, str, str]:
-    """What a named secret mapping is compared by: every published fact."""
+    """What a named secret mapping is compared by: every published fact.
+
+    The source is folded: GitHub's secrets reference says names "are case
+    insensitive when referenced" and are stored uppercase, so ``staging_token``
+    and ``STAGING_TOKEN`` are one declared secret and renaming the case is not
+    a remap. The destination is the callee's ``workflow_call`` secret id, which
+    GitHub does not document as case-insensitive, so it stays as written and a
+    case-only edit there reads as a removal plus an addition.
+    """
 
     return (
         "" if entry.get("destination") is None else str(entry["destination"]),
         str(entry["form"]),
         str(entry.get("unresolved_reason") or ""),
-        "" if entry.get("source") is None else str(entry["source"]),
+        "" if entry.get("source") is None else str(entry["source"]).casefold(),
     )
 
 
@@ -1452,9 +1481,8 @@ def _uncompared_workflow_text(grant: dict[str, Any]) -> str | None:
     One rule for every compared workflow text (#767, #693). A redacted step
     reference, reusable target, or secret name could publish the same text as
     a different one, so comparing the display would read a change as equal.
-    An unresolved secret mapping publishes nothing of its value, so there is
-    nothing to compare at all. Either makes the workflow a blocking limit: a
-    changed workflow refuses, and an unchanged one is named (#721).
+    That is a blocking limit: a changed workflow refuses, and an unchanged one
+    is named (#721).
     """
 
     calls = grant.get("reusable_calls", [])
@@ -1470,22 +1498,57 @@ def _uncompared_workflow_text(grant: dict[str, Any]) -> str | None:
             )),
         ) if present
     ]
-    clauses = []
+    if not redacted:
+        return None
     if len(redacted) == 1:
-        clauses.append(
+        return (
             f"{redacted[0]} contains credential-shaped text; it is published redacted and cannot be compared"
         )
-    elif redacted:
-        clauses.append(
-            f"{', '.join(redacted[:-1])} and {redacted[-1]} contain credential-shaped text; "
-            "they are published redacted and cannot be compared"
-        )
-    if any(entry["form"] == "unresolved" and entry["unresolved_reason"] != "redacted" for entry in mappings):
-        clauses.append(
-            "a reusable workflow secret mapping is a literal value, an expression or another "
-            "unsupported form; its value is neither published nor compared"
-        )
-    return "; ".join(clauses) or None
+    return (
+        f"{', '.join(redacted[:-1])} and {redacted[-1]} contain credential-shaped text; "
+        "they are published redacted and cannot be compared"
+    )
+
+
+#: How an unresolved secret mapping reads in the limit that names it (#693).
+_UNRESOLVED_SECRET_PHRASES = {
+    "literal_value": "a literal value",
+    "expression": "an expression this static audit does not evaluate",
+    "not_a_string": "a value that is not a string",
+    "secrets_not_a_mapping": "neither `inherit` nor a mapping of secret names",
+}
+
+
+def uncompared_secret_mapping_texts(grant: dict[str, Any]) -> list[str]:
+    """One message per secret value a workflow publishes nothing of (#693).
+
+    Not blocking. The destination, the form and the reason are compared, so
+    adding an entry, removing one, or moving one between forms is still a row,
+    and the rest of the workflow — token permissions, triggers, targets, step
+    references, every other host — compares as it always did. Only an edit
+    between two values of the *same* unsupported form is invisible, and this
+    names where that is, the way an unread `envFile` does, rather than making
+    the surface blocking and refusing every row beside it (#789).
+    """
+
+    texts: list[str] = []
+    for call in grant.get("reusable_calls", []):
+        for entry in call.get("secret_mappings", []):
+            reason = str(entry.get("unresolved_reason") or "")
+            if entry["form"] != "unresolved" or reason == "redacted":
+                continue
+            where = (
+                f"{call['job']}/{entry['destination']}"
+                if entry.get("destination") is not None
+                else f"{call['job']}/secrets"
+            )
+            phrase = _UNRESOLVED_SECRET_PHRASES.get(reason, "an unsupported form")
+            texts.append(
+                f"the secret a reusable workflow call passes at {where} is {phrase}; its "
+                "value is neither published nor compared, so an edit between two such "
+                "values is not reported"
+            )
+    return texts
 
 
 def _workflow_grant(data: Any, *, source: str) -> dict[str, Any] | None:
@@ -1671,6 +1734,16 @@ def _collect_file(
                 issues.append(_inventory_issue(
                     kind="unsupported", host=host, source=source, message=uncompared, blocking=True,
                 ))
+            # An unread secret value narrows one entry, not the workflow, so it
+            # is named rather than blocking: coverage counts only blocking
+            # issues, and every other row on this file still reaches the
+            # reviewer (#693).
+            issues.extend(
+                _inventory_issue(
+                    kind="unsupported", host=host, source=source, message=text, blocking=False,
+                )
+                for text in uncompared_secret_mapping_texts(grant)
+            )
     elif host == "codex" and kind == "requirements":
         grants.extend(_codex_requirement_grants(data, scope=scope, source=source))
     elif host == "codex" and path.suffix == ".toml":

@@ -87,7 +87,9 @@ def _secret_mapping_reasons(gone: list[SecretMapping], new: list[SecretMapping])
     """Say whether a destination was added, removed, or now names another source.
 
     A destination on both sides whose facts differ is a changed source; one
-    on a single side was added or removed. The wording never ranks the names.
+    on a single side was added or removed. An entry whose value this audit does
+    not read is described as unread rather than named, so no sentence claims a
+    source name that was never seen. The wording never ranks the names.
     """
 
     def label(item: SecretMapping) -> str:
@@ -97,25 +99,56 @@ def _secret_mapping_reasons(gone: list[SecretMapping], new: list[SecretMapping])
     def destination(item: SecretMapping) -> tuple[str, str | None]:
         return item[0], item[1].get("destination")
 
+    def named(item: SecretMapping) -> bool:
+        return item[1].get("form") == "secret"
+
     arriving = {destination(item) for item in new}
-    leaving = {destination(item) for item in gone}
-    changed = [item for item in new if destination(item) in leaving]
-    added = [item for item in new if destination(item) not in leaving]
-    removed = [item for item in gone if destination(item) not in arriving]
+    before = {destination(item): item for item in gone}
+    groups: dict[str, list[SecretMapping]] = {}
+    for item in new:
+        was = before.get(destination(item))
+        if was is None:
+            groups.setdefault("added" if named(item) else "added_unread", []).append(item)
+        elif named(was) and named(item):
+            groups.setdefault("remapped", []).append(item)
+        elif named(item):
+            groups.setdefault("now_named", []).append(item)
+        elif named(was):
+            groups.setdefault("now_unread", []).append(item)
+        else:
+            groups.setdefault("reformed", []).append(item)
+    for item in gone:
+        if destination(item) not in arriving:
+            groups.setdefault("removed" if named(item) else "removed_unread", []).append(item)
+
     reasons = []
-    for items, wording in (
-        (changed, "a reusable workflow's secret now comes from a different named source"),
-        (added, "a reusable workflow is now passed a named secret"),
-        (removed, "a reusable workflow is no longer passed a named secret"),
+    for key, wording in (
+        ("remapped", "a reusable workflow's secret now comes from a different named source"),
+        ("now_named", "a reusable workflow's secret now comes from a named source, where its value was not readable before"),
+        ("now_unread", "a reusable workflow's secret no longer comes from a named source, and its new value is not readable"),
+        ("reformed", "a reusable workflow's secret is passed in a different unreadable form"),
+        ("added", "a reusable workflow is now passed a named secret"),
+        ("added_unread", "a reusable workflow is now passed a secret whose value is not readable"),
+        ("removed", "a reusable workflow is no longer passed a named secret"),
+        ("removed_unread", "a reusable workflow is no longer passed a secret whose value is not readable"),
     ):
+        items = groups.get(key)
         if items:
             labels = ", ".join(dict.fromkeys(label(item) for item in items))
             reasons.append(f"{wording} ({labels})")
     if reasons:
+        # Scoped to the mapping: the same row may also carry a real widening,
+        # such as a new `contents: write` or `secrets: inherit`, and this
+        # sentence must not appear to deny that one.
+        subject = (
+            "a secret's name"
+            if groups.keys() & {"remapped", "now_named", "now_unread", "added", "removed"}
+            else "an unreadable value's form"
+        )
         reasons.append(
-            "a secret's name does not establish its privilege, whether the caller "
-            "has it, or what the called workflow does with it, so this is not "
-            "reported as a widening"
+            f"{subject} does not establish the secret's privilege, whether the caller "
+            "has it, or what the called workflow does with it, so this mapping change "
+            "is not itself counted as a widening"
         )
     return reasons
 

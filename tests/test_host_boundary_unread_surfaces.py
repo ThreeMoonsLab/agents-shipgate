@@ -84,9 +84,16 @@ def test_the_named_secret_read_names_its_limits() -> None:
     # A name is not a privilege: the row never widens.
     assert "does not establish the secret's privilege" in section
     assert "never marks the row as widening" in section
-    # Unsupported forms stay a limit, not a guess.
-    assert "publishes nothing of its value and cannot be compared" in section
+    # Unsupported forms stay a limit, not a guess — and a named, non-blocking
+    # one, so the rest of the change still reaches the reviewer.
+    assert "publishes nothing of its value" in section
+    assert "a named, non-blocking limit that says which `job/destination` it is" in section
+    assert "GitHub coverage stays complete" in section
     assert "two values that redact alike never compare as unchanged" in section
+    # The workflow token and secret-name case are stated, not left to guess.
+    assert "`${{ github.token }}` is read as the same source as" in section
+    assert "Source names are compared case-insensitively, as GitHub references them" in section
+    assert "the callee's secret id is compared as written" in section
 
 
 def test_mcp_url_paths_are_named_as_unread() -> None:

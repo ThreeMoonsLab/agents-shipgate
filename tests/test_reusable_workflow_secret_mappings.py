@@ -3,10 +3,12 @@
 `secrets: {credential: ${{ secrets.STAGING_TOKEN }}}` becoming
 `${{ secrets.PRODUCTION_TOKEN }}` changed which declared source the callee is
 offered, and no route showed it. The name is compared, never the value, and a
-name says nothing about privilege, so the row never widens. A value Shipgate
-cannot publish or compare — a literal, another expression, a name or a
-reusable target that redacts — is a blocking limit rather than a guess, and
-two values that redact alike never compare as unchanged (#767).
+name says nothing about privilege, so the row never widens. A name or reusable
+target that redacts is a blocking limit rather than a guess, so two values that
+redact alike never compare as unchanged (#767). A value Shipgate cannot read —
+a literal or another expression — is a *named, non-blocking* limit: it narrows
+one entry, never the whole file, so an unchanged call passing one reads exactly
+as it does on published 1.0.0 (review cycle 1).
 """
 
 from __future__ import annotations
@@ -88,8 +90,10 @@ def test_the_observed_remap_is_one_named_changed_row_that_does_not_widen():
     assert "PRODUCTION" not in row.before and "STAGING" not in row.after
     assert "different named source (deploy/credential)" in row.why
     # Names are not ranked: no privilege, availability or downstream claim.
-    assert "does not establish its privilege, whether the caller has it, or what the called workflow does with it" in row.why
-    assert "not reported as a widening" in row.why
+    assert "a secret's name does not establish the secret's privilege, whether the caller has it, or what the called workflow does with it" in row.why
+    # Scoped to the mapping, so a row that also carries a real widening is not
+    # made to look benign by this sentence (#693 review cycle 1).
+    assert "so this mapping change is not itself counted as a widening" in row.why
     assert host_grant_expansion_signals(_changes(before, after)) == []
     old, new = (_workflow_grant(value, source=SOURCE) for value in (before, after))
     assert (old["access"], old["risk"]) == (new["access"], new["risk"])
@@ -225,7 +229,6 @@ _LITERAL = "LITERALSECRETCANARY-5f1d"
     [
         (_LITERAL, "literal_value"),
         ("", "literal_value"),
-        ("${{ github.token }}", "expression"),
         ("${{ secrets.A || secrets.B }}", "expression"),
         ("${{ secrets['STAGING_TOKEN'] }}", "expression"),
         (f"${{{{ format('{{0}}', '{_LITERAL}') }}}}", "expression"),
@@ -235,7 +238,7 @@ _LITERAL = "LITERALSECRETCANARY-5f1d"
         ({"nested": _LITERAL}, "not_a_string"),
     ],
     ids=[
-        "literal", "empty", "github-token", "fallback", "index-form", "literal-in-expression",
+        "literal", "empty", "fallback", "index-form", "literal-in-expression",
         "partial", "number", "null", "mapping",
     ],
 )
@@ -247,6 +250,65 @@ def test_an_unsupported_value_publishes_nothing_of_itself(value, reason):
     published = json.dumps(grant)
     assert _LITERAL not in published
     assert "github.token" not in published and "STAGING_TOKEN" not in published
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["${{ github.token }}", "${{  github.token  }}", "${{ secrets.GITHUB_TOKEN }}"],
+    ids=["github-token", "spaced", "secrets-spelling"],
+)
+def test_the_workflow_token_is_one_source_under_either_spelling(value):
+    """`github.token` is "functionally equivalent to the GITHUB_TOKEN secret"."""
+
+    entry, = _calls(_caller({"credential": value}))[0]["secret_mappings"]
+    assert entry == {
+        "destination": "credential", "source": "GITHUB_TOKEN",
+        "form": "secret", "unresolved_reason": None,
+    }
+
+
+def test_migrating_between_the_two_workflow_token_spellings_is_quiet():
+    assert _rows(
+        _caller({"credential": "${{ github.token }}"}),
+        _caller({"credential": "${{ secrets.GITHUB_TOKEN }}"}),
+    ) == []
+
+
+@pytest.mark.parametrize(
+    ("base", "head"),
+    [
+        ("staging_token", "STAGING_TOKEN"),
+        ("Staging_Token", "sTAGING_tOKEN"),
+        ("GITHUB_TOKEN", "github_token"),
+    ],
+    ids=["lower-to-upper", "mixed", "token"],
+)
+def test_a_case_only_source_edit_is_quiet(base, head):
+    """GitHub secret names "are case insensitive when referenced" (Secrets reference)."""
+
+    assert _rows(
+        _caller({"credential": f"${{{{ secrets.{base} }}}}"}),
+        _caller({"credential": f"${{{{ secrets.{head} }}}}"}),
+    ) == []
+    # The name is still published as written, never folded into the output.
+    entry, = _calls(_caller({"credential": f"${{{{ secrets.{head} }}}}"}))[0]["secret_mappings"]
+    assert entry["source"] == head
+
+
+def test_a_case_only_destination_edit_is_a_removal_and_an_addition():
+    """GitHub does not document `workflow_call` secret ids as case-insensitive."""
+
+    row, = _rows(_caller({"credential": "${{ secrets.T }}"}), _caller({"Credential": "${{ secrets.T }}"}))
+    assert "no longer passed a named secret (deploy/credential)" in row.why
+    assert "now passed a named secret (deploy/Credential)" in row.why
+
+
+def test_an_uppercase_secrets_context_stays_an_unread_expression():
+    """Only string *comparison* is documented case-insensitive, not a context name."""
+
+    entry, = _calls(_caller({"credential": "${{ SECRETS.STAGING_TOKEN }}"}))[0]["secret_mappings"]
+    assert entry["form"] == "unresolved" and entry["unresolved_reason"] == "expression"
+    assert entry["source"] is None
 
 
 @pytest.mark.parametrize("secrets", ["INHERIT", ["credential"], 7, True])
@@ -263,7 +325,14 @@ def test_an_empty_secrets_key_is_not_read_as_none_declared():
     assert call["secret_mappings"][0]["unresolved_reason"] == "secrets_not_a_mapping"
 
 
-def test_an_unsupported_mapping_is_a_blocking_github_limit(tmp_path):
+def test_an_unsupported_mapping_is_a_named_non_blocking_github_limit(tmp_path):
+    """The unread value narrows one entry, not the file: coverage stays complete.
+
+    A blocking issue here would make every other host row on the PR disappear
+    and refuse `--save-baseline`, for a value GitHub itself tells people to
+    pass (#693 review cycle 1). The `envFile` limit is the model.
+    """
+
     from agents_shipgate.cli.host_audit import host_audit_inventory
 
     path = tmp_path / SOURCE
@@ -272,11 +341,39 @@ def test_an_unsupported_mapping_is_a_blocking_github_limit(tmp_path):
 
     inventory = host_audit_inventory(tmp_path)
     issue, = [item for item in inventory["issues"] if item["host"] == "github"]
-    assert issue["kind"] == "unsupported" and issue["blocking"] is True
-    assert "secret mapping is a literal value, an expression or another unsupported form" in issue["message"]
+    assert issue["kind"] == "unsupported" and issue["blocking"] is False
+    assert issue["message"] == (
+        "the secret a reusable workflow call passes at deploy/credential is a literal "
+        "value; its value is neither published nor compared, so an edit between two "
+        "such values is not reported"
+    )
     coverage, = [item for item in inventory["host_coverage"] if item["host"] == "github"]
-    assert coverage["status"] == "partial"
+    assert coverage["status"] == "complete" and coverage["issue_ids"] == []
     assert _LITERAL not in json.dumps(inventory)
+
+
+@pytest.mark.parametrize(
+    ("secrets", "where", "phrase"),
+    [
+        ({"credential": _LITERAL}, "deploy/credential", "a literal value"),
+        ({"credential": "${{ inputs.x }}"}, "deploy/credential", "an expression this static audit does not evaluate"),
+        ({"credential": 12345}, "deploy/credential", "a value that is not a string"),
+        (["credential"], "deploy/secrets", "neither `inherit` nor a mapping of secret names"),
+    ],
+    ids=["literal", "expression", "not-a-string", "not-a-mapping"],
+)
+def test_every_unread_form_names_its_job_and_destination(tmp_path, secrets, where, phrase):
+    from agents_shipgate.cli.host_audit import host_audit_inventory
+
+    path = tmp_path / SOURCE
+    path.parent.mkdir(parents=True)
+    path.write_text(yaml.safe_dump(_caller(secrets)))
+
+    inventory = host_audit_inventory(tmp_path)
+    issue, = [item for item in inventory["issues"] if item["host"] == "github"]
+    assert issue["blocking"] is False and where in issue["message"] and phrase in issue["message"]
+    coverage, = [item for item in inventory["host_coverage"] if item["host"] == "github"]
+    assert coverage["status"] == "complete"
 
 
 # --- redaction: distinct values that display alike --------------------------------
@@ -440,8 +537,11 @@ def test_an_unchanged_redacted_reusable_target_is_a_named_limit_beside_other_row
     assert _TOKEN_A not in json.dumps(payload)
 
 
-def test_one_workflow_with_several_uncompared_values_names_each_in_one_limit():
-    from agents_shipgate.core.host_grants import _uncompared_workflow_text
+def test_one_workflow_with_several_redacted_texts_names_each_in_one_blocking_limit():
+    from agents_shipgate.core.host_grants import (
+        _uncompared_workflow_text,
+        uncompared_secret_mapping_texts,
+    )
 
     grant = _workflow_grant(
         {
@@ -459,10 +559,13 @@ def test_one_workflow_with_several_uncompared_values_names_each_in_one_limit():
     message = _uncompared_workflow_text(grant)
     assert message == (
         "a step action reference, a reusable workflow reference and a reusable workflow secret name "
-        "contain credential-shaped text; they are published redacted and cannot be compared; "
-        "a reusable workflow secret mapping is a literal value, an expression or another unsupported "
-        "form; its value is neither published nor compared"
+        "contain credential-shaped text; they are published redacted and cannot be compared"
     )
+    # The unread value is its own, non-blocking limit and names where it is.
+    assert uncompared_secret_mapping_texts(grant) == [
+        "the secret a reusable workflow call passes at call/literal is a literal value; its "
+        "value is neither published nor compared, so an edit between two such values is not reported"
+    ]
 
 
 @pytest.mark.parametrize(
@@ -503,21 +606,23 @@ def test_ordinary_secret_names_are_never_marked_redacted(destination, source):
 
 
 @pytest.mark.parametrize(
-    ("head", "canaries"),
+    ("head", "canaries", "blocking"),
     [
-        (_caller({"credential": _LITERAL}), [_LITERAL]),
-        (_caller({"credential": f"${{{{ format('{{0}}', '{_LITERAL}') }}}}"}), [_LITERAL]),
-        (_caller({"credential": f"${{{{ secrets.{_AWS_A} }}}}"}), [_AWS_A]),
-        (_caller({_GH_A: "${{ secrets.STAGING_TOKEN }}"}), [_GH_A]),
-        (_caller(uses=f"org/repo/.github/workflows/x.yml@token={_TOKEN_A}"), [_TOKEN_A]),
-        (_caller(uses=f"org/repo/.github/workflows/x.yml@{_GH_B}"), [_GH_B]),
+        (_caller({"credential": _LITERAL}), [_LITERAL], False),
+        (_caller({"credential": f"${{{{ format('{{0}}', '{_LITERAL}') }}}}"}), [_LITERAL], False),
+        (_caller({"credential": f"${{{{ secrets.{_AWS_A} }}}}"}), [_AWS_A], True),
+        (_caller({_GH_A: "${{ secrets.STAGING_TOKEN }}"}), [_GH_A], True),
+        (_caller(uses=f"org/repo/.github/workflows/x.yml@token={_TOKEN_A}"), [_TOKEN_A], True),
+        (_caller(uses=f"org/repo/.github/workflows/x.yml@{_GH_B}"), [_GH_B], True),
     ],
     ids=[
         "literal-value", "literal-inside-expression", "redacted-source-name",
         "redacted-destination-name", "job-uses-token-assignment", "job-uses-github-token",
     ],
 )
-def test_no_canary_or_digest_reaches_json_markdown_baselines_errors_or_pr_output(tmp_path, head, canaries):
+def test_no_canary_or_digest_reaches_json_markdown_baselines_errors_or_pr_output(
+    tmp_path, head, canaries, blocking
+):
     repo = _repo(tmp_path, {SOURCE: STAGING})
     baseline = tmp_path / "baseline.json"
     saved = _invoke("audit", "--host", "--workspace", str(repo), "--save-baseline", "--baseline-file", str(baseline))
@@ -528,18 +633,16 @@ def test_no_canary_or_digest_reaches_json_markdown_baselines_errors_or_pr_output
 
     inventory_run = _invoke("audit", "--host", "--workspace", str(repo), "--json")
     inventory = json.loads(inventory_run.stdout)
-    assert any(
-        issue["host"] == "github" and issue["kind"] == "unsupported" and issue["blocking"]
-        for issue in inventory["issues"]
-    )
+    issue, = [item for item in inventory["issues"] if item["host"] == "github"]
+    assert issue["kind"] == "unsupported" and issue["blocking"] is blocking
 
-    refused = tmp_path / "second.json"
+    second = tmp_path / "second.json"
     texts = [_output(inventory_run), baseline.read_text()]
     for args in (
         ["audit", "--host", "--workspace", str(repo)],
         ["audit", "--host", "--workspace", str(repo), "--drift", "--baseline-file", str(baseline), "--json"],
         ["audit", "--host", "--workspace", str(repo), "--drift", "--baseline-file", str(baseline)],
-        ["audit", "--host", "--workspace", str(repo), "--save-baseline", "--baseline-file", str(refused)],
+        ["audit", "--host", "--workspace", str(repo), "--save-baseline", "--baseline-file", str(second)],
         ["diff", "--workspace", str(repo), "--base", "main", "--json"],
         ["diff", "--workspace", str(repo), "--base", "main"],
     ):
@@ -551,8 +654,11 @@ def test_no_canary_or_digest_reaches_json_markdown_baselines_errors_or_pr_output
     texts.append((reports / "pr-comment.md").read_text())
     texts.append((reports / "verifier.json").read_text())
 
-    # An incomplete inventory is never acknowledged, so no baseline holds it.
-    assert not refused.exists()
+    # An incomplete inventory is never acknowledged, so no baseline holds it;
+    # a complete one saves, and the saved bytes are swept for the canary too.
+    assert second.exists() is not blocking
+    if second.exists():
+        texts.append(second.read_text())
     combined = "\n".join(texts)
     for canary in canaries:
         assert canary not in combined
@@ -731,3 +837,181 @@ def test_a_saved_baseline_listing_mappings_out_of_order_still_compares_equal(tmp
 
     drift = build_host_drift_payload(baseline=baseline, inventory=inventory, baseline_file="b.json")
     assert drift["changes"] == []
+
+
+# --- an unread value narrows one entry, never the pull request (cycle 1) -------------
+
+#: Spellings whose value this audit cannot read. `${{ github.token }}` is not
+#: here: it is now typed as the `GITHUB_TOKEN` source.
+_UNREAD_VALUES = {
+    "literal": _LITERAL,
+    "index-form": "${{ secrets['STAGING_TOKEN'] }}",
+    "inputs": "${{ inputs.deploy_token }}",
+    "vars": "${{ vars.DEPLOY_TOKEN }}",
+    "fallback": "${{ secrets.A || secrets.B }}",
+    "not-a-string": 7,
+}
+
+_SETTINGS = ".claude/settings.json"
+
+
+def _settings(*rules: str) -> str:
+    return json.dumps({"permissions": {"allow": list(rules)}}, indent=2) + "\n"
+
+
+def _branch(tmp_path, base: dict, head: dict) -> Path:
+    repo = _repo(tmp_path, {_SETTINGS: _settings("Bash(ls:*)"), **base})
+    _git(repo, "checkout", "-qb", "change")
+    _write(repo, head)
+    _git(repo, "commit", "-qam", "head")
+    return repo
+
+
+def _check(repo: Path, fmt: str):
+    return _invoke("check", "--workspace", str(repo), "--base", "main", "--head", "HEAD", "--format", fmt)
+
+
+@pytest.mark.parametrize("value", list(_UNREAD_VALUES.values()), ids=list(_UNREAD_VALUES))
+def test_an_unchanged_call_with_an_unread_value_never_flips_check(tmp_path, value):
+    """P1: a README-only PR must read exactly as it does on published 1.0.0.
+
+    The unread value is one entry's limit. Blocking on it made `check` require
+    review, GitHub coverage partial, `--save-baseline` refuse and drift
+    incomplete, for a workflow the change never touched.
+    """
+
+    repo = _branch(
+        tmp_path,
+        {SOURCE: _yaml(_caller({"credential": value})), "README.md": "base\n"},
+        {"README.md": "head\n"},
+    )
+
+    boundary = _check(repo, "agent-boundary-json")
+    assert boundary.exit_code == 0, _output(boundary)
+    payload = json.loads(boundary.stdout)
+    assert (payload["decision"], payload["comparison_status"]) == ("allow", "comparable")
+    assert payload["incomparable_reasons"] == [] and payload["rows"] == []
+
+    control = _check(repo, "agent-control-json")
+    envelope = json.loads(control.stdout)
+    assert envelope["decision"] == "allow" and envelope["permissions"]["merge"] is True
+    assert envelope["capability_rows"]["comparison_status"] == "comparable"
+    assert envelope["capability_rows"]["unchanged_limit_count"] == 0
+
+    text = _check(repo, "text")
+    assert text.exit_code == 0 and "unchanged_limits_not_representable" not in _output(text)
+
+    saved = _invoke("audit", "--host", "--workspace", str(repo), "--save-baseline")
+    assert saved.exit_code == 0, _output(saved)
+    drift = _invoke(
+        "audit", "--host", "--workspace", str(repo), "--drift", "--json", "--fail-on-drift"
+    )
+    assert drift.exit_code == 0, _output(drift)
+    assert json.loads(drift.stdout)["comparison_status"] == "comparable"
+
+    inventory = json.loads(_invoke("audit", "--host", "--workspace", str(repo), "--json").stdout)
+    coverage, = [item for item in inventory["host_coverage"] if item["host"] == "github"]
+    assert coverage["status"] == "complete"
+    issue, = [item for item in inventory["issues"] if item["host"] == "github"]
+    assert issue["blocking"] is False and "deploy/credential" in issue["message"]
+
+    assert _diff(repo)["comparison_status"] == "comparable"
+
+
+@pytest.mark.parametrize("value", list(_UNREAD_VALUES.values()), ids=list(_UNREAD_VALUES))
+def test_an_unrelated_host_change_keeps_its_row_beside_an_unread_value(tmp_path, value):
+    repo = _branch(
+        tmp_path,
+        {SOURCE: _yaml(_caller({"credential": value}))},
+        {_SETTINGS: _settings("Bash(ls:*)", "Bash(curl:*)")},
+    )
+
+    payload = json.loads(_check(repo, "agent-boundary-json").stdout)
+    assert payload["comparison_status"] == "comparable"
+    row, = payload["rows"]
+    # `check` redacts permission arguments, so the row is identified by subject.
+    assert row["subject"] == f"claude-code {_SETTINGS}" and row["direction"] == "added"
+    assert _diff(repo)["rows"][0]["after"].count("curl") == 1
+
+
+@pytest.mark.parametrize("value", list(_UNREAD_VALUES.values()), ids=list(_UNREAD_VALUES))
+def test_a_widening_workflow_edit_still_shows_every_row(tmp_path, value):
+    """P1-2: editing the workflow must not delete the host rows of the PR."""
+
+    repo = _branch(
+        tmp_path,
+        {SOURCE: _yaml(_caller({"credential": value}))},
+        {
+            SOURCE: _yaml(_caller({"credential": value}, permissions={"contents": "write"})),
+            _SETTINGS: _settings("Bash(ls:*)", "Bash(curl:*)"),
+        },
+    )
+
+    payload = _diff(repo)
+    assert payload["comparison_status"] == "comparable"
+    assert {row["subject"] for row in payload["rows"]} == {
+        f"github {SOURCE}", f"claude-code {_SETTINGS}"
+    }
+    assert all(row["expands"] for row in payload["rows"])
+
+    boundary = json.loads(_check(repo, "agent-boundary-json").stdout)
+    assert boundary["comparison_status"] == "comparable" and len(boundary["rows"]) == 2
+
+
+def test_the_workflow_token_migration_is_quiet_and_comparable_on_every_route(tmp_path):
+    repo = _branch(
+        tmp_path,
+        {SOURCE: _yaml(_caller({"credential": "${{ github.token }}"}))},
+        {SOURCE: _yaml(_caller({"credential": "${{ secrets.GITHUB_TOKEN }}"}))},
+    )
+
+    payload = _diff(repo)
+    assert (payload["comparison_status"], payload["rows"], payload["unchanged_limits"]) == (
+        "comparable", [], [],
+    )
+    boundary = json.loads(_check(repo, "agent-boundary-json").stdout)
+    assert (boundary["comparison_status"], boundary["rows"]) == ("comparable", [])
+    inventory = json.loads(_invoke("audit", "--host", "--workspace", str(repo), "--json").stdout)
+    assert [item for item in inventory["issues"] if item["host"] == "github"] == []
+
+
+def test_a_literal_value_edit_is_a_named_limit_and_publishes_no_canary(tmp_path):
+    """An edit between two unreadable values is named, never guessed or digested."""
+
+    other = "LITERALSECRETCANARY-b2e9"
+    repo = _branch(
+        tmp_path,
+        {SOURCE: _yaml(_caller({"credential": _LITERAL}))},
+        {SOURCE: _yaml(_caller({"credential": other}))},
+    )
+
+    payload = _diff(repo)
+    assert (payload["comparison_status"], payload["rows"]) == ("comparable", [])
+    inventory_run = _invoke("audit", "--host", "--workspace", str(repo), "--json")
+    issue, = [
+        item for item in json.loads(inventory_run.stdout)["issues"] if item["host"] == "github"
+    ]
+    assert issue["blocking"] is False
+    assert issue["message"] == (
+        "the secret a reusable workflow call passes at deploy/credential is a literal "
+        "value; its value is neither published nor compared, so an edit between two "
+        "such values is not reported"
+    )
+
+    verify = _invoke(
+        "verify", "--workspace", str(repo), "--base", "main", "--head", "HEAD", "--format", "text"
+    )
+    assert verify.exit_code == 0, _output(verify)
+    reports = repo / "agents-shipgate-reports"
+    combined = "\n".join([
+        json.dumps(payload),
+        _output(inventory_run),
+        _output(_invoke("audit", "--host", "--workspace", str(repo))),
+        _output(verify),
+        (reports / "pr-comment.md").read_text(),
+        (reports / "verifier.json").read_text(),
+    ])
+    for canary in (_LITERAL, other):
+        assert canary not in combined
+        for digest in _digests(canary):
+            assert digest not in combined

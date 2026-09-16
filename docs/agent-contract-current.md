@@ -16,8 +16,9 @@ job passes to a reusable workflow (#693): a reusable call adds
 `secret_mappings[]` (the destination, the source name from
 `${{ secrets.NAME }}`, `form` and `unresolved_reason`) and `uses_redacted`.
 Pointing a destination at a different source is a `changed` row with
-`expands: false`; a literal, another expression, or a reusable target or
-secret name that redacts is a blocking limit rather than a comparison. See
+`expands: false`; a reusable target or secret name that redacts is a blocking
+limit rather than a comparison, while a literal or another expression is a
+named non-blocking limit that leaves coverage complete. See
 [the migration note](../STABILITY.md#reusable-workflow-secret-mappings-contract-v40-693).
 
 Previous runtime contract v39 reads through an in-tree link at a boundary path (#700).
