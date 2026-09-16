@@ -116,20 +116,41 @@ redact alike never compare as unchanged.
 
 A workflow's labels are published redacted (#802). A job id, a step's `id` or
 `name`, a trigger and a permission scope name go through the same redaction as
-step text, and the userinfo of any `scheme://…@` inside one is replaced, so a
+step text, and any userinfo after `scheme://` inside one is replaced, so a
 job id shaped like `ghp_…` reads `[REDACTED:github_token]` and a step named
 `Pull docker://ci:<password>@gcr.io/proj/img` reads
-`Pull docker://<redacted>@gcr.io/proj/img`. Each label is computed once and
-used by every field, row and `check` evidence entry that names it, and
-`config_sha256` is computed over it. Ordinary names such as `build`,
-`deploy-prod`, `secret-scan` or `token-refresh` are unchanged; a name that only
-looks like a token, such as `sk-integration-tests-matrix`, is redacted too. A
-single redacted label still compares, so it costs nothing on any route. Two
-distinct job ids, triggers or scope names in one workflow that publish alike
-would compare as one, so they refuse the same way a redacted step reference
-does. Renaming a lone redacted label to another that redacts alike is not a
-row, and a step label is read for userinfo only after `scheme://`, so a
-scheme-less `user:password@host` in a step name is not read as userinfo.
+`Pull docker://<redacted>@gcr.io/proj/img`. Each label is computed once, where
+the workflow grant is built, and used by every field and row that names it,
+and `config_sha256` is computed over it. `check`'s workflow evidence is
+derived from the raw declarations, which it still compares, and redacts
+`evidence.job` and `evidence.scope` by the same rule. Ordinary names such as
+`build`, `deploy-prod`, `secret-scan` or `token-refresh` are unchanged. A name
+that only looks like a token, such as `sk-integration-tests-matrix`, is
+redacted too, and so is userinfo that holds no credential, such as `git@` in
+an `ssh://` URL. A single redacted label still compares, so it costs nothing
+on any route.
+
+Two distinct job ids or triggers in one workflow, or two scope names in one
+`permissions` mapping, that publish alike would compare as one, so they refuse
+the same way a redacted step reference does. That limit lasts as long as the
+workflow holds both names, whether or not a pull request changes it: `check`
+refuses on every run, because its boundary result cannot carry a limit;
+`audit --host --save-baseline` exits `2`; and drift is incomparable. Only
+`diff` and `verify` compare past an unchanged workflow and name it in
+`unchanged_limits`. Two ordinary ids such as `sk-integration-tests-matrix` and
+`sk-integration-tests-linux-arm` collide this way. Renaming one of them clears
+it once the rename is on the base branch; the pull request that renames it
+still refuses against its base.
+
+Renaming a lone redacted label to another that redacts alike (`ghp_A…` →
+`ghp_B…`) is not a row in `diff`, `check` or `verify`. The workflow file's
+artifact `redacted_sha256` is still a digest of the whole parsed file, as on
+`1.0.0`, so drift reports that rename, or an edit to only the password in a
+step name, once as an artifact change with no grant change, and
+`--fail-on-drift` exits `20`. `check` reads the raw declarations, so renaming
+a job that declares `write-all` blocks there as a new `write-all` job. A step
+label is read for userinfo only after `scheme://`, so a scheme-less
+`user:password@host` in a step name is not read as userinfo.
 
 A hook row states its loading basis (#714). Parsing a hook file proves the
 file exists, not that a host loads it, so hooks are published four ways:

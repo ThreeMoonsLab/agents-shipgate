@@ -1201,13 +1201,19 @@ def _cursor_grants(data: Any, *, scope: HostScope, source: str) -> list[dict[str
     return grants
 
 
+#: How much a declared scope level grants, for scopes that publish alike (#802).
+_LEVEL_WIDTH = {"read": 1, "write": 2}
+
+
 def _workflow_permissions(value: Any, job: str, collided: set[str]) -> dict[str, Any]:
     """Normalize one job's effective declaration, retaining unknown defaults.
 
     ``job`` is the job's published label. Scope names publish through the same
     label rule (#802); every declared scope counts toward a collision, a
     ``none`` one too, because it is what separates two declarations that
-    would otherwise publish alike.
+    would otherwise publish alike. Scopes that publish alike keep the widest
+    level among them, so a collision (itself a blocking limit) never reads a
+    declared ``write`` as ``read``.
     """
     state = "explicit"
     permissions: dict[str, str] = {}
@@ -1220,11 +1226,10 @@ def _workflow_permissions(value: Any, job: str, collided: set[str]) -> dict[str,
         for scope, level in value.items()
     ):
         shown = _published_labels(value, kind=_SCOPE_LABELS, collided=collided)
-        permissions = {
-            shown[scope]: level
-            for scope, level in sorted(value.items(), key=lambda item: (shown[item[0]], item[0]))
-            if level != "none"
-        }
+        for scope, level in sorted(value.items(), key=lambda item: (shown[item[0]], item[0])):
+            label = shown[scope]
+            if level != "none" and _LEVEL_WIDTH[level] > _LEVEL_WIDTH.get(permissions.get(label, ""), 0):
+                permissions[label] = level
     else:
         state = "unresolved"
     return {"job": job, "state": state, "permissions": permissions}

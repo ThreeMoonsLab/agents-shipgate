@@ -492,8 +492,13 @@ def test_workflow_write_all_blocks(tmp_path: Path) -> None:
 def test_credential_shaped_job_and_scope_names_are_redacted_in_evidence(
     tmp_path: Path,
 ) -> None:
-    """#802: evidence publishes a job id and scope by the host-grants label rule."""
+    """#802: evidence publishes a job id and scope by the host-grants label rule.
+
+    `old` publishes only a level GitHub accepts, so an earlier level holding
+    other text is `None` rather than repeated.
+    """
     job, scope = "ghp_" + "J" * 36, "AKIA" + "S" * 16
+    expanded_job, old_level = "xoxb-" + "E" * 16, "ghp_" + "L" * 36
     old_text = (
         "on: push\n"
         "jobs:\n"
@@ -501,6 +506,12 @@ def test_credential_shaped_job_and_scope_names_are_redacted_in_evidence(
         "    runs-on: ubuntu-latest\n"
         "    steps:\n"
         "      - run: make release\n"
+        f"  {expanded_job}:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    permissions:\n"
+        f"      contents: {old_level}\n"
+        "    steps:\n"
+        "      - run: make publish\n"
         "  token-refresh:\n"
         "    runs-on: ubuntu-latest\n"
         "    steps:\n"
@@ -514,7 +525,7 @@ def test_credential_shaped_job_and_scope_names_are_redacted_in_evidence(
             "  token-refresh:\n    runs-on: ubuntu-latest\n",
             "  token-refresh:\n    runs-on: ubuntu-latest\n    permissions:\n"
             f"      {scope}: write\n      secret-scan: write\n",
-        )
+        ).replace(f"contents: {old_level}", "contents: write")
     )
     _write(tmp_path, ".github/workflows/ci.yml", old_text)
     diff = _change_diff(".github/workflows/ci.yml", old_text, new_text)
@@ -540,6 +551,13 @@ def test_credential_shaped_job_and_scope_names_are_redacted_in_evidence(
             (
                 "SHIP-HOST-BOUNDARY-WORKFLOW-PERMISSIONS-EXPANDED",
                 {
+                    "kind": "workflow_permissions_expanded", "job": "[REDACTED:slack_token]",
+                    "scope": "contents", "old": None, "new": "write",
+                },
+            ),
+            (
+                "SHIP-HOST-BOUNDARY-WORKFLOW-PERMISSIONS-EXPANDED",
+                {
                     "kind": "workflow_permissions_expanded", "job": "token-refresh",
                     "scope": "secret-scan", "old": None, "new": "write",
                 },
@@ -547,7 +565,8 @@ def test_credential_shaped_job_and_scope_names_are_redacted_in_evidence(
         )
     )
     published = json.dumps([f.model_dump(mode="json") for f in findings])
-    assert job not in published and scope not in published
+    for canary in (job, scope, expanded_job, old_level):
+        assert canary not in published
 
 
 def test_pull_request_target_added(tmp_path: Path) -> None:

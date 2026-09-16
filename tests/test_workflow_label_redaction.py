@@ -114,12 +114,14 @@ def _rows(before, after):
             ("HTTPSCANARY",),
         ),
         ("login token=ASSIGNCANARY", "login token=<redacted>", ("ASSIGNCANARY",)),
+        # Any userinfo after `scheme://` is redacted, credential or not.
+        ("Clone ssh://USERCANARY@example.com/org/repo", "Clone ssh://<redacted>@example.com/org/repo", ("USERCANARY",)),
     ],
     ids=[
         "github-token", "aws-key", "slack-token", "token-inside-id", "docker-userinfo",
         "uppercase-scheme", "slash-at-colon-in-password", "userinfo-and-digest",
         "punctuation-in-password", "two-tokens",
-        "https-userinfo", "token-assignment",
+        "https-userinfo", "token-assignment", "any-userinfo",
     ],
 )
 def test_a_credential_shaped_label_publishes_redacted(value, published, secrets):
@@ -285,6 +287,27 @@ def test_two_distinct_labels_that_publish_alike_are_a_blocking_limit(kind):
     )
     for canary in (_GH_A, _GH_B):
         assert canary not in json.dumps(grant)
+
+
+@pytest.mark.parametrize(
+    "scopes",
+    [{_GH_A: "write", _GH_B: "read"}, {_GH_A: "read", _GH_B: "write"}, {_GH_A: "write", _GH_B: "none"}],
+    ids=["write-then-read", "read-then-write", "write-then-none"],
+)
+def test_scope_names_that_publish_alike_keep_the_widest_level(scopes):
+    """A collision refuses, but the grant it publishes never reads a declared write as read."""
+
+    collided: set[str] = set()
+    grant = _grant(
+        {"on": "push", "jobs": {"build": {"permissions": scopes, "steps": [{"uses": "actions/checkout@v4"}]}}},
+        collided,
+    )
+
+    assert collided == {"permission scope names"}
+    context, = grant["permission_contexts"]
+    assert context["permissions"] == {"[REDACTED:github_token]": "write"}
+    assert grant["effective_write_scopes"] == ["build: [REDACTED:github_token]: write"]
+    assert (grant["access"], grant["risk"]) == ("write", "high")
 
 
 def _swapped_steps(first: str, second: str) -> tuple[dict, dict]:
@@ -471,6 +494,7 @@ def test_no_label_canary_or_digest_reaches_any_published_output(tmp_path):
     _branch(repo, {SOURCE: HEAD_WORKFLOW, SETTINGS: _settings("Bash(npm *)")})
 
     inventory_run = _invoke("audit", "--host", "--workspace", str(repo), "--json")
+    assert inventory_run.exit_code == 0, _output(inventory_run)
     inventory = json.loads(inventory_run.stdout)
     github, = [item for item in inventory["host_coverage"] if item["host"] == "github"]
     assert github["status"] == "complete" and inventory["issues"] == []
@@ -479,24 +503,38 @@ def test_no_label_canary_or_digest_reaches_any_published_output(tmp_path):
     head_baseline = tmp_path / "head-baseline.json"
     drift_args = ["audit", "--host", "--workspace", str(repo), "--drift", "--baseline-file", str(baseline)]
     check_args = ["check", "--workspace", str(repo), "--base", "main", "--head", "HEAD"]
-    for name, args in {
-        "audit-markdown": ["audit", "--host", "--workspace", str(repo)],
-        "drift-json": [*drift_args, "--json"],
-        "drift-markdown": drift_args,
-        "head-baseline": ["audit", "--host", "--workspace", str(repo), "--save-baseline", "--baseline-file", str(head_baseline)],
-        "diff-json": ["diff", "--workspace", str(repo), "--base", "main", "--json"],
-        "diff-text": ["diff", "--workspace", str(repo), "--base", "main"],
-        "check-agent-boundary-json": [*check_args, "--format", "agent-boundary-json"],
-        "check-agent-control-json": [*check_args, "--format", "agent-control-json"],
-        "check-text": [*check_args, "--format", "text"],
-        "verify-text": ["verify", "--workspace", str(repo), "--base", "main", "--head", "HEAD", "--format", "text"],
+    # Each command must run and say what it was asked, so an absent canary is
+    # evidence rather than an empty or crashed output. The Markdown audit and
+    # drift print no job label, so they are held to their own heading.
+    labelled = "[REDACTED:aws_access_key]"
+    for name, (args, marker) in {
+        "audit-markdown": (["audit", "--host", "--workspace", str(repo)], "| github | complete | 1 |"),
+        "drift-json": ([*drift_args, "--json"], labelled),
+        "drift-markdown": (drift_args, f"workflow_write_changed: {SOURCE}"),
+        "head-baseline": (
+            ["audit", "--host", "--workspace", str(repo), "--save-baseline", "--baseline-file", str(head_baseline)],
+            "Host-grants baseline created",
+        ),
+        "diff-json": (["diff", "--workspace", str(repo), "--base", "main", "--json"], labelled),
+        "diff-text": (["diff", "--workspace", str(repo), "--base", "main"], labelled),
+        "check-agent-boundary-json": ([*check_args, "--format", "agent-boundary-json"], labelled),
+        "check-agent-control-json": ([*check_args, "--format", "agent-control-json"], labelled),
+        "check-text": ([*check_args, "--format", "text"], labelled),
+        "verify-text": (
+            ["verify", "--workspace", str(repo), "--base", "main", "--head", "HEAD", "--format", "text"], labelled,
+        ),
     }.items():
         result = _invoke(*args)
         texts[name] = _output(result)
+        assert result.exit_code == 0, (name, texts[name])
+        assert marker in texts[name], (name, texts[name])
     texts["head-baseline-file"] = head_baseline.read_text()
     reports = repo / "agents-shipgate-reports"
     texts["pr-comment.md"] = (reports / "pr-comment.md").read_text()
     texts["verifier.json"] = (reports / "verifier.json").read_text()
+    for name in ("inventory", "head-baseline-file", "pr-comment.md", "verifier.json"):
+        assert labelled in texts[name], name
+    assert "[REDACTED:github_token]" in texts["baseline"]
 
     # The change is still read and shown, under the published labels.
     drift = json.loads(texts["drift-json"])
@@ -566,6 +604,60 @@ def test_a_lone_redacted_job_id_never_refuses_the_shell_permission_rows(tmp_path
     assert job not in json.dumps(payload) + json.dumps(boundary) + json.dumps(inventory)
 
 
+@pytest.mark.parametrize("edit", ["rename-job", "step-password"])
+def test_an_edit_only_the_raw_file_holds_is_no_row_but_drifts_once_as_an_artifact(tmp_path, edit):
+    """The documented limit: the grant cannot tell the two apart, the artifact `redacted_sha256` can.
+
+    Renaming a lone `ghp_A…` job to `ghp_B…`, or editing only the password in
+    a step name, publishes the same grant, so `diff` shows no row. The file's
+    artifact digest is still taken over the whole parsed file, as on `1.0.0`,
+    so drift reports it once with no grant change. `check` evaluates the raw
+    declarations, so a renamed `write-all` job reads there as a new one.
+    """
+
+    def workflow(job: str, password: str) -> str:
+        return yaml.safe_dump(
+            {
+                "on": "pull_request",
+                "permissions": {"contents": "read"},
+                "jobs": {job: {"permissions": "write-all", "steps": [
+                    {"name": f"Pull docker://ci:{password}@gcr.io/proj/img", "uses": "actions/checkout@v4"},
+                ]}},
+            },
+            sort_keys=False,
+        )
+
+    repo = _repo(tmp_path, {SOURCE: workflow(_GH_A, "FIRSTPASSWORD")})
+    baseline = tmp_path / "baseline.json"
+    saved = _invoke("audit", "--host", "--workspace", str(repo), "--save-baseline", "--baseline-file", str(baseline))
+    assert saved.exit_code == 0, _output(saved)
+    _branch(repo, {SOURCE: workflow(_GH_B, "FIRSTPASSWORD") if edit == "rename-job" else workflow(_GH_A, "SECONDPASSWORD")})
+
+    payload = _diff(repo)
+    assert (payload["comparison_status"], payload["rows"], payload["unchanged_limits"]) == ("comparable", [], [])
+    boundary = json.loads(
+        _invoke("check", "--workspace", str(repo), "--base", "main", "--head", "HEAD", "--format", "agent-boundary-json").stdout
+    )
+    assert (boundary["comparison_status"], boundary["rows"]) == ("comparable", [])
+    write_all = [item for item in boundary["violations"] if item["check_id"] == "SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL"]
+    if edit == "rename-job":
+        assert boundary["decision"] == "block"
+        assert [item["evidence"] for item in write_all] == [{"kind": "workflow_write_all", "job": "[REDACTED:github_token]"}]
+    else:
+        assert write_all == []
+
+    drift_args = ["audit", "--host", "--workspace", str(repo), "--drift", "--baseline-file", str(baseline)]
+    drift = json.loads(_invoke(*drift_args, "--json").stdout)
+    assert (drift["comparison_status"], drift["has_drift"], drift["changes"]) == ("comparable", True, [])
+    change, = drift["artifact_changes"]
+    assert change["baseline"]["path"] == SOURCE
+    assert change["baseline"]["redacted_sha256"] != change["current"]["redacted_sha256"]
+    assert _invoke(*drift_args, "--fail-on-drift", "--json").exit_code == 20
+    published = json.dumps(payload) + json.dumps(boundary) + json.dumps(drift)
+    for canary in (_GH_A, _GH_B, "FIRSTPASSWORD", "SECONDPASSWORD"):
+        assert canary not in published
+
+
 def test_a_changed_workflow_whose_job_ids_collide_refuses_and_an_unchanged_one_is_named(tmp_path):
     base, head = (yaml.safe_dump(value, sort_keys=False) for value in _swapped_steps(_GH_A, _GH_B))
     other = ".github/workflows/release.yml"
@@ -597,3 +689,81 @@ def test_a_changed_workflow_whose_job_ids_collide_refuses_and_an_unchanged_one_i
     combined = json.dumps(unchanged) + json.dumps(changed) + _output(audit) + _output(text)
     for canary in (_GH_A, _GH_B):
         assert canary not in combined
+
+
+def test_an_unchanged_collision_refuses_check_save_baseline_and_drift_until_a_job_is_renamed(tmp_path):
+    """Only `diff` and `verify` compare past an unchanged collision; `check`, the baseline and drift refuse.
+
+    Two ordinary `sk-…` job ids both publish as a redacted OpenAI key, so the
+    workflow carries a blocking limit on every run while both ids exist, even
+    when the pull request changes nothing but a Claude Code shell permission.
+    """
+
+    def workflow(second: str) -> str:
+        return yaml.safe_dump(
+            {
+                "on": "pull_request",
+                "permissions": {"contents": "read"},
+                "jobs": {
+                    "sk-integration-tests-matrix": {"steps": [{"uses": "actions/checkout@v4"}]},
+                    second: {"steps": [{"uses": "actions/checkout@v4"}]},
+                },
+            },
+            sort_keys=False,
+        )
+
+    colliding, renamed = workflow("sk-integration-tests-linux-arm"), workflow("integration-tests-linux-arm")
+    repo = _repo(tmp_path, {SOURCE: colliding, SETTINGS: _settings("Bash(npm test:*)")})
+    _branch(repo, {SETTINGS: _settings("Bash(npm *)")})
+    check_args = ["check", "--workspace", str(repo), "--base", "main", "--head", "HEAD", "--format", "agent-boundary-json"]
+
+    # `diff` compares past the unchanged workflow and names it.
+    payload = _diff(repo)
+    assert payload["comparison_status"] == "comparable"
+    assert {row["subject"] for row in payload["rows"]} == {f"claude-code {SETTINGS}"}
+    limit, = payload["unchanged_limits"]
+    assert limit["source"] == SOURCE and "distinct job ids in this workflow publish alike" in limit["detail"]
+
+    # `check` cannot carry the limit, so it refuses on every such run (#721).
+    boundary = json.loads(_invoke(*check_args).stdout)
+    assert (boundary["comparison_status"], boundary["incomparable_reasons"], boundary["rows"]) == (
+        "incomparable", ["unchanged_limits_not_representable"], [],
+    )
+    assert boundary["decision"] == "require_review"
+    assert {"check_id": "SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE", "path": SOURCE} in [
+        {"check_id": item["check_id"], "path": item["path"]} for item in boundary["violations"]
+    ]
+
+    # A baseline cannot acknowledge the limit.
+    baseline = tmp_path / "baseline.json"
+    save = ["audit", "--host", "--workspace", str(repo), "--save-baseline", "--baseline-file", str(baseline)]
+    refused = _invoke(*save)
+    assert refused.exit_code == 2, _output(refused)
+    assert "incomplete or experimental" in _output(refused) and not baseline.exists()
+
+    # Drift against a baseline saved before the collision is incomparable.
+    _write(repo, {SOURCE: renamed})
+    saved = _invoke(*save)
+    assert saved.exit_code == 0, _output(saved)
+    _write(repo, {SOURCE: colliding})
+    drift = _invoke("audit", "--host", "--workspace", str(repo), "--drift", "--json", "--baseline-file", str(baseline))
+    report = json.loads(drift.stdout)
+    assert (report["comparison_status"], report["has_drift"]) == ("incomparable", None)
+    assert "current_inventory_incomplete" in report["incomparable_reasons"]
+    failing = _invoke(
+        "audit", "--host", "--workspace", str(repo), "--drift", "--fail-on-drift", "--json", "--baseline-file", str(baseline)
+    )
+    assert failing.exit_code == 20, _output(failing)
+
+    # Once the rename is on the base branch, every route compares again.
+    _git(repo, "checkout", "-q", "main")
+    _write(repo, {SOURCE: renamed})
+    _git(repo, "commit", "-qam", "rename a job")
+    _git(repo, "checkout", "-q", "change")
+    _git(repo, "merge", "-q", "--no-edit", "main")
+    renamed_boundary = json.loads(_invoke(*check_args).stdout)
+    assert renamed_boundary["comparison_status"] == "comparable"
+    assert any(row["subject"] == f"claude-code {SETTINGS}" for row in renamed_boundary["rows"])
+    baseline.unlink()
+    resaved = _invoke(*save)
+    assert resaved.exit_code == 0, _output(resaved)

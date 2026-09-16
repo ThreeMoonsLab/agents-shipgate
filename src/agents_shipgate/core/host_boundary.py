@@ -1014,10 +1014,23 @@ def _is_write(value: Any) -> bool:
     return isinstance(value, str) and value.strip() == "write"
 
 
+#: The access levels GitHub accepts for one permission scope.
+_SCOPE_LEVELS = frozenset({"read", "write", "none"})
+
+
 def _scope_value(old_perms: Any, scope: Any) -> str | None:
+    """The earlier level of ``scope``, as evidence may publish it.
+
+    Only a level GitHub accepts is published. Any other text, which GitHub
+    rejects, is ``None``, as a non-string level is, so evidence never repeats
+    free text from the declaration (#802).
+    """
     if isinstance(old_perms, dict):
         value = old_perms.get(scope)
-        return value.strip() if isinstance(value, str) else None
+        if not isinstance(value, str):
+            return None
+        stripped = value.strip()
+        return stripped if stripped in _SCOPE_LEVELS else None
     if isinstance(old_perms, str):
         stripped = old_perms.strip()
         if stripped == "write-all":
