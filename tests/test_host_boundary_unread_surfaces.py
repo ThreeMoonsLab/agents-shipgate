@@ -83,10 +83,38 @@ def test_mcp_url_paths_are_named_as_unread() -> None:
     assert "(#772)" in section
 
 
+def test_subagent_frontmatter_hooks_are_named_as_unread() -> None:
+    section = _section()
+    assert "Hooks in subagent frontmatter" in section
+    assert "`.claude/agents/*.md`" in section
+
+
 def test_a_hook_row_is_not_described_as_proof_of_loading() -> None:
     section = _section()
-    assert "does not establish that Claude Code loads it" in section
-    assert "(#714)" in section
+    assert "A hook row states its loading basis (#714)" in section
+    assert "No row is proof that a hook ran" in section
+    # The four published bases and the limit that remains for each.
+    assert "Selected by a plugin this repository's project settings enable" in section
+    assert "`extraKnownMarketplaces`" in section
+    assert "Selected by a plugin** in the repository, without that enablement" in section
+    assert "`.claude-plugin/marketplace.json`" in section
+    assert "`risk: medium`" in section
+    assert "Selected by nothing" in section
+    assert "`access: unknown`" in section
+    assert "A removal names no basis" in section
+    # Review cycle 2: enablement is read only where the repository proves it.
+    assert "Enablement is read only from the repository's project settings" in section
+    assert "Installation state, user settings and workspace trust are never read" in section
+    # Review cycle 3: which of the two names identifies a marketplace.
+    assert "`extraKnownMarketplaces` key or the registered `marketplace.json`'s own" in section
+    assert "The `name` never registers a marketplace on its own." in section
+    # A read limit is never an unchanged limit, as for an oversize settings file.
+    assert "A read limit is never named as unchanged" in section
+    # The `check` claims the #714 reviews found wrong: unread plugin references
+    # leave a check decision as 1.0.0 had it, and a limit only one side
+    # carries refuses the comparison rather than building a row.
+    assert "never changes a `check` decision from what `1.0.0` gave" in section
+    assert "makes that comparison incomparable" in section
 
 
 def test_link_refusals_are_named_on_the_page() -> None:

@@ -195,6 +195,13 @@ def evaluate_agent_boundary(
             )
             for item in host_snapshot.inventory.get("issues", [])
             if item.get("blocking")
+            # A plugin manifest, marketplace or plugin-selected hook file is
+            # not a surface this boundary routes, and its result cannot name a
+            # limit, so an unread plugin reference leaves the check decision
+            # as 1.0.0 had it (#714). Its host comparison still refuses when
+            # only one side carries the limit, and `diff` and `verify` keep
+            # every limit.
+            and str(item.get("issue_id")) not in host_snapshot.plugin_reference_issue_ids
         ],
         *_structural_diff_issues(
             workspace=workspace,
