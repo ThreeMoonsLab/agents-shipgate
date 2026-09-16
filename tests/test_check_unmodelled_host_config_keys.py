@@ -1,7 +1,7 @@
-"""#810: ``check`` on host settings that set a key Shipgate does not model.
+"""#810: ``check`` on host settings that set a key outside the rule allow-list.
 
 A Claude Code or Cursor settings file that parses but sets a top-level key
-outside the host-boundary allow-list (``enabledPlugins``,
+outside the host-boundary rule allow-list (``enabledPlugins``,
 ``extraKnownMarketplaces``, ``outputStyle``, ...) produces a
 ``HOST-CONFIG-PARSE-FAILED`` row with evidence kind
 ``unknown_host_config_key``. The publication predicate counted that row as
@@ -17,10 +17,19 @@ Both now share one answer (``parse_failure_kind_was_read``). These tests pin:
 * the authority those answers carry: never ``allow``, never ``complete``,
   never merge or report_complete, and a wildcard beside the key still blocks;
 * content that was not read stays ``partial`` and unpublished;
-* the audit id the deprecated projection already published is unchanged;
-* the two intended changes on input that did not crash: a mixed change now
-  reports complete coverage, and ``check --diff`` / MCP ``shipgate.check``
-  become comparable with rows.
+* the audit id the deprecated projection already published is unchanged for
+  input with no input issue;
+* the intended changes on input that did not crash: a mixed change now
+  reports complete coverage; ``check --diff`` / MCP ``shipgate.check`` become
+  comparable with rows; and beside an input issue with no row of its own
+  (an unreadable legacy host policy), every projection, the deprecated
+  ``codex-boundary-json`` and ``check --diff`` / MCP included, adds
+  ``BOUNDARY-INPUT-INCOMPLETE``, stops for a human and takes a new audit id.
+
+Some of these keys are still modelled by the host comparison
+(``enabledPlugins`` and ``extraKnownMarketplaces`` as plugin grants,
+``enableAllProjectMcpServers`` as a permission-mode grant); only the boundary
+rules lack them.
 """
 
 from __future__ import annotations
@@ -281,10 +290,12 @@ def test_every_calling_agent_gets_the_same_answer(tmp_path: Path, agent: str) ->
 def test_audit_id_matches_the_deprecated_projection_that_never_crashed(
     tmp_path: Path, mode: str
 ) -> None:
-    """The fix changes coverage, not the assessment's identity.
+    """With no input issue, the fix changes coverage, not the assessment's identity.
 
     ``codex-boundary-json`` bypassed the v3 validator and already published
-    this input's audit id; the current contract must name the same one.
+    this input's audit id; the current contract must name the same one. An
+    input issue beside the key is different: both projections gain a row and
+    a new audit id (``test_an_unmodelled_key_does_not_explain_an_input_issue``).
     """
 
     path, base, head, *_ = _VARIANTS["enabled_plugins_added"]
@@ -384,7 +395,43 @@ def test_unreadable_settings_stay_partial_and_unpublished(
     assert "Control: human_review_required" in _check(tmp_path, range_args, "text").output
 
 
-def test_an_unmodelled_key_does_not_explain_an_input_issue(tmp_path: Path) -> None:
+_UNREADABLE_LEGACY_HOST_POLICY = {
+    "policies/host-boundary.shipgate.yaml": "rules: [unclosed\n"
+}
+
+# name -> (head text, decision, expected rule ids, codex-boundary-json next
+# action kind). The unreadable policy is a warning-level input issue with no
+# row of its own; the settings change beside it is the only changed file.
+_INPUT_ISSUE_VARIANTS = {
+    "enabled_plugins_added": (
+        _settings(enabledPlugins={"x@y": True}),
+        "require_review",
+        {"BOUNDARY-INPUT-INCOMPLETE", "HOST-CONFIG-PARSE-FAILED"},
+        "review",
+    ),
+    "wildcard_plus_enabled_plugins": (
+        json.dumps(
+            {
+                "permissions": {"allow": ["Read(**)", "Bash(*)"]},
+                "enabledPlugins": {"x@y": True},
+            }
+        ),
+        "block",
+        {
+            "BOUNDARY-INPUT-INCOMPLETE",
+            "HOST-CONFIG-PARSE-FAILED",
+            "HOST-PERMISSION-WILDCARD-ALLOW",
+        },
+        "stop",
+    ),
+}
+
+
+@pytest.mark.parametrize("mode", ["worktree", "git_range"])
+@pytest.mark.parametrize("variant", sorted(_INPUT_ISSUE_VARIANTS))
+def test_an_unmodelled_key_does_not_explain_an_input_issue(
+    tmp_path: Path, variant: str, mode: str
+) -> None:
     """A read row cannot stand in for the generic incomplete-input row.
 
     An unreadable legacy host policy is a warning-level input issue with no
@@ -392,30 +439,98 @@ def test_an_unmodelled_key_does_not_explain_an_input_issue(tmp_path: Path) -> No
     ``BOUNDARY-INPUT-INCOMPLETE`` as though it explained that issue, leaving
     partial coverage beside a publishable control: the same crash. It now
     stops for a human exactly as a shell change beside the same policy does.
+
+    Intended change on input that did not crash. The deprecated
+    ``codex-boundary-json`` output answered this input before, without the
+    row: for the key alone it routed to ``verify`` by the coding agent
+    (``agent_action_required``), and beside the wildcard it already blocked.
+    It now carries the row, stops for a human, and names the same audit id
+    as the current contract, so the two projections cannot disagree.
     """
 
+    head, decision, rule_ids, legacy_next = _INPUT_ISSUE_VARIANTS[variant]
     range_args = _repo(
         tmp_path,
         ".claude/settings.json",
         _settings(),
-        _settings(enabledPlugins={"x@y": True}),
-        mode="worktree",
-        extra_base_files={"policies/host-boundary.shipgate.yaml": "rules: [unclosed\n"},
+        head,
+        mode=mode,
+        extra_base_files=_UNREADABLE_LEGACY_HOST_POLICY,
     )
 
     boundary = json.loads(_check(tmp_path, range_args, "agent-boundary-json").output)
+    assert boundary["input_mode"] == mode
     assert boundary["input_coverage"] == "partial"
     assert boundary["issues"] == ["policy_load_failed"]
-    assert {item["id"] for item in boundary["violations"]} == {
-        "BOUNDARY-INPUT-INCOMPLETE",
-        "HOST-CONFIG-PARSE-FAILED",
-    }
+    assert {item["id"] for item in boundary["violations"]} == rule_ids
+    assert boundary["decision"] == decision
     assert boundary["control"]["state"] == "human_review_required"
     assert not any(boundary["control"]["permissions"].values())
 
+    legacy = json.loads(_check(tmp_path, range_args, "codex-boundary-json").output)
+    assert {item["id"] for item in legacy["violated_rules"]} == rule_ids
+    assert legacy["decision"] == decision
+    assert legacy["control"]["state"] == "human_review_required"
+    assert legacy["control"]["must_stop"] is True
+    assert legacy["control"]["human_review"]["required"] is True
+    assert (
+        legacy["control"]["next_action"]["actor"],
+        legacy["control"]["next_action"]["kind"],
+    ) == ("human", legacy_next)
+    assert legacy["audit_id"] == boundary["audit_id"]
+
     control = json.loads(_check(tmp_path, range_args, "agent-control-json").output)
     assert control["control_state"] == "human_review_required"
+    assert not any(control["permissions"].values())
+    assert control["input_id"] == boundary["audit_id"]
     assert "Control: human_review_required" in _check(tmp_path, range_args, "text").output
+
+
+@pytest.mark.parametrize("variant", sorted(_INPUT_ISSUE_VARIANTS))
+def test_provided_diff_beside_an_input_issue_names_it(
+    tmp_path: Path, variant: str
+) -> None:
+    """Intended change on input that did not crash.
+
+    ``check --diff`` and MCP ``shipgate.check`` answered this input before
+    without the incomplete-input row. They now carry it, which changes their
+    audit id; the input issue still keeps coverage partial and the host
+    comparison incomparable, and a detached diff still publishes nothing.
+    """
+
+    head, decision, rule_ids, _legacy_next = _INPUT_ISSUE_VARIANTS[variant]
+    _repo(
+        tmp_path,
+        ".claude/settings.json",
+        _settings(),
+        head,
+        mode="worktree",
+        extra_base_files=_UNREADABLE_LEGACY_HOST_POLICY,
+    )
+    diff_text = subprocess.run(
+        ["git", "diff"], cwd=tmp_path, check=True, capture_output=True, text=True
+    ).stdout
+    diff_path = tmp_path.parent / f"{tmp_path.name}.diff"
+    diff_path.write_text(diff_text, encoding="utf-8")
+    diff_args = ["--diff", str(diff_path)]
+
+    cli = json.loads(_check(tmp_path, diff_args, "agent-boundary-json").output)
+    mcp = shipgate_check(agent="claude-code", workspace=str(tmp_path), diff_text=diff_text)
+    legacy = json.loads(_check(tmp_path, diff_args, "codex-boundary-json").output)
+
+    for payload in (cli, mcp):
+        assert payload["input_mode"] == "provided_diff"
+        assert payload["input_coverage"] == "partial"
+        assert payload["issues"] == ["policy_load_failed"]
+        assert payload["comparison_status"] == "incomparable"
+        assert payload["incomparable_reasons"] == ["diff_input_coverage_incomplete"]
+        assert {item["id"] for item in payload["violations"]} == rule_ids
+        assert payload["decision"] == decision
+        assert payload["control"]["state"] == "human_review_required"
+        assert not any(payload["control"]["permissions"].values())
+    assert {item["id"] for item in legacy["violated_rules"]} == rule_ids
+    assert legacy["control"]["state"] == "human_review_required"
+    assert cli["audit_id"] == mcp["audit_id"] == legacy["audit_id"]
 
 
 @pytest.mark.parametrize(

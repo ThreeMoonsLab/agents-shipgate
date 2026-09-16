@@ -992,10 +992,11 @@ def _coverage_for(
     issues: list[str],
     invocation_shared_paths: set[str] | None = None,
 ) -> list[BoundaryHostCoverage]:
-    # A path is partially covered only when its content was not read. The
-    # read/unread answer for parse-failure rows is shared with the
-    # publication predicate, so a parsed file with an unmodelled key cannot be
-    # "unread" here while it authorizes publication there (#810).
+    # A path is partially covered only when its content was not read. A kind
+    # the publication predicate counts as read is never unread here, so a
+    # parsed file with a key outside the rule allow-list cannot be "unread"
+    # here while it authorizes publication there (#810). The substring test
+    # stays this function's own; see ``parse_failure_kind_was_read``.
     failure_paths = {
         item.path
         for item in violations
