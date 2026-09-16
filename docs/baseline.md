@@ -66,8 +66,11 @@ baseline holding a workflow grant is incomparable after #771; move it aside
 and re-save it as the workflow step action references migration note in
 `STABILITY.md` describes. Read `changes`, `artifact_changes` and
 `coverage_changes` in `shipgate audit --host --drift --json` — the Markdown
-summary counts typed grant changes only — then re-save the host-grants
-baseline from a checkout of the reviewed default branch.
+summary counts typed grant changes only — then move the old file aside
+(`git mv .agents-shipgate/host-grants.json .agents-shipgate/host-grants.v0.5.json`)
+and re-save the host-grants baseline from a checkout of the reviewed default
+branch. `--save-baseline` refuses to overwrite any baseline older than `0.6`,
+including every baseline `1.0.0` wrote.
 
 ## Apply The Baseline
 
