@@ -19,7 +19,7 @@ and `audit --host`.
 | Claude Code | first-class | `.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json`, `CLAUDE.md`, Claude skills | permission modes/rules, sandbox/network, additional paths, MCP restrictions, plugins and their marketplaces (`extraKnownMarketplaces`), hooks |
 | Cursor | first-class | `.cursor/cli.json`, `.cursor/mcp.json`, `.cursor/rules/**` | Shell/Read/Write rules, MCP declarations, instruction trust roots |
 | VS Code MCP | first-class | `.vscode/mcp.json` | MCP servers; `sandbox` and per-server `sandboxEnabled`; `${input:…}` references by name, never value; `envFile` recorded as a limit; other top-level keys partial |
-| Shared/GitHub | first-class | `AGENTS.md`, Shipgate policies/state, skills, `.github/workflows/*` | instruction/gate weakening, workflow permissions and triggers, remote step action references |
+| Shared/GitHub | first-class | `AGENTS.md`, Shipgate policies/state, skills, `.github/workflows/*` | instruction/gate weakening, workflow permissions and triggers, remote step action references, named secret sources passed to reusable workflows |
 
 A registered adapter reports `complete`, `not_applicable`, `partial`, or
 `experimental` coverage. A relevant malformed, unreadable, binary, oversized,
@@ -54,10 +54,6 @@ adapter reads them. Editing any of them produces no row and no coverage limit:
   `.claude/hooks/session-start`). The hook entry is read; the file it executes
   is not, so editing the script changes what runs without changing the hook
   (#702).
-- **Named secrets passed to a reusable workflow**
-  (`secrets: { token: ${{ secrets.NAME }} }`). `secrets: inherit` is read; a
-  named mapping is dropped before comparison, so pointing it at a different
-  secret produces no row (#693).
 - **The path of a remote MCP server's URL.** The host and query are compared
   and the path is not, because a webhook-style path can itself be the secret.
   Changing `/read` to `/admin` on the same host produces no row (#772).
@@ -87,6 +83,36 @@ is published. A reference containing credential-shaped text — a token such as
 `docker://user:password@…`, whose password may itself hold `/`, `:` or `@` —
 is published redacted and cannot be compared, so it
 makes GitHub coverage partial and a comparison of that changed workflow refuses.
+
+A named secret passed to a reusable workflow is read (#693). For a job that
+calls a reusable workflow, each `secrets:` entry whose whole value is
+`${{ secrets.NAME }}` is listed on the workflow grant as the called workflow's
+secret input and the source name `NAME`; the secret's value is never read.
+`${{ github.token }}` is read as the same source as
+`${{ secrets.GITHUB_TOKEN }}`, because GitHub documents the two as functionally
+equivalent, so moving between the spellings is quiet. Source names are compared
+case-insensitively, as GitHub references them; the callee's secret id is
+compared as written, because GitHub does not document it as case-insensitive,
+so a case-only edit there reads as a removal plus an addition.
+Adding or removing a destination, or pointing one at a different source name
+(`STAGING_TOKEN` to `PRODUCTION_TOKEN`), is a `changed` row that names
+`job/destination`. A name does not establish the secret's privilege, whether
+the caller has it, or what the called workflow does with it, so the read
+never marks the row as widening; `secrets: inherit` keeps its own widening
+row. Reordering the entries or re-spacing or re-quoting the expression is
+quiet. Any other value — a literal, another expression such as
+`${{ secrets['NAME'] }}`, `${{ inputs.x }}` or `${{ SECRETS.X }}`, a
+non-string, or a `secrets:` that is neither `inherit` nor a mapping — publishes
+nothing of its value. That entry is a named, non-blocking limit that says which
+`job/destination` it is, carried by the host inventory and printed under
+`audit --host` → Coverage issues; `diff`, `verify` and `check` carry no limit
+for it, exactly as on `1.0.0`. GitHub coverage stays complete, so `check`,
+baselines and every other row on the file are unaffected, and adding, removing or
+re-forming such an entry is still a row. Only an edit between two values of the
+same unreadable form is not reported. A destination or source name, or a job's
+reusable `uses:` target, containing credential-shaped text is published
+redacted and refuses the same way a step reference does, so two values that
+redact alike never compare as unchanged.
 
 A hook row states its loading basis (#714). Parsing a hook file proves the
 file exists, not that a host loads it, so hooks are published four ways:
