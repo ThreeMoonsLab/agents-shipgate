@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import stat
 import subprocess
 from pathlib import Path
@@ -39,6 +40,17 @@ needs_fifo = pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs are POS
 not_root = pytest.mark.skipif(
     hasattr(os, "geteuid") and os.geteuid() == 0, reason="root ignores directory modes"
 )
+
+
+@pytest.fixture
+def pinned_umask():
+    """Creation modes are masked by the process umask; pin it so they are exact."""
+
+    previous = os.umask(0o022)
+    try:
+        yield
+    finally:
+        os.umask(previous)
 
 
 def _base_scans(monkeypatch) -> list[Path]:
@@ -395,7 +407,7 @@ def test_prune_never_traverses_a_linked_entry_or_namespace(tmp_path, monkeypatch
 
 @pytest.mark.parametrize("boundary", ["descriptor", "lexical"])
 def test_boundary_publishes_reads_and_refuses_inside_one_directory(
-    tmp_path, monkeypatch, boundary
+    tmp_path, monkeypatch, boundary, pinned_umask
 ):
     if boundary == "lexical":
         monkeypatch.setattr(orchestrator, "_DESCRIPTOR_RELATIVE_BASE_CACHE", False)
@@ -407,15 +419,20 @@ def test_boundary_publishes_reads_and_refuses_inside_one_directory(
         with orchestrator._base_cache_directory(anchor, components, create=False):
             pass
     with orchestrator._base_cache_directory(anchor, components, create=True) as cache:
-        cache.replace("report.json", b"payload", temporary_prefix="report-")
-        cache.replace("report.json", b"payload-2", temporary_prefix="report-")
+        cache.replace("report.json", b"payload", temporary_prefix="report-", mode=0o644)
+        cache.replace("report.json", b"payload-2", temporary_prefix="report-", mode=0o644)
+        cache.replace("owner.json", b"secret", temporary_prefix="owner-", mode=0o600)
         assert cache.read("report.json", max_bytes=64, label="probe") == b"payload-2"
         assert cache.present("report.json")
         assert not cache.present("report.sha256")
         with pytest.raises(ValueError):
             cache.read("report.json", max_bytes=3, label="probe")
     entry = anchor.joinpath(*components)
-    assert sorted(path.name for path in entry.iterdir()) == ["report.json"]
+    assert sorted(path.name for path in entry.iterdir()) == ["owner.json", "report.json"]
+    # The mode a publication asks for is the mode it gets, on both boundaries.
+    assert stat.S_IMODE((entry / "report.json").lstat().st_mode) == 0o644
+    assert stat.S_IMODE((entry / "owner.json").lstat().st_mode) == 0o600
+    (entry / "owner.json").unlink()
 
     (entry / "linked.json").symlink_to(entry / "report.json")
     with orchestrator._base_cache_directory(anchor, components, create=False) as cache:
@@ -502,3 +519,213 @@ def test_git_selected_metadata_directory_may_itself_be_a_link(tmp_path, monkeypa
     assert len(scans) == 1
     (report,) = moved.resolve().joinpath(*NAMESPACE).glob("*/report.json")
     assert report.is_file()
+
+
+# --- published modes ------------------------------------------------------------
+
+
+@pytest.mark.parametrize("boundary", ["descriptor", "lexical"])
+def test_published_cache_files_keep_their_modes(
+    tmp_path, monkeypatch, boundary, pinned_umask
+):
+    """The checksum and the lock are owner-only; the report is an ordinary file."""
+
+    if boundary == "lexical":
+        monkeypatch.setattr(orchestrator, "_DESCRIPTOR_RELATIVE_BASE_CACHE", False)
+    repo = _weakened_repo(tmp_path, sample_dir=SAMPLE)
+
+    _verify(repo)
+
+    entry = _only_entry(repo)
+    assert {
+        path.name: stat.S_IMODE(path.lstat().st_mode) for path in entry.iterdir()
+    } == {
+        "report.json": 0o644,
+        "report.sha256": 0o600,
+        "capabilities.lock.json": 0o600,
+    }
+
+
+# --- a namespace component replaced *during* the run ------------------------------
+#
+# The settled-link guarantee above is about a link already in place when a cache
+# directory is opened. These are about the other half: the validated bytes are
+# kept for the run, so a component swapped after validation — or after a cold
+# store — cannot be read back. A `git worktree add` layout is covered as well as
+# an ordinary checkout, because its Git directory lies outside the workspace
+# snapshot and so has no second line of defence (#803).
+
+
+def _workspace(tmp_path: Path, layout: str) -> Path:
+    repo = _weakened_repo(tmp_path, sample_dir=SAMPLE)
+    if layout == "ordinary":
+        return repo
+    worktree = tmp_path / "linked-worktree"
+    _git(repo, "worktree", "add", "--detach", str(worktree), "HEAD")
+    return worktree
+
+
+def _base_scans_dir(workspace: Path) -> Path:
+    """The cache namespace below the metadata directory Git selects."""
+
+    git_dir = Path(_git(workspace, "rev-parse", "--absolute-git-dir")).resolve()
+    return git_dir.joinpath(*NAMESPACE)
+
+
+def _forged(source: Path, destination: Path) -> Path:
+    """A copy of the cache whose base says the gate was always advisory.
+
+    The checksum is recomputed, so the forgery is indistinguishable from a
+    genuine entry to everything except where it was read from.
+    """
+
+    shutil.copytree(source, destination)
+    for report in destination.glob("*/report.json"):
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        assert payload["effective_policy"]["ci_mode"] == "strict"
+        payload["effective_policy"]["ci_mode"] = "advisory"
+        raw = json.dumps(payload, indent=2).encode("utf-8")
+        report.write_bytes(raw)
+        report.with_name("report.sha256").write_text(
+            f"{hashlib.sha256(raw).hexdigest()}\n", encoding="ascii"
+        )
+    return destination
+
+
+def _swap_after(monkeypatch, name: str, *, base_scans: Path, forged: Path, kept: Path):
+    """Replace ``base-scans`` with a link to ``forged`` once, after ``name`` runs."""
+
+    original = getattr(orchestrator, name)
+    state = {"swapped": False}
+
+    def hooked(*args, **kwargs):
+        result = original(*args, **kwargs)
+        if not state["swapped"]:
+            base_scans.rename(kept)
+            base_scans.symlink_to(forged, target_is_directory=True)
+            state["swapped"] = True
+        return result
+
+    monkeypatch.setattr(orchestrator, name, hooked)
+    return state
+
+
+def _assert_unraced(raced: dict, control: dict, workspace: Path, forged: Path) -> None:
+    out = workspace / "agents-shipgate-reports"
+    assert raced["base_status"] == "succeeded", raced["base_notes"]
+    assert "ci_mode_weakened" in _policy_kinds(workspace), "the forged base was consumed"
+    for field in (
+        "request_id",
+        "input_set_id",
+        "decision_id",
+        "base_tree_sha",
+        "merge_verdict",
+    ):
+        assert raced[field] == control[field], field
+    published = (out / "report.json").read_text(encoding="utf-8")
+    assert str(forged) not in published, "the forged tree was published"
+    assert "agents-shipgate-verify-base-" not in published, "a temporary path was published"
+
+
+@pytest.mark.parametrize("layout", ["ordinary", "worktree"])
+def test_namespace_swapped_after_validation_is_never_consumed(
+    tmp_path, monkeypatch, layout
+):
+    workspace = _workspace(tmp_path, layout)
+    scans = _base_scans(monkeypatch)
+    _verify(workspace)
+    control = _verify(workspace)
+    control_base = (
+        workspace / "agents-shipgate-reports/verification-base-report.json"
+    ).read_bytes()
+    assert len(scans) == 1
+    assert "ci_mode_weakened" in _policy_kinds(workspace)
+
+    base_scans = _base_scans_dir(workspace)
+    forged = _forged(base_scans, tmp_path / "forged-base-scans")
+    # After the whole cache step, so validation has happened and the head scan,
+    # the artifact export, gap provenance and capability review are still ahead.
+    swap = _swap_after(
+        monkeypatch,
+        "_prepare_base_report",
+        base_scans=base_scans,
+        forged=forged,
+        kept=tmp_path / "genuine-base-scans",
+    )
+
+    raced = _verify(workspace)
+
+    assert swap["swapped"]
+    assert len(scans) == 1, "the warm entry was still a hit"
+    _assert_unraced(raced, control, workspace, forged)
+    assert (
+        workspace / "agents-shipgate-reports/verification-base-report.json"
+    ).read_bytes() == control_base
+
+
+@pytest.mark.parametrize("layout", ["ordinary", "worktree"])
+def test_namespace_swapped_after_the_cold_store_is_never_consumed(
+    tmp_path, monkeypatch, layout
+):
+    workspace = _workspace(tmp_path, layout)
+    scans = _base_scans(monkeypatch)
+    _verify(workspace)
+    control = _verify(workspace)
+    control_base = (
+        workspace / "agents-shipgate-reports/verification-base-report.json"
+    ).read_bytes()
+
+    base_scans = _base_scans_dir(workspace)
+    forged = _forged(base_scans, tmp_path / "forged-base-scans")
+    shutil.rmtree(base_scans)  # the next run is cold and stores its own report
+    # Pruning is the first thing after publication, so the swap lands between
+    # the store and everything that would read the stored report back.
+    swap = _swap_after(
+        monkeypatch,
+        "_prune_base_scan_cache",
+        base_scans=base_scans,
+        forged=forged,
+        kept=tmp_path / "genuine-base-scans",
+    )
+
+    raced = _verify(workspace)
+
+    assert swap["swapped"]
+    assert len(scans) == 2, "the cold run rescanned the base"
+    _assert_unraced(raced, control, workspace, forged)
+    assert (
+        workspace / "agents-shipgate-reports/verification-base-report.json"
+    ).read_bytes() == control_base
+
+
+# --- an unavailable cache publishes a stable reference ---------------------------
+
+
+def test_an_unavailable_cache_publishes_the_same_report_every_run(tmp_path, monkeypatch):
+    """No temporary directory reaches ``report.json``: two runs agree byte for byte."""
+
+    repo = _weakened_repo(tmp_path, sample_dir=SAMPLE)
+    _base_scans(monkeypatch)
+    _verify(repo)
+    base_scans = _base_scans_dir(repo)
+    external = tmp_path / "external"
+    base_scans.rename(external)
+    base_scans.symlink_to(external, target_is_directory=True)
+    out = repo / "agents-shipgate-reports"
+
+    first = _verify(repo)
+    first_bytes = (out / "report.json").read_bytes()
+    second = _verify(repo)
+    second_bytes = (out / "report.json").read_bytes()
+
+    assert "Base-scan cache unavailable" in " ".join(first["base_notes"])
+    assert first_bytes == second_bytes
+    payload = json.loads(first_bytes)
+    for surface in ("tool_surface_diff", "action_surface_diff"):
+        published = payload[surface]["base"]["path"]
+        assert published.endswith("report.json"), published
+        assert "base-scans" in published, published
+        assert str(external) not in published, published
+        assert "agents-shipgate-verify-base-" not in published, published
+    for field in ("request_id", "input_set_id", "decision_id"):
+        assert first[field] == second[field], field

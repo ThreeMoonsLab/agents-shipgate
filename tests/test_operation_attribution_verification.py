@@ -71,7 +71,7 @@ def test_self_consistent_forged_cache_is_rebuilt(tmp_path, monkeypatch):
     cache.write_text(json.dumps(cached))
     # Both files are writable by a local report producer; they prove no origin.
     cache.with_suffix(".sha256").write_text(hashlib.sha256(cache.read_bytes()).hexdigest())
-    assert orchestrator._cache_report_valid(entry)
+    assert orchestrator._probe_base_cache(entry).report is not None
     _verify(root, base=base)
     report = json.loads((root / "agents-shipgate-reports/report.json").read_text())
     (row,) = report["tool_surface_diff"]["operation_comparisons"]

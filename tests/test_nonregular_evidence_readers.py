@@ -21,9 +21,10 @@ import pytest
 import agents_shipgate
 from agents_shipgate.cli.discovery.local_review import ensure_local_review_excludes
 from agents_shipgate.cli.verify.orchestrator import (
+    _base_cache_directory,
     _BaseCacheEntry,
+    _cached_capability_lock,
     _declaration_continuation_holds,
-    _load_cached_capability_lock,
 )
 from agents_shipgate.core.capability_lock import (
     build_capability_lock,
@@ -328,20 +329,35 @@ _CACHED_LOCK_CHILD = """
     import json, sys, time
     from pathlib import Path
     from agents_shipgate.cli.verify.orchestrator import (
+        _base_cache_directory,
         _BaseCacheEntry,
-        _load_cached_capability_lock,
+        _cached_capability_lock,
     )
 
+    entry = _BaseCacheEntry(metadata_root=Path(sys.argv[1]), key="entry")
     started = time.monotonic()
-    lock, notes = _load_cached_capability_lock(
-        _BaseCacheEntry(metadata_root=Path(sys.argv[1]), key="entry")
-    )
+    with _base_cache_directory(entry.metadata_root, entry.components, create=False) as cache:
+        lock, notes = _cached_capability_lock(cache, entry)
     print(json.dumps({
         "loaded": lock is not None,
         "notes": notes,
         "elapsed": time.monotonic() - started,
     }))
 """
+
+
+def _load_cached_capability_lock(entry: _BaseCacheEntry):
+    """Read one entry's capability lock the way ``verify`` does (#638).
+
+    Production reads the lock from the handle the report was validated
+    through; these tests are about the reader's refusals, so they open the
+    same boundary themselves and hand it the same entry.
+    """
+
+    with _base_cache_directory(
+        entry.metadata_root, entry.components, create=False
+    ) as cache:
+        return _cached_capability_lock(cache, entry)
 
 
 def _lock_cache_entry(metadata_root: Path) -> tuple[_BaseCacheEntry, Path]:

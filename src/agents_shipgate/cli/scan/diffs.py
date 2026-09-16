@@ -11,13 +11,14 @@ from agents_shipgate.core.lenses.tool_surface import (
 )
 
 from .models import _DiffReferences
-from .path_helpers import _relative_display_path
+from .path_helpers import _anchored_display_path, _relative_display_path
 
 
 def _load_diff_references(
     *,
     baseline_path: Path | None,
     diff_from_path: Path | None,
+    diff_from_display_path: Path | None = None,
     base_dir: Path,
 ) -> _DiffReferences:
     """Phase 4: load optional baseline JSON + tool-surface diff reference.
@@ -26,6 +27,12 @@ def _load_diff_references(
     supplied. ``InputParseError`` from either path is caught and returned
     as a string so the downstream diff is rendered as ``enabled=False``
     with a reviewer-visible note rather than aborting the scan.
+
+    ``diff_from_display_path`` names the reference in the published report
+    when the bytes are read from somewhere else. ``verify`` reads a base
+    report from a copy private to the run and passes the cache location it
+    stands for, so the published path is the same for a warm run, a cold run
+    and a run that could not reach the cache, and never a temporary directory.
     """
     baseline_file = load_baseline(baseline_path) if baseline_path else None
     baseline_display_path = (
@@ -37,7 +44,11 @@ def _load_diff_references(
         if diff_from_path:
             diff_reference = load_tool_surface_diff_reference(
                 diff_from_path,
-                display_path=_relative_display_path(diff_from_path, base_dir),
+                display_path=(
+                    _relative_display_path(diff_from_path, base_dir)
+                    if diff_from_display_path is None
+                    else _anchored_display_path(diff_from_display_path, base_dir)
+                ),
             )
         elif baseline_file:
             diff_reference = reference_from_baseline(

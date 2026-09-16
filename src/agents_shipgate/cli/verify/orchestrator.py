@@ -542,6 +542,11 @@ def run_verify(
     base_status: VerifierBaseStatus = "not_requested"
     base_tree: str | None = None
     base_report: Path | None = None
+    # What the published diff reference is *called*. It stays ``None`` for a
+    # caller-supplied ``--diff-from``, whose own path is already the answer;
+    # a cached base is named by its cache location, never by the run-private
+    # copy the run actually reads (#803).
+    base_report_reference: Path | None = None
     base_capability_lock: CapabilityLockFileV1 | None = None
     base_notes: list[str] = []
     diff_unavailable = False
@@ -984,15 +989,17 @@ def run_verify(
         nonlocal operation_base
         operation_base = ReconstructedOperationBase(tree=tree, rows=tuple(rows))
 
-    uncached_base: tempfile.TemporaryDirectory[str] | None = None
+    run_base: tempfile.TemporaryDirectory[str] | None = None
 
-    def uncached_base_report_dir() -> Path:
-        # A base regenerated while the cache is unavailable (#638) must outlive
-        # ``_prepare_base_report`` and nothing else: it belongs to this run.
-        nonlocal uncached_base
-        if uncached_base is None:
-            uncached_base = tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-base-")
-        return Path(uncached_base.name)
+    def run_base_report_dir() -> Path:
+        # The run's private copy of the base report, whether it came from a
+        # warm entry, a cold store or a run the cache was unavailable to
+        # (#638). It must outlive ``_prepare_base_report`` and nothing else:
+        # it belongs to this run, and only this run reads it (#803).
+        nonlocal run_base
+        if run_base is None:
+            run_base = tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-base-")
+        return Path(run_base.name)
 
     try:
         if diff_from is not None:
@@ -1007,6 +1014,7 @@ def run_verify(
                 base_status,
                 base_tree,
                 base_report,
+                base_report_reference,
                 base_capability_lock,
                 cache_notes,
             ) = _prepare_base_report(
@@ -1021,7 +1029,7 @@ def run_verify(
                 evaluation_date=verification_date,
                 operation_callback=capture_base_operations,
                 engine_requirement_factory=engine_requirement,
-                uncached_report_dir=uncached_base_report_dir,
+                run_report_dir=run_base_report_dir,
             )
             base_notes.extend(cache_notes)
 
@@ -1051,8 +1059,8 @@ def run_verify(
             changed_files=changed_files,
         )
     except Exception:
-        if uncached_base is not None:
-            uncached_base.cleanup()
+        if run_base is not None:
+            run_base.cleanup()
         reset_static_input_snapshot(static_snapshot_token)
         raise
 
@@ -1174,6 +1182,7 @@ def run_verify(
                     fail_on=fail_on,
                     baseline_path=head_baseline_path,
                     diff_from_path=base_report,
+                    diff_from_display_path=base_report_reference,
                     baseline_mode=baseline_mode,
                     policy_pack_paths=head_policy_pack_paths,
                     plugins_enabled=plugins_enabled,
@@ -1398,8 +1407,8 @@ def run_verify(
         finally:
             if head_tmp is not None:
                 head_tmp.cleanup()
-            if uncached_base is not None:
-                uncached_base.cleanup()
+            if run_base is not None:
+                run_base.cleanup()
             if static_snapshot_token is not None:
                 reset_static_input_snapshot(static_snapshot_token)
     return verifier, report, head_exit_code
@@ -1418,26 +1427,40 @@ def _prepare_base_report(
     evaluation_date: str,
     operation_callback=None,
     engine_requirement_factory: Callable[[], VerificationEngineRequirement] | None = None,
-    uncached_report_dir: Callable[[], Path] | None = None,
+    run_report_dir: Callable[[], Path] | None = None,
 ) -> tuple[
     VerifierBaseStatus,
     str | None,
+    Path | None,
     Path | None,
     CapabilityLockFileV1 | None,
     list[str],
 ]:
     """Resolve the base report from the cache, or regenerate it from Git.
 
-    When the cache is unavailable (#638) the regenerated report is kept in
-    ``uncached_report_dir()``, a directory the caller owns for the whole run.
-    Without one, an unavailable cache reports the base comparison unavailable.
+    Returns the status, the base tree, the **run-private** report path, the
+    path to publish as this comparison's reference, the base capability lock
+    and the notes.
+
+    Whether the bytes came from a warm entry, a cold store or a run the cache
+    was unavailable to, they are written into ``run_report_dir()`` — a
+    directory the caller owns for the whole run — and that copy is the only one
+    anything downstream opens. Nothing reopens the cache pathname after it was
+    validated (#803). Without such a directory the cache cannot be used at all.
+
+    The second path is for display only: it is where a report for this entry
+    belongs in the cache, so the published reference is the same string for a
+    warm run, a cold run and a run that could not reach the cache, instead of
+    naming a temporary directory that no longer exists.
     """
 
     notes: list[str] = []
     try:
         base_tree = tree_sha(git_root, base)
     except Exception as exc:  # noqa: BLE001 - optional base enrichment.
-        return "archive_failed", None, None, None, [f"Could not resolve base tree: {exc}"]
+        return "archive_failed", None, None, None, None, [
+            f"Could not resolve base tree: {exc}"
+        ]
 
     try:
         engine = (
@@ -1446,7 +1469,7 @@ def _prepare_base_report(
             else build_engine_requirement(plugins_enabled=plugins_enabled)
         )
     except (OSError, ValueError):
-        return "scan_failed", base_tree, None, None, [
+        return "scan_failed", base_tree, None, None, None, [
             "Base engine identity is unavailable; the base cache was not used. "
             f"Run {render_command(['doctor', '--json'])} and rerun verification "
             "after repairing the install."
@@ -1462,33 +1485,42 @@ def _prepare_base_report(
         evaluation_date=evaluation_date,
         engine_requirement=engine,
     )
-    cache_report = cache_entry.report
+    # Where a report for this entry belongs, published as this comparison's
+    # reference whichever route produced the bytes. Never opened.
+    display_report = cache_entry.report
+
+    def keep_for_this_run(data: bytes) -> Path:
+        """Write the validated bytes where only this run can reach them."""
+
+        if run_report_dir is None:
+            raise OSError("no run-scoped directory for the base report")
+        destination = run_report_dir() / _BASE_CACHE_REPORT_NAME
+        destination.write_bytes(data)
+        return destination
+
+    unusable = (
+        "Could not keep the base report for this run; diff enrichment is unavailable."
+    )
     # One no-follow probe settles the cache for this run: absent (cold),
     # unavailable (a namespace component is a link, a non-directory or cannot
-    # be opened), or present and validated (#638).
-    cache_unavailable: OSError | None = None
-    report_present = False
-    cache_valid = False
-    try:
-        with _base_cache_directory(
-            cache_entry.metadata_root, cache_entry.components, create=False
-        ) as cache:
-            report_present = cache.present(_BASE_CACHE_REPORT_NAME)
-            cache_valid = report_present and _cache_directory_report_valid(cache)
-    except FileNotFoundError:
-        pass
-    except OSError as exc:
-        cache_unavailable = exc
-    if cache_valid and operation_callback is None:
-        base_lock, lock_notes = _load_cached_capability_lock(cache_entry)
+    # be opened), or present and validated — in which case it also carries the
+    # validated bytes and the lock beside them (#638, #803).
+    probe = _probe_base_cache(cache_entry)
+    cache_unavailable = probe.unavailable
+    if probe.report is not None and operation_callback is None:
+        try:
+            run_report = keep_for_this_run(probe.report)
+        except OSError:
+            return "scan_failed", base_tree, None, None, None, [unusable]
         return (
             "succeeded",
             base_tree,
-            cache_report,
-            base_lock,
-            [f"Base report resolved for tree {base_tree}.", *lock_notes],
+            run_report,
+            display_report,
+            probe.lock,
+            [f"Base report resolved for tree {base_tree}.", *probe.lock_notes],
         )
-    if report_present and not cache_valid:
+    if probe.present and probe.report is None:
         notes.append(
             "Regenerating cached base report.json from Git: the report or its checksum "
             "is unreadable, corrupt or incompatible with this engine."
@@ -1504,6 +1536,7 @@ def _prepare_base_report(
             return (
                 "archive_failed",
                 base_tree,
+                None,
                 None,
                 None,
                 [
@@ -1526,12 +1559,14 @@ def _prepare_base_report(
                 base_tree,
                 None,
                 None,
+                None,
                 [str(exc)],
             )
         if not base_config.is_file():
             return (
                 "missing_manifest",
                 base_tree,
+                None,
                 None,
                 None,
                 [f"Base tree does not contain {config_relative.as_posix()}."],
@@ -1554,10 +1589,13 @@ def _prepare_base_report(
             and not any(source.type == "openapi" for source in base_manifest.tool_sources)
         ):
             operation_callback(base_tree, [])
-            if cache_valid:
-                base_lock, lock_notes = _load_cached_capability_lock(cache_entry)
-                return "succeeded", base_tree, cache_report, base_lock, [
-                    f"Base report resolved for tree {base_tree}.", *lock_notes
+            if probe.report is not None:
+                try:
+                    run_report = keep_for_this_run(probe.report)
+                except OSError:
+                    return "scan_failed", base_tree, None, None, None, [*notes, unusable]
+                return "succeeded", base_tree, run_report, display_report, probe.lock, [
+                    f"Base report resolved for tree {base_tree}.", *probe.lock_notes
                 ]
 
         base_capability_lock: CapabilityLockFileV1 | None = None
@@ -1603,6 +1641,7 @@ def _prepare_base_report(
                 base_tree,
                 None,
                 None,
+                None,
                 [
                     "Base scan failed without changing the head gate: "
                     f"{_stable_archive_error(exc, archive_root=tmp_root, label='base tree')}"
@@ -1614,6 +1653,7 @@ def _prepare_base_report(
                 base_tree,
                 None,
                 None,
+                None,
                 [f"Base scan exited {base_exit}; diff enrichment disabled."],
             )
         source_report = base_out / "report.json"
@@ -1621,6 +1661,7 @@ def _prepare_base_report(
             return (
                 "scan_failed",
                 base_tree,
+                None,
                 None,
                 None,
                 ["Base scan did not produce report.json; diff enrichment disabled."],
@@ -1646,40 +1687,41 @@ def _prepare_base_report(
         )
         if base_capability_lock is None:
             notes.append("Base scan did not produce a capability lock; diff artifact disabled.")
+        # These bytes, not a path: what is stored, what this run reads and what
+        # any later reader sees are one string of bytes read exactly once.
+        stored = source_report.read_bytes()
         if cache_unavailable is None:
             try:
                 # Report, checksum and lock share this one anchored directory.
                 with _base_cache_directory(
                     cache_entry.metadata_root, cache_entry.components, create=True
                 ) as cache:
-                    _copy_report_to_cache(source_report, cache)
+                    _copy_report_to_cache(stored, cache)
                     if base_capability_lock is not None:
                         _write_capability_lock_to_cache(base_capability_lock, cache)
             except UnsafeDirectoryComponent as exc:
                 cache_unavailable = exc
             except OSError:
-                return "scan_failed", base_tree, None, None, [
+                return "scan_failed", base_tree, None, None, None, [
                     *notes,
                     "Could not store the regenerated base report; diff enrichment is unavailable. "
-                    f"Check that {cache_report.parent} is a writable cache directory and that "
+                    f"Check that {display_report.parent} is a writable cache directory and that "
                     "report.json, report.sha256 and capabilities.lock.json are regular files, "
                     "then rerun verification.",
                 ]
             else:
                 _prune_base_scan_cache(cache_entry.metadata_root, keep=BASE_CACHE_KEEP_ENTRIES)
         if cache_unavailable is not None:
-            # Never written through the link: this run keeps its own copy.
-            unavailable = _base_cache_unavailable_note(cache_unavailable, cache_entry)
-            try:
-                if uncached_report_dir is None:
-                    raise OSError("no run-scoped directory for an uncached base report")
-                cache_report = uncached_report_dir() / _BASE_CACHE_REPORT_NAME
-                shutil.copyfile(source_report, cache_report)
-            except OSError:
-                return "scan_failed", base_tree, None, None, [*notes, unavailable]
-            notes.append(unavailable)
+            # Nothing was written through the link, and nothing is read back.
+            notes.append(_base_cache_unavailable_note(cache_unavailable, cache_entry))
+        try:
+            # A cold run reads its own copy too: the entry it just published is
+            # a pathname like any other, and reopening it would reopen the race.
+            run_report = keep_for_this_run(stored)
+        except OSError:
+            return "scan_failed", base_tree, None, None, None, [*notes, unusable]
         notes.append(f"Base report resolved for tree {base_tree}.")
-    return "succeeded", base_tree, cache_report, base_capability_lock, notes
+    return "succeeded", base_tree, run_report, display_report, base_capability_lock, notes
 
 
 # The base cache lives at ``<git metadata>/agents-shipgate/base-scans/<key>/``.
@@ -1694,6 +1736,10 @@ _BASE_CACHE_CHECKSUM_NAME = "report.sha256"
 _BASE_CAPABILITY_LOCK_NAME = "capabilities.lock.json"
 _MAX_CACHED_REPORT_BYTES = 64 * 1024 * 1024
 _MAX_CACHED_CHECKSUM_BYTES = 128
+# The modes these files have always had: the report is an ordinary readable
+# artifact, the checksum and the capability lock are owner-only.
+_CACHE_REPORT_MODE = 0o644
+_CACHE_PRIVATE_MODE = 0o600
 
 # Descriptor-relative lookup, creation, rename, stat and removal are POSIX
 # facilities. Where one is missing (Windows), the boundary inspects each
@@ -1773,17 +1819,34 @@ class _BaseCacheDirectory:
             self._descriptor, name, max_size=max_bytes, label=label, single_link=True
         )
 
-    def replace(self, name: str, data: bytes, *, temporary_prefix: str) -> None:
-        """Publish ``data`` atomically; a link at ``name`` is replaced, not followed."""
+    def replace(
+        self, name: str, data: bytes, *, temporary_prefix: str, mode: int
+    ) -> None:
+        """Publish ``data`` atomically; a link at ``name`` is replaced, not followed.
+
+        ``mode`` is the published file's creation mode. Both boundaries set it
+        explicitly so the checksum and the capability lock keep the 0600 they
+        have always had, and the report the 0644.
+        """
 
         if self._descriptor is not None:
-            replace_file_at(self._descriptor, name, data, temporary_prefix=temporary_prefix)
+            replace_file_at(
+                self._descriptor, name, data, temporary_prefix=temporary_prefix, mode=mode
+            )
             return
         handle, temporary = tempfile.mkstemp(
             dir=self.path, prefix=temporary_prefix, suffix=".tmp"
         )
         try:
             with os.fdopen(handle, "wb") as stream:
+                # ``mkstemp`` creates at 0600. This is the Windows boundary,
+                # which has no ``fchmod`` and no POSIX mode to set; where the
+                # fallback is forced on POSIX, publish the same mode the
+                # descriptor boundary would.
+                fchmod = getattr(os, "fchmod", None)
+                if fchmod is not None:
+                    with contextlib.suppress(OSError):
+                        fchmod(stream.fileno(), mode)
                 stream.write(data)
             os.replace(temporary, self.path / name)
         finally:
@@ -1971,28 +2034,30 @@ def _base_cache_entry(
     return _BaseCacheEntry(metadata_root=git_path(git_root, ""), key=key)
 
 
-def _copy_report_to_cache(source_report: Path, cache: _BaseCacheDirectory) -> None:
-    data = source_report.read_bytes()
-    cache.replace(_BASE_CACHE_REPORT_NAME, data, temporary_prefix="report-")
+def _copy_report_to_cache(data: bytes, cache: _BaseCacheDirectory) -> None:
+    cache.replace(
+        _BASE_CACHE_REPORT_NAME,
+        data,
+        temporary_prefix="report-",
+        mode=_CACHE_REPORT_MODE,
+    )
     # Recovery must replace a refused checksum alias, never follow it.
     cache.replace(
         _BASE_CACHE_CHECKSUM_NAME,
         f"{hashlib.sha256(data).hexdigest()}\n".encode("ascii"),
         temporary_prefix="checksum-",
+        mode=_CACHE_PRIVATE_MODE,
     )
 
 
-def _cache_report_valid(entry: _BaseCacheEntry) -> bool:
-    try:
-        with _base_cache_directory(
-            entry.metadata_root, entry.components, create=False
-        ) as cache:
-            return _cache_directory_report_valid(cache)
-    except (OSError, ValueError):
-        return False
+def _validated_cache_report(cache: _BaseCacheDirectory) -> bytes | None:
+    """The entry's ``report.json`` bytes when they validate, else ``None``.
 
+    Returning the bytes rather than a verdict is the point: every later reader
+    in the run consumes exactly what was validated here, through this one
+    directory handle, instead of reopening the pathname afterwards (#803).
+    """
 
-def _cache_directory_report_valid(cache: _BaseCacheDirectory) -> bool:
     try:
         data = cache.read(
             _BASE_CACHE_REPORT_NAME,
@@ -2005,9 +2070,9 @@ def _cache_directory_report_valid(cache: _BaseCacheDirectory) -> bool:
             label="cached base report checksum",
         ).decode("ascii").strip()
         if re.fullmatch(r"[0-9a-f]{64}", expected) is None:
-            return False
+            return None
         if expected != hashlib.sha256(data).hexdigest():
-            return False
+            return None
         report = ReadinessReport.model_validate_json(data)
         if (
             "report_schema_version" not in report.model_fields_set
@@ -2015,10 +2080,51 @@ def _cache_directory_report_valid(cache: _BaseCacheDirectory) -> bool:
                 "report_schema_version"
             ].default
         ):
-            return False
+            return None
     except (OSError, ValueError):
-        return False
-    return True
+        return None
+    return data
+
+
+@dataclasses.dataclass(frozen=True)
+class _BaseCacheProbe:
+    """What one no-follow open settled about the cache entry for this run."""
+
+    #: The validated ``report.json`` bytes, or ``None`` when there is no hit.
+    report: bytes | None = None
+    #: The capability lock read through the same handle as those bytes.
+    lock: CapabilityLockFileV1 | None = None
+    lock_notes: tuple[str, ...] = ()
+    #: Whether an entry named ``report.json``, of any kind, was there at all.
+    present: bool = False
+    #: Set when a namespace component made the cache unusable for this run.
+    unavailable: OSError | None = None
+
+
+def _probe_base_cache(entry: _BaseCacheEntry) -> _BaseCacheProbe:
+    """Settle the cache for this run in one open: absent, unavailable, or a hit.
+
+    A hit carries the bytes and the lock themselves rather than a pathname to
+    reopen, so the whole run consumes one directory generation (#638, #803).
+    """
+
+    try:
+        with _base_cache_directory(
+            entry.metadata_root, entry.components, create=False
+        ) as cache:
+            if not cache.present(_BASE_CACHE_REPORT_NAME):
+                return _BaseCacheProbe()
+            data = _validated_cache_report(cache)
+            if data is None:
+                return _BaseCacheProbe(present=True)
+            lock, lock_notes = _cached_capability_lock(cache, entry)
+            return _BaseCacheProbe(
+                report=data, lock=lock, lock_notes=tuple(lock_notes), present=True
+            )
+    except FileNotFoundError:
+        return _BaseCacheProbe()
+    except OSError as exc:
+        return _BaseCacheProbe(unavailable=exc)
 
 
 # Bounds for the two small verify-side reads of files an agent can place before
@@ -2030,21 +2136,25 @@ _MAX_CACHED_CAPABILITY_LOCK_BYTES = 64 * 1024 * 1024
 _MAX_DECLARATION_CONTINUATION_BYTES = 1024 * 1024
 
 
-def _load_cached_capability_lock(
+def _cached_capability_lock(
+    cache: _BaseCacheDirectory,
     entry: _BaseCacheEntry,
 ) -> tuple[CapabilityLockFileV1 | None, list[str]]:
+    """Read the lock from the handle the report was validated through.
+
+    One handle for both means the report and the lock cannot come from two
+    directory generations, whatever happens to the namespace meanwhile (#803).
+    """
+
     missing = "Cached base capability lock missing; capability diff may fall back."
     try:
-        with _base_cache_directory(
-            entry.metadata_root, entry.components, create=False
-        ) as cache:
-            if not cache.present(_BASE_CAPABILITY_LOCK_NAME):
-                return None, [missing]
-            content = cache.read(
-                _BASE_CAPABILITY_LOCK_NAME,
-                max_bytes=_MAX_CACHED_CAPABILITY_LOCK_BYTES,
-                label="cached base capability lock",
-            ).decode("utf-8")
+        if not cache.present(_BASE_CAPABILITY_LOCK_NAME):
+            return None, [missing]
+        content = cache.read(
+            _BASE_CAPABILITY_LOCK_NAME,
+            max_bytes=_MAX_CACHED_CAPABILITY_LOCK_BYTES,
+            label="cached base capability lock",
+        ).decode("utf-8")
         source = entry.report.with_name(_BASE_CAPABILITY_LOCK_NAME)
         return load_capability_lock_json(content, source=str(source)), []
     except FileNotFoundError:
@@ -2061,6 +2171,7 @@ def _write_capability_lock_to_cache(
         _BASE_CAPABILITY_LOCK_NAME,
         render_capability_lock_json(lock).encode("utf-8"),
         temporary_prefix="capabilities-",
+        mode=_CACHE_PRIVATE_MODE,
     )
 
 

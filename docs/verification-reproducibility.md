@@ -274,25 +274,35 @@ prunes only real entry directories without traversing a link.
 
 A namespace component that is a link, is not a directory (a regular file or a
 FIFO included) or cannot be opened or created makes the cache unavailable for
-that run. Verification regenerates the base report from Git, keeps it for that
-run only, and reads, writes and prunes nothing through that component; the base
-comparison still completes, and a base note names the component and asks for a
-plain directory in its place. A conflicting directory at a cache file name
-inside a usable entry keeps the storage failure described above.
+that run. Verification regenerates the base report from Git and reads, writes
+and prunes nothing through that component; the base comparison still completes,
+and a base note names the component and asks for a plain directory in its
+place. A conflicting directory at a cache file name inside a usable entry keeps
+the storage failure described above.
 
-On POSIX the lookup, publication and prune are descriptor-relative, so a
-component replaced after its directory is opened cannot redirect them. Two
-limits remain, tracked in
-[#803](https://github.com/ThreeMoonsLab/agents-shipgate/issues/803):
+The cache is opened once per run. That open decides between a hit, a cold run
+and an unavailable cache, and a hit yields the validated `report.json` bytes
+themselves along with the capability lock read through the same directory
+handle — never two directory generations. Those bytes are then written into a
+directory private to the run, and every later consumer (the head scan's diff
+reference, the exported `verification-base-report.json`, gap provenance and
+capability review) opens only that copy. A cold run reads back its own copy
+too, not the entry it has just published. So on POSIX no namespace pathname is
+reopened after the cache step, and a component replaced during the run — before
+or after publication — cannot be read back.
 
-- Later readers in the same run (the head scan's diff reference, the exported
-  `verification-base-report.json`, gap provenance and capability review) reopen
-  the validated `report.json` by pathname. A namespace component replaced by a
-  link between validation and those reads is followed.
-- Where descriptor-relative operations are unavailable (Windows), each
-  component is inspected lexically, refusing links, junctions and reparse
-  points, before a pathname operation. A replacement between that inspection
-  and the operation is not detected.
+The reference published as `tool_surface_diff.base.path` and
+`action_surface_diff.base.path` is the entry's cache location, spelled without
+resolving it, for a warm run, a cold run and a run the cache was unavailable
+to alike. The run-private copy is never named, so two runs of the same inputs
+publish the same bytes.
+
+One limit remains, tracked in
+[#803](https://github.com/ThreeMoonsLab/agents-shipgate/issues/803): where
+descriptor-relative operations are unavailable (Windows), each component is
+inspected lexically, refusing links, junctions and reparse points, before a
+pathname operation. A replacement between that inspection and the operation is
+not detected.
 
 None of this adds authenticated source provenance to a cached report.
 

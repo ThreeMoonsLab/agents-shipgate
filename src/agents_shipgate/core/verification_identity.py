@@ -983,6 +983,7 @@ def replace_file_at(
     data: bytes,
     *,
     temporary_prefix: str,
+    mode: int = 0o644,
 ) -> None:
     """Atomically publish ``data`` as ``name`` inside an open directory descriptor.
 
@@ -990,6 +991,9 @@ def replace_file_at(
     over ``name`` relative to the same descriptor, so no step resolves a
     pathname: an existing link at ``name`` is replaced, never followed, and a
     directory at ``name`` fails the rename and is left as it was.
+
+    ``mode`` is the creation mode of that temporary file, and therefore of the
+    published file; as for any creation it is masked by the process umask.
     """
 
     _require_single_component(name, "published file")
@@ -1005,7 +1009,7 @@ def replace_file_at(
     for _attempt in range(16):
         temporary = f"{temporary_prefix}{os.urandom(8).hex()}.tmp"
         try:
-            descriptor = os.open(temporary, flags, 0o644, dir_fd=directory)
+            descriptor = os.open(temporary, flags, mode, dir_fd=directory)
         except FileExistsError:
             continue
         break

@@ -139,10 +139,12 @@ def _cache_entry(repo):
 def _cache_valid(report):
     from agents_shipgate.cli.verify import orchestrator
 
-    # <metadata>/agents-shipgate/base-scans/<key>/report.json
-    return orchestrator._cache_report_valid(
+    # <metadata>/agents-shipgate/base-scans/<key>/report.json. The boundary
+    # returns the validated bytes themselves; a hit is bytes, not a verdict.
+    probe = orchestrator._probe_base_cache(
         orchestrator._BaseCacheEntry(metadata_root=report.parents[3], key=report.parent.name)
     )
+    return probe.report is not None
 
 
 @pytest.mark.parametrize('damage', [
@@ -260,7 +262,7 @@ def test_missing_engine_identity_refuses_even_a_valid_warm_cache(tmp_path, monke
     def unavailable():
         raise OSError('private install details must not leak')
 
-    status, _, cached, lock, notes = orchestrator._prepare_base_report(
+    status, _, cached, _reference, lock, notes = orchestrator._prepare_base_report(
         git_root=repo, base='HEAD~1',
         config_relative=Path('samples/support_refund_agent/shipgate.yaml'),
         baseline_path=None, policy_packs=[], plugins_enabled=False,

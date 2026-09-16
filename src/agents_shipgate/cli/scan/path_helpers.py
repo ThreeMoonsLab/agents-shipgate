@@ -16,6 +16,22 @@ def _relative_display_path(path: Path, base_dir: Path) -> str:
     return rel
 
 
+def _anchored_display_path(path: Path, base_dir: Path) -> str:
+    """Spell an already-anchored absolute path relative to ``base_dir``.
+
+    Same output as :func:`_relative_display_path` for an ordinary path, but the
+    argument itself is not resolved. A caller that anchored it deliberately —
+    ``verify``'s base-scan cache location, whose namespace is lexical and whose
+    links are refused rather than followed — must not have that undone here,
+    which would publish the target of a link the engine never read.
+    """
+
+    rel = os.path.relpath(path, base_dir.resolve())
+    if rel == ".." or rel.startswith(f"..{os.sep}"):
+        return str(path)
+    return rel
+
+
 def _resolve_audit_log_path(
     manifest: AgentsShipgateManifest,
     baseline_path: Path,

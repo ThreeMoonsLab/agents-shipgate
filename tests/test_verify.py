@@ -2606,7 +2606,7 @@ def test_verify_successful_base_scan_feeds_head_diff_from(
     assert calls[0]["ci_mode"] == "advisory"
     assert calls[0]["packet_enabled"] is False
     assert calls[1]["diff_from_path"] is not None
-    assert Path(calls[1]["diff_from_path"]).is_file()
+    assert calls[1]["diff_from_readable"]
 
 
 def test_verify_base_scan_cache_hit_skips_second_base_scan(
@@ -3864,7 +3864,16 @@ def _patch_run_scan(
     decision: str = "passed",
 ) -> None:
     def fake_run_scan(**kwargs: Any):
-        calls.append(kwargs)
+        diff_from = kwargs.get("diff_from_path")
+        # A base report lives in a directory private to the run and is gone by
+        # the time the assertions run (#638), so record what the scan could see
+        # while it could still see it.
+        calls.append(
+            {
+                **kwargs,
+                "diff_from_readable": diff_from is not None and Path(diff_from).is_file(),
+            }
+        )
         report = _report(decision=decision, exit_code=head_exit)
         out_dir = Path(kwargs["output_dir"])
         out_dir.mkdir(parents=True, exist_ok=True)
