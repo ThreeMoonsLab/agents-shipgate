@@ -35,6 +35,7 @@ def run_scan(
     fail_on: list[str] | None = None,
     baseline_path: Path | None = None,
     diff_from_path: Path | None = None,
+    diff_from_display_path: Path | None = None,
     baseline_mode: str = "new-findings",
     deep_import: bool = False,
     policy_pack_paths: list[Path] | None = None,
@@ -71,6 +72,7 @@ def run_scan(
             fail_on=fail_on,
             baseline_path=baseline_path,
             diff_from_path=diff_from_path,
+            diff_from_display_path=diff_from_display_path,
             baseline_mode=baseline_mode,
             policy_pack_paths=policy_pack_paths,
             plugins_enabled=plugins_enabled,
@@ -133,6 +135,7 @@ def _run_scan(
     fail_on: list[str] | None,
     baseline_path: Path | None,
     diff_from_path: Path | None,
+    diff_from_display_path: Path | None,
     baseline_mode: str,
     policy_pack_paths: list[Path] | None,
     plugins_enabled: bool | None,
@@ -200,6 +203,7 @@ def _run_scan(
         diffs = _load_diff_references(
             baseline_path=baseline_path,
             diff_from_path=diff_from_path,
+            diff_from_display_path=diff_from_display_path,
             base_dir=resolved.base_dir,
         )
     with _perf.phase("run_checks_and_decide"):

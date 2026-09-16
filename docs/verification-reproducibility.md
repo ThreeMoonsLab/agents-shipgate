@@ -246,18 +246,69 @@ verification plan; subsequent invocations and engine validation read it afresh.
 
 Existing version-only keys are unreachable and regenerate on demand; no user
 migration command is needed. Equivalent warm runs reuse the current entry.
-Before reuse, bounded no-follow reads validate the report and checksum from one
-identity-bound session: at most 64 directory entries, 64 MiB of report bytes and
-128 checksum bytes. The SHA-256 must match, and the report must parse against the
+Before reuse, bounded no-follow reads validate the report and checksum: at most
+64 MiB of report bytes and 128 checksum bytes, each a singly-linked regular
+file. The SHA-256 must match, and the report must parse against the
 current model with an explicit current `report_schema_version`. Missing,
 corrupt or incompatible material triggers a fresh Git base scan and a diagnostic
-explaining the regeneration. Report and checksum files are replaced atomically,
-so repairing a refused file link preserves its external target. This is not a
-cache-directory namespace or concurrent-parent-replacement guarantee.
+explaining the regeneration. Report, checksum and capability-lock files are
+replaced atomically, so repairing a refused file link or hard link preserves
+its external target.
 If the cache cannot store that report, verification
 reports unavailable base comparison and names the cache location to repair;
 it preserves a conflicting directory and any contents. Missing engine identity
 also refuses cache reuse and routes to `doctor --json`.
+
+### Base-scan cache namespace
+
+The cache lives at `agents-shipgate/base-scans/<key>/` below the metadata
+directory Git selects for the checkout (`git rev-parse --git-path`): `.git` in
+an ordinary clone, the per-worktree Git directory of a `git worktree add`
+checkout, or wherever a `.git` link or `gitdir:` file points. Verification
+resolves that directory once and anchors the cache there. Links at or above it
+are Git's selection and keep working; below it the namespace is lexical (#638).
+Every cache read, publication and prune reaches `agents-shipgate`, `base-scans`
+and the entry directory from the anchor without following a link, publishes
+each file through a temporary file renamed inside that same directory, and
+prunes only real entry directories without traversing a link.
+
+A namespace component that is a link, is not a directory (a regular file or a
+FIFO included) or cannot be opened or created makes the cache unavailable for
+that run. Verification regenerates the base report from Git and reads, writes
+and prunes nothing through that component; the base comparison still completes,
+and a base note names the component and asks for a plain directory in its
+place. A conflicting directory at a cache file name inside a usable entry keeps
+the storage failure described above. The published base reference still names
+where a report for this entry belongs, so two such runs agree byte for byte;
+it is a location, not a source, and when the cache was unavailable that
+location resolves through the very component the boundary refused.
+
+The cache is opened once to decide the run: a cold run opens it again to store
+what it scanned and once more to prune. That first open decides between a hit,
+a cold run and an unavailable cache, and a hit yields the validated `report.json` bytes
+themselves along with the capability lock read through the same directory
+handle — never two directory generations. Those bytes are then written into a
+directory private to the run, and every later consumer (the head scan's diff
+reference, the exported `verification-base-report.json`, gap provenance and
+capability review) opens only that copy. A cold run reads back its own copy
+too, not the entry it has just published. So on POSIX no namespace pathname is
+reopened after the cache step, and a component replaced during the run — before
+or after publication — cannot be read back.
+
+The reference published as `tool_surface_diff.base.path` and
+`action_surface_diff.base.path` is the entry's cache location, spelled without
+resolving it, for a warm run, a cold run and a run the cache was unavailable
+to alike. The run-private copy is never named, so two runs of the same inputs
+publish the same bytes.
+
+One limit remains, tracked in
+[#803](https://github.com/ThreeMoonsLab/agents-shipgate/issues/803): where
+descriptor-relative operations are unavailable (Windows), each component is
+inspected lexically, refusing links, junctions and reparse points, before a
+pathname operation. A replacement between that inspection and the operation is
+not detected.
+
+None of this adds authenticated source provenance to a cached report.
 
 These checks establish engine compatibility and byte consistency, not
 authenticated source provenance. A locally writable report plus checksum cannot
