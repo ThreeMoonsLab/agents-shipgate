@@ -16,7 +16,6 @@ two resolved that default differently a valid run read as ``missing`` (#575).
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from agents_shipgate.core.current_control import LiveWorkspace
@@ -120,28 +119,97 @@ def worktree_exclusion(root: Path, reports_dir: Path) -> Path | None:
     a change it never saw, the host comparison went ``incomparable``, and the
     refresh could not observe the workspace (#575, #785).
 
-    Only the disjoint case changes. A directory inside the repository, the root
-    itself, or one of its ancestors — under either the spelling given or the
-    resolved one — is returned unchanged, so an in-repository exclusion applies
-    exactly as it did, and the root or a parent still reaches the helpers'
-    refusal and still withholds authority. Dropping an exclusion can only
-    surface more changed paths, never hide one.
+    Containment is decided by *physical identity*, never by how the directory
+    was spelled. The answer is a property of the directory, so the writer's
+    already-resolved ``--out`` and the refresh's current-directory-anchored
+    ``--reports-dir`` reach the same one for the same place. Deciding it on
+    either spelling let them disagree: an in-repository symlink pointing
+    outside kept its exclusion for the reader and lost it for the writer, the
+    Git helper refused it, ``live_workspace`` swallowed the refusal, and a
+    ``review_publishable`` pointer stayed current across tracked and untracked
+    edits (#575 review cycle 2).
+
+    The walk compares each ancestor's ``(st_dev, st_ino)`` with the repository
+    root's rather than comparing names, so a spelling that differs only in case
+    on a case-insensitive filesystem (``<parent>/REPO/rpt`` for ``repo``) is the
+    directory it physically is. Inside the repository, the returned path is
+    respelled beneath the root, which is the one spelling the Git helpers can
+    turn into a pathspec.
+
+    Only the disjoint case drops its exclusion, and "disjoint" is decided after
+    resolution: an outside spelling that resolves into the repository keeps its
+    exclusion, and an in-repository spelling that resolves outside — a symlink
+    such as ``repo/lnkdir`` — loses it, because the directory Git would have to
+    exclude is not in the tree Git is reading. A directory genuinely inside the
+    repository keeps its exclusion, so an in-repository exclusion applies
+    exactly as it did, and the root itself or one of its ancestors is still
+    handed over, still refused by the helpers, and still withholds authority.
+    Dropping an exclusion can only surface more changed paths, never hide one.
     """
 
-    roots = {_absolute(root), root.resolve()}
-    for spelling in {_absolute(reports_dir), reports_dir.resolve()}:
-        if any(
-            spelling.is_relative_to(candidate) or candidate.is_relative_to(spelling)
-            for candidate in roots
-        ):
-            return reports_dir
+    root_physical = root.resolve()
+    target = reports_dir.resolve()
+    beneath = _beneath_repository(root_physical, target)
+    if beneath is not None:
+        return beneath
+    if _contains_repository(root_physical, target):
+        # The root's own ancestor: handed over so the Git helpers refuse it,
+        # exactly as before. Nothing may exclude the tree it is reading.
+        return reports_dir
     return None
 
 
-def _absolute(path: Path) -> Path:
-    """The lexical absolute spelling: no symlink followed, ``..`` folded."""
+def _identity(path: Path) -> tuple[int, int] | None:
+    """The physical file this path names, or ``None`` when nothing is there."""
 
-    return Path(os.path.abspath(os.path.normpath(os.fspath(path))))
+    try:
+        status = path.stat()
+    except OSError:
+        return None
+    return (status.st_dev, status.st_ino)
+
+
+def _beneath_repository(root: Path, target: Path) -> Path | None:
+    """``target`` respelled under ``root``, or ``None`` when it is not inside.
+
+    Walking up from the target and comparing physical identity answers the
+    question a lexical prefix test only approximates: the root reached through
+    a different case, a symlinked parent, or a mount alias is still the root,
+    while ``repo-reports`` never is, because the comparison is per directory and
+    not per character. A component that does not exist yet — the usual case for
+    a reports directory at write time — simply does not match, and the walk
+    carries its name through to the nearest ancestor that does.
+    """
+
+    root_identity = _identity(root)
+    if root_identity is None:
+        return None
+    trailing: list[str] = []
+    node = target
+    while True:
+        if _identity(node) == root_identity:
+            return root.joinpath(*reversed(trailing))
+        parent = node.parent
+        if parent == node:
+            return None
+        trailing.append(node.name)
+        node = parent
+
+
+def _contains_repository(root: Path, target: Path) -> bool:
+    """``target`` is a strict ancestor of ``root`` — the case Git must refuse."""
+
+    target_identity = _identity(target)
+    if target_identity is None:
+        return False
+    node = root.parent
+    while True:
+        if _identity(node) == target_identity:
+            return True
+        parent = node.parent
+        if parent == node:
+            return False
+        node = parent
 
 
 def _safe_commit_sha(root: Path, ref: str) -> str | None:

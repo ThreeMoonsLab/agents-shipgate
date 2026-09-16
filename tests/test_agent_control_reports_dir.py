@@ -461,17 +461,18 @@ def test_only_a_directory_disjoint_from_the_repository_loses_its_exclusion(
     repo = _committed_sample(tmp_path / "repo")
     inside = repo / REPORTS
 
-    # Inside the repository — however it is spelled — the exclusion is kept.
-    assert worktree_exclusion(repo, inside) == inside
+    # Inside the repository — however it is spelled — the exclusion is kept,
+    # respelled beneath the root, which is the one spelling Git can relativize.
+    assert worktree_exclusion(repo, inside) == repo.resolve() / REPORTS
     folded = repo / ".." / "repo" / REPORTS
-    assert worktree_exclusion(repo, folded) == folded
+    assert worktree_exclusion(repo, folded) == repo.resolve() / REPORTS
     # A name that merely shares the repository's prefix is not inside it.
     sibling = tmp_path / "repo-reports"
     assert worktree_exclusion(repo, sibling) is None
 
     # The root and its parent are still handed over, and still refused.
     for refused in (repo, tmp_path):
-        assert worktree_exclusion(repo, refused) == refused
+        assert worktree_exclusion(repo, refused) is not None
         with pytest.raises(ConfigError):
             working_tree_context(repo, exclude=worktree_exclusion(repo, refused))
 
@@ -482,8 +483,18 @@ def test_only_a_directory_disjoint_from_the_repository_loses_its_exclusion(
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Directory symlinks need privileges on Windows.")
-def test_a_symlinked_output_spelling_keeps_the_exclusion_rule_it_had(tmp_path: Path):
-    """Only a directory disjoint by both spellings changes behaviour."""
+def test_a_symlinked_output_spelling_is_classified_where_it_physically_is(tmp_path: Path):
+    """Containment is a property of the directory, not of how it was spelled.
+
+    Keeping the exclusion when *either* spelling looked inside let the writer
+    and the reader answer differently for one directory: `verify` resolves
+    `--out` before asking, the refresh hands over the spelling it was given, and
+    an in-repository symlink pointing outside was "inside" for one and
+    "outside" for the other. The Git helper then refused the exclusion, the
+    refusal was swallowed into an unreadable change set, and a
+    `review_publishable` pointer stayed current over an edited tree (#575
+    review cycle 2).
+    """
 
     from agents_shipgate.cli.current_workspace import worktree_exclusion
 
@@ -493,14 +504,286 @@ def test_a_symlinked_output_spelling_keeps_the_exclusion_rule_it_had(tmp_path: P
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
 
-    # Spelled outside, resolving inside: still excluded, exactly as before.
+    # Spelled outside, resolving inside: excluded, as the directory it is.
     into_repo = tmp_path / "link-into-repo"
     into_repo.symlink_to(inside, target_is_directory=True)
-    assert worktree_exclusion(repo, into_repo) == into_repo
-    # Spelled inside, resolving outside: still handed to the Git helper.
+    assert worktree_exclusion(repo, into_repo) == repo.resolve() / REPORTS
+    # Spelled inside, resolving outside: disjoint from the tree Git reads, so
+    # there is nothing to exclude — and, above all, the same answer `verify`'s
+    # own already-resolved `--out` gets for the same place.
     out_of_repo = repo / "link-out-of-repo"
     out_of_repo.symlink_to(elsewhere, target_is_directory=True)
-    assert worktree_exclusion(repo, out_of_repo) == out_of_repo
+    assert worktree_exclusion(repo, out_of_repo) is None
+    assert worktree_exclusion(repo, out_of_repo.resolve()) is None
+    assert worktree_exclusion(repo, out_of_repo / "rpt") is None
+    assert worktree_exclusion(repo, (out_of_repo / "rpt").resolve()) is None
+
+
+def test_a_case_variant_spelling_is_the_directory_it_physically_is(tmp_path: Path):
+    """`--out <parent>/REPO/rpt` for `repo` is inside `repo` where case is folded.
+
+    A lexical prefix test called it outside, dropped the exclusion, and left the
+    run writing into its own input census: `verify` exited 3, "path changed
+    identity while it was read" (#575 review cycle 2, nit 1).
+    """
+
+    from agents_shipgate.cli.current_workspace import worktree_exclusion
+
+    repo = _committed_sample(tmp_path / "repo")
+    variant = tmp_path / "REPO"
+    if not variant.is_dir():
+        pytest.skip("The temporary filesystem is case-sensitive.")
+
+    assert worktree_exclusion(repo, variant / "rpt") == repo.resolve() / "rpt"
+
+
+def _sample_with_ignored_link(path: Path, link: str, target: Path) -> Path:
+    """The sample repository with a committed ignore for a directory symlink.
+
+    The link is ignored, so it is not itself a change; it exists only to give
+    the same directory a second spelling, which is how a writer and a reader
+    came to disagree about what the reports directory is.
+
+    ``notes.txt`` is a tracked file the manifest does not declare as an input.
+    Editing a *declared* input is caught by the recorded-input check whatever
+    the worktree view says, which would mask the skipped unseen-change test
+    rather than exercise it.
+    """
+
+    repo = _committed_sample(path)
+    (repo / ".gitignore").write_text(f"{REPORTS}/\n{link}\n", encoding="utf-8")
+    (repo / "notes.txt").write_text("notes\n", encoding="utf-8")
+    _git(repo, "add", ".gitignore", "notes.txt")
+    _git(repo, "commit", "-q", "-m", "ignore the link")
+    (repo / link).symlink_to(target, target_is_directory=True)
+    return repo
+
+
+def _edit_outside_the_declared_inputs(repo: Path) -> None:
+    """One tracked edit and one new untracked file, neither a manifest input."""
+
+    (repo / "notes.txt").write_text("notes\nedited\n", encoding="utf-8")
+    (repo / "new_tool.py").write_text("x = 1\n", encoding="utf-8")
+
+
+def _verify_into(workspace: str, out: Path, *extra: str):
+    return runner.invoke(
+        app,
+        [
+            "verify", "--workspace", workspace, "--config", "shipgate.yaml",
+            "--out", str(out), "--format", "control", *extra,
+        ],
+        env=ENV,
+    )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Directory symlinks need privileges on Windows.")
+def test_a_refresh_spelled_through_an_in_repository_link_still_sees_the_edits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The same directory, two spellings, one answer — or the pointer goes stale.
+
+    `verify` resolves `--out` before asking whether it is inside the repository;
+    the refresh asked about the current-directory-anchored spelling it was
+    given. While the rule kept an exclusion that looked inside under *either*
+    spelling, `repo/via/sib` was "inside" for the reader and `<parent>/sib` was
+    "outside" for the writer. The Git helper refused the reader's exclusion
+    ("must remain inside workspace"), `live_workspace` swallowed that into an
+    unreadable change set, and the unseen-change test was skipped for a
+    non-completion pointer: a `review_publishable` answer, with commit, push and
+    update_pr granted, stayed current across a tracked edit and a new untracked
+    file (#575 review cycle 2).
+    """
+
+    monkeypatch.chdir(tmp_path)
+    repo = _sample_with_ignored_link(tmp_path / "repo", "via", tmp_path)
+    outside = tmp_path / "sib"
+
+    verified = _verify_into("repo", outside)
+    assert verified.exit_code == 0, _plain(verified.output)
+    published = json.loads(verified.stdout)
+    # The fixture must exercise the skipped path: a *completion* pointer refused
+    # an unreadable change set even before this fix, so a `complete` answer here
+    # would make the regression vacuous.
+    assert published["control_state"] != "complete", published
+    assert published["permissions"]["commit"] is True, published
+
+    _edit_outside_the_declared_inputs(repo)
+
+    spellings = {
+        "through the link": tmp_path / "repo" / "via" / "sib",
+        "directly": outside,
+    }
+    outcomes = {}
+    for label, spelling in spellings.items():
+        code, line = _outcome(_control("--workspace", "repo", "--reports-dir", str(spelling)))
+        assert code == 4, f"{label}: {line}"
+        assert "(workspace_changed)" in line or "(workspace_unverifiable)" in line, line
+        outcomes[label] = (code, line)
+    # One directory, one answer, whichever way it is named.
+    assert outcomes["through the link"] == outcomes["directly"]
+    assert "new_tool.py" in outcomes["directly"][1]
+    assert "notes.txt" in outcomes["directly"][1]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Directory symlinks need privileges on Windows.")
+def test_one_spelling_for_out_and_reports_dir_through_a_link_out_of_the_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Even one string cannot be read two ways.
+
+    `--out` and `--reports-dir` given the *same* text, through an in-repository
+    symlink to a directory outside it: the writer resolved it and dropped the
+    exclusion, the reader kept it, and the refusal that followed left a
+    `review_publishable` pointer current over an edited tree.
+    """
+
+    monkeypatch.chdir(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    repo = _sample_with_ignored_link(tmp_path / "repo", "lnkdir", elsewhere)
+    same = str(tmp_path / "repo" / "lnkdir" / "rpt")
+
+    verified = _verify_into("repo", Path(same))
+    assert verified.exit_code == 0, _plain(verified.output)
+    published = json.loads(verified.stdout)
+    assert published["control_state"] != "complete", published
+    assert (elsewhere / "rpt" / "current-control.json").is_file()
+
+    _edit_outside_the_declared_inputs(repo)
+
+    code, line = _outcome(_control("--workspace", "repo", "--reports-dir", same))
+    assert code == 4, line
+    assert "(workspace_changed)" in line, line
+    assert "new_tool.py" in line and "notes.txt" in line, line
+
+
+def test_a_case_variant_out_is_the_repository_directory_it_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """`--out <parent>/REPO/rpt` for `repo`, where the filesystem folds case.
+
+    The directory is physically inside the repository, so it must be excluded
+    from the change set like any other in-repository output. Classifying it by
+    spelling dropped the exclusion, and the run then read its own output as an
+    input that changed underneath it: exit 3, "path changed identity while it
+    was read" (#575 review cycle 2, nit 1).
+    """
+
+    monkeypatch.chdir(tmp_path)
+    repo = _committed_sample(tmp_path / "repo")
+    variant = tmp_path / "REPO" / "rpt"
+    if not (tmp_path / "REPO").is_dir():
+        pytest.skip("The temporary filesystem is case-sensitive.")
+
+    verified = _verify_into("repo", variant)
+    assert verified.exit_code == 0, _plain(verified.output)
+    published = json.loads(verified.stdout)
+    assert published["control_state"] == "complete", published
+
+    refreshed = _control("--workspace", "repo", "--reports-dir", str(variant))
+    assert _outcome(refreshed) == (0, "complete"), _plain(refreshed.output)
+
+    (repo / "tools.json").write_text(
+        (repo / "tools.json").read_text(encoding="utf-8") + "\n", encoding="utf-8"
+    )
+    code, line = _outcome(_control("--workspace", "repo", "--reports-dir", str(variant)))
+    assert code == 4 and "(workspace_changed)" in line, line
+
+
+def test_an_unreadable_change_set_refuses_every_pointer_kind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Defence in depth: `changed_paths=None` is unknown, never "no drift".
+
+    One containment rule keeps the writer and the reader from disagreeing, but
+    a change set can still fail to be read — a Git failure, an exclusion at the
+    repository root. Whatever the cause, a currency test that could not be run
+    denies the pointer instead of being skipped. It used to be skipped for every
+    state but `complete`, which is exactly what let a stale `review_publishable`
+    pointer, and a plan-less preview pointer, keep answering (#575 review cycle
+    2).
+    """
+
+    from agents_shipgate.cli.verify.git import (
+        commit_sha,
+        merge_base_sha,
+        repository_identity,
+        tree_sha,
+    )
+    from agents_shipgate.core.current_control import (
+        CurrentControlUnavailable,
+        LiveWorkspace,
+        publish_current_control,
+        read_current_control,
+    )
+    from agents_shipgate.schemas.current_control import (
+        AgentActionRequiredCurrentControl,
+        CurrentControlWorkspaceIdentity,
+    )
+
+    monkeypatch.chdir(tmp_path)
+    repo = _sample_with_ignored_link(tmp_path / "repo", "via", tmp_path)
+    publishable = tmp_path / "sib"
+    assert _verify_into("repo", publishable).exit_code == 0
+
+    pointer = json.loads((publishable / "current-control.json").read_text(encoding="utf-8"))
+    assert pointer["control"]["state"] == "review_publishable", pointer["control"]
+    # It binds a plan, so it is checked by the plan-bound path.
+    assert "verification_plan" in pointer["artifacts"]
+
+    # A plan-less worktree pointer — the preview shape — is checked by the
+    # live-overlay path instead, where the change set is the whole test.
+    preview = tmp_path / "preview-reports"
+    preview.mkdir()
+    # A terminal pointer must bind something; it just must not bind a plan.
+    shutil.copy(publishable / "verifier.json", preview / "verifier.json")
+    publish_current_control(
+        preview,
+        operation="preview",
+        control=AgentActionRequiredCurrentControl(
+            state="agent_action_required",
+            reason="A preview reached no release decision.",
+        ),
+        workspace_identity=CurrentControlWorkspaceIdentity(
+            repository=repository_identity(repo),
+            head_ref="HEAD",
+            head_commit_sha=commit_sha(repo, "HEAD"),
+            head_tree_sha=tree_sha(repo, "HEAD"),
+            snapshot_kind="worktree_overlay",
+            worktree_overlay_sha256=None,
+        ),
+        artifact_keys={"verifier"},
+    )
+
+    def _live(changed: tuple[str, ...] | None) -> LiveWorkspace:
+        return LiveWorkspace(
+            root=repo,
+            repository=repository_identity(repo),
+            head_commit_sha=commit_sha(repo, "HEAD"),
+            head_tree_sha=tree_sha(repo, "HEAD"),
+            changed_paths=changed,
+            resolve_commit=lambda ref: commit_sha(repo, ref),
+            resolve_merge_base=lambda base, head: merge_base_sha(repo, base, head),
+        )
+
+    refused: dict[str, str] = {}
+    for label, reports in (("review_publishable", publishable), ("preview", preview)):
+        # A readable, unchanged tree still reads: the refusal below is about the
+        # failure to look, not about this fixture.
+        assert read_current_control(reports, live=_live(())).pointer is not None, label
+        try:
+            read_current_control(reports, live=_live(None))
+        except CurrentControlUnavailable as exc:
+            refused[label] = exc.reason
+        else:
+            refused[label] = "answered anyway"
+    # Both kinds, reported together: each used to answer over a tree that was
+    # never read, by a different route through the currency checks.
+    assert refused == {
+        "review_publishable": "workspace_unverifiable",
+        "preview": "workspace_unverifiable",
+    }
 
 
 def test_verify_and_agent_control_share_one_default_rule(tmp_path: Path):
