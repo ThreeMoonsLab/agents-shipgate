@@ -47,6 +47,7 @@ from agents_shipgate.core.codex_boundary import (
     detect_command_for,
     evaluate_codex_boundary_result,
     load_codex_boundary_policy,
+    parse_failure_kind_was_read,
     preview_command_for,
     verify_command_for,
     violations_within_agent_actionable_band,
@@ -368,6 +369,10 @@ def evaluate_agent_boundary(
             ]
         )
 
+    # A row explains the input issues only when it records input that could
+    # not be read. A parsed file with an unmodelled key was read, so its row
+    # cannot stand in for this one: without it an input issue would leave
+    # coverage partial while the read row still authorized publication (#810).
     if issue_codes and not any(
         item.evidence.get("kind") in {
             "boundary_input_unresolved",
@@ -376,8 +381,8 @@ def evaluate_agent_boundary(
             "codex_config_content_unresolved",
             "json_parse_failed",
             "toml_parse_failed",
-            "unknown_host_config_key",
         }
+        and not parse_failure_kind_was_read(item.evidence.get("kind"))
         for item in combined
     ):
         rule = _GENERIC_RULES["INPUT-INCOMPLETE"]
@@ -987,6 +992,10 @@ def _coverage_for(
     issues: list[str],
     invocation_shared_paths: set[str] | None = None,
 ) -> list[BoundaryHostCoverage]:
+    # A path is partially covered only when its content was not read. The
+    # read/unread answer for parse-failure rows is shared with the
+    # publication predicate, so a parsed file with an unmodelled key cannot be
+    # "unread" here while it authorizes publication there (#810).
     failure_paths = {
         item.path
         for item in violations
@@ -994,8 +1003,8 @@ def _coverage_for(
         and (
             "parse" in str(item.evidence.get("kind", ""))
             or "unresolved" in str(item.evidence.get("kind", ""))
-            or "unknown_host_config_key" == item.evidence.get("kind")
         )
+        and not parse_failure_kind_was_read(item.evidence.get("kind"))
     }
     coverage: list[BoundaryHostCoverage] = []
     for adapter in BOUNDARY_ADAPTERS:
