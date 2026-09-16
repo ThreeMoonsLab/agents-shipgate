@@ -104,8 +104,10 @@ quiet. Any other value — a literal, another expression such as
 `${{ secrets['NAME'] }}`, `${{ inputs.x }}` or `${{ SECRETS.X }}`, a
 non-string, or a `secrets:` that is neither `inherit` nor a mapping — publishes
 nothing of its value. That entry is a named, non-blocking limit that says which
-`job/destination` it is: GitHub coverage stays complete, so `check`, baselines
-and every other row on the file are unaffected, and adding, removing or
+`job/destination` it is, carried by the host inventory and printed under
+`audit --host` → Coverage issues; `diff`, `verify` and `check` carry no limit
+for it, exactly as on `1.0.0`. GitHub coverage stays complete, so `check`,
+baselines and every other row on the file are unaffected, and adding, removing or
 re-forming such an entry is still a row. Only an edit between two values of the
 same unreadable form is not reported. A destination or source name, or a job's
 reusable `uses:` target, containing credential-shaped text is published

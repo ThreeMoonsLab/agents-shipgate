@@ -513,8 +513,11 @@ class HostReusableWorkflowSecretV6(BaseModel):
     and none of its value is published or digested: a literal value, any
     other expression, a non-string, or a ``secrets`` that is neither
     ``inherit`` nor a mapping (``destination`` is then ``null``). A name the
-    credential redactors rewrite is ``redacted``. Every unresolved mapping
-    records a blocking coverage issue, because it cannot be compared.
+    credential redactors rewrite is ``redacted`` and records a blocking
+    coverage issue, because two values that redact alike must never compare as
+    unchanged. Every other unresolved mapping records a non-blocking one naming
+    its ``job/destination``: only that value is uncompared, so the rest of the
+    file still compares.
     """
 
     model_config = ConfigDict(extra="forbid")

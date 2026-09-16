@@ -3766,7 +3766,14 @@ def render_host_audit_markdown(
         lines.append("## Coverage issues")
         lines.append("")
         for issue in inventory["issues"]:
-            marker = "blocking" if issue["blocking"] else "declared exclusion"
+            if issue["blocking"]:
+                marker = "blocking"
+            elif issue["kind"] in {"unsupported", "unreadable"}:
+                # Nothing was declared and nothing was excluded: this surface
+                # was read and one part of it could not be compared.
+                marker = "not compared"
+            else:
+                marker = "declared exclusion"
             lines.append(f"- `{issue['host']}` `{issue['source']}` ({marker}): {issue['message']}")
         lines.append("")
     lines.append("## Excluded scopes")
