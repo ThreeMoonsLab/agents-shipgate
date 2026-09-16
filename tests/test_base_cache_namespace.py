@@ -19,6 +19,7 @@ import os
 import shutil
 import stat
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -729,3 +730,29 @@ def test_an_unavailable_cache_publishes_the_same_report_every_run(tmp_path, monk
         assert "agents-shipgate-verify-base-" not in published, published
     for field in ("request_id", "input_set_id", "decision_id"):
         assert first[field] == second[field], field
+
+
+def test_a_link_planted_in_the_run_directory_is_replaced_not_followed(tmp_path, monkeypatch):
+    """The run's own copy is published without following a link either (#638)."""
+
+    repo = _weakened_repo(tmp_path, sample_dir=SAMPLE)
+    victim = tmp_path / "victim.txt"
+    victim.write_bytes(b"untouched\n")
+    planted: list[Path] = []
+    original = tempfile.TemporaryDirectory
+
+    class PlantALink(original):  # type: ignore[misc, valid-type]
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            if str(kwargs.get("prefix", "")).endswith("-base-"):
+                link = Path(self.name) / "report.json"
+                link.symlink_to(victim)
+                planted.append(link)
+
+    monkeypatch.setattr(tempfile, "TemporaryDirectory", PlantALink)
+
+    _verify(repo)
+
+    assert planted, "the run-scoped base directory was never created"
+    assert victim.read_bytes() == b"untouched\n"
+    assert "ci_mode_weakened" in _policy_kinds(repo)

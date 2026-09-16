@@ -1494,8 +1494,26 @@ def _prepare_base_report(
 
         if run_report_dir is None:
             raise OSError("no run-scoped directory for the base report")
-        destination = run_report_dir() / _BASE_CACHE_REPORT_NAME
-        destination.write_bytes(data)
+        directory = run_report_dir()
+        destination = directory / _BASE_CACHE_REPORT_NAME
+        # The directory is this run's own, but this copy is the only base
+        # report every later consumer reads. Where descriptors allow it,
+        # publish it through the same no-follow boundary the cache uses, so
+        # nothing in this path is written through a link.
+        if _DESCRIPTOR_RELATIVE_BASE_CACHE:
+            handle = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                replace_file_at(
+                    handle,
+                    _BASE_CACHE_REPORT_NAME,
+                    data,
+                    temporary_prefix="base-report-",
+                    mode=0o600,
+                )
+            finally:
+                os.close(handle)
+        else:
+            destination.write_bytes(data)
         return destination
 
     unusable = (
@@ -1840,9 +1858,11 @@ class _BaseCacheDirectory:
         try:
             with os.fdopen(handle, "wb") as stream:
                 # ``mkstemp`` creates at 0600. This is the Windows boundary,
-                # which has no ``fchmod`` and no POSIX mode to set; where the
-                # fallback is forced on POSIX, publish the same mode the
-                # descriptor boundary would.
+                # which has no ``fchmod`` and no POSIX mode to set. Where the
+                # fallback is forced on POSIX this is a best-effort widening to
+                # ``mode``: ``fchmod`` ignores the umask, so a restrictive umask
+                # publishes a wider file here than the descriptor boundary,
+                # which creates at ``mode`` masked by it.
                 fchmod = getattr(os, "fchmod", None)
                 if fchmod is not None:
                     with contextlib.suppress(OSError):

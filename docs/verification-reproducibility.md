@@ -278,10 +278,14 @@ that run. Verification regenerates the base report from Git and reads, writes
 and prunes nothing through that component; the base comparison still completes,
 and a base note names the component and asks for a plain directory in its
 place. A conflicting directory at a cache file name inside a usable entry keeps
-the storage failure described above.
+the storage failure described above. The published base reference still names
+where a report for this entry belongs, so two such runs agree byte for byte;
+it is a location, not a source, and when the cache was unavailable that
+location resolves through the very component the boundary refused.
 
-The cache is opened once per run. That open decides between a hit, a cold run
-and an unavailable cache, and a hit yields the validated `report.json` bytes
+The cache is opened once to decide the run: a cold run opens it again to store
+what it scanned and once more to prune. That first open decides between a hit,
+a cold run and an unavailable cache, and a hit yields the validated `report.json` bytes
 themselves along with the capability lock read through the same directory
 handle — never two directory generations. Those bytes are then written into a
 directory private to the run, and every later consumer (the head scan's diff
