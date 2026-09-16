@@ -103,7 +103,13 @@ file exists, not that a host loads it, so hooks are published four ways:
   `directory` source whose relative `path` holds a
   `.claude-plugin/marketplace.json`, or a `file` source whose relative `path`
   is one; and that marketplace lists the plugin with a `./` or
-  `metadata.pluginRoot` source. Claude Code leaves only a plugin from an
+  `metadata.pluginRoot` source. `<marketplace>` matches either the
+  `extraKnownMarketplaces` key or the registered `marketplace.json`'s own
+  `name`, which Claude Code's schema calls the identifier users see after the
+  `@`. The settings documentation only shows the two equal, so neither is
+  documented as the one `enabledPlugins` matches, and reading both errs toward
+  showing a hook. The `name` never registers a marketplace on its own.
+  Claude Code leaves only a plugin from an
   external source waiting for a manual install, so this plugin loads once the
   folder is trusted. Its selected hooks are `access: execute`, `risk: high`,
   and adding or changing one is an expansion, as in `1.0.0`. The row says the
@@ -161,12 +167,16 @@ No row is proof that a hook ran. What remains unread:
 - `check` routes a changed `.claude/hooks/hooks.json` to protected-surface
   review whatever its basis. It does not route a plugin manifest, a
   marketplace or a plugin-selected hook file, so a plugin-reference limit
-  never changes a `check` decision from what `1.0.0` gave. Its host
+  never changes a `check` decision from what `1.0.0` gave. A hook an enabled
+  plugin selects outside the registry paths therefore gets an expanding row
+  under an `allow` decision, as `1.0.0` allowed the same change with no row
+  (#809). Its host
   comparison leaves out a limit both sides share on an untouched source,
   because its result cannot name a limit. A limit only one side carries, or
   one on a source the change touched, makes that comparison incomparable
   (`base_inventory_incomplete` or `head_inventory_incomplete`), so no added or
-  removed row is built from a manifest that could not be read.
+  removed row is built from a manifest that could not be read. That refusal is
+  repository-wide, so an unrelated row is withheld too (#808).
 
 Skill and command frontmatter is read the way Claude Code documents it (#730).
 Frontmatter is optional: a skill without it takes its name from the directory

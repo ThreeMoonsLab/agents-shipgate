@@ -1742,7 +1742,8 @@ def _resolve_claude_plugin_hooks(
             return existing(relative)
         return None
 
-    # `{marketplace file: plugin entry names}` the project settings enable.
+    # `{marketplace name: plugin entry names}` the project settings enable, and
+    # `{marketplace file: the names the project settings register it under}`.
     enabled_ids: set[str] = set()
     registered: dict[str, set[str]] = {}
     for layer in project_settings:
@@ -1758,13 +1759,35 @@ def _resolve_claude_plugin_hooks(
             for name, config in marketplaces.items():
                 located = in_repository_marketplace(config)
                 if located is not None:
-                    registered.setdefault(str(name), set()).add(located)
+                    registered.setdefault(located, set()).add(str(name))
     enabled_plugins: dict[str, set[str]] = {}
     for plugin_id in sorted(enabled_ids):
         plugin, separator, marketplace_name = plugin_id.rpartition("@")
         if separator and plugin:
-            for located in registered.get(marketplace_name, ()):
-                enabled_plugins.setdefault(located, set()).add(plugin)
+            enabled_plugins.setdefault(marketplace_name, set()).add(plugin)
+
+    def enabled_entries(marketplace: str, data: Any) -> set[str]:
+        """The plugin entry names the project settings enable from this
+        marketplace file.
+
+        The marketplace must be registered in the project settings as an
+        in-repository source; an unregistered `marketplace.json` enables
+        nothing. It is then identified both by the `extraKnownMarketplaces`
+        key that registers it and by its own `name`. Claude Code's
+        `marketplace.json` schema calls that `name` the identifier users see
+        after the `@` (https://code.claude.com/docs/en/plugin-marketplaces),
+        and the settings documentation only ever shows a key equal to it, so
+        neither name is documented as the one `enabledPlugins` matches.
+        Reading both errs toward showing a hook the host would load.
+        """
+
+        names = registered.get(marketplace)
+        if not names:
+            return set()
+        own = data.get("name") if isinstance(data, dict) else None
+        if isinstance(own, str):
+            names = names | {own}
+        return {plugin for name in names for plugin in enabled_plugins.get(name, ())}
 
     def through_unread_link(target: str) -> bool:
         folded = target.casefold()
@@ -1903,6 +1926,7 @@ def _resolve_claude_plugin_hooks(
                 ),
             )
             continue
+        enabled_here = enabled_entries(marketplace, data)
         metadata = data.get("metadata")
         root_reference = metadata.get("pluginRoot") if isinstance(metadata, dict) else None
         plugin_base = (
@@ -1949,9 +1973,7 @@ def _resolve_claude_plugin_hooks(
             else:
                 continue  # A remote source names nothing in this repository.
             plugin_root = under(marketplace_root, relative) if relative else marketplace_root
-            if isinstance(entry.get("name"), str) and entry["name"] in enabled_plugins.get(
-                marketplace, ()
-            ):
+            if isinstance(entry.get("name"), str) and entry["name"] in enabled_here:
                 enabled_roots.add(plugin_root.casefold())
             select_default(plugin_root, selector)
             if "hooks" not in entry:

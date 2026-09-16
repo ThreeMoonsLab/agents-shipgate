@@ -25,7 +25,11 @@ import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
-from agents_shipgate.core.boundary_registry import is_hook_declaration_file_name
+from agents_shipgate.core.boundary_registry import (
+    is_claude_plugin_manifest_path,
+    is_claude_plugin_marketplace_path,
+    is_hook_declaration_file_name,
+)
 from agents_shipgate.core.capability_diff_rows import capability_diff_rows
 from agents_shipgate.core.host_grants import (
     HostStaticParseCache,
@@ -580,10 +584,47 @@ def test_a_selected_file_without_a_hooks_object_is_named(tmp_path: Path, content
 # --- saved baselines ----------------------------------------------------------
 
 
+#: A host-grants baseline that published `agents-shipgate==1.0.0` saved for
+#: the `_self_enabled()` workspace, checked in because no synthesis from this
+#: reader's own inventory can hold what 1.0.0 never read. Reproduced with:
+#:
+#:     python3.12 -m venv v && v/bin/pip install agents-shipgate==1.0.0
+#:     # write the `_self_enabled()` files into <repo>, exactly as `_workspace` does
+#:     v/bin/agents-shipgate audit --host --workspace <repo> --save-baseline
+#:     cp <repo>/.agents-shipgate/host-grants.json tests/fixtures/<this file>
+#:
+#: `test_the_published_1_0_0_baseline_is_what_1_0_0_read` pins what makes it a
+#: 1.0.0 artifact, so a regenerated copy cannot quietly become a current one.
+PUBLISHED_1_0_0_BASELINE = (
+    Path(__file__).parent / "fixtures" / "host-grants-1.0.0-enabled-plugin.json"
+)
+
+
+def _published_1_0_0_baseline() -> dict:
+    return json.loads(PUBLISHED_1_0_0_BASELINE.read_text(encoding="utf-8"))
+
+
 def _recorded_by_1_0_0(inventory: dict) -> dict:
     """The same inventory as a 1.0.0 baseline recorded it: every hook file
-    `execute`/`high`, whatever selected it."""
+    `execute`/`high`, whatever selected it.
 
+    Faithful only where 1.0.0 read the same files. 1.0.0 read no plugin
+    manifest and no marketplace, so an inventory holding one cannot be
+    rewritten into a 1.0.0 baseline: the artifacts and observed sources drift
+    compares would be this reader's, and the comparison could never fail. Use
+    `_published_1_0_0_baseline()` there.
+    """
+
+    newly_read = sorted(
+        artifact["path"]
+        for artifact in inventory["artifacts"]
+        if is_claude_plugin_manifest_path(artifact["path"])
+        or is_claude_plugin_marketplace_path(artifact["path"])
+    )
+    assert not newly_read, (
+        f"1.0.0 never read {newly_read}; a synthesized baseline would hold artifacts and "
+        "observed sources it cannot have had. Use _published_1_0_0_baseline()."
+    )
     recorded = json.loads(json.dumps(normalized_host_grants(inventory)))
     for grant in recorded["grants"]:
         if grant["kind"] == "hook":
@@ -872,6 +913,7 @@ def _self_enabled(
     *,
     enabled: object = True,
     marketplaces: object = None,
+    marketplace_name: object = "market",
     plugin_id: str = "demo@market",
     settings_file: str = ".claude/settings.json",
 ) -> dict[str, object]:
@@ -882,7 +924,7 @@ def _self_enabled(
         "enabledPlugins": {plugin_id: enabled},
     }
     return {
-        ".claude-plugin/marketplace.json": SELF_MARKETPLACE,
+        ".claude-plugin/marketplace.json": {**SELF_MARKETPLACE, "name": marketplace_name},
         ".claude-plugin/plugin.json": SELF_PLUGIN,
         ".claude/hooks/hooks.json": HOOK,
         settings_file: {**SETTINGS, **layer} if settings_file == ".claude/settings.json" else layer,
@@ -930,6 +972,61 @@ def test_a_directory_or_file_marketplace_in_the_repository_establishes_enablemen
     grant = _hooks(_inventory(root))[".claude/hooks/hooks.json#SessionStart"]
 
     assert hook_loading_basis(grant) == "project_enabled_plugin"
+
+
+@pytest.mark.parametrize(
+    "plugin_id",
+    ["demo@market", "demo@real-market"],
+    ids=["settings-key", "marketplace-name"],
+)
+def test_either_name_of_a_registered_marketplace_identifies_it(
+    tmp_path: Path, plugin_id: str
+) -> None:
+    """Claude Code's marketplace schema calls the `name` in `marketplace.json`
+    the identifier users see after the `@`, and the settings documentation
+    only ever shows an `extraKnownMarketplaces` key equal to it. Neither name
+    is documented as the one `enabledPlugins` matches, so both are read: as
+    with case-insensitive reference matching, that errs toward showing a hook
+    the host would load. Published 1.0.0 showed this hook as `execute`/`high`.
+    """
+
+    root = _workspace(
+        tmp_path, _self_enabled(marketplace_name="real-market", plugin_id=plugin_id)
+    )
+
+    grant = _hooks(_inventory(root))[".claude/hooks/hooks.json#SessionStart"]
+
+    assert (grant["access"], grant["risk"]) == ("execute", "high")
+    assert hook_loading_basis(grant) == "project_enabled_plugin"
+    _never_executed(root)
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        {"marketplace_name": "real-market", "marketplaces": {}, "plugin_id": "demo@real-market"},
+        {
+            "marketplace_name": "real-market",
+            "marketplaces": {"market": {"source": {"source": "github", "repo": "o/r"}}},
+            "plugin_id": "demo@real-market",
+        },
+        {"marketplace_name": 7, "plugin_id": "demo@7"},
+    ],
+    ids=["not-registered", "registered-remotely", "non-string-name"],
+)
+def test_a_marketplace_name_alone_does_not_register_a_marketplace(
+    tmp_path: Path, variant: dict
+) -> None:
+    """The `name` identifies a marketplace the project settings register in
+    the repository. It never registers one on its own: otherwise any
+    `marketplace.json` in the tree would enable plugins nothing asked for."""
+
+    root = _workspace(tmp_path, _self_enabled(**variant))
+
+    grant = _hooks(_inventory(root))[".claude/hooks/hooks.json#SessionStart"]
+
+    assert (grant["access"], grant["risk"]) == ("execute", "medium")
+    assert hook_loading_basis(grant) == "plugin_selected"
 
 
 @pytest.mark.parametrize(
@@ -1034,17 +1131,92 @@ def test_only_the_enabled_plugins_hooks_are_loaded(tmp_path: Path) -> None:
     }
 
 
-def test_a_1_0_0_baseline_of_an_enabled_plugin_hook_does_not_drift(tmp_path: Path) -> None:
-    """1.0.0 recorded this file as `execute`/`high`, and so does this reader."""
+def test_the_published_1_0_0_baseline_is_what_1_0_0_read(tmp_path: Path) -> None:
+    """What makes the checked-in fixture a 1.0.0 artifact: the schema 1.0.0
+    wrote, the hook recorded as `execute`/`high`, and no plugin manifest,
+    because 1.0.0 read none. A regenerated copy that lost any of these would
+    not be evidence of anything."""
+
+    baseline = _published_1_0_0_baseline()
+    inventory = baseline["inventory"]
+    hooks = [grant for grant in inventory["grants"] if grant["kind"] == "hook"]
+
+    assert baseline["host_grants_schema_version"] == "0.5"
+    assert [(grant["source"], grant["access"], grant["risk"]) for grant in hooks] == [
+        (".claude/hooks/hooks.json", "execute", "high")
+    ]
+    assert [artifact["path"] for artifact in inventory["artifacts"]] == [
+        ".claude/hooks/hooks.json",
+        ".claude/settings.json",
+    ]
+    [coverage] = [
+        entry for entry in inventory["host_coverage"] if entry["host"] == "claude-code"
+    ]
+    assert coverage["sources_observed"] == [".claude/hooks/hooks.json", ".claude/settings.json"]
+    # The fixture describes the workspace these tests build.
+    assert _workspace(tmp_path, _self_enabled()).joinpath(".claude/hooks/hooks.json").exists()
+
+
+def test_a_1_0_0_baseline_of_an_enabled_plugin_hook_drifts_once_with_no_grant_change(
+    tmp_path: Path,
+) -> None:
+    """Against a baseline published 1.0.0 actually saved, this reader drifts
+    once. The hook grant is untouched — 1.0.0's `execute`/`high`, same
+    identity, no typed change and no expansion signal — but the plugin
+    manifest that selects it is a newly read artifact and a newly observed
+    source, so `--fail-on-drift` exits 20 until the baseline is re-saved."""
 
     root = _workspace(tmp_path, _self_enabled())
+    baseline = _published_1_0_0_baseline()
     current = _inventory(root)
 
     payload = build_host_drift_payload(
-        baseline=_recorded_by_1_0_0(current), inventory=current, baseline_file="b"
+        baseline=baseline, inventory=current, baseline_file="b"
     )
 
-    assert payload["has_drift"] is False
+    assert payload["comparison_status"] == "comparable"
+    assert payload["has_drift"] is True
+    assert payload["changes"] == []
+    assert payload["expansion_signals"] == []
+    assert capability_diff_rows(payload) == []
+    assert [
+        (change["baseline"], change["current"]["path"]) for change in payload["artifact_changes"]
+    ] == [(None, ".claude-plugin/plugin.json")]
+    [coverage] = payload["coverage_changes"]
+    assert coverage["current"]["host"] == "claude-code"
+    assert set(coverage["current"]["sources_observed"]) - set(
+        coverage["baseline"]["sources_observed"]
+    ) == {".claude-plugin/plugin.json"}
+    # The grant the manifest selects is byte-identical on both sides.
+    recorded = [grant for grant in baseline["inventory"]["grants"] if grant["kind"] == "hook"]
+    read_now = [grant for grant in current["grants"] if grant["kind"] == "hook"]
+    assert [(g["grant_id"], g["access"], g["risk"]) for g in read_now] == [
+        (g["grant_id"], g["access"], g["risk"]) for g in recorded
+    ]
+    _never_executed(root)
+
+
+def test_the_drift_gate_exits_20_once_on_a_published_1_0_0_baseline(tmp_path: Path) -> None:
+    """The documented upgrade effect, through the gate a scheduled workflow
+    runs: exit 20, zero typed grant changes, and the added artifact and
+    observed source to read in `--json`."""
+
+    root = _workspace(tmp_path, _self_enabled())
+    _write(root, ".agents-shipgate/host-grants.json", PUBLISHED_1_0_0_BASELINE.read_text("utf-8"))
+
+    gate = runner.invoke(
+        app, ["audit", "--host", "--workspace", str(root), "--drift", "--fail-on-drift"]
+    )
+    data = runner.invoke(app, ["audit", "--host", "--workspace", str(root), "--drift", "--json"])
+
+    assert gate.exit_code == 20, gate.output
+    assert "**Drift detected** — 0 typed grant change(s)." in gate.output
+    payload = json.loads(data.output)
+    assert payload["changes"] == [] and payload["expansion_signals"] == []
+    assert [change["current"]["path"] for change in payload["artifact_changes"]] == [
+        ".claude-plugin/plugin.json"
+    ]
+    _never_executed(root)
 
 
 def test_diff_marks_an_enabled_plugin_hook_change_as_widening_as_1_0_0_did(tmp_path: Path) -> None:

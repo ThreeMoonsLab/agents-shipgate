@@ -105,6 +105,9 @@ def test_a_hook_row_is_not_described_as_proof_of_loading() -> None:
     # Review cycle 2: enablement is read only where the repository proves it.
     assert "Enablement is read only from the repository's project settings" in section
     assert "Installation state, user settings and workspace trust are never read" in section
+    # Review cycle 3: which of the two names identifies a marketplace.
+    assert "`extraKnownMarketplaces` key or the registered `marketplace.json`'s own" in section
+    assert "The `name` never registers a marketplace on its own." in section
     # A read limit is never an unchanged limit, as for an oversize settings file.
     assert "A read limit is never named as unchanged" in section
     # The `check` claims the #714 reviews found wrong: unread plugin references

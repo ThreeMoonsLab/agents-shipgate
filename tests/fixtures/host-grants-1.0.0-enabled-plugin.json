@@ -1,0 +1,204 @@
+{
+  "host_grants_schema_version": "0.5",
+  "inventory": {
+    "artifacts": [
+      {
+        "artifact_id": "host_artifact_2c7fbb83d896a5394a48402e",
+        "host": "claude-code",
+        "kind": "hooks",
+        "parse_status": "parsed",
+        "path": ".claude/hooks/hooks.json",
+        "redacted_sha256": "55b97d5b8459df58fa859c8d170c801f98f78a0e423939e8701039941c45ab70",
+        "scope": "repository"
+      },
+      {
+        "artifact_id": "host_artifact_a52ef572df17372186ccf852",
+        "host": "claude-code",
+        "kind": "config",
+        "parse_status": "parsed",
+        "path": ".claude/settings.json",
+        "redacted_sha256": "596e67388974a7dcbb524ccfe17d9e353539269e583a19ec0dde0ec0f159c3c5",
+        "scope": "repository"
+      }
+    ],
+    "grants": [
+      {
+        "access": "read",
+        "config_sha256": "28119275a8a8e2a0259431f0d81b824dcbbd1ad8f76fb3e28c0f18a4b5c81b76",
+        "disposition": "allow",
+        "grant_id": "host_grant_16552a699357f233705c7938",
+        "host": "claude-code",
+        "kind": "permission_rule",
+        "risk": "low",
+        "rule": "Read(**)",
+        "scope": "repository",
+        "source": ".claude/settings.json",
+        "wildcard": true
+      },
+      {
+        "access": "execute",
+        "config_sha256": "26b3426b2593763c96d0890b4a77a0bbf66d13fc512b0c6b138a23c290f30a2a",
+        "enabled": true,
+        "grant_id": "host_grant_21d98006bdd880da55c1c3f7",
+        "host": "claude-code",
+        "kind": "plugin_or_app",
+        "name": "demo@market",
+        "risk": "high",
+        "scope": "repository",
+        "source": ".claude/settings.json"
+      },
+      {
+        "access": "execute",
+        "config_sha256": "4506c774555a1f8b35634942ec7906355577c5f5ac9557cc57cbf801dbe83fcc",
+        "event": "SessionStart",
+        "grant_id": "host_grant_6a250193a770396794b53cab",
+        "host": "claude-code",
+        "kind": "hook",
+        "risk": "high",
+        "scope": "repository",
+        "source": ".claude/hooks/hooks.json"
+      },
+      {
+        "access": "external",
+        "config_sha256": "22472b3f15ed04fd125b2df2b403f652a1bcc8bca30a4e12e9c5c5bb6b1d81fa",
+        "enabled": null,
+        "grant_id": "host_grant_eeedd17c783b5afec3dbc7b7",
+        "host": "claude-code",
+        "kind": "plugin_or_app",
+        "name": "marketplace:market",
+        "risk": "high",
+        "scope": "repository",
+        "source": ".claude/settings.json"
+      }
+    ],
+    "host_coverage": [
+      {
+        "host": "claude-code",
+        "issue_ids": [],
+        "scope": "repository",
+        "sources_expected": [
+          "**/.claude/hooks/hooks.json",
+          "**/.github/workflows/*.yaml",
+          "**/.github/workflows/*.yml",
+          "**/.mcp.json",
+          "**/AGENTS.md",
+          "**/AGENTS.override.md",
+          "**/CLAUDE.md",
+          ".agents-shipgate/*waiver*.json",
+          ".agents-shipgate/baseline*.json",
+          ".agents-shipgate/state*.json",
+          ".agents/skills/**/SKILL.md",
+          ".agents/skills/*/SKILL.md",
+          ".claude/commands/*",
+          ".claude/commands/**",
+          ".claude/hooks/hooks.json",
+          ".claude/settings.json",
+          ".claude/settings.local.json",
+          ".claude/skills/**/SKILL.md",
+          ".claude/skills/*/SKILL.md",
+          ".mcp.json",
+          ".shipgate/agent-contract.json",
+          "AGENTS.md",
+          "AGENTS.override.md",
+          "CLAUDE.md",
+          "policies/*.shipgate.yaml",
+          "policies/agent-boundary.shipgate.yaml",
+          "policies/codex-boundary.shipgate.yaml",
+          "policies/host-boundary.shipgate.yaml",
+          "shipgate.yaml"
+        ],
+        "sources_observed": [
+          ".claude/hooks/hooks.json",
+          ".claude/settings.json"
+        ],
+        "status": "complete"
+      },
+      {
+        "host": "codex",
+        "issue_ids": [],
+        "scope": "repository",
+        "sources_expected": [
+          "**/.codex/config.toml",
+          "**/.codex/hooks.json",
+          "**/.codex/requirements.toml",
+          "**/.github/workflows/*.yaml",
+          "**/.github/workflows/*.yml",
+          "**/AGENTS.md",
+          "**/AGENTS.override.md",
+          ".agents-shipgate/*waiver*.json",
+          ".agents-shipgate/baseline*.json",
+          ".agents-shipgate/state*.json",
+          ".agents/skills/**/SKILL.md",
+          ".agents/skills/*/SKILL.md",
+          ".codex/config.toml",
+          ".codex/hooks.json",
+          ".codex/requirements.toml",
+          ".shipgate/agent-contract.json",
+          "AGENTS.md",
+          "AGENTS.override.md",
+          "policies/*.shipgate.yaml",
+          "policies/agent-boundary.shipgate.yaml",
+          "policies/codex-boundary.shipgate.yaml",
+          "policies/host-boundary.shipgate.yaml",
+          "shipgate.yaml"
+        ],
+        "sources_observed": [],
+        "status": "complete"
+      },
+      {
+        "host": "cursor",
+        "issue_ids": [],
+        "scope": "repository",
+        "sources_expected": [
+          "**/.github/workflows/*.yaml",
+          "**/.github/workflows/*.yml",
+          "**/AGENTS.md",
+          "**/AGENTS.override.md",
+          ".agents-shipgate/*waiver*.json",
+          ".agents-shipgate/baseline*.json",
+          ".agents-shipgate/state*.json",
+          ".agents/skills/**/SKILL.md",
+          ".agents/skills/*/SKILL.md",
+          ".cursor/cli.json",
+          ".cursor/mcp.json",
+          ".cursor/rules/*",
+          ".cursor/rules/**",
+          ".shipgate/agent-contract.json",
+          "AGENTS.md",
+          "AGENTS.override.md",
+          "policies/*.shipgate.yaml",
+          "policies/agent-boundary.shipgate.yaml",
+          "policies/codex-boundary.shipgate.yaml",
+          "policies/host-boundary.shipgate.yaml",
+          "shipgate.yaml"
+        ],
+        "sources_observed": [],
+        "status": "complete"
+      },
+      {
+        "host": "github",
+        "issue_ids": [],
+        "scope": "repository",
+        "sources_expected": [
+          ".github/workflows/*.yaml",
+          ".github/workflows/*.yml"
+        ],
+        "sources_observed": [],
+        "status": "complete"
+      },
+      {
+        "host": "vscode",
+        "issue_ids": [],
+        "scope": "repository",
+        "sources_expected": [
+          ".vscode/mcp.json"
+        ],
+        "sources_observed": [],
+        "status": "complete"
+      }
+    ],
+    "scope": "repository"
+  },
+  "inventory_sha256": "fdf12537d96ed2fcbfb0eb37bc2e567e9fa8e2522b95b61f411630de27feb4fe",
+  "scope": "repository"
+}

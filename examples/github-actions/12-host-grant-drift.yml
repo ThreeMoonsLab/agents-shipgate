@@ -17,10 +17,15 @@
 # the same command. Do not re-save to silence drift nobody reviewed.
 #
 # Upgrading past 1.0.0 can drift once. Claude Code hook files nothing selects
-# now read as `access: unknown` (#714), with no expansion signal, and hook
-# files a plugin selects are newly read: one carries a `hook_added` signal
-# only when the repository's project settings enable that plugin. Separately, a 0.4 or 0.5
-# baseline holding a workflow grant is incomparable after #771 (see STABILITY.md). Read the changed rows with
+# now read as `access: unknown` (#714), with no expansion signal, and plugin
+# manifests, marketplaces and the hook files they select are newly read: a
+# newly read hook file carries a `hook_added` signal only when the repository's
+# project settings enable that plugin. A repository whose plugin manifest or
+# marketplace declares `hooks` drifts once even when no grant changes: the
+# manifest is a new artifact and a new observed source, so this gate exits 20
+# reporting "0 typed grant change(s)" with no rows. Separately, a 0.4 or 0.5
+# baseline holding a workflow grant is incomparable after #771 (see STABILITY.md).
+# Read `changes`, `artifact_changes` and `coverage_changes` with
 # `shipgate audit --host --drift --json` before re-saving.
 
 name: host-grant-drift
