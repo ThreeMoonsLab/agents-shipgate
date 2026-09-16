@@ -410,7 +410,12 @@ def _locate_report(workspace: Path, manifest_path: Path) -> Path | None:
         # because of a --out override). Falling back risks reading a
         # stale report from the default location.
         return None
-    canonical = workspace / "agents-shipgate-reports" / "report.json"
+    # Imported here so the line-pinned subprocess allowlist above stays put.
+    from agents_shipgate.cli.current_workspace import DEFAULT_REPORTS_DIR
+
+    # The shared name, joined to the workspace as given: this path becomes the
+    # `apply-patches --from` argument, so its spelling is kept exactly.
+    canonical = workspace / DEFAULT_REPORTS_DIR / "report.json"
     if canonical.is_file():
         return canonical
     return None

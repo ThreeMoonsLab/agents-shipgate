@@ -6,6 +6,7 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
+from agents_shipgate.cli.current_workspace import default_reports_dir
 from agents_shipgate.cli.verify.git import (
     archive_tree,
     blob_path_unchanged,
@@ -82,7 +83,7 @@ def compare_host_refs(
 
     def identity():
         bound, overlay = _safe_worktree_overlay(
-            workspace, exclude=out_dir or workspace / "agents-shipgate-reports"
+            workspace, exclude=out_dir or default_reports_dir(workspace)
         )
         if not bound:
             raise ValueError("The working tree could not be captured for comparison")

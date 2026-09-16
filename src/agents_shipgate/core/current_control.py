@@ -767,13 +767,13 @@ def _validate_control_currency(
             ),
             path=out_dir,
         )
-    _validate_base_currency(out_dir, identity, live, required=grants_authority)
+    _validate_base_currency(out_dir, identity, live)
     if identity.snapshot_kind == "worktree_overlay":
         _validate_worktree_currency(
             out_dir, pointer, live, required=grants_authority, artifacts=artifacts
         )
     elif identity.snapshot_kind == "committed_tree":
-        _require_clean_worktree(out_dir, live, required=grants_authority)
+        _require_clean_worktree(out_dir, live)
     if "verification_plan" in artifacts:
         try:
             plan = VerificationPlan.model_validate_json(artifacts["verification_plan"])
@@ -813,6 +813,9 @@ def _validate_worktree_currency(
     not the uncommitted set: a local run with a base carries the union of
     ``base...HEAD`` and the worktree, so requiring equality would refuse a clean
     workspace the instant the run that produced it finished.
+
+    Neither test may be skipped because the live set could not be read.
+    ``required`` narrows only the case where the pointer binds no plan at all.
     """
 
     ref = pointer.artifacts.get("verification_plan")
@@ -862,17 +865,15 @@ def _validate_worktree_currency(
             path=out_dir,
         )
     if live.changed_paths is None:
-        if required:
-            raise CurrentControlUnavailable(
-                "workspace_unverifiable",
-                (
-                    "This pointer authorizes completion of a worktree "
-                    "verification, but the current set of uncommitted changes "
-                    "could not be determined."
-                ),
-                path=out_dir,
-            )
-        return
+        raise CurrentControlUnavailable(
+            "workspace_unverifiable",
+            (
+                "The current set of uncommitted changes could not be "
+                "determined, so it cannot be shown that this worktree "
+                "verification still describes the workspace."
+            ),
+            path=out_dir,
+        )
     unseen = sorted(set(live.changed_paths) - set(decided_paths))
     if unseen:
         raise CurrentControlUnavailable(
@@ -885,16 +886,34 @@ def _validate_worktree_currency(
 def _validate_live_overlay(
     out_dir: Path, pointer: CurrentControlPointer, live: LiveWorkspace
 ) -> None:
-    """Compare a plan-less worktree pointer against the tree as it stands."""
+    """Compare a plan-less worktree pointer against the tree as it stands.
+
+    A plan-less pointer records no path set, so this comparison *is* its whole
+    currency test: there is no second check that a skip here falls back on.
+    Returning on a failure to look therefore reported a preview as current over
+    a tree nobody had read — which is exactly what a writer and a reader
+    disagreeing about the reports-directory exclusion produced (#575 review
+    cycle 2). Unreadable is unknown, and unknown withholds the answer.
+    """
 
     if live.changed_paths is None:
-        # Unreadable is unknown, not drifted. This pointer authorizes nothing,
-        # so it keeps its route rather than being denied on a failure to look.
-        return
+        raise CurrentControlUnavailable(
+            "workspace_unverifiable",
+            (
+                "The current set of uncommitted changes could not be "
+                "determined, so it cannot be shown that this answer still "
+                "describes the working tree it was read from."
+            ),
+            path=out_dir,
+        )
     try:
         rows = worktree_overlay(live.root, list(live.changed_paths))
-    except (ValueError, OSError):
-        return
+    except (ValueError, OSError) as exc:
+        raise CurrentControlUnavailable(
+            "workspace_unverifiable",
+            f"The working tree this answer was read from could not be recomputed: {exc}",
+            path=out_dir,
+        ) from exc
     observed = content_id(rows) if rows else None
     if observed != pointer.workspace_identity.worktree_overlay_sha256:
         raise CurrentControlUnavailable(
@@ -908,7 +927,7 @@ def _validate_live_overlay(
         )
 
 
-def _require_clean_worktree(out_dir: Path, live: LiveWorkspace, *, required: bool) -> None:
+def _require_clean_worktree(out_dir: Path, live: LiveWorkspace) -> None:
     """A committed-tree decision says nothing about uncommitted work.
 
     ``verify --head <ref>`` evaluates an archived commit, so its evidence stops
@@ -919,23 +938,23 @@ def _require_clean_worktree(out_dir: Path, live: LiveWorkspace, *, required: boo
     can clear it — the clearing route is a local worktree verification, which is
     what the refusal has to say.
 
-    ``required`` narrows only the *undeterminable* case: a change set we could
-    not read is unknown rather than known-drifted, so it blocks authority but
-    does not deny a caller its route.
+    An *undeterminable* change set is not scoped to completion either. It used
+    to be: a change set that could not be read blocked authority but still
+    handed back the route. But the route is the operative half of a non-
+    completion pointer, and handing it out on the strength of a look that never
+    happened is the same fail-open as reporting no drift (#575 review cycle 2).
     """
 
     if live.changed_paths is None:
-        if required:
-            raise CurrentControlUnavailable(
-                "workspace_unverifiable",
-                (
-                    "This pointer authorizes completion of a committed-tree "
-                    "verification, but the current set of uncommitted changes "
-                    "could not be determined."
-                ),
-                path=out_dir,
-            )
-        return
+        raise CurrentControlUnavailable(
+            "workspace_unverifiable",
+            (
+                "The current set of uncommitted changes could not be "
+                "determined, so it cannot be shown that this committed-tree "
+                "verification still describes the workspace."
+            ),
+            path=out_dir,
+        )
     if live.changed_paths:
         raise CurrentControlUnavailable(
             "workspace_changed",
@@ -953,8 +972,6 @@ def _validate_base_currency(
     out_dir: Path,
     identity: CurrentControlWorkspaceIdentity,
     live: LiveWorkspace,
-    *,
-    required: bool,
 ) -> None:
     """Confirm the other end of the range still resolves where it did.
 
@@ -962,22 +979,23 @@ def _validate_base_currency(
     the base — a merge, or a fetch moving ``origin/main`` — can empty the range
     entirely without touching HEAD or the working tree, which leaves every
     HEAD-based check satisfied while the evidence underneath has gone.
+
+    A live workspace that carries no resolver cannot answer the question, and an
+    unanswered currency test denies the pointer rather than passing it, for
+    every state — the same rule the uncommitted change set now follows.
     """
 
     if identity.base_ref is None or identity.base_commit_sha is None:
         return
     if live.resolve_commit is None:
-        if required:
-            raise CurrentControlUnavailable(
-                "workspace_unverifiable",
-                (
-                    "This pointer authorizes completion of a verification "
-                    f"against {identity.base_ref!r}, but that ref could not be "
-                    "resolved to compare against."
-                ),
-                path=out_dir,
-            )
-        return
+        raise CurrentControlUnavailable(
+            "workspace_unverifiable",
+            (
+                f"This pointer was published against {identity.base_ref!r}, but "
+                "that ref could not be resolved to compare against."
+            ),
+            path=out_dir,
+        )
     observed = live.resolve_commit(identity.base_ref)
     if observed != identity.base_commit_sha:
         raise CurrentControlUnavailable(

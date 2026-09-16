@@ -2239,6 +2239,13 @@ below it describes *a* run; only the pointer says *which* run. A non-zero exit
 from the reader means no control identity is current here and the caller holds
 no authority — not that the previous answer still stands.
 
+Without `--reports-dir`, the reader looks where a default `verify --workspace`
+publishes: `agents-shipgate-reports` under `--workspace`, so `agent control
+--workspace <repo>` finds that run from any directory. An explicit
+`--reports-dir` is read as given — a relative path resolves against the current
+directory — and no other directory is searched in its place. A refusal names
+the absolute directory it searched, and its recovery command writes back to it.
+
 **The promoted read for a coding-agent control loop is one command.**
 `agents-shipgate agent control --workspace .` runs the currency protocol and
 returns the `shipgate.agent_control/v1` envelope, which already carries the
