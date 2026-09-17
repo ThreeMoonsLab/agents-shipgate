@@ -119,7 +119,7 @@ def _verify(repo: Path, *extra: str) -> dict:
             "--format",
             "control",
             "--out",
-            "sg-out",
+            str(repo / "sg-out"),
             *extra,
         ],
     )
@@ -502,7 +502,7 @@ def test_no_route_on_a_ref_bound_run(tmp_path: Path) -> None:
             "--format",
             "control",
             "--out",
-            "sg-out",
+            str(repo / "sg-out"),
         ],
     )
     envelope = json.loads(result.output[result.output.index("{") :])
@@ -608,7 +608,7 @@ def test_a_withheld_route_produces_the_cause_it_acted_on(tmp_path: Path) -> None
             "--format",
             "control",
             "--out",
-            "sg-out",
+            str(repo / "sg-out"),
         ],
     )
     envelope = json.loads(result.output[result.output.index("{") :])
@@ -1134,7 +1134,8 @@ def test_the_control_this_route_publishes_is_superseded_by_its_own_command(
     # The three things the hard-coded PR verify got wrong for this route.
     assert "--base origin/main" not in recovery
     assert "--head HEAD" not in recovery
-    assert "--out sg-out" in recovery
+    # Absolutely, so the rerun writes here from any directory (#818).
+    assert f"--out {(repo / 'sg-out').resolve()}" in recovery
     assert "--config shipgate.yaml" in recovery
 
 
@@ -1172,7 +1173,7 @@ def test_a_ref_bound_run_never_publishes_an_archive_path(tmp_path: Path) -> None
             "--format",
             "json",
             "--out",
-            "sg-out",
+            str(repo / "sg-out"),
         ],
     )
     assert result.exit_code in (0, 1), result.output
@@ -1521,7 +1522,7 @@ def test_the_continuation_survives_a_scoped_manifest(tmp_path: Path) -> None:
                 "--format",
                 "control",
                 "--out",
-                "sg-out",
+                str(repo / "sg-out"),
                 "--no-base",
                 *extra,
             ],

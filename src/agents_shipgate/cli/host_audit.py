@@ -13,6 +13,7 @@ from pathlib import Path
 import typer
 
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error_action
+from agents_shipgate.cli.current_workspace import explicit_output_path
 from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.agent_controls import _cwd_anchored
 from agents_shipgate.core.host_grants import (
@@ -38,6 +39,11 @@ from agents_shipgate.invocation import render_command
 from agents_shipgate.schemas.diagnostics import NextAction
 
 _BaselineFileState = tuple[os.stat_result, str]
+
+#: The file name an ``--out`` that names a directory is pointed at: the one the
+#: GitHub Action and the managed agent instructions write the payload to, and
+#: a recognized artifact name in a reports directory.
+HOST_AUDIT_OUT_FILENAME = "host-grants.json"
 
 
 def _io_error(message: str, *, next_action: str) -> typer.Exit:
@@ -191,7 +197,12 @@ def audit(
     out: Path | None = typer.Option(
         None,
         "--out",
-        help="Write the JSON payload to this path in addition to normal output.",
+        help=(
+            "Also write the JSON payload to this file (a file path, not a "
+            "directory; an existing directory exits 2). A relative path "
+            "resolves against the current directory, not --workspace. "
+            "Default: no file is written."
+        ),
     ),
 ) -> None:
     """Zero-config, read-only audits. Currently supports --host."""
@@ -250,6 +261,26 @@ def audit(
                 "re-run the original request with compatible flags."
             ),
             command=None,
+        )
+    if out is not None and out.is_dir():
+        # Before the inventory is read and, with --save-baseline, before the
+        # baseline is written: refusing only at the final write left a saved
+        # baseline behind a failed command.
+        suggested = explicit_output_path(out) / HOST_AUDIT_OUT_FILENAME
+        raise _directory_out_error(
+            out,
+            suggested=suggested,
+            command=_audit_recovery_command(
+                workspace=workspace,
+                host=host,
+                scope=scope,
+                save_baseline=save_baseline,
+                drift=drift,
+                baseline_file=baseline_file,
+                fail_on_drift=fail_on_drift,
+                json_output=json_output,
+                out=suggested,
+            ),
         )
 
     inventory_scope = "local_static" if scope == "local-static" else "repository"
@@ -752,6 +783,38 @@ def _existing_baseline_error_message(exc: ValueError, *, baseline_file: Path) ->
         f"Refusing to overwrite existing host-grants baseline "
         f"{baseline_file}: {_baseline_error_detail(exc)}. "
         "The file was left unchanged."
+    )
+
+
+def _directory_out_error(
+    out: Path,
+    *,
+    suggested: Path,
+    command: str | None,
+) -> typer.Exit:
+    """``--out`` names the file the payload is written to, never a directory.
+
+    A directory used to reach the temporary-file rename and exit 4 as
+    ``other_error`` with ``Is a directory``, naming a ``.tmp`` path the caller
+    never typed and routing to "a writable file path" without saying which
+    (#818). It is flag misuse, so it is ``config_error``/2, and the message
+    names the file the caller most likely meant. The recovery only rewrites
+    ``--out`` and is offered as a command only while that file does not exist,
+    so following it never replaces a file nobody named.
+    """
+
+    exists = suggested.exists() or suggested.is_symlink()
+    why = (
+        f"--out takes the path of the JSON file to write; {out} is a directory. "
+        f"Name a file inside it, such as {suggested}, then re-run the audit."
+    )
+    if exists:
+        why += f" {suggested} already exists; choose a path whose file may be replaced."
+    return _config_error(
+        f"--out {out} is a directory; --out takes a file path, such as {suggested}. "
+        "Nothing was written.",
+        next_action=why,
+        command=None if exists else command,
     )
 
 

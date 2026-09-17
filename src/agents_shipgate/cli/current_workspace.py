@@ -12,6 +12,8 @@ subprocess surfaces, so inserting unrelated code there churns a security pin.
 Where a workspace's reports live by default is defined here for the same
 reason: ``verify`` writes there and ``agent control`` reads there, and when the
 two resolved that default differently a valid run read as ``missing`` (#575).
+An explicit output path follows one rule too, the shell's: relative to the
+current directory (#818).
 So is which output directories may be left out of the change set at all: the
 run that writes into one and every refresh that reads from one must refuse the
 same directories, or a pointer ``verify`` would no longer publish still reads
@@ -62,6 +64,89 @@ def default_reports_dir(workspace: Path) -> Path:
     """
 
     return workspace.resolve() / DEFAULT_REPORTS_DIR
+
+
+def explicit_output_path(path: Path) -> Path:
+    """Where an output path typed on the command line lands.
+
+    Absolute as given; relative against the current directory, the way the
+    shell that typed it reads every other path. This is the one rule for an
+    explicit ``verify --out``, ``scan --out``, ``fixture run --out``, ``audit
+    --host --out`` and ``agent control --reports-dir``; only an *omitted*
+    output location is named relative to ``--workspace`` (or, for ``scan``, to
+    the manifest). ``verify`` used to resolve an explicit ``--out`` against the
+    Git root instead, so ``verify --workspace ../repo --out reports`` wrote an
+    untracked directory into the scanned checkout and ``agent control
+    --reports-dir reports`` from the same shell read a different one (#818).
+
+    Lexical, like ``os.path.abspath`` without the normalization: a symlink or
+    ``..`` component is left for the caller to resolve or refuse.
+    """
+
+    return path if path.is_absolute() else Path.cwd() / path
+
+
+def caller_path_spelling(path: Path) -> str:
+    """Spell ``path`` so it opens from the current directory exactly as printed.
+
+    Relative to the current directory when it lies beneath it, so a run from
+    the repository root prints what it always did; absolute otherwise. A
+    ``../`` climb is correct too, but neither shorter nor clearer than the
+    absolute path (#575, #818).
+    """
+
+    absolute = path if path.is_absolute() else Path.cwd() / path
+    try:
+        relative = Path(os.path.relpath(absolute, Path.cwd()))
+    except (OSError, ValueError):
+        # Different drives on Windows, or an unreadable cwd.
+        return absolute.as_posix()
+    if relative.parts and relative.parts[0] == "..":
+        return absolute.as_posix()
+    return relative.as_posix()
+
+
+def relative_output_notice(
+    flag: str,
+    requested: Path,
+    *,
+    previous_base: Path | None,
+    previous_label: str,
+) -> str | None:
+    """Say so when a relative output path now lands somewhere 1.0 did not put it.
+
+    ``previous_base`` is the directory 1.0 joined the relative spelling to
+    (``verify``: the Git root; ``scan``: the manifest's directory), or ``None``
+    when that differed per target and cannot be named once. Nothing is said
+    when the path is absolute or both rules name one directory — the
+    overwhelmingly common run from the repository root — so the notice marks
+    exactly the invocations whose destination moved (#818).
+    """
+
+    if requested.is_absolute():
+        return None
+    try:
+        now = explicit_output_path(requested).resolve()
+        before = (
+            (previous_base / requested).resolve() if previous_base is not None else None
+        )
+    except (OSError, RuntimeError):
+        # A notice never stops a run; the run reports an unusable path itself.
+        return None
+    if before is not None:
+        if before == now:
+            return None
+        return (
+            f"note: {flag} {requested} resolves against the current directory, "
+            f"so this run writes to {now}. Agents Shipgate 1.0 resolved it "
+            f"against {previous_label} ({before}); pass that absolute path to "
+            "keep writing there."
+        )
+    return (
+        f"note: {flag} {requested} resolves against the current directory, so "
+        f"this run writes beneath {now}. Agents Shipgate 1.0 resolved it against "
+        f"{previous_label}; pass an absolute path to choose the directory."
+    )
 
 
 def live_workspace(

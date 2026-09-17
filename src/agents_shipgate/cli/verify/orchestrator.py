@@ -30,6 +30,7 @@ from agents_shipgate.cli.current_workspace import (
     OutputDirectoryHoldsRepositoryContent,
     classify_output_directory,
     default_reports_dir,
+    explicit_output_path,
     is_default_reports_dir,
     output_directory_remedy,
     worktree_exclusion,
@@ -477,7 +478,7 @@ def run_verify(
             config=config_relative,
             base=base,
             head=head if archive_head else None,
-            out=out,
+            out=explicit_output_path(out) if out is not None else None,
             pr_comment_style=pr_comment_style,
             preview=True,
         )
@@ -2345,8 +2346,10 @@ def _rerun_options(
     # rerun names `--workspace <git root>`, so that is where it writes unless told.
     if out_dir.resolve() != default_reports_dir(git_root).resolve():
         # A non-default artifact directory has to be repeated, or the rerun
-        # writes elsewhere and leaves the requested one stale.
-        options.extend(["--out", shlex.quote(_display_path(out_dir, git_root))])
+        # writes elsewhere and leaves the requested one stale. Absolutely: a
+        # relative `--out` resolves against the directory the rerun is typed
+        # in, which is not this one's (#818).
+        options.extend(["--out", shlex.quote(str(out_dir))])
     if pr_comment_style and pr_comment_style != "capability-review":
         options.extend(["--pr-comment-style", shlex.quote(pr_comment_style)])
     if base is None and not auto_base:
@@ -5711,16 +5714,21 @@ def _resolve_out_dir(
     control pointer, and `init`'s managed ignore lands in the project while
     the reports it is meant to cover land somewhere else (#363 review).
 
-    An explicit ``--out`` keeps resolving against the repository root, so
-    every existing invocation that names a directory still writes exactly
-    where it wrote before.
+    An explicit ``--out`` is the caller's path: absolute as given, relative
+    against the current directory (:func:`explicit_output_path`, the rule
+    ``agent control --reports-dir``, ``scan --out`` and ``audit --host --out``
+    follow). It used to resolve against the repository root, so ``verify
+    --workspace ../repo --out reports`` wrote an untracked directory into the
+    scanned checkout, and ``agent control --reports-dir reports`` from the same
+    shell read another one. The command line says so when a relative spelling
+    now lands elsewhere (#818).
 
     The default is :func:`default_reports_dir`, the rule `agent control` reads
     by, so a refresh from any directory finds what this run published (#575).
     """
 
     if out is not None:
-        return _resolve_under_workspace(git_root, out)
+        return explicit_output_path(out).resolve()
     return default_reports_dir(requested_workspace).resolve()
 
 
@@ -6524,6 +6532,9 @@ def _preview_verify_command(
     if head is not None:
         parts.extend(["--head", head])
     if out is not None:
+        # Callers pass the caller's spelling anchored to its directory: a
+        # relative `--out` would resolve against wherever this command is
+        # later typed (#818).
         parts.extend(["--out", str(out)])
     if pr_comment_style and pr_comment_style != "capability-review":
         parts.extend(["--pr-comment-style", pr_comment_style])
@@ -6762,7 +6773,7 @@ def run_preview(
         config=config,
         base=base,
         head=head,
-        out=out,
+        out=explicit_output_path(out) if out is not None else None,
         pr_comment_style=pr_comment_style,
     )
     scoped_verify_command = _preview_verify_command(
@@ -6770,7 +6781,7 @@ def run_preview(
         config=config,
         base=base,
         head=head,
-        out=out,
+        out=explicit_output_path(out) if out is not None else None,
         pr_comment_style=pr_comment_style,
         scope=scope,
     )
@@ -6865,7 +6876,7 @@ def run_preview(
                 config=config,
                 base=base,
                 head=head,
-                out=out,
+                out=explicit_output_path(out) if out is not None else None,
                 pr_comment_style=pr_comment_style,
                 scope=ChangeScope(
                     directory=root / relative,

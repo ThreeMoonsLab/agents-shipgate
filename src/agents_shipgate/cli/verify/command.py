@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 import typer
 
@@ -16,8 +15,10 @@ from agents_shipgate.cli._helpers import (
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error, is_agent_mode
 from agents_shipgate.cli.current_workspace import (
     OutputDirectoryHoldsRepositoryContent,
+    caller_path_spelling,
     live_workspace,
     output_directory_remedy,
+    relative_output_notice,
 )
 from agents_shipgate.cli.diagnostics import input_parse_recovery, top_next_actions
 from agents_shipgate.cli.discovery.gitignore_block import REPORTS_DIR_NAME
@@ -134,12 +135,14 @@ def verify(
         None,
         "--out",
         help=(
-            "Output directory for verifier and scan artifacts. Default: "
-            "agents-shipgate-reports under --workspace. The run leaves it out "
-            "of the change it decides on, so a directory inside the repository "
-            "must be gitignored, or hold nothing but uncommitted Shipgate "
-            "artifacts and lie outside any trust root such as .claude; "
-            "otherwise verify exits 2 before writing."
+            "Output directory (not a file) for verifier and scan artifacts. A "
+            "relative path resolves against the current directory, not "
+            "--workspace or the Git root. Default: agents-shipgate-reports "
+            "under --workspace. The run leaves it out of the change it decides "
+            "on, so a directory inside the repository must be gitignored, or "
+            "hold nothing but uncommitted Shipgate artifacts and lie outside "
+            "any trust root such as .claude; otherwise verify exits 2 before "
+            "writing."
         ),
     ),
     format_: str | None = typer.Option(
@@ -274,6 +277,8 @@ def verify(
             ],
         )
         raise typer.Exit(2) from exc
+
+    _notice_moved_relative_out(workspace, out, preview=preview)
 
     try:
         effective_config = config
@@ -538,7 +543,7 @@ def _emit_verify_stdout(
     """Write the one stdout document this run promised."""
 
     if stdout_format == "json":
-        typer.echo(json.dumps(verifier.model_dump(mode="json"), indent=2))
+        typer.echo(json.dumps(_caller_resolvable_verifier(verifier), indent=2))
     elif stdout_format == "control":
         typer.echo(
             render_agent_control_envelope(
@@ -599,6 +604,63 @@ def _emit_verify_stdout(
         typer.echo(f"Static-verdict boundary: {STATIC_VERDICT_DISCLAIMER}")
 
 
+def _notice_moved_relative_out(workspace: Path, out: Path | None, *, preview: bool) -> None:
+    """Say on stderr when a relative ``--out`` no longer lands where 1.0 put it.
+
+    1.0 joined an explicit relative ``--out`` to the Git root (``--preview``
+    outside Git: to ``--workspace``); it now resolves against the current
+    directory (#818). The switch is announced, not silent: every invocation
+    whose destination moved names both directories. Stdout, the verdict and
+    the exit code are untouched, and a workspace that is not a checkout is left
+    for the run itself to refuse.
+    """
+
+    if out is None or out.is_absolute():
+        return
+    try:
+        previous_base = ensure_git_workspace(workspace.resolve())
+    except ConfigError:
+        if not preview:
+            return
+        previous_base = workspace.resolve()
+    except Exception:  # noqa: BLE001 - a notice never stops a run; the run reports it.
+        return
+    notice = relative_output_notice(
+        "--out", out, previous_base=previous_base, previous_label="the Git root"
+    )
+    if notice is not None:
+        typer.echo(notice, err=True)
+
+
+def _caller_resolvable_verifier(verifier: VerifierArtifact) -> dict:
+    """The verifier as stdout prints it: artifact paths open from the caller.
+
+    ``verifier.json`` records each artifact inside the repository relative to
+    ``workspace`` (the Git root), so the directory stays portable and its bytes
+    do not depend on where the run was typed. A caller anywhere but the Git
+    root could not open those paths from stdout (#818). Here each relative one
+    is spelled relative to the current directory when it lies beneath it, and
+    absolute otherwise; from the Git root that is the same string, so the
+    Action's stdout, and every run's from the repository root, is unchanged.
+    Absolute paths already open from anywhere and are left as recorded.
+    """
+
+    payload = verifier.model_dump(mode="json")
+    root = Path(verifier.workspace)
+
+    def spelled(value: object) -> object:
+        if not isinstance(value, str) or not value or Path(value).is_absolute():
+            return value
+        return caller_path_spelling(root / value)
+
+    artifacts = payload.get("artifacts")
+    if isinstance(artifacts, dict):
+        payload["artifacts"] = {key: spelled(value) for key, value in artifacts.items()}
+    for key in ("head_report_json", "base_report_json"):
+        payload[key] = spelled(payload.get(key))
+    return payload
+
+
 def _warn_if_reports_staged(workspace: Path, out: Path | None) -> None:
     """Advisory nudge when generated reports are staged for commit.
 
@@ -609,9 +671,10 @@ def _warn_if_reports_staged(workspace: Path, out: Path | None) -> None:
     stdout JSON contract. Silent outside a git checkout.
     """
 
-    # verify resolves the reports dir relative to the GIT ROOT (run_verify),
-    # so probe the root, not --workspace: a subdirectory --workspace would
-    # otherwise miss root-level staged reports.
+    # Staged paths are named relative to the GIT ROOT, so probe the root, not
+    # --workspace: a subdirectory --workspace would otherwise miss root-level
+    # staged reports. An explicit --out resolves against the current
+    # directory, as run_verify resolves it (#818).
     try:
         root = ensure_git_workspace(workspace)
     except ConfigError:
@@ -765,17 +828,10 @@ def _artifact_root(verifier: VerifierArtifact, workspace: Path) -> str | None:
     reports_dir = _reports_dir_from_artifacts(verifier, workspace)
     if reports_dir is None:
         return None
-    try:
-        relative = PurePosixPath(Path(os.path.relpath(reports_dir, Path.cwd())).as_posix())
-    except (OSError, ValueError):
-        # Different drives on Windows, or an unreadable cwd.
-        return reports_dir.as_posix()
     # A relative spelling only when it stays inside the invoking directory.
     # Climbing out of it is correct but neither shorter nor clearer than the
     # absolute path, and it spends the size budget on `../` segments.
-    if relative.parts and relative.parts[0] == "..":
-        return reports_dir.as_posix()
-    return relative.as_posix()
+    return caller_path_spelling(reports_dir)
 
 
 def _reports_dir_from_artifacts(verifier: VerifierArtifact, workspace: Path) -> Path | None:

@@ -9,6 +9,7 @@ import typer
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
 from agents_shipgate.cli.current_workspace import (
     default_reports_dir,
+    explicit_output_path,
     is_default_reports_dir,
     live_workspace,
     output_directory_remedy,
@@ -331,13 +332,14 @@ def _reports_location(workspace: Path, requested: Path | None) -> tuple[Path, st
     had that repository's pointer read and checked against this one (#575).
 
     An explicit ``--reports-dir`` keeps its meaning — absolute as given,
-    relative against the current directory — and is never retargeted. When it
-    holds no pointer the read refuses; nothing else is searched.
+    relative against the current directory, the rule an explicit ``verify
+    --out`` follows too (:func:`explicit_output_path`, #818) — and is never
+    retargeted. When it holds no pointer the read refuses; nothing else is
+    searched.
 
     The directory returned first is absolute, so each refusal and recovery
-    command names one that opens from wherever it is read. ``verify`` resolves a
-    relative ``--out`` against the Git root rather than the caller, so echoing a
-    relative spelling there would name a different directory.
+    command names one that opens from wherever it is read: a relative spelling
+    in a recovery command resolves against wherever that command is typed.
 
     The spelling is unchanged wherever it already worked: the caller's own for
     an explicit path, and for the default, relative to the current directory
@@ -346,7 +348,7 @@ def _reports_location(workspace: Path, requested: Path | None) -> tuple[Path, st
     """
 
     if requested is not None:
-        return Path(_cwd_anchored(requested)), requested.as_posix()
+        return explicit_output_path(requested), requested.as_posix()
     location = default_reports_dir(workspace)
     try:
         spelling = location.relative_to(Path.cwd().resolve()).as_posix()

@@ -156,6 +156,35 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="relative-out-current-directory-818"></a>
+
+## Migration Note: Unreleased — a relative `--out` resolves against the current directory, and printed artifact paths open from the caller (#818)
+
+No schema, contract, refusal code or `minimum_control_contract_version` moves, and no error kind, exit code or JSON field is added. What changes is where `verify` and `scan` write for a relative `--out` typed outside the directory they used to join it to, how `verify --format json` and `scan` spell the artifact paths they print, the `--out` in the commands `verify` emits, and how `audit --host` answers an `--out` that names a directory.
+
+**Why.** Three commands resolved a relative `--out` against three directories, and none said which. `verify` joined it to the Git root of `--workspace`; `scan` joined it to the manifest's directory, as it joins the manifest's own `output.directory`; `audit --host` resolved it against the current directory, as `agent control --reports-dir` does. From a sibling directory, `verify --workspace ../repo --out rel` wrote an untracked `rel/` into the scanned checkout, which the next run there counted among its changed files. It printed `rel/verifier.json`, which does not exist from the caller, and `agent control --workspace ../repo --reports-dir rel` in the same shell read `./rel`, a different directory. `fixture run <name> --out rel` joined `rel` to the fixture's temporary copy and then removed the copy, so the report directory it printed was already gone. `audit --host --out <existing directory>` exited `4` as `other_error`, naming a temporary file the caller never typed.
+
+**The rule.** An output location typed on the command line is the caller's path: absolute as given, relative against the current directory. That holds for `verify --out`, `scan --out`, `fixture run --out`, `audit --host --out` and `agent control --reports-dir`. An omitted one keeps its default: `agents-shipgate-reports` under `--workspace` for `verify` and `agent control`, the manifest's `output.directory` (relative to the manifest) for `scan`, and no file for `audit --host`. `verify`, `scan` and `fixture run` take a directory; `audit --host` takes a file. Each `--help` states the base, the kind and the default. The output-directory rule of [#804](#output-directory-repository-content-804) judges the directory the spelling reaches, so `--out .` typed inside `docs/` or `.claude/` is refused like `--out <repo>/docs`.
+
+**Not silent.** Where a relative `--out` now names a different directory than `1.0.0` did, the command prints one line on stderr before it runs: for `verify`, anywhere but the Git root (for `--preview` outside Git, anywhere but `--workspace`); for `scan`, anywhere but the manifest's directory. The line reads `note: --out rel resolves against the current directory, so this run writes to <new>. Agents Shipgate 1.0 resolved it against the Git root (<old>); pass that absolute path to keep writing there.` Stdout, the verdict and the exit code do not change. Nothing is printed for an absolute `--out`, for an omitted one, or from the directory `1.0.0` resolved against.
+
+**Printed paths.** `verifier.json` keeps `artifacts`, `head_report_json` and `base_report_json` relative to its `workspace` (the Git root) when they lie inside the repository, and absolute otherwise, so a reports directory stays portable. `verify --format json` prints the same object with each relative one spelled for the invoking shell: relative to the current directory when beneath it, absolute otherwise, the rule `verify --format control` and `agent control` already use for envelope artifact paths (#575). Run from the Git root, stdout and the file are identical, as before. `scan`'s printed `Reports:` list follows the same rule, while `report.json`'s `generated_reports` stays relative to the manifest's directory. `fixture run` prints the absolute report directory.
+
+**Emitted commands.** `fix_task.verification_command`, the `allowed_next_commands` and repair commands built from the same request, and the `verify` commands `--preview` routes to name `--out` absolutely whenever they carry it, so they write to the same directory from wherever they are run. They already named `--workspace` absolutely. `audit --host`'s recovery commands already named `--out` absolutely.
+
+**`audit --host --out <directory>`.** Refused before the inventory is read, and before `--save-baseline` writes anything: exit `2`, `config_error`, `--out <dir> is a directory; --out takes a file path, such as <dir>/host-grants.json. Nothing was written.` `next_actions[0]` is the same request with only `--out` changed to that file, as a `command`. When that file already exists it is a `review` step with no command, so following it never replaces a file nobody named.
+
+**Compatibility.**
+- **A run from the Git root (`verify`) or from the manifest's directory (`scan`)** is unchanged. That covers the GitHub Action's `verify` mode, which runs `--workspace .` from the checkout root, and its `scan` mode with the default `config`. It also covers the Claude Code Stop hook, which passes no `--out`, every documented invocation, and `verify --workspace <nested project>` run from the root.
+- **The GitHub Action's `scan` mode with a `config` below the checkout root** now writes `output_dir` beneath the checkout root, where the Action's later steps (outputs, annotations, upload) read it. Before, it wrote beside the manifest and those steps found nothing.
+- **A script that runs `verify --workspace <repo> --out <relative>` from another directory** now writes beneath its own current directory, and says so on stderr. Pass `<repo>/<relative>` to keep the old location. An `agent control --reports-dir <relative>` in the same script now reads the directory that `verify` wrote.
+- **A script that runs `scan -c <path>/shipgate.yaml --out <relative>` from another directory** likewise. With `--workspace`, each manifest's reports now go to `<cwd>/<relative>/<project>` rather than `<manifest directory>/<relative>/<project>`.
+- **A consumer of `verify --format json` stdout run outside the Git root** that joined `artifacts` values to `workspace`: a relative value is now relative to the current directory. Open stdout's paths as given, or read `verifier.json` for the repository-relative spelling.
+- **An in-process caller of `run_verify` or `run_preview`** that passes a relative `out` now has it resolved against the process's current directory. `run_scan`'s `output_dir` keeps its manifest-relative meaning; only the `scan` and `fixture run` commands anchor `--out`.
+- **A `fix_task.verification_command` recorded by `1.0.0`** names a relative `--out` that resolves elsewhere when replayed outside the Git root. `agent control`'s recoveries already replace `--out` with an absolute directory or remove it (#575, #804); re-run `verify` to record an absolute one.
+- **A consumer that treated `audit --host --out <directory>` as exit `4` with `other_error`** now sees `2` with `config_error`. An `--out` that cannot be written for any other reason is still `4`.
+- **Not changed here:** `verify --config` stays relative to `--workspace`, and `--baseline`, `--policy-pack` and `--diff-from` to the Git root: they name repository inputs, not output locations. `audit --host --baseline-file` stays relative to `--workspace`. The #804 refusal still names an output directory by its repository path. `baseline save`, `capability export` and `agent handoff` already resolved `--out` against the current directory.
+
 <a id="permission-rule-direction-816"></a>
 
 ## Migration Note: Unreleased — permission rule direction: `:*` rules, moved rules and one MCP tool (#816)
@@ -3296,9 +3325,14 @@ the human PR surface. Use `agents-shipgate scan` when you want the manifest's
 full packet renderer set (`packet.md`, `packet.html`, or `packet.pdf`).
 
 These artifacts go to `--out`, or to `agents-shipgate-reports` under
-`--workspace` when it is omitted, and that directory is left out of every
-working-tree read the run makes so that its own reports are not part of the
-change. An output directory inside the repository must therefore hold nothing
+`--workspace` when it is omitted. A relative `--out` resolves against the
+current directory, like `scan --out`, `audit --host --out` and `agent control
+--reports-dir`; `verifier.json` names each artifact inside the repository
+relative to its `workspace`, and `verify --format json` prints those paths
+relative to the current directory when beneath it and absolute otherwise
+([migration note](#relative-out-current-directory-818)). That directory is left
+out of every working-tree read the run makes so that its own reports are not
+part of the change. An output directory inside the repository must therefore hold nothing
 else Git would report: `verify`, `--head`, `--preview` and manifest-free
 `verify` exit `2` with `config_error`, before writing anything, when it holds a
 committed path (at `HEAD`, or one a worktree change removes), a staged or

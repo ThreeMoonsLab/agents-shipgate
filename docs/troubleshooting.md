@@ -154,8 +154,12 @@ So Shipgate scopes rather than guesses:
 - Reports follow the workspace: `verify --workspace apps/a` writes
   `apps/a/agents-shipgate-reports/`, which is what the managed `.gitignore`
   block in that project covers, and two projects in one repository never
-  overwrite each other's results. An explicit `--out` still resolves against
-  the repository root.
+  overwrite each other's results. An explicit `--out` is your path: absolute
+  as given, or relative to the directory you run the command in, not the
+  repository root (#818). Run from anywhere else, `verify` prints a `note:` on
+  stderr naming the directory it now writes to and the one `1.0.0` wrote to;
+  pass that absolute path to keep the old location. The artifact paths
+  `verify --format json` prints open from the directory you ran it in.
 - `verify` exits `2` with `Verifier --out <dir> holds tracked repository files`
   (or `held committed repository files that the change being verified
   removes`, `holds untracked files that Git does not ignore and that are not
