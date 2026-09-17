@@ -7,17 +7,25 @@ on which changes widen authority — so this is a projection, never a second
 opinion about the same change (#651).
 
 The renderer, `--json`, and `check`'s text format share these rows, so the
-three cannot describe one change three ways.
+three cannot describe one change three ways. The text projections read them
+through :func:`review_changes`, which adds what the published row leaves to
+the reader: a permission rule's disposition, an MCP server's published launch
+facts, and one change for a replacement or move the engine established (#795).
 """
 
 from __future__ import annotations
 
+import re
 from collections import Counter
+from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from agents_shipgate.core.host_grants import (
     hook_loading_basis,
     host_grant_expansion_signals,
+    permission_rule_replacements,
+    published_workflow_label,
     secret_mapping_key,
     step_action_key,
 )
@@ -406,6 +414,329 @@ def _why(
     return f"changes a {kind or 'host'} grant"
 
 
+#: A replacement or move the engine established, shared by the two rows it joins.
+@dataclass(frozen=True, eq=False)
+class _Link:
+    direction: str
+    before: str
+    after: str
+    why: str
+
+
+@dataclass(frozen=True)
+class _RowView:
+    """How a reviewer reads one row: its cells, a field difference, and any link."""
+
+    before: str
+    after: str
+    change: str | None = None
+    link: _Link | None = None
+
+
+#: The attribute a built row carries its view on. The view is not a row field:
+#: `--json`, `verifier.json`, `check` rows and the control envelope publish the
+#: row exactly as before (#795), and equality ignores it. A row read back from
+#: JSON has no view and renders from its published values alone.
+_VIEW = "_review_view"
+
+
+@dataclass(frozen=True)
+class ReviewChange:
+    """One change as the text projections print it (#795).
+
+    Usually one published row. Two rows join into one change only where the
+    engine itself established the link: the allow rule the permission lattice
+    decided another replaced (`widened` or `narrowed`), or the exact same rule
+    text that left one disposition and arrived in another (`moved`). Nothing is
+    paired by likeness, and ``rows`` says how many published rows it stands for.
+    """
+
+    severity: str
+    direction: str
+    subject: str
+    before: str
+    after: str
+    #: The field-level difference, in place of ``before → after``, when both
+    #: sides name the same grant (an MCP server whose launch changed).
+    change: str | None
+    why: str
+    expands: bool
+    rows: int = 1
+
+
+def review_changes(rows: Sequence[CapabilityDiffRow]) -> list[ReviewChange]:
+    """The changes a reviewer reads, in the rows' order.
+
+    A linked pair is printed where its first row stands, and only when both of
+    its rows are present; a pair split by a caller prints as two rows.
+    """
+
+    views = [getattr(row, _VIEW, None) for row in rows]
+    members: dict[_Link, list[int]] = {}
+    for index, view in enumerate(views):
+        if view is not None and view.link is not None:
+            members.setdefault(view.link, []).append(index)
+    joined = {group[1]: group[0] for group in members.values() if len(group) == 2}
+    changes: list[ReviewChange] = []
+    for index, row in enumerate(rows):
+        if index in joined:
+            continue
+        view = views[index]
+        link = view.link if view is not None else None
+        group = members.get(link, []) if link is not None else []
+        if link is not None and len(group) == 2:
+            other = rows[group[1]]
+            changes.append(
+                ReviewChange(
+                    severity=min(
+                        (row.severity, other.severity),
+                        key=lambda severity: _SEVERITY_ORDER.get(severity, 9),
+                    ),
+                    direction=link.direction,
+                    subject=row.subject,
+                    before=link.before,
+                    after=link.after,
+                    change=None,
+                    why=link.why,
+                    expands=row.expands or other.expands,
+                    rows=2,
+                )
+            )
+            continue
+        changes.append(
+            ReviewChange(
+                severity=row.severity,
+                direction=row.direction,
+                subject=row.subject,
+                before=view.before if view is not None else row.before,
+                after=view.after if view is not None else row.after,
+                change=view.change if view is not None else None,
+                why=row.why,
+                expands=row.expands,
+            )
+        )
+    return changes
+
+
+#: How many names one field difference lists before counting the rest.
+_NAME_LIMIT = 5
+
+
+def _names(tokens: list[str]) -> str:
+    """At most ``_NAME_LIMIT`` tokens, then how many more there are."""
+
+    shown = tokens[:_NAME_LIMIT]
+    rest = len(tokens) - len(shown)
+    return " ".join(shown) + (f" and {rest} more" if rest else "")
+
+
+def _key_names(keys: Any) -> list[str]:
+    """Env or header key names as they may be printed: token-shaped names are redacted (#802)."""
+
+    return [published_workflow_label(str(key)) for key in keys or []]
+
+
+#: The only URL text may print: the engine's sanitized form, one of the five
+#: schemes it sanitizes, a host and optional port, and no path but `/` or
+#: `/<redacted-path>`. The sanitizer returns any other URL as written, so a
+#: `${SLACK_MCP_BASE}/hooks/<secret>` value, a URL without a scheme or a custom
+#: scheme's path would otherwise print verbatim (#795 review, #723).
+_PRINTABLE_URL = re.compile(r"(?:https?|wss?|sse)://[^\s/?#@]+(?:/|/<redacted-path>)?")
+
+#: What a URL server's launch fact reads when its URL is not in that form.
+_URL_NOT_SHOWN = "not shown"
+
+
+def _mcp_endpoint(grant: dict[str, Any]) -> str | None:
+    """The grant's published endpoint as text may print it, or ``None`` when it has none.
+
+    A command server's endpoint is its command's name and passes through the
+    #802 label redaction, the only guard between a token-shaped command name
+    and this text. A URL server's endpoint prints only in the sanitized form
+    of :data:`_PRINTABLE_URL`; any other value reads ``not shown``. The JSON
+    grant is unchanged: this decides only what the text repeats.
+    """
+
+    endpoint = grant.get("endpoint")
+    if not endpoint:
+        return None
+    if grant.get("transport") == "url" and not _PRINTABLE_URL.fullmatch(str(endpoint)):
+        return _URL_NOT_SHOWN
+    return published_workflow_label(str(endpoint))
+
+
+def _mcp_launch(grant: dict[str, Any]) -> str | None:
+    """The published command name or URL, labelled for what it is.
+
+    A command server's grant publishes only the name of its command's first
+    word, never its path: `npx`, `./npx` and `./tools/npx` all publish `npx`.
+    So the label is `command name`, and a reader is never told the command
+    itself when only its name was compared.
+    """
+
+    endpoint = _mcp_endpoint(grant)
+    if endpoint is None:
+        return None
+    kind = "url" if grant.get("transport") == "url" else "command name"
+    return f"{kind} {endpoint}"
+
+
+def _mcp_cell(value: str, grant: dict[str, Any] | None) -> str:
+    """An added or removed MCP server with the launch facts its grant publishes."""
+
+    if not grant or value == ABSENT:
+        return value
+    facts = [
+        fact
+        for fact in (
+            _mcp_launch(grant),
+            "env keys " + _names(_key_names(grant["env_keys"])) if grant.get("env_keys") else None,
+            "header keys " + _names(_key_names(grant["header_keys"])) if grant.get("header_keys") else None,
+        )
+        if fact
+    ]
+    return f"{value} ({'; '.join(facts)})" if facts else value
+
+
+#: Every published MCP fact a changed row compares (#795).
+_MCP_FIELDS = ("transport", "endpoint", "env_keys", "header_keys")
+
+
+def _mcp_change(name: str, before: dict[str, Any], after: dict[str, Any]) -> str | None:
+    """What differs between two readings of one MCP server, in its published fields.
+
+    ``None`` when either side does not publish every field, so a grant read
+    from an older snapshot is never described by a difference it cannot show.
+    A command's path, its arguments and other settings are not published, so a
+    change confined to them says what was compared and that the change is
+    elsewhere, rather than ``name → name`` or a claim that the command is
+    unchanged. Two different endpoints that print alike, such as two URLs
+    neither of which is printed, read ``url changed (not shown)``.
+    """
+
+    if any(key not in grant for grant in (before, after) for key in _MCP_FIELDS):
+        return None
+    parts: list[str] = []
+    old_launch, new_launch = _mcp_launch(before), _mcp_launch(after)
+    if old_launch != new_launch:
+        if (
+            old_launch and new_launch
+            and before.get("transport") == after.get("transport")
+        ):
+            parts.append(f"{old_launch} → {_mcp_endpoint(after)}")
+        else:
+            parts.append(f"{old_launch or 'no command or url'} → {new_launch or 'no command or url'}")
+    elif old_launch is not None and before.get("endpoint") != after.get("endpoint"):
+        # Two published endpoints that print alike: neither URL is in the
+        # printable form, or a redaction wrote two command names the same way.
+        # Printing the shared text on both sides would read as no change.
+        kind = "url" if after.get("transport") == "url" else "command name"
+        parts.append(f"{kind} changed ({_URL_NOT_SHOWN})")
+    for field, label in (("env_keys", "env keys"), ("header_keys", "header keys")):
+        old, new = set(before[field] or []), set(after[field] or [])
+        added, removed = sorted(new - old), sorted(old - new)
+        if added or removed:
+            tokens = [f"+{key}" for key in _key_names(added)] + [f"-{key}" for key in _key_names(removed)]
+            parts.append(f"{label} {_names(tokens)}")
+    if not parts:
+        return f"{name}: {_mcp_unshown_change(after)}"
+    return f"{name}: " + "; ".join(parts)
+
+
+def _mcp_unshown_change(grant: dict[str, Any]) -> str:
+    """A change confined to what the grant does not publish, in the words of what was compared.
+
+    Only the command's name, or the URL's recorded value, and the env and
+    header key names are compared. `npx` → `./npx` and
+    `/usr/local/bin/node` → `./scripts/node` change the command while its name
+    stays the same, so the sentence names the command's path beside its
+    arguments as what this output does not show. A URL that is not printed is
+    named `url as recorded`, never by its value.
+    """
+
+    launch = _mcp_launch(grant)
+    if grant.get("transport") == "url":
+        compared = "url as recorded" if _mcp_endpoint(grant) == _URL_NOT_SHOWN else launch or "url"
+        unshown = "the URL's query or another setting"
+    else:
+        compared = launch or "command name"
+        unshown = "the command's path or arguments"
+    return (
+        f"no difference in the {compared}, env key names or header key names; the change "
+        f"is in a detail this output does not show, such as {unshown}"
+    )
+
+
+def _permission_cell(value: str, grant: dict[str, Any] | None) -> str:
+    if not grant or value == ABSENT or not grant.get("disposition"):
+        return value
+    return f"{grant['disposition']}: {value}"
+
+
+def _link_rows(
+    rows: list[CapabilityDiffRow],
+    changes: list[dict[str, Any]],
+    views: list[_RowView],
+) -> list[_RowView]:
+    """Join the rows of a replacement or move the engine established (#795).
+
+    A replacement is exactly what `permission_rule_replacements` returns, the
+    pairs whose direction the permission lattice decided. A move is the exact
+    same rule text that left one disposition and arrived in one other, in one
+    host and source, with no other removal or addition of that text there. A
+    row both could claim joins the replacement, whose direction the engine
+    decided; the move's other half stays its own row.
+    """
+
+    removals: dict[tuple[str, str, str, str], int] = {}
+    additions: dict[tuple[str, str, str, str], int] = {}
+    for index, change in enumerate(changes):
+        before, after = change.get("baseline"), change.get("current")
+        if before is not None and after is not None:
+            continue  # A changed grant keeps its rule and disposition; it joins nothing.
+        grant, sink = (before, removals) if after is None else (after, additions)
+        if not grant or grant.get("kind") != "permission_rule":
+            continue
+        key = (str(grant["host"]), str(grant.get("source", "")), str(grant.get("disposition")), str(grant["rule"]))
+        sink[key] = index
+    linked: set[int] = set()
+    joined = list(views)
+
+    def join(first: int, second: int, direction: str, why: str) -> None:
+        link = _Link(direction=direction, before=views[first].before, after=views[second].after, why=why)
+        joined[first] = _RowView(before=views[first].before, after=views[first].after, link=link)
+        joined[second] = _RowView(before=views[second].before, after=views[second].after, link=link)
+        linked.update((first, second))
+
+    for item in permission_rule_replacements(changes):
+        gone = removals.get((item.host, item.source, "allow", item.before_rule))
+        arrived = additions.get((item.host, item.source, "allow", item.after_rule))
+        if gone is None or arrived is None:
+            continue
+        # The lattice's reading, in the reviewer's words: which rule covers which.
+        reading = (
+            "the new rule matches everything the old rule matched"
+            if item.direction == "widened"
+            else "the new rule matches only what the old rule matched"
+        )
+        join(gone, arrived, item.direction, f"{reading}; {rows[arrived].why}")
+
+    by_text: dict[tuple[str, str, str], tuple[list[int], list[int]]] = {}
+    for sink, side in ((removals, 0), (additions, 1)):
+        for (host, source, _disposition, rule), index in sink.items():
+            by_text.setdefault((host, source, rule), ([], []))[side].append(index)
+    for gone_indexes, arrived_indexes in by_text.values():
+        if len(gone_indexes) != 1 or len(arrived_indexes) != 1:
+            continue
+        gone, arrived = gone_indexes[0], arrived_indexes[0]
+        old = changes[gone]["baseline"].get("disposition")
+        new = changes[arrived]["current"].get("disposition")
+        if gone in linked or arrived in linked or not old or not new:
+            continue
+        join(gone, arrived, "moved", f"the same rule moved from {old} to {new}; {rows[arrived].why}")
+    return joined
+
+
 def capability_diff_rows(
     payload: dict[str, Any], *, redact_permission_arguments: bool = False
 ) -> list[CapabilityDiffRow]:
@@ -413,6 +744,8 @@ def capability_diff_rows(
 
     expansions = set(payload.get("expansion_signals") or [])
     rows: list[CapabilityDiffRow] = []
+    views: list[_RowView] = []
+    changes: list[dict[str, Any]] = []
     for change in payload.get("changes") or []:
         before_grant = change.get("baseline")
         after_grant = change.get("current")
@@ -431,31 +764,58 @@ def capability_diff_rows(
             direction = WIDENED
         gone_steps, new_steps = _step_action_changes(before_grant, after_grant)
         gone_secrets, new_secrets = _secret_mapping_changes(before_grant, after_grant)
-        rows.append(
-            CapabilityDiffRow(
-                subject=_subject(grant),
-                before=_grant_value(
-                    before_grant,
-                    redact_permission_arguments=redact_permission_arguments,
-                    step_actions=gone_steps,
-                    secret_mappings=gone_secrets,
-                ),
-                after=_grant_value(
-                    after_grant,
-                    redact_permission_arguments=redact_permission_arguments,
-                    step_actions=new_steps,
-                    secret_mappings=new_secrets,
-                ),
-                direction=direction,
-                why=_why(
-                    grant, direction,
-                    gone_steps=gone_steps, new_steps=new_steps,
-                    gone_secrets=gone_secrets, new_secrets=new_secrets,
-                ),
-                severity=str(grant.get("risk") or "unknown"),
-                expands=expands,
-            )
+        row = CapabilityDiffRow(
+            subject=_subject(grant),
+            before=_grant_value(
+                before_grant,
+                redact_permission_arguments=redact_permission_arguments,
+                step_actions=gone_steps,
+                secret_mappings=gone_secrets,
+            ),
+            after=_grant_value(
+                after_grant,
+                redact_permission_arguments=redact_permission_arguments,
+                step_actions=new_steps,
+                secret_mappings=new_secrets,
+            ),
+            direction=direction,
+            why=_why(
+                grant, direction,
+                gone_steps=gone_steps, new_steps=new_steps,
+                gone_secrets=gone_secrets, new_secrets=new_secrets,
+            ),
+            severity=str(grant.get("risk") or "unknown"),
+            expands=expands,
         )
+        kind = grant.get("kind")
+        if kind == "permission_rule":
+            view = _RowView(
+                before=_permission_cell(row.before, before_grant),
+                after=_permission_cell(row.after, after_grant),
+            )
+        elif kind == "mcp_server" and before_grant and after_grant:
+            view = _RowView(
+                before=row.before,
+                after=row.after,
+                change=_mcp_change(row.after, before_grant, after_grant),
+            )
+        elif kind == "mcp_server":
+            view = _RowView(
+                before=_mcp_cell(row.before, before_grant),
+                after=_mcp_cell(row.after, after_grant),
+            )
+        else:
+            view = _RowView(before=row.before, after=row.after)
+        rows.append(row)
+        views.append(view)
+        changes.append(change)
+    if not redact_permission_arguments:
+        # Redacted rules read alike, so a joined `allow: Bash(<redacted-arguments>)
+        # → allow: Bash(<redacted-arguments>)` would show a change whose sides
+        # look identical. Those routes keep the removal and addition as two rows.
+        views = _link_rows(rows, changes, views)
+    for row, view in zip(rows, views, strict=True):
+        object.__setattr__(row, _VIEW, view)
     return sorted(
         rows,
         key=lambda row: (_SEVERITY_ORDER.get(row.severity, 9), row.subject, row.after),
@@ -467,4 +827,4 @@ def capability_diff_rows(
 _SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
 
-__all__ = ["CapabilityDiffRow", "capability_diff_rows", "ABSENT"]
+__all__ = ["CapabilityDiffRow", "ReviewChange", "capability_diff_rows", "review_changes", "ABSENT"]

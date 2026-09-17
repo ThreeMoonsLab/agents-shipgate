@@ -181,7 +181,16 @@ SURFACES: tuple[Surface, ...] = (
         ),
         # No claims on purpose: this surface restates none of the engine's
         # answers. It projects the drift payload the engine produced, which
-        # is why it cannot disagree with it.
+        # is why it cannot disagree with it. Its text joins only the rows the
+        # engine linked (#795). Its reference lines name the compared commits,
+        # the version of the build that produced the output, and an unpinned
+        # `agents-shipgate diff --base <sha>`: the version records what ran,
+        # which may be an unreleased tree, and is not a pin, floor or ref for
+        # a reader to install, so the surface makes no `executable_pin` claim.
+        # Its MCP text repeats a URL only in the sanitized form the engine
+        # published and says `url not shown` otherwise; that is a redaction
+        # rule of the text, not an answer, and is held in
+        # `tests/test_host_diff_review_changes.py`.
         {},
     ),
     Surface(

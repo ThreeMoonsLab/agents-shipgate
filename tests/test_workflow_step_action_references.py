@@ -776,14 +776,14 @@ def test_the_diff_table_renders_every_field_on_one_line():
     # Click strips ANSI when output is not a terminal, so the CLI run above
     # cannot see an ESC; the renderer is exercised directly for it.
     from agents_shipgate.cli.diff import _render_table
-    from agents_shipgate.core.capability_diff_rows import CapabilityDiffRow
+    from agents_shipgate.core.capability_diff_rows import CapabilityDiffRow, review_changes
 
     hostile = "x\n⚠ critical  expands  FORGED\x1b[31m‮ y"
     row = CapabilityDiffRow(
         subject=f"github {hostile}", before=hostile, after=hostile,
         direction=f"changed{hostile}", why=hostile, severity=f"low{hostile}",
     )
-    lines = _render_table([row])
+    lines = _render_table(review_changes([row]))
 
     assert len(lines) == 3 and not any(line.startswith("⚠") for line in lines)
     for raw in ("\n", "\x1b", "‮", " "):

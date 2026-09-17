@@ -1,13 +1,14 @@
 """#779: the first task the entry pages teach is the output `diff` prints.
 
 The README and the quickstart open on `agents-shipgate diff` against a
-permission/MCP change and quote each of its answers. Those quotes were taken
-from the published `1.0.0`, installed outside a checkout and run in a clone of
-a repository with a remote. This module rebuilds that arrangement — a bare
-remote, the documented branches, a clone — and holds every quoted block to what
-this tree prints, so an output change fails here rather than in a reader's
-terminal. The base commit abbreviation in the header is the only normalized
-field.
+permission/MCP change and quote each of its answers. The no-change, not-compared
+and cannot-compare quotes were taken from the published `1.0.0`, installed
+outside a checkout and run in a clone of a repository with a remote; the change
+quote is this tree's output since #795, and the pages label it as not yet
+released. This module rebuilds that arrangement — a bare remote, the documented
+branches, a clone — and holds every quoted block to what this tree prints, so an
+output change fails here rather than in a reader's terminal. Commit ids and the
+version on the reference lines are the only normalized fields.
 
 It also holds the channel statements the entry pages make to the declaration
 that decides them, `.github/release-channels.json`, rather than to a second
@@ -52,7 +53,9 @@ _HEAD_MCP = (
     '"billing": {"command": "npx", "args": ["-y", "@example/billing-mcp"], '
     '"env": {"BILLING_TOKEN": "${BILLING_TOKEN}"}}}}\n'
 )
-_SHA = re.compile(r"\(([0-9a-f]{8})\)")
+#: Commit ids, abbreviated or whole, and the version a reference line names.
+_SHA = re.compile(r"\b(?:[0-9a-f]{40}|[0-9a-f]{8})\b")
+_VERSION = re.compile(r"agents-shipgate \d+\.\d+\.\d+\S*?(?=[.,]?(?:\s|$))")
 _NO_CHANGE = "No static host-grant changes detected. No verdict is implied."
 
 
@@ -134,7 +137,10 @@ def _flat(output: str) -> str:
 
 
 def _normalize(text: str) -> list[str]:
-    return [_SHA.sub("(<sha>)", line.rstrip()) for line in text.strip().splitlines()]
+    return [
+        _VERSION.sub("agents-shipgate <version>", _SHA.sub("<sha>", line.rstrip()))
+        for line in text.strip().splitlines()
+    ]
 
 
 def _blocks(path: Path, first_line_prefix: str) -> list[list[str]]:

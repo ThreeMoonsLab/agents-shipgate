@@ -315,9 +315,34 @@ CASES = {
 }
 
 
+#: What `diff`'s text counts once #795 joins the rows the engine linked: a
+#: replacement the lattice decided, or a rule that only moved between
+#: dispositions, is one change. (changes, of which ⚠ widening). The rows and
+#: their ⚠ in `--json` are the `CASES` above, unchanged.
+TEXT = {
+    "colon": (1, 0),
+    "colon_widened": (1, 1),
+    "colon_word_continued": (2, 1),
+    "colon_word_continued_beside": (1, 1),
+    "colon_word_continued_reversed": (2, 1),
+    "space": (1, 0),
+    "mixed": (1, 0),
+    "moved": (2, 1),
+    "moved_out_to_deny": (2, 0),
+    "moved_out_to_ask": (2, 0),
+    "moved_out_widened": (2, 1),
+    "moved_in_under_removed_allow": (2, 1),
+    "moved_in_wider_than_removed_allow": (2, 1),
+    "mcp": (1, 1),
+    "mcp_wildcard_narrowed": (1, 0),
+    "mcp_server_narrowed": (1, 0),
+}
+
+
 @pytest.mark.parametrize("name", list(CASES))
 def test_every_route_reads_the_same_direction(tmp_path: Path, name: str) -> None:
     base, head, rows, warnings, decision, violations, signals = CASES[name]
+    changes, widening = TEXT[name]
     routes = _routes(_repository(tmp_path, base, head))
 
     assert routes["diff"]["comparison_status"] == "comparable"
@@ -329,11 +354,14 @@ def test_every_route_reads_the_same_direction(tmp_path: Path, name: str) -> None
     assert routes["drift"]["comparison_status"] == "comparable"
     assert routes["drift"]["expansion_signals"] == signals
 
-    summary = f"{len(rows)} change(s)" + (
-        f", {warnings} widening what the agent may do (⚠)." if warnings else "."
+    assert sum(expands for *_, expands in rows) == warnings
+    summary = (
+        f"{changes} change(s)"
+        + (f" from {len(rows)} rows" if changes != len(rows) else "")
+        + (f", {widening} widening what the agent may do (⚠)." if widening else ".")
     )
     assert summary in routes["text"], routes["text"]
-    assert routes["text"].count("⚠ ") == warnings, routes["text"]
+    assert routes["text"].count("⚠ ") == widening, routes["text"]
 
 
 def test_one_mcp_tool_is_not_worded_as_every_target(tmp_path: Path) -> None:

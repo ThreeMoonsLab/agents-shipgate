@@ -43,32 +43,31 @@ agents-shipgate diff
 
 `diff` compares your working tree with its merge base on the repository's
 default branch (`origin/HEAD`, `origin/main` or `origin/master`) and prints one
-row per changed grant. If the PR targets another branch, pass
+entry per changed grant or replaced rule. If the PR targets another branch, pass
 `--base origin/<that-branch>`; in a fork clone, fetch `upstream` and pass
 `--base upstream/<pr-base>`. On a PR that widens a Claude Code allow rule,
 drops a denial and adds an MCP server:
 
 ```text
-Agent capability diff  origin/main (ff8c5029) -> working tree
+Agent capability diff  origin/main (943fd29b) -> working tree
 
 ⚠ high    added    claude-code .mcp.json
-                  billing
+                  billing (command name npx; env keys BILLING_TOKEN)
                   an MCP tool surface the agent may call has changed
 
-⚠ medium  added    claude-code .claude/settings.json
-                  Bash(npm *)
-                  runs without a prompt
-
-  medium  removed  claude-code .claude/settings.json
-                  Bash(npm test:*) → gone
-                  removes a permission the agent previously had here
+⚠ medium  widened  claude-code .claude/settings.json
+                  allow: Bash(npm test:*) → allow: Bash(npm *)
+                  the new rule matches everything the old rule matched; runs without a prompt
 
 ⚠ low     removed  claude-code .claude/settings.json
-                  Bash(rm -rf:*) → gone
+                  deny: Bash(rm -rf:*) → gone
                   removes a denial the agent was subject to
 
-4 change(s), 3 widening what the agent may do (⚠).
+3 change(s) from 4 rows, 3 widening what the agent may do (⚠).
 Static configuration only: this is what the files permit, not what the agent did. No verdict is implied.
+Review question: Does the team intend these 3 declared capability changes (from 4 rows)?
+Compared: base 943fd29b → working tree at HEAD 8982b16e, agents-shipgate 1.0.0.
+Reproduce in that working tree: agents-shipgate diff --base 943fd29b6e483d27ad9eb52c6d909357c9f2541b
 ```
 
 The answer is one of these, and they mean different things: named changes,
@@ -76,13 +75,19 @@ like these; `No static host-grant changes detected.` when no compared grant
 differs; or `Cannot compare against <base>: <reason>` when an input could not be
 read, which is an input limit and never a quiet pass. Either of the first two
 can open with `Not compared:` and a list of sources the change did not touch
-and `diff` could not read; nothing is claimed about those. The rows are for a
-reviewer to act on, not merge authority. The
+and `diff` could not read; nothing is claimed about those. The entries are for a
+reviewer to act on, not merge authority: each names the rule with its
+disposition, a replaced rule's before and after, and an MCP server's command
+name or redacted URL and key names, then one review question and the command
+that reproduces the comparison. The
 [quickstart](docs/quickstart.md#review-a-host-configuration-change) shows each
 answer, the `--base <ref>` recovery when no base can be detected, and the
 [surfaces `diff` does not read](docs/host-boundary-support.md#known-unread-surfaces).
-The output above is from `agents-shipgate` `1.0.0` installed from PyPI and run
-in a clone, outside any source checkout of this project.
+**Not yet released:** the output above is from this repository's source tree,
+which still reports version `1.0.0`, run in a clone. The published `1.0.0` from
+PyPI names the same changes as four rows, without the dispositions, the joined
+replacement, the MCP launch details, the review question and the reference
+lines.
 
 When the answer is useful and you want it on every pull request, add
 [`examples/github-actions/14-host-only-advisory-pr.yml`](examples/github-actions/14-host-only-advisory-pr.yml):
