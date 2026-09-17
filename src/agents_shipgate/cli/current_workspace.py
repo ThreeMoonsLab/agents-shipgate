@@ -594,13 +594,23 @@ def is_default_reports_dir(workspace: Path, directory: Path) -> bool:
     directory, and advice to omit ``--out`` would publish back into it.
     """
 
-    default = default_reports_dir(workspace)
-    identities = (_identity(default), _identity(directory))
+    return is_same_directory(default_reports_dir(workspace), directory)
+
+
+def is_same_directory(first: Path, second: Path) -> bool:
+    """Whether two absolute spellings physically name one directory.
+
+    By file identity when either exists, so a symlink or a case-variant
+    spelling on a case-folding filesystem is the directory it reaches;
+    otherwise by resolved path.
+    """
+
+    identities = (_identity(first), _identity(second))
     if identities != (None, None):
         return identities[0] == identities[1]
     try:
-        return default.resolve() == directory.resolve()
-    except OSError:
+        return first.resolve() == second.resolve()
+    except (OSError, RuntimeError):
         return False
 
 
@@ -787,10 +797,14 @@ __all__ = [
     "DEFAULT_REPORTS_DIR",
     "OutputDirectoryHoldsRepositoryContent",
     "OutputDirectoryRefusal",
+    "caller_path_spelling",
     "classify_output_directory",
     "default_reports_dir",
+    "explicit_output_path",
     "is_default_reports_dir",
+    "is_same_directory",
     "live_workspace",
+    "relative_output_notice",
     "output_directory_refusal",
     "output_directory_remedy",
     "workspace_read_cause",

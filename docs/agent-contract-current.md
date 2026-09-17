@@ -696,8 +696,10 @@ directory — and no other directory is searched in its place. An explicit
 one shell name one directory. Where a relative `--out` names a different
 directory than the `1.0.0` rule did (the Git root for `verify`, the manifest's
 directory for `scan`), a `note:` line on stderr names both. A refusal names
-the absolute directory it searched, and its recovery command writes back to it;
-a `verify` command a run emits names `--out` absolutely whenever it carries one.
+the absolute directory it searched, and its recovery command writes back to it,
+naming it as an absolute `--out` even where the producing run's recorded command
+carried a relative one; a `verify` command a run emits names `--out` absolutely
+whenever it carries one.
 
 The reports directory is left out of the change set the reader checks, just as
 `verify` leaves its output directory out of the change set it decides on, so

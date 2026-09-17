@@ -617,16 +617,19 @@ def _notice_moved_relative_out(workspace: Path, out: Path | None, *, preview: bo
 
     if out is None or out.is_absolute():
         return
+    previous_label = "the Git root"
     try:
         previous_base = ensure_git_workspace(workspace.resolve())
     except ConfigError:
         if not preview:
             return
+        # Outside Git there is no root to name; the base was the workspace.
         previous_base = workspace.resolve()
+        previous_label = "--workspace"
     except Exception:  # noqa: BLE001 - a notice never stops a run; the run reports it.
         return
     notice = relative_output_notice(
-        "--out", out, previous_base=previous_base, previous_label="the Git root"
+        "--out", out, previous_base=previous_base, previous_label=previous_label
     )
     if notice is not None:
         typer.echo(notice, err=True)

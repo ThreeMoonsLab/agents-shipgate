@@ -265,8 +265,9 @@ def audit(
     if out is not None and out.is_dir():
         # Before the inventory is read and, with --save-baseline, before the
         # baseline is written: refusing only at the final write left a saved
-        # baseline behind a failed command.
-        suggested = explicit_output_path(out) / HOST_AUDIT_OUT_FILENAME
+        # baseline behind a failed command. The directory exists, so its
+        # physical path names it without the `..` a relative spelling carries.
+        suggested = explicit_output_path(out).resolve() / HOST_AUDIT_OUT_FILENAME
         raise _directory_out_error(
             out,
             suggested=suggested,

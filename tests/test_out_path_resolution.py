@@ -289,6 +289,139 @@ def test_emitted_verification_commands_replay_from_a_sibling_directory(
         assert Path(value).parent == reports, value
 
 
+def test_a_superseded_pointer_recorded_with_a_relative_out_recovers_from_a_sibling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A ``1.0.0`` run recorded ``--out`` relative to the Git root.
+
+    ``agent control`` names the producing run's own command as the recovery
+    for a superseded pointer. Replayed verbatim from a sibling directory, that
+    relative ``--out`` wrote beside the caller, the pointer being refreshed
+    stayed superseded, and the next refresh named the same command again. The
+    recovery writes into the directory being read, from anywhere.
+    """
+
+    from agents_shipgate.cli.verify import orchestrator
+
+    repo = _repo(tmp_path / "repo", manifest=True)
+    (repo / ".gitignore").write_text(f"{REPORTS}/\nrel/\n", encoding="utf-8")
+    _git(repo, "commit", "-q", "-am", "ignore rel")
+    callers = _callers(tmp_path, repo)
+    reports = repo / "rel"
+
+    produce = orchestrator._rerun_options
+
+    def as_recorded_by_1_0(**kwargs):
+        # 1.0 spelled a non-default --out relative to the Git root.
+        options = produce(**kwargs)
+        index = options.index("--out")
+        options[index + 1] = shlex.quote(
+            orchestrator._display_path(kwargs["out_dir"], kwargs["git_root"])
+        )
+        return options
+
+    monkeypatch.setattr(orchestrator, "_rerun_options", as_recorded_by_1_0)
+    monkeypatch.chdir(repo)
+    first = runner.invoke(
+        app,
+        [
+            "verify", "--workspace", str(repo), "--config", "shipgate.yaml",
+            "--base", "main", "--ci-mode", "advisory", "--format", "json",
+            "--out", "rel",
+        ],
+        env=ENV,
+    )
+    assert first.exit_code in (0, 1), _plain(first.output)
+    recorded = json.loads(first.stdout)["fix_task"]["verification_command"]
+    assert " --out rel " in recorded, recorded
+    monkeypatch.setattr(orchestrator, "_rerun_options", produce)
+
+    # Supersede the pointer, then refresh it from a sibling directory.
+    _write_settings(
+        repo / ".claude" / "settings.json",
+        ["Bash(git status)", "Bash(curl:*)", "Bash(ls)"],
+    )
+    monkeypatch.chdir(callers["outside"])
+    control = ["agent", "control", "--workspace", "../repo", "--reports-dir", "../repo/rel"]
+    refused = runner.invoke(app, control, env=AGENT_ENV)
+    assert refused.exit_code == 4, _plain(refused.output)
+    line = json.loads(
+        [row for row in _plain(refused.output).splitlines() if row.startswith('{"error"')][-1]
+    )
+    command = line["next_actions"][0]["command"]
+    _assert_every_emitted_out_is_absolute(command)
+    tokens = _args_after_executable(command, "verify")
+    assert tokens.count("--out") == 1, command
+    written = tokens[tokens.index("--out") + 1]
+    assert Path(written).resolve() == reports.resolve(), command
+    # Only --out changed: everything else the producing run asked for is kept.
+    before = _args_after_executable(recorded, "verify")
+    assert tokens == [written if token == "rel" else token for token in before], (
+        recorded,
+        command,
+    )
+
+    replay = runner.invoke(app, tokens, env=ENV)
+    assert replay.exit_code in (0, 1), _plain(replay.output)
+    assert list(callers["outside"].iterdir()) == []
+
+    refreshed = runner.invoke(app, control, env=AGENT_ENV)
+    assert refreshed.exit_code == 0, _plain(refreshed.output)
+
+
+@pytest.mark.parametrize(
+    ("recorded", "expected"),
+    [
+        # Already publishes into the directory being read, from anywhere.
+        ("verify --workspace {repo} --out {reports} --json", None),
+        ("verify --workspace {repo} --json", "default"),
+        # Resolves against wherever it is typed: respelled in place.
+        (
+            "verify --workspace {repo} --out rel --no-base --json",
+            "verify --workspace {repo} --out {reports} --no-base --json",
+        ),
+        (
+            "verify --workspace {repo} --out=rel --json",
+            "verify --workspace {repo} --out {reports} --json",
+        ),
+        (
+            "verify --out rel --workspace {repo} --out {elsewhere} --json",
+            "verify --out {reports} --workspace {repo} --json",
+        ),
+        # No --out, and the directory read is not the recorded default.
+        (
+            "verify --workspace {repo} --no-base --json",
+            "verify --workspace {repo} --no-base --out {reports} --json",
+        ),
+        ("verify --workspace . --json", "verify --workspace . --out {reports} --json"),
+        # Nothing it can parse faithfully, or not a verify: left as recorded.
+        ("verify --workspace {repo} --out rel --json; true", None),
+        ("scan --out rel", None),
+    ],
+)
+def test_the_superseded_recovery_publishes_into_the_directory_it_read(
+    tmp_path: Path, recorded: str, expected: str | None
+):
+    from agents_shipgate.cli.agent_interface import _publishing_into
+
+    repo = tmp_path / "repo"
+    (repo / REPORTS).mkdir(parents=True)
+    (tmp_path / "elsewhere").mkdir()
+    reports = repo / "rel"
+    if expected == "default":
+        reports, expected = repo / REPORTS, None
+    reports.mkdir(exist_ok=True)
+    values = {
+        "repo": shlex.quote(str(repo)),
+        "reports": shlex.quote(str(reports)),
+        "elsewhere": shlex.quote(str(tmp_path / "elsewhere")),
+    }
+    command = "agents-shipgate " + recorded.format(**values)
+    want = command if expected is None else "agents-shipgate " + expected.format(**values)
+
+    assert _publishing_into(command, reports_dir=reports) == want
+
+
 def test_preview_commands_name_an_absolute_out(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -308,6 +441,36 @@ def test_preview_commands_name_an_absolute_out(
     emitted = [text for text in _strings(payload) if " --out " in text]
     assert emitted, "the preview should route to a verify command carrying --out"
     _assert_every_emitted_out_is_absolute(payload)
+
+
+def test_a_preview_outside_git_names_the_workspace_it_used_to_resolve_against(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """There is no Git root to name; 1.0 joined the spelling to --workspace."""
+
+    project = tmp_path / "project"
+    project.mkdir()
+    for name in ("shipgate.yaml", "tools.json"):
+        shutil.copy(SAMPLE / name, project / name)
+    caller = tmp_path / "caller"
+    caller.mkdir()
+    monkeypatch.chdir(caller)
+
+    result = runner.invoke(
+        app,
+        ["verify", "--workspace", "../project", "--preview", "--out", "rel",
+         "--format", "json"],
+        env=ENV,
+    )
+
+    assert result.exit_code == 0, _plain(result.output)
+    assert (caller / "rel" / "verifier.json").is_file()
+    stderr = " ".join(_plain(result.stderr).split())
+    assert NOTE in stderr, stderr
+    assert "Git root" not in stderr, stderr
+    assert (
+        f"resolved it against --workspace ({(project / 'rel').resolve()})" in stderr
+    ), stderr
 
 
 @pytest.mark.parametrize("spelling", [".", "../docs"])
@@ -406,6 +569,27 @@ def test_audit_out_naming_a_directory_is_refused_before_anything_is_written(
     replay = runner.invoke(app, _args_after_executable(action["command"], "audit"), env=ENV)
     assert replay.exit_code == 0, _plain(replay.output)
     assert json.loads(expected.read_text(encoding="utf-8")) == json.loads(replay.stdout)
+
+
+def test_audit_directory_refusal_names_the_file_without_a_climb(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    repo = _repo(tmp_path / "repo", manifest=False)
+    callers = _callers(tmp_path, repo)
+    (tmp_path / "outdir").mkdir()
+    monkeypatch.chdir(callers["outside"])
+    expected = (tmp_path / "outdir").resolve() / "host-grants.json"
+
+    result = _audit(repo, "--out", "../outdir", env=AGENT_ENV)
+
+    text = _plain(result.output)
+    assert result.exit_code == 2, text
+    line = json.loads([row for row in text.splitlines() if row.startswith('{"error"')][-1])
+    command = line["next_actions"][0]["command"]
+    for said in (line["message"], line["next_actions"][0]["why"], command):
+        assert "/../" not in said, said
+    assert str(expected) in line["message"], line["message"]
+    assert f"--out {shlex.quote(str(expected))}" in command, command
 
 
 def test_audit_directory_refusal_never_routes_over_an_existing_file(
@@ -520,6 +704,15 @@ def test_fixture_run_keeps_a_relative_out_beside_the_caller(
         if line.startswith("Reports:")
     ]
     assert reported and (Path(reported[0]) / "report.json").is_file(), result.stdout
+
+    # The quickstart teaches this command and must say the same thing.
+    quickstart = " ".join(
+        (REPO_ROOT / "docs" / "quickstart.md").read_text(encoding="utf-8").split()
+    )
+    assert "inside the fixture copy" not in quickstart
+    assert (
+        "A relative `--out` resolves against your shell's current directory" in quickstart
+    )
 
 
 # -- help --------------------------------------------------------------------
