@@ -25,7 +25,8 @@ from agents_shipgate.core.agent_control_envelope import single_line_text
 from agents_shipgate.core.boundary_registry import is_boundary_surface_path
 from agents_shipgate.core.capability_diff_rows import (
     ABSENT,
-    CapabilityDiffRow,
+    ReviewChange,
+    review_changes,
 )
 from agents_shipgate.core.host_grants import (
     HostStaticParseCache,
@@ -193,7 +194,7 @@ def _one_line(value: object) -> str:
     return single_line_text(str(value))
 
 
-def _render_table(rows: list[CapabilityDiffRow]) -> list[str]:
+def _render_table(changes: list[ReviewChange]) -> list[str]:
     """Two lines per change: the fact, then why it matters.
 
     One line per row put `why` in a seventh column and ran to about 190
@@ -203,26 +204,30 @@ def _render_table(rows: list[CapabilityDiffRow]) -> list[str]:
     Every field carries repository text — a step name, a `uses:` value, a
     permission rule — so each is rendered on one line: a newline, escape or
     bidi control inside one is shown, and cannot print a row of its own.
+
+    A change is usually one row. A replaced or moved permission rule the
+    engine linked is one change with its before and after (#795).
     """
 
-    severity_width = max(len(_one_line(row.severity)) for row in rows)
-    direction_width = max(len(_one_line(row.direction)) for row in rows)
+    severity_width = max(len(_one_line(change.severity)) for change in changes)
+    direction_width = max(len(_one_line(change.direction)) for change in changes)
     indent = " " * (severity_width + direction_width + 5)
     lines: list[str] = []
-    for row in rows:
-        marker = "⚠" if row.expands else " "
-        before, after = _one_line(row.before), _one_line(row.after)
-        transition = (
-            f"{before} → {after}"
-            if row.before != ABSENT and row.after != ABSENT
-            else (after if row.before == ABSENT else f"{before} → gone")
-        )
+    for change in changes:
+        marker = "⚠" if change.expands else " "
+        before, after = _one_line(change.before), _one_line(change.after)
+        if change.change is not None:
+            transition = _one_line(change.change)
+        elif change.before != ABSENT and change.after != ABSENT:
+            transition = f"{before} → {after}"
+        else:
+            transition = after if change.before == ABSENT else f"{before} → gone"
         lines.append(
-            f"{marker} {_one_line(row.severity).ljust(severity_width)}  "
-            f"{_one_line(row.direction).ljust(direction_width)}  {_one_line(row.subject)}"
+            f"{marker} {_one_line(change.severity).ljust(severity_width)}  "
+            f"{_one_line(change.direction).ljust(direction_width)}  {_one_line(change.subject)}"
         )
         lines.append(f"{indent}{transition}")
-        lines.append(f"{indent}{_one_line(row.why)}")
+        lines.append(f"{indent}{_one_line(change.why)}")
         lines.append("")
     return lines[:-1]
 
@@ -264,7 +269,7 @@ def run_capability_diff(
             base_tree, cache=HostStaticParseCache()
         ).inventory
 
-    from agents_shipgate.cli.verify.git import blob_path_unchanged
+    from agents_shipgate.cli.verify.git import blob_path_unchanged, commit_sha
     from agents_shipgate.core.host_comparison import compare_host_inventories
 
     # One comparison for diff, verify and check (#721). An unchanged partial or
@@ -274,6 +279,8 @@ def run_capability_diff(
         head.inventory,
         head_kind="worktree",
         base_commit=base_commit,
+        # Named in the text output's reference line only; `--json` keeps its keys.
+        head_commit=commit_sha(workspace, "HEAD"),
         unchanged=lambda source: blob_path_unchanged(workspace, base_commit, None, source),
     )
     rows = list(comparison.rows)
@@ -331,12 +338,20 @@ def run_capability_diff(
     if not rows:
         typer.echo("No static host-grant changes detected. No verdict is implied.")
         return 0
-    for line in _render_table(rows):
+    from agents_shipgate.report.host_comparison import (
+        comparison_reference_lines,
+        review_question,
+    )
+
+    changes = review_changes(rows)
+    for line in _render_table(changes):
         typer.echo(line)
     typer.echo("")
-    widened = sum(1 for row in rows if row.expands)
+    widened = sum(1 for change in changes if change.expands)
     typer.echo(
-        f"{len(rows)} change(s)"
+        f"{len(changes)} change(s)"
+        # `--json` lists a linked replacement or move as its two rows.
+        + (f" from {len(rows)} rows" if len(rows) != len(changes) else "")
         + (f", {widened} widening what the agent may do (⚠)" if widened else "")
         + "."
     )
@@ -344,6 +359,9 @@ def run_capability_diff(
         "Static configuration only: this is what the files permit, not what "
         "the agent did. No verdict is implied."
     )
+    typer.echo(review_question(changes))
+    for line in comparison_reference_lines(comparison):
+        typer.echo(line)
     return 0
 
 

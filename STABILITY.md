@@ -156,6 +156,21 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="host-diff-review-text-795"></a>
+
+## Migration Note: Unreleased — concrete permission and MCP changes, and a review question, in host-diff text (#795)
+
+No schema, contract, member, row, row value, row count, check id, exit code or `minimum_control_contract_version` moves. `diff --json`, `verifier.json`'s `host_comparison`, `check`'s `rows` and the control envelope's `capability_rows` publish exactly what they published before, and the host-config and cold-start benchmark replays are unchanged. What changes is the human text of `diff`, `verify --format text`, the manifest-free PR comment (`pr-comment.md`) and `check --format text`, which now read the rows through one function, `review_changes` in `core/capability_diff_rows.py`.
+
+- **Permission rules name their disposition.** A rule cell reads `allow: Bash(npm *)`, `deny: …` or `ask: …` where it read `Bash(npm *)`.
+- **A replacement or move the engine established is one change.** An allow rule the permission lattice decided another replaced, the pair behind `permission_widened` or a decided narrowing (#816), prints as one entry with its before and after and the direction `widened` or `narrowed`: `allow: Bash(npm test:*) → allow: Bash(npm *)`. The exact same rule text that left one disposition and arrived in one other, in one host and source, prints as `moved`: `deny: Bash(git push *) → allow: Bash(git push *)`. The entry carries the more severe of the two rows' severities and ⚠ when either row expands. Nothing else is joined: an undecided replacement, a case edit, or a rule removed from or added to two dispositions stays as its rows. A rule both a replacement and a move could claim joins the replacement. `narrowed` and `moved` are text words only; `--json` keeps the removal and the addition as two rows with `direction` `added` and `removed`.
+- **Redacting routes never join.** `check` and a provided diff print `Bash(<redacted-arguments>)`, so a joined replacement would read as identical sides. Those routes keep both rows, with dispositions.
+- **MCP servers name their published launch facts.** An added or removed server reads `billing (command npx; env keys BILLING_TOKEN)` or `linear (url https://mcp.linear.app/<redacted-path>; header keys Authorization)`; a changed one reads its difference, `gh: command npx → docker; env keys +GH_HOST`. Only the grant's already-published `transport`, `endpoint`, `env_keys` and `header_keys` are read, never a value. Key names and endpoints pass through the #802 label redaction, and at most five names are listed before "and N more". A change confined to fields not published, such as arguments, says so instead of printing `gh → gh`; showing those fields is #819.
+- **`diff`'s count.** The summary counts entries: `3 change(s) from 4 rows, 3 widening what the agent may do (⚠).` The `from N rows` clause appears only when an entry joins rows. A script that counted `change(s)` against `--json` rows should read `--json`.
+- **`verify`, the PR comment and `check` text print ⚠** before an entry that widens, as `diff` does.
+- **A review question and references.** An explicitly comparable result with at least one entry ends with `Review question: Does the team intend this declared permission change?` (or `these N … changes?`). Where the comparison names a base commit and its head is a commit or the working tree, two lines follow: `Compared: base <8> → head <8>, agents-shipgate <version>.` (or `→ working tree at HEAD <8>`) and a copyable `agents-shipgate diff --base <base sha>`, prefixed for a commit head by "check out <head sha>, then run". `check` text and a provided diff name no base commit and print the question alone. In the PR comment the command is inline code and a blank line ends the entry list. No-change, not-compared-only and incomparable answers are unchanged.
+- **Read back from JSON.** The reviewer view is computed where the rows are built and is not a row field, so equality and serialization ignore it. A `HostComparison` validated from `verifier.json` prints each published row as it is, without dispositions, joins or MCP facts.
+
 <a id="relative-out-current-directory-818"></a>
 
 ## Migration Note: Unreleased — a relative `--out` resolves against the current directory, and printed artifact paths open from the caller (#818)

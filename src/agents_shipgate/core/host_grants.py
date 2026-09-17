@@ -3713,9 +3713,45 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
     return sorted(set(signals))
 
 
+@dataclass(frozen=True)
+class PermissionRuleReplacement:
+    """One allow rule the lattice decided another replaced, in one host and source (#657, #816).
+
+    ``direction`` is ``widened`` when the arriving rule covers the one that
+    left, and ``narrowed`` when the rule that left covers the arrival. Rules
+    are the published rule text, exactly as the grants carry them.
+    """
+
+    host: str
+    source: str
+    before_rule: str
+    after_rule: str
+    direction: Literal["widened", "narrowed"]
+
+
 def _permission_direction_signals(
     changes: list[dict[str, Any]],
 ) -> tuple[list[str], set[tuple[str, str]]]:
+    """The expansion signals and narrowed rules of :func:`permission_rule_replacements`."""
+
+    replacements = permission_rule_replacements(changes)
+    signals = [
+        # Named as well as counted: `allow_rule_changed` says a rule
+        # moved, this says which way and by how much. The add signal
+        # stays too — it is not wrong, and readers already depend on it.
+        f"permission_widened: {item.host}:{item.before_rule} -> {item.after_rule}"
+        for item in replacements
+        if item.direction == "widened"
+    ]
+    # A narrowing earns no entry in an expansion list. What it earns
+    # is silence there, which is what the caller uses this set for.
+    narrowed = {(item.host, item.after_rule) for item in replacements if item.direction == "narrowed"}
+    return signals, narrowed
+
+
+def permission_rule_replacements(
+    changes: list[dict[str, Any]],
+) -> list[PermissionRuleReplacement]:
     """Name a replaced allow rule as widened or narrowed.
 
     Grants are keyed by their rule text, so replacing `Bash(npm *)` with
@@ -3758,8 +3794,7 @@ def _permission_direction_signals(
         for rule in set(gone) & set(arrived)
     }
     # A rule present on both sides is unchanged and pairs with nothing.
-    signals: list[str] = []
-    narrowed: set[tuple[str, str]] = set()
+    replacements: list[PermissionRuleReplacement] = []
     for key, gone in removed.items():
         if key[2] != "allow":
             continue
@@ -3784,15 +3819,19 @@ def _permission_direction_signals(
             continue
         before_rule, after_rule = only_gone[0], only_arrived[0]
         if subsumes(after_rule, before_rule) is True:
-            # Named as well as counted: `allow_rule_changed` says a rule
-            # moved, this says which way and by how much. The add signal
-            # stays too — it is not wrong, and readers already depend on it.
-            signals.append(f"permission_widened: {host}:{before_rule} -> {after_rule}")
+            direction: Literal["widened", "narrowed"] | None = "widened"
         elif subsumes(before_rule, after_rule) is True:
-            # A narrowing earns no entry in an expansion list. What it earns
-            # is silence there, which is what the caller uses this set for.
-            narrowed.add((host, after_rule))
-    return signals, narrowed
+            direction = "narrowed"
+        else:
+            direction = None
+        if direction is not None:
+            replacements.append(
+                PermissionRuleReplacement(
+                    host=host, source=source, before_rule=before_rule,
+                    after_rule=after_rule, direction=direction,
+                )
+            )
+    return replacements
 
 
 def _incomparable_payload(
@@ -4043,6 +4082,7 @@ __all__ = [
     "INCOMPARABLE_BASELINE_REVIEW",
     "HostBoundarySnapshot",
     "HostStaticParseCache",
+    "PermissionRuleReplacement",
     "build_host_boundary_snapshot",
     "build_host_drift_payload",
     "build_host_grants_baseline",
@@ -4055,6 +4095,7 @@ __all__ = [
     "load_host_grants_baseline",
     "load_host_grants_baseline_with_text",
     "normalized_host_grants",
+    "permission_rule_replacements",
     "redacted_config_sha256",
     "render_host_audit_markdown",
     "render_host_drift_markdown",

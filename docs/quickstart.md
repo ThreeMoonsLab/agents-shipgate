@@ -119,44 +119,61 @@ as data.
 
 ### 3. Read the answer
 
-The output below is from `agents-shipgate` `1.0.0`, installed from PyPI into a
-clean virtualenv and run on 2026-09-14 in a clone, outside any source checkout
-of this project. On the remote's `main`, `.claude/settings.json` allows
-`Bash(npm test:*)` and denies `Bash(rm -rf:*)`, and `.mcp.json` configures one
-server, `docs`. The PR branch allows `Bash(npm *)`, drops the denial, and adds
-a `billing` server.
+The no-change, not-compared and cannot-compare answers below are from
+`agents-shipgate` `1.0.0`, installed from PyPI into a clean virtualenv and run
+on 2026-09-14 in a clone, outside any source checkout of this project. **The
+changes answer is not yet released:** it is from this repository's source tree,
+which still reports version `1.0.0`, run in the same kind of clone. The
+published `1.0.0` names the same changes as four rows, without the
+dispositions, the joined replacement, the MCP launch details, the review
+question and the reference lines. On the remote's `main`,
+`.claude/settings.json` allows `Bash(npm test:*)` and denies `Bash(rm -rf:*)`,
+and `.mcp.json` configures one server, `docs`. The PR branch allows
+`Bash(npm *)`, drops the denial, and adds a `billing` server.
 
-**Changes.** One row per grant that differs. `⚠` marks a row that widens what
-the agent may do:
+**Changes.** One entry per grant that differs, or per replaced rule. A
+permission rule is named with its disposition (`allow`, `deny` or `ask`); an
+allow rule the engine decided another replaced is one entry with its before and
+after, `widened` or `narrowed`, as is the same rule moved from one disposition
+to another (`moved`); `--json` keeps those as their removal and addition rows. An MCP
+server is named with the launch command or redacted URL and the env and header
+key names its declaration publishes. `⚠` marks an entry that widens what the
+agent may do:
 
 ```text
-Agent capability diff  origin/main (ff8c5029) -> working tree
+Agent capability diff  origin/main (943fd29b) -> working tree
 
 ⚠ high    added    claude-code .mcp.json
-                  billing
+                  billing (command npx; env keys BILLING_TOKEN)
                   an MCP tool surface the agent may call has changed
 
-⚠ medium  added    claude-code .claude/settings.json
-                  Bash(npm *)
-                  runs without a prompt
-
-  medium  removed  claude-code .claude/settings.json
-                  Bash(npm test:*) → gone
-                  removes a permission the agent previously had here
+⚠ medium  widened  claude-code .claude/settings.json
+                  allow: Bash(npm test:*) → allow: Bash(npm *)
+                  the new rule matches everything the old rule matched; runs without a prompt
 
 ⚠ low     removed  claude-code .claude/settings.json
-                  Bash(rm -rf:*) → gone
+                  deny: Bash(rm -rf:*) → gone
                   removes a denial the agent was subject to
 
-4 change(s), 3 widening what the agent may do (⚠).
+3 change(s) from 4 rows, 3 widening what the agent may do (⚠).
 Static configuration only: this is what the files permit, not what the agent did. No verdict is implied.
+Review question: Does the team intend these 3 declared permission changes?
+Compared: base 943fd29b → working tree at HEAD 8982b16e, agents-shipgate 1.0.0.
+Reproduce in that working tree: agents-shipgate diff --base 943fd29b6e483d27ad9eb52c6d909357c9f2541b
 ```
 
-From this alone a reviewer can name the change (a broader `npm` rule, a lost
-`rm -rf` denial, a new `billing` server), the evidence (the file and entry each
-row names) and the limit (static configuration, not observed behaviour). The
-next action is theirs: ask for the narrower rule back, accept the change, or
-find out what `billing` exposes.
+From this alone a reviewer can name the change (`allow: Bash(npm test:*)`
+replaced by the broader `allow: Bash(npm *)`, a lost `rm -rf` denial, a new
+`billing` server launched with `npx` and given a `BILLING_TOKEN`), the evidence
+(the file and entry each change names, and the compared commits), the limit
+(static configuration, not observed behaviour) and the question to answer.
+The next action is theirs: ask for the narrower rule back, accept the change,
+or find out what `billing` exposes. The `Reproduce` line reads the same
+comparison again; run it with the version the `Compared` line names. `verify`'s
+text and its PR comment end their entries with the same question and lines;
+when they compared a head commit, the `Reproduce` line says to check that
+commit out first. `check` and a provided diff name no base commit, so they
+print the question without those lines.
 
 **No change.** On a branch from `main` that only edits `README.md`:
 

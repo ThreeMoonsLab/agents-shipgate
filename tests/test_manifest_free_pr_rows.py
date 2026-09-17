@@ -457,7 +457,9 @@ def test_both_pr_styles_show_each_change_once(s1, style):
     assert "Head scan did not produce a report" not in comment
     assert "Merge verdict:" not in comment
     for name in NAMES:
-        assert comment.count(name) == 1, comment
+        # One line per name: an MCP entry may repeat its name in the command
+        # its grant publishes (`postgres (command fixture-postgres)`, #795).
+        assert sum(name in line for line in comment.splitlines()) == 1, comment
 
 
 def test_untracked_host_change_remains_in_default_check(s1):

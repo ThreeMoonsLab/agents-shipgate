@@ -181,7 +181,10 @@ SURFACES: tuple[Surface, ...] = (
         ),
         # No claims on purpose: this surface restates none of the engine's
         # answers. It projects the drift payload the engine produced, which
-        # is why it cannot disagree with it.
+        # is why it cannot disagree with it. Its text joins only the rows the
+        # engine linked (#795), and its reproduction line names the command
+        # and the compared commits, never an installable version or ref, so
+        # it makes no `executable_pin` claim either.
         {},
     ),
     Surface(
