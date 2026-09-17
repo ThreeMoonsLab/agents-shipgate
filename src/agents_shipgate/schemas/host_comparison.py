@@ -50,16 +50,29 @@ class HostComparisonCoverageItem(BaseModel):
     a comparison comparable, remove a row or authorize anything.
 
     - ``compared``: the source was read, and ``rows`` of the published rows
-      come from it. ``0`` means no change in what this entry reads — not that
-      every field in the file was understood.
-    - ``unread_fields_changed``: the source's published artifact changed, but
-      no grant this entry reads did, so it contributes no row.
+      come from it, including rows of a source inside the file such as a
+      Codex profile (``<file>#profiles.<name>``). ``0`` means no change in
+      what this entry reads — not that every field in the file was understood.
+    - ``unread_fields_changed``: a file whose artifact digests the whole file
+      changed, every side that has it parsed it, nothing but that digest
+      differs, and no grant this entry reads from it changed, so it gives no
+      row. Never a plugin manifest or marketplace, a retargeted link, or a
+      Claude Code project settings file while a hook's loading basis changed.
+    - ``changed_without_rows``: the source's published artifact changed and no
+      row is attributed to it, but the data does not show the change was in
+      fields no grant reads: a plugin manifest or marketplace ``hooks``
+      reference (its rows are published under the hook files it selects), a
+      retargeted link, or a parse or instruction-structure change.
     - ``blocking_limit``: an incomparable comparison, and this source carries
       a blocking inventory issue of kind ``limit`` on ``side``.
 
-    ``side`` says which inventories observed the source (or carry the limit):
-    ``base`` only, ``head`` only, or ``both``. A source only one side read is
-    attributable even though its file is gone, or new, or untracked.
+    ``side`` says which inventories published the source, as an artifact or
+    as the file of a grant (or carry the limit): ``base`` only, ``head`` only,
+    or ``both``. A file is published whenever an inventory reads it: a deleted
+    file is ``base``, a new or untracked one ``head``, and so is a hook file
+    only the head's plugin configuration selects. A plugin manifest or
+    marketplace is published only while it declares hooks, so for one of
+    those ``side`` does not say whether the file exists on the other side.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -67,7 +80,7 @@ class HostComparisonCoverageItem(BaseModel):
     source: str
     hosts: list[str] = Field(min_length=1)
     side: Literal["base", "head", "both"]
-    status: Literal["compared", "unread_fields_changed", "blocking_limit"]
+    status: Literal["compared", "unread_fields_changed", "changed_without_rows", "blocking_limit"]
     rows: int = Field(default=0, ge=0)
     limit: CoverageLimitKind | None = None
     detail: str | None = None
@@ -82,8 +95,8 @@ class HostComparisonCoverageItem(BaseModel):
                 raise ValueError("a blocking limit names its kind and publishes no rows")
         elif self.limit is not None or self.detail is not None:
             raise ValueError("only a blocking limit names a limit kind or detail")
-        if self.status == "unread_fields_changed" and self.rows:
-            raise ValueError("an unread-field change publishes no rows")
+        if self.status in {"unread_fields_changed", "changed_without_rows"} and self.rows:
+            raise ValueError("a change with no row attributed publishes no rows")
         return self
 
 

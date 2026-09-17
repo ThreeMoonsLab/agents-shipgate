@@ -211,11 +211,20 @@ What this run established:
   .claude/settings.json (claude-code): compared; observed a change in fields this entry does not read, so no row
 ```
 
+That line appears only when the data shows the change was in fields no grant
+reads. Any other changed file with no row reads `changed, but no row is
+attributed to this path`: a plugin manifest whose `hooks` reference was added,
+retargeted or removed, whose rows are on the hook files it selects, or a
+settings link retargeted to another file.
+
 A source only one side read is named with its side, `read in base only` for a
 deleted file and `read in head only` for a new or untracked one such as
-`.claude/settings.local.json`. The block lists only sources the comparison
-read or tried to read. A file this entry does not recognize is not in it, so
-its absence says nothing about that file.
+`.claude/settings.local.json`, or for a hook file only the head's plugin
+configuration selects. A plugin manifest or marketplace is published only
+while it declares hooks, so it reads `published by head only` instead. The
+block lists only sources the comparison read or tried to read. A file this
+entry does not recognize is not in it, so its absence says nothing about that
+file.
 
 **Not compared.** A source the change did not touch, but that `diff` cannot
 read on either side, is listed before the answer rather than silently counted

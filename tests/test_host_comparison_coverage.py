@@ -26,6 +26,7 @@ from jsonschema import Draft202012Validator
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
+from agents_shipgate.core.host_comparison import _file_of
 from agents_shipgate.core.host_grants import (
     build_host_boundary_snapshot,
     build_host_grants_baseline,
@@ -104,8 +105,8 @@ def _diff(repo: Path) -> tuple[str, dict]:
     return _invoke(command), json.loads(_invoke([*command, "--json"]))
 
 
-def _verify(repo: Path, out: Path, *, head: bool = True) -> tuple[dict, str]:
-    """`verifier.json` and the PR comment one advisory `verify` run writes."""
+def _verify_with_text(repo: Path, out: Path, *, head: bool = True) -> tuple[dict, str, str]:
+    """`verifier.json`, the PR comment and the text one advisory `verify` run writes."""
 
     args = [
         "verify", "--workspace", str(repo), "--config", "shipgate.yaml", "--ci-mode", "advisory",
@@ -113,9 +114,16 @@ def _verify(repo: Path, out: Path, *, head: bool = True) -> tuple[dict, str]:
     ]
     if head:
         args += ["--head", _git(repo, "rev-parse", "HEAD")]
-    _invoke(args)
+    text = _invoke(args)
     verifier = json.loads((out / "verifier.json").read_text(encoding="utf-8"))
-    return verifier, (out / "pr-comment.md").read_text(encoding="utf-8")
+    return verifier, (out / "pr-comment.md").read_text(encoding="utf-8"), text
+
+
+def _verify(repo: Path, out: Path, *, head: bool = True) -> tuple[dict, str]:
+    """`verifier.json` and the PR comment one advisory `verify` run writes."""
+
+    verifier, comment, _text = _verify_with_text(repo, out, head=head)
+    return verifier, comment
 
 
 def _items(coverage: dict) -> list[tuple]:
@@ -138,12 +146,20 @@ def _all_routes(repo: Path, tmp_path: Path, *, head: bool = True) -> tuple[str, 
     """diff text, diff JSON, verify's host comparison and PR comment, with coverage agreeing."""
 
     text, payload = _diff(repo)
-    verifier, comment = _verify(repo, tmp_path / "out", head=head)
+    verifier, comment, verify_text = _verify_with_text(repo, tmp_path / "out", head=head)
     comparison = verifier["host_comparison"]
     assert payload["capability_diff_schema_version"] == "0.3"
     assert verifier["verifier_schema_version"] == "0.20"
     for key in ("comparison_status", "incomparable_reasons", "rows", "unchanged_limits", "coverage"):
         assert comparison[key] == payload[key], key
+    if HEADING in text.splitlines():
+        # verify text prints the block `diff` prints, as a list.
+        block = _block(text)
+        verify_lines = verify_text.splitlines()
+        start = verify_lines.index(HEADING)
+        assert verify_lines[start : start + len(block)] == [
+            block[0], *(f"- {line.removeprefix('  ')}" for line in block[1:])
+        ]
     return text, payload, comparison, comment
 
 
@@ -258,6 +274,237 @@ def test_an_untracked_local_settings_file_is_a_head_only_source(tmp_path: Path) 
         f"  compared with no change in what this entry reads: {SETTINGS}",
     ]
     assert f"- ` {LOCAL} ` (claude-code): read in head only; 1 row" in comment
+
+
+def test_a_new_guidance_only_instruction_file_declares_no_grant(tmp_path: Path) -> None:
+    """Guidance publishes no grant, so a new one gives no row; that is not "no change"."""
+
+    repo = _repository(tmp_path)
+    _write(repo, "AGENTS.md", "# Notes\n\nBe kind to reviewers.\n")
+    _commit(repo, "guidance")
+
+    text, payload, _comparison, comment = _all_routes(repo, tmp_path)
+
+    assert payload["rows"] == []
+    assert ("AGENTS.md", "compared", "head", 0) in [item[:4] for item in _items(payload["coverage"])]
+    finding = "read in head only; declares no grant this entry compares, so no row"
+    assert any(line.startswith("  AGENTS.md (") and line.endswith(finding) for line in _block(text))
+    assert f"): {finding}\n" in comment
+    assert "read in head only; no change" not in text + comment
+
+
+# --- a changed file with no row: unread fields only where the data shows it --
+
+HOOK = {"hooks": {"SessionStart": [{"matcher": "startup", "hooks": [{"type": "command", "command": "echo hi"}]}]}}
+MANIFEST = ".claude-plugin/plugin.json"
+MARKETPLACE = ".claude-plugin/marketplace.json"
+MARKET_SOURCE = {"source": {"source": "directory", "path": "./"}}
+NEUTRAL = "changed, but no row is attributed to this path"
+UNREAD = "observed a change in fields this entry does not read"
+
+
+def _plugin_repository(tmp_path: Path, manifest: dict, settings: dict | None = None) -> Path:
+    """The #714 shape: an in-repository marketplace the project settings enable."""
+
+    return _repository(
+        tmp_path,
+        {
+            SETTINGS: settings or {
+                **BASE_SETTINGS,
+                "extraKnownMarketplaces": {"market": MARKET_SOURCE},
+                "enabledPlugins": {"demo@market": True},
+            },
+            MARKETPLACE: {"name": "market", "owner": {"name": "o"}, "plugins": [{"name": "demo", "source": "./"}]},
+            ".claude/hooks/hooks.json": HOOK,
+            "hooks2/hooks.json": HOOK,
+            MANIFEST: manifest,
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    ("base", "head", "subjects", "line", "also"),
+    [
+        (
+            {"name": "demo"},
+            {"name": "demo", "hooks": "./.claude/hooks/hooks.json"},
+            {"claude-code .claude/hooks/hooks.json"},
+            f"published by head only; {NEUTRAL}",
+            None,
+        ),
+        (
+            {"name": "demo", "hooks": "./.claude/hooks/hooks.json"},
+            {"name": "demo", "hooks": "./hooks2/hooks.json"},
+            {"claude-code .claude/hooks/hooks.json", "claude-code hooks2/hooks.json"},
+            f"compared; {NEUTRAL}",
+            # Read only because the head's manifest selects it: head only, though it exists in base.
+            "  hooks2/hooks.json (claude-code): read in head only; 1 row",
+        ),
+        (
+            {"name": "demo", "hooks": "./.claude/hooks/hooks.json"},
+            {"name": "demo"},
+            {"claude-code .claude/hooks/hooks.json"},
+            f"published by base only; {NEUTRAL}",
+            None,
+        ),
+    ],
+    ids=["add-reference", "retarget-reference", "remove-reference"],
+)
+def test_a_plugin_manifest_hooks_reference_is_not_an_unread_field_change(
+    tmp_path: Path, base: dict, head: dict, subjects: set, line: str, also: str | None
+) -> None:
+    """Review cycle 1: a manifest publishes only `hooks`, and its rows land on the hook files.
+
+    Its manifest existed on both sides, so `read in <side> only` was false too.
+    """
+
+    repo = _plugin_repository(tmp_path, base)
+    _write(repo, MANIFEST, head)
+    _commit(repo, "hooks reference")
+
+    text, payload, _comparison, comment = _all_routes(repo, tmp_path)
+
+    assert {row["subject"] for row in payload["rows"]} == subjects
+    manifest = [item for item in _items(payload["coverage"]) if item[0] == MANIFEST]
+    side = "head" if "head only" in line else "base" if "base only" in line else "both"
+    assert manifest == [(MANIFEST, "changed_without_rows", side, 0, None, ["claude-code"])]
+    assert sum(item["rows"] for item in payload["coverage"]["items"]) == len(payload["rows"])
+    assert f"  {MANIFEST} (claude-code): {line}" in _block(text)
+    assert f"- ` {MANIFEST} ` (claude-code): {line}\n" in comment
+    if also is not None:
+        assert also in _block(text)
+    assert UNREAD not in text + comment
+    assert f"{MANIFEST} (claude-code): read in" not in text
+
+
+@_LINKS
+@pytest.mark.parametrize(
+    "target", [BASE_SETTINGS, {**BASE_SETTINGS, "env": {"A": "1"}}], ids=["identical", "env-differs"]
+)
+def test_a_retargeted_link_is_not_an_unread_field_change(tmp_path: Path, target: dict) -> None:
+    """The link target is published (`resolved_through`), so a retarget is read, not unread."""
+
+    repo = _repository(tmp_path, {"config/a.json": BASE_SETTINGS, "config/b.json": target})
+    (repo / SETTINGS).unlink()
+    _link(repo, SETTINGS, "../config/a.json")
+    _commit(repo, "link")
+    _git(repo, "branch", "-f", "main", "HEAD")
+    (repo / SETTINGS).unlink()
+    _link(repo, SETTINGS, "../config/b.json")
+    _commit(repo, "retarget")
+
+    text, payload, _comparison, comment = _all_routes(repo, tmp_path)
+
+    assert payload["comparison_status"] == "comparable" and payload["rows"] == []
+    assert _items(payload["coverage"]) == [
+        (SETTINGS, "changed_without_rows", "both", 0, None, ["claude-code"])
+    ]
+    assert "No static host-grant changes detected. No verdict is implied." in text
+    assert _block(text) == [HEADING, f"  {SETTINGS} (claude-code): compared; {NEUTRAL}"]
+    assert f"- ` {SETTINGS} ` (claude-code): compared; {NEUTRAL}\n" in comment
+    assert UNREAD not in text + comment
+
+
+@pytest.mark.parametrize(
+    ("path", "base", "head", "hosts"),
+    [
+        (
+            ".codex/config.toml",
+            'profile = "dev"\n[profiles.dev]\nsandbox_mode = "read-only"\n',
+            'profile = "dev"\n[profiles.dev]\nsandbox_mode = "danger-full-access"\n',
+            ["codex"],
+        ),
+        (
+            MARKETPLACE,
+            {"name": "market", "owner": {"name": "o"}, "plugins": [{"name": "demo", "source": "./", **HOOK}]},
+            {
+                "name": "market", "owner": {"name": "o"},
+                "plugins": [{"name": "demo", "source": "./", "hooks": {"Stop": HOOK["hooks"]["SessionStart"]}}],
+            },
+            ["claude-code"],
+        ),
+    ],
+    ids=["codex-profile", "marketplace-inline-hooks"],
+)
+def test_rows_of_a_source_inside_a_file_are_that_files_rows(
+    tmp_path: Path, path: str, base: object, head: object, hosts: list
+) -> None:
+    """`<file>#profiles.dev` and `<file>#plugins.demo` rows are the file's, never an unread change."""
+
+    repo = _repository(tmp_path, {path: base})
+    _write(repo, path, head)
+    _commit(repo, "inside")
+
+    text, payload, _comparison, comment = _all_routes(repo, tmp_path)
+
+    assert payload["rows"] and all(row["subject"].split(" ", 1)[1].startswith(f"{path}#") for row in payload["rows"])
+    assert (path, "compared", "both", len(payload["rows"]), None, hosts) in _items(payload["coverage"])
+    assert [item for item in _items(payload["coverage"]) if item[0].startswith(f"{path}#")] == []
+    assert f"  {path} ({', '.join(hosts)}): compared; {len(payload['rows'])} rows" in _block(text)
+    assert UNREAD not in text + comment and NEUTRAL not in text + comment
+
+
+def test_a_source_inside_a_redacted_file_is_still_that_files(tmp_path: Path) -> None:
+    """A token-shaped directory redacts `<file>` and `<file>#profiles.dev` with different digests."""
+
+    token = "ghp_" + "Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2"
+    path = f"tools/{token}/.codex/config.toml"
+    repo = _repository(tmp_path, {path: 'profile = "dev"\n[profiles.dev]\nsandbox_mode = "read-only"\n'})
+    _write(repo, path, 'profile = "dev"\n[profiles.dev]\nsandbox_mode = "danger-full-access"\n')
+    _commit(repo, "profile")
+
+    text, payload, _comparison, comment = _all_routes(repo, tmp_path)
+
+    codex = [item for item in _items(payload["coverage"]) if item[5] == ["codex"]]
+    assert len(codex) == 1 and codex[0][1:4] == ("compared", "both", len(payload["rows"]))
+    assert "[REDACTED:" in codex[0][0] and codex[0][0].endswith("/.codex/config.toml")
+    assert token not in text + comment + json.dumps(payload)
+    assert UNREAD not in text + comment
+
+
+def test_file_of_never_guesses_between_files_that_redact_alike() -> None:
+    files = {"a/[REDACTED:x]~111111111111/c.toml", "a/[REDACTED:x]~222222222222/c.toml", "b/d.toml"}
+
+    assert _file_of("b/d.toml#profiles.p", files) == "b/d.toml"
+    assert _file_of("a/[REDACTED:x]~333333333333/c.toml#profiles.p", files) == (
+        "a/[REDACTED:x]~333333333333/c.toml#profiles.p"
+    )
+    assert _file_of("a/[REDACTED:x]~333333333333/c.toml#profiles.p", {"a/[REDACTED:x]~111111111111/c.toml"}) == (
+        "a/[REDACTED:x]~111111111111/c.toml"
+    )
+    # A `#` in a directory name is not a separator: the source is a published file itself.
+    assert _file_of("docs#1/.mcp.json", {"docs#1/.mcp.json", "docs"}) == "docs#1/.mcp.json"
+    assert _file_of("docs#1/.mcp.json", {"b/d.toml"}) == "docs#1/.mcp.json"
+
+
+@pytest.mark.parametrize("moves_basis", [True, False], ids=["basis-moves", "basis-stays"])
+def test_a_settings_change_is_unread_only_while_no_hook_loading_basis_moved(
+    tmp_path: Path, moves_basis: bool
+) -> None:
+    """Project settings decide which plugin hooks load; that shows on the hook file's grant.
+
+    `additionalMarketplaces` publishes no grant of its own, so registering the
+    marketplace moves the hook's basis with no row on the settings file.
+    """
+
+    enabled = {**BASE_SETTINGS, "enabledPlugins": {"demo@market": True}}
+    repo = _plugin_repository(tmp_path, {"name": "demo", "hooks": "./.claude/hooks/hooks.json"}, enabled)
+    if moves_basis:
+        _write(repo, SETTINGS, {**enabled, "additionalMarketplaces": {"market": MARKET_SOURCE}})
+    else:
+        _write(repo, SETTINGS, {**enabled, "env": {"A": "1"}})
+        changed = {"hooks": {"SessionStart": [{"matcher": "startup", "hooks": [{"type": "command", "command": "echo changed"}]}]}}
+        _write(repo, ".claude/hooks/hooks.json", changed)
+    _commit(repo, "settings")
+
+    text, payload, _comparison, comment = _all_routes(repo, tmp_path)
+
+    assert [row["subject"] for row in payload["rows"]] == ["claude-code .claude/hooks/hooks.json"]
+    status = "changed_without_rows" if moves_basis else "unread_fields_changed"
+    assert (SETTINGS, status, "both", 0, None, ["claude-code"]) in _items(payload["coverage"])
+    finding = NEUTRAL if moves_basis else f"{UNREAD}, so no row"
+    assert f"  {SETTINGS} (claude-code): compared; {finding}" in _block(text)
+    assert f"- ` {SETTINGS} ` (claude-code): compared; {finding}\n" in comment
 
 
 # --- incomparable: each blocking source and its kind, refusal unchanged ------
@@ -419,6 +666,66 @@ def test_the_list_is_capped_with_the_changed_source_first(tmp_path: Path) -> Non
     assert "and 9 more" in comment
     schema = json.loads((ROOT / "docs/verifier-schema.v0.20.json").read_text(encoding="utf-8"))
     Draft202012Validator(schema).validate(json.loads((tmp_path / "out/verifier.json").read_text("utf-8")))
+
+
+@_LINKS
+def test_long_paths_never_push_the_advisory_and_next_action_out_of_the_pr_comment(tmp_path: Path) -> None:
+    """The PR comment's human summary is bounded as a whole; the block takes a bounded share.
+
+    Twelve dangling links at about 410-character paths: the terminal lists the
+    capped ten, the PR comment lists what fits and counts the rest, and the
+    advisory, next action and evidence lines stay.
+    """
+
+    repo = _repository(tmp_path)
+    directory = f"{'d' * 200}/{'e' * 200}"
+    for index in range(12):
+        _link(repo, f"{directory}/L{index:02d}.md", "does/not/exist.md")
+    _commit(repo, "dangling links")
+    _git(repo, "branch", "-f", "main", "HEAD")
+    _write(repo, SETTINGS, WIDENED)
+    _commit(repo, "change")
+
+    text, payload, _comparison, comment = _all_routes(repo, tmp_path)
+
+    coverage = payload["coverage"]
+    assert payload["comparison_status"] == "incomparable"
+    assert len(coverage["items"]) == MAX_COVERAGE_ITEMS and coverage["omitted_items"] == 2
+    assert _block(text)[-1] == "  2 more items not listed"
+    assert len(_block(text)) == 1 + MAX_COVERAGE_ITEMS + 1
+    lines = comment.splitlines()
+    start = lines.index(HEADING)
+    block = lines[start : lines.index("", start)]
+    assert len("\n".join(block)) <= 2000
+    listed = len(block) - 2
+    assert 1 <= listed < MAX_COVERAGE_ITEMS
+    assert block[-1] == f"- {len(coverage['items']) + coverage['omitted_items'] - listed} more items not listed"
+    assert "Advisory: no application release policy configured. This comparison grants no merge authority." in comment
+    assert "- Next actor:" in comment and "- Next command:" in comment
+    assert "Evidence: `verifier.json`" in comment
+
+
+def _coverage_comparison(items: list[dict], omitted: int = 0) -> HostComparison:
+    return HostComparison.model_validate({
+        "comparison_status": "comparable",
+        "head_kind": "worktree",
+        "coverage": {"items": items, "omitted_items": omitted},
+    })
+
+
+def test_items_not_listed_are_counted_as_items_not_sources() -> None:
+    """One source can be several items (by host or side), so the count says items."""
+
+    items = [
+        {"source": "AGENTS.md", "hosts": ["codex"], "side": "head", "status": "compared"},
+        {"source": "AGENTS.md", "hosts": ["cursor"], "side": "base", "status": "compared"},
+    ]
+
+    assert coverage_lines(_coverage_comparison(items, omitted=1), bullet="  ")[-1] == "  1 more item not listed"
+    assert coverage_lines(_coverage_comparison(items, omitted=3), bullet="  ")[-1] == "  3 more items not listed"
+    # A budget lists the first line and counts what it could not fit.
+    bounded = coverage_lines(_coverage_comparison(items, omitted=3), bullet="  ", max_chars=len(HEADING) + 10)
+    assert bounded[-1] == "  4 more items not listed" and len(bounded) == 3
 
 
 def test_a_comparison_that_read_no_source_says_so(tmp_path: Path) -> None:

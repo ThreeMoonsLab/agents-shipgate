@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import Any
 
+from agents_shipgate.core.boundary_registry import (
+    is_claude_plugin_manifest_path,
+    is_claude_plugin_marketplace_path,
+)
 from agents_shipgate.core.capability_diff_rows import capability_diff_rows
 from agents_shipgate.core.host_grants import (
+    _CLAUDE_PROJECT_SETTINGS_SOURCES,
     build_host_comparison_payload,
     build_host_drift_payload,
     build_host_grants_baseline,
+    hook_loading_basis,
     host_grants_sha256,
     inventory_is_complete,
     normalized_host_grants,
@@ -95,14 +102,14 @@ def unchanged_limits(
 
 
 #: Coverage order (#812): what refused the comparison, then sources with rows,
-#: then changes no row describes, then sources only one side read, then
+#: then changes no row describes, then sources only one side published, then
 #: sources compared with no change. The cap keeps a prefix of this order.
 def _coverage_rank(item: dict[str, Any]) -> tuple[int, str, str, str]:
     if item["status"] == "blocking_limit":
         rank = 0
     elif item["rows"]:
         rank = 1
-    elif item["status"] == "unread_fields_changed":
+    elif item["status"] in {"unread_fields_changed", "changed_without_rows"}:
         rank = 2
     elif item["side"] != "both":
         rank = 3
@@ -164,6 +171,83 @@ def _blocking_coverage(before: dict[str, Any], after: dict[str, Any]) -> HostCom
     return _group_coverage(facts)
 
 
+#: The digest `public_host_path` stamps after a redacted component. A source
+#: inside a file (`<file>#profiles.dev`) is redacted as one string, so its
+#: digest differs from the file's own; matching a source to its file ignores
+#: it (#812).
+_REDACTION_DIGEST = re.compile(r"~[0-9a-f]{12}(?=/|#|$)")
+
+
+def _file_of(source: str, files: set[str]) -> str:
+    """The published file a grant source belongs to (#812).
+
+    A source is its own file, or lies inside one: a Codex profile publishes
+    `<file>#profiles.<name>` and a marketplace entry's inline hooks
+    `<file>#plugins.<name>`. Only a published artifact path can own a source,
+    so a `#` in a directory name is never taken for a separator. A source no
+    published file owns, or that two files could own, stays its own.
+    """
+
+    if source in files or "#" not in source:
+        return source
+    digestless: dict[str, list[str]] = {}
+    for path in sorted(files):
+        digestless.setdefault(_REDACTION_DIGEST.sub("", path), []).append(path)
+    for index in sorted((i for i, char in enumerate(source) if char == "#"), reverse=True):
+        prefix = source[:index]
+        if prefix in files:
+            return prefix
+        owners = digestless.get(_REDACTION_DIGEST.sub("", prefix), [])
+        if len(owners) == 1:
+            return owners[0]
+        if owners:
+            break
+    return source
+
+
+def _only_unread_fields_changed(
+    host: str, path: str, changes: list[dict[str, Any]], *, hook_basis_changed: bool
+) -> bool:
+    """Whether a changed file that gives no row changed only in fields no grant reads (#812).
+
+    True only when the published data shows it:
+
+    - The file's artifact digests the whole file. A plugin manifest or a
+      marketplace publishes only its hooks, and only while it declares them,
+      and the grants it selects are published under the hook files; a path
+      with `#` is a projection of a file.
+    - One artifact changed, and every side that has it parsed it. When both
+      sides have it, nothing but that digest differs: a retargeted link
+      (`resolved_through`), a parse status or an instruction structure is
+      something this entry reads.
+    - It is not a Claude Code project settings file while a hook's loading
+      basis changed. Those settings decide which plugin hooks load, and that
+      change is published on the hook file's grant, not on the settings file.
+    """
+
+    if (
+        "#" in path
+        or is_claude_plugin_manifest_path(path)
+        or is_claude_plugin_marketplace_path(path)
+        or (
+            hook_basis_changed
+            and host == "claude-code"
+            and path in _CLAUDE_PROJECT_SETTINGS_SOURCES
+        )
+        or len(changes) != 1
+    ):
+        return False
+    before, after = changes[0].get("baseline"), changes[0].get("current")
+    present = [artifact for artifact in (before, after) if artifact is not None]
+    if not present or any(artifact.get("parse_status") != "parsed" for artifact in present):
+        return False
+    if before is None or after is None:
+        return True
+    return {key: value for key, value in before.items() if key != "redacted_sha256"} == {
+        key: value for key, value in after.items() if key != "redacted_sha256"
+    }
+
+
 def _compared_coverage(
     before: dict[str, Any],
     after: dict[str, Any],
@@ -172,34 +256,58 @@ def _compared_coverage(
 ) -> HostComparisonCoverage:
     """What a comparable comparison established about each source it read (#812).
 
-    Read off the payload the rows were projected from and the two inventories:
-    a source's rows are the grant changes whose published source it is; an
-    artifact change with no such grant change is a change in fields this entry
-    does not read; the side is which inventories observed it. A source named
-    as an unchanged limit is already published there and is not repeated.
+    Read off the payload the rows were projected from and the two inventories.
+    A file's rows are the grant changes it publishes, including those of a
+    source inside it. The side is which inventories published the file, as
+    an artifact or as the file of a grant. A changed artifact that gives no
+    row is ``unread_fields_changed`` only where
+    :func:`_only_unread_fields_changed` shows it, and otherwise
+    ``changed_without_rows``. A source named as an unchanged limit is already
+    published there and is not repeated.
     """
+
+    files: dict[str, set[str]] = {}
+    for inventory in (before, after):
+        for artifact in inventory.get("artifacts", []):
+            files.setdefault(str(artifact["host"]), set()).add(str(artifact["path"]))
+
+    def file_key(host: str, source: str) -> tuple[str, str]:
+        return (host, _file_of(source, files.get(host, set())))
 
     def observed(inventory: dict[str, Any]) -> set[tuple[str, str]]:
         return {
             (str(artifact["host"]), str(artifact["path"]))
             for artifact in inventory.get("artifacts", [])
         } | {
-            (str(grant["host"]), str(grant["source"]))
+            file_key(str(grant["host"]), str(grant["source"]))
             for grant in inventory.get("grants", [])
         }
 
     rows: dict[tuple[str, str], int] = {}
+    hook_basis_changed = False
+    #: Hosts with a row from inside a file no published file could be named
+    #: for: no file on such a host is said to have changed only unread fields.
+    unattributed: set[str] = set()
     for change in payload.get("changes") or []:
         grant = change.get("current") or change.get("baseline")
         if grant:
-            key = (str(grant["host"]), str(grant["source"]))
+            key = file_key(str(grant["host"]), str(grant["source"]))
             rows[key] = rows.get(key, 0) + 1
-    unread = {
-        (str(artifact["host"]), str(artifact["path"]))
-        for change in payload.get("artifact_changes") or []
-        for artifact in (change.get("baseline"), change.get("current"))
-        if artifact
-    }
+            if "#" in key[1] and key[1] not in files.get(key[0], set()):
+                unattributed.add(key[0])
+        if (
+            change.get("baseline") is not None
+            and change.get("current") is not None
+            and change["current"].get("kind") == "hook"
+            and hook_loading_basis(change["baseline"]) != hook_loading_basis(change["current"])
+        ):
+            hook_basis_changed = True
+    changed: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for change in payload.get("artifact_changes") or []:
+        artifact = change.get("current") or change.get("baseline")
+        if artifact:
+            key = (str(artifact["host"]), str(artifact["path"]))
+            changed.setdefault(key, []).append(change)
     base, head = observed(before), observed(after)
     named = {(limit["host"], limit["source"]) for limit in limits}
     facts: dict[tuple[str, str, str, str | None], dict[str, Any]] = {}
@@ -209,7 +317,14 @@ def _compared_coverage(
         host, source = key
         side = "both" if key in base and key in head else "base" if key in base else "head"
         count = rows.get(key, 0)
-        status = "unread_fields_changed" if not count and key in unread else "compared"
+        if count or key not in changed:
+            status = "compared"
+        elif host not in unattributed and _only_unread_fields_changed(
+            host, source, changed[key], hook_basis_changed=hook_basis_changed
+        ):
+            status = "unread_fields_changed"
+        else:
+            status = "changed_without_rows"
         # A source with rows and one without never merge, so a count is never
         # spread over a host that contributed none.
         item = facts.setdefault(

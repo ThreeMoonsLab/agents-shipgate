@@ -62,16 +62,19 @@ Unreleased, still contract v40: every host comparison says what it established,
 source by source (#812). Verifier `0.20` adds `host_comparison.coverage`, and
 `shipgate diff --json` moves to capability diff `0.3` with the same block: at
 most ten items of `{source, hosts, side, status, rows, limit, detail, scope}`
-and an `omitted_items` count. A source compared on both sides names how many
-rows it gave; one whose published artifact changed with no grant change is
+and an `omitted_items` count. A file compared on both sides names how many
+rows it gave, counting a source inside it such as a Codex profile; a whole
+file that changed only in its digest with no grant change is
 `unread_fields_changed`, so an `env` or `apiKeyHelper` edit no longer reads as
-no change; one only a single side read names that side (`base` for a deleted
-file, `head` for a new or untracked one); and an incomparable comparison names
-each blocking source and its kind, with the refusal unchanged. `diff`, `verify`
-text and the PR comment print it as `What this run established`. No row,
-reason, route, digest or baseline moves. A `0.19` verifier reads with coverage
-not recorded; one that claims coverage is refused. See
-[the migration note](#host-comparison-coverage-812).
+no change; any other changed artifact with no row, such as a plugin manifest's
+`hooks` reference or a retargeted link, is `changed_without_rows`; one only a
+single side published names that side (`base` for a deleted file, `head` for a
+new or untracked one or a hook file only the head's plugin configuration
+selects); and an incomparable comparison names each blocking source and its
+kind, with the refusal unchanged. `diff`, `verify` text and the PR comment print
+it as `What this run established`. No row, reason, route, digest or baseline
+moves. A `0.19` verifier reads with coverage not recorded; one that claims
+coverage is refused. See [the migration note](#host-comparison-coverage-812).
 
 Previous runtime contract v39 reads through an in-tree link at a boundary path (#700).
 A link such as `CLAUDE.md -> AGENTS.md` or `.claude/skills -> ../.agents/skills`
@@ -200,17 +203,18 @@ verdict, command or input is added.
 
 - **Where.** `host_comparison.coverage` in `verifier.json` (verifier schema `0.20`, [`docs/verifier-schema.v0.20.json`](docs/verifier-schema.v0.20.json)) and top-level `coverage` in `shipgate diff --json` (capability diff `0.3`). The two are the same object for the same comparison. `null` means coverage was not recorded: a `0.19` or older verifier, or a comparison that never read an inventory, such as `shallow_history`.
 - **`status`.**
-  - `compared`: the source was read, and `rows` of the published rows come from it. `0` means no change in what this entry reads; it does not mean every field in the file was understood.
-  - `unread_fields_changed`: the source's published artifact changed, but no grant this entry reads did, so it gives no row.
+  - `compared`: the source was read, and `rows` of the published rows come from it. A row of a source inside a file — a Codex profile, `.codex/config.toml#profiles.dev`, or a marketplace entry's inline hooks, `.claude-plugin/marketplace.json#plugins.demo` — counts for that file, so the file is one item. `0` means no change in what this entry reads; it does not mean every field in the file was understood.
+  - `unread_fields_changed`: a file whose artifact digests the whole file changed, and no grant this entry reads from it did, so it gives no row. Only when every side that has the file parsed it and nothing but that digest differs, so the change is in fields no grant reads. Never a plugin manifest or marketplace, a retargeted link, or `.claude/settings.json` or `.claude/settings.local.json` while a hook's loading basis changed, since those settings decide which plugin hooks load and that change is published on the hook file.
+  - `changed_without_rows`: the source's published artifact changed and no row is attributed to it, but the data does not show the change was in unread fields. A plugin manifest or marketplace publishes only its `hooks`, and the rows of a reference it adds, retargets or removes are published under the hook files it selects; a retargeted link changes `resolved_through`; a parse status or instruction structure is read too.
   - `blocking_limit`: only on an `incomparable` comparison. The source carries a blocking inventory issue; `limit` is its kind (`unreadable`, `unsupported`, `parse_failed`, …) and `detail` the issue's published message.
-- **`side`.** Which inventories observed the source, or carry the limit: `base`, `head` or `both`. A deleted file stays attributable as `base`; a new or untracked file, such as `.claude/settings.local.json`, is `head`.
+- **`side`.** Which inventories published the source, as an artifact or as the file of a grant, or carry the limit: `base`, `head` or `both`. A file is published whenever an inventory reads it, so a deleted file stays attributable as `base`, and `head` is a new or untracked file, such as `.claude/settings.local.json`, or a hook file only the head's plugin configuration selects. A plugin manifest or marketplace is published only while it declares hooks, so for one of those `side` does not say whether the file exists on the other side.
 - **One item per source, status, side and limit.** Hosts that read one source alike are merged into `hosts`, and their rows are summed. When nothing is omitted, the items' `rows` add up to the comparison's row count.
-- **Order and cap.** Blocking limits, then sources with rows, then unread-field changes, then sources only one side read, then sources compared with no change; by source within each. At most ten items; `omitted_items` counts the rest, so a cap drops a quiet source before anything a reviewer must read.
+- **Order and cap.** Blocking limits, then sources with rows, then changes with no row (`unread_fields_changed`, `changed_without_rows`), then sources only one side published, then sources compared with no change; by source within each. At most ten items; `omitted_items` counts the rest, so a cap drops a quiet source before anything a reviewer must read.
 - **Not repeated.** A source already named in `unchanged_limits` is not an item.
 - **`scope`.** Reserved for a comparison decided per scope (#808). Always `null` in this version.
 - **Redaction.** `source` is the path the inventory already publishes through `public_host_path`, so a credential-shaped component reads `[REDACTED:…]~<digest>`. `detail` is the inventory issue's sanitized message.
 
-**Text.** `diff`, `verify --format text` and the manifest-free PR comment print the block as `What this run established:`. `diff` prints it after the rows and summary (before the review question), after the no-change line, or after the cannot-compare lines; `verify` and the PR comment print it after the entries or the no-change or unavailable line. Each item a reviewer must read is one line — `.claude/settings.json (claude-code): compared; observed a change in fields this entry does not read, so no row`, `… read in base only; 2 rows`, `.mcp.json (claude-code): parse_failed in head, so the head inventory is incomplete` — and sources compared with no change share one line, `compared with no change in what this entry reads: <first three> and N more`. A comparison that read no source prints `What this run established: no host configuration source was compared.` The no-change, entries and cannot-compare headlines are unchanged.
+**Text.** `diff`, `verify --format text` and the manifest-free PR comment print the block as `What this run established:`. `diff` prints it after the rows and summary (before the review question), after the no-change line, or after the cannot-compare lines; `verify` and the PR comment print it after the entries or the no-change or unavailable line. Each item a reviewer must read is one line — `.claude/settings.json (claude-code): compared; observed a change in fields this entry does not read, so no row`, `.claude-plugin/plugin.json (claude-code): compared; changed, but no row is attributed to this path`, `… read in base only; 2 rows`, `.mcp.json (claude-code): parse_failed in head, so the head inventory is incomplete` — and sources compared with no change share one line, `compared with no change in what this entry reads: <first three> and N more`. One side is `read in base only` or `read in head only`, except for a plugin manifest or marketplace, which is `published by base only` or `published by head only`. A new instruction file the engine reads as guidance publishes no grant: `AGENTS.md (claude-code, codex, cursor): read in head only; declares no grant this entry compares, so no row`. Items past the cap are `N more items not listed` (items, not sources: one source can be several items). The PR comment's human summary is bounded as a whole, so there the block stops listing at 2000 characters and counts the rest the same way; the advisory and next action after it stay. A comparison that read no source prints `What this run established: no host configuration source was compared.` The no-change, entries and cannot-compare headlines are unchanged.
 
 **What does not change.** `comparison_status`, `incomparable_reasons`, `rows`, `unchanged_limits`, the inventory digests, saved host-grants baselines and drift payloads, `check`'s boundary result and text (which carry no coverage), the control envelope's `capability_rows`, and every control state, permission and next action — an incomparable manifest-free `verify` still routes to `audit --host`. `minimum_control_contract_version` stays `21`, and runtime contract v40, unreleased, is extended in place.
 
