@@ -27,6 +27,7 @@ _GIT_OBJECT_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _WORKTREE_FILTER_CONFIG_LIMIT = 1024 * 1024
 _WORKTREE_ATTRIBUTE_LIST_LIMIT = 8 * 1024 * 1024
 _DIFF_CONFIG_LIMIT = 1024 * 1024
+_PROMISOR_CONFIG_LIMIT = 1024 * 1024
 _DIFF_METADATA_LIMIT = 8 * 1024 * 1024
 _DIFF_BODY_LIMIT = 32 * 1024 * 1024
 _GIT_STDERR_LIMIT = 8 * 1024
@@ -91,6 +92,31 @@ _FETCHABLE_DIFF_REASONS: frozenset[str] = frozenset(
     {"refs_missing", "merge_base_missing", "objects_missing"}
 )
 
+#: The hydration example ``objects_missing`` names when no workspace is bound.
+DEFAULT_HYDRATE_COMMAND = "git fetch --refetch --no-filter origin"
+
+
+def objects_missing_remediation(hydrate: str = DEFAULT_HYDRATE_COMMAND) -> str:
+    """The one way ``objects_missing`` is repaired, worded once (#817).
+
+    ``verify``'s diff status and ``diff``'s refusal both say this, so the
+    repair cannot drift into two spellings. ``hydrate`` is the example command:
+    ``diff`` passes one bound to its workspace and the clone's promisor remote.
+
+    ``--no-filter`` is what makes the example work. A bare
+    ``git fetch --refetch origin`` applies the clone's configured
+    ``remote.<name>.partialclonefilter`` again, so it downloads every commit
+    and tree a second time and still no blob, and the same read fails after it.
+    """
+
+    return (
+        "This checkout is a partial clone and the objects the diff needs were "
+        "never fetched. Shipgate runs Git with GIT_NO_LAZY_FETCH=1 and will not "
+        f"fetch them implicitly. Hydrate them (for example `{hydrate}`, or "
+        "clone without `--filter`), then rerun."
+    )
+
+
 _DIFF_REASON_REMEDIATION: dict[str, str] = {
     "not_attempted": (
         "Verification stopped before it read any diff, so nothing is known "
@@ -111,13 +137,7 @@ _DIFF_REASON_REMEDIATION: dict[str, str] = {
         "comparison point — a force-push or a rewritten branch produces this — "
         "then rerun."
     ),
-    "objects_missing": (
-        "This checkout is a partial clone and the objects the diff needs were "
-        "never fetched. Verification runs with GIT_NO_LAZY_FETCH=1 and will "
-        "not fetch them implicitly. Hydrate them (for example "
-        "`git fetch --refetch origin`, or clone without `--filter`), then "
-        "rerun."
-    ),
+    "objects_missing": objects_missing_remediation(),
     "metadata_limit_exceeded": (
         "The change set exceeds Shipgate's static diff-metadata bound. Split "
         "the change, or exclude generated output from the compared range."
@@ -2474,6 +2494,162 @@ def _decode_git_stderr(payload: bytes | bytearray) -> str:
     return collapsed
 
 
+def promisor_remotes(workspace: Path) -> tuple[str, ...]:
+    """The remotes this partial clone was promised objects by, as a command can name them.
+
+    Read from repository configuration only, in the order Git lists it: every
+    ``remote.<name>.promisor`` Git reads as true, then the older
+    ``extensions.partialClone`` when it names another remote. A name is kept
+    only when ``git fetch <name>`` means that configured remote: it has a
+    ``remote.<name>.url``, Git accepts it as a remote name (the
+    ``refs/remotes/<name>/`` ref-format test ``git remote add`` applies, so
+    ``up/stream`` is kept), it is UTF-8, and it does not start with ``-``,
+    which ``git fetch`` would read as an option. Empty when none is left; no
+    other name, ``origin`` included, is supplied in its place. Nothing is
+    fetched (#817).
+    """
+
+    promisor_flags = _git_config_records(
+        workspace, r"^remote\..+\.promisor$", as_bool=True
+    )
+    other_keys = _git_config_records(
+        workspace, r"^(remote\..+\.url|extensions\.partialclone)$"
+    )
+    if promisor_flags is None or other_keys is None:
+        return ()
+    candidates = [
+        _remote_subsection(key, "promisor")
+        for key, value in promisor_flags
+        if value == "true"
+    ]
+    candidates.extend(
+        value for key, value in other_keys if key == "extensions.partialclone"
+    )
+    with_url = {
+        _remote_subsection(key, "url")
+        for key, _ in other_keys
+        if key != "extensions.partialclone"
+    }
+    names: list[str] = []
+    for name in dict.fromkeys(candidates):
+        if not name or name.startswith("-") or name not in with_url:
+            continue
+        accepted = _run_git(
+            workspace,
+            ["check-ref-format", f"refs/remotes/{name}/test"],
+            check=False,
+        )
+        if accepted.returncode == 0:
+            names.append(name)
+    return tuple(names)
+
+
+def _git_config_records(
+    workspace: Path, pattern: str, *, as_bool: bool = False
+) -> list[tuple[str, str]] | None:
+    """``git config -z --get-regexp`` as ``(key, value)`` pairs, in file order.
+
+    ``as_bool`` lets Git parse the values, so ``yes``, ``1`` and a bare key
+    read as ``true`` exactly as Git itself reads them. ``[]`` when nothing
+    matches, ``None`` when Git refuses the read (a value it cannot parse as a
+    boolean, say) or the output passes its bound. A record that is not UTF-8
+    is dropped rather than decoded into a name that differs from the
+    configured one.
+    """
+
+    payload = _run_git_bounded_output(
+        workspace,
+        [
+            "config",
+            "--includes",
+            "-z",
+            *(["--type=bool"] if as_bool else []),
+            "--get-regexp",
+            pattern,
+        ],
+        max_output_bytes=_PROMISOR_CONFIG_LIMIT,
+        allowed_returncodes=(0, 1),
+    )
+    if payload is None:
+        return None
+    records: list[tuple[str, str]] = []
+    for raw in payload.split(b"\0"):
+        if not raw:
+            continue
+        try:
+            record = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        key, _, value = record.partition("\n")
+        records.append((key, value))
+    return records
+
+
+def _remote_subsection(key: str, variable: str) -> str:
+    """``<name>`` from ``remote.<name>.<variable>``, as configured (Git lowercases only the outer parts)."""
+
+    return key[len("remote.") : -len(f".{variable}")]
+
+
+class PromisedObjectsMissingError(ConfigError):
+    """``commit``'s tree needs objects a partial clone never fetched (``objects_missing``)."""
+
+    def __init__(self, commit: str) -> None:
+        self.commit = commit
+        super().__init__(
+            f"Commit {commit} needs Git objects this partial clone never fetched."
+        )
+
+
+def archive_fetched_tree(
+    workspace: Path,
+    commit: str,
+    destination: Path,
+    *,
+    scope: Callable[[str], bool] | None = None,
+) -> None:
+    """:func:`archive_tree`, naming a partial clone's unfetched objects as such.
+
+    A blobless clone fails the object copy with a :class:`ConfigError`, and a
+    treeless one fails the tree lookup before it with a
+    :class:`subprocess.CalledProcessError`. Either is re-raised unchanged
+    unless :func:`promised_objects_missing` says the clone was promised
+    objects it does not hold; then :class:`PromisedObjectsMissingError`, so a
+    caller can name the hydration instead of a traceback (#817).
+    """
+
+    try:
+        archive_tree(workspace, commit, destination, scope=scope)
+    except (ConfigError, subprocess.CalledProcessError) as exc:
+        if promised_objects_missing(workspace, commit):
+            raise PromisedObjectsMissingError(commit) from exc
+        raise
+
+
+def promised_objects_missing(workspace: Path, commit: str) -> bool:
+    """Whether ``commit``'s tree needs objects a partial clone never fetched.
+
+    Asked of the repository rather than read from a failure's wording: a walk
+    of the commit's objects fails, and the same walk succeeds once objects a
+    promisor remote still owes are allowed to be missing. A shallow boundary
+    is not crossed (``--no-walk``), and an object missing without a promise,
+    as in a corrupt repository, is not reported as one. Lazy fetching is
+    disabled for both walks, so asking fetches nothing (#817).
+    """
+
+    walk = ["rev-list", "--objects", "--no-walk", "--quiet"]
+    try:
+        complete = _run_git(workspace, [*walk, commit], check=False)
+        if complete.returncode == 0:
+            return False
+        promised = _run_git(
+            workspace, [*walk, "--missing=allow-promisor", commit], check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return promised.returncode == 0
+
+
 def _history_is_truncated(workspace: Path) -> bool | None:
     """Whether this checkout's commit history is shallow.
 
@@ -2798,6 +2974,7 @@ def output_directory_inventory(
 
 __all__ = [
     "active_replace_refs",
+    "archive_fetched_tree",
     "archive_tree",
     "BinaryCapabilityDiffError",
     "collect_diff_context",
@@ -2816,10 +2993,14 @@ __all__ = [
     "git_path",
     "GitPushEndpoint",
     "merge_base_sha",
+    "objects_missing_remediation",
     "output_directory_inventory",
     "OutputDirectoryInventory",
     "path_committed_at_head",
     "path_present_at_ref",
+    "PromisedObjectsMissingError",
+    "promised_objects_missing",
+    "promisor_remotes",
     "read_bytes_at_ref",
     "read_file_at_ref",
     "removes_any_tracked_path",

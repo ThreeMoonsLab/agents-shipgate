@@ -221,6 +221,35 @@ def test_the_documented_missing_base_recovery_holds(documented_remote: Path) -> 
     assert _normalize(output) == _quoted(QUICKSTART, "change")[0]
 
 
+def test_the_documented_partial_clone_recovery_holds(documented_remote: Path) -> None:
+    """The quickstart's partial-clone sentence, in the blobless clone it describes (#817)."""
+    _git(documented_remote, "config", "uploadpack.allowFilter", "true")
+    clone = documented_remote.parent / "clone-blobless"
+    _git(documented_remote.parent, "clone", "-q", "--filter=blob:none", "--no-checkout",
+         documented_remote.as_uri(), str(clone))
+    _git(clone, "checkout", "-q", "change")
+    quickstart = " ".join(QUICKSTART.read_text(encoding="utf-8").split())
+    assert "A partial clone (`git clone --filter=blob:none`)" in quickstart
+
+    recovery = "git fetch --refetch --no-filter origin"
+    code, output = _diff(clone, "--base", "origin/main")
+    assert code == 2 and "Traceback" not in output
+    assert f"`{recovery}`" in quickstart
+    assert recovery.replace("git ", f"git -C {clone} ", 1) in _flat(output)
+
+    # The trap the page warns about: `--refetch` alone keeps the filter.
+    trap = "git fetch --refetch origin"
+    assert f"`{trap}` alone keeps the clone's filter" in quickstart
+    _git(clone, *trap.split()[1:])
+    code, output = _diff(clone, "--base", "origin/main")
+    assert code == 2 and "objects_missing" in output
+
+    _git(clone, *recovery.split()[1:])
+    code, output = _diff(clone, "--base", "origin/main")
+    assert code == 0, output
+    assert _normalize(output) == _quoted(QUICKSTART, "change")[0]
+
+
 def _table_row(text: str, first_cell: str) -> str:
     rows = [line for line in text.splitlines() if line.startswith(f"| {first_cell} |")]
     assert len(rows) == 1, f"expected one table row starting {first_cell!r}, found {len(rows)}"

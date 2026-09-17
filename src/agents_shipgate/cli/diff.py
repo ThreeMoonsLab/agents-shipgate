@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
+from typing import NoReturn
 
 import typer
 
@@ -123,6 +124,71 @@ def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
     return requested, resolved
 
 
+def _refuse_objects_missing(workspace: Path, base_ref: str, base_commit: str) -> NoReturn:
+    """Name the hydration a partial clone needs instead of a traceback (#817).
+
+    In a `--filter=blob:none` clone only what was checked out has blobs, and in
+    a `--filter=tree:0` clone only its trees too; the base tree's objects do
+    not arrive until something fetches them, and Shipgate never does. The
+    repair is the one `verify` names for the same `objects_missing` reason,
+    worded by the same function, bound here to this workspace and to the
+    remotes the clone was promised objects by. `--refetch` alone would keep the
+    clone's filter and fetch no blob, which is why `--no-filter` is part of it.
+
+    Only a remote the clone's configuration names as a promisor is put in a
+    command, one ranked command per remote in configuration order. When none
+    can be named, no name is supplied in its place: the one next action is a
+    `review`, and the example carries a `<remote>` placeholder.
+    """
+
+    from agents_shipgate.cli.agent_mode import emit_agent_mode_error
+    from agents_shipgate.cli.verify.git import (
+        objects_missing_remediation,
+        promisor_remotes,
+    )
+    from agents_shipgate.invocation import join_argv
+    from agents_shipgate.schemas.diagnostics import NextAction
+
+    fetch = ["git", "-C", str(workspace), "fetch", "--refetch", "--no-filter"]
+    refused = (
+        f"The base side of this diff, {_one_line(base_ref)} ({base_commit[:8]}), "
+        "could not be read (objects_missing)"
+    )
+    remotes = promisor_remotes(workspace)
+    if remotes:
+        commands = [join_argv([*fetch, remote]) for remote in remotes]
+        message = f"{refused}. " + objects_missing_remediation(commands[0])
+        actions = [NextAction(kind="command", command=commands[0], why=message)]
+        actions.extend(
+            NextAction(
+                kind="command",
+                command=command,
+                why=(
+                    f"If `{_one_line(remotes[0])}` cannot supply the base's objects, "
+                    f"hydrate from `{_one_line(remote)}`, another remote this "
+                    "partial clone was promised objects by, then rerun."
+                ),
+            )
+            for remote, command in zip(remotes[1:], commands[1:], strict=True)
+        )
+    else:
+        message = (
+            f"{refused}, and no remote this partial clone was promised objects by "
+            "can be named in a command. "
+            + objects_missing_remediation(f"{join_argv(fetch)} <remote>")
+        )
+        actions = [NextAction(kind="review", why=message)]
+    typer.echo(message, err=True)
+    emit_agent_mode_error(
+        "objects_missing",
+        message=message,
+        exit_code=2,
+        next_action=actions[0].to_legacy_string(),
+        next_actions=[action.model_dump(mode="json") for action in actions],
+    )
+    raise typer.Exit(2)
+
+
 def _one_line(value: object) -> str:
     return single_line_text(str(value))
 
@@ -179,13 +245,21 @@ def run_capability_diff(
 
     head = build_host_boundary_snapshot(workspace, cache=HostStaticParseCache())
     with tempfile.TemporaryDirectory(prefix="shipgate-diff-base-") as scratch:
-        from agents_shipgate.cli.verify.git import archive_tree
+        from agents_shipgate.cli.verify.git import (
+            PromisedObjectsMissingError,
+            archive_fetched_tree,
+        )
 
         base_tree = Path(scratch) / "base"
         base_tree.mkdir()
-        archive_tree(
-            workspace, base_commit, base_tree, scope=is_boundary_surface_path
-        )
+        try:
+            archive_fetched_tree(
+                workspace, base_commit, base_tree, scope=is_boundary_surface_path
+            )
+        except PromisedObjectsMissingError:
+            # The head is the working tree, so the base is the only side that
+            # reads objects. Any other archive failure is raised as it was.
+            _refuse_objects_missing(workspace, base_ref, base_commit)
         base_inventory = build_host_boundary_snapshot(
             base_tree, cache=HostStaticParseCache()
         ).inventory
