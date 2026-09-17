@@ -52,7 +52,7 @@ drops a denial and adds an MCP server:
 Agent capability diff  origin/main (943fd29b) -> working tree
 
 ⚠ high    added    claude-code .mcp.json
-                  billing (command npx; env keys BILLING_TOKEN)
+                  billing (command name npx; env keys BILLING_TOKEN)
                   an MCP tool surface the agent may call has changed
 
 ⚠ medium  widened  claude-code .claude/settings.json
@@ -65,7 +65,7 @@ Agent capability diff  origin/main (943fd29b) -> working tree
 
 3 change(s) from 4 rows, 3 widening what the agent may do (⚠).
 Static configuration only: this is what the files permit, not what the agent did. No verdict is implied.
-Review question: Does the team intend these 3 declared permission changes?
+Review question: Does the team intend these 3 declared capability changes?
 Compared: base 943fd29b → working tree at HEAD 8982b16e, agents-shipgate 1.0.0.
 Reproduce in that working tree: agents-shipgate diff --base 943fd29b6e483d27ad9eb52c6d909357c9f2541b
 ```
@@ -77,9 +77,9 @@ read, which is an input limit and never a quiet pass. Either of the first two
 can open with `Not compared:` and a list of sources the change did not touch
 and `diff` could not read; nothing is claimed about those. The entries are for a
 reviewer to act on, not merge authority: each names the rule with its
-disposition, a replaced rule's before and after, and an MCP server's launch
-command and key names, then one review question and the command that
-reproduces the comparison. The
+disposition, a replaced rule's before and after, and an MCP server's command
+name or redacted URL and key names, then one review question and the command
+that reproduces the comparison. The
 [quickstart](docs/quickstart.md#review-a-host-configuration-change) shows each
 answer, the `--base <ref>` recovery when no base can be detected, and the
 [surfaces `diff` does not read](docs/host-boundary-support.md#known-unread-surfaces).

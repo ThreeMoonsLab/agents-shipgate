@@ -536,12 +536,20 @@ def _key_names(keys: Any) -> list[str]:
 
 
 def _mcp_launch(grant: dict[str, Any]) -> str | None:
-    """The published command basename or redacted URL, labelled by transport."""
+    """The published command name or redacted URL, labelled for what it is.
+
+    A command server's grant publishes only the name of its command's first
+    word, never its path: `npx`, `./npx` and `./tools/npx` all publish `npx`.
+    So the label is `command name`, and a reader is never told the command
+    itself when only its name was compared. The name passes through the #802
+    label redaction, the only guard between a token-shaped command name and
+    this text.
+    """
 
     endpoint = grant.get("endpoint")
     if not endpoint:
         return None
-    kind = "url" if grant.get("transport") == "url" else "command"
+    kind = "url" if grant.get("transport") == "url" else "command name"
     return f"{kind} {published_workflow_label(str(endpoint))}"
 
 
@@ -571,8 +579,10 @@ def _mcp_change(name: str, before: dict[str, Any], after: dict[str, Any]) -> str
 
     ``None`` when either side does not publish every field, so a grant read
     from an older snapshot is never described by a difference it cannot show.
-    Arguments and other settings are not published, so a change confined to
-    them is named as such rather than left as ``name → name``.
+    A command's path, its arguments and other settings are not published, so a
+    change confined to them says what was compared and that the change is
+    elsewhere, rather than ``name → name`` or a claim that the command is
+    unchanged.
     """
 
     if any(key not in grant for grant in (before, after) for key in _MCP_FIELDS):
@@ -596,11 +606,31 @@ def _mcp_change(name: str, before: dict[str, Any], after: dict[str, Any]) -> str
             tokens = [f"+{key}" for key in _key_names(added)] + [f"-{key}" for key in _key_names(removed)]
             parts.append(f"{label} {_names(tokens)}")
     if not parts:
-        return (
-            f"{name}: command or url, env keys and header keys unchanged; another "
-            "setting changed that this output does not show, such as arguments"
-        )
+        return f"{name}: {_mcp_unshown_change(after)}"
     return f"{name}: " + "; ".join(parts)
+
+
+def _mcp_unshown_change(grant: dict[str, Any]) -> str:
+    """A change confined to what the grant does not publish, in the words of what was compared.
+
+    Only the command's name, or the URL's scheme, host and port, and the env
+    and header key names are compared. `npx` → `./npx` and
+    `/usr/local/bin/node` → `./scripts/node` change the command while its name
+    stays the same, so the sentence names the command's path beside its
+    arguments as what this output does not show.
+    """
+
+    launch = _mcp_launch(grant)
+    if grant.get("transport") == "url":
+        compared = launch or "url"
+        unshown = "the URL's query or another setting"
+    else:
+        compared = launch or "command name"
+        unshown = "the command's path or arguments"
+    return (
+        f"no difference in the {compared}, env key names or header key names; the change "
+        f"is in a detail this output does not show, such as {unshown}"
+    )
 
 
 def _permission_cell(value: str, grant: dict[str, Any] | None) -> str:

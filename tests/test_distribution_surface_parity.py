@@ -182,9 +182,11 @@ SURFACES: tuple[Surface, ...] = (
         # No claims on purpose: this surface restates none of the engine's
         # answers. It projects the drift payload the engine produced, which
         # is why it cannot disagree with it. Its text joins only the rows the
-        # engine linked (#795), and its reproduction line names the command
-        # and the compared commits, never an installable version or ref, so
-        # it makes no `executable_pin` claim either.
+        # engine linked (#795). Its reference lines name the compared commits,
+        # the version of the build that produced the output, and an unpinned
+        # `agents-shipgate diff --base <sha>`: the version records what ran,
+        # which may be an unreleased tree, and is not a pin, floor or ref for
+        # a reader to install, so the surface makes no `executable_pin` claim.
         {},
     ),
     Surface(

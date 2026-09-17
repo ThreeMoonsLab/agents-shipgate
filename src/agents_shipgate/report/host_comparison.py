@@ -17,9 +17,11 @@ REPRODUCE_PROGRAM = "agents-shipgate"
 def review_question(changes: list[ReviewChange]) -> str:
     """One bounded question for a reviewer, asked only about changes that exist (#795)."""
 
+    # `capability`, not `permission`: an entry may be an MCP server, a hook, a
+    # workflow grant or instructions as well as a permission rule.
     if len(changes) == 1:
-        return "Review question: Does the team intend this declared permission change?"
-    return f"Review question: Does the team intend these {len(changes)} declared permission changes?"
+        return "Review question: Does the team intend this declared capability change?"
+    return f"Review question: Does the team intend these {len(changes)} declared capability changes?"
 
 
 def comparison_reference_lines(

@@ -239,6 +239,70 @@ def test_a_rule_a_move_and_a_replacement_both_claim_joins_the_replacement(tmp_pa
     assert "2 change(s) from 3 rows." in text
 
 
+LOCAL = ".claude/settings.local.json"
+
+
+@pytest.mark.parametrize(
+    ("base", "head", "entries"),
+    [
+        # The same text leaving one settings file and arriving in another is not
+        # a move: a move stays within one host and source.
+        pytest.param(
+            {SETTINGS: {"permissions": {"deny": ["Bash(git push *)"]}}},
+            {SETTINGS: {"permissions": {}}, LOCAL: {"permissions": {"allow": ["Bash(git push *)"]}}},
+            [
+                ("⚠ medium added claude-code .claude/settings.local.json", "allow: Bash(git push *)"),
+                (f"⚠ low removed {SUBJECT}", "deny: Bash(git push *) → gone"),
+            ],
+            id="another_source",
+        ),
+        # Removed from two dispositions: neither is the one it moved from.
+        pytest.param(
+            {SETTINGS: {"permissions": {"deny": ["Bash(git push *)"], "ask": ["Bash(git push *)"]}}},
+            {SETTINGS: {"permissions": {"allow": ["Bash(git push *)"]}}},
+            [
+                (f"⚠ medium added {SUBJECT}", "allow: Bash(git push *)"),
+                (f"⚠ low removed {SUBJECT}", "ask: Bash(git push *) → gone"),
+                (f"⚠ low removed {SUBJECT}", "deny: Bash(git push *) → gone"),
+            ],
+            id="removed_from_two",
+        ),
+        # Added to two dispositions: neither is the one it moved to.
+        pytest.param(
+            {SETTINGS: {"permissions": {"deny": ["Bash(git push *)"]}}},
+            {SETTINGS: {"permissions": {"allow": ["Bash(git push *)"], "ask": ["Bash(git push *)"]}}},
+            [
+                (f"⚠ medium added {SUBJECT}", "allow: Bash(git push *)"),
+                (f"low added {SUBJECT}", "ask: Bash(git push *)"),
+                (f"⚠ low removed {SUBJECT}", "deny: Bash(git push *) → gone"),
+            ],
+            id="added_to_two",
+        ),
+    ],
+)
+def test_identical_rule_text_joins_as_a_move_only_once_in_one_source(
+    tmp_path: Path,
+    base: dict[str, object],
+    head: dict[str, object],
+    entries: list[tuple[str, str]],
+) -> None:
+    repo = _repository(tmp_path, base, head)
+
+    text, payload = _diff(repo)
+    lines = [" ".join(line.split()) for line in text.splitlines()]
+    printed = sorted(
+        (lines[index], lines[index + 1])
+        for index, line in enumerate(lines)
+        if line.endswith((SUBJECT, "settings.local.json")) and index + 1 < len(lines)
+    )
+    assert printed == sorted(entries)
+    assert " moved " not in text and "change(s) from" not in text
+    assert len(payload["rows"]) == len(entries)
+    block, summary, _ = _verify(repo, tmp_path / "out")
+    assert not any(" / moved — " in line for line in block)
+    assert _plain(summary) == _plain(block)
+
+
 @pytest.mark.parametrize(
     ("before", "after"),
     [
@@ -281,7 +345,7 @@ def test_routes_that_redact_rule_arguments_never_join_rules_that_read_alike(tmp_
         assert "deny: Bash(<redacted-arguments>) → —" in joined
         assert " / widened — " not in joined and " / moved — " not in joined
         assert "npm" not in joined and "git push" not in joined
-        assert lines[-1] == "Review question: Does the team intend these 4 declared permission changes?"
+        assert lines[-1] == "Review question: Does the team intend these 4 declared capability changes?"
         assert not any(line.startswith(("Compared:", "Reproduce")) for line in lines)
 
 
@@ -297,7 +361,7 @@ def test_an_mcp_launch_change_names_its_published_difference(tmp_path: Path) -> 
             "env": {"GH_HOST": "github.example", "GH_TOKEN": GITHUB_TOKEN},
         }}}},
     )
-    change = "gh: command npx → docker; env keys +GH_HOST +GH_TOKEN"
+    change = "gh: command name npx → docker; env keys +GH_HOST +GH_TOKEN"
 
     text, payload = _diff(repo)
     assert _table_entry(text, "⚠ high widened claude-code .mcp.json")[1] == change
@@ -343,10 +407,107 @@ def test_an_mcp_change_outside_the_published_fields_says_it_is_not_shown(tmp_pat
 
     text, _ = _diff(repo)
     assert _table_entry(text, "⚠ high widened claude-code .mcp.json")[1] == (
-        "docs: command or url, env keys and header keys unchanged; another setting "
-        "changed that this output does not show, such as arguments"
+        "docs: no difference in the command name npx, env key names or header key names; "
+        "the change is in a detail this output does not show, such as the command's path "
+        "or arguments"
     )
     assert "docs → docs" not in text and "latest" not in text
+
+
+def _unshown(name: str, command: str) -> str:
+    return (
+        f"{name}: no difference in the command name {command}, env key names or header key "
+        "names; the change is in a detail this output does not show, such as the command's "
+        "path or arguments"
+    )
+
+
+def test_a_command_whose_path_changes_but_name_does_not_is_never_called_unchanged(
+    tmp_path: Path,
+) -> None:
+    """A command server publishes only its command's name, so the text says so.
+
+    `npx` → `./npx` swaps a command on PATH for one in the repository with the
+    same arguments. The text must not read as though the command were unchanged
+    and the arguments had changed, and an added `./tools/npx` must not read as
+    though it launched `npx`.
+    """
+
+    repo = _repository(
+        tmp_path,
+        {".mcp.json": {"mcpServers": {
+            "gh": {"command": "npx", "args": ["-y", "gh-mcp"]},
+            "node": {"command": "/usr/local/bin/node", "args": ["server.js"]},
+        }}},
+        {".mcp.json": {"mcpServers": {
+            "gh": {"command": "./npx", "args": ["-y", "gh-mcp"]},
+            "node": {"command": "./scripts/node", "args": ["server.js"]},
+            "billing": {"command": "./tools/npx", "env": {"BILLING_TOKEN": "x"}},
+        }}},
+    )
+    expected = [_unshown("gh", "npx"), _unshown("node", "node")]
+    added = "billing (command name npx; env keys BILLING_TOKEN)"
+
+    text, payload = _diff(repo)
+    changed = [
+        " ".join(line.split())
+        for line in text.splitlines()
+        if line.strip().startswith(("gh:", "node:"))
+    ]
+    assert changed == expected
+    assert _table_entry(text, "⚠ high added claude-code .mcp.json")[1] == added
+    assert sorted((row["direction"], row["after"]) for row in payload["rows"]) == [
+        ("added", "billing"), ("widened", "gh"), ("widened", "node"),
+    ]
+
+    block, summary, _ = _verify(repo, tmp_path / "out")
+    for line in [*expected, f"— → {added}"]:
+        assert f"  {line}" in block
+    assert _plain(summary) == _plain(block)
+    for output in (text, "\n".join(block), "\n".join(summary), "\n".join(_check(repo))):
+        assert "unchanged" not in output
+        assert "(command npx" not in output and "command npx →" not in output
+
+
+def test_an_mcp_url_change_outside_the_published_fields_names_what_was_compared(
+    tmp_path: Path,
+) -> None:
+    repo = _repository(
+        tmp_path,
+        {".mcp.json": {"mcpServers": {"remote": {"url": "https://mcp.example.com/v1?read_only=true"}}}},
+        {".mcp.json": {"mcpServers": {"remote": {"url": "https://mcp.example.com/v1?read_only=false"}}}},
+    )
+
+    text, _ = _diff(repo)
+    assert _table_entry(text, "⚠ high widened claude-code .mcp.json")[1] == (
+        "remote: no difference in the url https://mcp.example.com/<redacted-path>, env key "
+        "names or header key names; the change is in a detail this output does not show, "
+        "such as the URL's query or another setting"
+    )
+    assert "read_only" not in text and "/v1" not in text
+
+
+def test_a_token_shaped_command_name_is_redacted_in_every_text_projection(
+    tmp_path: Path,
+) -> None:
+    """The label redaction is the only guard: the grant's endpoint carries the name as read."""
+
+    repo = _repository(
+        tmp_path,
+        {".mcp.json": {"mcpServers": {"gh": {"command": "npx"}}}},
+        {".mcp.json": {"mcpServers": {
+            "gh": {"command": GITHUB_TOKEN},
+            "svc": {"command": f"/opt/bin/{GITHUB_TOKEN} --stdio"},
+        }}},
+    )
+
+    text, _ = _diff(repo)
+    assert "gh: command name npx → [REDACTED:github_token]" in text
+    assert "svc (command name [REDACTED:github_token])" in text
+    block, summary, _ = _verify(repo, tmp_path / "out")
+    for output in (text, "\n".join(block), "\n".join(summary), "\n".join(_check(repo))):
+        assert GITHUB_TOKEN not in output
+        assert "[REDACTED:github_token]" in output
 
 
 def test_a_token_shaped_env_key_name_is_redacted_and_long_key_lists_are_bounded(
@@ -363,8 +524,8 @@ def test_a_token_shaped_env_key_name_is_redacted_and_long_key_lists_are_bounded(
 
     text, _ = _diff(repo)
     assert GITHUB_TOKEN not in text
-    assert "svc (command uvx; env keys API_HOST [REDACTED:github_token])" in text
-    assert "many (command uvx; env keys KEY_0 KEY_1 KEY_2 KEY_3 KEY_4 and 2 more)" in text
+    assert "svc (command name uvx; env keys API_HOST [REDACTED:github_token])" in text
+    assert "many (command name uvx; env keys KEY_0 KEY_1 KEY_2 KEY_3 KEY_4 and 2 more)" in text
 
 
 # --- references, the question, and what stays unchanged ---------------------
@@ -380,7 +541,7 @@ def test_references_name_the_compared_commits_and_a_command_that_reproduces_them
     )
     base, head = _git(repo, "rev-parse", "main"), _git(repo, "rev-parse", "HEAD")
     command = f"agents-shipgate diff --base {base}"
-    question = "Review question: Does the team intend this declared permission change?"
+    question = "Review question: Does the team intend this declared capability change?"
 
     block, summary, verifier = _verify(repo, tmp_path / "commit")
     assert block[-3:] == [
