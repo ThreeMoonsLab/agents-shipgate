@@ -12,13 +12,24 @@ subprocess surfaces, so inserting unrelated code there churns a security pin.
 Where a workspace's reports live by default is defined here for the same
 reason: ``verify`` writes there and ``agent control`` reads there, and when the
 two resolved that default differently a valid run read as ``missing`` (#575).
+So is which output directories may be left out of the change set at all: the
+run that writes into one and every refresh that reads from one must refuse the
+same directories, or a pointer ``verify`` would no longer publish still reads
+as current (#804).
 """
 
 from __future__ import annotations
 
+import os
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
+from agents_shipgate.cli._artifact_lifecycle import (
+    REPORTS_DIRECTORY_ARTIFACT_NAMES,
+    REPORTS_DIRECTORY_ARTIFACT_SUBDIRECTORIES,
+)
 from agents_shipgate.core.current_control import LiveWorkspace
+from agents_shipgate.core.errors import ConfigError
 
 #: The reports directory name used when no output directory is named — the
 #: published ``DEFAULT_PATHS["reports_dir"]``, spelled here rather than imported
@@ -64,6 +75,16 @@ def live_workspace(workspace: Path, reports_dir: Path) -> LiveWorkspace | None:
     ``verify`` excludes it when building the plan: the run's own output is not
     part of the change it evaluated, and including it here would make every
     refresh disagree with the decision it is checking.
+
+    That exclusion is sound only while the directory holds nothing but Shipgate
+    artifacts, so the directory is classified first, by the rule ``verify``
+    refuses an output directory by (:func:`output_directory_refusal`). A
+    directory holding repository content comes back as a workspace carrying
+    that refusal, which denies every pointer read from it, whatever its state
+    (#804). The classification cannot raise, and it is returned before any Git
+    read that can: an exception must not turn it into ``None``, because
+    ``None`` withholds completion only and returns every other pointer state
+    without the currency checks.
     """
 
     # Imported here, not at module scope: `agents_shipgate.cli.verify.__init__`
@@ -80,6 +101,18 @@ def live_workspace(workspace: Path, reports_dir: Path) -> LiveWorkspace | None:
 
     try:
         root = ensure_git_workspace(workspace.resolve())
+    except Exception:  # noqa: BLE001 - an unresolvable workspace is "unverified".
+        return None
+    refusal = output_directory_refusal(root, reports_dir)
+    if refusal is not None:
+        return LiveWorkspace(root=root, reports_dir_refusal=refusal)
+
+    def refusal_against(commit: str) -> str | None:
+        # The pointer names the merge base its run diffed against, which this
+        # observation cannot know before the pointer is read.
+        return output_directory_refusal(root, reports_dir, compared=(commit,))
+
+    try:
         try:
             changed, _ = working_tree_context(
                 root, exclude=worktree_exclusion(root, reports_dir)
@@ -95,6 +128,7 @@ def live_workspace(workspace: Path, reports_dir: Path) -> LiveWorkspace | None:
             changed_paths=changed_paths,
             resolve_commit=lambda ref: _safe_commit_sha(root, ref),
             resolve_merge_base=lambda base, head: _safe_merge_base(root, base, head),
+            reports_dir_refusal_against=refusal_against,
         )
     except Exception:  # noqa: BLE001 - an unresolvable workspace is "unverified".
         return None
@@ -134,7 +168,9 @@ def worktree_exclusion(root: Path, reports_dir: Path) -> Path | None:
     on a case-insensitive filesystem (``<parent>/REPO/rpt`` for ``repo``) is the
     directory it physically is. Inside the repository, the returned path is
     respelled beneath the root, which is the one spelling the Git helpers can
-    turn into a pathspec.
+    turn into a pathspec, and every component that exists is spelled as its
+    directory entry is stored: Git matches a pathspec byte for byte, so
+    ``<repo>/DOCS`` names ``docs`` to the filesystem but nothing to Git (#804).
 
     Only the disjoint case drops its exclusion, and "disjoint" is decided after
     resolution: an outside spelling that resolves into the repository keeps its
@@ -157,6 +193,130 @@ def worktree_exclusion(root: Path, reports_dir: Path) -> Path | None:
         # exactly as before. Nothing may exclude the tree it is reading.
         return reports_dir
     return None
+
+
+class OutputDirectoryHoldsRepositoryContent(ConfigError):
+    """``verify`` refused an output directory it would have to hide content in.
+
+    A ``ConfigError``, so it keeps the existing ``config_error`` kind and exit
+    ``2``; its own type lets the command route the recovery to choosing another
+    directory rather than to editing the manifest.
+    """
+
+    def __init__(self, message: str, *, directory: Path, refusal: str) -> None:
+        super().__init__(message)
+        self.directory = directory
+        self.refusal = refusal
+
+
+def output_directory_refusal(
+    root: Path, reports_dir: Path, *, compared: Sequence[str] = ()
+) -> str | None:
+    """Why ``reports_dir`` may not be left out of ``root``'s change set, or ``None``.
+
+    A run leaves its output directory out of the change set it decides on, and
+    a refresh leaves the reports directory it reads out of the change set it
+    checks, so that the run's own reports never count as part of the change.
+    That is sound only while the directory holds nothing else Git would report.
+    ``verify --out docs`` left a tracked ``docs/`` out of the decision and out
+    of every later currency check; ``--out .claude`` did the same to a widened
+    ``.claude/settings.json``, which turned a high-risk permission expansion
+    into ``complete`` and ``mergeable`` (#804).
+
+    The directory may be left out when doing so can hide nothing:
+
+    * it lies outside the repository, where Git reports nothing anyway;
+    * Git holds nothing beneath it: it is gitignored, empty, or not there yet;
+    * everything Git holds beneath it is a Shipgate artifact that is not
+      committed — staged or untracked, directly beneath it and named in
+      :data:`REPORTS_DIRECTORY_ARTIFACT_NAMES`, or a file under
+      :data:`REPORTS_DIRECTORY_ARTIFACT_SUBDIRECTORIES`.
+
+    Anything committed beneath it at ``HEAD``, anything a ``compared`` commit
+    (the merge base a run diffs against) held there that ``HEAD`` no longer
+    does, and any staged or unignored untracked path that is not an artifact
+    is repository content. Committed content counts whatever its name: the
+    run would overwrite or unlink a committed file there, and hide that edit.
+    A removal counts because a change set taken against the merge base would
+    report the deletion, and the exclusion hides it: ``git rm`` of a
+    ``.claude/settings.json`` holding deny rules left no directory to find
+    content in, and still read as ``complete``. So is the repository root
+    or an ancestor of it. The returned text names what was found, and completes
+    a sentence whose subject is the directory.
+
+    Staged artifacts are allowed because generated reports that were
+    ``git add``-ed by mistake are an advisory case ``verify`` warns about, not
+    content any decision reads.
+
+    Containment comes from :func:`worktree_exclusion`, so the directory is
+    judged by its physical identity: a symlink into the repository, or a
+    spelling that differs only in case, is classified as the directory it is,
+    and the answer is the same for the writer's resolved ``--out`` and the
+    reader's ``--reports-dir``. The inventory is Git's own, read with the
+    exclude rules the change-set inventory uses, so it lists exactly what
+    leaving the directory out would hide.
+
+    Never raises. A directory whose content could not be listed has not been
+    shown to be safe to leave out, and the answer says so.
+    """
+
+    try:
+        excluded = worktree_exclusion(root, reports_dir)
+        if excluded is None:
+            return None
+        try:
+            relative = excluded.relative_to(root.resolve()).as_posix()
+        except ValueError:
+            relative = "."
+        if relative == ".":
+            return "is the repository root or one of its ancestors"
+        from agents_shipgate.cli.verify.git import output_directory_inventory
+
+        inventory = output_directory_inventory(root, relative, compared=compared)
+    except Exception as exc:  # noqa: BLE001 - an unlisted directory is not shown safe.
+        return f"could not be shown to hold only Shipgate artifacts ({exc})"
+    tracked = [
+        *inventory.head,
+        *(path for path in inventory.staged if not _is_reports_artifact(relative, path)),
+    ]
+    if tracked:
+        return f"holds tracked repository files ({_examples(tracked)})"
+    if inventory.removed:
+        return (
+            "held committed repository files that the change being verified "
+            f"removes ({_examples(list(inventory.removed))})"
+        )
+    foreign = [
+        path for path in inventory.untracked if not _is_reports_artifact(relative, path)
+    ]
+    if foreign:
+        return (
+            "holds untracked files that Git does not ignore and that are not "
+            f"Shipgate artifacts ({_examples(foreign)})"
+        )
+    return None
+
+
+def _is_reports_artifact(directory: str, path: str) -> bool:
+    """Whether Git's ``path`` is an artifact a Shipgate run writes into ``directory``."""
+
+    prefix = f"{directory}/"
+    if not path.startswith(prefix):
+        return False
+    name, separator, below = path[len(prefix) :].partition("/")
+    if separator:
+        return bool(below) and name in REPORTS_DIRECTORY_ARTIFACT_SUBDIRECTORIES
+    if name in REPORTS_DIRECTORY_ARTIFACT_NAMES:
+        return True
+    # The pointer is published through a same-directory temporary file, which
+    # a concurrent reader can observe for the instant before it is renamed.
+    return name.startswith(".current-control.json.") and name.endswith(".tmp")
+
+
+def _examples(paths: list[str], *, limit: int = 3) -> str:
+    shown = sorted(paths)[:limit]
+    rest = len(paths) - len(shown)
+    return ", ".join(shown) + (f", and {rest} more" if rest else "")
 
 
 def _identity(path: Path) -> tuple[int, int] | None:
@@ -188,12 +348,55 @@ def _beneath_repository(root: Path, target: Path) -> Path | None:
     node = target
     while True:
         if _identity(node) == root_identity:
-            return root.joinpath(*reversed(trailing))
+            return _stored_spelling(root, reversed(trailing))
         parent = node.parent
         if parent == node:
             return None
         trailing.append(node.name)
         node = parent
+
+
+def _stored_spelling(root: Path, names: Iterable[str]) -> Path:
+    """``names`` beneath ``root``, each existing component spelled as stored.
+
+    Where the filesystem folds case, ``docs`` and ``DOCS`` open the same
+    directory, but a Git pathspec is matched byte for byte: excluding ``DOCS``
+    excludes nothing, and listing ``DOCS`` lists nothing, from a tree that
+    stores ``docs``. Each component that exists is therefore respelled to the
+    directory entry with its physical identity. The first component that does
+    not exist, and everything below it, keeps the caller's spelling — the one
+    it will be created with.
+    """
+
+    path = root
+    remaining = list(names)
+    while remaining:
+        name = remaining.pop(0)
+        identity = _identity(path / name)
+        if identity is None:
+            return path.joinpath(name, *remaining)
+        path = path / _stored_name(path, name, identity)
+    return path
+
+
+def _stored_name(parent: Path, name: str, identity: tuple[int, int]) -> str:
+    """The entry of ``parent`` that physically is ``parent / name``."""
+
+    try:
+        with os.scandir(parent) as scan:
+            entries = [entry.name for entry in scan]
+    except OSError:
+        return name
+    if name in entries:
+        return name
+    for candidate in entries:
+        try:
+            status = os.stat(parent / candidate, follow_symlinks=False)
+        except OSError:
+            continue
+        if (status.st_dev, status.st_ino) == identity:
+            return candidate
+    return name
 
 
 def _contains_repository(root: Path, target: Path) -> bool:
@@ -239,7 +442,9 @@ def _safe_merge_base(root: Path, base: str, head: str) -> str | None:
 
 __all__ = [
     "DEFAULT_REPORTS_DIR",
+    "OutputDirectoryHoldsRepositoryContent",
     "default_reports_dir",
     "live_workspace",
+    "output_directory_refusal",
     "worktree_exclusion",
 ]

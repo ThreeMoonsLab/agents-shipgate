@@ -27,7 +27,9 @@ from agents_shipgate.cli._artifact_lifecycle import clear_verifier_route_artifac
 from agents_shipgate.cli._helpers import _apply_strict_plugins
 from agents_shipgate.cli.current_workspace import (
     DEFAULT_REPORTS_DIR,
+    OutputDirectoryHoldsRepositoryContent,
     default_reports_dir,
+    output_directory_refusal,
     worktree_exclusion,
 )
 from agents_shipgate.cli.discovery.scope import (
@@ -393,6 +395,17 @@ def run_verify(
                 else []
             ),
         ],
+    )
+    # Before anything is written, and for every route this run can take:
+    # `--head`, the worktree, and the manifest-free comparison below all leave
+    # this directory out of what they read.
+    _reject_output_directory_content(
+        git_root=git_root,
+        out_dir=out_dir,
+        explicit=out is not None,
+        base=base,
+        head=head,
+        auto_base=auto_base,
     )
     out_dir.mkdir(parents=True, exist_ok=True)
     # Invalidate before anything else moves. A prior terminal pointer must not
@@ -6021,6 +6034,75 @@ def _reject_output_input_overlap(
         )
 
 
+def _reject_output_directory_content(
+    *,
+    git_root: Path,
+    out_dir: Path,
+    explicit: bool,
+    base: str | None,
+    head: str,
+    auto_base: bool,
+) -> None:
+    """Refuse an output directory that holds repository content (#804).
+
+    Every read this run makes of the working tree — the change set, the
+    overlay its pointer binds, the manifest-free host comparison, the static
+    input census — leaves the output directory out, so that the run's own
+    reports are not read as part of the change. An output directory holding
+    anything else therefore hid it: ``--out .claude`` turned a widened
+    ``.claude/settings.json`` from ``human_review_required`` into ``complete``
+    and ``mergeable``, and ``--out docs`` kept a pointer current across every
+    later edit there. The overlap check above covers only the inputs named on
+    the command line; this covers everything Git would report.
+
+    Decided before the pointer is invalidated or anything is written, by the
+    one classifier every refresh applies, so a directory refused here can
+    never hold a pointer that reads as current. The evaluated head and the
+    merge base this run will diff against are resolved here too, the way the
+    run resolves them, because a file one of them holds beneath the directory
+    is content the exclusion hides even when nothing is left on disk: a
+    committed ``git rm .claude/settings.json`` read as ``complete`` under
+    ``--out .claude``. A base that does not resolve compares nothing, and the
+    run itself then reports the diff it could not read.
+    """
+
+    compared: list[str] = []
+    try:
+        head_commit = commit_sha(git_root, head)
+        if head_commit is not None:
+            compared.append(head_commit)
+        if base is None and auto_base:
+            base = detect_default_base_with_notes(git_root, head).base
+        merge_base = merge_base_sha(git_root, base, head) if base else None
+        if merge_base is not None:
+            compared.append(merge_base)
+    except Exception:  # noqa: BLE001 - the run reports an unreadable ref itself.
+        pass
+    refusal = output_directory_refusal(git_root, out_dir, compared=compared)
+    if refusal is None:
+        return
+    shown = _display_path(out_dir, git_root)
+    if explicit:
+        subject = f"Verifier --out {shown}"
+        remedy = (
+            "Omit --out to use the default agents-shipgate-reports, or name a "
+            "directory that is gitignored or outside the repository."
+        )
+    else:
+        subject = f"The default verifier output directory {shown}"
+        remedy = (
+            "Keep only Shipgate artifacts there, or pass --out naming a "
+            "directory that is gitignored or outside the repository."
+        )
+    raise OutputDirectoryHoldsRepositoryContent(
+        f"{subject} {refusal}. verify leaves its output directory out of the "
+        "change set it decides on, so that content would be hidden from the "
+        f"decision and from every later check that it is current. {remedy}",
+        directory=out_dir,
+        refusal=refusal,
+    )
+
+
 def _shell_join(parts: list[str]) -> str:
     return " ".join(shlex.quote(part) for part in parts)
 
@@ -6453,6 +6535,7 @@ def run_preview(
     project a monorepo pull request is about (#363).
     """
     requested_root = workspace.resolve()
+    in_git = True
     try:
         root = ensure_git_workspace(requested_root)
     except ConfigError:
@@ -6460,6 +6543,7 @@ def run_preview(
         # one does exist, use the same repository root and path coordinates as
         # the full verifier so its authorized command evaluates the same gate.
         root = requested_root
+        in_git = False
     config_path, config_relative = _resolve_config_under_workspace(
         root,
         config,
@@ -6473,6 +6557,16 @@ def run_preview(
         out_dir=out_dir,
         inputs=[("config", config_path)],
     )
+    if in_git:
+        # Outside Git there is no change set to leave anything out of.
+        _reject_output_directory_content(
+            git_root=root,
+            out_dir=out_dir,
+            explicit=out is not None,
+            base=base,
+            head=head or "HEAD",
+            auto_base=auto_base,
+        )
     out_dir.mkdir(parents=True, exist_ok=True)
     # Preview is a non-terminal operation, so it starts by denying whatever a
     # previous run left behind rather than leaving it current beside a preview.

@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import threading
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -2634,6 +2634,78 @@ def path_committed_at_head(workspace: Path, path: Path) -> bool | None:
         return None
 
 
+@dataclass(frozen=True)
+class OutputDirectoryInventory:
+    """What Git holds beneath one directory, split by how Git holds it."""
+
+    #: Paths committed at ``HEAD``.
+    head: tuple[str, ...]
+    #: Paths committed in another compared commit and absent at ``HEAD``: the
+    #: change being evaluated removes them.
+    removed: tuple[str, ...]
+    #: Index entries not committed at ``HEAD``: staged additions.
+    staged: tuple[str, ...]
+    #: Untracked paths that survive the standard exclude rules.
+    untracked: tuple[str, ...]
+
+
+def output_directory_inventory(
+    workspace: Path, directory: str, *, compared: Sequence[str] = ()
+) -> OutputDirectoryInventory:
+    """Every path Git could report beneath ``directory``, if it were not excluded.
+
+    ``directory`` is spelled relative to the repository root as Git stores it.
+    A change set leaves out everything beneath an excluded directory: content
+    committed at ``HEAD`` (and every later edit to it), content a compared
+    commit held that the change deletes, staged additions, and untracked files
+    the standard exclude rules keep. That is the question an output directory
+    is judged by — what leaving it out would hide (#804). ``compared`` names
+    the other commits the caller's change set is taken against, such as a
+    merge base; one that does not resolve contributes nothing, because no
+    change set is taken against it.
+
+    Every read is bounded like every other metadata read here. A directory too
+    large to list, or a Git failure, raises rather than reading as empty.
+
+    Defined below ``_run_git`` so the line-pinned static-only allowlist entries
+    for this module's subprocess call sites stay stable.
+    """
+
+    pathspec = [f":(top,literal){directory}"]
+
+    def listed(args: list[str]) -> set[str]:
+        payload = _run_git_bounded_output(
+            workspace,
+            [*_SAFE_DIFF_CONFIG, *args, "-z", "--", *pathspec],
+            max_output_bytes=_DIFF_METADATA_LIMIT,
+        )
+        if payload is None:
+            raise ConfigError(
+                f"Git could not list the paths beneath {directory} within its "
+                "static output bounds."
+            )
+        return {os.fsdecode(raw) for raw in payload.split(b"\0") if raw}
+
+    def committed(ref: str) -> set[str]:
+        commit = commit_sha(workspace, ref)
+        if commit is None:
+            return set()
+        return listed(["ls-tree", "-r", "--name-only", commit])
+
+    at_head = committed("HEAD")
+    elsewhere: set[str] = set()
+    for ref in compared:
+        elsewhere |= committed(ref)
+    index = listed(["ls-files", "--cached"])
+    untracked = listed(["ls-files", "--others", "--exclude-standard"])
+    return OutputDirectoryInventory(
+        head=tuple(sorted(at_head)),
+        removed=tuple(sorted(elsewhere - at_head)),
+        staged=tuple(sorted(index - at_head)),
+        untracked=tuple(sorted(untracked)),
+    )
+
+
 __all__ = [
     "active_replace_refs",
     "archive_tree",
@@ -2654,6 +2726,8 @@ __all__ = [
     "git_path",
     "GitPushEndpoint",
     "merge_base_sha",
+    "output_directory_inventory",
+    "OutputDirectoryInventory",
     "path_committed_at_head",
     "path_present_at_ref",
     "read_bytes_at_ref",

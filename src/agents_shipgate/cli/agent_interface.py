@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -222,25 +223,29 @@ def control(
         # simply re-verify.
         kind, exit_code = _UNAVAILABLE_EXIT.get(exc.reason, ("other_error", 4))
         typer.echo(f"Current control is unavailable ({exc.reason}): {exc}", err=True)
+        recovery = NextAction(
+            kind="command",
+            command=_superseded_recovery_command(
+                exc, workspace=workspace, reports_dir=reports_dir
+            ),
+            why=guidance,
+            expects=(
+                "current-control.json is present, valid, every artifact "
+                "it binds matches its recorded hash, and it still "
+                "describes this workspace."
+            ),
+        )
+        if exc.reports_dir_refusal is not None:
+            recovery = _recovery_away_from(
+                reports_dir, workspace=workspace, refusal=exc.reports_dir_refusal
+            )
+            guidance = recovery.why
         emit_agent_mode_error(
             kind,
             message=str(exc),
             exit_code=exit_code,
             next_action=guidance,
-            next_actions=[
-                NextAction(
-                    kind="command",
-                    command=_superseded_recovery_command(
-                        exc, workspace=workspace, reports_dir=reports_dir
-                    ),
-                    why=guidance,
-                    expects=(
-                        "current-control.json is present, valid, every artifact "
-                        "it binds matches its recorded hash, and it still "
-                        "describes this workspace."
-                    ),
-                ).model_dump(mode="json")
-            ],
+            next_actions=[recovery.model_dump(mode="json")],
         )
         raise typer.Exit(exit_code) from exc
 
@@ -374,6 +379,55 @@ def _superseded_recovery_command(
             if command:
                 return command
     return _recovery_verify_command(workspace, reports_dir)
+
+
+def _recovery_away_from(reports_dir: Path, *, workspace: Path, refusal: str) -> NextAction:
+    """The recovery for a reports directory no pointer can be current in (#804).
+
+    Every other currency refusal is cleared by re-running into the same
+    directory, and the producing run's exact command is the best route. Here
+    that command is the one route that cannot work: ``verify`` refuses the
+    directory before writing, so following it would end at a config error, not
+    at a current pointer. The route goes to the workspace's default reports
+    directory instead; when that *is* the refused directory, no command can be
+    named without inventing one, and a person or agent must choose where the
+    reports go.
+    """
+
+    default = default_reports_dir(workspace)
+    unavailable = (
+        "Until a pointer reads cleanly, treat completion, merge, and any cached "
+        "must_stop as unavailable rather than acting on a remembered result."
+    )
+    if Path(os.path.realpath(default)) == Path(os.path.realpath(reports_dir)):
+        return NextAction(
+            kind="review",
+            why=(
+                f"No pointer in {reports_dir} can be current, because it {refusal}. "
+                f"Re-run `{render_command(['verify'])}` with --out naming a "
+                "directory that is gitignored or outside the repository, and "
+                f"read that directory with --reports-dir. {unavailable}"
+            ),
+            expects=(
+                "A verification published into a directory that holds only "
+                "Shipgate artifacts, read from that directory."
+            ),
+        )
+    return NextAction(
+        kind="command",
+        command=verify_command_for(workspace, None),
+        why=(
+            f"No pointer in {reports_dir} can be current, because it {refusal}. "
+            f"Re-run `{render_command(['verify'])}` without --out, which "
+            f"publishes into {default}, and read "
+            f"{default / CURRENT_CONTROL_ARTIFACT_NAME} (`agent control` without "
+            f"--reports-dir). {unavailable}"
+        ),
+        expects=(
+            "current-control.json is published into the workspace's default "
+            "reports directory, and it reads cleanly from there."
+        ),
+    )
 
 
 def _recovery_verify_command(workspace: Path, reports_dir: Path) -> str:

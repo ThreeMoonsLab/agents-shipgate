@@ -126,6 +126,16 @@ So Shipgate scopes rather than guesses:
   block in that project covers, and two projects in one repository never
   overwrite each other's results. An explicit `--out` still resolves against
   the repository root.
+- `verify` exits `2` with `Verifier --out <dir> holds tracked repository files`
+  (or `held committed repository files that the change being verified
+  removes`, or `holds untracked files that Git does not ignore and that are
+  not Shipgate artifacts`) when the output directory is inside the repository
+  and holds anything besides uncommitted Shipgate artifacts. The run leaves
+  that directory out of the change it decides on, so `--out docs` or `--out
+  .claude` would hide those files from the decision. Omit `--out`, or name a
+  directory that is gitignored or outside the repository. `agent control`
+  refuses a pointer already sitting in such a directory as
+  `workspace_unverifiable`.
 - With `--ci`, each manifest gets its own workflow — `agents-shipgate.yml` for
   a repository-root manifest, `agents-shipgate-<project>.yml` for a scoped one.
   The action takes a single `config`, so one shared file would gate whichever

@@ -143,6 +143,40 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="output-directory-repository-content-804"></a>
+
+## Migration Note: Unreleased — an output directory that holds repository content is refused (#804)
+
+No schema, contract, error kind, refusal code, exit code or `minimum_control_contract_version` moves. What changes is which `verify --out` values are accepted, and which pointers read as current.
+
+**Why.** `verify` leaves its output directory out of every working-tree read it makes — the change set, the worktree overlay its pointer binds, the manifest-free host comparison and the static input census — and every refresh leaves the reports directory out of the change set it checks, so that a run's own reports never count as part of the change. The rule assumed the directory held nothing else. On published `1.0.0`, `verify --base main --out .claude` over a widened `.claude/settings.json` answered `complete`, `permissions.merge: true` and `merge_verdict: mergeable` with no findings, where the default output directory answers `human_review_required` with `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED`. That held for a committed widening, an uncommitted one, and a new untracked settings file. On `main` before this change, it also held for a deleted settings file whose deletion removed its deny rules (`SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED`), staged or committed. `--out docs`, or `--out tools` for a manifest-named tool source, kept a `complete` pointer current across every later edit there. A symlink into the repository, and a case-variant spelling where the filesystem folds case, reached the same directories.
+
+**The rule.** An output directory may be left out of the change set when leaving it out can hide nothing:
+
+- it lies outside the repository;
+- Git holds nothing beneath it: it is gitignored, empty, or does not exist yet, and no compared commit held anything there;
+- everything Git holds beneath it is an uncommitted Shipgate artifact, untracked or staged: a file named like a report, pointer, verifier, packet, capability-lock or other artifact a Shipgate command writes into a reports directory, directly beneath it, or a file under its `verification-inputs/`.
+
+These hold repository content:
+- anything committed beneath the directory at `HEAD`, whatever its name;
+- anything the evaluated head or the merge base the run diffs against held there that `HEAD` no longer does, because a `git rm .claude/settings.json` that removes deny rules leaves no directory to find content in, and was hidden just the same;
+- any staged path, or untracked path Git does not ignore, that is not such an artifact;
+- the repository root and its ancestors.
+
+Git's own inventory decides this (`ls-tree` for committed content; `ls-files` with the exclude rules the change-set inventory uses). Staged generated reports stay allowed, because `verify` treats them as an advisory warning rather than content. The directory is judged by physical identity, so a symlinked or case-variant spelling is classified as the directory it reaches.
+
+**The writer.** `verify`, `verify --head`, `verify --preview` and manifest-free `verify` refuse such a directory before the pointer is invalidated or anything is written: exit `2`, `config_error`, a message naming the directory and what it holds, and a `review` next action to choose another directory. The evaluated head and merge base are resolved for this the way the run resolves them, including an auto-detected base. The existing refusals for `--out` at the workspace root or overlapping a named input are unchanged and still come first. `verify --preview` in a directory that is not a Git checkout classifies nothing, as there is no change set to leave anything out of.
+
+**The readers.** `agent control`, `verify --format control` and the human-review decision reader classify the reports directory on every read, with the same rule, against `HEAD` and the merge base the pointer records. They refuse any pointer in such a directory as `workspace_unverifiable`, whatever its control state. That includes a directory that held only artifacts when the run wrote it and gained content afterwards. A classification that cannot run refuses too, rather than falling back to a read that checks only completion. For this refusal, `agent control`'s recovery does not repeat the producing run's command, which would publish back into the refused directory: it is `verify` without `--out`, publishing into the workspace's default reports directory, or a `review` step to choose a directory when the default is the one refused.
+
+**Compatibility.**
+- **The default `agents-shipgate-reports`, and any directory that is gitignored, holds only Shipgate artifacts, or lies outside the repository**, behave as before. One spelling improves: a case variant of such a directory beneath the repository (`--out <repo>/REPORTS` for an existing `reports`) is now excluded under the name Git stores. Before, Git matched nothing, and the run read its own reports as changes and exited `3`.
+- **A `--out` naming `docs`, `.claude`, a tool-source directory or any other directory with repository content** now exits `2`. Omit `--out`, or name a directory that is gitignored or outside the repository. That includes the GitHub Action's `output_dir` input: the Action runs `verify --head`, whose decision was never affected, but it now refuses such a directory too.
+- **A default `agents-shipgate-reports` with committed files in it**, or with committed files the change being verified removes, is refused the same way. Pass `--out` naming a directory that is gitignored or outside the repository. Generated reports that are only staged stay allowed, and `verify` still only warns about them.
+- **A pointer `1.0.0` published into such a directory** stops reading as current after upgrade: `agent control` exits `4` with `workspace_unverifiable`. Re-run `verify` into another directory.
+- **A reports directory that also holds unrelated untracked files Git does not ignore**, such as notes beside the reports, now refuses every refresh. Move them out, or gitignore the reports directory.
+- **Not changed here:** `diff` and `check` take no output directory. `scan` leaves nothing out of a change set, although the same readers refuse a `scan` pointer in such a directory. `verification prepare`/`assemble` do not leave their artifacts root out of the Git change set, and are not covered by the writer refusal.
+
 <a id="workflow-label-redaction-contract-v40-802"></a>
 
 ## Migration Note: 1.0.x — redacted workflow job, step, trigger and scope labels (contract v40, #802)
@@ -3167,6 +3201,20 @@ The head scan writes `report.md`, `report.json`, `report.sarif`, `packet.json`,
 JSON only, regardless of manifest `output.packet.formats`; `pr-comment.md` is
 the human PR surface. Use `agents-shipgate scan` when you want the manifest's
 full packet renderer set (`packet.md`, `packet.html`, or `packet.pdf`).
+
+These artifacts go to `--out`, or to `agents-shipgate-reports` under
+`--workspace` when it is omitted, and that directory is left out of every
+working-tree read the run makes so that its own reports are not part of the
+change. An output directory inside the repository must therefore hold nothing
+else Git would report: `verify`, `--head`, `--preview` and manifest-free
+`verify` exit `2` with `config_error`, before writing anything, when it holds a
+committed path (at `HEAD`, or one the change removes), or a staged or untracked
+unignored path that is not a Shipgate artifact, and every reader refuses a
+pointer in such a directory as `workspace_unverifiable`. A gitignored directory, a directory holding only
+Shipgate artifacts, and a directory outside the repository are accepted. The
+directory is judged by physical identity, so a symlinked or case-variant
+spelling is classified as the directory it reaches
+([migration note](#output-directory-repository-content-804)).
 
 `agents-shipgate verify --preview --json` is a lightweight relevance check: it
 runs no scan, requires no manifest, exits 0, and emits a `verifier.json` with

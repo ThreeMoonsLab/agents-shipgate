@@ -26,6 +26,45 @@ VERIFIER_ROUTE_ARTIFACT_NAMES = (
     "capability-delta-attestation.json",
 )
 
+# Every name a Shipgate run writes directly into a reports directory, whichever
+# command wrote it: the pointer, the verifier route above, the scan and packet
+# renderers, the capability-lock artifacts, and the artifacts the published
+# contract (``schemas.contract.ARTIFACTS``) places beside them. An output
+# directory whose uncommitted content is only these can be left out of the
+# change set without hiding anything a change could carry (#804). Spelled here, not
+# derived, so this leaf loads no schema; ``tests/test_output_directory_content.py``
+# holds it to every registry it restates.
+REPORTS_DIRECTORY_ARTIFACT_NAMES: frozenset[str] = frozenset(
+    {
+        *VERIFIER_ROUTE_ARTIFACT_NAMES,
+        "current-control.json",
+        "report.md",
+        "report.json",
+        "report.sarif",
+        "packet.md",
+        "packet.json",
+        "packet.html",
+        "packet.pdf",
+        "capabilities.lock.json",
+        "base.capabilities.lock.json",
+        "capability-lock-diff.json",
+        "capability-lock-diff.md",
+        "human-review-request.json",
+        "human-authorization-request.json",
+        "suggested-declarations.yaml",
+        "declaration-continuation.json",
+        "attestation.json",
+        "host-grants.json",
+        "org-status.json",
+        "org-evidence-bundle.json",
+    }
+)
+# Directories a run creates beneath a reports directory; everything inside one
+# is that run's own copy of a captured input.
+REPORTS_DIRECTORY_ARTIFACT_SUBDIRECTORIES: frozenset[str] = frozenset(
+    {"verification-inputs"}
+)
+
 
 class ArtifactLifecycleError(AgentsShipgateError):
     """A stale verifier artifact could not be removed safely."""

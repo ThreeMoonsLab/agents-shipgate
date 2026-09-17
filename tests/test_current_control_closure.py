@@ -43,10 +43,14 @@ def _damage(path: Path, mutation: str):
     elif mutation == "missing":
         path.unlink()
     elif mutation == "symlink":
-        target = path.parent / "substitute.json"
+        # The substitute lives outside the repository. Left beside the reports,
+        # an unignored file that is not a Shipgate artifact is content the
+        # reports-directory exclusion would hide, and every read refuses on it
+        # before this damage is reached (#804).
+        target = path.parents[2] / "substitute.json"
         path.rename(target)
         try:
-            path.symlink_to(target.name)
+            path.symlink_to(target)
         except OSError:
             pytest.skip("symlink creation is unavailable")
     else:

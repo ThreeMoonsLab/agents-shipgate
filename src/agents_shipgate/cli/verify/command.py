@@ -14,7 +14,10 @@ from agents_shipgate.cli._helpers import (
     _parse_fail_on,
 )
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error, is_agent_mode
-from agents_shipgate.cli.current_workspace import live_workspace
+from agents_shipgate.cli.current_workspace import (
+    OutputDirectoryHoldsRepositoryContent,
+    live_workspace,
+)
 from agents_shipgate.cli.diagnostics import input_parse_recovery, top_next_actions
 from agents_shipgate.cli.discovery.gitignore_block import REPORTS_DIR_NAME
 from agents_shipgate.cli.workspace_guard import require_workspace
@@ -311,7 +314,28 @@ def verify(
             )
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
-        if _unsafe_config_identity_error(exc):
+        if isinstance(exc, OutputDirectoryHoldsRepositoryContent):
+            # Nothing about the manifest is wrong, so the manifest diagnostics
+            # would route this to an edit that cannot clear it (#804).
+            guidance = (
+                f"Choose an output directory other than {exc.directory}, which "
+                f"{exc.refusal}: omit --out to use the default "
+                "agents-shipgate-reports, or name a directory that is gitignored "
+                "or outside the repository. Do not edit .gitignore or move "
+                "repository files to get past this refusal."
+            )
+            flattened = [
+                NextAction(
+                    kind="review",
+                    why=guidance,
+                    expects=(
+                        "verify writes into a directory that holds only Shipgate "
+                        "artifacts, so nothing in the repository is left out of "
+                        "the change set it decides on."
+                    ),
+                )
+            ]
+        elif _unsafe_config_identity_error(exc):
             guidance = (
                 "Review the configured manifest identity and rerun verify only "
                 "after selecting an exact in-workspace, non-symlink path."
