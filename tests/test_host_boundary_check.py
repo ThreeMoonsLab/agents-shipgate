@@ -489,6 +489,86 @@ def test_workflow_write_all_blocks(tmp_path: Path) -> None:
     assert finding.evidence == {"kind": "workflow_write_all", "job": "<top-level>"}
 
 
+def test_credential_shaped_job_and_scope_names_are_redacted_in_evidence(
+    tmp_path: Path,
+) -> None:
+    """#802: evidence publishes a job id and scope by the host-grants label rule.
+
+    `old` publishes only a level GitHub accepts, so an earlier level holding
+    other text is `None` rather than repeated.
+    """
+    job, scope = "ghp_" + "J" * 36, "AKIA" + "S" * 16
+    expanded_job, old_level = "xoxb-" + "E" * 16, "ghp_" + "L" * 36
+    old_text = (
+        "on: push\n"
+        "jobs:\n"
+        f"  {job}:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        "      - run: make release\n"
+        f"  {expanded_job}:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    permissions:\n"
+        f"      contents: {old_level}\n"
+        "    steps:\n"
+        "      - run: make publish\n"
+        "  token-refresh:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        "      - run: make refresh\n"
+    )
+    new_text = (
+        old_text.replace(
+            f"  {job}:\n    runs-on: ubuntu-latest\n",
+            f"  {job}:\n    runs-on: ubuntu-latest\n    permissions: write-all\n",
+        ).replace(
+            "  token-refresh:\n    runs-on: ubuntu-latest\n",
+            "  token-refresh:\n    runs-on: ubuntu-latest\n    permissions:\n"
+            f"      {scope}: write\n      secret-scan: write\n",
+        ).replace(f"contents: {old_level}", "contents: write")
+    )
+    _write(tmp_path, ".github/workflows/ci.yml", old_text)
+    diff = _change_diff(".github/workflows/ci.yml", old_text, new_text)
+
+    findings = host_boundary_run(_context(tmp_path, diff))
+
+    assert sorted(
+        (f.check_id, json.dumps(f.evidence, sort_keys=True)) for f in findings
+    ) == sorted(
+        (check_id, json.dumps(evidence, sort_keys=True))
+        for check_id, evidence in (
+            (
+                "SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL",
+                {"kind": "workflow_write_all", "job": "[REDACTED:github_token]"},
+            ),
+            (
+                "SHIP-HOST-BOUNDARY-WORKFLOW-PERMISSIONS-EXPANDED",
+                {
+                    "kind": "workflow_permissions_expanded", "job": "token-refresh",
+                    "scope": "[REDACTED:aws_access_key]", "old": None, "new": "write",
+                },
+            ),
+            (
+                "SHIP-HOST-BOUNDARY-WORKFLOW-PERMISSIONS-EXPANDED",
+                {
+                    "kind": "workflow_permissions_expanded", "job": "[REDACTED:slack_token]",
+                    "scope": "contents", "old": None, "new": "write",
+                },
+            ),
+            (
+                "SHIP-HOST-BOUNDARY-WORKFLOW-PERMISSIONS-EXPANDED",
+                {
+                    "kind": "workflow_permissions_expanded", "job": "token-refresh",
+                    "scope": "secret-scan", "old": None, "new": "write",
+                },
+            ),
+        )
+    )
+    published = json.dumps([f.model_dump(mode="json") for f in findings])
+    for canary in (job, scope, expanded_job, old_level):
+        assert canary not in published
+
+
 def test_pull_request_target_added(tmp_path: Path) -> None:
     """Also exercises the YAML 1.1 normalization: a bare ``on:`` key parses
     as boolean True and must still be read as the trigger map."""

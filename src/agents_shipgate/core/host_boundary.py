@@ -954,6 +954,21 @@ def _evaluate_workflow_permissions(
         _compare_permissions(old_perms, new_perms, job_label, path, add)
 
 
+def _workflow_label(value: Any) -> str:
+    """A job id or permission scope name as evidence may publish it (#802).
+
+    The raw text still decides which jobs and scopes compare; only the
+    evidence is redacted, by the rule host grants publish every job label with.
+    Two jobs whose ids redact alike may then raise identical violations, which
+    dedupe into one: the rule, path and decision they carry are the same.
+    """
+
+    # Imported here: host_grants imports this module.
+    from agents_shipgate.core.host_grants import published_workflow_label
+
+    return published_workflow_label(str(value))
+
+
 def _compare_permissions(
     old_perms: Any,
     new_perms: Any,
@@ -970,7 +985,7 @@ def _compare_permissions(
             add(
                 "HOST-WORKFLOW-WRITE-ALL",
                 path=path,
-                evidence={"kind": "workflow_write_all", "job": job},
+                evidence={"kind": "workflow_write_all", "job": _workflow_label(job)},
             )
         return
     if not isinstance(new_perms, dict):
@@ -987,8 +1002,8 @@ def _compare_permissions(
             path=path,
             evidence={
                 "kind": "workflow_permissions_expanded",
-                "job": job,
-                "scope": str(scope),
+                "job": _workflow_label(job),
+                "scope": _workflow_label(scope),
                 "old": old_value,
                 "new": str(value).strip(),
             },
@@ -999,10 +1014,23 @@ def _is_write(value: Any) -> bool:
     return isinstance(value, str) and value.strip() == "write"
 
 
+#: The access levels GitHub accepts for one permission scope.
+_SCOPE_LEVELS = frozenset({"read", "write", "none"})
+
+
 def _scope_value(old_perms: Any, scope: Any) -> str | None:
+    """The earlier level of ``scope``, as evidence may publish it.
+
+    Only a level GitHub accepts is published. Any other text, which GitHub
+    rejects, is ``None``, as a non-string level is, so evidence never repeats
+    free text from the declaration (#802).
+    """
     if isinstance(old_perms, dict):
         value = old_perms.get(scope)
-        return value.strip() if isinstance(value, str) else None
+        if not isinstance(value, str):
+            return None
+        stripped = value.strip()
+        return stripped if stripped in _SCOPE_LEVELS else None
     if isinstance(old_perms, str):
         stripped = old_perms.strip()
         if stripped == "write-all":

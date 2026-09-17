@@ -1284,6 +1284,7 @@
     },
     "HostWorkflowGrantV6": {
       "additionalProperties": false,
+      "description": "A GitHub workflow's token permissions, triggers, reusable calls and step references.\n\nEvery job id, trigger and permission scope name is a published label\n(#802): credential-shaped text in it is redacted, one way in every field \u2014\n``permission_contexts``, ``reusable_calls``, ``step_actions``, ``triggers``,\nand the job and scope names in the ``write_scopes`` and\n``effective_write_scopes`` entries \u2014 and ``config_sha256`` is computed over\nthose labels. A single redacted label still compares. When two distinct\njob ids or triggers in the workflow, or two scope names in one\n``permissions`` mapping that a job's permissions are read from, publish\nalike, the inventory records a blocking coverage issue instead of comparing\nthem as one. A top-level mapping no job inherits is read only into\n``write_scopes``, which is neither compared nor digested.",
       "properties": {
         "access": {
           "enum": [
@@ -1453,7 +1454,7 @@
     },
     "HostWorkflowStepActionV6": {
       "additionalProperties": false,
-      "description": "One step's declared action reference, read as text and never fetched.\n\n``form`` is ``remote`` for ``owner/repo[/path]@ref``, ``docker`` for\n``docker://\u2026``, and ``unresolved`` for a value Shipgate does not resolve\nto an action identity; ``unresolved_reason`` then says which. A job whose\n``steps`` is not a list, or a step that is not a mapping, is listed as\nunresolved too, with no ``uses``, so an absent list still means the steps\nwere read and declare nothing. A local\n``./\u2026`` reference is not listed: composite actions remain unread (#701).\n``step`` is the step's ``id``, else its ``name``, else ``steps[N]`` \u2014 the\nevidence a reviewer uses to find it, not part of the comparison.",
+      "description": "One step's declared action reference, read as text and never fetched.\n\n``form`` is ``remote`` for ``owner/repo[/path]@ref``, ``docker`` for\n``docker://\u2026``, and ``unresolved`` for a value Shipgate does not resolve\nto an action identity; ``unresolved_reason`` then says which. A job whose\n``steps`` is not a list, or a step that is not a mapping, is listed as\nunresolved too, with no ``uses``, so an absent list still means the steps\nwere read and declare nothing. A local\n``./\u2026`` reference is not listed: composite actions remain unread (#701).\n``step`` is the step's ``id``, else its ``name``, else ``steps[N]`` \u2014 the\nevidence a reviewer uses to find it, not part of the comparison. ``job``\nand ``step`` are published labels: credential-shaped text in either, and\nthe userinfo of any ``scheme://\u2026@`` inside it, is redacted (#802).",
       "properties": {
         "form": {
           "enum": [

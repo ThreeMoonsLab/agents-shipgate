@@ -1201,8 +1201,20 @@ def _cursor_grants(data: Any, *, scope: HostScope, source: str) -> list[dict[str
     return grants
 
 
-def _workflow_permissions(value: Any, job: str) -> dict[str, Any]:
-    """Normalize one job's effective declaration, retaining unknown defaults."""
+#: How much a declared scope level grants, for scopes that publish alike (#802).
+_LEVEL_WIDTH = {"read": 1, "write": 2}
+
+
+def _workflow_permissions(value: Any, job: str, collided: set[str]) -> dict[str, Any]:
+    """Normalize one job's effective declaration, retaining unknown defaults.
+
+    ``job`` is the job's published label. Scope names publish through the same
+    label rule (#802); every declared scope counts toward a collision, a
+    ``none`` one too, because it is what separates two declarations that
+    would otherwise publish alike. Scopes that publish alike keep the widest
+    level among them, so a collision (itself a blocking limit) never reads a
+    declared ``write`` as ``read``.
+    """
     state = "explicit"
     permissions: dict[str, str] = {}
     if value is None:
@@ -1213,7 +1225,11 @@ def _workflow_permissions(value: Any, job: str) -> dict[str, Any]:
         isinstance(scope, str) and isinstance(level, str) and level in {"read", "write", "none"}
         for scope, level in value.items()
     ):
-        permissions = {scope: level for scope, level in sorted(value.items()) if level != "none"}
+        shown = _published_labels(value, kind=_SCOPE_LABELS, collided=collided)
+        for scope, level in sorted(value.items(), key=lambda item: (shown[item[0]], item[0])):
+            label = shown[scope]
+            if level != "none" and _LEVEL_WIDTH[level] > _LEVEL_WIDTH.get(permissions.get(label, ""), 0):
+                permissions[label] = level
     else:
         state = "unresolved"
     return {"job": job, "state": state, "permissions": permissions}
@@ -1277,8 +1293,98 @@ def _redact_reference(text: str) -> str:
     return f"{prefix}<redacted>@{remainder}{suffix}"
 
 
-def _published(text: str) -> tuple[str, bool]:
-    """``text`` as it may be published, and whether redaction rewrote it (#767).
+#: A whitespace-delimited token of free text.
+_LABEL_TOKEN_RE = re.compile(r"\S+")
+#: What a URI scheme may hold (RFC 3986 §3.1): an ASCII letter first, then these.
+_SCHEME_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+.-"
+_SCHEME_NON_LETTERS = "0123456789+.-"
+
+
+def _label_scheme_end(token: str) -> int:
+    """The index just past the ``://`` of the token's first ``scheme://``, else ``-1``.
+
+    A scheme is an ASCII letter and then letters, digits, ``+``, ``.`` or
+    ``-`` running up to ``://``; it may start anywhere in the token, so
+    ``(docker://…`` and ``9docker://…`` hold ``docker://``. Each ``://`` is
+    tried in order: take the run of scheme characters just before it, and
+    its first letter opens the scheme. A ``://`` with no letter before it
+    (``9://``, ``+://``) opens none, so the next one is tried.
+
+    Linear in the token (#802 review: a backtracking pattern was quadratic).
+    ``/`` ends a run, so the run before one ``://`` never reaches back past
+    the previous one, and each segment between them is read once.
+    """
+
+    lower = 0
+    separator = token.find("://")
+    while separator != -1:
+        segment = token[lower:separator]
+        run = segment[len(segment.rstrip(_SCHEME_CHARS)):]
+        if run.lstrip(_SCHEME_NON_LETTERS):
+            return separator + 3
+        lower = separator + 3
+        separator = token.find("://", lower)
+    return -1
+
+
+def _redact_token_userinfo(match: re.Match[str]) -> str:
+    token = match.group()
+    end = _label_scheme_end(token)
+    if end == -1:
+        return token
+    rest = token[end:]
+    digest = _TRAILING_DIGEST_RE.search(rest)
+    body, suffix = (rest[: digest.start()], rest[digest.start():]) if digest else (rest, "")
+    _, at, remainder = body.rpartition("@")
+    return f"{token[:end]}<redacted>@{remainder}{suffix}" if at else token
+
+
+def _redact_label_userinfo(text: str) -> str:
+    """``text`` with the userinfo of every ``scheme://…@`` token replaced (#802).
+
+    The ``scheme://`` rule of :func:`_redact_reference`, applied to each
+    whitespace-delimited token of free text rather than to a whole reference:
+    in a token holding ``scheme://`` (:func:`_label_scheme_end`), once a
+    trailing ``@algorithm:hex`` digest is set aside, everything between the
+    first ``scheme://`` and the token's last ``@`` is userinfo, so a password
+    holding ``/``, ``:`` or ``@`` is covered. Only such tokens are read, and
+    what precedes the scheme in the token is kept. Calling
+    :func:`_redact_reference` on a label would replace the words before the
+    token too (``Pull docker://ci:pw@gcr.io/img`` → ``<redacted>@gcr.io/img``)
+    and read scheme-less prose as userinfo (``Tag v1:beta@2`` → ``<redacted>@2``).
+
+    Linear in ``text``: a label may be as long as the workflow file itself.
+    """
+
+    if "://" not in text:
+        return text
+    return _LABEL_TOKEN_RE.sub(_redact_token_userinfo, text)
+
+
+def published_workflow_label(text: str) -> str:
+    """A workflow label as it may be published (#802).
+
+    A label is text GitHub reads as a name: a job id, a step's ``id`` or
+    ``name``, a trigger, a permission scope. Each goes through the redaction
+    step text does — known token shapes (``ghp_…``, ``AKIA…``, ``xoxb-…``) and
+    credential assignments and URLs — and then the userinfo of any
+    ``scheme://…@`` token inside it, so ``Pull docker://ci:<password>@gcr.io/img``
+    publishes ``Pull docker://<redacted>@gcr.io/img``. Ordinary names such as
+    ``build``, ``deploy-prod``, ``secret-scan``, ``token-refresh``, ``contents``
+    or ``pull_request`` are never rewritten.
+
+    Every published job label, prefix and row, and ``check``'s evidence, uses
+    this one rule, so no surface names a job another way. Two reads compare
+    by what they published, so ``config_sha256`` and every compared fact are
+    built from these labels, and :func:`_published_labels` refuses when two
+    raw labels in one workflow publish alike.
+    """
+
+    return _redact_label_userinfo(_redact_step_text(text))
+
+
+def _published(text: str, *, label: bool = False) -> tuple[str, bool]:
+    """``text`` as it may be published, and whether redaction rewrote it (#767, #802).
 
     The one rule for workflow text that is both published and compared: a
     step's ``uses:``, a job's reusable-workflow ``uses:``, and the destination
@@ -1286,10 +1392,40 @@ def _published(text: str) -> tuple[str, bool]:
     Two distinct values may publish alike, and a digest of either would be a
     digest of the credential, so a caller marks the entry redacted and
     :func:`_uncompared_workflow_text` makes the workflow a blocking limit.
+
+    ``label=True`` publishes a job id, trigger or permission scope name by
+    :func:`published_workflow_label` instead. A redacted label still compares:
+    one token-shaped job id, alone in its workflow, identifies its job as well
+    as the raw text did. What cannot compare is two distinct labels that
+    publish alike, which :func:`_published_labels` records.
     """
 
-    display = _redact_reference(text)
+    display = published_workflow_label(text) if label else _redact_reference(text)
     return display, display != text
+
+
+#: What a label collision names, in the order a limit lists them (#802).
+_JOB_LABELS = "job ids"
+_TRIGGER_LABELS = "trigger names"
+_SCOPE_LABELS = "permission scope names"
+_LABEL_KINDS = (_JOB_LABELS, _TRIGGER_LABELS, _SCOPE_LABELS)
+
+
+def _published_labels(raws: Any, *, kind: str, collided: set[str]) -> dict[str, str]:
+    """Each raw label in one namespace and the label it publishes as (#802).
+
+    A namespace is one workflow's jobs, its triggers, or one ``permissions``
+    mapping. When two distinct raw labels in it publish alike, ``kind`` is
+    added to ``collided``: they would compare as one job, trigger or scope,
+    so :func:`_uncompared_workflow_text` makes the workflow a blocking limit.
+    A single redacted label is not a collision and refuses nothing.
+    """
+
+    names = [str(raw) for raw in raws]
+    shown = {name: _published(name, label=True)[0] for name in names}
+    if len(set(shown.values())) < len(names):
+        collided.add(kind)
+    return shown
 
 
 def _step_label(step: dict[Any, Any], index: int) -> str:
@@ -1297,12 +1433,14 @@ def _step_label(step: dict[Any, Any], index: int) -> str:
 
     Evidence for finding the step, never part of the comparison, so renaming
     a step or reordering steps that declare the same references stays quiet.
+    Published by :func:`published_workflow_label`; two steps whose labels
+    publish alike still compare by their references.
     """
 
     for key in ("id", "name"):
         value = step.get(key)
         if isinstance(value, str) and value.strip():
-            return _redact_step_text(value.strip())
+            return published_workflow_label(value.strip())
     return f"steps[{index}]"
 
 
@@ -1324,6 +1462,7 @@ def _step_action(job: str, step: dict[Any, Any], index: int) -> dict[str, Any] |
     with the reason, rather than guessed or dropped. A value the credential
     redactor rewrites cannot be both published and compared, so it is
     ``redacted``, and the reader records a blocking coverage issue for it.
+    ``job`` is the job's published label (#802).
     """
 
     if "uses" not in step:
@@ -1458,7 +1597,10 @@ def _secret_mappings(value: Any) -> list[dict[str, Any]]:
 
 
 def _reusable_call(job_name: str, job: dict[Any, Any]) -> dict[str, Any] | None:
-    """A job's reusable-workflow call: its target and what secrets it passes."""
+    """A job's reusable-workflow call: its target and what secrets it passes.
+
+    ``job_name`` is the job's published label (#802).
+    """
 
     uses = job.get("uses")
     if not (isinstance(uses, str) and uses.strip()):
@@ -1475,7 +1617,13 @@ def _reusable_call(job_name: str, job: dict[Any, Any]) -> dict[str, Any] | None:
     return call
 
 
-def _uncompared_workflow_text(grant: dict[str, Any]) -> str | None:
+def _joined(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} and {items[-1]}"
+
+
+def _uncompared_workflow_text(
+    grant: dict[str, Any], collided: set[str] | frozenset[str] = frozenset()
+) -> str | None:
     """Why part of a workflow grant is published but cannot be compared, or ``None``.
 
     One rule for every compared workflow text (#767, #693). A redacted step
@@ -1483,6 +1631,12 @@ def _uncompared_workflow_text(grant: dict[str, Any]) -> str | None:
     a different one, so comparing the display would read a change as equal.
     That is a blocking limit: a changed workflow refuses, and an unchanged one
     is named (#721).
+
+    A job id, trigger or permission scope name is compared by its published
+    label (#802). One redacted label is still a distinct label, so it refuses
+    nothing; ``collided`` names the kinds of which two distinct raw labels in
+    this workflow publish alike, which would merge two jobs, triggers or
+    scopes into one, and those refuse the same way.
     """
 
     calls = grant.get("reusable_calls", [])
@@ -1498,16 +1652,24 @@ def _uncompared_workflow_text(grant: dict[str, Any]) -> str | None:
             )),
         ) if present
     ]
-    if not redacted:
-        return None
+    merged = [kind for kind in _LABEL_KINDS if kind in collided]
+    reasons = []
     if len(redacted) == 1:
-        return (
+        reasons.append(
             f"{redacted[0]} contains credential-shaped text; it is published redacted and cannot be compared"
         )
-    return (
-        f"{', '.join(redacted[:-1])} and {redacted[-1]} contain credential-shaped text; "
-        "they are published redacted and cannot be compared"
-    )
+    elif redacted:
+        reasons.append(
+            f"{_joined(redacted)} contain credential-shaped text; "
+            "they are published redacted and cannot be compared"
+        )
+    if merged:
+        reasons.append(
+            f"distinct {_joined(merged)} in this workflow publish alike once credential-shaped "
+            "text is redacted, so they cannot be compared apart; rename or remove one so "
+            "each publishes a distinct label"
+        )
+    return "; ".join(reasons) or None
 
 
 #: How an unresolved secret mapping reads in the limit that names it (#693).
@@ -1551,11 +1713,28 @@ def uncompared_secret_mapping_texts(grant: dict[str, Any]) -> list[str]:
     return texts
 
 
-def _workflow_grant(data: Any, *, source: str) -> dict[str, Any] | None:
+def _workflow_grant(
+    data: Any, *, source: str, collided: set[str] | None = None
+) -> dict[str, Any] | None:
+    """One workflow's grant, every job id, trigger and scope name published once (#802).
+
+    Each label is published by :func:`published_workflow_label` before it is
+    used anywhere, so the job in ``permission_contexts``, ``reusable_calls``,
+    ``step_actions``, the ``write_scopes`` and ``effective_write_scopes``
+    prefixes, every row built from them, and ``config_sha256`` all hold the
+    same label, and none holds the raw text. ``collided`` receives the kinds
+    of label of which two distinct raw values publish alike.
+    """
+
     if not isinstance(data, dict):
         return None
+    collided = set() if collided is None else collided
     data = _normalize_workflow_keys(data)
-    triggers = sorted(_trigger_names(data.get("on")))
+    trigger_labels = _published_labels(
+        _trigger_names(data.get("on")), kind=_TRIGGER_LABELS, collided=collided
+    )
+    # Not de-duplicated: two triggers that publish alike stay two entries.
+    triggers = sorted(trigger_labels.values())
     write_scopes: list[str] = []
     effective_write_scopes: list[str] = []
     permission_contexts: list[dict[str, Any]] = []
@@ -1568,40 +1747,46 @@ def _workflow_grant(data: Any, *, source: str) -> dict[str, Any] | None:
         elif isinstance(perms, dict):
             for scope_name, value in sorted(perms.items(), key=lambda item: str(item[0])):
                 if _is_write(value):
-                    write_scopes.append(f"{where}: {scope_name}: {value}")
+                    write_scopes.append(f"{where}: {published_workflow_label(str(scope_name))}: {value}")
 
     collect(data.get("permissions"), "<top-level>")
     jobs = data.get("jobs")
     if isinstance(jobs, dict):
-        for job_name, job in sorted(jobs.items(), key=lambda item: str(item[0])):
-            if isinstance(job, dict):
-                collect(job.get("permissions"), str(job_name))
-                value = job.get("permissions")
-                effective = _workflow_permissions(
-                    data.get("permissions") if value is None else value, str(job_name),
-                )
-                permission_contexts.append(effective)
-                effective_write_scopes.extend(
-                    f"{job_name}: " + ("write-all" if scope == "*" else f"{scope}: write")
-                    for scope, level in effective["permissions"].items() if level == "write"
-                )
-                call = _reusable_call(str(job_name), job)
-                if call is not None:
-                    reusable_calls.append(call)
-                if "steps" in job:
-                    steps = job["steps"]
-                    if not isinstance(steps, list):
-                        step_actions.append(_unreadable_step(str(job_name), "steps", "steps_not_a_list"))
-                        steps = []
-                    for index, step in enumerate(steps):
-                        if not isinstance(step, dict):
-                            step_actions.append(
-                                _unreadable_step(str(job_name), f"steps[{index}]", "step_not_a_mapping")
-                            )
-                            continue
-                        action = _step_action(str(job_name), step, index)
-                        if action is not None:
-                            step_actions.append(action)
+        declared = [(str(name), job) for name, job in jobs.items() if isinstance(job, dict)]
+        labels = _published_labels(
+            (name for name, _ in declared), kind=_JOB_LABELS, collided=collided
+        )
+        # Ordered by what is published, so a redacted job's place in the
+        # lists says nothing more about its raw id than its label does.
+        for job_name, job in sorted(declared, key=lambda item: (labels[item[0]], item[0])):
+            label = labels[job_name]
+            collect(job.get("permissions"), label)
+            value = job.get("permissions")
+            effective = _workflow_permissions(
+                data.get("permissions") if value is None else value, label, collided,
+            )
+            permission_contexts.append(effective)
+            effective_write_scopes.extend(
+                f"{label}: " + ("write-all" if scope == "*" else f"{scope}: write")
+                for scope, level in effective["permissions"].items() if level == "write"
+            )
+            call = _reusable_call(label, job)
+            if call is not None:
+                reusable_calls.append(call)
+            if "steps" in job:
+                steps = job["steps"]
+                if not isinstance(steps, list):
+                    step_actions.append(_unreadable_step(label, "steps", "steps_not_a_list"))
+                    steps = []
+                for index, step in enumerate(steps):
+                    if not isinstance(step, dict):
+                        step_actions.append(
+                            _unreadable_step(label, f"steps[{index}]", "step_not_a_mapping")
+                        )
+                        continue
+                    action = _step_action(label, step, index)
+                    if action is not None:
+                        step_actions.append(action)
     pull_target = "pull_request_target" in triggers
     write_all = any(entry.endswith(": write-all") for entry in effective_write_scopes)
     unknown = not permission_contexts or any(
@@ -1725,12 +1910,14 @@ def _collect_file(
             grants.extend(vscode_grants)
             issues.extend(vscode_issues)
     elif kind == "workflow":
-        grant = _workflow_grant(data, source=source)
+        collided: set[str] = set()
+        grant = _workflow_grant(data, source=source, collided=collided)
         if grant is not None:
             grants.append(grant)
-            uncompared = _uncompared_workflow_text(grant)
+            uncompared = _uncompared_workflow_text(grant, collided)
             if uncompared is not None:
-                # Refuse rather than let a distinct change compare as equal (#767).
+                # Refuse rather than let a distinct change compare as equal
+                # (#767), or two jobs, triggers or scopes compare as one (#802).
                 issues.append(_inventory_issue(
                     kind="unsupported", host=host, source=source, message=uncompared, blocking=True,
                 ))

@@ -20,6 +20,16 @@ Pointing a destination at a different source is a `changed` row with
 limit rather than a comparison, while a literal or another expression is a
 named non-blocking limit that leaves coverage complete. See
 [the migration note](../STABILITY.md#reusable-workflow-secret-mappings-contract-v40-693).
+The same unreleased contract and `0.6` schemas publish every workflow label
+redacted (#802): a job id, a step's `id` or `name`, a trigger and a
+permission scope name shaped like a credential (`ghp_…`, `AKIA…`) or holding
+userinfo after `scheme://` are redacted in every field, row and `check`
+evidence that names them, and `config_sha256` is computed over the redacted
+labels. Ordinary names are unchanged. One redacted label still compares. Two
+distinct job ids or triggers in a workflow, or scope names in one
+`permissions` mapping, that publish alike are a blocking limit: while they
+exist, `check`, `audit --host --save-baseline` and drift refuse on every run.
+See [the migration note](../STABILITY.md#workflow-label-redaction-contract-v40-802).
 
 Previous runtime contract v39 reads through an in-tree link at a boundary path (#700).
 A link such as `CLAUDE.md -> AGENTS.md` or `.claude/skills -> ../.agents/skills`

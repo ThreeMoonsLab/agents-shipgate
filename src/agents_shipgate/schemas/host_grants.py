@@ -483,7 +483,9 @@ class HostWorkflowStepActionV6(BaseModel):
     were read and declare nothing. A local
     ``./…`` reference is not listed: composite actions remain unread (#701).
     ``step`` is the step's ``id``, else its ``name``, else ``steps[N]`` — the
-    evidence a reviewer uses to find it, not part of the comparison.
+    evidence a reviewer uses to find it, not part of the comparison. ``job``
+    and ``step`` are published labels: credential-shaped text in either, and
+    the userinfo of any ``scheme://…@`` inside it, is redacted (#802).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -545,6 +547,21 @@ class HostReusableWorkflowCallV6(HostReusableWorkflowCallV4):
 
 
 class HostWorkflowGrantV6(HostWorkflowGrantV4):
+    """A GitHub workflow's token permissions, triggers, reusable calls and step references.
+
+    Every job id, trigger and permission scope name is a published label
+    (#802): credential-shaped text in it is redacted, one way in every field —
+    ``permission_contexts``, ``reusable_calls``, ``step_actions``, ``triggers``,
+    and the job and scope names in the ``write_scopes`` and
+    ``effective_write_scopes`` entries — and ``config_sha256`` is computed over
+    those labels. A single redacted label still compares. When two distinct
+    job ids or triggers in the workflow, or two scope names in one
+    ``permissions`` mapping that a job's permissions are read from, publish
+    alike, the inventory records a blocking coverage issue instead of comparing
+    them as one. A top-level mapping no job inherits is read only into
+    ``write_scopes``, which is neither compared nor digested.
+    """
+
     reusable_calls: list[HostReusableWorkflowCallV6]
     # Present only when a step declares a listed reference. In a v0.6 grant
     # its absence means the steps were read and declare none; the schema
