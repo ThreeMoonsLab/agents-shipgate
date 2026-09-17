@@ -25,6 +25,85 @@ class HostComparisonLimit(BaseModel):
     detail: str
 
 
+#: The most coverage items one comparison publishes (#812). The list is a
+#: prefix in the order below, so the cap drops a compared, unchanged source
+#: before anything a reviewer must read; ``omitted_items`` counts the rest.
+MAX_COVERAGE_ITEMS = 10
+
+#: The issue kinds a host inventory publishes, as a blocking limit may name them.
+CoverageLimitKind = Literal[
+    "parse_failed",
+    "unreadable",
+    "unsupported",
+    "unresolved_precedence",
+    "dynamic_source_excluded",
+    "remote_source_excluded",
+]
+
+
+class HostComparisonCoverageItem(BaseModel):
+    """What one comparison established about one source (#812).
+
+    Built only from facts the comparator already computed: the rows, the
+    artifact changes, the sources each inventory observed and the blocking
+    issues each carries. It is evidence, never a verdict: an item cannot make
+    a comparison comparable, remove a row or authorize anything.
+
+    - ``compared``: the source was read, and ``rows`` of the published rows
+      come from it. ``0`` means no change in what this entry reads — not that
+      every field in the file was understood.
+    - ``unread_fields_changed``: the source's published artifact changed, but
+      no grant this entry reads did, so it contributes no row.
+    - ``blocking_limit``: an incomparable comparison, and this source carries
+      a blocking inventory issue of kind ``limit`` on ``side``.
+
+    ``side`` says which inventories observed the source (or carry the limit):
+    ``base`` only, ``head`` only, or ``both``. A source only one side read is
+    attributable even though its file is gone, or new, or untracked.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: str
+    hosts: list[str] = Field(min_length=1)
+    side: Literal["base", "head", "both"]
+    status: Literal["compared", "unread_fields_changed", "blocking_limit"]
+    rows: int = Field(default=0, ge=0)
+    limit: CoverageLimitKind | None = None
+    detail: str | None = None
+    #: Reserved for naming the scope an item belongs to once a comparison can
+    #: be decided per scope (#808). Always ``None`` in this schema version.
+    scope: str | None = None
+
+    @model_validator(mode="after")
+    def item_shape(self):
+        if self.status == "blocking_limit":
+            if self.limit is None or self.rows:
+                raise ValueError("a blocking limit names its kind and publishes no rows")
+        elif self.limit is not None or self.detail is not None:
+            raise ValueError("only a blocking limit names a limit kind or detail")
+        if self.status == "unread_fields_changed" and self.rows:
+            raise ValueError("an unread-field change publishes no rows")
+        return self
+
+
+class HostComparisonCoverage(BaseModel):
+    """The capped list of what a comparison established, source by source (#812).
+
+    ``None`` on :class:`HostComparison` means coverage was not recorded — a
+    verifier from before schema ``0.20``, or a comparison that never read an
+    inventory. An empty ``items`` list with ``omitted_items == 0`` means the
+    comparison read no source it could name.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[HostComparisonCoverageItem] = Field(
+        default_factory=list, max_length=MAX_COVERAGE_ITEMS
+    )
+    omitted_items: int = Field(default=0, ge=0)
+
+
 class HostComparison(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -39,6 +118,7 @@ class HostComparison(BaseModel):
     paths: list[str] = Field(default_factory=list)
     rows: list[CapabilityDiffRow] = Field(default_factory=list)
     unchanged_limits: list[HostComparisonLimit] = Field(default_factory=list)
+    coverage: HostComparisonCoverage | None = None
     static_analysis_only: Literal[True] = True
 
     @model_validator(mode="after")
@@ -51,4 +131,15 @@ class HostComparison(BaseModel):
             raise ValueError("incomparable input names no unchanged limits")
         if self.comparison_status == "comparable" and self.incomparable_reasons:
             raise ValueError("comparable input cannot carry incomparable reasons")
+        if self.coverage is not None:
+            statuses = {item.status for item in self.coverage.items}
+            if self.comparison_status == "incomparable" and statuses - {"blocking_limit"}:
+                raise ValueError("an incomparable comparison establishes no compared source")
+            if self.comparison_status == "comparable" and "blocking_limit" in statuses:
+                raise ValueError("a comparable comparison names no blocking limit")
+            attributed = sum(item.rows for item in self.coverage.items)
+            if attributed > len(self.rows) or (
+                not self.coverage.omitted_items and attributed != len(self.rows)
+            ):
+                raise ValueError("coverage must attribute every published row to its source")
         return self

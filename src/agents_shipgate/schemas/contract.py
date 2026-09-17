@@ -208,6 +208,11 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # non-blocking limit, so coverage stays complete; only a redacting name or
 # target blocks. A 0.4/0.5 baseline holding a reusable call also names
 # ``baseline_reusable_workflow_secret_mappings_unavailable``.
+# v40 also says what each host comparison established (#812), extended in
+# place because v40 has not shipped: verifier 0.20 adds an optional
+# ``host_comparison.coverage`` and ``shipgate diff --json`` (capability diff
+# 0.3) the same block. It is evidence beside the rows and moves no state,
+# permission, route or row. A 0.19 verifier reads with coverage not recorded.
 CONTRACT_VERSION: Literal["40"] = "40"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"

@@ -58,6 +58,21 @@ member, schema or check id moves; `expansion_signals`, row `direction`,
 `expands`, `severity` and `why`, and `check` decisions change for these shapes.
 See [the migration note](#permission-rule-direction-816).
 
+Unreleased, still contract v40: every host comparison says what it established,
+source by source (#812). Verifier `0.20` adds `host_comparison.coverage`, and
+`shipgate diff --json` moves to capability diff `0.3` with the same block: at
+most ten items of `{source, hosts, side, status, rows, limit, detail, scope}`
+and an `omitted_items` count. A source compared on both sides names how many
+rows it gave; one whose published artifact changed with no grant change is
+`unread_fields_changed`, so an `env` or `apiKeyHelper` edit no longer reads as
+no change; one only a single side read names that side (`base` for a deleted
+file, `head` for a new or untracked one); and an incomparable comparison names
+each blocking source and its kind, with the refusal unchanged. `diff`, `verify`
+text and the PR comment print it as `What this run established`. No row,
+reason, route, digest or baseline moves. A `0.19` verifier reads with coverage
+not recorded; one that claims coverage is refused. See
+[the migration note](#host-comparison-coverage-812).
+
 Previous runtime contract v39 reads through an in-tree link at a boundary path (#700).
 A link such as `CLAUDE.md -> AGENTS.md` or `.claude/skills -> ../.agents/skills`
 that resolves inside the repository is read at its target and published under
@@ -155,6 +170,53 @@ from the shipped `v0.15.0` contract are in
 the Action tag) for reproducible CI.
 
 ---
+
+<a id="host-comparison-coverage-812"></a>
+
+## Migration Note: Unreleased — what each host comparison established (verifier `0.20`, capability diff `0.3`, contract v40, #812)
+
+A reviewer given zero rows could not tell a docs-only change from an `env` or
+`apiKeyHelper` edit this entry does not read, or from a deleted settings file
+that held only such fields: `diff`, `verify` and the PR comment printed the same
+"No static host-grant changes detected" for all three, while `verifier.json`'s
+own inventory digests differed. An incomparable result printed
+`head_inventory_incomplete` and named no source. Both answers needed a separate
+`audit --host`, which reads only the head.
+
+The comparison now publishes what it established, from facts it already
+computed: the grant changes behind the rows, the artifact changes, the sources
+each inventory observed and the blocking issues each carries. No discovery rule,
+verdict, command or input is added.
+
+```json
+"coverage": {
+  "items": [
+    {"source": ".claude/settings.json", "hosts": ["claude-code"], "side": "both",
+     "status": "unread_fields_changed", "rows": 0, "limit": null, "detail": null, "scope": null}
+  ],
+  "omitted_items": 0
+}
+```
+
+- **Where.** `host_comparison.coverage` in `verifier.json` (verifier schema `0.20`, [`docs/verifier-schema.v0.20.json`](docs/verifier-schema.v0.20.json)) and top-level `coverage` in `shipgate diff --json` (capability diff `0.3`). The two are the same object for the same comparison. `null` means coverage was not recorded: a `0.19` or older verifier, or a comparison that never read an inventory, such as `shallow_history`.
+- **`status`.**
+  - `compared`: the source was read, and `rows` of the published rows come from it. `0` means no change in what this entry reads; it does not mean every field in the file was understood.
+  - `unread_fields_changed`: the source's published artifact changed, but no grant this entry reads did, so it gives no row.
+  - `blocking_limit`: only on an `incomparable` comparison. The source carries a blocking inventory issue; `limit` is its kind (`unreadable`, `unsupported`, `parse_failed`, …) and `detail` the issue's published message.
+- **`side`.** Which inventories observed the source, or carry the limit: `base`, `head` or `both`. A deleted file stays attributable as `base`; a new or untracked file, such as `.claude/settings.local.json`, is `head`.
+- **One item per source, status, side and limit.** Hosts that read one source alike are merged into `hosts`, and their rows are summed. When nothing is omitted, the items' `rows` add up to the comparison's row count.
+- **Order and cap.** Blocking limits, then sources with rows, then unread-field changes, then sources only one side read, then sources compared with no change; by source within each. At most ten items; `omitted_items` counts the rest, so a cap drops a quiet source before anything a reviewer must read.
+- **Not repeated.** A source already named in `unchanged_limits` is not an item.
+- **`scope`.** Reserved for a comparison decided per scope (#808). Always `null` in this version.
+- **Redaction.** `source` is the path the inventory already publishes through `public_host_path`, so a credential-shaped component reads `[REDACTED:…]~<digest>`. `detail` is the inventory issue's sanitized message.
+
+**Text.** `diff`, `verify --format text` and the manifest-free PR comment print the block as `What this run established:`. `diff` prints it after the rows and summary (before the review question), after the no-change line, or after the cannot-compare lines; `verify` and the PR comment print it after the entries or the no-change or unavailable line. Each item a reviewer must read is one line — `.claude/settings.json (claude-code): compared; observed a change in fields this entry does not read, so no row`, `… read in base only; 2 rows`, `.mcp.json (claude-code): parse_failed in head, so the head inventory is incomplete` — and sources compared with no change share one line, `compared with no change in what this entry reads: <first three> and N more`. A comparison that read no source prints `What this run established: no host configuration source was compared.` The no-change, entries and cannot-compare headlines are unchanged.
+
+**What does not change.** `comparison_status`, `incomparable_reasons`, `rows`, `unchanged_limits`, the inventory digests, saved host-grants baselines and drift payloads, `check`'s boundary result and text (which carry no coverage), the control envelope's `capability_rows`, and every control state, permission and next action — an incomparable manifest-free `verify` still routes to `audit --host`. `minimum_control_contract_version` stays `21`, and runtime contract v40, unreleased, is extended in place.
+
+**What it does not claim.** The list names only sources an inventory already observed. A file this entry does not recognize, such as a plugin's `mcp.json` or an unselected hook file, is not an item, so its absence says nothing about it; naming relevant unread candidates is #821.
+
+**Compatibility.** `host_comparison` is a closed object, so a reader validating against the published `docs/verifier-schema.v0.19.json` rejects a `0.20` artifact's `coverage`; that schema stays frozen. The current reader reads a `0.19` (or `0.18`) artifact as `0.20` with `coverage: null`, which is what that build knew, and refuses one that claims `coverage`. A `diff --json` consumer sees `capability_diff_schema_version: "0.3"` and one new top-level key.
 
 <a id="host-diff-review-text-795"></a>
 

@@ -44,7 +44,9 @@ cross-host trust-root edit from being reported as complete.
 ### Known unread surfaces
 
 These change what runs, or what it can reach, with a host's authority, but no
-adapter reads them. Editing any of them produces no row and no coverage limit:
+adapter reads them. Editing any of them produces no row and no coverage limit, and
+a file among them that no adapter reads is not listed under `What this run
+established` either, which names only sources an inventory observed (#812):
 
 - **A composite action a workflow invokes** (`uses: ./.github/actions/<name>`).
   It runs inside the calling job, with that job's `permissions` and secrets, so

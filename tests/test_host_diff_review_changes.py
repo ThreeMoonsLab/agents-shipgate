@@ -729,18 +729,28 @@ def test_no_reference_is_printed_without_a_base_commit_and_a_readable_head(
     assert comparison_reference_lines(comparison, markdown=True) == []
 
 
-def test_no_change_and_incomparable_answers_are_unchanged(tmp_path: Path) -> None:
+def test_no_change_and_incomparable_answers_ask_no_question(tmp_path: Path) -> None:
+    """Their headlines are unchanged; what the run established follows them (#812)."""
+
     repo = _repository(
         tmp_path,
         {SETTINGS: {"permissions": {"allow": ["Bash(npm test *)"]}}, "README.md": "a\n"},
         {"README.md": "b\n"},
     )
     text, _ = _diff(repo)
-    assert text.splitlines()[1:] == ["", "No static host-grant changes detected. No verdict is implied."]
+    assert text.splitlines()[1:] == [
+        "",
+        "No static host-grant changes detected. No verdict is implied.",
+        "",
+        "What this run established:",
+        "  compared with no change in what this entry reads: .claude/settings.json",
+    ]
     block, summary, _ = _verify(repo, tmp_path / "quiet")
     expected = [
         "Repository-declared host capability changes:",
         "No static host-grant changes detected in the covered comparison. No verdict is implied.",
+        "What this run established:",
+        "- compared with no change in what this entry reads: .claude/settings.json",
     ]
     assert block == expected
     assert _plain(summary) == expected
@@ -752,10 +762,18 @@ def test_no_change_and_incomparable_answers_are_unchanged(tmp_path: Path) -> Non
     assert text.splitlines() == [
         "Cannot compare against main: head_inventory_incomplete",
         "This is an input limit, not a finding about the change. Nothing below is a claim that the change is safe.",
+        "",
+        "What this run established:",
+        "  .mcp.json (claude-code): parse_failed in head, so the head inventory is incomplete",
     ]
     block, summary, _ = _verify(repo, tmp_path / "broken")
-    assert block == ["Host capability comparison unavailable: head_inventory_incomplete"]
+    assert block == [
+        "Host capability comparison unavailable: head_inventory_incomplete",
+        "What this run established:",
+        "- .mcp.json (claude-code): parse_failed in head, so the head inventory is incomplete",
+    ]
     assert summary[0] == "Host capability comparison unavailable: ` head_inventory_incomplete `"
+    assert _plain(summary)[:3] == block
     assert not any("Review question" in line or "Reproduce" in line for line in summary)
 
 

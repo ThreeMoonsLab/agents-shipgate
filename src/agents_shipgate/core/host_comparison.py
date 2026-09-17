@@ -14,7 +14,12 @@ from agents_shipgate.core.host_grants import (
     inventory_is_complete,
     normalized_host_grants,
 )
-from agents_shipgate.schemas.host_comparison import HostComparison
+from agents_shipgate.schemas.host_comparison import (
+    MAX_COVERAGE_ITEMS,
+    HostComparison,
+    HostComparisonCoverage,
+    HostComparisonCoverageItem,
+)
 
 #: Blocking issue kinds an unchanged source may carry without refusing the
 #: comparison (#721). `unreadable` is deliberately absent: an unchanged symlink
@@ -89,6 +94,133 @@ def unchanged_limits(
     return limits
 
 
+#: Coverage order (#812): what refused the comparison, then sources with rows,
+#: then changes no row describes, then sources only one side read, then
+#: sources compared with no change. The cap keeps a prefix of this order.
+def _coverage_rank(item: dict[str, Any]) -> tuple[int, str, str, str]:
+    if item["status"] == "blocking_limit":
+        rank = 0
+    elif item["rows"]:
+        rank = 1
+    elif item["status"] == "unread_fields_changed":
+        rank = 2
+    elif item["side"] != "both":
+        rank = 3
+    else:
+        rank = 4
+    return (rank, item["source"], item["side"], str(item.get("limit")))
+
+
+def _group_coverage(
+    facts: dict[tuple[str, str, str, str | None], dict[str, Any]],
+) -> HostComparisonCoverage:
+    """One item per source, status, side and limit, its hosts merged and capped."""
+
+    items = sorted(facts.values(), key=_coverage_rank)
+    return HostComparisonCoverage(
+        items=[
+            HostComparisonCoverageItem(**{**item, "hosts": sorted(item["hosts"])})
+            for item in items[:MAX_COVERAGE_ITEMS]
+        ],
+        omitted_items=max(0, len(items) - MAX_COVERAGE_ITEMS),
+    )
+
+
+def _blocking_coverage(before: dict[str, Any], after: dict[str, Any]) -> HostComparisonCoverage:
+    """The sources behind a refused comparison, each with its limit and side (#812).
+
+    Only what the inventories already published: every blocking issue, keyed
+    by its published source and kind. The refusal itself is decided elsewhere
+    and is not changed by naming them.
+    """
+
+    def blocking(inventory: dict[str, Any]) -> dict[tuple[str, str, str], str]:
+        return {
+            (str(issue["source"]), str(issue["kind"]), str(issue["host"])): str(issue["message"])
+            for issue in inventory.get("issues", [])
+            if issue.get("blocking")
+        }
+
+    base, head = blocking(before), blocking(after)
+    facts: dict[tuple[str, str, str, str | None], dict[str, Any]] = {}
+    for key in sorted(set(base) | set(head)):
+        source, kind, host = key
+        side = "both" if key in base and key in head else "base" if key in base else "head"
+        item = facts.setdefault(
+            (source, "blocking_limit", side, kind),
+            {
+                "source": source,
+                "hosts": set(),
+                "side": side,
+                "status": "blocking_limit",
+                "rows": 0,
+                "limit": kind,
+                # The first host's message, in host order: hosts reading one
+                # source through one reader publish the same one.
+                "detail": head.get(key) or base.get(key),
+            },
+        )
+        item["hosts"].add(host)
+    return _group_coverage(facts)
+
+
+def _compared_coverage(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    payload: dict[str, Any],
+    limits: list[dict[str, str]],
+) -> HostComparisonCoverage:
+    """What a comparable comparison established about each source it read (#812).
+
+    Read off the payload the rows were projected from and the two inventories:
+    a source's rows are the grant changes whose published source it is; an
+    artifact change with no such grant change is a change in fields this entry
+    does not read; the side is which inventories observed it. A source named
+    as an unchanged limit is already published there and is not repeated.
+    """
+
+    def observed(inventory: dict[str, Any]) -> set[tuple[str, str]]:
+        return {
+            (str(artifact["host"]), str(artifact["path"]))
+            for artifact in inventory.get("artifacts", [])
+        } | {
+            (str(grant["host"]), str(grant["source"]))
+            for grant in inventory.get("grants", [])
+        }
+
+    rows: dict[tuple[str, str], int] = {}
+    for change in payload.get("changes") or []:
+        grant = change.get("current") or change.get("baseline")
+        if grant:
+            key = (str(grant["host"]), str(grant["source"]))
+            rows[key] = rows.get(key, 0) + 1
+    unread = {
+        (str(artifact["host"]), str(artifact["path"]))
+        for change in payload.get("artifact_changes") or []
+        for artifact in (change.get("baseline"), change.get("current"))
+        if artifact
+    }
+    base, head = observed(before), observed(after)
+    named = {(limit["host"], limit["source"]) for limit in limits}
+    facts: dict[tuple[str, str, str, str | None], dict[str, Any]] = {}
+    for key in sorted(base | head | set(rows)):
+        if key in named and not rows.get(key):
+            continue
+        host, source = key
+        side = "both" if key in base and key in head else "base" if key in base else "head"
+        count = rows.get(key, 0)
+        status = "unread_fields_changed" if not count and key in unread else "compared"
+        # A source with rows and one without never merge, so a count is never
+        # spread over a host that contributed none.
+        item = facts.setdefault(
+            (source, status if not count else "rows", side, None),
+            {"source": source, "hosts": set(), "side": side, "status": status, "rows": 0},
+        )
+        item["hosts"].add(host)
+        item["rows"] += count
+    return _group_coverage(facts)
+
+
 def compare_host_inventories(
     before: dict,
     after: dict,
@@ -131,6 +263,14 @@ def compare_host_inventories(
     reasons.extend(payload.get("incomparable_reasons") or [])
     if reasons:
         limits = []
+    # What the run established, from the facts above and nothing else (#812).
+    # It stays on the comparison: it is not an input to the inventory digests,
+    # a saved baseline or the rows.
+    coverage = (
+        _blocking_coverage(before, after)
+        if reasons
+        else _compared_coverage(before, after, payload, limits)
+    )
     return HostComparison(
         comparison_status="incomparable" if reasons else "comparable",
         incomparable_reasons=reasons,
@@ -146,4 +286,5 @@ def compare_host_inventories(
             payload, redact_permission_arguments=redact_permission_arguments
         ),
         unchanged_limits=limits,
+        coverage=coverage,
     )

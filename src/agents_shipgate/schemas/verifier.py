@@ -720,7 +720,7 @@ class VerifierArtifact(BaseModel):
         },
     )
 
-    verifier_schema_version: Literal["0.19"] = "0.19"
+    verifier_schema_version: Literal["0.20"] = "0.20"
     static_analysis_only: Literal[True] = True
     runtime_behavior_verified: Literal[False] = False
     static_verdict_disclaimer: str = STATIC_VERDICT_DISCLAIMER
@@ -790,17 +790,25 @@ class VerifierArtifact(BaseModel):
             return data
         normalized = dict(data)
         legacy_version = normalized.get("verifier_schema_version")
-        if legacy_version == "0.18":
+        if legacy_version in {"0.18", "0.19"}:
             comparison = normalized.get("host_comparison")
-            if isinstance(comparison, dict) and "unchanged_limits" in comparison:
+            if (
+                legacy_version == "0.18"
+                and isinstance(comparison, dict)
+                and "unchanged_limits" in comparison
+            ):
                 raise ValueError("Legacy verifier cannot claim unchanged comparison limits")
+            if isinstance(comparison, dict) and "coverage" in comparison:
+                raise ValueError("Legacy verifier cannot claim host comparison coverage")
             # v0.18 compared only complete inventories, so it named no limit: an
-            # empty list is exactly what that build knew (#721).
-            return {**normalized, "verifier_schema_version": "0.19"}
+            # empty list is exactly what that build knew (#721). Neither
+            # recorded what a comparison established per source, so coverage
+            # reads as not recorded, never as an empty list (#812).
+            return {**normalized, "verifier_schema_version": "0.20"}
         if legacy_version == "0.17":
             if "host_comparison" in normalized:
                 raise ValueError("Legacy verifier cannot claim host comparison evidence")
-            return {**normalized, "verifier_schema_version": "0.19", "host_comparison": None}
+            return {**normalized, "verifier_schema_version": "0.20", "host_comparison": None}
         if legacy_version == "0.16":
             if "host_comparison" in normalized:
                 raise ValueError("Legacy verifier cannot claim host comparison evidence")
@@ -809,7 +817,7 @@ class VerifierArtifact(BaseModel):
             # those blanks or synthesize permission from a diagnostic verdict.
             if "conditional_file_edits" in normalized:
                 raise ValueError("Legacy verifier artifacts cannot carry conditional edit rules")
-            return {**normalized, "verifier_schema_version": "0.19", "conditional_file_edits": []}
+            return {**normalized, "verifier_schema_version": "0.20", "conditional_file_edits": []}
         legacy = legacy_version in {
             "0.1",
             "0.2",
@@ -870,7 +878,7 @@ class VerifierArtifact(BaseModel):
             raise ValueError("Legacy verifier cannot claim host comparison evidence")
         if "conditional_file_edits" in normalized:
             raise ValueError("Legacy verifier artifacts cannot carry conditional edit rules")
-        normalized["verifier_schema_version"] = "0.19"
+        normalized["verifier_schema_version"] = "0.20"
         # Preserve the historical standing deny-list; never infer the new proof.
         normalized.setdefault("conditional_file_edits", [])
         # A pre-v0.7 artifact recorded nothing about whether its diff was

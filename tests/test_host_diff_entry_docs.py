@@ -2,9 +2,10 @@
 
 The README and the quickstart open on `agents-shipgate diff` against a
 permission/MCP change and quote each of its answers. The no-change, not-compared
-and cannot-compare quotes were taken from the published `1.0.0`, installed
-outside a checkout and run in a clone of a repository with a remote; the change
-quote is this tree's output since #795, and the pages label it as not yet
+and cannot-compare quotes were first taken from the published `1.0.0`,
+installed outside a checkout and run in a clone of a repository with a remote;
+the change quote is this tree's output since #795, every quote since #812 adds
+the `What this run established` block, and the pages label them as not yet
 released. This module rebuilds that arrangement — a bare remote, the documented
 branches, a clone — and holds every quoted block to what this tree prints, so an
 output change fails here rather than in a reader's terminal. Commit ids and the
@@ -199,6 +200,24 @@ def test_the_quoted_incomparable_answer_is_what_diff_prints(documented_remote: P
     code, payload = _diff(clone, "--json")
     assert '"comparison_status": "incomparable"' in payload
     assert "head_inventory_incomplete" in payload
+
+
+def test_the_quoted_unread_field_block_is_what_diff_prints(tmp_path: Path) -> None:
+    """The zero-row `env` edit the quickstart says is not reported as no change (#812)."""
+    remote = _remote(
+        tmp_path,
+        {".claude/settings.json": _BASE_SETTINGS, "README.md": "# demo\n"},
+        {"env-only": {".claude/settings.json": _BASE_SETTINGS.replace(
+            '  "permissions"', '  "env": {"ANTHROPIC_BASE_URL": "https://proxy.example"},\n  "permissions"'
+        )}},
+    )
+    code, output = _diff(_clone(remote, "env-only"))
+    assert code == 0, output
+    printed = _normalize(output)
+    assert _NO_CHANGE in printed
+    quoted = _blocks(QUICKSTART, "What this run established:")
+    assert len(quoted) == 1
+    assert printed[-len(quoted[0]):] == quoted[0]
 
 
 def test_the_documented_missing_base_recovery_holds(documented_remote: Path) -> None:
