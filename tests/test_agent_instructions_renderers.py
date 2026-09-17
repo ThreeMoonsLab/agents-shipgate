@@ -205,7 +205,7 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
     assert "verify_local" not in payload["primary_commands"]
     assert payload["commands"]["verify_local"].startswith("agents-shipgate verify")
-    assert payload["verifier_schema_version"] == "0.19"
+    assert payload["verifier_schema_version"] == "0.20"
     assert payload["verify_run_schema_version"] == "shipgate.verify_run/v5"
     assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v9"
     assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v9.json"

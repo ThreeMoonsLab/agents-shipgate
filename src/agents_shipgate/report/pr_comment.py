@@ -112,23 +112,40 @@ def _render_capability_review_comment(
     human_context: HumanArtifactContext | None,
     human_review_request: HumanReviewRequestV1 | None,
 ) -> str:
-    prose_lines = [
-        STICKY_MARKER,
-        "## Agents Shipgate",
-        *(human_review_lines(human_review_request) if human_review_request else []),
-        *_human_summary_lines(
-            verifier,
-            report=report,
-            capability_lock_diff=capability_lock_diff,
-            human_context=human_context,
-        ),
-    ]
+    def prose(coverage_max_chars: int | None = None) -> list[str]:
+        return [
+            STICKY_MARKER,
+            "## Agents Shipgate",
+            *(human_review_lines(human_review_request) if human_review_request else []),
+            *_human_summary_lines(
+                verifier,
+                report=report,
+                capability_lock_diff=capability_lock_diff,
+                human_context=human_context,
+                coverage_max_chars=coverage_max_chars,
+            ),
+        ]
+
     agent_block = _agent_instruction_block(verifier)
+    compact_agent_block = _agent_instruction_block(verifier, compact=True)
+    if verifier.host_comparison is None:
+        prose_lines = prose()
+    else:
+        from agents_shipgate.report.host_comparison import with_coverage_in_room
+
+        # The coverage block takes only room the rest of the comment leaves
+        # under the agent block it would get without the block (#812).
+        full_room = _COMMENT_MAX_CHARS - len("\n".join(agent_block)) - 1
+        room = (
+            full_room
+            if len("\n".join(prose(0))) <= full_room
+            else _COMMENT_MAX_CHARS - len("\n".join(compact_agent_block)) - 1
+        )
+        prose_lines = with_coverage_in_room(verifier.host_comparison, prose, room)
     comment = "\n".join([*prose_lines, *agent_block])
     if len(comment) <= _COMMENT_MAX_CHARS:
         return comment
 
-    compact_agent_block = _agent_instruction_block(verifier, compact=True)
     return _join_with_preserved_agent_block(
         prose_lines,
         compact_agent_block,
@@ -142,11 +159,16 @@ def _human_summary_lines(
     report: ReadinessReport | None,
     capability_lock_diff: CapabilityLockDiffV1 | None,
     human_context: HumanArtifactContext | None,
+    coverage_max_chars: int | None = None,
 ) -> list[str]:
     lines = ["", "### Human summary"]
     if verifier.host_comparison is not None:
         from agents_shipgate.report.host_comparison import host_comparison_lines
-        lines.extend(host_comparison_lines(verifier.host_comparison, markdown=True))
+        lines.extend(
+            host_comparison_lines(
+                verifier.host_comparison, markdown=True, coverage_max_chars=coverage_max_chars
+            )
+        )
         lines.append("Advisory: no application release policy configured. This comparison grants no merge authority.")
         if verifier.host_comparison.comparison_status != "comparable":
             lines.extend(_next_actor_lines(verifier))
@@ -649,13 +671,29 @@ def _render_findings_comment(
     )
     lines = [STICKY_MARKER, title]
     if verifier.host_comparison is not None:
-        from agents_shipgate.report.host_comparison import host_comparison_lines
-        lines.extend(host_comparison_lines(verifier.host_comparison, markdown=True))
-        lines.append("Advisory: no application release policy configured. This comparison grants no merge authority.")
-        if verifier.host_comparison.comparison_status != "comparable":
-            lines.extend(_next_actor_lines(verifier))
-        lines.extend(_artifact_lines(verifier, links=False))
-        return _truncate_markdown_lines(lines, 6000, omission=_COMMENT_PROSE_OMISSION)
+        from agents_shipgate.report.host_comparison import (
+            host_comparison_lines,
+            with_coverage_in_room,
+        )
+
+        comparison = verifier.host_comparison
+
+        def host_lines(coverage_max_chars: int) -> list[str]:
+            return [
+                *lines,
+                *host_comparison_lines(
+                    comparison, markdown=True, coverage_max_chars=coverage_max_chars
+                ),
+                "Advisory: no application release policy configured. This comparison grants no merge authority.",
+                *(_next_actor_lines(verifier) if comparison.comparison_status != "comparable" else []),
+                *_artifact_lines(verifier, links=False),
+            ]
+
+        return _truncate_markdown_lines(
+            with_coverage_in_room(comparison, host_lines, _COMMENT_MAX_CHARS),
+            _COMMENT_MAX_CHARS,
+            omission=_COMMENT_PROSE_OMISSION,
+        )
     if human_review_request is not None:
         lines.extend(human_review_lines(human_review_request))
     if surface_first and report is not None:

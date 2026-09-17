@@ -346,7 +346,7 @@ def test_the_action_steps_give_distinct_advisory_answers(
 
     # The PR answer is the local answer.
     local = _local_diff(pull_request_clone, tmp_path, base_ref)
-    for key in ("comparison_status", "incomparable_reasons", "rows", "unchanged_limits"):
+    for key in ("comparison_status", "incomparable_reasons", "rows", "unchanged_limits", "coverage"):
         assert comparison[key] == local[key], key
 
     # Nothing but the report directory: no manifest, baseline or workflow.

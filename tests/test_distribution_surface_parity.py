@@ -190,7 +190,14 @@ SURFACES: tuple[Surface, ...] = (
         # Its MCP text repeats a URL only in the sanitized form the engine
         # published and says `url not shown` otherwise; that is a redaction
         # rule of the text, not an answer, and is held in
-        # `tests/test_host_diff_review_changes.py`.
+        # `tests/test_host_diff_review_changes.py`. Its coverage block (#812)
+        # restates no engine answer either: it names, per source, facts the
+        # comparator already computed (rows, artifact changes, observed sides,
+        # blocking issues, and a Git byte identity answer, identical, differs or
+        # neither, which is not published) and asserts no verdict,
+        # pin or vocabulary, so it adds no claim;
+        # `tests/test_host_comparison_coverage.py` holds diff, verify and the
+        # PR comment to the same object.
         {},
     ),
     Surface(

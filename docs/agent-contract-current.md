@@ -30,6 +30,17 @@ distinct job ids or triggers in a workflow, or scope names in one
 `permissions` mapping, that publish alike are a blocking limit: while they
 exist, `check`, `audit --host --save-baseline` and drift refuse on every run.
 See [the migration note](../STABILITY.md#workflow-label-redaction-contract-v40-802).
+The same unreleased contract says what each host comparison established
+(#812): verifier `0.20` adds `host_comparison.coverage`, and
+`shipgate diff --json` (capability diff `0.3`) the same block: a capped list of sources with
+their `side` (`base`, `head`, `both`), a `status` (`compared` with its `rows`,
+zero on both sides only for a file proven byte-identical,
+`changed_without_grant_change`, `changed_without_rows`, `unchanged_not_proven`,
+or on an incomparable result `blocking_limit` with its `limit` kind) and
+`omitted_items`. It is evidence beside the rows; it moves no
+row, reason, control state, permission or next action, and `null` means not
+recorded. A `0.19` verifier reads with `coverage: null`. See
+[the migration note](../STABILITY.md#host-comparison-coverage-812).
 
 Previous runtime contract v39 reads through an in-tree link at a boundary path (#700).
 A link such as `CLAUDE.md -> AGENTS.md` or `.claude/skills -> ../.agents/skills`
@@ -649,7 +660,7 @@ Downstream repos generated with
 - Current report schema: `1.0`, frozen, superseding `0.43` — [`docs/report-schema.v1.0.json`](report-schema.v1.0.json); the `1.x` rules are in [`docs/report-1-0-contract.md`](report-1-0-contract.md)
 - Current packet schema: `0.18` — [`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
-- Current verifier schema: `0.19` — [`docs/verifier-schema.v0.19.json`](verifier-schema.v0.19.json) (`0.18` and earlier stay frozen; `0.19` names the unchanged limits a host comparison compared past)
+- Current verifier schema: `0.20` — [`docs/verifier-schema.v0.20.json`](verifier-schema.v0.20.json) (`0.19` and earlier stay frozen; `0.20` says what each host comparison established, source by source)
 - Current verify-run schema: `shipgate.verify_run/v5` — [`docs/verify-run-schema.v5.json`](verify-run-schema.v5.json)
 - Current verification identity schemas: [`plan v1`](verification-plan-schema.v1.json), [`unit result v1`](verification-unit-result-schema.v1.json), [`artifact manifest v1`](verification-artifact-manifest-schema.v1.json), and [`terminal receipt v1`](verification-receipt-schema.v1.json)
 - Current control pointer schema: `shipgate.current_control/v1` — [`docs/current-control-schema.v1.json`](current-control-schema.v1.json)
@@ -1180,7 +1191,7 @@ agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --jso
 ```
 
 In `agents-shipgate-reports/verifier.json`, read the fields below (full
-schema [`docs/verifier-schema.v0.19.json`](verifier-schema.v0.19.json)). **Lead
+schema [`docs/verifier-schema.v0.20.json`](verifier-schema.v0.20.json)). **Lead
 with `control.state`.** Every release and merge field below is a mirror or
 deterministic projection of `report.json`; the authorization evaluation is an
 operational overlay and cannot change those fields.

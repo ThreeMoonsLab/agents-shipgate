@@ -58,6 +58,26 @@ member, schema or check id moves; `expansion_signals`, row `direction`,
 `expands`, `severity` and `why`, and `check` decisions change for these shapes.
 See [the migration note](#permission-rule-direction-816).
 
+Unreleased, still contract v40: every host comparison says what it established,
+source by source (#812). Verifier `0.20` adds `host_comparison.coverage`, and
+`shipgate diff --json` moves to capability diff `0.3` with the same block: at
+most ten items of `{source, hosts, side, status, rows, limit, detail, scope}`
+and an `omitted_items` count. A file compared on both sides names how many
+rows it gave, counting a source inside it such as a Codex profile, and is
+called unchanged only when its bytes are proven identical; a file that changed
+with no compared grant change is `changed_without_grant_change`, so an `env`
+or `apiKeyHelper` edit, key or value, no longer reads as no change; one whose
+bytes cannot be proven identical, such as a link read, is
+`unchanged_not_proven`; any other changed file with no row, such as a plugin
+manifest's `hooks` reference or a retargeted link, is `changed_without_rows`; one only a
+single side published names that side (`base` for a deleted file, `head` for a
+new or untracked one or a hook file only the head's plugin configuration
+selects); and an incomparable comparison names each blocking source and its
+kind, with the refusal unchanged. `diff`, `verify` text and the PR comment print
+it as `What this run established`. No row, reason, route, digest or baseline
+moves. A `0.19` verifier reads with coverage not recorded; one that claims
+coverage is refused. See [the migration note](#host-comparison-coverage-812).
+
 Previous runtime contract v39 reads through an in-tree link at a boundary path (#700).
 A link such as `CLAUDE.md -> AGENTS.md` or `.claude/skills -> ../.agents/skills`
 that resolves inside the repository is read at its target and published under
@@ -155,6 +175,56 @@ from the shipped `v0.15.0` contract are in
 the Action tag) for reproducible CI.
 
 ---
+
+<a id="host-comparison-coverage-812"></a>
+
+## Migration Note: Unreleased — what each host comparison established (verifier `0.20`, capability diff `0.3`, contract v40, #812)
+
+A reviewer given zero rows could not tell a docs-only change from an `env` or
+`apiKeyHelper` edit this entry does not compare, or from a deleted settings file
+that held only such fields: `diff`, `verify` and the PR comment printed the same
+"No static host-grant changes detected" for all three. A value-only edit left
+even `verifier.json`'s own inventory digests equal, because the inventory
+redacts those values. An incomparable result printed
+`head_inventory_incomplete` and named no source. Both answers needed a separate
+`audit --host`, which reads only the head.
+
+The comparison now publishes what it established, from facts it already
+computed: the grant changes behind the rows, the artifact changes, the sources
+each inventory observed and the blocking issues each carries. No discovery rule,
+verdict, command or input is added.
+
+```json
+"coverage": {
+  "items": [
+    {"source": ".claude/settings.json", "hosts": ["claude-code"], "side": "both",
+     "status": "changed_without_grant_change", "rows": 0, "limit": null, "detail": null, "scope": null}
+  ],
+  "omitted_items": 0
+}
+```
+
+- **Where.** `host_comparison.coverage` in `verifier.json` (verifier schema `0.20`, [`docs/verifier-schema.v0.20.json`](docs/verifier-schema.v0.20.json)) and top-level `coverage` in `shipgate diff --json` (capability diff `0.3`). The two are the same object for the same comparison. `null` means coverage was not recorded: a `0.19` or older verifier, or a comparison that never read an inventory, such as `shallow_history`.
+- **`status`.**
+  - `compared`: the source was read, and `rows` of the published rows come from it. A row of a source inside a file — a Codex profile, `.codex/config.toml#profiles.dev`, or a marketplace entry's inline hooks, `.claude-plugin/marketplace.json#plugins.demo` — counts for that file, so the file is one item. With `0` rows on `both` sides, the file's bytes were proven identical on both sides: the same regular-file blob, exactly as the Git blob identity check `unchanged_limits` uses proves it. `diff` and `verify` ask Git privately, in one question for every such file, because the artifact digest redacts values such as `env` values and `apiKeyHelper` and so cannot show them change. The answer is identical, differs or neither shown (review cycle 3), and only identical is `compared`: nothing that differs, or that could not be proven identical, is ever called unchanged. It does not mean every field in the file was understood. With `0` rows on one side, the file declares no grant this entry compares and its artifact did not change, as for a new guidance-only instruction file.
+  - `changed_without_grant_change`: the file changed, it gives no row, and the published data shows no grant this entry compares moved. Either its artifact, which digests the whole file, changed while every side that has the file parsed it and nothing but that digest differs, or Git shows its content differs while its artifact did not, as for an edited `env` value, `apiKeyHelper` or MCP server `env` value, which the digest redacts and no comparison compares. Git shows a difference between commits as two different blobs, and in the working tree as bytes that still differ from the base blob once `CRLF` is read as `LF`, on a path no `filter`, `ident` or `working-tree-encoding` attribute converts; no filter is run to tell. It does not say which fields changed: a reordered or repeated rule moves the digest and no grant, and the change may be in a field a grant reads without changing the grant. On one side only it is a new or deleted file that declares no compared grant. Never a plugin manifest or marketplace, a retargeted link, or `.claude/settings.json` or `.claude/settings.local.json` while a hook's loading basis changed, since those settings decide which plugin hooks load and that change is published on the hook file.
+  - `changed_without_rows`: the file changed and no row is attributed to it, but the data does not show that no compared grant moved. A plugin manifest or marketplace publishes only its `hooks`, and the rows of a reference it adds, retargets or removes are published under the hook files it selects; a retargeted link changes `resolved_through`; a parse status or instruction structure is read too; and project settings decide a hook's loading basis.
+  - `unchanged_not_proven`: both sides read the file, it gives no row and its artifact did not change, but its bytes could be neither proven identical nor shown to differ, so a change in a value the artifact redacts would not show. Nothing is asked for a provided diff, a file read through a link (`resolved_through`), a redacted published path, which names no file, or a source no artifact publishes on both sides. Git shows neither for a working-tree file that differs from its base blob only as a checkout conversion makes it — `eol=crlf`, or `core.autocrlf=true` as Git for Windows sets it, which Git itself reports as no change — for a path a `filter`, `ident` or `working-tree-encoding` attribute converts, for a mode-only change between commits, a file past the read bound, or any Git failure. Never read it as no change, and never as a change.
+  - `blocking_limit`: only on an `incomparable` comparison. The source carries a blocking inventory issue; `limit` is its kind (`unreadable`, `unsupported`, `parse_failed`, …) and `detail` the issue's published message.
+- **`side`.** Which inventories published the source, as an artifact or as the file of a grant, or carry the limit: `base`, `head` or `both`. A file is published whenever an inventory reads it, so a deleted file stays attributable as `base`, and `head` is a new or untracked file, such as `.claude/settings.local.json`, or a hook file only the head's plugin configuration selects. A plugin manifest or marketplace is published only while it declares hooks, so for one of those `side` does not say whether the file exists on the other side.
+- **One item per source, status, side and limit.** Hosts that read one source alike are merged into `hosts`, and their rows are summed. When nothing is omitted, the items' `rows` add up to the comparison's row count.
+- **Order and cap.** Blocking limits, then changes with no row (`changed_without_grant_change`, `changed_without_rows`), then sources only one side published, then `unchanged_not_proven`, then sources both sides read that gave rows, then sources proven unchanged; by source within each. What the entries cannot show comes before a file's rows, which they already show (review cycle 5), so ten files with rows never count an `env` edit away. At most ten items; `omitted_items` counts the rest, so a cap drops a quiet source first and a file with rows next.
+- **Not repeated.** A source already named in `unchanged_limits` is not an item.
+- **`scope`.** Reserved for a comparison decided per scope (#808). Always `null` in this version.
+- **Redaction.** `source` is the path the inventory already publishes through `public_host_path`, so a credential-shaped component reads `[REDACTED:…]~<digest>`. `detail` is the inventory issue's sanitized message.
+
+**Text.** `diff`, `verify --format text` and the manifest-free PR comment print the block as `What this run established:`. `diff` prints it after the rows and summary (before the review question), after the no-change line, or after the cannot-compare lines; `verify` and the PR comment print it after the entries or the no-change or unavailable line. Each item a reviewer must read is one line — `.claude/settings.json (claude-code): compared; changed, but no grant this entry compares changed, so no row (redacted values such as env values and apiKeyHelper are not compared)`, `.claude/settings.json (claude-code): compared; no grant this entry compares changed, but the file was not proven unchanged (redacted values such as env values and apiKeyHelper are not compared)`, `.claude-plugin/plugin.json (claude-code): compared; changed, but no row is attributed to this path`, `… read in base only; 2 rows`, `.mcp.json (claude-code): parse_failed in head, so the head inventory is incomplete` — and sources proven byte-identical share one line, `compared with no change in what this entry reads: <first three> and N more`. On one side only, a file that holds no compared grant reads `read in base only; declares no grant this entry compares, so no row (redacted values such as env values and apiKeyHelper are not compared)`. A file whose path the inventory reads as instructions, such as `AGENTS.md`, `CLAUDE.md`, a skill or a Cursor rule, holds no such value, so its line has no redacted-values note: a `CLAUDE.md` link to `AGENTS.md` reads `CLAUDE.md (claude-code): compared; no grant this entry compares changed, but the file was not proven unchanged` on a docs-only change. One side is `read in base only` or `read in head only`, except for a plugin manifest or marketplace, which is `published by base only` or `published by head only`. A new instruction file the engine reads as guidance publishes no grant: `AGENTS.md (claude-code, codex, cursor): read in head only; declares no grant this entry compares, so no row`. Items past the cap are `N more items not listed` (items, not sources: one source can be several items). The PR comment's human summary is bounded as a whole, so there the block gets only the room its other lines leave — the entries, the review question and reproduction, and the advisory, next action and evidence after it — and at most 2000 characters of it. It lists what fits, counts the rest the same way (`N items not listed` when it lists none), and is left out when not even the heading and that count fit. So the block never pushes out a line the comment prints without it (review cycle 5). A row list long enough to fill the comment by itself still truncates it, as on `1.0.0`. A comparison that read no source prints `What this run established: no host configuration source was compared.` The no-change, entries and cannot-compare headlines are unchanged.
+
+**What does not change.** `comparison_status`, `incomparable_reasons`, `rows`, `unchanged_limits`, the identity answer itself (which is not published), the inventory digests, saved host-grants baselines and drift payloads, `check`'s boundary result and text (which carry no coverage, so neither `check` nor a provided diff asks Git anything for it), the control envelope's `capability_rows`, and every control state, permission and next action — an incomparable manifest-free `verify` still routes to `audit --host`. `minimum_control_contract_version` stays `21`, and runtime contract v40, unreleased, is extended in place.
+
+**What it does not claim.** The list names only sources an inventory already observed. A file this entry does not recognize, such as a plugin's `mcp.json` or an unselected hook file, is not an item, so its absence says nothing about it; naming relevant unread candidates is #821.
+
+**Compatibility.** `host_comparison` is a closed object, so a reader validating against the published `docs/verifier-schema.v0.19.json` rejects a `0.20` artifact's `coverage`; that schema stays frozen. The current reader reads a `0.19` (or `0.18`) artifact as `0.20` with `coverage: null`, which is what that build knew, and refuses one that claims `coverage`. A `diff --json` consumer sees `capability_diff_schema_version: "0.3"` and one new top-level key.
 
 <a id="host-diff-review-text-795"></a>
 

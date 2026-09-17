@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import threading
 import unicodedata
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -1116,6 +1116,308 @@ def blob_path_unchanged(workspace: Path, base: str, head: str | None, path: str)
         return False
     hashed = _run_git(workspace, ["hash-object", "--no-filters", "--", path], check=False)
     return hashed.returncode == 0 and hashed.stdout.strip() == base_entry[2]
+
+
+#: Bounds on what :func:`blob_path_identities` reads (#812): one tree listing,
+#: each base blob and working-tree file it compares (the host reader's own
+#: per-file bound), and those base blobs together.
+_IDENTITY_LISTING_BYTES = 8 * 1024 * 1024
+_IDENTITY_FILE_BYTES = 1024 * 1024
+_IDENTITY_BATCH_BYTES = 64 * 1024 * 1024
+#: The pathspec bytes one `ls-tree` command line carries, well inside the
+#: shortest platform command-line limit (Windows, 32,767 characters).
+_IDENTITY_ARGUMENT_BYTES = 8 * 1024
+#: Checkout conversions `.gitattributes` can apply besides line endings. A
+#: working-tree difference on a path that carries one is never called a
+#: change: it may be the conversion alone (#812).
+_CONVERSION_ATTRIBUTES = ("filter", "ident", "working-tree-encoding")
+
+
+@dataclass(frozen=True)
+class _TreeBlob:
+    mode: str
+    oid: str
+    size: int
+
+
+def _regular_tree_blobs(
+    workspace: Path, commit: str, paths: Sequence[str]
+) -> dict[str, _TreeBlob] | None:
+    """The regular-file blob at each path in one commit, from one listing.
+
+    A path that is absent, a symlink, a tree or a submodule has no entry, and
+    so does one whose listing is not exactly one record under its own name.
+    The paths are passed as literal pathspecs, split only so no command line
+    grows past a size every platform accepts. ``None`` means a listing failed.
+    """
+
+    wanted = {path.encode("utf-8"): path for path in paths}
+    records: dict[str, list[list[bytes]]] = {}
+    chunk: list[str] = []
+    length = 0
+    for index, path in enumerate(paths):
+        chunk.append(path)
+        length += len(path.encode("utf-8")) + 3
+        if index + 1 < len(paths) and length < _IDENTITY_ARGUMENT_BYTES:
+            continue
+        listing = _run_git_bounded_output(
+            workspace,
+            ["--literal-pathspecs", "ls-tree", "-l", "-z", "--full-tree", commit, "--", *chunk],
+            max_output_bytes=_IDENTITY_LISTING_BYTES,
+        )
+        if listing is None:
+            return None
+        for record in listing.split(b"\0"):
+            header, separator, name = record.partition(b"\t")
+            if separator and name in wanted:
+                records.setdefault(wanted[name], []).append(header.split())
+        chunk, length = [], 0
+    entries: dict[str, _TreeBlob] = {}
+    for path, found in records.items():
+        if len(found) != 1 or len(found[0]) != 4:
+            continue
+        mode, kind, oid, size = (field.decode("ascii", errors="replace") for field in found[0])
+        regular = kind == "blob" and mode in {"100644", "100755"}
+        if regular and _GIT_OBJECT_RE.fullmatch(oid) and size.isdigit():
+            entries[path] = _TreeBlob(mode=mode, oid=oid, size=int(size))
+    return entries
+
+
+def _c_quoted_path(path: str) -> bytes:
+    """One line of `hash-object --stdin-paths` input that Git unquotes to exactly ``path``."""
+
+    quoted = bytearray(b'"')
+    for byte in path.encode("utf-8"):
+        if byte in (0x22, 0x5C):
+            quoted += b"\\" + bytes([byte])
+        elif byte < 0x20 or byte == 0x7F:
+            quoted += b"\\%03o" % byte
+        else:
+            quoted.append(byte)
+    return bytes(quoted) + b'"\n'
+
+
+def _unfiltered_worktree_hashes(workspace: Path, paths: Sequence[str]) -> dict[str, str]:
+    """Each working-tree file's blob id as its bytes are, from one `hash-object`.
+
+    Empty when Git fails on any of them: its output then cannot be matched to
+    the paths with certainty.
+    """
+
+    if not paths:
+        return {}
+    output = _run_git_bounded_output(
+        workspace,
+        ["hash-object", "--no-filters", "--stdin-paths"],
+        max_output_bytes=(len(paths) + 1) * 72,
+        input=b"".join(_c_quoted_path(path) for path in paths),
+    )
+    if output is None:
+        return {}
+    hashes = output.decode("ascii", errors="replace").split()
+    if len(hashes) != len(paths) or not all(_GIT_OBJECT_RE.fullmatch(oid) for oid in hashes):
+        return {}
+    return dict(zip(paths, hashes, strict=True))
+
+
+def _paths_with_conversion_attributes(workspace: Path, paths: Sequence[str]) -> set[str] | None:
+    """The paths a `filter`, `ident` or `working-tree-encoding` attribute converts on checkout.
+
+    One `check-attr`. ``None`` when it could not be read.
+    """
+
+    output = _run_git_bounded_output(
+        workspace,
+        ["-c", "core.fsmonitor=false", "check-attr", "--stdin", "-z", *_CONVERSION_ATTRIBUTES],
+        max_output_bytes=_IDENTITY_LISTING_BYTES,
+        input=b"".join(path.encode("utf-8") + b"\0" for path in paths),
+    )
+    if output is None:
+        return None
+    fields = output.split(b"\0")
+    if fields and fields[-1] == b"":
+        fields.pop()
+    if len(fields) != 3 * len(_CONVERSION_ATTRIBUTES) * len(paths):
+        return None
+    wanted = {path.encode("utf-8"): path for path in paths}
+    converted: set[str] = set()
+    for index in range(0, len(fields), 3):
+        name, _attribute, value = fields[index : index + 3]
+        if name not in wanted:
+            return None
+        if value not in {b"unspecified", b"unset"}:
+            converted.add(wanted[name])
+    return converted
+
+
+def _blob_contents(workspace: Path, blobs: Sequence[_TreeBlob]) -> dict[str, bytes]:
+    """The bytes of each blob, from one bounded `cat-file --batch`; empty on any failure."""
+
+    if not blobs:
+        return {}
+    unique = list({blob.oid: blob for blob in blobs}.values())
+    output = _run_git_bounded_output(
+        workspace,
+        ["cat-file", "--batch"],
+        max_output_bytes=sum(blob.size + 128 for blob in unique),
+        input=b"".join(blob.oid.encode("ascii") + b"\n" for blob in unique),
+    )
+    if output is None:
+        return {}
+    contents: dict[str, bytes] = {}
+    offset = 0
+    for blob in unique:
+        header_end = output.find(b"\n", offset)
+        if header_end < 0:
+            return {}
+        header = output[offset:header_end].split()
+        start, end = header_end + 1, header_end + 1 + blob.size
+        if (
+            header != [blob.oid.encode("ascii"), b"blob", str(blob.size).encode("ascii")]
+            or output[end : end + 1] != b"\n"
+        ):
+            return {}
+        contents[blob.oid] = bytes(output[start:end])
+        offset = end + 1
+    return contents
+
+
+def _read_regular_file(target: Path) -> bytes | None:
+    """A working-tree file's bytes within the identity bound, never through a final link."""
+
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+        descriptor = os.open(target, flags)
+    except OSError:
+        return None
+    try:
+        with os.fdopen(descriptor, "rb") as handle:
+            data = handle.read(_IDENTITY_FILE_BYTES + 1)
+    except OSError:
+        return None
+    return data if len(data) <= _IDENTITY_FILE_BYTES else None
+
+
+def blob_path_identities(
+    workspace: Path, base: str, head: str | None, paths: Iterable[str]
+) -> dict[str, bool | None]:
+    """Whether each path's bytes are the same at ``base`` and ``head``, three ways (#812).
+
+    ``head=None`` means the working tree. Every path requested has an answer:
+
+    - ``True``: identical. The same regular-file blob on both sides, exactly
+      as :func:`blob_path_unchanged` proves it.
+    - ``False``: differs. Between commits, two regular-file blobs with
+      different object IDs. In the working tree, a regular file whose
+      unfiltered hash differs from the base blob, on a path no `filter`,
+      `ident` or `working-tree-encoding` attribute converts, and whose bytes
+      still differ from the base blob's once `CRLF` is read as `LF` on both
+      sides.
+    - ``None``: neither is shown. A difference a checkout conversion can make
+      (`eol=crlf`, `core.autocrlf`, which Git itself reports as no change), a
+      mode-only change, a path absent or not a regular file on either side, a
+      symlink or a symlinked parent, a file past the read bound, or any Git
+      failure. Callers must never read it as either answer.
+
+    No clean or smudge filter runs: a configured filter driver is a command
+    line, so a converted path is answered ``None`` rather than converted.
+    ``blob_path_unchanged`` is left as it is for ``unchanged_limits``, where
+    anything short of identity refuses.
+
+    The cost is bounded per call, not per path: one tree listing per commit,
+    one `hash-object --stdin-paths` and, only for paths whose hashes differ,
+    one `check-attr` and one `cat-file --batch`.
+    """
+
+    from pathlib import PurePosixPath
+
+    answers: dict[str, bool | None] = {}
+    wanted: list[str] = []
+    for path in dict.fromkeys(paths):
+        answers[path] = None
+        relative = PurePosixPath(path)
+        if (
+            not path
+            or relative.is_absolute()
+            or ".." in relative.parts
+            or "\\" in path
+            or "\0" in path
+        ):
+            continue
+        try:
+            path.encode("utf-8")
+        except UnicodeEncodeError:
+            continue
+        wanted.append(path)
+    if not wanted:
+        return answers
+    base_commit = commit_sha(workspace, base)
+    base_blobs = _regular_tree_blobs(workspace, base_commit, wanted) if base_commit else None
+    if base_blobs is None:
+        return answers
+    if head is not None:
+        head_commit = commit_sha(workspace, head)
+        head_blobs = _regular_tree_blobs(workspace, head_commit, wanted) if head_commit else None
+        if head_blobs is None:
+            return answers
+        for path in wanted:
+            before, after = base_blobs.get(path), head_blobs.get(path)
+            if before is None or after is None:
+                continue
+            if before == after:
+                answers[path] = True
+            elif before.oid != after.oid:
+                answers[path] = False
+        return answers
+
+    readable: list[str] = []
+    for path in wanted:
+        if path not in base_blobs:
+            continue
+        parts = PurePosixPath(path).parts
+        target = workspace / path
+        try:
+            parents = [workspace / Path(*parts[:index]) for index in range(1, len(parts))]
+            if (
+                any(parent.is_symlink() for parent in parents)
+                or target.is_symlink()
+                or not target.is_file()
+            ):
+                continue
+        except OSError:
+            continue
+        readable.append(path)
+    hashes = _unfiltered_worktree_hashes(workspace, readable)
+    differing: list[str] = []
+    for path in readable:
+        if path not in hashes:
+            continue
+        if hashes[path] == base_blobs[path].oid:
+            answers[path] = True
+        else:
+            differing.append(path)
+    if not differing:
+        return answers
+    converted = _paths_with_conversion_attributes(workspace, differing)
+    if converted is None:
+        return answers
+    compared: list[str] = []
+    total = 0
+    for path in differing:
+        size = base_blobs[path].size
+        if path in converted or size > _IDENTITY_FILE_BYTES or total + size > _IDENTITY_BATCH_BYTES:
+            continue
+        total += size
+        compared.append(path)
+    contents = _blob_contents(workspace, [base_blobs[path] for path in compared])
+    for path in compared:
+        before = contents.get(base_blobs[path].oid)
+        after = _read_regular_file(workspace / path)
+        if before is None or after is None:
+            continue
+        if before.replace(b"\r\n", b"\n") != after.replace(b"\r\n", b"\n"):
+            answers[path] = False
+    return answers
 
 
 def resolve_tree_path_identity(

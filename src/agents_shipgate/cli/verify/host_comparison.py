@@ -9,6 +9,7 @@ from pathlib import Path
 from agents_shipgate.cli.current_workspace import default_reports_dir
 from agents_shipgate.cli.verify.git import (
     archive_tree,
+    blob_path_identities,
     blob_path_unchanged,
     commit_sha,
     detect_default_base,
@@ -37,6 +38,7 @@ def compare_host_refs(
     out_dir: Path | None = None,
     redact_permission_arguments: bool = False,
     exclude_plugin_reference_limits: bool = False,
+    coverage: bool = True,
 ) -> HostComparison | None:
     """None means no host route, or an application manifest must still be gated.
 
@@ -51,6 +53,9 @@ def compare_host_refs(
     is dropped there; one only one side has, or one the change touched, still
     refuses the comparison. `diff` and `verify` keep every limit: they name a
     shared parse or shape limit on an unchanged source, and refuse otherwise.
+
+    ``coverage=False`` is for `check` too: its result carries no coverage, so
+    it asks no identity question it would discard (#812).
     """
     from agents_shipgate.cli.verify.orchestrator import (
         _safe_repository_identity,
@@ -123,10 +128,13 @@ def compare_host_refs(
             (before / config_relative).exists() or (after / config_relative).exists()
         ):
             return None
+        compared_head = head_commit if head is not None else None
+
         def unchanged(source: str) -> bool:
-            return blob_path_unchanged(
-                workspace, base_commit, head_commit if head is not None else None, source
-            )
+            return blob_path_unchanged(workspace, base_commit, compared_head, source)
+
+        def identities(paths):
+            return blob_path_identities(workspace, base_commit, compared_head, paths)
 
         base_snapshot = build_host_boundary_snapshot(before)
         head_snapshot = build_host_boundary_snapshot(after)
@@ -144,6 +152,8 @@ def compare_host_refs(
             head_commit=head_commit,
             redact_permission_arguments=redact_permission_arguments,
             unchanged=unchanged,
+            identities=identities,
+            coverage=coverage,
         )
         if identity() != captured_identity:
             raise ValueError("Host comparison inputs moved during the run")

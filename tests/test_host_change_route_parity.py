@@ -184,6 +184,13 @@ def test_6_covered_no_change_is_zero_rows_on_every_route(repo: Path) -> None:
     }.items():
         assert payload["comparison_status"] == "comparable", name
         assert payload["rows"] == [], name
+    # What the covered comparison established is the same object on the routes
+    # that publish it (#812); `check`'s boundary result has no field for it.
+    covered = _diff(repo, base="HEAD")["coverage"]
+    assert covered == _verify(repo, base="HEAD", head="HEAD")["coverage"]
+    assert {item["status"] for item in covered["items"]} == {"compared"}
+    assert not any(item["rows"] for item in covered["items"])
+    assert "coverage" not in _check(repo, base="HEAD", head="HEAD")
 
 
 def test_7_a_narrowing_is_named_and_never_marked_as_expanding(repo: Path) -> None:
@@ -209,6 +216,12 @@ def test_8_malformed_input_is_incomparable_on_every_route(repo: Path) -> None:
         assert payload["comparison_status"] == "incomparable", name
         assert payload["rows"] == [], name
         assert payload["incomparable_reasons"], name
+    # Both routes that publish coverage name the source behind the refusal (#812).
+    named = _diff(repo)["coverage"]
+    assert named == _verify(repo)["coverage"]
+    assert [(item["source"], item["status"], item["limit"], item["side"]) for item in named["items"]] == [
+        (".mcp.json", "blocking_limit", "parse_failed", "head")
+    ]
 
 
 def test_9_a_refused_boundary_link_names_its_refusal(repo: Path) -> None:

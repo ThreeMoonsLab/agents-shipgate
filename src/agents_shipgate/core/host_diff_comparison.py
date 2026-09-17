@@ -59,4 +59,7 @@ def compare_host_diff(workspace: Path, diff_text: str) -> HostComparison:
             build_host_boundary_snapshot(after).inventory,
             head_kind="provided_diff",
             redact_permission_arguments=True,
+            # `agent-result` keeps only the rows, reasons and status, so no
+            # coverage is built to be discarded (#812).
+            coverage=False,
         )

@@ -119,14 +119,12 @@ as data.
 
 ### 3. Read the answer
 
-The no-change, not-compared and cannot-compare answers below are from
-`agents-shipgate` `1.0.0`, installed from PyPI into a clean virtualenv and run
-on 2026-09-14 in a clone, outside any source checkout of this project. **The
-changes answer is not yet released:** it is from this repository's source tree,
-which still reports version `1.0.0`, run in the same kind of clone. The
-published `1.0.0` names the same changes as four rows, without the
-dispositions, the joined replacement, the MCP launch details, the review
-question and the reference lines. On the remote's `main`,
+**The answers below are not yet released:** they are from this repository's
+source tree, which still reports version `1.0.0`, run in a clone outside any
+source checkout of this project. The published `1.0.0` names the same changes
+as four rows, without the dispositions, the joined replacement, the MCP launch
+details, the review question and the reference lines, and none of its answers
+has the `What this run established` block. On the remote's `main`,
 `.claude/settings.json` allows `Bash(npm test:*)` and denies `Bash(rm -rf:*)`,
 and `.mcp.json` configures one server, `docs`. The PR branch allows
 `Bash(npm *)`, drops the denial, and adds a `billing` server.
@@ -160,6 +158,11 @@ Agent capability diff  origin/main (943fd29b) -> working tree
 
 3 change(s) from 4 rows, 3 widening what the agent may do (⚠).
 Static configuration only: this is what the files permit, not what the agent did. No verdict is implied.
+
+What this run established:
+  .claude/settings.json (claude-code): compared; 3 rows
+  .mcp.json (claude-code): compared; 1 row
+
 Review question: Does the team intend these 3 declared capability changes (from 4 rows)?
 Compared: base 943fd29b → working tree at HEAD 8982b16e, agents-shipgate 1.0.0.
 Reproduce in that working tree: agents-shipgate diff --base 943fd29b6e483d27ad9eb52c6d909357c9f2541b
@@ -170,7 +173,8 @@ replaced by the broader `allow: Bash(npm *)`, a lost `rm -rf` denial, a new
 `billing` server launched by a command named `npx` and given a
 `BILLING_TOKEN`), the evidence
 (the file and entry each change names, and the compared commits), the limit
-(static configuration, not observed behaviour) and the question to answer.
+(static configuration, not observed behaviour), which sources the rows came
+from, and the question to answer.
 The next action is theirs: ask for the narrower rule back, accept the change,
 or find out what `billing` exposes. The `Reproduce` line reads the same
 comparison again. The version on the `Compared` line records the build that
@@ -186,11 +190,49 @@ print the question without those lines.
 Agent capability diff  origin/main (ff8c5029) -> working tree
 
 No static host-grant changes detected. No verdict is implied.
+
+What this run established:
+  compared with no change in what this entry reads: .claude/settings.json, .mcp.json
 ```
 
 That answer covers the sources both sides read, within the
-[support matrix](host-boundary-support.md). It says nothing about the
+[support matrix](host-boundary-support.md), and `What this run established`
+names them. It says nothing about the
 [surfaces `diff` does not read](host-boundary-support.md#known-unread-surfaces).
+
+A zero-row answer is not always "no change". A file is listed as compared
+with no change only when its bytes are proven identical on both sides. When a
+file changed and no grant this entry compares changed — here the
+`ANTHROPIC_BASE_URL` value under `env` in `.claude/settings.json` points at
+another host, and `apiKeyHelper` or an MCP server's `env` value would read the
+same — there is still no row, and the block says the file changed instead of
+listing it as unchanged:
+
+```text
+What this run established:
+  .claude/settings.json (claude-code): compared; changed, but no grant this entry compares changed, so no row (redacted values such as env values and apiKeyHelper are not compared)
+```
+
+That line says only that no compared grant changed. It does not say which
+fields did: a reordered rule reads the same, and the values the inventory
+redacts are never compared, so read the file. Where the bytes can be neither
+proven identical nor shown to differ, such as a settings file read through a
+link, or a checkout that wrote it with `CRLF` line endings (`eol=crlf`, or
+`core.autocrlf=true` on Windows) while Git reports it unchanged, the line reads
+`no grant this entry compares changed, but the file was not proven unchanged`
+instead. Any other changed file with no row reads `changed, but no row is
+attributed to this path`: a plugin manifest whose `hooks` reference was added,
+retargeted or removed, whose rows are on the hook files it selects, or a
+settings link retargeted to another file.
+
+A source only one side read is named with its side, `read in base only` for a
+deleted file and `read in head only` for a new or untracked one such as
+`.claude/settings.local.json`, or for a hook file only the head's plugin
+configuration selects. A plugin manifest or marketplace is published only
+while it declares hooks, so it reads `published by head only` instead. The
+block lists only sources the comparison read or tried to read. A file this
+entry does not recognize is not in it, so its absence says nothing about that
+file.
 
 **Not compared.** A source the change did not touch, but that `diff` cannot
 read on either side, is listed before the answer rather than silently counted
@@ -204,6 +246,9 @@ Not compared: unchanged in this change and not read, so no claim is made about t
   cursor .cursor/mcp.json — parse_failed
 
 No static host-grant changes detected. No verdict is implied.
+
+What this run established:
+  compared with no change in what this entry reads: .claude/settings.json
 ```
 
 The no-change answer covers only the other sources; `--json` lists the skipped
@@ -215,9 +260,13 @@ leaves `.mcp.json` as truncated JSON:
 ```text
 Cannot compare against origin/main: head_inventory_incomplete
 This is an input limit, not a finding about the change. Nothing below is a claim that the change is safe.
+
+What this run established:
+  .mcp.json (claude-code): parse_failed in head, so the head inventory is incomplete
 ```
 
-This is not a pass. `--json` reports it as `comparison_status: "incomparable"`
+This is not a pass. The block names each source that left an inventory
+incomplete, its kind and its side; `--json` lists them in `coverage`. `--json` reports it as `comparison_status: "incomparable"`
 with the same `incomparable_reasons`. Repair the named side and run it again;
 never read the missing rows as no change.
 

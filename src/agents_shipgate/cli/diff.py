@@ -33,8 +33,9 @@ from agents_shipgate.core.host_grants import (
     build_host_boundary_snapshot,
 )
 
-# 0.2 adds `unchanged_limits` (#721).
-DIFF_SCHEMA_VERSION = "0.2"
+# 0.2 adds `unchanged_limits` (#721). 0.3 adds `coverage`, what the run
+# established about each source it read or could not read (#812).
+DIFF_SCHEMA_VERSION = "0.3"
 
 
 def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
@@ -232,6 +233,19 @@ def _render_table(changes: list[ReviewChange]) -> list[str]:
     return lines[:-1]
 
 
+def _echo_coverage(comparison) -> bool:
+    """Print "What this run established" after a blank line; true if anything printed (#812)."""
+
+    from agents_shipgate.report.host_comparison import coverage_lines
+
+    lines = coverage_lines(comparison, bullet="  ")
+    if lines:
+        typer.echo("")
+    for line in lines:
+        typer.echo(line)
+    return bool(lines)
+
+
 def run_capability_diff(
     *,
     workspace: Path,
@@ -269,7 +283,11 @@ def run_capability_diff(
             base_tree, cache=HostStaticParseCache()
         ).inventory
 
-    from agents_shipgate.cli.verify.git import blob_path_unchanged, commit_sha
+    from agents_shipgate.cli.verify.git import (
+        blob_path_identities,
+        blob_path_unchanged,
+        commit_sha,
+    )
     from agents_shipgate.core.host_comparison import compare_host_inventories
 
     # One comparison for diff, verify and check (#721). An unchanged partial or
@@ -282,6 +300,7 @@ def run_capability_diff(
         # Named in the text output's reference line only; `--json` keeps its keys.
         head_commit=commit_sha(workspace, "HEAD"),
         unchanged=lambda source: blob_path_unchanged(workspace, base_commit, None, source),
+        identities=lambda paths: blob_path_identities(workspace, base_commit, None, paths),
     )
     rows = list(comparison.rows)
     limits = [limit.model_dump(mode="json") for limit in comparison.unchanged_limits]
@@ -302,6 +321,11 @@ def run_capability_diff(
                     "incomparable_reasons": payload.get("incomparable_reasons") or [],
                     "rows": [row.as_dict() for row in rows],
                     "unchanged_limits": limits,
+                    "coverage": (
+                        comparison.coverage.model_dump(mode="json")
+                        if comparison.coverage is not None
+                        else None
+                    ),
                     "static_analysis_only": True,
                 },
                 indent=2,
@@ -319,6 +343,7 @@ def run_capability_diff(
             "This is an input limit, not a finding about the change. Nothing "
             "below is a claim that the change is safe."
         )
+        _echo_coverage(comparison)
         return 0
 
     typer.echo(
@@ -337,6 +362,7 @@ def run_capability_diff(
         typer.echo("")
     if not rows:
         typer.echo("No static host-grant changes detected. No verdict is implied.")
+        _echo_coverage(comparison)
         return 0
     from agents_shipgate.report.host_comparison import (
         comparison_reference_lines,
@@ -359,6 +385,8 @@ def run_capability_diff(
         "Static configuration only: this is what the files permit, not what "
         "the agent did. No verdict is implied."
     )
+    if _echo_coverage(comparison):
+        typer.echo("")
     typer.echo(review_question(changes))
     for line in comparison_reference_lines(comparison):
         typer.echo(line)

@@ -480,6 +480,8 @@ def check(
                 # an untouched source must not refuse it. One only one side
                 # carries still does, so no row is built from it (#714).
                 exclude_plugin_reference_limits=True,
+                # The boundary result carries no coverage (#812).
+                coverage=False,
             )
         except (OSError, ValueError, RuntimeError, ConfigError) as exc:
             comparison = HostComparison(
