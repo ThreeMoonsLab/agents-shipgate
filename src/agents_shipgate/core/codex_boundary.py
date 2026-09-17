@@ -145,6 +145,29 @@ _PARSE_FAILURE_RULE_IDS: frozenset[str] = frozenset(
 )
 _PARSEABLE_EVIDENCE_KINDS: frozenset[str] = frozenset({"unknown_host_config_key"})
 
+
+def parse_failure_kind_was_read(kind: object) -> bool:
+    """Whether a parse-failure row's evidence kind still means the file was read.
+
+    A file that parsed but set a key outside the host-boundary rule
+    allow-list was read in full; its row records the key and still owes
+    review. The band and publication predicates below ask this of every
+    parse-failure row. ``core.agent_boundary`` asks it before counting a row
+    as unread input for coverage, so a kind named here is never unread there
+    while it authorizes publication here. Coverage once counted that row as
+    unread while publication counted it as read, and ``check`` crashed on the
+    contradictory result (#810).
+
+    Coverage does not share the converse. It spots unread content by a
+    ``parse``/``unresolved`` substring in the kind, so a parse-failure row
+    whose kind says neither (``workflow_not_a_mapping``) is unread for
+    publication but leaves coverage complete. That direction withholds
+    publication, so it cannot produce the contradiction.
+    """
+
+    return kind in _PARSEABLE_EVIDENCE_KINDS
+
+
 # Trust-root classes that govern the gate itself: the declared surface and its
 # policy (``manifest``), the boundary policy (``policy``), the CI gate
 # (``ci_gate``), and the recorded baselines/waivers (``shipgate_state``).
@@ -775,7 +798,7 @@ def violations_within_agent_actionable_band(
             return False
         if (
             item.id in _PARSE_FAILURE_RULE_IDS
-            and item.evidence.get("kind") not in _PARSEABLE_EVIDENCE_KINDS
+            and not parse_failure_kind_was_read(item.evidence.get("kind"))
         ):
             return False
         if _governs_the_gate(item):
@@ -812,7 +835,7 @@ def boundary_assessment_is_evidence_backed(
             return False
         if (
             item.id in _PARSE_FAILURE_RULE_IDS
-            and item.evidence.get("kind") not in _PARSEABLE_EVIDENCE_KINDS
+            and not parse_failure_kind_was_read(item.evidence.get("kind"))
         ):
             return False
         if item.path and _touches_experimental_surface(item.path):

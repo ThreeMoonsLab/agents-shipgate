@@ -258,6 +258,19 @@ For local control, parse `shipgate.agent_boundary_result/v3` and switch on
 `control.state`. Review `input_coverage`, `host_coverage[]`, `affected_hosts[]`,
 `issues[]`, and `excluded_scopes[]` before relying on the result.
 
+`complete` coverage for a changed host file means the file was read, not that
+every key's meaning is modelled. A Claude Code or Cursor settings file that
+parses but sets a top-level key outside the host-boundary rule allow-list (for
+example `outputStyle`) is complete input; its
+`SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` row, with evidence kind
+`unknown_host_config_key` and the key's name, records the change and still owes
+review. Some keys outside that allow-list are modelled elsewhere: inventory and
+diff rows still describe `enabledPlugins` and `extraKnownMarketplaces` as
+plugin and marketplace grants, and `enableAllProjectMcpServers` as a
+permission-mode grant that approves project MCP servers, while the boundary
+rules only record the key. A file that could not be parsed or resolved is
+`partial` and never authorizes publication.
+
 When host inventory fails, `violations[].evidence.recovery` carries the observed
 read phase, reason and source, plus configured limits when a resource bound is
 known. The violation title and control explanation name the failed operation;
