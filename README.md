@@ -82,9 +82,10 @@ read, which is an input limit and never a quiet pass. Either of the first two
 can open with `Not compared:` and a list of sources the change did not touch
 and `diff` could not read; nothing is claimed about those. Every answer then
 says `What this run established`: which sources were compared and how many rows
-each gave, which changed only in fields this entry does not read (so a zero-row
-`env` edit is not mistaken for no change), which changed with no row attributed
-to them, which only one side read or published, and, when
+each gave, which changed with no compared grant changing (so a zero-row `env`
+or `apiKeyHelper` edit is not mistaken for no change: a file is unchanged only
+when its bytes are), which changed with no row attributed to them, which only
+one side read or published, and, when
 the comparison was refused, which source left an inventory incomplete. The
 entries are for a reviewer to act on, not merge authority: each names the rule
 with its disposition, a replaced rule's before and after, and an MCP server's

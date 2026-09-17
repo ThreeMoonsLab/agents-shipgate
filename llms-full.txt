@@ -1608,8 +1608,10 @@ The same unreleased contract says what each host comparison established
 (#812): verifier `0.20` adds `host_comparison.coverage`, and
 `shipgate diff --json` (capability diff `0.3`) the same block: a capped list of sources with
 their `side` (`base`, `head`, `both`), a `status` (`compared` with its `rows`,
-`unread_fields_changed`, `changed_without_rows`, or on an incomparable result
-`blocking_limit` with its `limit` kind) and `omitted_items`. It is evidence beside the rows; it moves no
+zero on both sides only for a file proven byte-identical,
+`changed_without_grant_change`, `changed_without_rows`, `unchanged_not_proven`,
+or on an incomparable result `blocking_limit` with its `limit` kind) and
+`omitted_items`. It is evidence beside the rows; it moves no
 row, reason, control state, permission or next action, and `null` means not
 recorded. A `0.19` verifier reads with `coverage: null`. See
 [the migration note](../STABILITY.md#host-comparison-coverage-812).

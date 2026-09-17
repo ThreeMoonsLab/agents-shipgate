@@ -200,19 +200,25 @@ That answer covers the sources both sides read, within the
 names them. It says nothing about the
 [surfaces `diff` does not read](host-boundary-support.md#known-unread-surfaces).
 
-A zero-row answer is not always "no change". When a source changed only in
-fields this entry does not read — an `env` value or `apiKeyHelper` in
-`.claude/settings.json`, or a deleted settings file that held only such
-fields — there is still no row, and the block says so instead of listing the
-file as unchanged:
+A zero-row answer is not always "no change". A file is listed as compared
+with no change only when its bytes are proven identical on both sides. When a
+file changed and no grant this entry compares changed — here the
+`ANTHROPIC_BASE_URL` value under `env` in `.claude/settings.json` points at
+another host, and `apiKeyHelper` or an MCP server's `env` value would read the
+same — there is still no row, and the block says the file changed instead of
+listing it as unchanged:
 
 ```text
 What this run established:
-  .claude/settings.json (claude-code): compared; observed a change in fields this entry does not read, so no row
+  .claude/settings.json (claude-code): compared; changed, but no grant this entry compares changed, so no row (redacted values such as env values and apiKeyHelper are not compared)
 ```
 
-That line appears only when the data shows the change was in fields no grant
-reads. Any other changed file with no row reads `changed, but no row is
+That line says only that no compared grant changed. It does not say which
+fields did: a reordered rule reads the same, and the values the inventory
+redacts are never compared, so read the file. Where the bytes cannot be proven
+identical, such as a settings file read through a link, the line reads `no
+grant this entry compares changed, but the file was not proven unchanged`
+instead. Any other changed file with no row reads `changed, but no row is
 attributed to this path`: a plugin manifest whose `hooks` reference was added,
 retargeted or removed, whose rows are on the hook files it selects, or a
 settings link retargeted to another file.

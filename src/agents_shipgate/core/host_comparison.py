@@ -13,6 +13,7 @@ from agents_shipgate.core.boundary_registry import (
 from agents_shipgate.core.capability_diff_rows import capability_diff_rows
 from agents_shipgate.core.host_grants import (
     _CLAUDE_PROJECT_SETTINGS_SOURCES,
+    _PATH_REDACTION_MARKER,
     build_host_comparison_payload,
     build_host_drift_payload,
     build_host_grants_baseline,
@@ -103,18 +104,21 @@ def unchanged_limits(
 
 #: Coverage order (#812): what refused the comparison, then sources with rows,
 #: then changes no row describes, then sources only one side published, then
-#: sources compared with no change. The cap keeps a prefix of this order.
+#: sources not proven unchanged, then sources compared with no change. The cap
+#: keeps a prefix of this order.
 def _coverage_rank(item: dict[str, Any]) -> tuple[int, str, str, str]:
     if item["status"] == "blocking_limit":
         rank = 0
     elif item["rows"]:
         rank = 1
-    elif item["status"] in {"unread_fields_changed", "changed_without_rows"}:
+    elif item["status"] in {"changed_without_grant_change", "changed_without_rows"}:
         rank = 2
     elif item["side"] != "both":
         rank = 3
-    else:
+    elif item["status"] == "unchanged_not_proven":
         rank = 4
+    else:
+        rank = 5
     return (rank, item["source"], item["side"], str(item.get("limit")))
 
 
@@ -205,24 +209,31 @@ def _file_of(source: str, files: set[str]) -> str:
     return source
 
 
-def _only_unread_fields_changed(
+def _no_grant_change_shown(
     host: str, path: str, changes: list[dict[str, Any]], *, hook_basis_changed: bool
 ) -> bool:
-    """Whether a changed file that gives no row changed only in fields no grant reads (#812).
+    """Whether the data shows that a changed file with no row moved no grant this entry compares (#812).
 
-    True only when the published data shows it:
+    ``changes`` are the file's artifact changes. None means its bytes differ
+    while its published artifact did not change, as for an edited ``env``
+    value or ``apiKeyHelper``, whose values the artifact digest redacts. True
+    only when the published data shows it:
 
     - The file's artifact digests the whole file. A plugin manifest or a
       marketplace publishes only its hooks, and only while it declares them,
       and the grants it selects are published under the hook files; a path
       with `#` is a projection of a file.
-    - One artifact changed, and every side that has it parsed it. When both
-      sides have it, nothing but that digest differs: a retargeted link
+    - At most one artifact changed, and every side that has it parsed it. When
+      both sides have it, nothing but that digest differs: a retargeted link
       (`resolved_through`), a parse status or an instruction structure is
       something this entry reads.
     - It is not a Claude Code project settings file while a hook's loading
       basis changed. Those settings decide which plugin hooks load, and that
       change is published on the hook file's grant, not on the settings file.
+
+    It never says which fields changed: the digest also moves when rules are
+    reordered or repeated, which changes no grant, and the change may be in
+    fields a grant reads.
     """
 
     if (
@@ -234,9 +245,11 @@ def _only_unread_fields_changed(
             and host == "claude-code"
             and path in _CLAUDE_PROJECT_SETTINGS_SOURCES
         )
-        or len(changes) != 1
+        or len(changes) > 1
     ):
         return False
+    if not changes:
+        return True
     before, after = changes[0].get("baseline"), changes[0].get("current")
     present = [artifact for artifact in (before, after) if artifact is not None]
     if not present or any(artifact.get("parse_status") != "parsed" for artifact in present):
@@ -253,17 +266,28 @@ def _compared_coverage(
     after: dict[str, Any],
     payload: dict[str, Any],
     limits: list[dict[str, str]],
+    unchanged: Callable[[str], bool] | None,
 ) -> HostComparisonCoverage:
     """What a comparable comparison established about each source it read (#812).
 
     Read off the payload the rows were projected from and the two inventories.
     A file's rows are the grant changes it publishes, including those of a
     source inside it. The side is which inventories published the file, as
-    an artifact or as the file of a grant. A changed artifact that gives no
-    row is ``unread_fields_changed`` only where
-    :func:`_only_unread_fields_changed` shows it, and otherwise
-    ``changed_without_rows``. A source named as an unchanged limit is already
-    published there and is not repeated.
+    an artifact or as the file of a grant. A changed file that gives no row is
+    ``changed_without_grant_change`` only where :func:`_no_grant_change_shown`
+    shows it, and otherwise ``changed_without_rows``. A source named as an
+    unchanged limit is already published there and is not repeated.
+
+    A file both sides read that gives no row and whose artifact did not change
+    is ``compared`` only when ``unchanged`` proves its bytes identical. The
+    artifact digest redacts values such as ``env`` values and
+    ``apiKeyHelper``, so an equal digest is not an unchanged file. When
+    ``unchanged`` does not prove it, the file changed. When the proof cannot
+    be asked, the file is ``unchanged_not_proven``, never no change: there is
+    no ``unchanged`` (a provided diff), the published path is redacted and so
+    names no file, the read followed a link (``resolved_through``), or no
+    artifact publishes the source on both sides. The proof is private to this
+    function; only the status is published.
     """
 
     files: dict[str, set[str]] = {}
@@ -286,7 +310,7 @@ def _compared_coverage(
     rows: dict[tuple[str, str], int] = {}
     hook_basis_changed = False
     #: Hosts with a row from inside a file no published file could be named
-    #: for: no file on such a host is said to have changed only unread fields.
+    #: for: no file on such a host is said to have changed no compared grant.
     unattributed: set[str] = set()
     for change in payload.get("changes") or []:
         grant = change.get("current") or change.get("baseline")
@@ -310,6 +334,32 @@ def _compared_coverage(
             changed.setdefault(key, []).append(change)
     base, head = observed(before), observed(after)
     named = {(limit["host"], limit["source"]) for limit in limits}
+    published: list[dict[tuple[str, str], list[dict[str, Any]]]] = []
+    for inventory in (before, after):
+        by_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        for artifact in inventory.get("artifacts", []):
+            by_key.setdefault((str(artifact["host"]), str(artifact["path"])), []).append(artifact)
+        published.append(by_key)
+    proofs: dict[str, bool] = {}
+
+    def identical(key: tuple[str, str]) -> bool | None:
+        """Whether the file's bytes are proven identical; ``None`` when the proof cannot be asked."""
+
+        path = key[1]
+        read = [by_key.get(key, []) for by_key in published]
+        if (
+            unchanged is None
+            or not all(read)
+            or any(artifact.get("resolved_through") for side in read for artifact in side)
+            or _PATH_REDACTION_MARKER.search(path)
+            or _REDACTION_DIGEST.search(path)
+        ):
+            return None
+        if path not in proofs:
+            # One proof per file, however many hosts read it.
+            proofs[path] = bool(unchanged(path))
+        return proofs[path]
+
     facts: dict[tuple[str, str, str, str | None], dict[str, Any]] = {}
     for key in sorted(base | head | set(rows)):
         if key in named and not rows.get(key):
@@ -317,12 +367,17 @@ def _compared_coverage(
         host, source = key
         side = "both" if key in base and key in head else "base" if key in base else "head"
         count = rows.get(key, 0)
-        if count or key not in changed:
+        # Only a zero-row file both sides read with an unchanged artifact asks
+        # for the proof; one side only is an added or removed file.
+        same = identical(key) if not count and key not in changed and side == "both" else True
+        if count or (key not in changed and same):
             status = "compared"
-        elif host not in unattributed and _only_unread_fields_changed(
-            host, source, changed[key], hook_basis_changed=hook_basis_changed
+        elif same is None:
+            status = "unchanged_not_proven"
+        elif host not in unattributed and _no_grant_change_shown(
+            host, source, changed.get(key, []), hook_basis_changed=hook_basis_changed
         ):
-            status = "unread_fields_changed"
+            status = "changed_without_grant_change"
         else:
             status = "changed_without_rows"
         # A source with rows and one without never merge, so a count is never
@@ -345,12 +400,15 @@ def compare_host_inventories(
     head_commit=None,
     redact_permission_arguments: bool = False,
     unchanged: Callable[[str], bool] | None = None,
+    coverage: bool = True,
 ) -> HostComparison:
     """Compare two inventories, refusing unless every limit is proven unchanged.
 
     ``unchanged`` answers whether one repository-relative source is identical
     on both sides. Without it, an incomplete inventory refuses the comparison
-    as it always has.
+    as it always has, and coverage calls no zero-row file unchanged. A caller
+    that publishes no coverage (`check`) passes ``coverage=False``: none is
+    recorded and no identity proof is asked for it.
     """
 
     reasons: list[str] = []
@@ -381,10 +439,12 @@ def compare_host_inventories(
     # What the run established, from the facts above and nothing else (#812).
     # It stays on the comparison: it is not an input to the inventory digests,
     # a saved baseline or the rows.
-    coverage = (
-        _blocking_coverage(before, after)
+    established = (
+        None
+        if not coverage
+        else _blocking_coverage(before, after)
         if reasons
-        else _compared_coverage(before, after, payload, limits)
+        else _compared_coverage(before, after, payload, limits, unchanged)
     )
     return HostComparison(
         comparison_status="incomparable" if reasons else "comparable",
@@ -401,5 +461,5 @@ def compare_host_inventories(
             payload, redact_permission_arguments=redact_permission_arguments
         ),
         unchanged_limits=limits,
-        coverage=coverage,
+        coverage=established,
     )

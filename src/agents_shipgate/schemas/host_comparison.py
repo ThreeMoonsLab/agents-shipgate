@@ -51,18 +51,29 @@ class HostComparisonCoverageItem(BaseModel):
 
     - ``compared``: the source was read, and ``rows`` of the published rows
       come from it, including rows of a source inside the file such as a
-      Codex profile (``<file>#profiles.<name>``). ``0`` means no change in
-      what this entry reads — not that every field in the file was understood.
-    - ``unread_fields_changed``: a file whose artifact digests the whole file
-      changed, every side that has it parsed it, nothing but that digest
-      differs, and no grant this entry reads from it changed, so it gives no
-      row. Never a plugin manifest or marketplace, a retargeted link, or a
+      Codex profile (``<file>#profiles.<name>``). With ``0`` rows on ``both``
+      sides, the file's bytes were proven identical on both sides. With ``0``
+      rows on one side, the file declares no grant this entry compares and its
+      artifact did not change, as for a new guidance-only instruction file.
+    - ``changed_without_grant_change``: the file changed, it gives no row, and
+      the published data shows no grant this entry compares moved: its
+      artifact digests the whole file, every side that has it parsed it, and
+      nothing but that digest differs, or its bytes differ while its artifact
+      did not, as for an edited ``env`` value or ``apiKeyHelper``, whose values
+      the digest redacts and the comparison never compares. It does not say
+      which fields changed: reordering or repeating a rule moves the digest
+      too. Never a plugin manifest or marketplace, a retargeted link, or a
       Claude Code project settings file while a hook's loading basis changed.
-    - ``changed_without_rows``: the source's published artifact changed and no
-      row is attributed to it, but the data does not show the change was in
-      fields no grant reads: a plugin manifest or marketplace ``hooks``
-      reference (its rows are published under the hook files it selects), a
-      retargeted link, or a parse or instruction-structure change.
+    - ``changed_without_rows``: the file changed and no row is attributed to
+      it, but the data does not show that no compared grant moved: a plugin
+      manifest or marketplace (its ``hooks`` rows are published under the hook
+      files it selects), a retargeted link, a parse or instruction-structure
+      change, or project settings while a hook's loading basis changed.
+    - ``unchanged_not_proven``: both sides read the file, it gives no row and
+      its artifact did not change, but its bytes could not be proven
+      identical, so a change in a value the artifact redacts would not show.
+      A provided diff, a link read, a redacted path or a source no artifact
+      publishes on both sides cannot be proven. Never read as no change.
     - ``blocking_limit``: an incomparable comparison, and this source carries
       a blocking inventory issue of kind ``limit`` on ``side``.
 
@@ -80,7 +91,13 @@ class HostComparisonCoverageItem(BaseModel):
     source: str
     hosts: list[str] = Field(min_length=1)
     side: Literal["base", "head", "both"]
-    status: Literal["compared", "unread_fields_changed", "changed_without_rows", "blocking_limit"]
+    status: Literal[
+        "compared",
+        "changed_without_grant_change",
+        "changed_without_rows",
+        "unchanged_not_proven",
+        "blocking_limit",
+    ]
     rows: int = Field(default=0, ge=0)
     limit: CoverageLimitKind | None = None
     detail: str | None = None
@@ -95,8 +112,14 @@ class HostComparisonCoverageItem(BaseModel):
                 raise ValueError("a blocking limit names its kind and publishes no rows")
         elif self.limit is not None or self.detail is not None:
             raise ValueError("only a blocking limit names a limit kind or detail")
-        if self.status in {"unread_fields_changed", "changed_without_rows"} and self.rows:
-            raise ValueError("a change with no row attributed publishes no rows")
+        if (
+            self.status
+            in {"changed_without_grant_change", "changed_without_rows", "unchanged_not_proven"}
+            and self.rows
+        ):
+            raise ValueError("a source with no row attributed publishes no rows")
+        if self.status == "unchanged_not_proven" and self.side != "both":
+            raise ValueError("only a source both sides read can be unproven unchanged")
         return self
 
 
@@ -104,9 +127,10 @@ class HostComparisonCoverage(BaseModel):
     """The capped list of what a comparison established, source by source (#812).
 
     ``None`` on :class:`HostComparison` means coverage was not recorded — a
-    verifier from before schema ``0.20``, or a comparison that never read an
-    inventory. An empty ``items`` list with ``omitted_items == 0`` means the
-    comparison read no source it could name.
+    verifier from before schema ``0.20``, a comparison that never read an
+    inventory, or a caller that publishes none (`check`). An empty ``items``
+    list with ``omitted_items == 0`` means the comparison read no source it
+    could name.
     """
 
     model_config = ConfigDict(extra="forbid")

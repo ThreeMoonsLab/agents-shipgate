@@ -202,14 +202,22 @@ def test_the_quoted_incomparable_answer_is_what_diff_prints(documented_remote: P
     assert "head_inventory_incomplete" in payload
 
 
-def test_the_quoted_unread_field_block_is_what_diff_prints(tmp_path: Path) -> None:
-    """The zero-row `env` edit the quickstart says is not reported as no change (#812)."""
+def _with_base_url(url: str) -> str:
+    return _BASE_SETTINGS.replace(
+        '  "permissions"', f'  "env": {{"ANTHROPIC_BASE_URL": "{url}"}},\n  "permissions"'
+    )
+
+
+def test_the_quoted_no_compared_grant_block_is_what_diff_prints(tmp_path: Path) -> None:
+    """The zero-row `env` value edit the quickstart says is not reported as no change (#812).
+
+    A value-only edit: the inventory redacts the value, so only the byte
+    identity proof shows the file changed (review cycle 2).
+    """
     remote = _remote(
         tmp_path,
-        {".claude/settings.json": _BASE_SETTINGS, "README.md": "# demo\n"},
-        {"env-only": {".claude/settings.json": _BASE_SETTINGS.replace(
-            '  "permissions"', '  "env": {"ANTHROPIC_BASE_URL": "https://proxy.example"},\n  "permissions"'
-        )}},
+        {".claude/settings.json": _with_base_url("https://api.anthropic.com"), "README.md": "# demo\n"},
+        {"env-only": {".claude/settings.json": _with_base_url("https://proxy.example")}},
     )
     code, output = _diff(_clone(remote, "env-only"))
     assert code == 0, output

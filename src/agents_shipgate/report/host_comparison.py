@@ -115,18 +115,35 @@ def _side_text(item: HostComparisonCoverageItem) -> str:
     return f"read in {item.side} only"
 
 
+#: What a zero-row line cannot show: the inventory redacts these values, so no
+#: comparison compares them (#812).
+_REDACTED_VALUES = "(redacted values such as env values and apiKeyHelper are not compared)"
+
+
 def coverage_item_text(item: HostComparisonCoverageItem) -> str:
     """One item's finding, in words a reviewer reads without the schema (#812)."""
 
     if item.status == "blocking_limit":
         return f"{item.limit} {_SIDE_LIMIT[item.side]}"
-    if item.status == "unread_fields_changed":
-        finding = "observed a change in fields this entry does not read, so no row"
+    if item.status == "changed_without_grant_change":
+        # One side only is an added or removed file: it declares no compared grant.
+        change = (
+            "changed, but no grant this entry compares changed"
+            if item.side == "both"
+            else "declares no grant this entry compares"
+        )
+        finding = f"{change}, so no row {_REDACTED_VALUES}"
+    elif item.status == "unchanged_not_proven":
+        finding = (
+            "no grant this entry compares changed, but the file was not proven "
+            f"unchanged {_REDACTED_VALUES}"
+        )
     elif item.status == "changed_without_rows":
         finding = "changed, but no row is attributed to this path"
     elif item.rows:
         finding = f"{item.rows} row{'s' if item.rows != 1 else ''}"
     elif item.side == "both":
+        # Only a file whose bytes were proven identical on both sides.
         finding = "no change in what this entry reads"
     else:
         # Only an instruction file the engine reads as guidance: it declares
@@ -145,7 +162,7 @@ MARKDOWN_COVERAGE_MAX_CHARS = 2000
 
 
 def _quiet(item: HostComparisonCoverageItem) -> bool:
-    """Compared on both sides with no change: the one kind the text collapses."""
+    """Proven byte-identical on both sides: the one kind the text collapses."""
 
     return item.status == "compared" and not item.rows and item.side == "both"
 
@@ -160,9 +177,9 @@ def coverage_lines(
     """The "What this run established" block (#812).
 
     One line per item a reviewer must read — a blocking limit, a source with
-    rows, a change no row describes, a source only one side published — then
-    one line naming the sources compared with no change, the first three by
-    name and the rest as a count. Coverage items are a prefix of that order, so
+    rows, a change no row describes, a source only one side published, a
+    source not proven unchanged — then one line naming the sources proven
+    unchanged, the first three by name and the rest as a count. Coverage items are a prefix of that order, so
     when the last one listed is such a source, every item the cap omitted is
     one too; otherwise the omitted count is stated as items not listed.
 
