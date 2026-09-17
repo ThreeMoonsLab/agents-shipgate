@@ -373,7 +373,7 @@ NOT_A_DISTRIBUTION_SURFACE: dict[str, str] = {
     "constraints": "hash-locked dependency pins",
     "hatch_build.py": "build-only source provenance producer; no runtime engine answer, covered by tests/test_wheel_candidate_build.py",
     "llms-full.txt": "generated agent-discovery text, pinned by tests/test_public_surface_contract.py",
-    "llms.txt": "generated agent-discovery text, pinned by tests/test_public_surface_contract.py",
+    "llms.txt": "hand-maintained agent-discovery text (only llms-full.txt is generated), pinned by tests/test_public_surface_contract.py",
     "pyproject.toml": "packaging",
     "samples": "fixture workspaces the engine is run against, not surfaces that answer",
     "shipgate": "the repository launcher",

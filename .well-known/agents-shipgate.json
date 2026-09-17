@@ -34,7 +34,11 @@
     "GitHub Action for AI agents",
     "AI-generated PR review",
     "agent capability merge verdict",
-    "deterministic merge verdict"
+    "deterministic merge verdict",
+    "coding agent configuration review",
+    "Claude Code permission changes",
+    "MCP server config changes",
+    "GitHub workflow permission changes"
   ],
   "recommended_github_topics": [
     "ai-agents",
@@ -56,6 +60,7 @@
     "coding_agents"
   ],
   "when_to_use": [
+    "Reviewing a PR that changes declared coding-agent configuration (.claude/settings.json, .mcp.json, hooks, Codex, Cursor or VS Code MCP config, GitHub workflow permissions): agents-shipgate diff, with no shipgate.yaml, baseline or skill; static, names recognized sources it could not read, says nothing about surfaces it does not read such as hook scripts or subagent hooks (docs/host-boundary-support.md#known-unread-surfaces), implies no verdict",
     "AI-generated agent PRs from Codex, Claude Code, Cursor, or similar tools",
     "AI agent tool-surface changes",
     "MCP or OpenAPI surface changes",
