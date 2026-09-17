@@ -3897,7 +3897,9 @@ rule.
 An added rule that an allow rule the file already had covers grants nothing
 new and does not fire (#661). `Bash(npm:*)` and `Bash(npm *)` are two
 spellings of one rule, which also allows the bare `npm`, so replacing either
-with `Bash(npm test:*)` or `Bash(npm test)` does not fire (#816).
+with `Bash(npm test:*)` or `Bash(npm test)` does not fire (#816). The space
+before the star is part of the rule, so `Bash(npm run test:*)` does not cover
+`npm run test:unit`: adding that command fires.
 
 ### SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED
 

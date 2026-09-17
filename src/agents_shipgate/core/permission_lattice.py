@@ -80,8 +80,12 @@ def _same_tool(left: Rule, right: Rule) -> bool:
 #: the end of a pattern; and that a trailing ` *`, when it is the rule's only
 #: wildcard, also matches the bare command. Read as text instead, `npm:*` was
 #: the prefix `npm:`, which `npm test:*` does not extend, so a narrowing was
-#: reported as a new permission. `WebFetch(domain:*)` is a different syntax
-#: whose colon is part of the argument, and stays literal.
+#: reported as a new permission. The same page says the space before a
+#: trailing `*` is part of the rule, so `Bash(npm run test:*)`, which is
+#: `Bash(npm run test *)`, does not match `npm run test:unit`: the text
+#: prefix `npm run test:` used to cover it, and no longer does.
+#: `WebFetch(domain:*)` is a different syntax whose colon is part of the
+#: argument, and stays literal.
 _SHELL_TOOL = "bash"
 
 

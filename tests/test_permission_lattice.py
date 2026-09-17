@@ -689,6 +689,45 @@ class TestColonStarSpelling:
         assert subsumes("Bash(npm*)", "Bash(npm:*)") is True
         assert subsumes("Bash(npm:*)", "Bash(npm*)") is False
 
+    @pytest.mark.parametrize(
+        ("rule", "command"),
+        [
+            ("Bash(npm run test:*)", "Bash(npm run test:unit)"),
+            ("Bash(bundle exec rake db:*)", "Bash(bundle exec rake db:migrate)"),
+        ],
+    )
+    def test_a_word_the_command_continues_with_a_colon_is_not_covered(
+        self, rule: str, command: str
+    ) -> None:
+        """`npm run test:*` is `npm run test *`, and the space is part of the
+        rule, so `npm run test:unit` is not under it. Read as text before
+        #816, the prefix `npm run test:` covered it. The two rules are
+        incomparable, so neither direction is claimed; the space spelling
+        answered this way already, and `npm run test*` still covers it."""
+
+        assert subsumes(rule, command) is False
+        assert subsumes(command, rule) is False
+        assert subsumes(rule.replace(":*)", " *)"), command) is False
+        assert subsumes(rule.replace(":*)", "*)"), command) is True
+
+    def test_replacing_a_colon_star_rule_with_a_colon_continued_command_is_an_addition(
+        self, tmp_path: Path
+    ) -> None:
+        """The command was not allowed at the base, so it keeps its add
+        signal; the reverse edit keeps its add signal but is no longer named
+        `permission_widened`, because the rules are incomparable."""
+
+        rule, command = "Bash(npm run test:*)", "Bash(npm run test:unit)"
+        narrow = _claude_inventory(tmp_path / "command", (command,))
+        wide = _claude_inventory(tmp_path / "rule", (rule,))
+
+        assert _drift(wide, narrow)["expansion_signals"] == [
+            f"allow_rule_added: claude-code:{command}"
+        ]
+        assert _drift(narrow, wide)["expansion_signals"] == [
+            f"allow_rule_added: claude-code:{rule}"
+        ]
+
     def test_two_spellings_of_one_rule_are_neither_wider(self) -> None:
         """Equivalent, so no direction is claimed either way. Rewriting one
         spelling into the other is still a removal and an addition, and the
@@ -849,6 +888,25 @@ class TestMovedRulePairing:
         assert signals == [
             "allow_rule_added: claude-code:Bash(git log *)",
             "deny_rule_removed: claude-code:Bash(git log *)",
+        ]
+
+    def test_a_moved_rule_wider_than_the_rule_that_left_is_added_not_named(
+        self, tmp_path: Path
+    ) -> None:
+        """`Bash(git *)` was denied at the base and replaces the only allow
+        rule. It is set aside like any moved rule, so it keeps its add and
+        deny-removal signals but is no longer named `permission_widened`
+        (#816): the widening still surfaces, unnamed."""
+
+        signals = self._signals(
+            tmp_path,
+            {"allow": ["Bash(git status *)"], "deny": ["Bash(git *)"]},
+            {"allow": ["Bash(git *)"]},
+        )
+
+        assert signals == [
+            "allow_rule_added: claude-code:Bash(git *)",
+            "deny_rule_removed: claude-code:Bash(git *)",
         ]
 
     def test_text_that_only_resembles_a_moved_rule_is_not_one(self, tmp_path: Path) -> None:

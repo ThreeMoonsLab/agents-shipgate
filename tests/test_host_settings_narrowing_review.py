@@ -133,6 +133,18 @@ REVIEWED = {
         {"permissions": {"allow": ["Bash(npm test:*)"]}},
         {"permissions": {"allow": ["Bash(npm:*)"]}},
     ),
+    # `npm run test:*` is `npm run test *`, whose space is part of the rule
+    # (#816), so a command continuing `test` with a colon is new authority.
+    "colon-star rule replaced by a colon-continued command": (
+        CLAUDE,
+        {"permissions": {"allow": ["Bash(npm run test:*)"]}},
+        {"permissions": {"allow": ["Bash(npm run test:unit)"]}},
+    ),
+    "colon-continued command added beside a colon-star rule": (
+        CLAUDE,
+        {"permissions": {"allow": ["Bash(npm run test:*)"]}},
+        {"permissions": {"allow": ["Bash(npm run test:*)", "Bash(npm run test:unit)"]}},
+    ),
     "a rule moved from deny beside a narrowing": (
         CLAUDE,
         {"permissions": {"allow": ["Bash(git status *)"], "deny": ["Bash(git log *)"]}},

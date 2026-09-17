@@ -10,7 +10,10 @@ the base commit.
 * `colon`: `Bash(npm:*)` -> `Bash(npm test:*)`. Claude Code documents a trailing
   `:*` as another spelling of a trailing ` *`
   (https://code.claude.com/docs/en/permissions#wildcard-patterns), so this is
-  the same narrowing as `space`, and must read the same.
+  the same narrowing as `space`, and must read the same. The same page makes
+  the space before the star part of the rule, so a command that continues
+  the last word with a colon (`npm run test:unit`) is not under
+  `Bash(npm run test:*)`: adding it is an expansion (`colon_word_continued`).
 * `moved`: `Bash(git log *)` moves from `deny` to `allow` in the edit that
   narrows `Bash(git status *)`. The move is a widening; the narrowing is not.
   A rule moved out of `allow` that is the only allow rule to leave is the rule
@@ -125,6 +128,39 @@ CASES = {
             "permission_widened: claude-code:Bash(npm test:*) -> Bash(npm:*)",
         ],
     ),
+    # The space before the star is part of the rule, so `npm run test:*`
+    # (`npm run test *`) does not cover `npm run test:unit`. Read as text,
+    # the prefix `npm run test:` did, and this was "2 change(s)." and
+    # `allow` with `host_settings_narrowed`. The command is new authority.
+    "colon_word_continued": (
+        {"permissions": {"allow": ["Bash(npm run test:*)"]}},
+        {"permissions": {"allow": ["Bash(npm run test:unit)"]}},
+        [("added", "Bash(npm run test:unit)", True), ("removed", "Bash(npm run test:*)", False)],
+        1,
+        "require_review",
+        ["SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED"],
+        ["allow_rule_added: claude-code:Bash(npm run test:unit)"],
+    ),
+    "colon_word_continued_beside": (
+        {"permissions": {"allow": ["Bash(npm run test:*)"]}},
+        {"permissions": {"allow": ["Bash(npm run test:*)", "Bash(npm run test:unit)"]}},
+        [("added", "Bash(npm run test:unit)", True)],
+        1,
+        "require_review",
+        ["SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED"],
+        ["allow_rule_added: claude-code:Bash(npm run test:unit)"],
+    ),
+    # The reverse keeps its warning and decision, but the rules are
+    # incomparable now, so it is no longer named `permission_widened`.
+    "colon_word_continued_reversed": (
+        {"permissions": {"allow": ["Bash(npm run test:unit)"]}},
+        {"permissions": {"allow": ["Bash(npm run test:*)"]}},
+        [("added", "Bash(npm run test:*)", True), ("removed", "Bash(npm run test:unit)", False)],
+        1,
+        "require_review",
+        ["SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED"],
+        ["allow_rule_added: claude-code:Bash(npm run test:*)"],
+    ),
     # The space spelling and a mixed pair answer as they did before #816.
     "space": (
         {"permissions": {"allow": ["Bash(npm *)"]}},
@@ -225,6 +261,27 @@ CASES = {
         [
             "allow_rule_added: claude-code:Bash(git log *)",
             "deny_rule_removed: claude-code:Bash(git log *)",
+        ],
+    ),
+    # A moved-in rule wider than the allow rule that left keeps both warnings
+    # and the decision, but is no longer named `permission_widened`.
+    "moved_in_wider_than_removed_allow": (
+        {"permissions": {"allow": ["Bash(git status *)"], "deny": ["Bash(git *)"]}},
+        {"permissions": {"allow": ["Bash(git *)"]}},
+        [
+            ("added", "Bash(git *)", True),
+            ("removed", "Bash(git *)", True),
+            ("removed", "Bash(git status *)", False),
+        ],
+        2,
+        "require_review",
+        [
+            "SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED",
+            "SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED",
+        ],
+        [
+            "allow_rule_added: claude-code:Bash(git *)",
+            "deny_rule_removed: claude-code:Bash(git *)",
         ],
     ),
     "mcp": (
