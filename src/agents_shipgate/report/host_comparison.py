@@ -15,13 +15,24 @@ REPRODUCE_PROGRAM = "agents-shipgate"
 
 
 def review_question(changes: list[ReviewChange]) -> str:
-    """One bounded question for a reviewer, asked only about changes that exist (#795)."""
+    """One bounded question for a reviewer, asked only about changes that exist (#795).
+
+    Where an entry joins rows, the question names the row count too: the
+    control headline beside it in `verify` and the PR comment counts rows
+    (`8 repository-declared host capability change(s)`), and `diff`'s summary
+    already says `from 8 rows`.
+    """
 
     # `capability`, not `permission`: an entry may be an MCP server, a hook, a
     # workflow grant or instructions as well as a permission rule.
+    rows = sum(change.rows for change in changes)
+    bridge = f" (from {rows} rows)" if rows != len(changes) else ""
     if len(changes) == 1:
-        return "Review question: Does the team intend this declared capability change?"
-    return f"Review question: Does the team intend these {len(changes)} declared capability changes?"
+        return f"Review question: Does the team intend this declared capability change{bridge}?"
+    return (
+        f"Review question: Does the team intend these {len(changes)} declared capability "
+        f"changes{bridge}?"
+    )
 
 
 def comparison_reference_lines(

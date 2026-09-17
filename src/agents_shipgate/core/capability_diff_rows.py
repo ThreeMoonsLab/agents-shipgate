@@ -15,6 +15,7 @@ facts, and one change for a replacement or move the engine established (#795).
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -535,22 +536,49 @@ def _key_names(keys: Any) -> list[str]:
     return [published_workflow_label(str(key)) for key in keys or []]
 
 
-def _mcp_launch(grant: dict[str, Any]) -> str | None:
-    """The published command name or redacted URL, labelled for what it is.
+#: The only URL text may print: the engine's sanitized form, one of the five
+#: schemes it sanitizes, a host and optional port, and no path but `/` or
+#: `/<redacted-path>`. The sanitizer returns any other URL as written, so a
+#: `${SLACK_MCP_BASE}/hooks/<secret>` value, a URL without a scheme or a custom
+#: scheme's path would otherwise print verbatim (#795 review, #723).
+_PRINTABLE_URL = re.compile(r"(?:https?|wss?|sse)://[^\s/?#@]+(?:/|/<redacted-path>)?")
 
-    A command server's grant publishes only the name of its command's first
-    word, never its path: `npx`, `./npx` and `./tools/npx` all publish `npx`.
-    So the label is `command name`, and a reader is never told the command
-    itself when only its name was compared. The name passes through the #802
-    label redaction, the only guard between a token-shaped command name and
-    this text.
+#: What a URL server's launch fact reads when its URL is not in that form.
+_URL_NOT_SHOWN = "not shown"
+
+
+def _mcp_endpoint(grant: dict[str, Any]) -> str | None:
+    """The grant's published endpoint as text may print it, or ``None`` when it has none.
+
+    A command server's endpoint is its command's name and passes through the
+    #802 label redaction, the only guard between a token-shaped command name
+    and this text. A URL server's endpoint prints only in the sanitized form
+    of :data:`_PRINTABLE_URL`; any other value reads ``not shown``. The JSON
+    grant is unchanged: this decides only what the text repeats.
     """
 
     endpoint = grant.get("endpoint")
     if not endpoint:
         return None
+    if grant.get("transport") == "url" and not _PRINTABLE_URL.fullmatch(str(endpoint)):
+        return _URL_NOT_SHOWN
+    return published_workflow_label(str(endpoint))
+
+
+def _mcp_launch(grant: dict[str, Any]) -> str | None:
+    """The published command name or URL, labelled for what it is.
+
+    A command server's grant publishes only the name of its command's first
+    word, never its path: `npx`, `./npx` and `./tools/npx` all publish `npx`.
+    So the label is `command name`, and a reader is never told the command
+    itself when only its name was compared.
+    """
+
+    endpoint = _mcp_endpoint(grant)
+    if endpoint is None:
+        return None
     kind = "url" if grant.get("transport") == "url" else "command name"
-    return f"{kind} {published_workflow_label(str(endpoint))}"
+    return f"{kind} {endpoint}"
 
 
 def _mcp_cell(value: str, grant: dict[str, Any] | None) -> str:
@@ -582,7 +610,8 @@ def _mcp_change(name: str, before: dict[str, Any], after: dict[str, Any]) -> str
     A command's path, its arguments and other settings are not published, so a
     change confined to them says what was compared and that the change is
     elsewhere, rather than ``name → name`` or a claim that the command is
-    unchanged.
+    unchanged. Two different endpoints that print alike, such as two URLs
+    neither of which is printed, read ``url changed (not shown)``.
     """
 
     if any(key not in grant for grant in (before, after) for key in _MCP_FIELDS):
@@ -594,11 +623,15 @@ def _mcp_change(name: str, before: dict[str, Any], after: dict[str, Any]) -> str
             old_launch and new_launch
             and before.get("transport") == after.get("transport")
         ):
-            parts.append(
-                f"{old_launch} → {published_workflow_label(str(after['endpoint']))}"
-            )
+            parts.append(f"{old_launch} → {_mcp_endpoint(after)}")
         else:
             parts.append(f"{old_launch or 'no command or url'} → {new_launch or 'no command or url'}")
+    elif old_launch is not None and before.get("endpoint") != after.get("endpoint"):
+        # Two published endpoints that print alike: neither URL is in the
+        # printable form, or a redaction wrote two command names the same way.
+        # Printing the shared text on both sides would read as no change.
+        kind = "url" if after.get("transport") == "url" else "command name"
+        parts.append(f"{kind} changed ({_URL_NOT_SHOWN})")
     for field, label in (("env_keys", "env keys"), ("header_keys", "header keys")):
         old, new = set(before[field] or []), set(after[field] or [])
         added, removed = sorted(new - old), sorted(old - new)
@@ -613,16 +646,17 @@ def _mcp_change(name: str, before: dict[str, Any], after: dict[str, Any]) -> str
 def _mcp_unshown_change(grant: dict[str, Any]) -> str:
     """A change confined to what the grant does not publish, in the words of what was compared.
 
-    Only the command's name, or the URL's scheme, host and port, and the env
-    and header key names are compared. `npx` → `./npx` and
+    Only the command's name, or the URL's recorded value, and the env and
+    header key names are compared. `npx` → `./npx` and
     `/usr/local/bin/node` → `./scripts/node` change the command while its name
     stays the same, so the sentence names the command's path beside its
-    arguments as what this output does not show.
+    arguments as what this output does not show. A URL that is not printed is
+    named `url as recorded`, never by its value.
     """
 
     launch = _mcp_launch(grant)
     if grant.get("transport") == "url":
-        compared = launch or "url"
+        compared = "url as recorded" if _mcp_endpoint(grant) == _URL_NOT_SHOWN else launch or "url"
         unshown = "the URL's query or another setting"
     else:
         compared = launch or "command name"

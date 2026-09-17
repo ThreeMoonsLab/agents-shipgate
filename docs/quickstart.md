@@ -138,8 +138,10 @@ after, `widened` or `narrowed`, as is the same rule moved from one disposition
 to another (`moved`); `--json` keeps those as their removal and addition rows. An MCP
 server is named with the command name or redacted URL and the env and header
 key names its declaration publishes; the command's path and arguments are not
-shown, so an edit confined to them says so. `⚠` marks an entry that widens what
-the agent may do:
+shown, so an edit confined to them says so. A URL is printed only as its scheme
+and host with the path redacted; one the tool cannot reduce to that form, such
+as `${SLACK_MCP_BASE}/hooks/…`, reads `url not shown`. `⚠` marks an entry that
+widens what the agent may do:
 
 ```text
 Agent capability diff  origin/main (943fd29b) -> working tree
@@ -158,7 +160,7 @@ Agent capability diff  origin/main (943fd29b) -> working tree
 
 3 change(s) from 4 rows, 3 widening what the agent may do (⚠).
 Static configuration only: this is what the files permit, not what the agent did. No verdict is implied.
-Review question: Does the team intend these 3 declared capability changes?
+Review question: Does the team intend these 3 declared capability changes (from 4 rows)?
 Compared: base 943fd29b → working tree at HEAD 8982b16e, agents-shipgate 1.0.0.
 Reproduce in that working tree: agents-shipgate diff --base 943fd29b6e483d27ad9eb52c6d909357c9f2541b
 ```
@@ -171,10 +173,11 @@ replaced by the broader `allow: Bash(npm *)`, a lost `rm -rf` denial, a new
 (static configuration, not observed behaviour) and the question to answer.
 The next action is theirs: ask for the narrower rule back, accept the change,
 or find out what `billing` exposes. The `Reproduce` line reads the same
-comparison again; run it with the version the `Compared` line names. `verify`'s
-text and its PR comment end their entries with the same question and lines;
-when they compared a head commit, the `Reproduce` line says to check that
-commit out first. `check` and a provided diff name no base commit, so they
+comparison again. The version on the `Compared` line records the build that
+produced this output, not a version to install; another version may word the
+entries differently. `verify`'s text and its PR comment end their entries with
+the same question and lines; when they compared a head commit, the `Reproduce`
+line says to check that commit out first. `check` and a provided diff name no base commit, so they
 print the question without those lines.
 
 **No change.** On a branch from `main` that only edits `README.md`:

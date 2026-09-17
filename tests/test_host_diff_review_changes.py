@@ -487,6 +487,147 @@ def test_an_mcp_url_change_outside_the_published_fields_names_what_was_compared(
     assert "read_only" not in text and "/v1" not in text
 
 
+#: URL shapes the engine's URL sanitizer returns as written: Claude Code's
+#: `${VAR}` expansion, a URL without a scheme, and a scheme it does not sanitize.
+#: Each path is secret-shaped, as a webhook path can be (#723).
+UNSANITIZED_URLS = {
+    "hooks": "${SLACK_MCP_BASE}/hooks/T0SECRETSEGMENT/B0SECRET/SECRETVALUE",
+    "bare": "mcp.example.com/hooks/T0SECRETPATHVALUE123/xyz",
+    "custom": "custom://svcuser:hunter2@mcp.example.com/internal/SECRETPATH",
+}
+URL_SECRETS = (
+    "SLACK_MCP_BASE", "T0SECRET", "B0SECRET", "SECRETVALUE", "SECRETPATH", "/hooks/", "/xyz",
+    "/internal/", "svcuser", "hunter2", "custom://",
+)
+
+
+def _projections(repo: Path, out: Path) -> tuple[str, list[str], list[str], list[str]]:
+    """`diff`, `verify`'s text block, the PR comment's summary and `check`, for one repository."""
+
+    text, _ = _diff(repo)
+    block, summary, _ = _verify(repo, out)
+    assert _plain(summary) == _plain(block)
+    return text, block, summary, _check(repo)
+
+
+def _assert_no_url_secret(out: Path, *outputs: str) -> None:
+    """No text projection and no file `verify` wrote repeats an unsanitized URL's path."""
+
+    artifacts = [path.read_text(encoding="utf-8") for path in sorted(out.rglob("*")) if path.is_file()]
+    assert artifacts
+    for output in (*outputs, *artifacts):
+        for secret in URL_SECRETS:
+            assert secret not in output
+
+
+def test_a_url_the_sanitizer_leaves_as_written_is_never_printed(tmp_path: Path) -> None:
+    """Only a URL in the sanitized form prints; any other reads `url not shown`.
+
+    The sanitizer rewrites only `http`, `https`, `ws`, `wss` and `sse` URLs to
+    their scheme, host and a redacted path, and returns every other value as
+    written. The grant publishes that value, so the text must not repeat it.
+    """
+
+    repo = _repository(
+        tmp_path,
+        {".mcp.json": {"mcpServers": {}}},
+        {".mcp.json": {"mcpServers": {
+            name: {"type": "http", "url": url} for name, url in UNSANITIZED_URLS.items()
+        }}},
+    )
+    cells = [f"{name} (url not shown)" for name in sorted(UNSANITIZED_URLS)]
+
+    text, block, summary, check = _projections(repo, tmp_path / "out")
+    assert [
+        " ".join(line.split()) for line in text.splitlines() if line.strip().endswith("(url not shown)")
+    ] == cells
+    _, payload = _diff(repo)
+    assert sorted(row["after"] for row in payload["rows"]) == sorted(UNSANITIZED_URLS)
+    for cell in cells:
+        assert f"  — → {cell}" in block
+        assert f"  — → {cell}" in check
+    _assert_no_url_secret(tmp_path / "out", text, "\n".join(block), "\n".join(summary), "\n".join(check))
+
+
+@pytest.mark.parametrize(
+    ("transport", "endpoint", "launch"),
+    [
+        # The sanitized forms the engine publishes print as they are.
+        ("url", "https://mcp.linear.app/<redacted-path>", "url https://mcp.linear.app/<redacted-path>"),
+        ("url", "wss://mcp.example.com:8443", "url wss://mcp.example.com:8443"),
+        ("url", "sse://mcp.example.com/", "url sse://mcp.example.com/"),
+        ("url", "https://<invalid-host>/<redacted-path>", "url https://<invalid-host>/<redacted-path>"),
+        # Every value the sanitizer returns as written does not.
+        ("url", UNSANITIZED_URLS["hooks"], "url not shown"),
+        ("url", UNSANITIZED_URLS["bare"], "url not shown"),
+        ("url", UNSANITIZED_URLS["custom"], "url not shown"),
+        ("url", "custom://mcp.example.com", "url not shown"),
+        ("url", "<redacted-url>", "url not shown"),
+        ("url", "https://mcp.example.com/v1", "url not shown"),
+        ("url", "https://mcp.example.com/?token=abc", "url not shown"),
+        ("url", " https://mcp.example.com", "url not shown"),
+        # A `url` key with no string value leaves a command name as the endpoint.
+        ("url", "npx", "url not shown"),
+        ("stdio", "npx", "command name npx"),
+    ],
+)
+def test_only_the_sanitized_url_form_is_printed(transport: str, endpoint: str, launch: str) -> None:
+    from agents_shipgate.core.capability_diff_rows import _mcp_launch
+
+    assert _mcp_launch({"transport": transport, "endpoint": endpoint}) == launch
+
+
+def test_two_command_names_that_redact_alike_are_never_called_the_same(tmp_path: Path) -> None:
+    other_token = "ghp_" + "Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2"
+    repo = _repository(
+        tmp_path,
+        {".mcp.json": {"mcpServers": {"gh": {"command": GITHUB_TOKEN}}}},
+        {".mcp.json": {"mcpServers": {"gh": {"command": other_token}}}},
+    )
+
+    text, block, summary, check = _projections(repo, tmp_path / "out")
+    assert "gh: command name changed (not shown)" in " ".join(text.split())
+    for output in ("\n".join(block), "\n".join(check)):
+        assert "  gh: command name changed (not shown)" in output
+    for output in (text, "\n".join(block), "\n".join(summary), "\n".join(check)):
+        assert GITHUB_TOKEN not in output and other_token not in output
+        assert "no difference" not in output
+
+
+def test_a_change_to_or_between_unprinted_urls_names_it_without_either_url(tmp_path: Path) -> None:
+    """Two unprinted URLs never read `not shown → not shown`, nor as no difference."""
+
+    repo = _repository(
+        tmp_path,
+        {".mcp.json": {"mcpServers": {
+            "hooks": {"type": "http", "url": "https://hooks.example.com/v1/T0SECRETOLD"},
+            "bare": {"type": "http", "url": "mcp.example.com/hooks/T0SECRETOLD/xyz"},
+            "custom": {"type": "http", "url": UNSANITIZED_URLS["custom"], "alwaysAllow": ["read"]},
+        }}},
+        {".mcp.json": {"mcpServers": {
+            "hooks": {"type": "http", "url": UNSANITIZED_URLS["hooks"]},
+            "bare": {"type": "http", "url": UNSANITIZED_URLS["bare"]},
+            "custom": {"type": "http", "url": UNSANITIZED_URLS["custom"], "alwaysAllow": ["read", "write"]},
+        }}},
+    )
+    expected = [
+        "bare: url changed (not shown)",
+        "custom: no difference in the url as recorded, env key names or header key names; the "
+        "change is in a detail this output does not show, such as the URL's query or another "
+        "setting",
+        "hooks: url https://hooks.example.com/<redacted-path> → not shown",
+    ]
+
+    text, block, summary, check = _projections(repo, tmp_path / "out")
+    assert [
+        " ".join(line.split()) for line in text.splitlines() if line.strip().startswith(("bare:", "custom:", "hooks:"))
+    ] == expected
+    for line in expected:
+        assert f"  {line}" in block
+        assert f"  {line}" in check
+    _assert_no_url_secret(tmp_path / "out", text, "\n".join(block), "\n".join(summary), "\n".join(check))
+
+
 def test_a_token_shaped_command_name_is_redacted_in_every_text_projection(
     tmp_path: Path,
 ) -> None:
@@ -541,9 +682,12 @@ def test_references_name_the_compared_commits_and_a_command_that_reproduces_them
     )
     base, head = _git(repo, "rev-parse", "main"), _git(repo, "rev-parse", "HEAD")
     command = f"agents-shipgate diff --base {base}"
-    question = "Review question: Does the team intend this declared capability change?"
+    # One entry joins two rows; the control headline beside the PR comment's
+    # question counts rows, so the question names both.
+    question = "Review question: Does the team intend this declared capability change (from 2 rows)?"
 
     block, summary, verifier = _verify(repo, tmp_path / "commit")
+    assert len(verifier["host_comparison"]["rows"]) == 2
     assert block[-3:] == [
         question,
         f"Compared: base {base[:8]} → head {head[:8]}, agents-shipgate {__version__}.",

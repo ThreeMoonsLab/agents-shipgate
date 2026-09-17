@@ -65,7 +65,7 @@ Agent capability diff  origin/main (943fd29b) -> working tree
 
 3 change(s) from 4 rows, 3 widening what the agent may do (⚠).
 Static configuration only: this is what the files permit, not what the agent did. No verdict is implied.
-Review question: Does the team intend these 3 declared capability changes?
+Review question: Does the team intend these 3 declared capability changes (from 4 rows)?
 Compared: base 943fd29b → working tree at HEAD 8982b16e, agents-shipgate 1.0.0.
 Reproduce in that working tree: agents-shipgate diff --base 943fd29b6e483d27ad9eb52c6d909357c9f2541b
 ```
