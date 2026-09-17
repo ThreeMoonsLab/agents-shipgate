@@ -2316,7 +2316,43 @@ still hash correctly can describe a workspace that one commit has moved past, so
 the reader compares the bound `workspace_identity` against the live repository —
 repository, HEAD commit, and HEAD tree — and refuses on any drift. Completion
 authority is never returned without that comparison: a reader that cannot
-resolve the workspace reports it as unverified rather than passing.
+resolve the workspace reports it as unverified rather than passing. Nor is any
+other state of a pointer that binds a Git identity (a HEAD, a base, a merge
+base, an overlay or a snapshot kind): when `agent control`, `verify --format
+control` or the human-review decision reader cannot observe the workspace at
+all — `.git` is missing or unreadable, or Git refuses the checkout — that
+pointer is refused with exit `4`, `workspace_unverifiable`
+(`workspace_unverified` for a `complete` pointer), whatever its state. A
+pointer that binds no Git identity, such as `verify --preview` run outside a
+Git checkout, has nothing to compare and still reads.
+
+Every refusal caused by a workspace that could not be read leads with why, in
+one bounded, redacted sentence that names the Git configuration key or path
+and never a configuration value or file content, and `agent control`'s
+`next_actions[0]` follows that cause:
+
+- **Git configuration the worktree readers refuse**: an executable
+  `filter.<driver>.clean`/`smudge`/`process` in the repository's own Git
+  config, a `filter=` attribute on a tracked path (any repository with Git
+  LFS-tracked files has one), repository-local `diff.*` configuration (git-crypt sets
+  `diff.git-crypt.textconv`), or a non-empty `.git/info/attributes`. The
+  action is `kind: "review"` for a human. Re-running `verify`, with or without
+  `--head`, does not change the answer: the refresh reads the working tree
+  under that configuration for every pointer, a committed-tree one included,
+  so **no `verify` or `agent control` answer in such a repository reads as
+  current while the configuration is in place**. Shipgate never advises
+  removing it. `agents-shipgate diff` still reports the host-grant changes,
+  read-only and without authority.
+- **A reports directory that holds repository content**: the recovery above,
+  away from that directory.
+- **An uncommitted change beyond a static read bound, or a Git timeout**: the
+  producing `verify` command, after committing or shrinking the change.
+- **Anything else**, including a workspace that is not a Git checkout: the
+  producing `verify` command, as before.
+
+Global and system Git configuration are not read, so an LFS filter configured
+only globally (`git lfs install`) does not trigger the first cause; a tracked
+file carrying the `filter=lfs` attribute does.
 
 When the decision named a base, that base is compared too. A decision about
 `base...HEAD` is a decision about that range, and advancing the base — a merge,

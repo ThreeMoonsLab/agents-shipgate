@@ -18,6 +18,7 @@ import yaml
 
 from agents_shipgate.core.boundary_registry import is_agent_boundary_path
 from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.privacy import redact_text
 from agents_shipgate.core.trust_roots import trust_root_class_for
 from agents_shipgate.core.workspace_input import workspace_input_error
 from agents_shipgate.schemas.human_authorization import canonical_https_git_endpoint
@@ -174,6 +175,19 @@ class DiffContext:
 
         if self.completeness == "complete":
             return ""
+        return f"{self.finding} {self.remediation}"
+
+    @property
+    def finding(self) -> str:
+        """:attr:`note` without its remediation: what failed, and nothing more.
+
+        For a reader whose own way out differs from the one the remediation
+        names: the currency check reads the working tree, where "split the
+        change" or "fetch the ref" may not be the step that clears it (#813).
+        """
+
+        if self.completeness == "complete":
+            return ""
         scope = (
             "Changed paths were collected but the diff body could not be read"
             if self.completeness == "partial"
@@ -185,7 +199,7 @@ class DiffContext:
             if terminated and terminated[-1] not in ".!?":
                 terminated += "."
             detail = f" Git reported: {terminated}"
-        return f"{scope} ({self.reason}).{detail} {self.remediation}"
+        return f"{scope} ({self.reason}).{detail}"
 
 
 class DiffInputError(ConfigError):
@@ -194,6 +208,29 @@ class DiffInputError(ConfigError):
     def __init__(self, context: DiffContext) -> None:
         self.context = context
         super().__init__(context.note.strip())
+
+
+class UnboundGitConfigurationError(ConfigError):
+    """Repository Git configuration a static worktree read refuses to run under.
+
+    Executable ``filter.*`` drivers, ``filter=`` attributes on tracked paths,
+    repository-local ``diff.*`` configuration and a non-empty
+    ``.git/info/attributes`` are not bound into any receipt, so a worktree read
+    refuses them rather than letting them rewrite what it reads. They describe
+    the repository, not the change: every worktree read of this repository
+    refuses the same way until the configuration itself changes, whatever is
+    re-run.
+
+    ``finding`` names what was refused — the configuration keys or the paths —
+    without the remediation the message appends. The currency check reads the
+    working tree for a committed-tree pointer too, so "verify refs" does not
+    clear it there, and repeating that advice sent a caller round the same
+    refusal (#813).
+    """
+
+    def __init__(self, finding: str, *, remediation: str | None = None) -> None:
+        self.finding = finding
+        super().__init__(f"{finding} {remediation}" if remediation else finding)
 
 
 class _UnavailableRevisionError(ConfigError):
@@ -1668,11 +1705,13 @@ def _reject_executable_worktree_filters(workspace: Path) -> None:
         if raw_value.strip():
             active.append(raw_key.decode("utf-8", errors="replace"))
     if active:
-        shown = ", ".join(sorted(active)[:3])
-        raise ConfigError(
-            "Static worktree collection refuses executable Git "
-            f"filters ({shown}). Commit the intended changes and verify refs, "
-            "or provide an explicit inert diff artifact."
+        shown = _named_in_refusal(active)
+        raise UnboundGitConfigurationError(
+            f"Static worktree collection refuses executable Git filters ({shown}).",
+            remediation=(
+                "Commit the intended changes and verify refs, or provide an "
+                "explicit inert diff artifact."
+            ),
         )
     attributed = _run_git_bounded_output(
         workspace,
@@ -1696,12 +1735,23 @@ def _reject_executable_worktree_filters(workspace: Path) -> None:
         os.fsdecode(raw) for raw in attributed.split(b"\0") if raw
     ]
     if attributed_paths:
-        shown = ", ".join(sorted(attributed_paths)[:3])
-        raise ConfigError(
+        shown = _named_in_refusal(attributed_paths)
+        raise UnboundGitConfigurationError(
             "Static worktree collection refuses Git filter attributes because "
-            f"their normalization driver is not receipt-bound ({shown}). "
-            "Commit the intended changes and verify refs instead."
+            f"their normalization driver is not receipt-bound ({shown}).",
+            remediation="Commit the intended changes and verify refs instead.",
         )
+
+
+def _named_in_refusal(names: list[str]) -> str:
+    """The first three configuration keys or paths a refusal names, redacted.
+
+    Both come from the repository, and either can be shaped like a credential
+    — a tracked ``assets/ghp_….bin`` — while the refusal is published in
+    ``verifier.json``, the PR comment and every currency refusal (#813).
+    """
+
+    return redact_text(", ".join(sorted(set(names))[:3])) or ""
 
 
 def _reject_unbound_diff_configuration(workspace: Path) -> None:
@@ -1724,10 +1774,17 @@ def _reject_unbound_diff_configuration(workspace: Path) -> None:
             "Could not establish whether repository-local Git diff drivers are "
             "safe for deterministic collection."
         )
-    if any(record.partition(b"\n")[2].strip() for record in configured.split(b"\0")):
-        raise ConfigError(
+    # The keys are named so the refusal says what it refused; values never
+    # are, because a driver's value is a command line.
+    keys = [
+        key.decode("utf-8", errors="replace")
+        for key, _, value in (record.partition(b"\n") for record in configured.split(b"\0"))
+        if value.strip()
+    ]
+    if keys:
+        raise UnboundGitConfigurationError(
             "Deterministic diff collection refuses repository-local diff.* "
-            "configuration because it is not receipt-bound."
+            f"configuration because it is not receipt-bound ({_named_in_refusal(keys)})."
         )
 
     raw_info_path = _run_git(
@@ -1749,7 +1806,7 @@ def _reject_unbound_diff_configuration(workspace: Path) -> None:
             "Could not inspect repository-local Git attributes safely."
         ) from exc
     if not info_path.is_file() or info_path.is_symlink() or metadata.st_size:
-        raise ConfigError(
+        raise UnboundGitConfigurationError(
             "Deterministic diff collection refuses non-empty or aliased "
             ".git/info/attributes because it is not receipt-bound."
         )
@@ -2775,6 +2832,7 @@ __all__ = [
     "SourceHeadIdentity",
     "staged_paths_under",
     "tree_sha",
+    "UnboundGitConfigurationError",
     "validate_source_head_identity",
     "working_tree_context",
     "working_tree_paths",

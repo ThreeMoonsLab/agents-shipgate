@@ -41,6 +41,36 @@ inside it (`shipgate.yaml` goes to `--config`).
 If you see "must contain a YAML object" for a file you never created, that is a
 bug — the three states are asserted to stay distinguishable.
 
+## `agent control` keeps refusing as `workspace_unverifiable`
+
+Read the start of the refusal: it says why the workspace could not be read, and
+`next_actions[0]` follows from that.
+
+- **`Static worktree collection refuses executable Git filters (filter.lfs.clean)`**,
+  **`… refuses Git filter attributes … (assets/logo.bin)`**,
+  **`… refuses repository-local diff.* configuration … (diff.git-crypt.textconv)`**
+  or **`… non-empty or aliased .git/info/attributes …`**. The repository's own
+  Git configuration runs programs, or rewrites what Git reports, while the
+  working tree is read, and Shipgate does not read a working tree under it.
+  Git LFS and git-crypt repositories are configured this way on purpose. No
+  `verify` run changes the answer, with or without `--head`: the refresh reads
+  the working tree for every pointer, so `verify` and `agent control` cannot
+  give a current answer in this repository while the configuration is in
+  place. The next action is a `review` step for a human, not a rerun. Do not
+  remove LFS or git-crypt configuration to get past it. `agents-shipgate diff`
+  still shows what the change does to the agent's host grants, read-only.
+- **`The reports directory … holds …`**: see
+  [One Repo, Several Agent Projects](#one-repo-several-agent-projects) for the
+  output-directory rule.
+- **`… could not be read (body_limit_exceeded)`**, `metadata_limit_exceeded` or
+  `git_timeout`: the uncommitted change is larger than Shipgate reads, or Git
+  did not finish in time. Commit or shrink the change (keep generated output
+  out of the working tree), then re-run the `verify` command the next action
+  names.
+- **`Workspace is not inside a git checkout: …`**: `.git` is missing or Git
+  refuses the checkout. Every pointer that binds a Git identity refuses until
+  the checkout reads again; a `verify --preview` run outside Git is unaffected.
+
 ## First Real Repo Decision Tree
 
 Use this before reading the full manifest schema.
