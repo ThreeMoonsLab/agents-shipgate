@@ -14,17 +14,23 @@ The rules pinned here:
 
 * `verify`, `--head`, `--preview` and manifest-free `verify` refuse, before
   anything is written, an output directory inside the repository that holds a
-  path committed at `HEAD`, a path the change removes from the head or merge
-  base it is compared against, or a staged or untracked unignored path that is
-  not a Shipgate artifact.
+  path committed at `HEAD`, a path a worktree change removes from the merge
+  base it is compared against, a staged or untracked unignored path that is
+  not a Shipgate artifact, or a trust-root path whatever its name, and a
+  directory inside a trust root Git does not ignore. An archived `--head` run
+  compares only its head, whose own diff shows a removal.
 * The directory is judged by physical identity: a symlink into the repository
-  and a case-variant spelling are the directory they physically are.
+  and a case-variant spelling are the directory they physically are, and the
+  default directory is recognized the same way.
 * A gitignored directory, the default `agents-shipgate-reports`, a directory
   holding only Shipgate artifacts, a sibling outside the repository, and
-  `verify --preview` outside Git all keep working.
+  `verify --preview` outside Git all keep working, and every file real runs
+  over the shipped samples leave behind is a recognized artifact.
 * Every reader refuses a pointer already sitting in such a directory, for every
   control state, as `workspace_unverifiable`, and a classification that fails
-  refuses instead of skipping the currency checks.
+  refuses instead of skipping the currency checks. The recovery it names keeps
+  the producing run's request, and never routes back into the default
+  directory when that is the one refused.
 """
 
 from __future__ import annotations
@@ -193,6 +199,51 @@ def test_manifest_free_verify_refuses_the_same_directory(tmp_path: Path):
     _nothing_written(repo / ".claude", {"settings.json"})
 
 
+def test_manifest_free_verify_compares_the_base_its_host_comparison_uses(tmp_path: Path):
+    """Without a remote, the host comparison diffs against the local `main`.
+
+    The pointer records that merge base, and the reader counts what it held.
+    Resolving the base only the way the configured verifier does (which skips a
+    local `main`) accepted `--out .vscode` over a committed removal of
+    `.vscode/mcp.json`, and the run's own pointer then refused as soon as it
+    was read.
+    """
+
+    repo = tmp_path / "repo"
+    (repo / ".vscode").mkdir(parents=True)
+    (repo / ".vscode" / "mcp.json").write_text(
+        json.dumps({"servers": {"fs": {"command": "npx", "args": ["-y", "server-fs", "/"]}}})
+        + "\n",
+        encoding="utf-8",
+    )
+    (repo / ".gitignore").write_text(f"{REPORTS}/\n", encoding="utf-8")
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "test@example.test")
+    _git(repo, "config", "user.name", "Test User")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "fixture")
+    _git(repo, "checkout", "-q", "-b", "feature")
+    _git(repo, "rm", "-q", ".vscode/mcp.json")
+    _git(repo, "commit", "-q", "-m", "drop the mcp server")
+
+    result = runner.invoke(
+        app,
+        ["verify", "--workspace", str(repo), "--out", str(repo / ".vscode"),
+         "--format", "control"],
+        env=AGENT_ENV,
+    )
+
+    _assert_refused(
+        result,
+        shown=".vscode",
+        found=(
+            "held committed repository files that the change being verified "
+            "removes (.vscode/mcp.json)"
+        ),
+    )
+    assert not (repo / ".vscode").exists()
+
+
 def test_a_manifest_named_tool_source_directory_is_refused(tmp_path: Path):
     """The tool source a manifest names is a decision input, and it was hidden.
 
@@ -328,27 +379,38 @@ def test_a_deletion_leaves_nothing_on_disk_and_is_still_refused(tmp_path: Path, 
     }
 
     hidden = _verify(repo, *base, "--out", str(repo / ".claude"), env=AGENT_ENV)
-    found = (
-        "holds tracked repository files (.claude/settings.json)"
-        if shape == "staged"
-        else (
+    # A staged deletion is named as the removal it is, not as files the
+    # directory "holds": nothing is left in the index or on disk.
+    _assert_refused(
+        hidden,
+        shown=".claude",
+        found=(
             "held committed repository files that the change being verified "
             "removes (.claude/settings.json)"
-        )
+        ),
     )
-    _assert_refused(hidden, shown=".claude", found=found)
     assert not (repo / ".claude").exists()
 
 
+@pytest.mark.parametrize("directory", ["docs", ".claude"])
 def test_a_pointer_that_hid_a_committed_deletion_refuses_on_read(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, directory: str
 ):
-    """The reader counts the merge base the pointer records, not only HEAD."""
+    """The reader counts the merge base the pointer records, not only HEAD.
 
-    repo = _repo(tmp_path / "repo")
-    _deny_rules_removed(repo, commit=True)
+    `docs` pins that read. `.claude` is refused before its merge base is
+    consulted, because it is a trust root Git does not ignore, and the
+    `1.0.0` pointer that hid the deny-rule deletion there still goes non-current.
+    """
+
+    repo = _repo(tmp_path / "repo", docs=True)
+    if directory == ".claude":
+        _deny_rules_removed(repo, commit=True)
+    else:
+        _git(repo, "rm", "-q", "-r", "docs")
+        _git(repo, "commit", "-q", "-m", "drop docs")
     _without_writer_refusal(monkeypatch)
-    reports = repo / ".claude"
+    reports = repo / directory
     published = _verify(repo, "--base", "main", "--out", str(reports))
     assert published.exit_code == 0, _plain(published.output)
     # What 1.0.0 decided: the deletion was hidden and the change mergeable.
@@ -363,7 +425,10 @@ def test_a_pointer_that_hid_a_committed_deletion_refuses_on_read(
     assert result.exit_code == 4, _plain(result.output)
     refusal = _refusal(result)
     assert "(workspace_unverifiable)" in refusal
-    assert "removes (.claude/settings.json)" in refusal
+    if directory == "docs":
+        assert "removes (docs/a.txt)" in refusal
+    else:
+        assert "lies inside a trust root (agent_instructions)" in refusal
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Directory symlinks need privileges on Windows.")
@@ -425,6 +490,255 @@ def test_a_case_variant_spelling_is_refused_where_the_filesystem_folds_case(tmp_
     refreshed = _control(repo, repo / "PLAIN-REPORTS")
     assert refreshed.exit_code == 0, _plain(refreshed.output)
     assert json.loads(refreshed.stdout)["control_state"] == "complete"
+
+
+def _stage_skill(repo: Path) -> None:
+    skill = repo / ".claude" / "skills" / "verification-inputs" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "---\nname: verification-inputs\ndescription: Fetch and clean up.\n"
+        "allowed-tools: Bash(curl:*), Bash(rm:*)\n---\n\nFetch, then clean up.\n",
+        encoding="utf-8",
+    )
+    _git(repo, "add", str(skill.relative_to(repo)))
+
+
+def _untracked_command(repo: Path) -> None:
+    command = repo / ".claude" / "commands" / "packet.md"
+    command.parent.mkdir(parents=True)
+    command.write_text(
+        "---\nallowed-tools: Bash(curl:*), Bash(rm -rf:*)\n---\n\nShip the packet.\n",
+        encoding="utf-8",
+    )
+
+
+def _untracked_lock(repo: Path) -> None:
+    lock = repo / ".agents-shipgate" / "capabilities.lock.json"
+    lock.parent.mkdir(parents=True)
+    lock.write_text('{"schema_version": "0.1", "tools": []}\n', encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("directory", "plant", "surface", "planted"),
+    [
+        (".claude/commands", _untracked_command, "agent_instructions", "packet.md"),
+        (".claude/skills", _stage_skill, "agent_instructions", "verification-inputs"),
+        (".agents-shipgate", _untracked_lock, "shipgate_state", "capabilities.lock.json"),
+    ],
+    ids=["untracked-command", "staged-skill", "untracked-lock"],
+)
+def test_a_trust_root_named_like_an_artifact_cannot_be_hidden(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    directory: str,
+    plant,
+    surface: str,
+    planted: str,
+):
+    """An artifact's name is not an artifact where the path is a trust root.
+
+    `packet.md`, `capabilities.lock.json` and anything under
+    `verification-inputs/` are names a Shipgate run writes. Beneath `.claude`
+    or `.agents-shipgate` the same names are a slash command, a skill and a
+    Shipgate lock. Granting them the artifact allowance let `--out` over their
+    directory turn a `human_review_required` change into `complete`.
+    """
+
+    repo = _repo(tmp_path / "repo")
+    plant(repo)
+
+    decided = _verify(repo, "--base", "main")
+    assert decided.exit_code == 0, _plain(decided.output)
+    assert json.loads(decided.stdout)["permissions"]["merge"] is False
+
+    reports = repo / directory
+    before = {path.name for path in reports.iterdir()}
+    assert planted in before
+    hidden = _verify(repo, "--base", "main", "--out", str(reports), env=AGENT_ENV)
+    _assert_refused(
+        hidden,
+        shown=directory,
+        found=(
+            f"lies inside a trust root ({surface}) that Git does not ignore, where "
+            "a file named like a Shipgate report is a trust-root file and not a report"
+        ),
+    )
+    _nothing_written(reports, before)
+
+    # A pointer 1.0.0 published there is refused on every read.
+    _without_writer_refusal(monkeypatch)
+    published = _verify(repo, "--base", "main", "--out", str(reports))
+    assert published.exit_code == 0, _plain(published.output)
+    envelope = json.loads(published.stdout)
+    assert envelope["control_state"] != "complete", envelope
+    assert envelope["permissions"]["merge"] is False, envelope
+    result = _control(repo, reports)
+    assert result.exit_code == 4, _plain(result.output)
+    assert "(workspace_unverifiable)" in _refusal(result)
+
+
+def test_a_gitignored_directory_inside_a_trust_root_hides_nothing(tmp_path: Path):
+    """What Git ignores is in no change set, whatever trust root it sits in."""
+
+    repo = _repo(tmp_path / "repo", ignore=f"{REPORTS}/\n.agents-shipgate/reports/\n")
+    reports = repo / ".agents-shipgate" / "reports"
+    for _ in range(2):
+        verified = _verify(repo, "--out", str(reports))
+        assert verified.exit_code == 0, _plain(verified.output)
+        assert json.loads(verified.stdout)["control_state"] == "complete"
+    refreshed = _control(repo, reports)
+    assert refreshed.exit_code == 0, _plain(refreshed.output)
+    assert json.loads(refreshed.stdout)["control_state"] == "complete"
+
+
+def test_the_recovery_keeps_the_producing_runs_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Following the printed recovery reaches the same decision, not `complete`.
+
+    The recovery is the producing run's own command with only `--out` removed.
+    Rebuilding a bare `verify --workspace <repo>` dropped `--base main` and
+    `--config`; with no remote the run skipped the local base, and a committed
+    `.claude` widening read `complete` with `merge: true`.
+    """
+
+    repo = _repo(tmp_path / "repo", docs=True)
+    _widen(repo)
+    _git(repo, "commit", "-q", "-am", "widen shell permissions")
+    reports = repo / "docs"
+    with monkeypatch.context() as legacy:
+        legacy.setattr(
+            "agents_shipgate.cli.verify.orchestrator._reject_output_directory_content",
+            lambda **_: None,
+        )
+        published = _verify(repo, "--base", "main", "--out", str(reports))
+    assert published.exit_code == 0, _plain(published.output)
+    verifier = json.loads((reports / "verifier.json").read_text(encoding="utf-8"))
+    assert verifier["merge_verdict"] == "human_review_required"
+
+    refused = _control(repo, reports, env=AGENT_ENV)
+    assert refused.exit_code == 4, _plain(refused.output)
+    action = _error_line(refused.output)["next_actions"][0]
+    assert action["kind"] == "command", action
+    args = action["args"]
+    assert args[0] == "verify", action
+    assert "--out" not in args, action
+    assert args[args.index("--config") + 1] == "shipgate.yaml", action
+    assert args[args.index("--base") + 1] == "main", action
+    assert Path(args[args.index("--workspace") + 1]).resolve() == repo.resolve(), action
+
+    followed = runner.invoke(app, args, env=ENV)
+    assert followed.exit_code == 0, _plain(followed.output)
+    rerun = json.loads((repo / REPORTS / "verifier.json").read_text(encoding="utf-8"))
+    assert rerun["merge_verdict"] == "human_review_required", rerun["merge_verdict"]
+    assert ".claude/settings.json" in rerun["changed_files"]
+    refreshed = _control(repo)
+    assert refreshed.exit_code == 0, _plain(refreshed.output)
+    envelope = json.loads(refreshed.stdout)
+    assert envelope["control_state"] != "complete", envelope
+    assert envelope["permissions"]["merge"] is False, envelope
+
+
+def test_a_head_run_may_remove_committed_files_from_its_output_directory(tmp_path: Path):
+    """The Action's `--head` diff shows the removal, so nothing is hidden.
+
+    The change that stops committing reports removes them from the directory
+    it writes into. An archived-head run diffs the merge base against the head
+    in full, so that removal is in its own change set; only the head tree it
+    reads excludes the directory. A worktree run excludes the directory from
+    its diff, so there the removal would be hidden and is still refused.
+    """
+
+    repo = _repo(tmp_path / "repo", ignore="")
+    _git(repo, "checkout", "-q", "main")
+    (repo / REPORTS).mkdir()
+    (repo / REPORTS / "report.json").write_text("{}\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "commit reports")
+    _git(repo, "checkout", "-q", "feature")
+    _git(repo, "merge", "-q", "main")
+    _git(repo, "rm", "-q", "-r", REPORTS)
+    (repo / ".gitignore").write_text(f"{REPORTS}/\n", encoding="utf-8")
+    _git(repo, "add", ".gitignore")
+    _git(repo, "commit", "-q", "-m", "stop committing reports")
+
+    head = _verify(repo, "--base", "main", "--head", "HEAD", "--out", str(repo / REPORTS))
+    assert head.exit_code == 0, _plain(head.output)
+    verifier = json.loads((repo / REPORTS / "verifier.json").read_text(encoding="utf-8"))
+    assert verifier["changed_files"] == [".gitignore", f"{REPORTS}/report.json"]
+    refreshed = _control(repo, repo / REPORTS)
+    assert refreshed.exit_code == 0, _plain(refreshed.output)
+
+    shutil.rmtree(repo / REPORTS)
+    worktree = _verify(repo, "--base", "main", env=AGENT_ENV)
+    text = _plain(worktree.output)
+    assert worktree.exit_code == 2, text
+    assert (
+        f"held committed repository files that the change being verified removes "
+        f"({REPORTS}/report.json)"
+    ) in text, text
+    assert f"git rm -r --cached {REPORTS}" in text, text
+
+
+def _samples_with_a_root_manifest() -> list[str]:
+    return sorted(
+        sample.name
+        for sample in (REPO_ROOT / "samples").iterdir()
+        if (sample / "shipgate.yaml").is_file()
+    )
+
+
+@pytest.mark.parametrize("sample", _samples_with_a_root_manifest())
+def test_every_file_a_real_run_leaves_is_a_recognized_artifact(tmp_path: Path, sample: str):
+    """The allowlist, held to what runs actually write rather than to source text.
+
+    An unignored default reports directory, which is what a repository without
+    `init`'s `.gitignore` entry has. A name a run writes that the allowlist
+    missed (`suggested-inventory.json`, beside a low-confidence scan) made the
+    next `agent control` refuse and the next `verify` exit 2, and the Stop hook
+    treats that exit as advisory.
+    """
+
+    from agents_shipgate.cli.current_workspace import (
+        _artifact_shaped,
+        _trust_root_class,
+        classify_output_directory,
+    )
+
+    repo = tmp_path / sample
+    shutil.copytree(
+        REPO_ROOT / "samples" / sample,
+        repo,
+        ignore=shutil.ignore_patterns("expected", REPORTS, "__pycache__"),
+    )
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "test@example.test")
+    _git(repo, "config", "user.name", "Test User")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "fixture")
+
+    for _ in range(2):
+        verified = runner.invoke(
+            app,
+            ["verify", "--workspace", str(repo), "--no-base", "--format", "control"],
+            env=ENV,
+        )
+        assert verified.exit_code == 0, _plain(verified.output)
+    produced = sorted(
+        path.relative_to(repo).as_posix()
+        for path in (repo / REPORTS).rglob("*")
+        if path.is_file()
+    )
+    assert produced
+    unrecognized = [
+        path
+        for path in produced
+        if not _artifact_shaped(REPORTS, path) or _trust_root_class(path) is not None
+    ]
+    assert unrecognized == []
+    assert classify_output_directory(repo, repo / REPORTS) is None
+    refreshed = _control(repo)
+    assert refreshed.exit_code == 0, _plain(refreshed.output)
 
 
 # -- what keeps working ------------------------------------------------------
@@ -631,55 +945,110 @@ def test_a_pointer_already_in_such_a_directory_refuses_in_every_state(
     assert str(repo / REPORTS / "current-control.json") in action["why"], action
 
 
-def test_a_default_directory_holding_content_is_refused_without_a_looping_route(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def _never_omit_out(text: str) -> None:
+    """Advice for the default directory must not route back into it."""
+
+    lowered = text.lower()
+    assert "omit --out" not in lowered, text
+    assert "without --out" not in lowered, text
+
+
+@pytest.mark.parametrize("route", ["worktree", "action"])
+def test_a_default_directory_holding_committed_files_is_refused_without_a_looping_route(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, route: str
 ):
-    """Committed reports in the default directory: the same rule, no command to loop on."""
+    """Committed files in the default directory: the same rule, no route back into it.
+
+    The Action's shape names the default directory explicitly
+    (`--out agents-shipgate-reports --head HEAD`); it is still the default
+    directory, decided by what the directory is and not by whether `--out` was
+    passed.
+    """
 
     repo = _repo(tmp_path / "repo", ignore="")
     (repo / REPORTS).mkdir()
     (repo / REPORTS / "README.md").write_text("reports live here\n", encoding="utf-8")
     _git(repo, "add", ".")
     _git(repo, "commit", "-q", "-m", "commit a reports readme")
+    extra = [] if route == "worktree" else ["--out", str(repo / REPORTS), "--head", "HEAD"]
+
+    refused = _verify(repo, *extra, env=AGENT_ENV)
+    text = _plain(refused.output)
+    assert refused.exit_code == 2, text
+    subject = (
+        f"The default verifier output directory {REPORTS}"
+        if route == "worktree"
+        else f"Verifier --out {REPORTS}"
+    )
+    assert f"{subject} holds tracked repository files ({REPORTS}/README.md)" in text, text
+    assert "Pass --out naming a directory that is gitignored or outside the repository" in text
+    assert f"git rm -r --cached {REPORTS}" in text, text
+    _never_omit_out(text)
+    action = _error_line(refused.output)["next_actions"][0]
+    assert action["kind"] == "review", action
+    assert action["why"].startswith("The default output directory "), action
+    _never_omit_out(action["why"])
+    _nothing_written(repo / REPORTS, {"README.md"})
+
+    # The way out it names works.
+    elsewhere = _verify(repo, *extra[2:], "--out", str(tmp_path / "outside"))
+    assert elsewhere.exit_code == 0, _plain(elsewhere.output)
+
+    _without_writer_refusal(monkeypatch)
+    assert _verify(repo).exit_code == 0
+    spellings = [None]
+    if (repo / REPORTS.upper()).is_dir():
+        # A case-variant spelling of the default is still the default.
+        spellings.append(repo / REPORTS.upper())
+    for spelling in spellings:
+        result = _control(repo, spelling, env=AGENT_ENV)
+        assert result.exit_code == 4, _plain(result.output)
+        assert "(workspace_unverifiable)" in _refusal(result)
+        action = _error_line(result.output)["next_actions"][0]
+        assert action["kind"] == "review", (spelling, action)
+        assert "Pass --out naming a directory that is gitignored or outside the repository" in (
+            action["why"]
+        )
+        _never_omit_out(action["why"])
+
+
+def test_a_default_directory_holding_stray_files_names_moving_them_out(tmp_path: Path):
+    """Untracked notes beside the reports: moving them out is a way out there."""
+
+    repo = _repo(tmp_path / "repo", ignore="")
+    (repo / REPORTS).mkdir()
+    (repo / REPORTS / "notes.md").write_text("notes\n", encoding="utf-8")
 
     refused = _verify(repo, env=AGENT_ENV)
     text = _plain(refused.output)
     assert refused.exit_code == 2, text
     assert (
-        f"The default verifier output directory {REPORTS} holds tracked repository "
-        f"files ({REPORTS}/README.md)"
-    ) in text
-    assert "Keep only Shipgate artifacts there, or pass --out" in text
-    _nothing_written(repo / REPORTS, {"README.md"})
+        f"Move the files that are not Shipgate artifacts out of {REPORTS} "
+        f"(unstaging any that are staged), gitignore {REPORTS}, or pass --out"
+    ) in text, text
+    _never_omit_out(text)
 
-    _without_writer_refusal(monkeypatch)
+    (repo / REPORTS / "notes.md").unlink()
     assert _verify(repo).exit_code == 0
-    result = _control(repo, env=AGENT_ENV)
-    assert result.exit_code == 4, _plain(result.output)
-    assert "(workspace_unverifiable)" in _refusal(result)
-    action = _error_line(result.output)["next_actions"][0]
-    assert action["kind"] == "review", action
-    assert "--out naming a directory that is gitignored or outside the repository" in (
-        action["why"]
-    )
+    assert _control(repo).exit_code == 0
 
 
 def test_a_directory_that_gains_content_after_the_run_refuses(tmp_path: Path):
     """Safe when written, unsafe when read: the reader classifies it again."""
 
     repo = _repo(tmp_path / "repo", claude=False)
-    reports = repo / ".claude"
+    reports = repo / "notes"
     verified = _verify(repo, "--base", "main", "--out", str(reports))
     assert verified.exit_code == 0, _plain(verified.output)
     assert _control(repo, reports).exit_code == 0
 
-    _write_settings(reports / "settings.json", ["Bash(curl:*)"])
+    (reports / "todo.md").write_text("ship it\n", encoding="utf-8")
 
     result = _control(repo, reports)
     assert result.exit_code == 4, _plain(result.output)
     refusal = _refusal(result)
     assert "(workspace_unverifiable)" in refusal
-    assert ".claude/settings.json" in refusal
+    assert "notes/todo.md" in refusal
 
 
 def test_a_classification_that_fails_refuses_instead_of_skipping_the_checks(
@@ -769,11 +1138,12 @@ def test_the_classifier_names_what_leaving_the_directory_out_would_hide(tmp_path
     assert output_directory_refusal(repo, artifacts) == (
         "holds tracked repository files (rpt/report.json)"
     )
-    # A committed file deleted from the index and the disk is still at HEAD.
+    # A committed file deleted from the index and the disk is a staged removal.
     _git(repo, "rm", "-q", "docs/a.txt")
     assert not (repo / "docs").exists()
     assert output_directory_refusal(repo, repo / "docs") == (
-        "holds tracked repository files (docs/a.txt)"
+        "held committed repository files that the change being verified removes "
+        "(docs/a.txt)"
     )
     # Once committed, the deletion is only visible against the commit before it.
     _git(repo, "commit", "-q", "-m", "drop docs")
@@ -784,6 +1154,35 @@ def test_the_classifier_names_what_leaving_the_directory_out_would_hide(tmp_path
     )
     # A compared ref that does not resolve compares nothing.
     assert output_directory_refusal(repo, repo / "docs", compared=("no-such-ref",)) is None
+    # A trust root is judged by more than names. A directory inside one that
+    # Git does not ignore is refused before anything is there, because every
+    # report written into it would be a trust-root file; one Git ignores
+    # hides nothing. A trust-root path named like an artifact is not one.
+    assert output_directory_refusal(repo, repo / ".claude" / "reports") == (
+        "lies inside a trust root (agent_instructions) that Git does not ignore, "
+        "where a file named like a Shipgate report is a trust-root file and not "
+        "a report"
+    )
+    # `suggested-declarations.yaml` in `.github/workflows` would be a workflow.
+    assert output_directory_refusal(repo, repo / ".github" / "workflows") == (
+        "lies inside a trust root (host_boundary) that Git does not ignore, "
+        "where a file named like a Shipgate report is a trust-root file and not "
+        "a report"
+    )
+    (repo / ".gitignore").write_text(
+        f"{REPORTS}/\nignored/\n.agents-shipgate/reports/\n", encoding="utf-8"
+    )
+    assert output_directory_refusal(repo, repo / ".agents-shipgate" / "reports") is None
+    disguised = repo / "rpt2"
+    (disguised / "verification-inputs" / ".claude").mkdir(parents=True)
+    (disguised / "current-control.json").write_text("{}\n", encoding="utf-8")
+    (disguised / "verification-inputs" / ".claude" / "settings.json").write_text(
+        "{}\n", encoding="utf-8"
+    )
+    assert output_directory_refusal(repo, disguised) == (
+        "holds trust-root files named like Shipgate artifacts "
+        "(rpt2/verification-inputs/.claude/settings.json)"
+    )
     # The repository itself, and its ancestors.
     for whole in (repo, tmp_path):
         assert output_directory_refusal(repo, whole) == (
@@ -795,10 +1194,15 @@ def test_every_name_a_run_writes_is_a_recognized_artifact():
     """The allowlist restates registries; hold it to each of them.
 
     A name missing here makes the second run into an unignored reports
-    directory refuse, and every refresh of it too.
+    directory refuse, and every refresh of it too. Some writers put a file
+    beside a report rather than into a named output directory, and the GitHub
+    Action writes into its `output_dir` from scripts and shell steps; each is
+    read here. `test_every_file_a_real_run_leaves_is_a_recognized_artifact`
+    holds the allowlist to what runs actually leave behind.
     """
 
-    from agents_shipgate.cli import evidence_packet
+    from agents_shipgate.ci import release_decision
+    from agents_shipgate.cli import evidence_packet, scenario
     from agents_shipgate.cli._artifact_lifecycle import (
         REPORTS_DIRECTORY_ARTIFACT_NAMES,
         VERIFIER_ROUTE_ARTIFACT_NAMES,
@@ -817,6 +1221,8 @@ def test_every_name_a_run_writes_is_a_recognized_artifact():
         *CURRENT_CONTROL_ARTIFACT_FILENAMES.values(),
         CURRENT_CONTROL_ARTIFACT_NAME,
         DECLARATION_CONTINUATION_ARTIFACT_NAME,
+        release_decision.SUGGESTED_INVENTORY_FILENAME,
+        release_decision.SUGGESTED_DECLARATIONS_FILENAME,
         *(
             PurePosixPath(path).name
             for path in ARTIFACTS.values()
@@ -826,6 +1232,23 @@ def test_every_name_a_run_writes_is_a_recognized_artifact():
     written_literally = re.compile(r'(?:out_dir|output_dir) / "([^"/]+)"')
     for module in (orchestrator, output_helpers, evidence_packet):
         expected.update(written_literally.findall(inspect.getsource(module)))
+    # Beside the report a command reads.
+    expected.update(re.findall(r'from_path\.parent / "([^"/]+)"', inspect.getsource(scenario)))
+    # The Action: its output scripts, and its shell and github-script steps.
+    for script in ("github_action_outputs.py", "github_action_annotations.py",
+                   "github_check_run.py"):
+        source = (REPO_ROOT / "scripts" / script).read_text(encoding="utf-8")
+        expected.update(written_literally.findall(source))
+        expected.update(re.findall(r'^PAYLOAD_FILENAME = "([^"/]+)"$', source, flags=re.M))
+    action = (REPO_ROOT / "action.yml").read_text(encoding="utf-8")
+    expected.update(re.findall(r'\$\{OUTPUT_DIR\}/([^"/\s]+)"', action))
+    expected.update(re.findall(r'path\.join\(outputDir, "([^"/]+)"\)', action))
+    assert {
+        "suggested-inventory.json",
+        "suggested-scenarios.yaml",
+        "check-annotations.json",
+        "check-run-payload.json",
+    } <= expected
     removed = inspect.getsource(orchestrator._remove_scan_artifacts)
     expected.update(re.findall(r'"([^"/]+\.(?:json|md|sarif|html|pdf))"', removed))
     for constant in re.findall(r"^\s+([A-Z_]+_FILENAME),$", removed, flags=re.MULTILINE):

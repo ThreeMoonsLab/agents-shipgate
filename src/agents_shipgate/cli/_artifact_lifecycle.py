@@ -28,12 +28,16 @@ VERIFIER_ROUTE_ARTIFACT_NAMES = (
 
 # Every name a Shipgate run writes directly into a reports directory, whichever
 # command wrote it: the pointer, the verifier route above, the scan and packet
-# renderers, the capability-lock artifacts, and the artifacts the published
-# contract (``schemas.contract.ARTIFACTS``) places beside them. An output
-# directory whose uncommitted content is only these can be left out of the
-# change set without hiding anything a change could carry (#804). Spelled here, not
-# derived, so this leaf loads no schema; ``tests/test_output_directory_content.py``
-# holds it to every registry it restates.
+# renderers and the skeletons they suggest beside a report, the capability-lock
+# artifacts, the files the GitHub Action writes into its ``output_dir``, and
+# the artifacts the published contract (``schemas.contract.ARTIFACTS``) places
+# beside them. An output directory whose uncommitted content is only these can
+# be left out of the change set (#804), except where a path also names a trust
+# root: a name alone cannot tell a generated ``packet.md`` from a slash command
+# at ``.claude/commands/packet.md``, so the classifier never grants a trust-root
+# path this allowance. Spelled here, not derived, so this leaf loads no schema;
+# ``tests/test_output_directory_content.py`` holds it to every registry it
+# restates, and to the names real runs actually leave behind.
 REPORTS_DIRECTORY_ARTIFACT_NAMES: frozenset[str] = frozenset(
     {
         *VERIFIER_ROUTE_ARTIFACT_NAMES,
@@ -52,6 +56,14 @@ REPORTS_DIRECTORY_ARTIFACT_NAMES: frozenset[str] = frozenset(
         "human-review-request.json",
         "human-authorization-request.json",
         "suggested-declarations.yaml",
+        # `scan`/`verify` beside a report whose sources static extraction could
+        # not enumerate (`ci.release_decision.SUGGESTED_INVENTORY_FILENAME`).
+        "suggested-inventory.json",
+        # `scenario suggest`'s default, beside the report it reads.
+        "suggested-scenarios.yaml",
+        # The GitHub Action's annotation and check-run payloads.
+        "check-annotations.json",
+        "check-run-payload.json",
         "declaration-continuation.json",
         "attestation.json",
         "host-grants.json",

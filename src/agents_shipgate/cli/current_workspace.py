@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 from agents_shipgate.cli._artifact_lifecycle import (
@@ -203,15 +204,53 @@ class OutputDirectoryHoldsRepositoryContent(ConfigError):
     directory rather than to editing the manifest.
     """
 
-    def __init__(self, message: str, *, directory: Path, refusal: str) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        directory: Path,
+        refusal: OutputDirectoryRefusal,
+        default: bool,
+    ) -> None:
         super().__init__(message)
         self.directory = directory
         self.refusal = refusal
+        #: Whether the refused directory physically is the workspace's default
+        #: reports directory, where "omit --out" is no way out (#804).
+        self.default = default
+
+
+@dataclass(frozen=True)
+class OutputDirectoryRefusal:
+    """Why an output directory may not be left out of the change set."""
+
+    #: What was found, which decides the way out: ``committed`` (at ``HEAD``),
+    #: ``staged``, ``removed`` (a compared commit, or a staged deletion),
+    #: ``trust_root``, ``untracked``, ``root`` or ``unlisted``.
+    kind: str
+    #: Completes a sentence whose subject is the directory.
+    reason: str
+
+    def __str__(self) -> str:
+        return self.reason
 
 
 def output_directory_refusal(
     root: Path, reports_dir: Path, *, compared: Sequence[str] = ()
 ) -> str | None:
+    """Why ``reports_dir`` may not be left out of ``root``'s change set, or ``None``.
+
+    The text of :func:`classify_output_directory`, for the readers, which carry
+    it as the reason a pointer is refused.
+    """
+
+    refusal = classify_output_directory(root, reports_dir, compared=compared)
+    return refusal.reason if refusal is not None else None
+
+
+def classify_output_directory(
+    root: Path, reports_dir: Path, *, compared: Sequence[str] = ()
+) -> OutputDirectoryRefusal | None:
     """Why ``reports_dir`` may not be left out of ``root``'s change set, or ``None``.
 
     A run leaves its output directory out of the change set it decides on, and
@@ -230,7 +269,8 @@ def output_directory_refusal(
     * everything Git holds beneath it is a Shipgate artifact that is not
       committed — staged or untracked, directly beneath it and named in
       :data:`REPORTS_DIRECTORY_ARTIFACT_NAMES`, or a file under
-      :data:`REPORTS_DIRECTORY_ARTIFACT_SUBDIRECTORIES`.
+      :data:`REPORTS_DIRECTORY_ARTIFACT_SUBDIRECTORIES` — and no such path is a
+      trust root.
 
     Anything committed beneath it at ``HEAD``, anything a ``compared`` commit
     (the merge base a run diffs against) held there that ``HEAD`` no longer
@@ -241,8 +281,15 @@ def output_directory_refusal(
     report the deletion, and the exclusion hides it: ``git rm`` of a
     ``.claude/settings.json`` holding deny rules left no directory to find
     content in, and still read as ``complete``. So is the repository root
-    or an ancestor of it. The returned text names what was found, and completes
-    a sentence whose subject is the directory.
+    or an ancestor of it.
+
+    A name is not enough where the path is a trust root. ``packet.md`` is a
+    Shipgate artifact name and ``.claude/commands/packet.md`` a slash command;
+    ``.agents-shipgate/capabilities.lock.json`` is both a scan artifact's name
+    and a committed Shipgate lock. So no trust-root path is ever granted the
+    artifact allowance, and a directory inside a trust root that Git does not
+    ignore is refused before anything is written there: every report a run
+    wrote into it would be a trust-root file the decision never saw.
 
     Staged artifacts are allowed because generated reports that were
     ``git add``-ed by mistake are an advisory case ``verify`` warns about, not
@@ -264,41 +311,179 @@ def output_directory_refusal(
         excluded = worktree_exclusion(root, reports_dir)
         if excluded is None:
             return None
+        physical_root = root.resolve()
         try:
-            relative = excluded.relative_to(root.resolve()).as_posix()
+            relative = excluded.relative_to(physical_root).as_posix()
         except ValueError:
             relative = "."
         if relative == ".":
-            return "is the repository root or one of its ancestors"
+            return OutputDirectoryRefusal(
+                "root", "is the repository root or one of its ancestors"
+            )
         from agents_shipgate.cli.verify.git import output_directory_inventory
 
-        inventory = output_directory_inventory(root, relative, compared=compared)
+        rooted = _trust_rooted_artifact_paths(relative)
+        inventory = output_directory_inventory(
+            root, relative, compared=compared, probe_ignored=[path for path, _ in rooted]
+        )
+        # A committed path gone from both the index and the disk is a staged
+        # deletion: the change removes it, it does not hold it.
+        gone = {
+            path
+            for path in inventory.unstaged
+            if not os.path.lexists(physical_root / path)
+        }
+        disguised = [
+            path
+            for path in (*inventory.staged, *inventory.untracked)
+            if _trust_root_class(path) is not None
+        ]
     except Exception as exc:  # noqa: BLE001 - an unlisted directory is not shown safe.
-        return f"could not be shown to hold only Shipgate artifacts ({exc})"
-    tracked = [
-        *inventory.head,
-        *(path for path in inventory.staged if not _is_reports_artifact(relative, path)),
-    ]
-    if tracked:
-        return f"holds tracked repository files ({_examples(tracked)})"
-    if inventory.removed:
-        return (
+        return OutputDirectoryRefusal(
+            "unlisted", f"could not be shown to hold only Shipgate artifacts ({exc})"
+        )
+    held = [path for path in inventory.head if path not in gone]
+    staged = [path for path in inventory.staged if not _artifact_shaped(relative, path)]
+    if held or staged:
+        return OutputDirectoryRefusal(
+            "committed" if held else "staged",
+            f"holds tracked repository files ({_examples([*held, *staged])})",
+        )
+    removed = [*inventory.removed, *gone]
+    if removed:
+        return OutputDirectoryRefusal(
+            "removed",
             "held committed repository files that the change being verified "
-            f"removes ({_examples(list(inventory.removed))})"
+            f"removes ({_examples(removed)})",
         )
     foreign = [
-        path for path in inventory.untracked if not _is_reports_artifact(relative, path)
+        path for path in inventory.untracked if not _artifact_shaped(relative, path)
     ]
     if foreign:
-        return (
+        return OutputDirectoryRefusal(
+            "untracked",
             "holds untracked files that Git does not ignore and that are not "
-            f"Shipgate artifacts ({_examples(foreign)})"
+            f"Shipgate artifacts ({_examples(foreign)})",
+        )
+    surfaces = sorted({surface for path, surface in rooted if path not in inventory.ignored})
+    if surfaces:
+        return OutputDirectoryRefusal(
+            "trust_root",
+            f"lies inside a trust root ({', '.join(surfaces)}) that Git does not "
+            "ignore, where a file named like a Shipgate report is a trust-root "
+            "file and not a report",
+        )
+    if disguised:
+        return OutputDirectoryRefusal(
+            "trust_root",
+            "holds trust-root files named like Shipgate artifacts "
+            f"({_examples(disguised)})",
         )
     return None
 
 
-def _is_reports_artifact(directory: str, path: str) -> bool:
-    """Whether Git's ``path`` is an artifact a Shipgate run writes into ``directory``."""
+def output_directory_remedy(*, default: bool, kind: str | None = None) -> str:
+    """The way out of an output-directory refusal, for the writer and the readers.
+
+    One helper, so ``verify``'s own message, its next action and ``agent
+    control``'s recovery cannot disagree. Two things decide it. Where the
+    refused directory is the workspace's default, "omit --out" publishes back
+    into it, so it is never offered there. And gitignoring, untracking or
+    moving a directory's own content is a way out only for the reports
+    directory itself: done to ``.claude`` or ``docs`` it would take real
+    inputs out of every decision rather than the refusal out of the way.
+    ``kind`` is ``None`` where the reader cannot tell what was found.
+    """
+
+    name = DEFAULT_REPORTS_DIR.as_posix()
+    elsewhere = "a directory that is gitignored or outside the repository"
+    if not default:
+        return (
+            f"Omit --out to use the default {name}, or pass --out naming "
+            f"{elsewhere}. Do not gitignore, untrack or move the files this "
+            "directory holds to get past this refusal."
+        )
+    untrack = (
+        f"Committed files keep {name} refused until a change that untracks them "
+        f"(`git rm -r --cached {name}`) and gitignores the directory has merged; "
+        "that change itself removes committed files beneath the directory, so "
+        "verify it with such an --out too."
+    )
+    if kind in {"committed", "removed"}:
+        return f"Pass --out naming {elsewhere}. {untrack}"
+    if kind in {"staged", "untracked"}:
+        return (
+            f"Move the files that are not Shipgate artifacts out of {name} "
+            f"(unstaging any that are staged), gitignore {name}, or pass --out "
+            f"naming {elsewhere}."
+        )
+    if kind == "trust_root":
+        return f"Gitignore {name}, or pass --out naming {elsewhere}."
+    if kind is None:
+        return (
+            f"Pass --out naming {elsewhere}. To keep using {name}, move out "
+            f"whatever it holds that is not a Shipgate artifact. {untrack}"
+        )
+    return f"Pass --out naming {elsewhere}."
+
+
+def is_default_reports_dir(workspace: Path, directory: Path) -> bool:
+    """Whether ``directory`` physically is where ``verify --workspace`` publishes.
+
+    Decided by physical identity, like containment: ``--out
+    agents-shipgate-reports`` from the workspace, a symlink to it, and a
+    case-variant spelling on a case-folding filesystem are all the default
+    directory, and advice to omit ``--out`` would publish back into it.
+    """
+
+    default = default_reports_dir(workspace)
+    identities = (_identity(default), _identity(directory))
+    if identities != (None, None):
+        return identities[0] == identities[1]
+    try:
+        return default.resolve() == directory.resolve()
+    except OSError:
+        return False
+
+
+def _trust_rooted_artifact_paths(directory: str) -> list[tuple[str, str]]:
+    """The artifact paths a run could write beneath ``directory`` that are trust roots.
+
+    Each is paired with the trust-root class it falls in. Non-empty means the
+    directory lies inside a trust root for at least some of what a run writes,
+    whether or not anything is there yet.
+    """
+
+    candidates = [
+        *(f"{directory}/{name}" for name in sorted(REPORTS_DIRECTORY_ARTIFACT_NAMES)),
+        *(
+            f"{directory}/{name}/input"
+            for name in sorted(REPORTS_DIRECTORY_ARTIFACT_SUBDIRECTORIES)
+        ),
+    ]
+    rooted: list[tuple[str, str]] = []
+    for path in candidates:
+        surface = _trust_root_class(path)
+        if surface is not None:
+            rooted.append((path, surface))
+    return rooted
+
+
+def _trust_root_class(path: str) -> str | None:
+    # Imported here: the trust-root table loads the boundary registry and its
+    # schemas, which a module every control read imports need not pay for
+    # until a directory is actually classified.
+    from agents_shipgate.core.trust_roots import trust_root_class_for
+
+    return trust_root_class_for(path)
+
+
+def _artifact_shaped(directory: str, path: str) -> bool:
+    """Whether Git's ``path`` is named and placed like an artifact a run writes there.
+
+    Only the name and the place: whether the path is also a trust root, which
+    no name can rule out, is the caller's separate question (#804).
+    """
 
     prefix = f"{directory}/"
     if not path.startswith(prefix):
@@ -443,8 +628,12 @@ def _safe_merge_base(root: Path, base: str, head: str) -> str | None:
 __all__ = [
     "DEFAULT_REPORTS_DIR",
     "OutputDirectoryHoldsRepositoryContent",
+    "OutputDirectoryRefusal",
+    "classify_output_directory",
     "default_reports_dir",
+    "is_default_reports_dir",
     "live_workspace",
     "output_directory_refusal",
+    "output_directory_remedy",
     "worktree_exclusion",
 ]

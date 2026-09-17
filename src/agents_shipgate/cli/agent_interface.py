@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
 import typer
 
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
-from agents_shipgate.cli.current_workspace import default_reports_dir, live_workspace
+from agents_shipgate.cli.current_workspace import (
+    default_reports_dir,
+    is_default_reports_dir,
+    live_workspace,
+    output_directory_remedy,
+)
 from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.agent_control_envelope import (
     AgentControlRouteUnavailable,
@@ -24,7 +28,7 @@ from agents_shipgate.core.current_control import (
     read_current_control,
 )
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.invocation import render_command
+from agents_shipgate.invocation import join_argv, render_command, split_invocation
 from agents_shipgate.schemas.contract import DEFAULT_PATHS
 from agents_shipgate.schemas.current_control import (
     CURRENT_CONTROL_ARTIFACT_NAME,
@@ -237,7 +241,7 @@ def control(
         )
         if exc.reports_dir_refusal is not None:
             recovery = _recovery_away_from(
-                reports_dir, workspace=workspace, refusal=exc.reports_dir_refusal
+                exc, reports_dir=reports_dir, workspace=workspace
             )
             guidance = recovery.why
         emit_agent_mode_error(
@@ -368,66 +372,118 @@ def _superseded_recovery_command(
     the caller just made.
     """
 
-    data = exc.artifacts.get(VERIFIER_ARTIFACT_KEY)
-    if data is not None:
-        try:
-            verifier = VerifierArtifact.model_validate_json(data)
-        except ValueError:
-            verifier = None
-        if verifier is not None and verifier.fix_task is not None:
-            command = verifier.fix_task.verification_command
-            if command:
-                return command
-    return _recovery_verify_command(workspace, reports_dir)
+    return _producing_verification_command(exc) or _recovery_verify_command(
+        workspace, reports_dir
+    )
 
 
-def _recovery_away_from(reports_dir: Path, *, workspace: Path, refusal: str) -> NextAction:
+def _recovery_away_from(
+    exc: CurrentControlUnavailable, *, reports_dir: Path, workspace: Path
+) -> NextAction:
     """The recovery for a reports directory no pointer can be current in (#804).
 
     Every other currency refusal is cleared by re-running into the same
     directory, and the producing run's exact command is the best route. Here
-    that command is the one route that cannot work: ``verify`` refuses the
-    directory before writing, so following it would end at a config error, not
-    at a current pointer. The route goes to the workspace's default reports
-    directory instead; when that *is* the refused directory, no command can be
-    named without inventing one, and a person or agent must choose where the
-    reports go.
+    that command, as recorded, is the one route that cannot work: ``verify``
+    refuses the directory before writing, so following it would end at a
+    config error, not at a current pointer. So the route is that same command
+    with only its ``--out`` removed, publishing into its workspace's default
+    reports directory. Everything else it carries stays: rebuilding a bare
+    ``verify`` dropped ``--config`` and ``--base``, and a run that then skipped
+    the local base read a ``human_review_required`` widening as ``complete``
+    (#804 review) — the defect #429 already recorded for ``--no-base``, policy
+    and baseline options.
+
+    When the refused directory *is* the default one, no command can be named
+    without inventing a destination, so the route is a ``review`` step whose
+    advice never includes omitting ``--out``. The default is recognized by
+    physical identity, so a case-variant or symlinked spelling of it is still
+    the default.
     """
 
-    default = default_reports_dir(workspace)
+    refusal = exc.reports_dir_refusal
     unavailable = (
         "Until a pointer reads cleanly, treat completion, merge, and any cached "
         "must_stop as unavailable rather than acting on a remembered result."
     )
-    if Path(os.path.realpath(default)) == Path(os.path.realpath(reports_dir)):
+    if is_default_reports_dir(workspace, reports_dir):
         return NextAction(
             kind="review",
             why=(
                 f"No pointer in {reports_dir} can be current, because it {refusal}. "
-                f"Re-run `{render_command(['verify'])}` with --out naming a "
-                "directory that is gitignored or outside the repository, and "
-                f"read that directory with --reports-dir. {unavailable}"
+                f"To re-run `{render_command(['verify'])}`: "
+                f"{output_directory_remedy(default=True)} Read a directory named "
+                f"with --out back with `agent control --reports-dir`. {unavailable}"
             ),
             expects=(
-                "A verification published into a directory that holds only "
-                "Shipgate artifacts, read from that directory."
+                "A verification published into a directory that is gitignored, "
+                "outside the repository, or holds nothing but Shipgate artifacts "
+                "outside any trust root, read from that directory."
             ),
         )
+    default = default_reports_dir(workspace)
+    produced = _producing_verification_command(exc)
+    command = (
+        _without_output_directory(produced) if produced is not None else None
+    ) or verify_command_for(workspace, None)
     return NextAction(
         kind="command",
-        command=verify_command_for(workspace, None),
+        command=command,
         why=(
             f"No pointer in {reports_dir} can be current, because it {refusal}. "
-            f"Re-run `{render_command(['verify'])}` without --out, which "
-            f"publishes into {default}, and read "
-            f"{default / CURRENT_CONTROL_ARTIFACT_NAME} (`agent control` without "
-            f"--reports-dir). {unavailable}"
+            "Re-run the verification without --out, which publishes into "
+            f"{default}, and read {default / CURRENT_CONTROL_ARTIFACT_NAME} "
+            f"(`agent control` without --reports-dir). {unavailable}"
         ),
         expects=(
             "current-control.json is published into the workspace's default "
             "reports directory, and it reads cleanly from there."
         ),
     )
+
+
+def _producing_verification_command(exc: CurrentControlUnavailable) -> str | None:
+    """The bound verifier's own ``fix_task.verification_command``, when validated."""
+
+    data = exc.artifacts.get(VERIFIER_ARTIFACT_KEY)
+    if data is None:
+        return None
+    try:
+        verifier = VerifierArtifact.model_validate_json(data)
+    except ValueError:
+        return None
+    if verifier.fix_task is None:
+        return None
+    return verifier.fix_task.verification_command or None
+
+
+def _without_output_directory(command: str) -> str | None:
+    """``command`` with its ``--out`` removed and every other token kept.
+
+    ``None`` when the command has no faithful argv form, or is not a
+    ``verify`` invocation: the caller then names a command of its own rather
+    than guessing at a string it cannot parse.
+    """
+
+    split = split_invocation(command)
+    if split is None:
+        return None
+    executable, args = split
+    if "verify" not in args:
+        return None
+    kept: list[str] = []
+    skip = False
+    for token in args:
+        if skip:
+            skip = False
+            continue
+        if token == "--out":
+            skip = True
+            continue
+        if token.startswith("--out="):
+            continue
+        kept.append(token)
+    return join_argv([*executable, *kept])
 
 
 def _recovery_verify_command(workspace: Path, reports_dir: Path) -> str:

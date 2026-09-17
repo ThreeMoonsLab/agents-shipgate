@@ -739,6 +739,10 @@ def _validate_control_currency(
         and live is not None
         and live.reports_dir_refusal_against is not None
         and merge_base is not None
+        # An archived-head decision diffed the merge base against that head in
+        # full, directory included, so a removal beneath it was in its own
+        # change set and hid nothing. Only a worktree decision excluded it.
+        and pointer.workspace_identity.snapshot_kind != "committed_tree"
     ):
         reports_dir_refusal = live.reports_dir_refusal_against(merge_base)
     if reports_dir_refusal is not None:
@@ -753,9 +757,9 @@ def _validate_control_currency(
                 "A Shipgate run leaves its reports directory out of the change "
                 "set it decides on, so that content is outside this decision "
                 "and outside every check that it is still current. Re-run "
-                "verification with --out naming a directory that holds only "
-                "Shipgate artifacts: the default agents-shipgate-reports, or "
-                "one that is gitignored or outside the repository."
+                "verification into a directory that is gitignored, outside "
+                "the repository, or holds nothing but Shipgate artifacts "
+                "outside any trust root."
             ),
             path=out_dir,
             reports_dir_refusal=reports_dir_refusal,

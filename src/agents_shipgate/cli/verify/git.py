@@ -2645,12 +2645,23 @@ class OutputDirectoryInventory:
     removed: tuple[str, ...]
     #: Index entries not committed at ``HEAD``: staged additions.
     staged: tuple[str, ...]
+    #: Paths committed at ``HEAD`` that the index no longer holds: staged
+    #: deletions.
+    unstaged: tuple[str, ...]
     #: Untracked paths that survive the standard exclude rules.
     untracked: tuple[str, ...]
+    #: Those of the caller's ``probe_ignored`` paths the standard exclude rules
+    #: ignore. A probed path need not exist: the rules match names, so this is
+    #: whether a file written there later would be ignored.
+    ignored: tuple[str, ...] = ()
 
 
 def output_directory_inventory(
-    workspace: Path, directory: str, *, compared: Sequence[str] = ()
+    workspace: Path,
+    directory: str,
+    *,
+    compared: Sequence[str] = (),
+    probe_ignored: Sequence[str] = (),
 ) -> OutputDirectoryInventory:
     """Every path Git could report beneath ``directory``, if it were not excluded.
 
@@ -2663,6 +2674,10 @@ def output_directory_inventory(
     the other commits the caller's change set is taken against, such as a
     merge base; one that does not resolve contributes nothing, because no
     change set is taken against it.
+
+    ``probe_ignored`` names root-relative paths, typically files a run has not
+    written yet, to test against the same exclude rules: whether a file a run
+    would write there is one Git reports at all.
 
     Every read is bounded like every other metadata read here. A directory too
     large to list, or a Git failure, raises rather than reading as empty.
@@ -2698,11 +2713,29 @@ def output_directory_inventory(
         elsewhere |= committed(ref)
     index = listed(["ls-files", "--cached"])
     untracked = listed(["ls-files", "--others", "--exclude-standard"])
+    ignored: set[str] = set()
+    if probe_ignored:
+        # Exit 1 is "none of them is ignored", not a failure.
+        payload = _run_git_bounded_output(
+            workspace,
+            [*_SAFE_DIFF_CONFIG, "check-ignore", "--stdin", "-z"],
+            max_output_bytes=_DIFF_METADATA_LIMIT,
+            allowed_returncodes=(0, 1),
+            input=b"".join(os.fsencode(path) + b"\0" for path in probe_ignored),
+        )
+        if payload is None:
+            raise ConfigError(
+                f"Git could not read the ignore rules beneath {directory} within "
+                "its static output bounds."
+            )
+        ignored = {os.fsdecode(raw) for raw in payload.split(b"\0") if raw}
     return OutputDirectoryInventory(
         head=tuple(sorted(at_head)),
         removed=tuple(sorted(elsewhere - at_head)),
         staged=tuple(sorted(index - at_head)),
+        unstaged=tuple(sorted(at_head - index)),
         untracked=tuple(sorted(untracked)),
+        ignored=tuple(sorted(ignored.intersection(probe_ignored))),
     )
 
 

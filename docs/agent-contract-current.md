@@ -696,14 +696,17 @@ the absolute directory it searched, and its recovery command writes back to it.
 The reports directory is left out of the change set the reader checks, just as
 `verify` leaves its output directory out of the change set it decides on, so
 it must hold nothing else Git would report. A directory inside the repository
-that holds a committed path (at `HEAD`, or at the merge base the pointer
-records and since removed), or a staged or untracked unignored path that is not
-a Shipgate artifact, is refused as `workspace_unverifiable` whatever the
-pointer's state, and `verify` refuses to write into one. The recovery for that
-refusal is `verify` without `--out`, publishing into the default directory, or
-a review step when the default directory is the one refused. A gitignored
-directory, one holding only Shipgate artifacts, and one outside the repository
-are read as before.
+that holds a committed path (at `HEAD`, or at the merge base a worktree pointer
+records and since removed), a staged or untracked unignored path that is not a
+Shipgate artifact, or any trust-root path whatever its name, or that lies
+inside a trust root Git does not ignore, is refused as `workspace_unverifiable`
+whatever the pointer's state, and `verify` refuses to write into one. The
+recovery for that refusal is the producing run's own verification command with
+only `--out` removed, publishing into the default directory with the same
+`--config`, base and policy options, or a review step when the default
+directory is the one refused (recognized by physical identity). A gitignored
+directory, one outside the repository, and one holding only uncommitted
+Shipgate artifacts outside any trust root are read as before.
 
 **The promoted read for a coding-agent control loop is one command.**
 `agents-shipgate agent control --workspace .` runs the currency protocol and

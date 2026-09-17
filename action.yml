@@ -71,7 +71,7 @@ inputs:
   output_dir:
     required: false
     default: agents-shipgate-reports
-    description: Output directory for reports.
+    description: Output directory for reports. verify refuses (exit 2) a directory inside the repository that holds committed files or unignored files other than Shipgate artifacts, or that lies in a trust root Git does not ignore.
   upload_artifact:
     required: false
     default: "true"

@@ -17,6 +17,7 @@ from agents_shipgate.cli.agent_mode import emit_agent_mode_error, is_agent_mode
 from agents_shipgate.cli.current_workspace import (
     OutputDirectoryHoldsRepositoryContent,
     live_workspace,
+    output_directory_remedy,
 )
 from agents_shipgate.cli.diagnostics import input_parse_recovery, top_next_actions
 from agents_shipgate.cli.discovery.gitignore_block import REPORTS_DIR_NAME
@@ -132,7 +133,14 @@ def verify(
     out: Path | None = typer.Option(
         None,
         "--out",
-        help="Output directory for verifier and scan artifacts.",
+        help=(
+            "Output directory for verifier and scan artifacts. Default: "
+            "agents-shipgate-reports under --workspace. The run leaves it out "
+            "of the change it decides on, so a directory inside the repository "
+            "must be gitignored, or hold nothing but uncommitted Shipgate "
+            "artifacts and lie outside any trust root such as .claude; "
+            "otherwise verify exits 2 before writing."
+        ),
     ),
     format_: str | None = typer.Option(
         None,
@@ -316,13 +324,17 @@ def verify(
         typer.echo(f"Config error: {exc}", err=True)
         if isinstance(exc, OutputDirectoryHoldsRepositoryContent):
             # Nothing about the manifest is wrong, so the manifest diagnostics
-            # would route this to an edit that cannot clear it (#804).
+            # would route this to an edit that cannot clear it (#804). The way
+            # out is the one the refusal message names: never "omit --out"
+            # when the refused directory is the default one.
+            remedy = output_directory_remedy(default=exc.default, kind=exc.refusal.kind)
             guidance = (
-                f"Choose an output directory other than {exc.directory}, which "
-                f"{exc.refusal}: omit --out to use the default "
-                "agents-shipgate-reports, or name a directory that is gitignored "
-                "or outside the repository. Do not edit .gitignore or move "
-                "repository files to get past this refusal."
+                f"The default output directory {exc.directory} {exc.refusal}. {remedy}"
+                if exc.default
+                else (
+                    f"Choose an output directory other than {exc.directory}, which "
+                    f"{exc.refusal}. {remedy}"
+                )
             )
             flattened = [
                 NextAction(
