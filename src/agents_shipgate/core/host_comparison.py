@@ -107,20 +107,23 @@ def unchanged_limits(
     return limits
 
 
-#: Coverage order (#812): what refused the comparison, then sources with rows,
-#: then changes no row describes, then sources only one side published, then
-#: sources not proven unchanged, then sources compared with no change. The cap
-#: keeps a prefix of this order.
+#: Coverage order (#812): what refused the comparison, then changes no row
+#: describes, then sources only one side published, then sources not proven
+#: unchanged, then sources both sides read that gave rows, then sources compared
+#: with no change. What the entries above the block cannot show comes before
+#: what they already show, a file's rows, so the cap never counts an `env` edit
+#: away behind files the entries already name (review cycle 5). The cap keeps a
+#: prefix of this order.
 def _coverage_rank(item: dict[str, Any]) -> tuple[int, str, str, str]:
     if item["status"] == "blocking_limit":
         rank = 0
-    elif item["rows"]:
-        rank = 1
     elif item["status"] in {"changed_without_grant_change", "changed_without_rows"}:
-        rank = 2
+        rank = 1
     elif item["side"] != "both":
-        rank = 3
+        rank = 2
     elif item["status"] == "unchanged_not_proven":
+        rank = 3
+    elif item["rows"]:
         rank = 4
     else:
         rank = 5

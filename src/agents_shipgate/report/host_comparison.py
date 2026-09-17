@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 
 from agents_shipgate.core.agent_control_envelope import single_line_text
 from agents_shipgate.core.boundary_registry import (
@@ -10,6 +11,7 @@ from agents_shipgate.core.boundary_registry import (
     is_claude_plugin_marketplace_path,
 )
 from agents_shipgate.core.capability_diff_rows import ReviewChange, review_changes
+from agents_shipgate.core.host_grants import _source_kind
 from agents_shipgate.schemas.host_comparison import HostComparison, HostComparisonCoverageItem
 
 #: The tokens a reviewer copies to read the same comparison again (#795). The
@@ -120,6 +122,20 @@ def _side_text(item: HostComparisonCoverageItem) -> str:
 _REDACTED_VALUES = "(redacted values such as env values and apiKeyHelper are not compared)"
 
 
+def _redacted_values_note(source: str) -> str:
+    """The note on redacted values, only for a file that can hold them (#812 review cycle 5).
+
+    Not for a file the inventory reads as instructions (`AGENTS.md`, a
+    `CLAUDE.md` link to it, a skill or a rule): it holds no `env` value or
+    `apiKeyHelper`, and a docs-only change would print the note on every such
+    file it could not prove unchanged. The kind is the one the inventory gives
+    the file's path when it reads it; a path redacted past recognition keeps
+    the note.
+    """
+
+    return "" if _source_kind(source) == "instructions" else f" {_REDACTED_VALUES}"
+
+
 def coverage_item_text(item: HostComparisonCoverageItem) -> str:
     """One item's finding, in words a reviewer reads without the schema (#812)."""
 
@@ -132,11 +148,11 @@ def coverage_item_text(item: HostComparisonCoverageItem) -> str:
             if item.side == "both"
             else "declares no grant this entry compares"
         )
-        finding = f"{change}, so no row {_REDACTED_VALUES}"
+        finding = f"{change}, so no row{_redacted_values_note(item.source)}"
     elif item.status == "unchanged_not_proven":
         finding = (
             "no grant this entry compares changed, but the file was not proven "
-            f"unchanged {_REDACTED_VALUES}"
+            f"unchanged{_redacted_values_note(item.source)}"
         )
     elif item.status == "changed_without_rows":
         finding = "changed, but no row is attributed to this path"
@@ -156,8 +172,8 @@ def coverage_item_text(item: HostComparisonCoverageItem) -> str:
 _QUIET_NAMES = 3
 
 #: The most characters the block takes in a PR comment, whose human summary
-#: is bounded as a whole: past it, items are counted rather than listed, so
-#: long paths cannot push the advisory and next action out of the comment.
+#: is bounded as a whole. It gets at most this much of the room the comment's
+#: other lines leave, never more: see :func:`with_coverage_in_room`.
 MARKDOWN_COVERAGE_MAX_CHARS = 2000
 
 
@@ -176,16 +192,20 @@ def coverage_lines(
 ) -> list[str]:
     """The "What this run established" block (#812).
 
-    One line per item a reviewer must read — a blocking limit, a source with
-    rows, a change no row describes, a source only one side published, a
-    source not proven unchanged — then one line naming the sources proven
-    unchanged, the first three by name and the rest as a count. Coverage items are a prefix of that order, so
-    when the last one listed is such a source, every item the cap omitted is
-    one too; otherwise the omitted count is stated as items not listed.
+    One line per item a reviewer must read, in the comparator's order — a
+    blocking limit, a change no row describes, a source only one side
+    published, a source not proven unchanged, a source with rows — then one
+    line naming the sources proven unchanged, the first three by name and the
+    rest as a count. Coverage items are a prefix of that order, so when the
+    last one listed is such a source, every item the cap omitted is one too;
+    otherwise the omitted count is stated as items not listed.
 
-    With ``max_chars``, the block stops listing, in that order, once the next
-    line would take it past that many characters, and counts what it did not
-    list. The first line after the heading is always listed.
+    With ``max_chars``, the block, heading, count and closing blank line
+    included, is at most that many characters joined: it lists the longest
+    prefix of those lines that fits, naming fewer sources proven unchanged
+    before it drops that line, and counts the rest, as ``N items not listed``
+    when it lists none. When not even the heading and that count fit, it is
+    nothing.
 
     Nothing when coverage was not recorded (a legacy verifier, `check`, a
     comparison that read no inventory), or when a refused comparison names no
@@ -197,74 +217,106 @@ def coverage_lines(
     coverage = comparison.coverage
     if coverage is None:
         return []
+
+    def fits(block: list[str]) -> bool:
+        return max_chars is None or len("\n".join(block)) <= max_chars
+
     if not coverage.items and not coverage.omitted_items:
         if comparison.comparison_status != "comparable":
             return []
-        return [f"{COVERAGE_HEADING} no host configuration source was compared."]
-    lines = [COVERAGE_HEADING]
+        empty = [f"{COVERAGE_HEADING} no host configuration source was compared."]
+        return empty if fits(empty) else []
 
-    def add(line: str) -> bool:
-        if (
-            max_chars is not None
-            and len(lines) > 1
-            and len("\n".join([*lines, line])) > max_chars
-        ):
-            return False
-        lines.append(line)
-        return True
-
-    unlisted = 0
-    for item in coverage.items:
-        if _quiet(item):
-            continue
-        hosts = ", ".join(single_line_text(host) for host in item.hosts)
-        line = f"{bullet}{_text(item.source, markdown=markdown)} ({hosts}): {coverage_item_text(item)}"
-        # Once one line is left out, so is every later one: the order holds.
-        if unlisted or not add(line):
-            unlisted += 1
-    omitted_quiet = coverage.omitted_items if coverage.items and _quiet(coverage.items[-1]) else 0
+    item_lines = [
+        f"{bullet}{_text(item.source, markdown=markdown)} "
+        f"({', '.join(single_line_text(host) for host in item.hosts)}): {coverage_item_text(item)}"
+        for item in coverage.items
+        if not _quiet(item)
+    ]
     quiet = [item for item in coverage.items if _quiet(item)]
-    if quiet:
-        total = len(quiet) + omitted_quiet
-        named = 0
-        # Fewer names when three do not fit; none when an earlier line did not.
-        counts = range(min(len(quiet), _QUIET_NAMES), 0, -1) if not unlisted else range(0)
-        for count in counts:
-            names = ", ".join(_text(item.source, markdown=markdown) for item in quiet[:count])
-            more = total - count
-            if add(
-                f"{bullet}compared with no change in what this entry reads: {names}"
-                + (f" and {more} more" if more else "")
-            ):
-                named = count
-                break
-        if not named:
-            unlisted += total
-    if not omitted_quiet:
-        unlisted += coverage.omitted_items
-    if unlisted:
-        # Items, not sources: one source can be several items (by host, side or limit).
-        lines.append(f"{bullet}{unlisted} more item{'s' if unlisted != 1 else ''} not listed")
-    if markdown:
-        lines.append("")
-    return lines
+    # Quiet items sort last: when the last item is one, every omitted item is too.
+    last_quiet = bool(coverage.items) and _quiet(coverage.items[-1])
+    quiet_total = len(quiet) + (coverage.omitted_items if last_quiet else 0)
+    total = len(item_lines) + len(quiet) + coverage.omitted_items
+
+    def quiet_line(count: int) -> str:
+        names = ", ".join(_text(item.source, markdown=markdown) for item in quiet[:count])
+        more = quiet_total - count
+        return f"{bullet}compared with no change in what this entry reads: {names}" + (
+            f" and {more} more" if more else ""
+        )
+
+    def block(listed: list[str], items: int) -> list[str]:
+        lines = [COVERAGE_HEADING, *listed]
+        unlisted = total - items
+        if unlisted:
+            # Items, not sources: one source can be several items (by host, side or limit).
+            more = "more " if listed else ""
+            lines.append(f"{bullet}{unlisted} {more}item{'s' if unlisted != 1 else ''} not listed")
+        if markdown:
+            lines.append("")
+        return lines
+
+    # Longest first, in order: every item line and the quiet line naming three,
+    # two or one source, then ever shorter prefixes of the item lines alone.
+    candidates = [
+        block([*item_lines, quiet_line(count)], len(item_lines) + quiet_total)
+        for count in range(min(len(quiet), _QUIET_NAMES), 0, -1)
+    ] + [block(item_lines[:count], count) for count in range(len(item_lines), -1, -1)]
+    return next((candidate for candidate in candidates if fits(candidate)), [])
 
 
-def _coverage_budget(markdown: bool) -> int | None:
-    """Only the PR comment is bounded as a whole; terminal text lists every item."""
+def with_coverage_in_room(
+    comparison: HostComparison, lines_for: Callable[[int], list[str]], room: int
+) -> list[str]:
+    """A bounded Markdown surface's lines, the coverage block given only the room left (#812).
 
-    return MARKDOWN_COVERAGE_MAX_CHARS if markdown else None
+    ``lines_for(max_chars)`` renders every line of the surface, the coverage
+    block bounded to ``max_chars`` (``0`` leaves it out); ``room`` is how many
+    characters those lines may take joined. The block gets what the other
+    lines leave, at most :data:`MARKDOWN_COVERAGE_MAX_CHARS`, so every line the
+    surface shows without it — the entries, the review question and
+    reproduction, and the advisory, next action and evidence after them — it
+    still shows with it (review cycle 5). When not even the heading and a count
+    fit, the block is left out; whatever the other lines alone overflow is
+    theirs, as without coverage.
+    """
+
+    without = lines_for(0)
+    spare = room - len("\n".join(without))
+    widest = coverage_lines(comparison, markdown=True, max_chars=MARKDOWN_COVERAGE_MAX_CHARS)
+    if spare <= 0 or not widest:
+        return without
+    # The blank line that sets the block apart costs the same whatever it lists.
+    separators = (
+        len("\n".join(lines_for(MARKDOWN_COVERAGE_MAX_CHARS)))
+        - len("\n".join(without))
+        - len("\n".join(widest))
+    )
+    budget = min(MARKDOWN_COVERAGE_MAX_CHARS, spare - separators)
+    lines = lines_for(budget) if budget > 0 else without
+    return lines if len("\n".join(lines)) <= room else without
 
 
-def host_comparison_lines(comparison: HostComparison, *, markdown: bool = False) -> list[str]:
+def host_comparison_lines(
+    comparison: HostComparison, *, markdown: bool = False, coverage_max_chars: int | None = None
+) -> list[str]:
+    """The host comparison a reviewer reads, coverage block included.
+
+    ``coverage_max_chars`` bounds the block as :func:`coverage_lines` does;
+    ``None`` lists every item. A bounded surface passes the room its other
+    lines leave, through :func:`with_coverage_in_room`.
+    """
+
     def text(value):
         return _text(value, markdown=markdown)
 
+    coverage = coverage_lines(comparison, markdown=markdown, max_chars=coverage_max_chars)
     if comparison.comparison_status != "comparable":
         return [
             "Host capability comparison unavailable: "
             + text("; ".join(comparison.incomparable_reasons)),
-            *coverage_lines(comparison, markdown=markdown, max_chars=_coverage_budget(markdown)),
+            *coverage,
         ]
     lines = ["Repository-declared host capability changes:"]
     changes = review_changes(comparison.rows)
@@ -287,7 +339,6 @@ def host_comparison_lines(comparison: HostComparison, *, markdown: bool = False)
                 f"  {text(change.why)}",
             ]
         )
-    coverage = coverage_lines(comparison, markdown=markdown, max_chars=_coverage_budget(markdown))
     if coverage and markdown and changes:
         # Ends the row list: the heading would otherwise continue its last item.
         lines.append("")

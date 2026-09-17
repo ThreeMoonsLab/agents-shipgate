@@ -26,8 +26,9 @@ class HostComparisonLimit(BaseModel):
 
 
 #: The most coverage items one comparison publishes (#812). The list is a
-#: prefix in the order below, so the cap drops a compared, unchanged source
-#: before anything a reviewer must read; ``omitted_items`` counts the rest.
+#: prefix of the comparator's order, which puts a file's rows after what no row
+#: shows and a compared, unchanged source last, so the cap drops those first;
+#: ``omitted_items`` counts the rest.
 MAX_COVERAGE_ITEMS = 10
 
 #: The issue kinds a host inventory publishes, as a blocking limit may name them.

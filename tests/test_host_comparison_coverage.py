@@ -30,7 +30,12 @@ from jsonschema import Draft202012Validator
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
-from agents_shipgate.core.host_comparison import _file_of, compare_host_inventories
+from agents_shipgate.core.host_comparison import (
+    _compared_coverage,
+    _file_of,
+    _no_grant_change_shown,
+    compare_host_inventories,
+)
 from agents_shipgate.core.host_grants import (
     build_host_boundary_snapshot,
     build_host_grants_baseline,
@@ -196,6 +201,7 @@ def test_a_docs_only_change_names_the_source_it_compared_with_no_change(tmp_path
 REDACTED_VALUES = "(redacted values such as env values and apiKeyHelper are not compared)"
 GRANT_UNCHANGED = f"changed, but no grant this entry compares changed, so no row {REDACTED_VALUES}"
 NOT_PROVEN = f"no grant this entry compares changed, but the file was not proven unchanged {REDACTED_VALUES}"
+GUIDANCE_UNCHANGED = "changed, but no grant this entry compares changed, so no row"
 
 
 @pytest.mark.parametrize(
@@ -306,12 +312,44 @@ def test_a_guidance_edit_to_an_instruction_file_is_a_change_with_no_row(tmp_path
 
     agents = [item for item in _items(payload["coverage"]) if item[0] == "AGENTS.md"]
     assert [item[1:4] for item in agents] == [("changed_without_grant_change", "both", 0)]
+    # Review cycle 5: an instruction file holds no env value or apiKeyHelper,
+    # so its line carries no note about them.
     assert any(
-        line.startswith("  AGENTS.md (") and line.endswith(f"): compared; {GRANT_UNCHANGED}")
+        line.startswith("  AGENTS.md (") and line.endswith(f"): compared; {GUIDANCE_UNCHANGED}")
         for line in _block(text)
     )
-    assert f"): compared; {GRANT_UNCHANGED}\n" in comment
+    assert f"): compared; {GUIDANCE_UNCHANGED}\n" in comment
+    assert REDACTED_VALUES not in "\n".join(_block(text)) + comment
     assert "AGENTS.md" not in _block(text)[-1]
+
+
+@_LINKS
+def test_a_claude_md_link_to_agents_md_carries_no_redacted_values_note(tmp_path: Path) -> None:
+    """Review cycle 5: the common `CLAUDE.md -> AGENTS.md` layout on a docs-only change.
+
+    The link read is never proven unchanged, and says so on every such pull
+    request, but an instruction file holds no env value or apiKeyHelper.
+    """
+
+    repo = _repository(tmp_path, {"AGENTS.md": "# Notes\n\nBe kind.\n"})
+    _link(repo, "CLAUDE.md", "AGENTS.md")
+    _commit(repo, "link")
+    _git(repo, "branch", "-f", "main", "HEAD")
+    _write(repo, "README.md", "# demo\nmore\n")
+    _commit(repo, "docs")
+
+    text, payload, _comparison, comment = _all_routes(repo, tmp_path)
+
+    assert payload["rows"] == []
+    claude = [item for item in _items(payload["coverage"]) if item[0] == "CLAUDE.md"]
+    assert claude and {item[1:4] for item in claude} == {("unchanged_not_proven", "both", 0)}
+    unproven = "no grant this entry compares changed, but the file was not proven unchanged"
+    assert any(
+        line.startswith("  CLAUDE.md (") and line.endswith(f"): compared; {unproven}")
+        for line in _block(text)
+    )
+    assert f"): compared; {unproven}\n" in comment
+    assert REDACTED_VALUES not in text + comment
 
 
 # --- one side only: deleted, base-only and untracked sources -----------------
@@ -600,6 +638,99 @@ def test_file_of_never_guesses_between_files_that_redact_alike() -> None:
     assert _file_of("docs#1/.mcp.json", {"b/d.toml"}) == "docs#1/.mcp.json"
 
 
+# --- guards no current reader reaches, held here so none is removed silently --
+
+
+def _artifact(path: str, digest: str, host: str = "claude-code", **extra) -> dict:
+    return {
+        "artifact_id": f"{host}:{path}", "host": host, "scope": "repository", "path": path,
+        "kind": "config", "parse_status": "parsed", "redacted_sha256": digest, **extra,
+    }
+
+
+def _statuses(before: list[dict], after: list[dict], changes: list[dict], identities=None) -> dict:
+    """What coverage says of each file, for inventories and a payload built by hand."""
+
+    base, head = {"artifacts": before, "grants": []}, {"artifacts": after, "grants": []}
+    artifact_changes = [
+        {"artifact_id": old["artifact_id"], "baseline": old, "current": new}
+        for old, new in zip(before, after, strict=True)
+        if old != new
+    ]
+    payload = {"changes": changes, "artifact_changes": artifact_changes}
+    coverage = _compared_coverage(base, head, payload, [], identities)
+    return {(item.source, tuple(item.hosts)): item.status for item in coverage.items}
+
+
+def test_a_row_no_published_file_owns_keeps_its_host_from_calling_a_change_grant_free() -> None:
+    """Review cycle 5: the `unattributed` guard.
+
+    A row from inside a file no published file can be named for, such as a
+    source two redacted paths could both own, might be the changed file's own
+    grant, so no file on that host is said to have changed no compared grant.
+    Another host is unaffected.
+    """
+
+    config, settings = ".codex/config.toml", SETTINGS
+    before = [_artifact(config, "a", host="codex"), _artifact(settings, "c")]
+    after = [_artifact(config, "b", host="codex"), _artifact(settings, "d")]
+    row = {"baseline": None, "current": {"host": "codex", "source": "elsewhere#profiles.dev", "kind": "permission_mode"}}
+
+    assert _statuses(before, after, [row]) == {
+        (config, ("codex",)): "changed_without_rows",
+        (settings, ("claude-code",)): "changed_without_grant_change",
+        ("elsewhere#profiles.dev", ("codex",)): "compared",
+    }
+    owned = {**row, "current": {**row["current"], "source": f"{config}#profiles.dev"}}
+    assert _statuses(before, after, [owned])[(config, ("codex",))] == "compared"
+    assert _statuses(before, after, [])[(config, ("codex",))] == "changed_without_grant_change"
+
+
+def test_a_file_with_more_than_one_changed_artifact_is_never_called_grant_free() -> None:
+    """Review cycle 5: `len(changes) > 1`. Two artifacts at one path are not one digest change."""
+
+    one = {"baseline": _artifact(SETTINGS, "a"), "current": _artifact(SETTINGS, "b")}
+    other = {
+        "baseline": _artifact(SETTINGS, "c", kind="mcp"),
+        "current": _artifact(SETTINGS, "d", kind="mcp"),
+    }
+
+    assert _no_grant_change_shown("claude-code", SETTINGS, [one], hook_basis_changed=False) is True
+    assert _no_grant_change_shown("claude-code", SETTINGS, [one, other], hook_basis_changed=False) is False
+
+
+@pytest.mark.parametrize(
+    "extra, path",
+    [
+        ({"resolved_through": ["config/a.json"]}, SETTINGS),
+        ({}, "config~0123456789ab/settings.json"),
+    ],
+    ids=["read-through-a-link", "digest-stamped-path"],
+)
+def test_a_file_not_named_directly_is_never_asked_about_or_proven_unchanged(extra: dict, path: str) -> None:
+    """Review cycle 5: askable's link and redaction digest guards.
+
+    A link read names the link, not the bytes read, and a digest-stamped path
+    is a label, not a file. Neither is asked about, even of an answer that
+    would say identical, and neither is ever `compared` with no change.
+    """
+
+    asked: list[list[str]] = []
+
+    def identical(paths):
+        asked.append(list(paths))
+        return dict.fromkeys(paths, True)
+
+    unchanged = _artifact(path, "a", **extra)
+    plain = _artifact("README.json", "r")
+
+    assert _statuses([unchanged, plain], [unchanged, plain], [], identical) == {
+        (path, ("claude-code",)): "unchanged_not_proven",
+        ("README.json", ("claude-code",)): "compared",
+    }
+    assert asked == [["README.json"]]
+
+
 @pytest.mark.parametrize("moves_basis", [True, False], ids=["basis-moves", "basis-stays"])
 def test_a_settings_change_moves_no_compared_grant_only_while_no_hook_loading_basis_moved(
     tmp_path: Path, moves_basis: bool
@@ -828,6 +959,116 @@ def test_long_paths_never_push_the_advisory_and_next_action_out_of_the_pr_commen
     assert "Evidence: `verifier.json`" in comment
 
 
+WIDENABLE_WORKFLOW = (
+    "on: [push]\npermissions:\n  contents: {mode}\njobs:\n  t:\n"
+    "    runs-on: ubuntu-latest\n    steps:\n      - run: echo {index}\n"
+)
+ADVISORY = "Advisory: no application release policy configured. This comparison grants no merge authority."
+
+
+def test_the_block_never_pushes_a_line_out_of_a_pr_comment_with_many_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review cycle 5: the block takes only the room the entries and the tail after it leave.
+
+    Widened workflows and an `env` edit, as many workflows as the
+    6000-character comment prints with its tail when it has no coverage. The
+    agent block names the workspace path, so that count is measured here
+    rather than fixed. Before, the block was bounded only by itself, and at
+    that count it pushed the lines after it out, from the review question to
+    the evidence. Now the comment keeps them, and the `env` edit, which no
+    entry shows, is listed ahead of the files the entries already name.
+
+    Then every bound across the comment's length, in both comment styles: the
+    comment with coverage is the comment without it plus, at most, the block,
+    so the block never costs a line the comment printed without it.
+    """
+
+    from agents_shipgate.report import pr_comment
+    from agents_shipgate.report.pr_comment import render_pr_comment
+
+    tail = ("Review question:", "Compared:", "Reproduce:", ADVISORY, "Evidence: `verifier.json`")
+    workflows = {
+        f".github/workflows/w{index:02d}.yml": WIDENABLE_WORKFLOW.format(mode="read", index=index)
+        for index in range(24)
+    }
+    repo = _repository(tmp_path, workflows)
+
+    def widen(count: int, branch: str) -> None:
+        _git(repo, "checkout", "-q", "-B", branch, "main")
+        for name in sorted(workflows)[:count]:
+            _write(repo, name, workflows[name].replace("contents: read", "contents: write"))
+        _write(repo, SETTINGS, {**BASE_SETTINGS, "env": {"LOG_LEVEL": "debug"}})
+        _commit(repo, f"widen {count} workflows and add an env value")
+
+    def without_coverage(verifier: VerifierArtifact, rows: int | None = None) -> VerifierArtifact:
+        comparison = verifier.host_comparison
+        assert comparison is not None
+        update: dict = {"coverage": None}
+        if rows is not None:
+            update["rows"] = comparison.rows[:rows]
+        return verifier.model_copy(update={"host_comparison": comparison.model_copy(update=update)})
+
+    widen(24, "change")
+    widest = VerifierArtifact.model_validate(_verify(repo, tmp_path / "all")[0])
+    count = max(
+        rows
+        for rows in range(10, 25)
+        if all(line in render_pr_comment(without_coverage(widest, rows), report=None) for line in tail)
+    )
+    assert count < 24, "the fixture must reach the comment's bound"
+    widen(count, "tight")
+
+    text, payload, _comparison, comment = _all_routes(repo, tmp_path)
+
+    assert len(payload["rows"]) == count
+    env_edit = (SETTINGS, "changed_without_grant_change", "both", 0, None, ["claude-code"])
+    assert _items(payload["coverage"])[0] == env_edit
+    assert _block(text)[1] == f"  {SETTINGS} (claude-code): compared; {GRANT_UNCHANGED}"
+    verifier = VerifierArtifact.model_validate(
+        json.loads((tmp_path / "out/verifier.json").read_text(encoding="utf-8"))
+    )
+    assert render_pr_comment(verifier, report=None) == comment
+    plain_verifier = without_coverage(verifier)
+    plain = render_pr_comment(plain_verifier, report=None)
+    assert all(line in plain for line in tail)
+    # The block as it was bounded before, by itself, no longer fits beside them.
+    assert verifier.host_comparison is not None
+    alone = coverage_lines(verifier.host_comparison, markdown=True, max_chars=2000)
+    assert len(plain) + len("\n".join(alone)) + 1 > 6000
+    for line in tail:
+        assert line in comment, line
+    assert len(comment) <= 6000
+    lines = comment.splitlines()
+    if HEADING in lines:
+        assert lines[lines.index(HEADING) + 1] in {
+            f"- ` {SETTINGS} ` (claude-code): compared; {GRANT_UNCHANGED}",
+            f"- {len(workflows) + 1} items not listed",
+        }
+
+    listed_at_the_edge = omitted_at_the_edge = False
+    for style in ("capability-review", "findings"):
+        length = len(render_pr_comment(plain_verifier, report=None, style=style))
+        for limit in range(length - 2300, length + 60, 3):
+            monkeypatch.setattr(pr_comment, "_COMMENT_MAX_CHARS", limit)
+            plain = render_pr_comment(plain_verifier, report=None, style=style)
+            covered = render_pr_comment(verifier, report=None, style=style).splitlines()
+            if HEADING not in covered:
+                assert covered == plain.splitlines(), (style, limit)
+                omitted_at_the_edge |= ADVISORY in plain
+                continue
+            start = covered.index(HEADING)
+            end = covered.index("", start)
+            assert covered[:start] + covered[end + 1 :] == plain.splitlines(), (style, limit)
+            assert covered[start + 1] in {
+                f"- ` {SETTINGS} ` (claude-code): compared; {GRANT_UNCHANGED}",
+                f"- {len(workflows) + 1} items not listed",
+            }, (style, limit)
+            listed_at_the_edge |= ADVISORY in plain and len("\n".join(covered)) > limit - 60
+    # The sweep reached both edges: a block that fills the room, and no room for one.
+    assert listed_at_the_edge and omitted_at_the_edge
+
+
 def _coverage_comparison(items: list[dict], omitted: int = 0) -> HostComparison:
     return HostComparison.model_validate({
         "comparison_status": "comparable",
@@ -846,9 +1087,58 @@ def test_items_not_listed_are_counted_as_items_not_sources() -> None:
 
     assert coverage_lines(_coverage_comparison(items, omitted=1), bullet="  ")[-1] == "  1 more item not listed"
     assert coverage_lines(_coverage_comparison(items, omitted=3), bullet="  ")[-1] == "  3 more items not listed"
-    # A budget lists the first line and counts what it could not fit.
-    bounded = coverage_lines(_coverage_comparison(items, omitted=3), bullet="  ", max_chars=len(HEADING) + 10)
-    assert bounded[-1] == "  4 more items not listed" and len(bounded) == 3
+    # A budget lists what fits and counts the rest, as items.
+    comparison = _coverage_comparison(items, omitted=3)
+    first = coverage_lines(comparison, bullet="  ")[1]
+    bounded = coverage_lines(comparison, bullet="  ", max_chars=len(f"{HEADING}\n{first}\n  4 more items not listed"))
+    assert bounded == [HEADING, first, "  4 more items not listed"]
+
+
+@pytest.mark.parametrize("markdown", [False, True])
+def test_a_bounded_block_never_exceeds_its_bound(markdown: bool) -> None:
+    """Review cycle 5: the bound holds for the whole block, count and closing blank included.
+
+    Every budget from nothing to the whole block: the block fits, lists a
+    prefix of the unbounded block's lines, names fewer quiet sources before it
+    drops their line, counts every item it does not list (without "more" when
+    it lists none), and is nothing when not even the heading and a count fit.
+    """
+
+    # Four changes, then six sources proven unchanged and five more like them.
+    items = [
+        _item(source=f"changed/{index}.json", status="changed_without_rows") for index in range(4)
+    ] + [_item(source=f"quiet/{index}.json") for index in range(6)]
+    comparison = _coverage_comparison(items, omitted=5)
+    close = [""] if markdown else []
+    full = coverage_lines(comparison, markdown=markdown)
+    changes, quiet_line = full[1:5], full[5]
+    assert full == [HEADING, *changes, quiet_line, *close]
+    assert quiet_line.endswith(" and 8 more")
+    minimum = len("\n".join([HEADING, "- 15 items not listed", *close]))
+
+    for budget in range(len("\n".join(full)) + 1):
+        block = coverage_lines(comparison, markdown=markdown, max_chars=budget)
+        if budget < minimum:
+            assert block == [], budget
+            continue
+        assert len("\n".join(block)) <= budget, budget
+        assert block[0] == HEADING and block[len(block) - len(close):] == close, budget
+        body = block[1 : len(block) - len(close)]
+        quiet = [line for line in body if "compared with no change in what this entry reads" in line]
+        counted = [line for line in body if line.endswith("not listed")]
+        listed = [line for line in body if line not in quiet + counted]
+        assert body == [*listed, *quiet, *counted], budget
+        assert listed == changes[: len(listed)], budget
+        # The quiet line, naming three, two or one source, stands for all eleven.
+        assert len(quiet) <= 1 and (not quiet or listed == changes), budget
+        unlisted = 15 - len(listed) - (11 if quiet else 0)
+        if not unlisted:
+            assert counted == [], budget
+        elif listed or quiet:
+            assert counted == [f"- {unlisted} more item{'s' if unlisted != 1 else ''} not listed"], budget
+        else:
+            assert counted == ["- 15 items not listed"], budget
+    assert coverage_lines(comparison, markdown=markdown, max_chars=len("\n".join(full))) == full
 
 
 def test_a_comparison_that_read_no_source_says_so(tmp_path: Path) -> None:
