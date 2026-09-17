@@ -126,6 +126,34 @@ So Shipgate scopes rather than guesses:
   block in that project covers, and two projects in one repository never
   overwrite each other's results. An explicit `--out` still resolves against
   the repository root.
+- `verify` exits `2` with `Verifier --out <dir> holds tracked repository files`
+  (or `held committed repository files that the change being verified
+  removes`, `holds untracked files that Git does not ignore and that are not
+  Shipgate artifacts`, `lies inside a trust root (…) that Git does not
+  ignore`, or `holds trust-root files named like Shipgate artifacts`) when the
+  output directory is inside the repository and holds anything besides
+  uncommitted Shipgate artifacts outside any trust root. The run leaves that
+  directory out of the change it decides on, so `--out docs` or `--out
+  .claude/commands` would hide those files from the decision. Omit `--out`, or
+  name a directory that is gitignored or outside the repository; do not
+  gitignore, untrack or move that directory's files to get past it.
+  `agent control` refuses a pointer already sitting in such a directory as
+  `workspace_unverifiable`, and its recovery is the producing run's command
+  without `--out`.
+- The same refusal for the default directory reads `The default verifier
+  output directory agents-shipgate-reports holds …` (or `Verifier --out
+  agents-shipgate-reports holds …` when `--out` names it, as the Action does).
+  Omitting `--out` would publish back into it, so it is never the advice
+  there. Move stray files that are not Shipgate artifacts out, or gitignore
+  `agents-shipgate-reports/` as `init` does. Committed reports need a change
+  that runs `git rm -r --cached agents-shipgate-reports` and gitignores the
+  directory; a worktree `verify` of that change still finds the removal, so
+  verify it with `--out` naming a directory that is gitignored or outside the
+  repository until it merges. The Action's `--head` run passes. Reports that
+  `skill lint`, `skill security` and `skill review` write there are Shipgate
+  artifacts and are not refused. The Claude Code Stop hook runs `verify` into
+  the default directory and reports this exit `2` as advisory context without
+  blocking the Stop, so resolve the refusal rather than relying on the hook.
 - With `--ci`, each manifest gets its own workflow — `agents-shipgate.yml` for
   a repository-root manifest, `agents-shipgate-<project>.yml` for a scoped one.
   The action takes a single `config`, so one shared file would gate whichever

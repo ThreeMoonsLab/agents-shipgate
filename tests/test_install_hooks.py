@@ -446,6 +446,10 @@ def test_generated_stop_hook_verifies_worktree_once_without_head(tmp_path: Path)
     verify_args = verify_entries[0]
     assert "--head" not in verify_args
     assert "--base" not in verify_args
+    # The hook publishes into verify's default reports directory, so the
+    # output-directory rule `verify` and every refresh share applies to it
+    # unchanged; it names no directory of its own that could hold content (#804).
+    assert "--out" not in verify_args
     assert "--no-manifest-present" in trigger_entries[0]
 
 

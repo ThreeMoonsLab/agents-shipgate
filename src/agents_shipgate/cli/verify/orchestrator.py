@@ -27,7 +27,11 @@ from agents_shipgate.cli._artifact_lifecycle import clear_verifier_route_artifac
 from agents_shipgate.cli._helpers import _apply_strict_plugins
 from agents_shipgate.cli.current_workspace import (
     DEFAULT_REPORTS_DIR,
+    OutputDirectoryHoldsRepositoryContent,
+    classify_output_directory,
     default_reports_dir,
+    is_default_reports_dir,
+    output_directory_remedy,
     worktree_exclusion,
 )
 from agents_shipgate.cli.discovery.scope import (
@@ -212,6 +216,7 @@ from .git import (
     collect_diff_context,
     commit_date,
     commit_sha,
+    detect_default_base,
     detect_default_base_with_notes,
     ensure_git_workspace,
     git_path,
@@ -393,6 +398,20 @@ def run_verify(
                 else []
             ),
         ],
+    )
+    # Before anything is written, and for every route this run can take:
+    # `--head`, the worktree, and the manifest-free comparison below all leave
+    # this directory out of what they read.
+    _reject_output_directory_content(
+        git_root=git_root,
+        workspace=workspace,
+        out_dir=out_dir,
+        explicit=out is not None,
+        base=base,
+        head=head,
+        archive_head=archive_head,
+        auto_base=auto_base,
+        manifest_free=not config_path.is_file(),
     )
     out_dir.mkdir(parents=True, exist_ok=True)
     # Invalidate before anything else moves. A prior terminal pointer must not
@@ -6021,6 +6040,100 @@ def _reject_output_input_overlap(
         )
 
 
+def _reject_output_directory_content(
+    *,
+    git_root: Path,
+    workspace: Path,
+    out_dir: Path,
+    explicit: bool,
+    base: str | None,
+    head: str,
+    archive_head: bool,
+    auto_base: bool,
+    manifest_free: bool = False,
+) -> None:
+    """Refuse an output directory that holds repository content (#804).
+
+    Every read this run makes of the working tree — the change set, the
+    overlay its pointer binds, the manifest-free host comparison, the static
+    input census — leaves the output directory out, so that the run's own
+    reports are not read as part of the change. An output directory holding
+    anything else therefore hid it: ``--out .claude`` turned a widened
+    ``.claude/settings.json`` from ``human_review_required`` into ``complete``
+    and ``mergeable``, and ``--out docs`` kept a pointer current across every
+    later edit there. The overlap check above covers only the inputs named on
+    the command line; this covers everything Git would report.
+
+    Decided before the pointer is invalidated or anything is written, by the
+    one classifier every refresh applies, so a directory refused here can
+    never hold a pointer that reads as current. The commits this run compares
+    are resolved here too, the way the run resolves them, because a file one
+    of them holds beneath the directory is content the exclusion can hide even
+    when nothing is left on disk: a committed ``git rm .claude/settings.json``
+    read as ``complete`` under ``--out .claude``. Which commits those are
+    depends on the route. A worktree run diffs the working tree against the
+    merge base with the directory excluded, so the merge base counts. An
+    archived ``--head`` run diffs the merge base against the head in full and
+    excludes the directory only from the head tree it reads, so only the
+    evaluated head counts: a change that removes committed files from the
+    directory shows up in its own diff, and refusing it would fail the
+    Action's run for the change that stops committing reports. A base that
+    does not resolve compares nothing, and the run itself then reports the
+    diff it could not read.
+
+    Without a manifest the run also takes the host comparison, whose
+    auto-detected base may be a local ``main`` in a repository with no remote,
+    and whose merge base the pointer records. That base is compared too:
+    otherwise this check accepted a directory whose removal the reader then
+    found against the recorded merge base, and the run's own pointer refused
+    the moment it was published.
+    """
+
+    compared: list[str] = []
+    try:
+        head_commit = commit_sha(git_root, head)
+        if head_commit is not None:
+            compared.append(head_commit)
+        if not archive_head:
+            bases = [base] if base is not None else []
+            if base is None and auto_base:
+                bases.append(detect_default_base_with_notes(git_root, head).base)
+                if manifest_free and head_commit is not None:
+                    bases.append(
+                        detect_default_base(
+                            git_root,
+                            head_commit,
+                            allow_local_when_no_remote=True,
+                            allow_equal_head=True,
+                        )
+                    )
+            for candidate in dict.fromkeys(ref for ref in bases if ref):
+                merge_base = merge_base_sha(git_root, candidate, head)
+                if merge_base is not None:
+                    compared.append(merge_base)
+    except Exception:  # noqa: BLE001 - the run reports an unreadable ref itself.
+        pass
+    refusal = classify_output_directory(git_root, out_dir, compared=compared)
+    if refusal is None:
+        return
+    default = is_default_reports_dir(workspace, out_dir)
+    shown = _display_path(out_dir, git_root)
+    subject = (
+        f"Verifier --out {shown}"
+        if explicit
+        else f"The default verifier output directory {shown}"
+    )
+    raise OutputDirectoryHoldsRepositoryContent(
+        f"{subject} {refusal.reason}. verify leaves its output directory out of "
+        "the change set it decides on, so anything there besides its own "
+        "reports would be hidden from the decision and from every later check "
+        f"that it is current. {output_directory_remedy(default=default, kind=refusal.kind)}",
+        directory=out_dir,
+        refusal=refusal,
+        default=default,
+    )
+
+
 def _shell_join(parts: list[str]) -> str:
     return " ".join(shlex.quote(part) for part in parts)
 
@@ -6453,6 +6566,7 @@ def run_preview(
     project a monorepo pull request is about (#363).
     """
     requested_root = workspace.resolve()
+    in_git = True
     try:
         root = ensure_git_workspace(requested_root)
     except ConfigError:
@@ -6460,6 +6574,7 @@ def run_preview(
         # one does exist, use the same repository root and path coordinates as
         # the full verifier so its authorized command evaluates the same gate.
         root = requested_root
+        in_git = False
     config_path, config_relative = _resolve_config_under_workspace(
         root,
         config,
@@ -6473,6 +6588,19 @@ def run_preview(
         out_dir=out_dir,
         inputs=[("config", config_path)],
     )
+    if in_git:
+        # Outside Git there is no change set to leave anything out of.
+        _reject_output_directory_content(
+            git_root=root,
+            workspace=workspace,
+            out_dir=out_dir,
+            explicit=out is not None,
+            base=base,
+            head=head or "HEAD",
+            archive_head=head is not None,
+            auto_base=auto_base,
+            manifest_free=not config_path.is_file(),
+        )
     out_dir.mkdir(parents=True, exist_ok=True)
     # Preview is a non-terminal operation, so it starts by denying whatever a
     # previous run left behind rather than leaving it current beside a preview.

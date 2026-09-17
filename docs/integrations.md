@@ -246,7 +246,13 @@ presentation only: CI and `verify` evaluate the whole change regardless.
 These hooks are advisory local feedback. Local setup failures such as a
 missing CLI or unavailable base ref are surfaced as context, and verifier
 output the hook cannot parse is surfaced as an explicit warning rather than
-treated as a pass. They are not a
+treated as a pass. A `verify` that exits with anything other than `0` or `20`
+is surfaced as context naming the exit, and does not block the Stop. That
+includes exit `2` when the default `agents-shipgate-reports` is refused because
+it holds repository content, such as committed files or stray notes beside the
+reports: a change that would otherwise soft-block on `agent_action_required`
+ends the turn with that context instead, so resolve the refusal it names (see
+[troubleshooting](troubleshooting.md)). They are not a
 trust boundary and not a replacement for CI. CI should continue to run the
 GitHub Action or an equivalent `agents-shipgate verify` command, and CI's
 `report.json.release_decision.decision` remains authoritative.

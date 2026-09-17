@@ -2265,6 +2265,21 @@ publishes: `agents-shipgate-reports` under `--workspace`, so `agent control
 directory — and no other directory is searched in its place. A refusal names
 the absolute directory it searched, and its recovery command writes back to it.
 
+The reports directory is left out of the change set the reader checks, just as
+`verify` leaves its output directory out of the change set it decides on, so
+it must hold nothing else Git would report. A directory inside the repository
+that holds a committed path (at `HEAD`, or at the merge base a worktree pointer
+records and since removed), a staged or untracked unignored path that is not a
+Shipgate artifact, or any trust-root path whatever its name, or that lies
+inside a trust root Git does not ignore, is refused as `workspace_unverifiable`
+whatever the pointer's state, and `verify` refuses to write into one. The
+recovery for that refusal is the producing run's own verification command with
+only `--out` removed, publishing into the default directory with the same
+`--config`, base and policy options, or a review step when the default
+directory is the one refused (recognized by physical identity). A gitignored
+directory, one outside the repository, and one holding only uncommitted
+Shipgate artifacts outside any trust root are read as before.
+
 **The promoted read for a coding-agent control loop is one command.**
 `agents-shipgate agent control --workspace .` runs the currency protocol and
 returns the `shipgate.agent_control/v1` envelope, which already carries the

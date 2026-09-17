@@ -142,9 +142,15 @@ class CurrentControlUnavailable(AgentsShipgateError):
         *,
         path: Path | None = None,
         artifacts: dict[str, bytes] | None = None,
+        reports_dir_refusal: str | None = None,
     ) -> None:
         self.reason = reason
         self.path = path
+        #: Set when the refusal is that the reports directory itself holds
+        #: repository content (#804). No rerun into that directory can publish
+        #: a current pointer, so a caller naming a recovery must not route back
+        #: into it.
+        self.reports_dir_refusal = reports_dir_refusal
         #: The artifacts this pass had already hash-validated against the
         #: pointer before the refusal. Present only where the refusal is about
         #: currency rather than integrity — a superseded pointer is still a
@@ -474,6 +480,18 @@ class LiveWorkspace:
     # pointer names its own base, so it cannot be resolved before the read.
     resolve_commit: Callable[[str], str | None] | None = None
     resolve_merge_base: Callable[[str, str], str | None] | None = None
+    # Why the reports directory being read may not be left out of the change
+    # set: it holds repository content, so a pointer published there decided
+    # without that content and every check of it would skip that content too.
+    # The text completes a sentence whose subject is the directory. ``None``
+    # means the directory holds only Shipgate artifacts, or lies outside the
+    # repository (#804).
+    reports_dir_refusal: str | None = None
+    # The same question counting what a named commit held there as well: the
+    # merge base a pointer records is the tree its run diffed against, and a
+    # file it held that HEAD no longer does is a deletion that run hid. Supplied
+    # by the CLI; it must not raise.
+    reports_dir_refusal_against: Callable[[str], str | None] | None = None
 
 
 @dataclass(frozen=True)
@@ -713,6 +731,39 @@ def _validate_control_currency(
     artifacts: Mapping[str, bytes],
 ) -> None:
     """Refuse a pointer whose evidence no longer describes this workspace."""
+
+    reports_dir_refusal = live.reports_dir_refusal if live is not None else None
+    merge_base = pointer.workspace_identity.merge_base_sha
+    if (
+        reports_dir_refusal is None
+        and live is not None
+        and live.reports_dir_refusal_against is not None
+        and merge_base is not None
+        # An archived-head decision diffed the merge base against that head in
+        # full, directory included, so a removal beneath it was in its own
+        # change set and hid nothing. Only a worktree decision excluded it.
+        and pointer.workspace_identity.snapshot_kind != "committed_tree"
+    ):
+        reports_dir_refusal = live.reports_dir_refusal_against(merge_base)
+    if reports_dir_refusal is not None:
+        # First, and for every state. The run that published here left this
+        # directory out of the change it decided on, and every check below
+        # would leave it out again, so none of them can show that the content
+        # it holds is unchanged — or that the decision ever saw it (#804).
+        raise CurrentControlUnavailable(
+            "workspace_unverifiable",
+            (
+                f"The reports directory {out_dir} {reports_dir_refusal}. "
+                "A Shipgate run leaves its reports directory out of the change "
+                "set it decides on, so that content is outside this decision "
+                "and outside every check that it is still current. Re-run "
+                "verification into a directory that is gitignored, outside "
+                "the repository, or holds nothing but Shipgate artifacts "
+                "outside any trust root."
+            ),
+            path=out_dir,
+            reports_dir_refusal=reports_dir_refusal,
+        )
 
     grants_authority = pointer.control.state == "complete"
     if grants_authority:
