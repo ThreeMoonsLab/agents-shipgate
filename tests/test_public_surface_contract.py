@@ -27,6 +27,7 @@ from typing import get_args
 import pytest
 
 from agents_shipgate import __version__
+from agents_shipgate.cli.discovery import detect_workspace
 from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS
 from agents_shipgate.core.dependency_manifests import (
     DEPENDENCY_MANIFEST_GLOBS,
@@ -880,6 +881,57 @@ def test_runtime_and_published_versions_propagate_to_metadata_surfaces():
         f"published tag `v{LATEST_PUBLISHED_VERSION}`."
     )
     assert f"In-tree runtime: `{expected}`" in contract_text
+
+
+_CONTRACT_MENTION = re.compile(r"\bcontract (\d+)\b")
+
+
+def _single_line(text: str, prefix: str, relpath: str) -> str:
+    lines = [line for line in text.splitlines() if line.startswith(prefix)]
+    assert len(lines) == 1, f"{relpath} must carry exactly one {prefix!r} line; found {len(lines)}."
+    return lines[0]
+
+
+def test_llms_txt_states_the_source_and_published_contracts_apart():
+    """#792: a reader of `main` must never pair this tree's contract with a published build.
+
+    `llms.txt` is served from `main`, where the source tree runs ahead of the
+    newest tag. It used to pack both into one parenthetical — "source-tree
+    runtime: 1.0.0 (contract 39; published on the advisory channel, …)" — so
+    bumping that number to this tree's contract would have told a participant's
+    agent that the build it installs emits a contract it does not. Each line now
+    names its own build's contract, and while the two differ no line that speaks
+    of a published build names this tree's contract.
+    """
+
+    relpath = "llms.txt"
+    text = _read(relpath)
+    release = _single_line(text, "- Latest public release:", relpath)
+    source = _single_line(text, "- Current source-tree runtime:", relpath)
+    assert _CONTRACT_MENTION.findall(release) == [LATEST_PUBLISHED_CONTRACT_VERSION], (
+        f"{relpath} 'Latest public release' must name the contract v{LATEST_PUBLISHED_VERSION} "
+        f"emits, {LATEST_PUBLISHED_CONTRACT_VERSION}, and no other: {release!r}"
+    )
+    assert _CONTRACT_MENTION.findall(source) == [CONTRACT_VERSION], (
+        f"{relpath} 'Current source-tree runtime' must name this tree's contract, "
+        f"{CONTRACT_VERSION}, and no other: {source!r}"
+    )
+    assert "published" not in source.lower(), (
+        f"{relpath} describes the source tree as published: {source!r}"
+    )
+    if CONTRACT_VERSION != LATEST_PUBLISHED_CONTRACT_VERSION:
+        for number, line in enumerate(text.splitlines(), start=1):
+            if "published" in line.lower():
+                assert CONTRACT_VERSION not in _CONTRACT_MENTION.findall(line), (
+                    f"{relpath}:{number} pairs this tree's unreleased contract "
+                    f"{CONTRACT_VERSION} with a published build."
+                )
+
+    boundary = build_contract_payload().agent_boundary_result_schema_version
+    stated = set(re.findall(r"shipgate\.agent_boundary_result/v\d+", text))
+    assert stated == {boundary}, (
+        f"{relpath} tells a reader to parse {sorted(stated)}; `check` emits {boundary}."
+    )
 
 
 def test_release_tag_consistency_checks_published_tag_not_prerelease_runtime():
@@ -2317,6 +2369,11 @@ def test_well_known_links_to_agent_discovery_onramps():
     assert any("Codex plugin" in entry for entry in when_to_use), (
         ".well-known when_to_use must mention Codex plugin changes."
     )
+    # #792: the host-configuration review job and its manifest-free route.
+    assert any("agents-shipgate diff" in entry for entry in when_to_use), (
+        ".well-known when_to_use must name `agents-shipgate diff` for reviewing a "
+        "coding-agent configuration change."
+    )
 
     expected_urls = {
         "ai_search_summary_url": "/docs/ai-search-summary.md",
@@ -2584,6 +2641,53 @@ def test_llms_txt_advertises_triggers_and_llms_full():
     assert "llms-full.txt" in text, (
         "llms.txt must reference llms-full.txt so coding agents that "
         "prefer one document over chasing links can find it."
+    )
+
+
+#: The detector fields `llms.txt`'s continue rule may read as a reason to go on.
+_DETECT_CONTINUE_LISTS = (
+    "suggested_sources",
+    "codex_plugin_candidates",
+    "host_boundary_candidates",
+)
+
+
+def test_llms_txt_continue_rule_does_not_stop_a_host_only_repository(tmp_path: Path):
+    """#792: the rule an agent reads must continue where the engine continues.
+
+    In a repository whose only agent configuration is `.claude/settings.json`
+    and `.mcp.json`, `detect` reports no agent project, no sources and no plugin
+    candidates, and routes forward on `host_boundary_candidates`. The continue
+    rule used to name only the first three, so an agent following `llms.txt`
+    stopped on exactly the change the manifest-free `diff` exists to review.
+    """
+
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "settings.json").write_text(
+        '{"permissions": {"allow": ["Bash(npm test:*)"]}}\n', encoding="utf-8"
+    )
+    (tmp_path / ".mcp.json").write_text('{"mcpServers": {}}\n', encoding="utf-8")
+    result = detect_workspace(tmp_path.resolve()).model_dump(mode="json")
+    fired = [field for field in _DETECT_CONTINUE_LISTS if result[field]]
+    assert result["is_agent_project"] is False and fired == ["host_boundary_candidates"], (
+        "the host-only shape no longer isolates the host route, so this test compares "
+        f"nothing: is_agent_project={result['is_agent_project']!r}, fired={fired!r}"
+    )
+    assert result["next_action"].startswith("agents-shipgate audit --host"), (
+        f"detect no longer routes a host-only repository forward: {result['next_action']!r}"
+    )
+
+    section = _slice_section(_read("llms.txt"), "## When to recommend", "\n## ")
+    rules = [line for line in section.splitlines() if line.startswith("- Continue when")]
+    assert len(rules) == 1, f"llms.txt must carry one 'Continue when' rule; found {len(rules)}"
+    for field in fired:
+        assert f"`{field}`" in rules[0], (
+            f"llms.txt's continue rule omits `{field}`, so an agent stops where "
+            f"detect continues: {rules[0]!r}"
+        )
+    assert "agents-shipgate diff" in section, (
+        "llms.txt 'When to recommend' must name the manifest-free route a host-only "
+        "repository reviews a change with."
     )
 
 

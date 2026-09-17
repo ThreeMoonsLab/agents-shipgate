@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "agents-shipgate"
 version = "1.0.0"
-description = "The deterministic merge gate for AI-generated agent capability changes. Agent release readiness for tool-using AI agents. CLI + GitHub Action. Scans MCP, OpenAPI, OpenAI Agents SDK, Anthropic, Google ADK, LangChain, CrewAI, OpenAI API, Codex config, Codex plugin, n8n, Conductor OSS workflow JSON."
+description = "The deterministic merge gate for AI-generated agent capability changes. Shows what a PR changes in coding-agent configuration (Claude Code settings, .mcp.json, hooks, Codex, Cursor, VS Code MCP, GitHub workflow permissions) with no manifest. Agent release readiness for tool-using AI agents. CLI + GitHub Action. Scans MCP, OpenAPI, OpenAI Agents SDK, Anthropic, Google ADK, LangChain, CrewAI, OpenAI API, Codex config, Codex plugin, n8n, Conductor OSS workflow JSON."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
@@ -32,6 +32,10 @@ keywords = [
   "github-action",
   "sarif",
   "agent-tools",
+  "claude-code",
+  "coding-agent",
+  "agent-permissions",
+  "mcp-config",
 ]
 classifiers = [
   "Development Status :: 4 - Beta",

@@ -35,6 +35,7 @@ Authoritative instructions for AI coding agents (Claude Code, Codex, Cursor, Aid
 
 The deterministic merge gate for AI-generated agent capability changes. Reads `shipgate.yaml` plus tool sources (MCP exports, MCP server source (TypeScript/Go registration idioms), OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files, OpenAI API artifacts, Codex repo config, Codex plugin packages and marketplaces, n8n workflow JSON/stubs, Conductor OSS workflow JSON) and produces deterministic findings. Local-first and static by default — no agent execution, tool calls, LLM calls, or network access.
 
+- **Host-configuration review:** `agents-shipgate diff` shows what a change does to declared coding-agent configuration — `.claude/settings.json`, `.mcp.json`, hooks, Codex, Cursor and VS Code MCP config, GitHub workflow permissions — with no `shipgate.yaml`, saved baseline or skill. It compares against the base already in Git history, states what it could not compare, and implies no verdict; see **Run (canonical)** and [`docs/host-boundary-support.md`](docs/host-boundary-support.md) for what it reads.
 - **Inputs:** MCP · MCP server source · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI · OpenAI API · Codex config · Codex plugin · n8n · Conductor OSS workflow JSON
 - **Outputs:** Markdown · JSON · SARIF
 - **Trust:** Static-by-default. No agent execution, tool calls, LLM calls, or network access.
@@ -562,6 +563,7 @@ When a required `tool_sources[].path` does not resolve under the manifest direct
 
 Use it when the user is:
 
+- Reviewing a pull request that changes a coding agent's declared configuration (`.claude/settings.json`, `.mcp.json`, hooks, Codex, Cursor or VS Code MCP config, GitHub workflow permissions): run `agents-shipgate diff`, which needs no `shipgate.yaml`, baseline or skill
 - Writing or modifying an AI agent that calls tools (MCP servers, OpenAPI APIs, `@function_tool`-decorated Python, Google ADK, LangChain/LangGraph, CrewAI, n8n, Conductor OSS)
 - Publishing or modifying a Codex plugin package or marketplace entry that declares skills, apps, MCP servers, or hooks
 - Adding a new tool, scope, or policy to an existing agent
