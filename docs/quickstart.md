@@ -250,9 +250,9 @@ curl -sSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/t
   | python3 - --workspace . --json
 ```
 
-Continue when `is_agent_project: true`, or when `suggested_sources` or
-`codex_plugin_candidates` is non-empty, or the workspace already has a
-`shipgate.yaml`.
+Continue when `is_agent_project: true`, or when `suggested_sources`,
+`codex_plugin_candidates` or `host_boundary_candidates` is non-empty, or the
+workspace already has a `shipgate.yaml`.
 
 If `is_agent_project: false`, `suggested_sources: []`,
 `codex_plugin_candidates: []`, `host_boundary_candidates: []`,

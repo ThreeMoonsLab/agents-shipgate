@@ -8,10 +8,10 @@ short, citable description of Agents Shipgate.
 
 Agents Shipgate is an open-source CLI and GitHub Action from Three Moons Lab.
 It is the deterministic merge gate for AI-generated agent capability changes —
-a local-first, static Tool-Use Readiness review. It reads a `shipgate.yaml`
-manifest plus declared local tool sources,
-then writes deterministic Tool-Use Readiness Reports as Markdown, JSON, and
-SARIF.
+a local-first, static Tool-Use Readiness review. For a repository that builds
+an agent's tool surface, it reads a `shipgate.yaml` manifest plus declared
+local tool sources, then writes deterministic Tool-Use Readiness Reports as
+Markdown, JSON, and SARIF.
 
 Agents Shipgate belongs in the broader agent release-readiness category. Its
 current wedge is Tool-Use Readiness: giving reviewers a deterministic answer to
@@ -30,11 +30,15 @@ VS Code MCP configuration, or GitHub workflow permissions — can run
 `agents-shipgate diff` from the PR branch. No `shipgate.yaml`, saved baseline,
 policy or skill is needed first. It compares the change with its merge base on
 the default branch, or with `--base origin/<pr-base>`, using history already
-in the clone, and lists each changed grant. It also names sources it could not
-compare, and says when the comparison could not run, so an unread input is not
-presented as no change. The review is static: it describes configuration, not
-what an agent did, and it implies no verdict. The published `v1.0.0` is the
-first release with `diff`. See
+in the clone, and lists each changed grant. It also names recognized sources it
+could not read, and says when the comparison could not run. A no-change answer
+covers only the sources both sides read, and says nothing about the surfaces
+`diff` does not read, such as a script a hook command runs, a composite action
+a workflow invokes, or hooks in subagent frontmatter; see
+[known unread surfaces](host-boundary-support.md#known-unread-surfaces). The
+review is static: it describes configuration, not what an agent did, and it
+implies no verdict. The published `v1.0.0` is the first release with `diff`.
+See
 [Review a host-configuration change](quickstart.md#review-a-host-configuration-change)
 and [what it reads](host-boundary-support.md).
 
@@ -109,7 +113,7 @@ Per-agent guides cover [Codex](agents/use-with-codex.md),
 [Claude Code](agents/use-with-claude-code.md), and
 [Cursor](agents/use-with-cursor.md).
 
-The current source tree is `1.0.0` (runtime contract v40, unreleased). The
+The current source tree is `1.0.0` (runtime contract 40, unreleased). The
 latest published release is `v1.0.0` (runtime contract 39), on the advisory
 channel with no qualification claim. In report v1.0,
 `passed` is an evidence-backed static verdict: the configured root has a
