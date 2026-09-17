@@ -29,8 +29,14 @@ from agents_shipgate.cli._artifact_lifecycle import (
     REPORTS_DIRECTORY_ARTIFACT_NAMES,
     REPORTS_DIRECTORY_ARTIFACT_SUBDIRECTORIES,
 )
-from agents_shipgate.core.current_control import LiveWorkspace
-from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.current_control import (
+    LiveWorkspace,
+    LiveWorkspaceCause,
+    LiveWorkspaceCauseKind,
+    LiveWorkspaceUnavailable,
+    published_cause_text,
+)
+from agents_shipgate.core.errors import AgentsShipgateError, ConfigError
 
 #: The reports directory name used when no output directory is named — the
 #: published ``DEFAULT_PATHS["reports_dir"]``, spelled here rather than imported
@@ -58,8 +64,10 @@ def default_reports_dir(workspace: Path) -> Path:
     return workspace.resolve() / DEFAULT_REPORTS_DIR
 
 
-def live_workspace(workspace: Path, reports_dir: Path) -> LiveWorkspace | None:
-    """Resolve the repository as it stands now, or ``None`` outside Git.
+def live_workspace(
+    workspace: Path, reports_dir: Path
+) -> LiveWorkspace | LiveWorkspaceUnavailable:
+    """Resolve the repository as it stands now, or say why it could not be.
 
     Shared by every entry point that returns control authority — `verify
     --format control` and `agents-shipgate agent control` — because two entry
@@ -68,9 +76,14 @@ def live_workspace(workspace: Path, reports_dir: Path) -> LiveWorkspace | None:
     on a workspace `agent control` was simultaneously refusing as
     `workspace_changed`.
 
-    ``None`` is not "no drift" — it means the comparison could not be made, and
-    the reader refuses completion authority on that basis rather than assuming
-    the pointer still holds.
+    :class:`LiveWorkspaceUnavailable` is not "no drift" — it means the
+    comparison could not be made, and the reader refuses every pointer that
+    binds a Git identity on that basis rather than assuming the pointer still
+    holds. It carries the cause, and so does a workspace whose uncommitted
+    change set alone could not be read: both used to be swallowed, so every
+    refusal read "could not be determined" and routed back to a ``verify`` that
+    failed the same way (#813). A cause is classified from what the failing
+    reader raised (:func:`workspace_read_cause`), never copied from it.
 
     The reports directory is excluded from the change set for the same reason
     ``verify`` excludes it when building the plan: the run's own output is not
@@ -83,9 +96,8 @@ def live_workspace(workspace: Path, reports_dir: Path) -> LiveWorkspace | None:
     directory holding repository content comes back as a workspace carrying
     that refusal, which denies every pointer read from it, whatever its state
     (#804). The classification cannot raise, and it is returned before any Git
-    read that can: an exception must not turn it into ``None``, because
-    ``None`` withholds completion only and returns every other pointer state
-    without the currency checks.
+    read that can, so its refusal — and its own recovery — is what the reader
+    reports rather than a later Git failure's.
     """
 
     # Imported here, not at module scope: `agents_shipgate.cli.verify.__init__`
@@ -102,8 +114,8 @@ def live_workspace(workspace: Path, reports_dir: Path) -> LiveWorkspace | None:
 
     try:
         root = ensure_git_workspace(workspace.resolve())
-    except Exception:  # noqa: BLE001 - an unresolvable workspace is "unverified".
-        return None
+    except Exception as exc:  # noqa: BLE001 - an unresolvable workspace is "unverified".
+        return LiveWorkspaceUnavailable(cause=workspace_read_cause(exc))
     refusal = output_directory_refusal(root, reports_dir)
     if refusal is not None:
         return LiveWorkspace(root=root, reports_dir_refusal=refusal)
@@ -114,25 +126,86 @@ def live_workspace(workspace: Path, reports_dir: Path) -> LiveWorkspace | None:
         return output_directory_refusal(root, reports_dir, compared=(commit,))
 
     try:
+        changed_paths_cause: LiveWorkspaceCause | None = None
         try:
             changed, _ = working_tree_context(
                 root, exclude=worktree_exclusion(root, reports_dir)
             )
             changed_paths: tuple[str, ...] | None = tuple(changed)
-        except Exception:  # noqa: BLE001 - an unreadable worktree is "unverified".
+        except Exception as exc:  # noqa: BLE001 - an unreadable worktree is "unverified".
             changed_paths = None
+            changed_paths_cause = workspace_read_cause(exc)
         return LiveWorkspace(
             root=root,
             repository=repository_identity(root),
             head_commit_sha=commit_sha(root, "HEAD"),
             head_tree_sha=tree_sha(root, "HEAD"),
             changed_paths=changed_paths,
+            changed_paths_cause=changed_paths_cause,
             resolve_commit=lambda ref: _safe_commit_sha(root, ref),
             resolve_merge_base=lambda base, head: _safe_merge_base(root, base, head),
             reports_dir_refusal_against=refusal_against,
         )
-    except Exception:  # noqa: BLE001 - an unresolvable workspace is "unverified".
-        return None
+    except Exception as exc:  # noqa: BLE001 - an unresolvable workspace is "unverified".
+        return LiveWorkspaceUnavailable(cause=workspace_read_cause(exc))
+
+
+#: The diff-input reasons that are a bound on this read rather than a property
+#: of the repository or its refs: committing or shrinking the uncommitted
+#: change, or simply re-running after a timeout, can clear them.
+_RESOURCE_LIMIT_REASONS = frozenset(
+    {"metadata_limit_exceeded", "body_limit_exceeded", "git_timeout"}
+)
+
+
+def workspace_read_cause(exc: BaseException) -> LiveWorkspaceCause:
+    """Classify why the live workspace, or its change set, could not be read.
+
+    A cause is built from what the reader that failed knew, not from the text
+    of whatever it raised:
+
+    * Git configuration the worktree readers refuse
+      (:class:`~agents_shipgate.cli.verify.git.UnboundGitConfigurationError`)
+      keeps its finding — the keys or paths — and drops the remediation. That
+      remediation, "commit the intended changes and verify refs", is a way out
+      for a ``verify`` of refs and not for this read, which inspects the
+      working tree for a committed-tree pointer as well (#813).
+    * A diff that could not be read keeps its classified reason and Git's
+      already path-redacted detail, and drops its remediation for the same
+      reason.
+    * Any other Shipgate error keeps its own sentence. Anything else names only
+      its type: its text was not written by Shipgate and is not published.
+
+    Every text is then redacted and capped (:func:`published_cause_text`).
+    """
+
+    from agents_shipgate.cli.verify.git import (
+        DiffInputError,
+        UnboundGitConfigurationError,
+    )
+
+    if isinstance(exc, UnboundGitConfigurationError):
+        return _cause("repository_configuration", exc.finding)
+    if isinstance(exc, DiffInputError):
+        context = exc.context
+        kind: LiveWorkspaceCauseKind = (
+            "resource_limit" if context.reason in _RESOURCE_LIMIT_REASONS else "other"
+        )
+        return _cause(kind, context.finding or str(exc))
+    if isinstance(exc, AgentsShipgateError):
+        return _cause("other", str(exc))
+    return _cause(
+        "other",
+        f"Git could not be read in this workspace ({type(exc).__name__}).",
+    )
+
+
+def _cause(kind: LiveWorkspaceCauseKind, text: str) -> LiveWorkspaceCause:
+    # Terminated before the cap, so a sentence at the bound still fits it.
+    sentence = text.strip()
+    if sentence and sentence[-1] not in ".!?":
+        sentence += "."
+    return LiveWorkspaceCause(kind=kind, text=published_cause_text(sentence))
 
 
 def worktree_exclusion(root: Path, reports_dir: Path) -> Path | None:
@@ -635,5 +708,6 @@ __all__ = [
     "live_workspace",
     "output_directory_refusal",
     "output_directory_remedy",
+    "workspace_read_cause",
     "worktree_exclusion",
 ]

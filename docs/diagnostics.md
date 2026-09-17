@@ -360,6 +360,25 @@ unchanged). Per-finding remediation already has its own v0.7 fields
 `docs_url`); diagnostics are pre-scan recovery hints, not post-scan
 remediation.
 
+### `agent control` refusals name their cause
+
+When `agent control` refuses because the workspace could not be read
+(`workspace_unverifiable`, or `workspace_unverified` for a `complete`
+pointer), `message` starts with the cause: a bounded, redacted sentence naming
+the Git configuration key or path, never a value or file content. `next_actions[0]` is chosen by the cause, so following it can change
+the answer:
+
+| Cause | `kind` | Action |
+| --- | --- | --- |
+| Git configuration the worktree readers refuse (`filter.*` drivers, `filter=` attributes, repository-local `diff.*`, `.git/info/attributes`) | `review` | A human decides; re-running `verify`, with or without `--head`, does not change the answer. `agents-shipgate diff` is named as the read-only route. |
+| The reports directory holds repository content | `command` or `review` | Publish elsewhere (see [the output-directory rule](agent-contract-current.md#two-read-entry-points)). |
+| An uncommitted change beyond a read bound, or a Git timeout | `command` | Commit or shrink the change, then run the named `verify`. |
+| Anything else | `command` | The producing `verify` command, as before. |
+
+No field, error kind, refusal code or exit code is added for this; the cause
+travels in the existing `message` and `why` text. See
+[`docs/agent-contract-current.md`](agent-contract-current.md#two-read-entry-points).
+
 ## Projection onto the control envelope
 
 Contract v24 adds a `control` field to `detect --json`, `init --json`, and each

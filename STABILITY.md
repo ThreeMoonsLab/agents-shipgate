@@ -143,6 +143,31 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="workspace-read-cause-813"></a>
+
+## Migration Note: Unreleased — a workspace that cannot be read is named, and refuses every Git-bound pointer (#813)
+
+No schema, contract, error kind, refusal code or `minimum_control_contract_version` moves, and no JSON field is added. What changes is the text of some refusals, the `next_actions` `agent control` prints for them, and which pointers read as current when the workspace cannot be observed.
+
+**Why.** The live-workspace reader behind `agent control`, `verify --format control`/`text` and the human-review decision reader discarded every failure to read the repository. Each refusal it caused said only that "the current set of uncommitted changes could not be determined", and `agent control` routed each one back to the producing `verify`. In a repository whose own Git configuration the worktree readers refuse — Git LFS (`filter=lfs` on tracked files), git-crypt (`filter.git-crypt.*`, `diff.git-crypt.textconv`), a local `diff.*` driver, a non-empty `.git/info/attributes` — that `verify` published a pointer the next `agent control` refused the same way, so an agent following `next_actions` looped forever; `verify --head HEAD` passed and was refused too. Separately, when the reader could not observe the workspace at all (no readable `.git`, or Git refusing the checkout), every pointer short of `complete` was returned without a currency check: a `review_publishable` pointer, with commit, push and update_pr, exited `0` over a tracked edit and an untracked file it never saw.
+
+**The cause.** Every refusal a workspace that could not be read produces now leads with why: the configuration key or path Git's own refusal names (`filter.lfs.clean`, `assets/logo.bin`, `diff.lockb.textconv`, `.git/info/attributes`), a diff read's classified reason, or another Shipgate error's own sentence. Remediation clauses written for a `verify` of refs ("Commit the intended changes and verify refs") are dropped, because they do not clear this read. The sentence is redacted (a tracked file named like a token prints as `[REDACTED:github_token]`) and capped, never carries a configuration value or file content, and text an error from outside Shipgate carries is replaced by its type name. The refusal for a reports directory holding repository content (#804) is redacted the same way. `verify`'s own `diff_status` for local `diff.*` configuration now names the keys, never their values.
+
+**The next action.** `agent control` chooses `next_actions[0]` by the cause:
+- **Git configuration the worktree readers refuse:** `kind: "review"`, with no command. It names the cause, says that re-running `verify`, with or without `--head`, does not change the answer in this repository, and names `agents-shipgate diff --workspace <path>` as the read-only route. It never advises removing the configuration.
+- **A reports directory holding repository content:** unchanged (#804).
+- **An uncommitted change beyond a static read bound, or a Git timeout:** the producing `verify` command, with `why` saying to commit or shrink the change first.
+- **Anything else:** unchanged, the producing `verify` command.
+
+**Every Git-bound pointer refuses.** When the workspace cannot be observed at all, `agent control` exits `4` for every pointer that binds a HEAD, a base, a merge base, an overlay or a snapshot kind, whatever its control state: `workspace_unverifiable`, or `workspace_unverified` for a `complete` pointer as before. A pointer binding none of these — a `scan`, or `verify --preview` run outside a Git checkout — has nothing to compare and still reads. `read_current_control(live=None)`, a caller that asks for no currency, keeps its behaviour.
+
+**Compatibility.**
+- **A consumer that assumed an `agent control` refusal always carries a `kind: "command"` action** now sees `kind: "review"` for repository configuration causes. Route it to a person rather than rerunning.
+- **A `review_publishable`, `agent_action_required` or `human_review_required` pointer read from a workspace that is not a readable Git checkout** exits `4` instead of `0`. Restore the checkout (or fix what makes Git refuse it) and read again.
+- **An in-process caller of `agents_shipgate.cli.current_workspace.live_workspace`** receives a `LiveWorkspaceUnavailable` carrying the cause where it received `None`; pass it to `read_current_control(live=...)` unchanged. `read_current_control` accepts it beside `LiveWorkspace` and `None`.
+- **A repository with Git LFS-tracked files, git-crypt, local `diff.*` configuration or a non-empty `.git/info/attributes`** still gets no current answer from `verify`/`agent control`; only the refusal and its route change. Supporting such repositories is not part of this change.
+- **Not changed here:** global and system Git configuration are still not read, so an LFS filter configured only globally triggers nothing on its own. The refresh still reads the diff body to collect changed paths, so an uncommitted change over the body bound still refuses.
+
 <a id="output-directory-repository-content-804"></a>
 
 ## Migration Note: Unreleased — an output directory that holds repository content is refused (#804)
@@ -183,7 +208,7 @@ The way out depends on the directory, and the message, the next action and `agen
 - **A pointer `1.0.0` published into such a directory** stops reading as current after upgrade: `agent control` exits `4` with `workspace_unverifiable`. Re-run `verify` into another directory.
 - **A reports directory that also holds unrelated untracked files Git does not ignore**, such as notes beside the reports, now refuses every refresh. Move them out; for the default reports directory, gitignoring it also works.
 - **The Claude Code Stop hook** passes no `--out`, so it publishes into the default reports directory. When that directory is refused, the hook's `verify` exits `2`, and the hook reports every exit other than `0` and `20` as advisory context without blocking the Stop, as it already did when the CLI could not start. So a change that would have soft-blocked the Stop on `agent_action_required` ends the turn with that context instead. Resolve the refusal the context names; the hook is not a trust boundary, and CI still decides.
-- **Not changed here:** `diff` and `check` take no output directory. `scan` leaves nothing out of a change set, although the same readers refuse a `scan` pointer in such a directory. `verification prepare`/`assemble` do not leave their artifacts root out of the Git change set, and are not covered by the writer refusal. A `--workspace` that is not a Git checkout still reads a non-completion pointer without currency checks, whatever `--reports-dir` names (#813). A gitignored output directory is still left out of the static input census as a whole, so a manifest-named input beneath it (`tool_sources: path: gen/tools.json` with `--out gen` and `gen/` gitignored) is read by the run but not bound to the pointer, and a later edit to it does not make the pointer stale; keep inputs out of the output directory.
+- **Not changed here:** `diff` and `check` take no output directory. `scan` leaves nothing out of a change set, although the same readers refuse a `scan` pointer in such a directory. `verification prepare`/`assemble` do not leave their artifacts root out of the Git change set, and are not covered by the writer refusal. A `--workspace` that is not a Git checkout reads only a pointer that binds no Git identity, whatever `--reports-dir` names ([#813](#workspace-read-cause-813)). A gitignored output directory is still left out of the static input census as a whole, so a manifest-named input beneath it (`tool_sources: path: gen/tools.json` with `--out gen` and `gen/` gitignored) is read by the run but not bound to the pointer, and a later edit to it does not make the pointer stale; keep inputs out of the output directory.
 
 <a id="workflow-label-redaction-contract-v40-802"></a>
 

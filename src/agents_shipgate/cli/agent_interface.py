@@ -25,6 +25,7 @@ from agents_shipgate.core.agent_handoff import build_agent_handoff
 from agents_shipgate.core.current_control import (
     CurrentControlRead,
     CurrentControlUnavailable,
+    LiveWorkspaceCause,
     read_current_control,
 )
 from agents_shipgate.core.errors import InputParseError
@@ -239,9 +240,18 @@ def control(
                 "describes this workspace."
             ),
         )
+        cause = exc.cause
         if exc.reports_dir_refusal is not None:
             recovery = _recovery_away_from(
                 exc, reports_dir=reports_dir, workspace=workspace
+            )
+            guidance = recovery.why
+        elif cause is not None and cause.kind == "repository_configuration":
+            recovery = _recovery_under_repository_configuration(cause, workspace=workspace)
+            guidance = recovery.why
+        elif cause is not None and cause.kind == "resource_limit":
+            recovery = _recovery_within_read_bounds(
+                cause, command=recovery.command, reports_dir=reports_dir
             )
             guidance = recovery.why
         emit_agent_mode_error(
@@ -438,6 +448,79 @@ def _recovery_away_from(
         expects=(
             "current-control.json is published into the workspace's default "
             "reports directory, and it reads cleanly from there."
+        ),
+    )
+
+
+def _recovery_under_repository_configuration(
+    cause: LiveWorkspaceCause, *, workspace: Path
+) -> NextAction:
+    """The recovery when the repository's own Git configuration is the cause (#813).
+
+    Every other currency recovery names a run that can change the answer. No
+    run changes this one. The worktree readers refuse executable ``filter.*``
+    drivers, ``filter=`` attributes, repository-local ``diff.*`` configuration
+    and a non-empty ``.git/info/attributes``, and that is how the repository is
+    configured: ``verify`` reads the working tree under it with or without
+    ``--head``, and so does this refresh, for a committed-tree pointer too.
+    Naming the producing ``verify`` again — the route this used to get —
+    published a pointer the next refresh refused the same way, forever.
+
+    So it is a ``review`` step for a human, naming what was refused. It never
+    advises removing the configuration: Git LFS and git-crypt put it there on
+    purpose, removing it breaks those checkouts, and only someone who knows why
+    it is there can decide. ``diff`` is named because it still answers in such
+    a repository — it reads the host files without Git's worktree filters — and
+    grants no authority.
+    """
+
+    diff = render_command(["diff", "--workspace", _cwd_anchored(workspace)])
+    return NextAction(
+        kind="review",
+        why=(
+            f"{cause.text} That is how this repository is configured, not "
+            "something a run changes: re-running verify, with or without "
+            "--head, reads the working tree under the same configuration, so no "
+            "pointer in this repository can be shown current while it is in "
+            f"place. A human decides how this change is reviewed; `{diff}` still "
+            "shows its host-grant changes, read-only and without authority. "
+            "Until then, treat completion, merge, and any cached must_stop as "
+            "unavailable rather than acting on a remembered result."
+        ),
+        expects=(
+            "A human decision on how to review this change without a current "
+            "Shipgate pointer for this repository."
+        ),
+    )
+
+
+def _recovery_within_read_bounds(
+    cause: LiveWorkspaceCause, *, command: str | None, reports_dir: Path
+) -> NextAction:
+    """The recovery when the change set outgrew a read bound, or Git timed out (#813).
+
+    The producing run's command is still the way back, but not on its own: an
+    uncommitted change larger than the bound is read the same way by that run
+    and by the refresh after it. Committing it, or keeping generated output out
+    of the working tree, is what clears a bound; a timeout may clear on a
+    re-run alone.
+    """
+
+    return NextAction(
+        kind="command",
+        command=command,
+        why=(
+            f"{cause.text} Commit or shrink the uncommitted change (for example, "
+            "keep generated or vendored output out of the working tree), then "
+            "run this verification again and read "
+            f"{reports_dir / CURRENT_CONTROL_ARTIFACT_NAME}; after a Git "
+            "timeout, running it again may be enough. Until it reads cleanly, "
+            "treat completion, merge, and any cached must_stop as unavailable "
+            "rather than acting on a remembered result."
+        ),
+        expects=(
+            "current-control.json is present, valid, every artifact it binds "
+            "matches its recorded hash, and it still describes this workspace."
         ),
     )
 
