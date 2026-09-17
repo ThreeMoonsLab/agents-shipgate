@@ -580,3 +580,450 @@ def test_the_cursor_cli_config_reads_direction_the_same_way(tmp_path: Path) -> N
 
     assert not [item for item in narrowed if item in _EXPANSION_CHECKS], narrowed
     assert [item for item in widened if item in _EXPANSION_CHECKS], widened
+
+
+# --- #816: two spellings of one Bash grant, moved rules, one MCP tool ---------
+#
+# Claude Code's permissions page is the authority each of these reads:
+# https://code.claude.com/docs/en/permissions
+#
+# * "Wildcard patterns": a trailing `:*` is an equivalent way to write a
+#   trailing ` *` (`Bash(ls:*)` matches what `Bash(ls *)` matches); the `:*`
+#   form counts only at the end of a pattern; and a trailing ` *` that is the
+#   rule's only wildcard also matches the bare command (`Bash(ls *)` matches
+#   `ls`).
+# * "MCP": `mcp__puppeteer` and `mcp__puppeteer__*` match every tool the
+#   server provides; `mcp__puppeteer__puppeteer_navigate` matches one tool.
+
+#: The #657 table's replay, over the spellings #816 is about. Read as literal
+#: text, `npm:*` was the prefix `npm:`, which `npm test:*` does not extend, so
+#: the first narrowing below was reported as a new permission while the same
+#: edit in the space spelling was not.
+SPELLING_PAIRS: tuple[Pair, ...] = (
+    # The same narrowing and widening in each spelling, and mixed.
+    _pair("Bash(npm:*)", "Bash(npm test:*)", "narrow"),
+    _pair("Bash(npm *)", "Bash(npm test *)", "narrow"),
+    _pair("Bash(npm:*)", "Bash(npm test *)", "narrow"),
+    _pair("Bash(npm test:*)", "Bash(npm:*)", "widen"),
+    _pair("Bash(npm test *)", "Bash(npm *)", "widen"),
+    _pair("Bash(npm test *)", "Bash(npm:*)", "widen"),
+    # The bare command is inside a trailing-star rule in both spellings.
+    _pair("Bash(npm test:*)", "Bash(npm test)", "narrow"),
+    _pair("Bash(npm test *)", "Bash(npm test)", "narrow"),
+    _pair("Bash(npm test)", "Bash(npm test:*)", "widen"),
+    # `npm test*` also allows `npm testing`, which `npm test:*` does not.
+    _pair("Bash(npm test:*)", "Bash(npm test*)", "widen"),
+    # A whole-server MCP grant has two spellings; one tool is narrower.
+    _pair("mcp__github", "mcp__github__get_issue", "narrow"),
+    _pair("mcp__github__get_issue", "mcp__github", "widen"),
+)
+
+
+@pytest.mark.parametrize("pair", SPELLING_PAIRS, ids=lambda pair: pair.id)
+def test_spelling_direction_on_claude_code(tmp_path: Path, pair: Pair) -> None:
+    before = _claude_inventory(tmp_path / "before", pair.before)
+    after = _claude_inventory(tmp_path / "after", pair.after)
+
+    _assert_direction(_drift(before, after), pair)
+
+
+@pytest.mark.parametrize("pair", SPELLING_PAIRS, ids=lambda pair: pair.id)
+def test_spelling_direction_on_the_boundary_check(tmp_path: Path, pair: Pair) -> None:
+    findings = _boundary_findings(
+        tmp_path,
+        ".claude/settings.json",
+        {"permissions": {"allow": list(pair.before)}},
+        {"permissions": {"allow": list(pair.after)}},
+    )
+    expansions = [item for item in findings if item in _EXPANSION_CHECKS]
+    if pair.truth == "widen":
+        assert expansions, f"{pair.id}: {findings}"
+    else:
+        assert not expansions, f"{pair.id}: narrowing reported as an expansion: {findings}"
+
+
+def test_the_gate_and_the_table_agree_on_every_spelling() -> None:
+    from agents_shipgate.core.host_boundary import _allow_rule_id, _is_wildcard_allow
+
+    rules = sorted({rule for pair in SPELLING_PAIRS for rule in (*pair.before, *pair.after)})
+    for rule in rules:
+        blocks = _allow_rule_id(rule) == "HOST-PERMISSION-WILDCARD-ALLOW"
+        table_risk = (whole_tool_risk(rule) if _is_wildcard_allow(rule) else scoped_risk(rule))[1]
+        assert blocks == (_is_wildcard_allow(rule) and table_risk != "low"), rule
+
+
+class TestColonStarSpelling:
+    """`:*` is a trailing ` *` on a Bash rule and nowhere else (#816)."""
+
+    def test_widening_is_named_in_the_colon_spelling(self, tmp_path: Path) -> None:
+        before = _claude_inventory(tmp_path / "before", ("Bash(npm test:*)",))
+        after = _claude_inventory(tmp_path / "after", ("Bash(npm:*)",))
+
+        assert _drift(before, after)["expansion_signals"] == [
+            "allow_rule_added: claude-code:Bash(npm:*)",
+            "permission_widened: claude-code:Bash(npm test:*) -> Bash(npm:*)",
+        ]
+
+    @pytest.mark.parametrize(
+        ("wider", "narrower"),
+        [
+            ("Bash(npm:*)", "Bash(npm test:*)"),
+            ("Bash(npm *)", "Bash(npm test *)"),
+            ("Bash(npm:*)", "Bash(npm test *)"),
+            ("Bash(npm *)", "Bash(npm test:*)"),
+            ("Bash(npm test:*)", "Bash(npm test)"),
+            ("Bash(npm test *)", "Bash(npm test)"),
+            ("Bash(npm test:*)", "Bash(npm test --watch)"),
+            ("Bash(git:*)", "Bash(git)"),
+            ("bash(npm:*)", "Bash(npm test:*)"),
+        ],
+    )
+    def test_both_spellings_decide_alike(self, wider: str, narrower: str) -> None:
+        assert subsumes(wider, narrower) is True
+        assert subsumes(narrower, wider) is False
+
+    def test_the_space_before_the_star_is_part_of_the_rule(self) -> None:
+        """`npm:*` is `npm *`, which does not match `npmx`; `npm*` does."""
+
+        assert subsumes("Bash(npm:*)", "Bash(npmx)") is False
+        assert subsumes("Bash(npm*)", "Bash(npm:*)") is True
+        assert subsumes("Bash(npm:*)", "Bash(npm*)") is False
+
+    @pytest.mark.parametrize(
+        ("rule", "command"),
+        [
+            ("Bash(npm run test:*)", "Bash(npm run test:unit)"),
+            ("Bash(bundle exec rake db:*)", "Bash(bundle exec rake db:migrate)"),
+        ],
+    )
+    def test_a_word_the_command_continues_with_a_colon_is_not_covered(
+        self, rule: str, command: str
+    ) -> None:
+        """`npm run test:*` is `npm run test *`, and the space is part of the
+        rule, so `npm run test:unit` is not under it. Read as text before
+        #816, the prefix `npm run test:` covered it. The two rules are
+        incomparable, so neither direction is claimed; the space spelling
+        answered this way already, and `npm run test*` still covers it."""
+
+        assert subsumes(rule, command) is False
+        assert subsumes(command, rule) is False
+        assert subsumes(rule.replace(":*)", " *)"), command) is False
+        assert subsumes(rule.replace(":*)", "*)"), command) is True
+
+    def test_replacing_a_colon_star_rule_with_a_colon_continued_command_is_an_addition(
+        self, tmp_path: Path
+    ) -> None:
+        """The command was not allowed at the base, so it keeps its add
+        signal; the reverse edit keeps its add signal but is no longer named
+        `permission_widened`, because the rules are incomparable."""
+
+        rule, command = "Bash(npm run test:*)", "Bash(npm run test:unit)"
+        narrow = _claude_inventory(tmp_path / "command", (command,))
+        wide = _claude_inventory(tmp_path / "rule", (rule,))
+
+        assert _drift(wide, narrow)["expansion_signals"] == [
+            f"allow_rule_added: claude-code:{command}"
+        ]
+        assert _drift(narrow, wide)["expansion_signals"] == [
+            f"allow_rule_added: claude-code:{rule}"
+        ]
+
+    def test_two_spellings_of_one_rule_are_neither_wider(self) -> None:
+        """Equivalent, so no direction is claimed either way. Rewriting one
+        spelling into the other is still a removal and an addition, and the
+        addition keeps its signal: this lattice names direction, not
+        equivalence."""
+
+        assert subsumes("Bash(npm:*)", "Bash(npm *)") is False
+        assert subsumes("Bash(npm *)", "Bash(npm:*)") is False
+        assert subsumes("mcp__github", "mcp__github__*") is False
+        assert subsumes("mcp__github__*", "mcp__github") is False
+
+    def test_a_colon_star_that_does_not_end_the_pattern_stays_undecided(self) -> None:
+        """The host reads `Bash(git:* push)` with a literal colon; a star in
+        the middle is beyond this lattice either way."""
+
+        assert subsumes("Bash(git:* push)", "Bash(git push)") is None
+        assert subsumes("Bash(git *)", "Bash(git:* push)") is None
+
+    @pytest.mark.parametrize("rule", ["Bash(:*)", "Bash(npm :*)"])
+    def test_a_suffix_the_documentation_does_not_settle_is_undecided(self, rule: str) -> None:
+        assert subsumes(rule, "Bash(npm test)") is None
+        assert subsumes("Bash(npm test *)", rule) is None
+        # A whole-tool grant still covers it, and it never covers one.
+        assert subsumes("Bash(*)", rule) is True
+        assert subsumes(rule, "Bash(*)") is False
+
+    def test_other_tools_keep_a_colon_as_argument_text(self) -> None:
+        """`WebFetch(domain:*)` is the domain syntax, not a command prefix."""
+
+        assert subsumes("WebFetch(domain:*)", "WebFetch(domain:example.com)") is True
+        assert subsumes("WebFetch(domain:example.com)", "WebFetch(domain:*)") is False
+        assert subsumes("Read(src:*)", "Read(src)") is False
+
+    def test_mixed_spelling_pairs_keep_their_answers(self) -> None:
+        """What `Bash(npm *)` <-> `Bash(npm test:*)` decided before #816."""
+
+        assert subsumes("Bash(npm *)", "Bash(npm test:*)") is True
+        assert subsumes("Bash(npm test:*)", "Bash(npm *)") is False
+
+    def test_the_relation_stays_antisymmetric_over_every_spelling(self) -> None:
+        rules = sorted(
+            {rule for pair in (*PAIRS, *SPELLING_PAIRS) for rule in (*pair.before, *pair.after)}
+            | {"Bash(:*)", "Bash(npm :*)", "Bash(git:* push)", "mcp__github__*", "Bash(npm*)"}
+        )
+        for wider in rules:
+            assert subsumes(wider, wider) is False
+            for narrower in rules:
+                if subsumes(wider, narrower) is True:
+                    assert subsumes(narrower, wider) is not True, (
+                        f"{wider} and {narrower} each reported wider than the other"
+                    )
+
+
+class TestMovedRulePairing:
+    """A rule that only changed disposition replaced nothing (#816)."""
+
+    @staticmethod
+    def _inventory(root: Path, files: dict[str, dict]) -> dict:
+        for name, permissions in files.items():
+            target = root / ".claude" / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(json.dumps({"permissions": permissions}), encoding="utf-8")
+        return build_host_boundary_snapshot(root, cache=HostStaticParseCache()).inventory
+
+    def _signals(self, tmp_path: Path, before: dict, after: dict) -> list[str]:
+        return _drift(
+            self._inventory(tmp_path / "before", {"settings.json": before}),
+            self._inventory(tmp_path / "after", {"settings.json": after}),
+        )["expansion_signals"]
+
+    def test_a_rule_moved_from_deny_does_not_block_the_replacement(self, tmp_path: Path) -> None:
+        signals = self._signals(
+            tmp_path,
+            {"allow": ["Bash(git status *)"], "deny": ["Bash(git log *)"]},
+            {"allow": ["Bash(git status --short *)", "Bash(git log *)"]},
+        )
+
+        # The moved rule keeps both of its own signals; the narrowing has none.
+        assert signals == [
+            "allow_rule_added: claude-code:Bash(git log *)",
+            "deny_rule_removed: claude-code:Bash(git log *)",
+        ]
+
+    def test_a_real_widening_still_pairs_beside_a_moved_rule(self, tmp_path: Path) -> None:
+        signals = self._signals(
+            tmp_path,
+            {"allow": ["Bash(git status *)"], "ask": ["Bash(git log *)"]},
+            {"allow": ["Bash(git *)", "Bash(git log *)"]},
+        )
+
+        assert signals == [
+            "allow_rule_added: claude-code:Bash(git *)",
+            "allow_rule_added: claude-code:Bash(git log *)",
+            "ask_rule_removed: claude-code:Bash(git log *)",
+            "permission_widened: claude-code:Bash(git status *) -> Bash(git *)",
+        ]
+
+    def test_a_rule_moved_out_of_allow_does_not_block_the_replacement(
+        self, tmp_path: Path
+    ) -> None:
+        signals = self._signals(
+            tmp_path,
+            {"allow": ["Bash(git status *)", "Bash(git push *)"]},
+            {"allow": ["Bash(git status --short *)"], "deny": ["Bash(git push *)"]},
+        )
+
+        assert signals == []
+
+    @pytest.mark.parametrize(
+        ("before", "after"),
+        [
+            (
+                {"allow": ["Bash(npm *)"]},
+                {"allow": ["Bash(npm test *)"], "deny": ["Bash(npm *)"]},
+            ),
+            (
+                {"allow": ["Bash(git *)"]},
+                {"allow": ["Bash(git status *)"], "ask": ["Bash(git *)"]},
+            ),
+        ],
+        ids=["deny", "ask"],
+    )
+    def test_the_only_rule_that_left_allow_is_the_replaced_half(
+        self, tmp_path: Path, before: dict, after: dict
+    ) -> None:
+        """When the rule that moved out of `allow` is the only allow rule that
+        left, the arrival replaced it. It was granted at the base, so pairing
+        it is the ordinary base-to-head comparison: the tightening beside the
+        move stays silent, as it was before #816 set moved rules aside."""
+
+        assert self._signals(tmp_path, before, after) == []
+
+    def test_a_widening_past_the_only_rule_that_left_allow_is_named(
+        self, tmp_path: Path
+    ) -> None:
+        signals = self._signals(
+            tmp_path,
+            {"allow": ["Bash(git status *)"]},
+            {"allow": ["Bash(git *)"], "deny": ["Bash(git status *)"]},
+        )
+
+        assert signals == [
+            "allow_rule_added: claude-code:Bash(git *)",
+            "permission_widened: claude-code:Bash(git status *) -> Bash(git *)",
+        ]
+
+    def test_a_moved_rule_is_never_read_as_the_narrower_half(self, tmp_path: Path) -> None:
+        """`Bash(git log *)` was denied under `Bash(git *)` and is now the
+        only allow rule. For `git log` commands that is a widening, so the
+        moved rule is not paired with `Bash(git *)` and keeps its signal."""
+
+        signals = self._signals(
+            tmp_path,
+            {"allow": ["Bash(git *)"], "deny": ["Bash(git log *)"]},
+            {"allow": ["Bash(git log *)"]},
+        )
+
+        assert signals == [
+            "allow_rule_added: claude-code:Bash(git log *)",
+            "deny_rule_removed: claude-code:Bash(git log *)",
+        ]
+
+    def test_a_moved_rule_wider_than_the_rule_that_left_is_added_not_named(
+        self, tmp_path: Path
+    ) -> None:
+        """`Bash(git *)` was denied at the base and replaces the only allow
+        rule. It is set aside like any moved rule, so it keeps its add and
+        deny-removal signals but is no longer named `permission_widened`
+        (#816): the widening still surfaces, unnamed."""
+
+        signals = self._signals(
+            tmp_path,
+            {"allow": ["Bash(git status *)"], "deny": ["Bash(git *)"]},
+            {"allow": ["Bash(git *)"]},
+        )
+
+        assert signals == [
+            "allow_rule_added: claude-code:Bash(git *)",
+            "deny_rule_removed: claude-code:Bash(git *)",
+        ]
+
+    def test_text_that_only_resembles_a_moved_rule_is_not_one(self, tmp_path: Path) -> None:
+        """`Bash(Git log *)` left `deny` and `Bash(git log *)` arrived in
+        `allow`. Nothing establishes they are one rule, so there are two
+        arrivals, no pairing, and each arrival keeps its signal."""
+
+        signals = self._signals(
+            tmp_path,
+            {"allow": ["Bash(git status *)"], "deny": ["Bash(Git log *)"]},
+            {"allow": ["Bash(git status --short *)", "Bash(git log *)"]},
+        )
+
+        assert "allow_rule_added: claude-code:Bash(git status --short *)" in signals
+        assert not [item for item in signals if item.startswith("permission_widened:")]
+
+    def test_a_move_between_settings_files_is_not_a_move(self, tmp_path: Path) -> None:
+        """Only within one host and source: a denial dropped from the local
+        file says nothing about which shared allow rule replaced which."""
+
+        before = self._inventory(
+            tmp_path / "before",
+            {
+                "settings.json": {"allow": ["Bash(git status *)"]},
+                "settings.local.json": {"deny": ["Bash(git log *)"]},
+            },
+        )
+        after = self._inventory(
+            tmp_path / "after",
+            {
+                "settings.json": {"allow": ["Bash(git status --short *)", "Bash(git log *)"]},
+                "settings.local.json": {},
+            },
+        )
+
+        signals = _drift(before, after)["expansion_signals"]
+
+        assert "allow_rule_added: claude-code:Bash(git status --short *)" in signals
+        assert "deny_rule_removed: claude-code:Bash(git log *)" in signals
+
+
+class TestOneMcpTool:
+    """`mcp__<server>__<tool>` is one tool, not a whole surface (#816)."""
+
+    @pytest.mark.parametrize(
+        "rule",
+        [
+            "mcp__github__get_issue",
+            "mcp__github__get_*",
+            "mcp__hacker-bob__bob_compile_contract_binding",
+        ],
+    )
+    def test_tools_within_one_server_are_scoped(self, rule: str) -> None:
+        from agents_shipgate.core.host_boundary import _allow_rule_id, _is_wildcard_allow
+
+        assert _is_wildcard_allow(rule) is False
+        assert _allow_rule_id(rule) == "HOST-PERMISSION-ALLOW-EXPANDED"
+        assert scoped_risk(rule) == ("execute", "medium")
+
+    @pytest.mark.parametrize(
+        "rule",
+        [
+            "mcp__github",
+            "mcp__github__*",
+            "mcp__github__*_issue",
+            "mcp__github__",
+            "mcp__*",
+            "mcp__",
+            "mcp____get_issue",
+            "mcp__git*__get_issue",
+            "mcp__github__get_[a-z]",
+            "Bash",
+        ],
+    )
+    def test_a_whole_server_or_an_unclear_token_stays_wildcard(self, rule: str) -> None:
+        from agents_shipgate.core.host_boundary import _allow_rule_id, _is_wildcard_allow
+
+        assert _is_wildcard_allow(rule) is True
+        assert _allow_rule_id(rule) == "HOST-PERMISSION-WILDCARD-ALLOW"
+
+    def test_the_inventory_rates_and_words_one_tool_as_scoped(self, tmp_path: Path) -> None:
+        from agents_shipgate.core.capability_diff_rows import capability_diff_rows
+
+        before = _claude_inventory(tmp_path / "before", ("Read",))
+        after = _claude_inventory(tmp_path / "after", ("Read", "mcp__github__get_issue"))
+        grant = next(
+            item for item in after["grants"] if item.get("rule") == "mcp__github__get_issue"
+        )
+        payload = _drift(before, after)
+
+        assert (grant["wildcard"], grant["access"], grant["risk"]) == (False, "execute", "medium")
+        assert payload["expansion_signals"] == [
+            "allow_rule_added: claude-code:mcp__github__get_issue"
+        ]
+        [row] = capability_diff_rows(payload)
+        assert (row.direction, row.expands, row.severity) == ("added", True, "medium")
+        assert row.why == "runs without a prompt"
+
+    def test_a_baseline_that_rated_it_a_whole_server_is_not_a_widening(
+        self, tmp_path: Path
+    ) -> None:
+        """A baseline saved before #816 recorded the same rule as wildcard.
+        Reading it narrower now is a changed row with no expansion signal."""
+
+        from agents_shipgate.core.capability_diff_rows import capability_diff_rows
+
+        inventory = _claude_inventory(tmp_path / "repo", ("mcp__github__get_issue",))
+        baseline = build_host_grants_baseline(inventory)
+        for grant in baseline["inventory"]["grants"]:
+            if grant.get("rule") == "mcp__github__get_issue":
+                grant.update(wildcard=True, access="execute", risk="high")
+
+        payload = build_host_drift_payload(
+            baseline=baseline, inventory=inventory, baseline_file="baseline.json"
+        )
+
+        assert payload["has_drift"] is True
+        assert payload["expansion_signals"] == []
+        [row] = capability_diff_rows(payload)
+        assert (row.direction, row.expands) == ("changed", False)

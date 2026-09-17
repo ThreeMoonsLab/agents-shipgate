@@ -48,7 +48,11 @@ from agents_shipgate.core.codex_boundary import (
     _display_path,
 )
 from agents_shipgate.core.jsonc import is_vscode_mcp_path, loads_jsonc
-from agents_shipgate.core.permission_lattice import subsumes, whole_tool_risk
+from agents_shipgate.core.permission_lattice import (
+    names_tools_within_one_mcp_server,
+    subsumes,
+    whole_tool_risk,
+)
 from agents_shipgate.core.trust_roots import read_absolute_identity_bound_text
 from agents_shipgate.schemas.agent_result_v1 import (
     AgentResultDiagnostic,
@@ -780,15 +784,20 @@ def _is_wildcard_allow(rule: str) -> bool:
     that *starts* with ``*`` (``Bash(*)``, ``Bash(*:*)``). A scoped
     prefix rule like ``Bash(npm test:*)`` is the recommended narrow form
     and is NOT wildcard-shaped — the ``*`` only widens within an explicit
-    command prefix.
+    command prefix. Nor is an MCP rule naming tools within one server
+    (``mcp__github__get_issue``): it is a bare token, but not a whole
+    tool surface. ``mcp__github`` and ``mcp__github__*`` still are (#816).
     """
     stripped = rule.strip()
     if stripped == "*":
         return True
     open_paren = stripped.find("(")
     if open_paren == -1:
-        # A bare tool name ("Bash", "WebFetch") allows the whole tool.
-        return True
+        # A bare tool name ("Bash", "WebFetch") allows the whole tool. Every
+        # MCP rule is spelled as a bare token too, and one naming a single
+        # tool was rated `high`, worded "matches every target of this kind",
+        # and blocked through the wildcard check (#816).
+        return not names_tools_within_one_mcp_server(stripped)
     argument = stripped[open_paren + 1 :].lstrip()
     return argument.startswith("*")
 
