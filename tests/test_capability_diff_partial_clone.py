@@ -30,11 +30,12 @@ import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
+from agents_shipgate.cli.verify import git as verify_git
 from agents_shipgate.cli.verify.git import (
     DEFAULT_HYDRATE_COMMAND,
     objects_missing_remediation,
     promised_objects_missing,
-    promisor_remote,
+    promisor_remotes,
 )
 
 runner = CliRunner()
@@ -216,48 +217,90 @@ def test_the_error_kind_and_exit_code_are_the_published_ones(origin: Path) -> No
     assert set(error) - {"error", "command"} <= set(entry["additional_fields"]) | {"exit_code"}
 
 
+def _git_version() -> tuple[int, int]:
+    found = re.search(r"(\d+)\.(\d+)", _git(Path.cwd(), "--version").stdout)
+    assert found is not None
+    return int(found.group(1)), int(found.group(2))
+
+
+_NO_LAZY_FETCH = "GIT_NO_LAZY_FETCH"
+_PROTOCOL_ALLOW_LIST = "GIT_ALLOW_PROTOCOL"
+
+
 @pytest.mark.skipif(os.name != "posix", reason="the probe remote runs `touch`")
+@pytest.mark.parametrize(
+    ("dropped", "contacted"),
+    [
+        ((), False),
+        # Each protection holds on its own, so neither can be deleted unseen.
+        ((_PROTOCOL_ALLOW_LIST,), False),
+        ((_NO_LAZY_FETCH,), False),
+        # The control: with both gone, the same `diff` does contact the probe.
+        ((_PROTOCOL_ALLOW_LIST, _NO_LAZY_FETCH), True),
+    ],
+    ids=["as-shipped", "no-lazy-fetch-alone", "protocol-allow-list-alone", "neither"],
+)
 def test_diff_never_asks_the_promisor_remote_for_what_is_missing(
-    origin: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    origin: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dropped: tuple[str, ...],
+    contacted: bool,
 ) -> None:
     """Shipgate sets `GIT_NO_LAZY_FETCH` itself; it does not rely on the caller.
 
     The promisor remote is replaced by one that records being contacted, and
-    the caller's environment leaves lazy fetching on.
+    the caller's environment leaves lazy fetching on. `GIT_ALLOW_PROTOCOL=""`
+    would stop that contact by itself, so each protection is also run without
+    the other: deleting either one from Shipgate's Git environment fails a case.
     """
 
+    if dropped == (_PROTOCOL_ALLOW_LIST,) and _git_version() < (2, 44):
+        pytest.skip("Git before 2.44 ignores GIT_NO_LAZY_FETCH")
     clone = _partial_clone(origin, "partial")
     marker = tmp_path / "promisor-contacted"
     _git(clone, "config", "protocol.ext.allow", "always")
     _git(clone, "config", "remote.origin.url", f"ext::touch {marker}")
-    monkeypatch.delenv("GIT_NO_LAZY_FETCH", raising=False)
+    monkeypatch.delenv(_NO_LAZY_FETCH, raising=False)
+    shipped = verify_git._git_object_environment
+    monkeypatch.setattr(
+        verify_git,
+        "_git_object_environment",
+        lambda: {key: value for key, value in shipped().items() if key not in dropped},
+    )
 
     result = _diff(clone, "--base", "origin/base", agent_mode="1")
 
     assert result.exit_code == 2, result.output
     assert _agent_lines(result.stderr)[0]["error"] == "objects_missing"
-    assert not marker.exists()
+    assert marker.exists() is contacted
+    if contacted:
+        return
     # The probe is live: an ordinary read of the same object does contact it.
     probe = _git(clone, "cat-file", "-p", f"origin/base:{SETTINGS}", check=False)
     assert probe.returncode != 0
     assert marker.exists()
 
 
+@pytest.mark.parametrize("remote", ["upstream", "up/stream"])
 def test_the_command_names_the_remote_the_clone_was_promised_by(
-    origin: Path, tmp_path: Path
+    origin: Path, tmp_path: Path, remote: str
 ) -> None:
-    clone = _partial_clone(origin, "partial", "blob:none", "--origin", "upstream")
-    assert promisor_remote(clone) == "upstream"
+    """Any remote name Git accepts is named, a `/` in it included."""
 
-    result = _diff(clone, "--base", "upstream/base", agent_mode="1")
+    clone = _partial_clone(origin, "partial", "blob:none", "--origin", remote)
+    assert promisor_remotes(clone) == (remote,)
+
+    result = _diff(clone, "--base", f"{remote}/base", agent_mode="1")
 
     assert result.exit_code == 2, result.output
-    command = shlex.split(_agent_lines(result.stderr)[0]["next_actions"][0]["command"])
-    assert command[-1] == "upstream"
+    (action,) = _agent_lines(result.stderr)[0]["next_actions"]
+    command = shlex.split(action["command"])
+    assert command == ["git", "-C", str(clone), "fetch", "--refetch", "--no-filter", remote]
     subprocess.run(command, cwd=tmp_path, check=True, capture_output=True, env=_GIT_ENV)
     assert any(
         row["after"] == "Bash(git push *)"
-        for row in _compared_rows(clone, "--base", "upstream/base")
+        for row in _compared_rows(clone, "--base", f"{remote}/base")
     )
 
 
@@ -278,12 +321,71 @@ def test_an_object_missing_without_a_promise_is_not_called_a_partial_clone(
     assert "objects_missing" not in result.output
 
 
-def test_an_ambiguous_promisor_is_not_guessed(origin: Path) -> None:
-    clone = _partial_clone(origin, "partial")
-    _git(clone, "remote", "add", "mirror", origin.as_uri())
-    _git(clone, "config", "remote.mirror.promisor", "true")
+def test_every_promisor_remote_is_named_and_none_is_guessed(
+    origin: Path, tmp_path: Path
+) -> None:
+    """Several promisor remotes, none called `origin`: one command each, in config order."""
 
-    assert promisor_remote(clone) is None
+    clone = _partial_clone(origin, "partial", "blob:none", "--origin", "alpha")
+    _git(clone, "remote", "add", "beta", origin.as_uri())
+    # Git reads the value, so `yes` is a promisor and `false` is not.
+    _git(clone, "config", "remote.beta.promisor", "yes")
+    _git(clone, "remote", "add", "gamma", origin.as_uri())
+    _git(clone, "config", "remote.gamma.promisor", "false")
+    assert promisor_remotes(clone) == ("alpha", "beta")
+
+    result = _diff(clone, "--base", "alpha/base", "--json", agent_mode="1")
+
+    assert result.exit_code == 2, result.output
+    (error,) = _agent_lines(result.stderr)
+    commands = [shlex.split(action["command"]) for action in error["next_actions"]]
+    fetch = ["git", "-C", str(clone), "fetch", "--refetch", "--no-filter"]
+    assert commands == [[*fetch, "alpha"], [*fetch, "beta"]]
+    assert all(action["kind"] == "command" for action in error["next_actions"])
+    assert error["next_action"] == error["next_actions"][0]["command"]
+    assert "`alpha`" in error["next_actions"][1]["why"]
+    assert "origin" not in result.stderr.replace(str(origin), "")
+    # A lower-ranked command is a real alternative, not a placeholder.
+    subprocess.run(commands[1], cwd=tmp_path, check=True, capture_output=True, env=_GIT_ENV)
+    assert any(
+        row["after"] == "Bash(git push *)"
+        for row in _compared_rows(clone, "--base", "alpha/base")
+    )
+
+
+@pytest.mark.parametrize(
+    "unnameable",
+    [
+        # `git fetch -origin` would read the name as an option.
+        ("config", "--rename-section", "remote.origin", "remote.-origin"),
+        # `git fetch origin` with no URL would fetch from a path called origin.
+        ("config", "--unset", "remote.origin.url"),
+        # Git refuses a space in a remote name.
+        ("config", "--rename-section", "remote.origin", "remote.or igin"),
+    ],
+    ids=["leading-dash", "no-url", "not-a-remote-name"],
+)
+def test_a_promisor_no_command_can_name_is_left_to_the_operator(
+    origin: Path, unnameable: tuple[str, ...]
+) -> None:
+    clone = _partial_clone(origin, "partial")
+    _git(clone, *unnameable)
+    assert promisor_remotes(clone) == ()
+
+    result = _diff(clone, "--base", "origin/base", agent_mode="1")
+
+    assert result.exit_code == 2, result.output
+    message = result.stderr.splitlines()[0]
+    placeholder = f"{shlex.join(['git', '-C', str(clone), 'fetch', '--refetch', '--no-filter'])} <remote>"
+    assert message.endswith(objects_missing_remediation(placeholder))
+    assert "no remote this partial clone was promised objects by can be named" in message
+    (error,) = _agent_lines(result.stderr)
+    assert error["error"] == "objects_missing"
+    (action,) = error["next_actions"]
+    assert action["kind"] == "review"
+    assert action["command"] is None and "executable" not in action
+    assert action["why"] == message
+    assert error["next_action"] == f"Review: {message}"
 
 
 # --- one wording, and an example that works ---------------------------------

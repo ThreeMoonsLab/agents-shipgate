@@ -27,6 +27,7 @@ _GIT_OBJECT_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _WORKTREE_FILTER_CONFIG_LIMIT = 1024 * 1024
 _WORKTREE_ATTRIBUTE_LIST_LIMIT = 8 * 1024 * 1024
 _DIFF_CONFIG_LIMIT = 1024 * 1024
+_PROMISOR_CONFIG_LIMIT = 1024 * 1024
 _DIFF_METADATA_LIMIT = 8 * 1024 * 1024
 _DIFF_BODY_LIMIT = 32 * 1024 * 1024
 _GIT_STDERR_LIMIT = 8 * 1024
@@ -2493,45 +2494,101 @@ def _decode_git_stderr(payload: bytes | bytearray) -> str:
     return collapsed
 
 
-_REMOTE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
-_GIT_CONFIG_TRUE = frozenset({"", "true", "yes", "on", "1"})
+def promisor_remotes(workspace: Path) -> tuple[str, ...]:
+    """The remotes this partial clone was promised objects by, as a command can name them.
 
-
-def promisor_remote(workspace: Path) -> str | None:
-    """The remote a partial clone lazily fetches from, when Git names exactly one.
-
-    Read from repository configuration only: ``remote.<name>.promisor`` and
-    the older ``extensions.partialClone``. ``None`` when there is none, more
-    than one, or a name that is not a plain token safe to put in a command.
-    Nothing is fetched.
+    Read from repository configuration only, in the order Git lists it: every
+    ``remote.<name>.promisor`` Git reads as true, then the older
+    ``extensions.partialClone`` when it names another remote. A name is kept
+    only when ``git fetch <name>`` means that configured remote: it has a
+    ``remote.<name>.url``, Git accepts it as a remote name (the
+    ``refs/remotes/<name>/`` ref-format test ``git remote add`` applies, so
+    ``up/stream`` is kept), it is UTF-8, and it does not start with ``-``,
+    which ``git fetch`` would read as an option. Empty when none is left; no
+    other name, ``origin`` included, is supplied in its place. Nothing is
+    fetched (#817).
     """
 
-    result = _run_git(
+    promisor_flags = _git_config_records(
+        workspace, r"^remote\..+\.promisor$", as_bool=True
+    )
+    other_keys = _git_config_records(
+        workspace, r"^(remote\..+\.url|extensions\.partialclone)$"
+    )
+    if promisor_flags is None or other_keys is None:
+        return ()
+    candidates = [
+        _remote_subsection(key, "promisor")
+        for key, value in promisor_flags
+        if value == "true"
+    ]
+    candidates.extend(
+        value for key, value in other_keys if key == "extensions.partialclone"
+    )
+    with_url = {
+        _remote_subsection(key, "url")
+        for key, _ in other_keys
+        if key != "extensions.partialclone"
+    }
+    names: list[str] = []
+    for name in dict.fromkeys(candidates):
+        if not name or name.startswith("-") or name not in with_url:
+            continue
+        accepted = _run_git(
+            workspace,
+            ["check-ref-format", f"refs/remotes/{name}/test"],
+            check=False,
+        )
+        if accepted.returncode == 0:
+            names.append(name)
+    return tuple(names)
+
+
+def _git_config_records(
+    workspace: Path, pattern: str, *, as_bool: bool = False
+) -> list[tuple[str, str]] | None:
+    """``git config -z --get-regexp`` as ``(key, value)`` pairs, in file order.
+
+    ``as_bool`` lets Git parse the values, so ``yes``, ``1`` and a bare key
+    read as ``true`` exactly as Git itself reads them. ``[]`` when nothing
+    matches, ``None`` when Git refuses the read (a value it cannot parse as a
+    boolean, say) or the output passes its bound. A record that is not UTF-8
+    is dropped rather than decoded into a name that differs from the
+    configured one.
+    """
+
+    payload = _run_git_bounded_output(
         workspace,
         [
             "config",
+            "--includes",
             "-z",
+            *(["--type=bool"] if as_bool else []),
             "--get-regexp",
-            r"^(remote\..+\.promisor|extensions\.partialclone)$",
+            pattern,
         ],
-        check=False,
-        text=False,
+        max_output_bytes=_PROMISOR_CONFIG_LIMIT,
+        allowed_returncodes=(0, 1),
     )
-    if result.returncode != 0:
+    if payload is None:
         return None
-    names: set[str] = set()
-    for record in result.stdout.decode("utf-8", errors="replace").split("\0"):
-        if not record:
+    records: list[tuple[str, str]] = []
+    for raw in payload.split(b"\0"):
+        if not raw:
+            continue
+        try:
+            record = raw.decode("utf-8")
+        except UnicodeDecodeError:
             continue
         key, _, value = record.partition("\n")
-        if key.casefold() == "extensions.partialclone":
-            names.add(value)
-        elif value.strip().casefold() in _GIT_CONFIG_TRUE:
-            names.add(key[len("remote.") : -len(".promisor")])
-    if len(names) != 1:
-        return None
-    (name,) = names
-    return name if _REMOTE_NAME_RE.fullmatch(name) else None
+        records.append((key, value))
+    return records
+
+
+def _remote_subsection(key: str, variable: str) -> str:
+    """``<name>`` from ``remote.<name>.<variable>``, as configured (Git lowercases only the outer parts)."""
+
+    return key[len("remote.") : -len(f".{variable}")]
 
 
 class PromisedObjectsMissingError(ConfigError):
@@ -2943,7 +3000,7 @@ __all__ = [
     "path_present_at_ref",
     "PromisedObjectsMissingError",
     "promised_objects_missing",
-    "promisor_remote",
+    "promisor_remotes",
     "read_bytes_at_ref",
     "read_file_at_ref",
     "removes_any_tracked_path",

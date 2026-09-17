@@ -132,33 +132,59 @@ def _refuse_objects_missing(workspace: Path, base_ref: str, base_commit: str) ->
     not arrive until something fetches them, and Shipgate never does. The
     repair is the one `verify` names for the same `objects_missing` reason,
     worded by the same function, bound here to this workspace and to the
-    remote the clone fetches from. `--refetch` alone would keep the clone's
-    filter and fetch no blob, which is why `--no-filter` is part of it.
+    remotes the clone was promised objects by. `--refetch` alone would keep the
+    clone's filter and fetch no blob, which is why `--no-filter` is part of it.
+
+    Only a remote the clone's configuration names as a promisor is put in a
+    command, one ranked command per remote in configuration order. When none
+    can be named, no name is supplied in its place: the one next action is a
+    `review`, and the example carries a `<remote>` placeholder.
     """
 
-    from agents_shipgate.cli.agent_mode import emit_agent_mode_error_action
+    from agents_shipgate.cli.agent_mode import emit_agent_mode_error
     from agents_shipgate.cli.verify.git import (
         objects_missing_remediation,
-        promisor_remote,
+        promisor_remotes,
     )
     from agents_shipgate.invocation import join_argv
     from agents_shipgate.schemas.diagnostics import NextAction
 
-    remote = promisor_remote(workspace) or "origin"
-    command = join_argv(
-        ["git", "-C", str(workspace), "fetch", "--refetch", "--no-filter", remote]
-    )
-    message = (
+    fetch = ["git", "-C", str(workspace), "fetch", "--refetch", "--no-filter"]
+    refused = (
         f"The base side of this diff, {_one_line(base_ref)} ({base_commit[:8]}), "
-        "could not be read (objects_missing). "
-        + objects_missing_remediation(command)
+        "could not be read (objects_missing)"
     )
+    remotes = promisor_remotes(workspace)
+    if remotes:
+        commands = [join_argv([*fetch, remote]) for remote in remotes]
+        message = f"{refused}. " + objects_missing_remediation(commands[0])
+        actions = [NextAction(kind="command", command=commands[0], why=message)]
+        actions.extend(
+            NextAction(
+                kind="command",
+                command=command,
+                why=(
+                    f"If `{_one_line(remotes[0])}` cannot supply the base's objects, "
+                    f"hydrate from `{_one_line(remote)}`, another remote this "
+                    "partial clone was promised objects by, then rerun."
+                ),
+            )
+            for remote, command in zip(remotes[1:], commands[1:], strict=True)
+        )
+    else:
+        message = (
+            f"{refused}, and no remote this partial clone was promised objects by "
+            "can be named in a command. "
+            + objects_missing_remediation(f"{join_argv(fetch)} <remote>")
+        )
+        actions = [NextAction(kind="review", why=message)]
     typer.echo(message, err=True)
-    emit_agent_mode_error_action(
+    emit_agent_mode_error(
         "objects_missing",
         message=message,
         exit_code=2,
-        action=NextAction(kind="command", command=command, why=message),
+        next_action=actions[0].to_legacy_string(),
+        next_actions=[action.model_dump(mode="json") for action in actions],
     )
     raise typer.Exit(2)
 
