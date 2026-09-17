@@ -13,7 +13,7 @@
   "stderr_format": "Single JSON line, one object per emitted error. Always carries an `error` field naming the kind plus `next_action` (single-string back-compat) and `next_actions` (ranked array). Additional fields per kind are command-dependent and may be absent when they are not relevant. `message`, `next_action`, and `next_actions[]` are written for a person to act on and name files, symbols, and manifest keys rather than internal identity fields; a `details` object, where a kind emits one, carries those identifiers for routing and bug reports. An error line from `detect`, `init`, or `doctor` also carries `control` \u2014 the same `shipgate.agent_control/v1` envelope those commands publish on `--json`, so one routing rule covers both streams (contract v27). Every such envelope reports `decision_source: \"setup\"`, a `decision` from the setup vocabulary, every `permissions` field false, and never `control_state: \"complete\"`. `execution` is NOT a marker for \"this is an error\" \u2014 the `error` field is: it reports `\"failed\"` when the command could not reach an answer about the workspace, and `\"succeeded\"` beside a non-zero `exit_code` when it reached one and the answer is a refusal it can route past (`config_already_exists`, the unresolved-scope `config_error`). Two lines carry no `control` by design: the shared `--workspace` refusal, which fires before a workspace exists, and `environment_error`, which is emitted before Agents Shipgate is running.",
   "exit_codes": {
     "0": "pass (advisory mode, or strict-no-blockers)",
-    "2": "configuration, catalog lookup, or patch-payload error (config_error, config_already_exists, unknown_check_id, unknown_fingerprint, malformed_patch)",
+    "2": "configuration, catalog lookup, or patch-payload error (config_error, config_already_exists, unknown_check_id, unknown_fingerprint, malformed_patch), or a partial clone missing the objects `diff` needs (objects_missing)",
     "3": "input parse error (input_parse_error)",
     "4": "other agents-shipgate error (other_error, internal_error), or an environment that cannot start Agents Shipgate at all (environment_error)",
     "5": "apply-patches containment violation (covered by other_error in agent mode)",
@@ -140,6 +140,18 @@
         "environment"
       ],
       "recovery_hint": "Run the emitted `next_actions[0]`: it installs the checkout into the interpreter that was actually selected, named by absolute path. Read `environment` for which interpreter that was, which checkout was selected, and what disagrees. When no next action is emitted, no working interpreter is known and the message names the one that was tried."
+    },
+    {
+      "id": "objects_missing",
+      "description": "`diff` could not read its base side: this checkout is a partial clone (`git clone --filter=...`) that never fetched the Git objects the base tree needs. Shipgate runs Git with `GIT_NO_LAZY_FETCH=1` and never fetches them itself, so it refuses rather than compare. The id is the `diff_status.reason` `verify` reports for the same condition, and the message ends with the same remediation sentence.",
+      "exit_code": 2,
+      "typical_cause": "A `--filter=blob:none` or `--filter=tree:0` clone whose checkout fetched only the head, compared against a base that differs from it.",
+      "additional_fields": [
+        "message",
+        "next_action",
+        "next_actions"
+      ],
+      "recovery_hint": "Run `next_actions[0]`, then rerun the same `diff`. It is `git -C <workspace> fetch --refetch --no-filter <remote>`, naming the remote the clone was promised by (`origin` when its configuration does not name exactly one), and it downloads the repository's full object set, which is why Shipgate names it instead of running it. `--no-filter` is required: `git fetch --refetch <remote>` alone applies the clone's configured filter again and fetches no blob. Cloning without `--filter` works too. A shallow checkout is refused first, as `config_error` with `git fetch --unshallow`; after that fetch a partial clone can still report `objects_missing`."
     }
   ],
   "next_action_kinds": {

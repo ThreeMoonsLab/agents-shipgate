@@ -226,7 +226,11 @@ In a single-branch clone a plain `git fetch origin main` updates only
 locally. `--base HEAD` compares uncommitted edits with the last commit only; it
 does not review a PR's commits. A shallow clone whose history does not reach
 the merge base is refused with a `git fetch --unshallow` instruction; one deep
-enough to contain it compares normally.
+enough to contain it compares normally. A partial clone (`git clone
+--filter=blob:none`) that never fetched the base's files is refused the same
+way, exit `2`, naming `git fetch --refetch --no-filter origin`; `diff` never
+fetches them itself, and `git fetch --refetch origin` alone keeps the clone's
+filter and fetches none of them.
 
 ### Next
 

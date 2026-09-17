@@ -143,6 +143,21 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="partial-clone-diff-objects-missing-817"></a>
+
+## Migration Note: Unreleased — `diff` refuses a partial clone missing its base objects (#817)
+
+No schema, contract, exit code or `minimum_control_contract_version` moves, and no JSON field is added. This adds one agent-mode error kind, `objects_missing`, and corrects the hydration example `verify` prints for its `objects_missing` diff status.
+
+**Why.** In a partial clone (`git clone --filter=blob:none` or `--filter=tree:0`) the checkout fetches the head's objects and nothing else. `diff` reads its base side from Git with lazy fetching disabled, so when the base differs from the head it could not copy the base tree: it exited `1` with a `ConfigError` traceback (a treeless clone, a `CalledProcessError` one), printed nothing on stdout, and emitted no agent-mode line. In the same blobless clone, `verify`, `verify --preview` and `check` already answered with a structured, fail-closed result. `verify`'s remediation suggested `git fetch --refetch origin`, which applies the clone's configured `remote.<name>.partialclonefilter` again, fetches no blob, and leaves every one of those commands failing the same way.
+
+**The refusal.** When the base archive fails and a walk of the base commit's objects shows objects the clone's promisor remote still owes, `diff` exits `2`, prints one line on stderr naming the side it could not read, and in agent mode emits `{"error": "objects_missing", "exit_code": 2, ...}`. `next_actions[0]` is `kind: "command"`: `git -C <workspace> fetch --refetch --no-filter <remote>`, where `<remote>` is the one remote the clone's configuration names as its promisor, or `origin` when it does not name exactly one. The message ends with the sentence `verify` reports as `diff_status.remediation` for the same reason, with that command as its example. Shipgate leaves that command to the operator and fetches nothing itself: every Git read sets `GIT_NO_LAZY_FETCH=1`, as before.
+
+**Compatibility.**
+- **A consumer that switches on `error` and falls through on unknown kinds** is unaffected. One that treated every `diff` failure as exit `1` now sees `2` for this case, the same exit a shallow checkout's refusal uses.
+- **`verify`'s `diff_status.remediation` text for `objects_missing`** now reads `git fetch --refetch --no-filter origin` and says "Shipgate runs Git with GIT_NO_LAZY_FETCH=1" where it said "Verification runs with". The reason, `fetch_repairable` and every control route are unchanged.
+- **Not changed here:** a shallow checkout is still refused first, as `config_error` with `git fetch --unshallow`; after that fetch a partial clone can still report `objects_missing`. Missing objects with no promisor behind them, as in a corrupt repository, are not reported as `objects_missing`, and fail as before. `verify` without `--preview` in a treeless clone still exits `4` with `internal_error`, as it did before.
+
 <a id="workspace-read-cause-813"></a>
 
 ## Migration Note: Unreleased — a workspace that cannot be read is named, and refuses every Git-bound pointer (#813)

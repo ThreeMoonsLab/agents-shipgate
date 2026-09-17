@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
+from typing import NoReturn
 
 import typer
 
@@ -123,6 +124,45 @@ def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
     return requested, resolved
 
 
+def _refuse_objects_missing(workspace: Path, base_ref: str, base_commit: str) -> NoReturn:
+    """Name the hydration a partial clone needs instead of a traceback (#817).
+
+    In a `--filter=blob:none` clone only what was checked out has blobs, and in
+    a `--filter=tree:0` clone only its trees too; the base tree's objects do
+    not arrive until something fetches them, and Shipgate never does. The
+    repair is the one `verify` names for the same `objects_missing` reason,
+    worded by the same function, bound here to this workspace and to the
+    remote the clone fetches from. `--refetch` alone would keep the clone's
+    filter and fetch no blob, which is why `--no-filter` is part of it.
+    """
+
+    from agents_shipgate.cli.agent_mode import emit_agent_mode_error_action
+    from agents_shipgate.cli.verify.git import (
+        objects_missing_remediation,
+        promisor_remote,
+    )
+    from agents_shipgate.invocation import join_argv
+    from agents_shipgate.schemas.diagnostics import NextAction
+
+    remote = promisor_remote(workspace) or "origin"
+    command = join_argv(
+        ["git", "-C", str(workspace), "fetch", "--refetch", "--no-filter", remote]
+    )
+    message = (
+        f"The base side of this diff, {_one_line(base_ref)} ({base_commit[:8]}), "
+        "could not be read (objects_missing). "
+        + objects_missing_remediation(command)
+    )
+    typer.echo(message, err=True)
+    emit_agent_mode_error_action(
+        "objects_missing",
+        message=message,
+        exit_code=2,
+        action=NextAction(kind="command", command=command, why=message),
+    )
+    raise typer.Exit(2)
+
+
 def _one_line(value: object) -> str:
     return single_line_text(str(value))
 
@@ -179,13 +219,21 @@ def run_capability_diff(
 
     head = build_host_boundary_snapshot(workspace, cache=HostStaticParseCache())
     with tempfile.TemporaryDirectory(prefix="shipgate-diff-base-") as scratch:
-        from agents_shipgate.cli.verify.git import archive_tree
+        from agents_shipgate.cli.verify.git import (
+            PromisedObjectsMissingError,
+            archive_fetched_tree,
+        )
 
         base_tree = Path(scratch) / "base"
         base_tree.mkdir()
-        archive_tree(
-            workspace, base_commit, base_tree, scope=is_boundary_surface_path
-        )
+        try:
+            archive_fetched_tree(
+                workspace, base_commit, base_tree, scope=is_boundary_surface_path
+            )
+        except PromisedObjectsMissingError:
+            # The head is the working tree, so the base is the only side that
+            # reads objects. Any other archive failure is raised as it was.
+            _refuse_objects_missing(workspace, base_ref, base_commit)
         base_inventory = build_host_boundary_snapshot(
             base_tree, cache=HostStaticParseCache()
         ).inventory
