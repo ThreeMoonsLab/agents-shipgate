@@ -45,6 +45,18 @@ non-widening row. `check` decides as `1.0.0` did when a plugin reference cannot
 be read, and its host comparison refuses when only one side carries that limit.
 See [the migration note](#hook-loading-basis-714).
 
+Unreleased, still contract v40 and host-grants `0.6`: permission rule direction
+follows Claude Code's documented rule syntax (#816). A `Bash` rule's trailing
+`:*` is the trailing ` *` it spells, and a trailing ` *` covers the bare command,
+so `Bash(npm:*)` -> `Bash(npm test:*)` is no longer an expansion. A rule whose
+text only moved between `deny`, `ask` and `allow` no longer blocks pairing the
+replacement beside it. `mcp__<server>__<tool>` is a scoped grant
+(`wildcard: false`, `medium`), and `mcp__<server>` compares as
+`mcp__<server>__*`. No
+member, schema or check id moves; `expansion_signals`, row `direction`,
+`expands`, `severity` and `why`, and `check` decisions change for these shapes.
+See [the migration note](#permission-rule-direction-816).
+
 Previous runtime contract v39 reads through an in-tree link at a boundary path (#700).
 A link such as `CLAUDE.md -> AGENTS.md` or `.claude/skills -> ../.agents/skills`
 that resolves inside the repository is read at its target and published under
@@ -142,6 +154,31 @@ from the shipped `v0.15.0` contract are in
 the Action tag) for reproducible CI.
 
 ---
+
+<a id="permission-rule-direction-816"></a>
+
+## Migration Note: Unreleased — permission rule direction: `:*` rules, moved rules and one MCP tool (#816)
+
+This extends host-grants `0.6` and runtime contract `40` in place, as #693 and #714 did: neither has shipped in a tagged release, and published `1.0.0` emits host-grants `0.5` and contract `39`. No schema, member, check id, evidence kind or `minimum_control_contract_version` moves. What changes is the value of existing fields for three rule shapes: drift `expansion_signals`; row `direction`, `expands`, `severity` and `why` in `diff`, `verify`'s `host_comparison`, `check` rows and the control envelope's `capability_rows`; a one-tool MCP allow grant's `wildcard`, `access` and `risk`; and `check` decisions. Each reading follows Claude Code's permissions documentation (https://code.claude.com/docs/en/permissions, "Wildcard patterns" and "MCP").
+
+| Edit | `expansion_signals` before → after | ⚠ rows before → after | `check` before → after |
+| --- | --- | --- | --- |
+| `Bash(npm:*)` → `Bash(npm test:*)` | `allow_rule_added: …Bash(npm test:*)` → none | 1 → 0 | `require_review` (`…-PERMISSION-ALLOW-EXPANDED`) → `allow` |
+| `Bash(npm test:*)` or `Bash(npm test *)` → `Bash(npm test)` | `allow_rule_added: …Bash(npm test)` → none | 1 → 0 | `require_review` → `allow` |
+| `Bash(npm test:*)` → `Bash(npm:*)` | gains `permission_widened: …Bash(npm test:*) -> Bash(npm:*)` | 1 → 1 | `require_review` (unchanged) |
+| allow `Bash(git status *)` → `Bash(git status --short *)`, with `Bash(git log *)` moved from `deny` to `allow` | loses `allow_rule_added: …Bash(git status --short *)` | 3 → 2 | `require_review` (unchanged) |
+| `mcp__github__get_issue` added | `wildcard_allow_added` → `allow_rule_added` | 1 → 1, `high` → `medium` | `block` (`…-PERMISSION-WILDCARD-ALLOW`) → `require_review` (`…-PERMISSION-ALLOW-EXPANDED`) |
+| `mcp__github` → `mcp__github__get_issue` | `wildcard_allow_added: …mcp__github__get_issue` → none | 1 → 0 | `block` → `allow` |
+
+- **`:*` on a `Bash` rule.** A trailing `:*` is read as the trailing ` *` it spells, and a trailing ` *` that is a rule's only wildcard also covers the bare command, so `Bash(npm:*)` covers `npm`, `npm test` and `npm test --watch` but not `npmx`. Only a `:*` that ends the pattern counts. A `:*` with nothing or whitespace before it (`Bash(:*)`, `Bash(npm :*)`) is left undecided, so it keeps its add signal. Other tools keep a colon as argument text: `WebFetch(domain:*)` ↔ `WebFetch(domain:example.com)` and `Bash(npm *)` ↔ `Bash(npm test:*)` answer as before. A settings change whose only effect is such a narrowing is now recorded as `host_settings_narrowed` and does not raise `SHIP-VERIFY-TRUST-ROOT-TOUCHED` (#661).
+- **Moved rules.** Before the one-out, one-in pairing, a rule whose identical text left one disposition and arrived in another in the same host and source is set aside. It keeps its own signals (`allow_rule_added`, and `deny_rule_removed` or `ask_rule_removed`). Rules are matched by exact text, never by likeness or case. One consequence runs the other way: when the only allow rule that arrived is one that moved from `deny` or `ask`, it is no longer paired with the allow rule that left, so its `allow_rule_added` is never suppressed as a narrowing.
+- **One MCP tool.** `mcp__<server>__<tool>`, and `mcp__<server>__<prefix>*`, are scoped: the grant is `wildcard: false`, `access: execute`, `risk: medium`, and the row reads "runs without a prompt". `mcp__<server>`, `mcp__<server>__*`, and any token whose server segment is empty or holds a glob, or whose tool segment is empty, opens with `*` or holds `[`, `]`, `?`, `{` or `}`, stay whole-surface grants: `high`, "matches every target of this kind, without a prompt", and blocking. `mcp__<server>` is compared as `mcp__<server>__*`, so narrowing it to one tool is no longer an expansion, and widening one tool to it is named `permission_widened`.
+
+**Compatibility.**
+- **A saved baseline holding a one-tool MCP allow rule** (every baseline `1.0.0` wrote, and a `0.6` baseline saved from a source tree before this change) recorded it as `wildcard: true`/`high`. The grant id is unchanged, so drift reports one `changed` grant for it, with no expansion signal and `expands: false`, and `--fail-on-drift` exits `20` once. Review the row and re-save the baseline; a `1.0.0` baseline must first be moved aside, as [the hook loading basis note](#hook-loading-basis-714) describes. `:*` and moved rules change no grant field, so baselines holding them are unaffected.
+- **A consumer counting ⚠ rows, `expands: true` or `expansion_signals`** sees fewer for the narrowings above and one more signal for a `:*` widening.
+- **A gate reading `check` decisions** sees the moves in the table: `require_review` → `allow` for a `:*` narrowing alone, `block` → `require_review` for one MCP tool, and `block` → `allow` for narrowing a whole-server MCP grant to one tool.
+- **Not changed.** Rewriting one spelling into the other (`Bash(npm *)` → `Bash(npm:*)`) grants nothing new, but the lattice decides direction, not equivalence: the added spelling keeps `allow_rule_added` and `check` still requires review. `PowerShell` rules, which the same page documents with the `:*` suffix, are still read as text. Recorded benchmark runs keep the rows the engine printed when they ran, and every vendored host-config and cold-start case replays to its recorded outcome unchanged.
 
 <a id="partial-clone-diff-objects-missing-817"></a>
 

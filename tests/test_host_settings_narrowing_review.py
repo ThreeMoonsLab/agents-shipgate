@@ -90,6 +90,18 @@ NARROWINGS = {
         {"permissions": {"allow": ["Shell(*)"]}},
         {"permissions": {"allow": ["Shell(git status)"]}},
     ),
+    # Claude Code documents `:*` as a trailing ` *` and `mcp__<server>` as
+    # every tool of that server (#816), so both are narrowings it decides.
+    "colon-star allow tightened": (
+        CLAUDE,
+        {"permissions": {"allow": ["Bash(npm:*)"]}},
+        {"permissions": {"allow": ["Bash(npm test:*)"]}},
+    ),
+    "whole MCP server tightened to one tool": (
+        CLAUDE,
+        {"permissions": {"allow": ["mcp__github"]}},
+        {"permissions": {"allow": ["mcp__github__get_issue"]}},
+    ),
 }
 
 REVIEWED = {
@@ -115,6 +127,16 @@ REVIEWED = {
         CLAUDE,
         {"permissions": {"allow": ["Read(**)"]}},
         {"permissions": {"allow": ["Read(**)", "WebFetch(*)"]}},
+    ),
+    "colon-star allow widened": (
+        CLAUDE,
+        {"permissions": {"allow": ["Bash(npm test:*)"]}},
+        {"permissions": {"allow": ["Bash(npm:*)"]}},
+    ),
+    "a rule moved from deny beside a narrowing": (
+        CLAUDE,
+        {"permissions": {"allow": ["Bash(git status *)"], "deny": ["Bash(git log *)"]}},
+        {"permissions": {"allow": ["Bash(git status --short *)", "Bash(git log *)"]}},
     ),
     "deny removed": (
         CLAUDE,

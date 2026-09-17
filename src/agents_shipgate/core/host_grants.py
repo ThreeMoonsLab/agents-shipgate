@@ -3664,6 +3664,13 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
                 # that *removed* authority. The narrowing is still visible:
                 # it is in `changes` as a removal and an addition (#657).
                 continue
+            if before is not None and before.get("wildcard") and not after.get("wildcard"):
+                # One grant id is one host, source, disposition and rule text,
+                # so the rule itself did not change: a baseline saved before
+                # #816 rated a one-tool MCP rule a whole-server grant. Reading
+                # it narrower now removes nothing and adds nothing; the row
+                # stays, as a change without an expansion signal.
+                continue
             marker = "wildcard_allow" if after.get("wildcard") else "allow_rule"
             signals.append(f"{marker}_{prefix}: {after['host']}:{after['rule']}")
         elif kind == "hook":
@@ -3722,6 +3729,15 @@ def _permission_direction_signals(
     pairing would be inventing the direction too. A pair the lattice cannot
     decide produces nothing, which leaves the existing add/remove signals
     as the whole answer.
+
+    A rule whose identical text only moved to another disposition in the
+    same host and source — `deny` to `allow`, say — replaced nothing, so it
+    is set aside before counting. It keeps its own `allow_rule_added` and
+    `deny_rule_removed`. Without this, moving `Bash(git log *)` out of
+    `deny` in the same edit that narrows `Bash(git status *)` to
+    `Bash(git status --short *)` counted as a second arrival, and the
+    narrower half was reported as a widening (#816). Identity is the exact
+    rule text: nothing is paired by likeness.
     """
 
     removed: dict[tuple[str, str, str], list[str]] = {}
@@ -3729,24 +3745,33 @@ def _permission_direction_signals(
     for change in changes:
         before, after = change.get("baseline"), change.get("current")
         for grant, sink in ((before, removed), (after, added)):
-            if (
-                grant
-                and grant.get("kind") == "permission_rule"
-                and grant.get("disposition") == "allow"
-            ):
-                key = (grant["host"], grant.get("source", ""), grant["disposition"])
+            if grant and grant.get("kind") == "permission_rule":
+                key = (grant["host"], grant.get("source", ""), str(grant.get("disposition")))
                 sink.setdefault(key, []).append(str(grant["rule"]))
+    moved = {
+        (host, source, rule)
+        for (host, source, gone_from), gone in removed.items()
+        for (other_host, other_source, arrived_in), arrived in added.items()
+        if (other_host, other_source) == (host, source) and arrived_in != gone_from
+        for rule in set(gone) & set(arrived)
+    }
     # A rule present on both sides is unchanged and pairs with nothing.
     signals: list[str] = []
     narrowed: set[tuple[str, str]] = set()
     for key, gone in removed.items():
+        if key[2] != "allow":
+            continue
+        host, source = key[0], key[1]
         arrived = added.get(key, [])
-        only_gone = [rule for rule in gone if rule not in arrived]
-        only_arrived = [rule for rule in arrived if rule not in gone]
+        only_gone = [
+            rule for rule in gone if rule not in arrived and (host, source, rule) not in moved
+        ]
+        only_arrived = [
+            rule for rule in arrived if rule not in gone and (host, source, rule) not in moved
+        ]
         if len(only_gone) != 1 or len(only_arrived) != 1:
             continue
         before_rule, after_rule = only_gone[0], only_arrived[0]
-        host = key[0]
         if subsumes(after_rule, before_rule) is True:
             # Named as well as counted: `allow_rule_changed` says a rule
             # moved, this says which way and by how much. The add signal

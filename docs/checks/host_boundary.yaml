@@ -95,7 +95,9 @@ checks:
     boundary entirely; an agent must not self-grant unrestricted tool access.
   fires_when: A changed .claude/settings.json or .claude/settings.local.json
     adds an allow rule that is '*', a bare tool name, or a wildcard-shaped
-    rule such as 'Bash(*)' or 'Bash(*:*)'.
+    rule such as 'Bash(*)' or 'Bash(*:*)'. An MCP rule naming tools within
+    one server, such as 'mcp__github__get_issue', is scoped; 'mcp__github'
+    and 'mcp__github__*' grant the whole server.
   evidence_fields: [kind, rule]
   recommendation: Do not allow wildcard tool permissions; scope the rule to
     specific commands.

@@ -668,6 +668,12 @@ allow rule that is `*`, a bare tool name, or a wildcard-shaped rule such as
 wildcard tool permissions over execution, network access or writes; scope the
 rule to specific commands.
 
+An MCP rule that names tools within one server, such as
+`mcp__github__get_issue`, is scoped: it raises
+`SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED`. `mcp__github` and
+`mcp__github__*` grant every tool the server offers and still raise this
+check. Before #816 every MCP rule, being a bare token, reached it.
+
 A wildcard grant over a read tool — `Read(**)`, `Glob`, `Grep(**)` — raises
 `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` instead. It is still an
 expansion and still reviewed, but it is not a release blocker: the agent
@@ -679,8 +685,14 @@ configuration blocked the release at `critical` (#657).
 ### SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED
 
 A changed Claude Code settings file adds a `permissions.allow` entry that is
-either scoped (`Bash(npm test:*)`) or a wildcard over a read-only tool
-(`Read(**)`). Have a human approve the new permission allow rule.
+either scoped (`Bash(npm test:*)`, `mcp__github__get_issue`) or a wildcard over
+a read-only tool (`Read(**)`). Have a human approve the new permission allow
+rule.
+
+An added rule that an allow rule the file already had covers grants nothing
+new and does not fire (#661). `Bash(npm:*)` and `Bash(npm *)` are two
+spellings of one rule, which also allows the bare `npm`, so replacing either
+with `Bash(npm test:*)` or `Bash(npm test)` does not fire (#816).
 
 ### SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED
 
