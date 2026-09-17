@@ -25,7 +25,8 @@ The rules pinned here:
 * A gitignored directory, the default `agents-shipgate-reports`, a directory
   holding only Shipgate artifacts, a sibling outside the repository, and
   `verify --preview` outside Git all keep working, and every file real runs
-  over the shipped samples leave behind is a recognized artifact.
+  over the shipped samples, and the `skill` commands' default reports, leave
+  behind is a recognized artifact.
 * Every reader refuses a pointer already sitting in such a directory, for every
   control state, as `workspace_unverifiable`, and a classification that fails
   refuses instead of skipping the currency checks. The recovery it names keeps
@@ -741,6 +742,58 @@ def test_every_file_a_real_run_leaves_is_a_recognized_artifact(tmp_path: Path, s
     assert refreshed.exit_code == 0, _plain(refreshed.output)
 
 
+def test_skill_reports_in_the_default_directory_are_recognized_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """`skill lint`, `security` and `review` publish beside `verify`'s reports.
+
+    With `--out` omitted they write `skill-<command>.{md,json,sarif}` into
+    `agents-shipgate-reports` under the workspace. In a repository that does
+    not gitignore that directory, names missing from the allowlist made the
+    next `agent control` refuse as `workspace_unverifiable` and the next
+    `verify` exit 2, as though a person had left notes there.
+    """
+
+    from agents_shipgate.cli.current_workspace import classify_output_directory
+
+    repo = _repo(tmp_path / "repo", ignore="")
+    first = _verify(repo)
+    assert first.exit_code == 0, _plain(first.output)
+    assert json.loads(first.stdout)["control_state"] == "complete"
+    before = _control(repo)
+    assert before.exit_code == 0, _plain(before.output)
+
+    # The skill commands take their workspace from the current directory.
+    monkeypatch.chdir(repo)
+    commands = ("lint", "security", "review")
+    reviewed = runner.invoke(app, ["skill", "review"], env=ENV)
+    assert reviewed.exit_code == 0, _plain(reviewed.output)
+    for command in commands:
+        skill = runner.invoke(
+            app, ["skill", command, "--format", "markdown,json,sarif"], env=ENV
+        )
+        assert skill.exit_code == 0, _plain(skill.output)
+    written = sorted(
+        path.name for path in (repo / REPORTS).iterdir() if path.name.startswith("skill-")
+    )
+    assert written == sorted(
+        f"skill-{command}.{suffix}" for command in commands for suffix in ("json", "md", "sarif")
+    )
+    untracked = _git(repo, "ls-files", "--others", "--exclude-standard", "--", REPORTS)
+    assert f"{REPORTS}/skill-review.json" in untracked.splitlines()
+
+    refreshed = _control(repo)
+    assert refreshed.exit_code == 0, _plain(refreshed.output)
+    assert json.loads(refreshed.stdout)["control_state"] == "complete"
+    second = _verify(repo)
+    assert second.exit_code == 0, _plain(second.output)
+    assert json.loads(second.stdout)["control_state"] == "complete"
+    again = _control(repo)
+    assert again.exit_code == 0, _plain(again.output)
+    assert json.loads(again.stdout)["control_state"] == "complete"
+    assert classify_output_directory(repo, repo / REPORTS) is None
+
+
 # -- what keeps working ------------------------------------------------------
 
 
@@ -1196,8 +1249,8 @@ def test_every_name_a_run_writes_is_a_recognized_artifact():
     A name missing here makes the second run into an unignored reports
     directory refuse, and every refresh of it too. Some writers put a file
     beside a report rather than into a named output directory, and the GitHub
-    Action writes into its `output_dir` from scripts and shell steps; each is
-    read here. `test_every_file_a_real_run_leaves_is_a_recognized_artifact`
+    Action writes into its `output_dir` from scripts and shell steps, and the
+    `skill` commands name theirs from a basename table; each is read here. `test_every_file_a_real_run_leaves_is_a_recognized_artifact`
     holds the allowlist to what runs actually leave behind.
     """
 
@@ -1215,6 +1268,7 @@ def test_every_name_a_run_writes_is_a_recognized_artifact():
     from agents_shipgate.schemas.declaration_continuation import (
         DECLARATION_CONTINUATION_ARTIFACT_NAME,
     )
+    from agents_shipgate.skill import runner as skill_runner
 
     expected = {
         *VERIFIER_ROUTE_ARTIFACT_NAMES,
@@ -1253,5 +1307,18 @@ def test_every_name_a_run_writes_is_a_recognized_artifact():
     expected.update(re.findall(r'"([^"/]+\.(?:json|md|sarif|html|pdf))"', removed))
     for constant in re.findall(r"^\s+([A-Z_]+_FILENAME),$", removed, flags=re.MULTILINE):
         expected.add(getattr(orchestrator, constant))
+    # `skill lint`, `skill security` and `skill review` publish into the same
+    # default directory when `--out` is omitted, one basename per command in
+    # every format `_write_reports` renders.
+    assert f'workspace / "{REPORTS}"' in inspect.getsource(skill_runner.run_skill_review)
+    skill_suffixes = re.findall(
+        r'\("[a-z]+", "([a-z]+)"\)', inspect.getsource(skill_runner._write_reports)
+    )
+    assert sorted(skill_suffixes) == ["json", "md", "sarif"]
+    expected.update(
+        f"{basename}.{suffix}"
+        for basename in skill_runner.REPORT_BASENAME.values()
+        for suffix in skill_suffixes
+    )
 
     assert expected - REPORTS_DIRECTORY_ARTIFACT_NAMES == set()

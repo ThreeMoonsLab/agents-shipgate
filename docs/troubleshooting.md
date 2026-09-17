@@ -149,7 +149,11 @@ So Shipgate scopes rather than guesses:
   that runs `git rm -r --cached agents-shipgate-reports` and gitignores the
   directory; a worktree `verify` of that change still finds the removal, so
   verify it with `--out` naming a directory that is gitignored or outside the
-  repository until it merges. The Action's `--head` run passes.
+  repository until it merges. The Action's `--head` run passes. Reports that
+  `skill lint`, `skill security` and `skill review` write there are Shipgate
+  artifacts and are not refused. The Claude Code Stop hook runs `verify` into
+  the default directory and reports this exit `2` as advisory context without
+  blocking the Stop, so resolve the refusal rather than relying on the hook.
 - With `--ci`, each manifest gets its own workflow — `agents-shipgate.yml` for
   a repository-root manifest, `agents-shipgate-<project>.yml` for a scoped one.
   The action takes a single `config`, so one shared file would gate whichever

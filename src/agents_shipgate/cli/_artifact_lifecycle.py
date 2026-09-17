@@ -69,6 +69,14 @@ REPORTS_DIRECTORY_ARTIFACT_NAMES: frozenset[str] = frozenset(
         "host-grants.json",
         "org-status.json",
         "org-evidence-bundle.json",
+        # `skill lint`, `skill security` and `skill review` write here too when
+        # `--out` is omitted: `skill.runner.REPORT_BASENAME` in each format
+        # `--format` accepts (markdown, json, sarif).
+        *(
+            f"{basename}.{suffix}"
+            for basename in ("skill-lint", "skill-security", "skill-review")
+            for suffix in ("md", "json", "sarif")
+        ),
     }
 )
 # Directories a run creates beneath a reports directory; everything inside one
