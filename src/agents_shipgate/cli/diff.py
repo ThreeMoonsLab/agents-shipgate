@@ -283,7 +283,11 @@ def run_capability_diff(
             base_tree, cache=HostStaticParseCache()
         ).inventory
 
-    from agents_shipgate.cli.verify.git import blob_path_unchanged, commit_sha
+    from agents_shipgate.cli.verify.git import (
+        blob_path_identities,
+        blob_path_unchanged,
+        commit_sha,
+    )
     from agents_shipgate.core.host_comparison import compare_host_inventories
 
     # One comparison for diff, verify and check (#721). An unchanged partial or
@@ -296,6 +300,7 @@ def run_capability_diff(
         # Named in the text output's reference line only; `--json` keeps its keys.
         head_commit=commit_sha(workspace, "HEAD"),
         unchanged=lambda source: blob_path_unchanged(workspace, base_commit, None, source),
+        identities=lambda paths: blob_path_identities(workspace, base_commit, None, paths),
     )
     rows = list(comparison.rows)
     limits = [limit.model_dump(mode="json") for limit in comparison.unchanged_limits]

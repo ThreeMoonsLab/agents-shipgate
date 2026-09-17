@@ -215,9 +215,11 @@ What this run established:
 
 That line says only that no compared grant changed. It does not say which
 fields did: a reordered rule reads the same, and the values the inventory
-redacts are never compared, so read the file. Where the bytes cannot be proven
-identical, such as a settings file read through a link, the line reads `no
-grant this entry compares changed, but the file was not proven unchanged`
+redacts are never compared, so read the file. Where the bytes can be neither
+proven identical nor shown to differ, such as a settings file read through a
+link, or a checkout that wrote it with `CRLF` line endings (`eol=crlf`, or
+`core.autocrlf=true` on Windows) while Git reports it unchanged, the line reads
+`no grant this entry compares changed, but the file was not proven unchanged`
 instead. Any other changed file with no row reads `changed, but no row is
 attributed to this path`: a plugin manifest whose `hooks` reference was added,
 retargeted or removed, whose rows are on the hook files it selects, or a

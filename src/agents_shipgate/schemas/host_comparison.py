@@ -58,9 +58,10 @@ class HostComparisonCoverageItem(BaseModel):
     - ``changed_without_grant_change``: the file changed, it gives no row, and
       the published data shows no grant this entry compares moved: its
       artifact digests the whole file, every side that has it parsed it, and
-      nothing but that digest differs, or its bytes differ while its artifact
-      did not, as for an edited ``env`` value or ``apiKeyHelper``, whose values
-      the digest redacts and the comparison never compares. It does not say
+      nothing but that digest differs, or Git shows its content differs while
+      its artifact did not, as for an edited ``env`` value or ``apiKeyHelper``,
+      whose values the digest redacts and the comparison never compares. A
+      difference a checkout conversion can explain is not shown. It does not say
       which fields changed: reordering or repeating a rule moves the digest
       too. Never a plugin manifest or marketplace, a retargeted link, or a
       Claude Code project settings file while a hook's loading basis changed.
@@ -70,10 +71,13 @@ class HostComparisonCoverageItem(BaseModel):
       files it selects), a retargeted link, a parse or instruction-structure
       change, or project settings while a hook's loading basis changed.
     - ``unchanged_not_proven``: both sides read the file, it gives no row and
-      its artifact did not change, but its bytes could not be proven
-      identical, so a change in a value the artifact redacts would not show.
-      A provided diff, a link read, a redacted path or a source no artifact
-      publishes on both sides cannot be proven. Never read as no change.
+      its artifact did not change, but its bytes could be neither proven
+      identical nor shown to differ, so a change in a value the artifact
+      redacts would not show. A provided diff, a link read, a redacted path, a
+      source no artifact publishes on both sides, or working-tree bytes that
+      differ only as a checkout conversion such as ``eol=crlf`` or
+      ``core.autocrlf`` makes them, cannot be proven. Never read as no change,
+      and never as a change.
     - ``blocking_limit``: an incomparable comparison, and this source carries
       a blocking inventory issue of kind ``limit`` on ``side``.
 

@@ -6,10 +6,11 @@ deleted settings file that held only such fields: all three printed "No static
 host-grant changes detected in the covered comparison". An incomparable result
 named no source. The facts were already computed — the rows, the artifact
 changes, the sources each inventory observed, the blocking issues — and were
-dropped by the projection. A file is called unchanged only when the byte
-identity proof the comparison already receives says so: the artifact digest
-redacts `env` values and `apiKeyHelper`, so an equal digest is not enough
-(review cycle 2).
+dropped by the projection. A file is called unchanged only when Git proves
+its bytes identical: the artifact digest redacts `env` values and
+`apiKeyHelper`, so an equal digest is not enough (review cycle 2). A file is
+called changed only when Git shows its content differs, so a line-ending
+conversion at checkout is neither (review cycle 3).
 
 Each case is a real repository driven through `diff` (text and `--json`),
 `verify` (`verifier.json`) and the PR comment `verify` writes. The refusal and
@@ -914,6 +915,197 @@ def test_a_redacted_path_is_never_proven_unchanged(tmp_path: Path) -> None:
     assert token not in text + comment + json.dumps(payload)
 
 
+MCP = ".mcp.json"
+
+
+@pytest.mark.parametrize("conversion", ["gitattributes-eol-crlf", "core-autocrlf"])
+def test_a_line_ending_conversion_at_checkout_is_never_read_as_a_change(
+    tmp_path: Path, conversion: str
+) -> None:
+    """Review cycle 3: files Git reports unchanged are never said to have changed.
+
+    A checkout wrote CRLF bytes from LF blobs, as `eol=crlf` or the Git for
+    Windows `core.autocrlf=true` default does. The working tree's unfiltered
+    hash then differs from the base blob, which proves the bytes neither
+    identical nor changed: the working-tree routes read `unchanged_not_proven`,
+    and the commit route, whose blobs are identical, reads `compared`.
+    """
+
+    files: dict[str, object] = {
+        SETTINGS: json.dumps(BASE_SETTINGS, indent=2) + "\n",
+        MCP: json.dumps({"mcpServers": {"api": {"command": "node"}}}, indent=2) + "\n",
+    }
+    if conversion == "gitattributes-eol-crlf":
+        files[".gitattributes"] = "*.json text eol=crlf\n"
+    repo = _repository(tmp_path, files)
+    if conversion == "core-autocrlf":
+        _git(repo, "config", "core.autocrlf", "true")
+    for name in (SETTINGS, MCP):
+        (repo / name).unlink()
+    _git(repo, "checkout", "--", SETTINGS, MCP)
+    _write(repo, "README.md", "# demo\nmore\n")
+    _commit(repo, "docs")
+
+    assert b"\r\n" in (repo / SETTINGS).read_bytes() and b"\r\n" in (repo / MCP).read_bytes()
+    assert _git(repo, "status", "--porcelain") == ""
+    assert _git(repo, "diff", "--name-only", "main") == "README.md"
+
+    text, payload, _comparison, comment = _all_routes(repo, tmp_path, head=False)
+
+    assert payload["comparison_status"] == "comparable" and payload["rows"] == []
+    assert {item["source"]: item["status"] for item in payload["coverage"]["items"]} == {
+        SETTINGS: "unchanged_not_proven",
+        MCP: "unchanged_not_proven",
+    }
+    assert GRANT_UNCHANGED not in text + comment
+    assert f"  {SETTINGS} (claude-code): compared; {NOT_PROVEN}" in _block(text)
+    assert "compared with no change" not in text + comment
+
+    committed, _committed_comment = _verify(repo, tmp_path / "commit", head=True)
+    assert {
+        item["source"]: item["status"] for item in committed["host_comparison"]["coverage"]["items"]
+    } == {SETTINGS: "compared", MCP: "compared"}
+
+
+def _identity_repository(tmp_path: Path) -> Path:
+    repo = _repository(
+        tmp_path,
+        {
+            ".gitattributes": "ident.json ident\n",
+            "same.json": "{\n}\n",
+            "edited.json": '{"a": 1}\n',
+            "crlf.json": '{\n  "a": 1\n}\n',
+            "ident.json": '{"a": "$Id$"}\n',
+            "mode.sh": "echo\n",
+            "dir/inner.json": "{}\n",
+        },
+    )
+    _write(repo, "edited.json", '{"a": 2}\n')
+    (repo / "crlf.json").write_bytes(b'{\r\n  "a": 1\r\n}\r\n')
+    _write(repo, "ident.json", '{"a": "$Id$", "b": 1}\n')
+    return repo
+
+
+def test_the_identity_answer_says_identical_differs_or_neither(tmp_path: Path) -> None:
+    """Review cycle 3: "not proven identical" is not "changed".
+
+    ``True`` is exactly `blob_path_unchanged`'s proof, which `unchanged_limits`
+    keeps using. ``False`` needs Git to show a content difference no checkout
+    conversion explains; everything else is ``None``.
+    """
+
+    from agents_shipgate.cli.verify.git import blob_path_identities, blob_path_unchanged
+
+    repo = _identity_repository(tmp_path)
+    paths = [
+        "same.json", "edited.json", "crlf.json", "ident.json", "mode.sh",
+        "missing.json", "dir", "../outside", "/etc/passwd", "dir\\inner.json",
+    ]
+    worktree = {
+        "same.json": True,
+        "edited.json": False,
+        # A line-ending difference is what a checkout conversion makes.
+        "crlf.json": None,
+        # `ident` converts on checkout, and no filter is run to tell.
+        "ident.json": None,
+        "mode.sh": True,
+        "missing.json": None,
+        "dir": None,
+        "../outside": None,
+        "/etc/passwd": None,
+        "dir\\inner.json": None,
+    }
+    assert blob_path_identities(repo, "main", None, paths) == worktree
+    assert blob_path_identities(repo, "no-such-ref", None, paths) == dict.fromkeys(paths)
+
+    # Both, so the mode holds whether or not the filesystem keeps executable bits.
+    (repo / "mode.sh").chmod(0o755)
+    _git(repo, "update-index", "--chmod=+x", "mode.sh")
+    _commit(repo, "edits and a mode change")
+    assert _git(repo, "ls-tree", "HEAD", "mode.sh").startswith("100755 ")
+    committed = {
+        **worktree,
+        # Between commits the blobs themselves differ, and Git reports it.
+        "crlf.json": False,
+        "ident.json": False,
+        # The same blob under another mode: neither answer is shown.
+        "mode.sh": None,
+    }
+    head = _git(repo, "rev-parse", "HEAD")
+    assert blob_path_identities(repo, "main", head, paths) == committed
+    assert blob_path_identities(repo, "main", "main", ["same.json", "mode.sh"]) == {
+        "same.json": True, "mode.sh": True,
+    }
+    for path in paths:
+        if path.startswith("/") or "\\" in path or ".." in path:
+            continue
+        assert blob_path_unchanged(repo, "main", head, path) is (committed[path] is True), path
+
+
+@_LINKS
+def test_the_identity_answer_never_reads_through_a_link(tmp_path: Path) -> None:
+    from agents_shipgate.cli.verify.git import blob_path_identities
+
+    repo = _repository(tmp_path, {"config/a.json": "{}\n", "linked/a.json": "{}\n"})
+    (repo / "linked/a.json").unlink()
+    (repo / "linked").rmdir()
+    _link(repo, "linked", "config")
+    (repo / SETTINGS).unlink()
+    _link(repo, SETTINGS, "../config/a.json")
+
+    assert blob_path_identities(repo, "main", None, [SETTINGS, "linked/a.json", "config/a.json"]) == {
+        SETTINGS: None, "linked/a.json": None, "config/a.json": True,
+    }
+
+
+def test_the_identity_answer_costs_the_same_for_two_files_or_forty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review cycle 3: Git is asked once per step, not once per file.
+
+    Every file differs, so every step runs: the base commit, its listing, the
+    working-tree hashes, the checkout attributes and the base blobs.
+    """
+
+    import agents_shipgate.cli.verify.git as git
+
+    workflows = {f".github/workflows/w{index:02}.yml": f"name: w{index}\non: push\n" for index in range(40)}
+    repo = _repository(tmp_path, workflows)
+    for name in workflows:
+        _write(repo, name, f"name: {name}\non: pull_request\n")
+    calls: list[str] = []
+    for runner in ("_run_git", "_run_git_bounded_result"):
+        original = getattr(git, runner)
+
+        def counted(*args, _original=original, **kwargs):
+            calls.append(args[1][0] if args[1] else "")
+            return _original(*args, **kwargs)
+
+        monkeypatch.setattr(git, runner, counted)
+
+    paths = sorted(workflows)
+    assert git.blob_path_identities(repo, "main", None, paths[:2]) == dict.fromkeys(paths[:2], False)
+    two = list(calls)
+    calls.clear()
+    assert git.blob_path_identities(repo, "main", None, paths) == dict.fromkeys(paths, False)
+
+    assert len(calls) == len(two) <= 5
+
+
+def test_a_provided_diff_builds_no_coverage(tmp_path: Path) -> None:
+    """`agent-result` keeps only the rows, so the provided-diff route records no coverage."""
+
+    from agents_shipgate.core.host_diff_comparison import compare_host_diff
+
+    repo = _repository(tmp_path)
+    _write(repo, SETTINGS, WIDENED)
+
+    comparison = compare_host_diff(repo, _git(repo, "diff", "main") + "\n")
+
+    assert comparison.comparison_status == "comparable" and comparison.rows
+    assert comparison.coverage is None
+
+
 def test_coverage_stays_out_of_inventory_digests_and_baselines(tmp_path: Path) -> None:
     repo = _repository(tmp_path)
     _write(repo, SETTINGS, {**BASE_SETTINGS, "env": {"A": "1"}})
@@ -935,18 +1127,18 @@ def test_coverage_stays_out_of_inventory_digests_and_baselines(tmp_path: Path) -
 
 def test_check_publishes_no_coverage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """`check`'s boundary result cannot carry the block, its text does not print it, and it
-    asks for no identity proof it would discard."""
+    asks no identity question it would discard."""
 
     import agents_shipgate.cli.verify.host_comparison as host_comparison_route
 
-    asked: list[str] = []
-    proof = host_comparison_route.blob_path_unchanged
+    asked: list[list[str]] = []
+    question = host_comparison_route.blob_path_identities
 
-    def counted(workspace, base, head, path):
-        asked.append(path)
-        return proof(workspace, base, head, path)
+    def counted(workspace, base, head, paths):
+        asked.append(list(paths))
+        return question(workspace, base, head, paths)
 
-    monkeypatch.setattr(host_comparison_route, "blob_path_unchanged", counted)
+    monkeypatch.setattr(host_comparison_route, "blob_path_identities", counted)
     repo = _repository(tmp_path, {SETTINGS: {**BASE_SETTINGS, "env": {"A": "1"}}})
     _write(repo, SETTINGS, {**BASE_SETTINGS, "env": {"A": "2"}})
     _commit(repo, "env value")
@@ -958,9 +1150,9 @@ def test_check_publishes_no_coverage(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert "coverage" not in payload
     assert HEADING not in text
     assert asked == []
-    # The same route with coverage asks, once per file.
+    # The same route with coverage asks once, for every file it needs.
     _verify(repo, tmp_path / "out")
-    assert asked == [SETTINGS]
+    assert asked == [[SETTINGS]]
 
 
 def _inventories(tmp_path: Path, base: dict[str, object], head: dict[str, object]) -> tuple[dict, dict]:
@@ -975,23 +1167,32 @@ def _inventories(tmp_path: Path, base: dict[str, object], head: dict[str, object
 
 
 @pytest.mark.parametrize(
-    ("unchanged", "status"),
+    ("identities", "status"),
     [
         (None, "unchanged_not_proven"),
-        (lambda path: True, "compared"),
-        (lambda path: False, "changed_without_grant_change"),
+        (lambda paths: dict.fromkeys(paths, True), "compared"),
+        (lambda paths: dict.fromkeys(paths, False), "changed_without_grant_change"),
+        # Review cycle 3: neither shown, such as a checkout line-ending conversion.
+        (lambda paths: dict.fromkeys(paths), "unchanged_not_proven"),
+        (lambda paths: {}, "unchanged_not_proven"),
     ],
-    ids=["no-proof-provided-diff", "proven-identical", "not-identical"],
+    ids=["no-question-provided-diff", "identical", "differs", "neither-shown", "not-answered"],
 )
 def test_only_a_byte_identity_proof_makes_a_zero_row_file_unchanged(
-    tmp_path: Path, unchanged, status: str
+    tmp_path: Path, identities, status: str
 ) -> None:
-    """The comparator's own rule, as a provided diff (no proof) and the git routes see it."""
+    """The comparator's own rule, as a provided diff (no question) and the git routes see it.
+
+    ``unchanged`` is the `unchanged_limits` proof and never decides coverage:
+    "not proven identical" is not "changed".
+    """
 
     settings = {**BASE_SETTINGS, "env": {"A": "1"}}
     before, after = _inventories(tmp_path, {SETTINGS: settings}, {SETTINGS: {**settings, "env": {"A": "2"}}})
 
-    comparison = compare_host_inventories(before, after, head_kind="provided_diff", unchanged=unchanged)
+    comparison = compare_host_inventories(
+        before, after, head_kind="provided_diff", unchanged=lambda path: False, identities=identities
+    )
 
     assert comparison.comparison_status == "comparable" and comparison.rows == []
     assert comparison.coverage is not None
@@ -1003,7 +1204,7 @@ def test_only_a_byte_identity_proof_makes_a_zero_row_file_unchanged(
         status == "compared"
     )
     assert compare_host_inventories(
-        before, after, head_kind="provided_diff", unchanged=unchanged, coverage=False
+        before, after, head_kind="provided_diff", identities=identities, coverage=False
     ).coverage is None
 
 

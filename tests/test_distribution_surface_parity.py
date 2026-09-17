@@ -193,8 +193,8 @@ SURFACES: tuple[Surface, ...] = (
         # `tests/test_host_diff_review_changes.py`. Its coverage block (#812)
         # restates no engine answer either: it names, per source, facts the
         # comparator already computed (rows, artifact changes, observed sides,
-        # blocking issues, and the byte identity proof it already receives for
-        # `unchanged_limits`, which is not published) and asserts no verdict,
+        # blocking issues, and a Git byte identity answer, identical, differs or
+        # neither, which is not published) and asserts no verdict,
         # pin or vocabulary, so it adds no claim;
         # `tests/test_host_comparison_coverage.py` holds diff, verify and the
         # PR comment to the same object.
