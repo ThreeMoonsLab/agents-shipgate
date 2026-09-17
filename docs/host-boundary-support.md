@@ -127,17 +127,20 @@ derived from the raw declarations, which it still compares, and redacts
 `build`, `deploy-prod`, `secret-scan` or `token-refresh` are unchanged. A name
 that only looks like a token, such as `sk-integration-tests-matrix`, is
 redacted too, and so is userinfo that holds no credential, such as `git@` in
-an `ssh://` URL. A single redacted label still compares, so it costs nothing
-on any route.
+an `ssh://` URL. A single redacted label still compares and refuses nothing.
+A token joined to a name by `_`, a letter or a digit is not recognised by the
+redactor's word-boundary patterns, so `deploy_ghp_…` is published as written;
+this predates #802.
 
 Two distinct job ids or triggers in one workflow, or two scope names in one
-`permissions` mapping, that publish alike would compare as one, so they refuse
-the same way a redacted step reference does. That limit lasts as long as the
-workflow holds both names, whether or not a pull request changes it: `check`
-refuses on every run, because its boundary result cannot carry a limit;
-`audit --host --save-baseline` exits `2`; and drift is incomparable. Only
-`diff` and `verify` compare past an unchanged workflow and name it in
-`unchanged_limits`. Two ordinary ids such as `sk-integration-tests-matrix` and
+`permissions` mapping that a job's permissions are read from, that publish
+alike would compare as one, so they refuse the same way a redacted step
+reference does, with a coverage issue that says to rename or remove one. That
+limit lasts as long as the workflow holds both names, whether or not a pull
+request changes it: `check` refuses on every run, because its boundary result
+cannot carry a limit; `audit --host --save-baseline` exits `2`; and drift is
+incomparable. Only `diff` and `verify` compare past an unchanged workflow and
+name it in `unchanged_limits`. Two ordinary ids such as `sk-integration-tests-matrix` and
 `sk-integration-tests-linux-arm` collide this way. Renaming one of them clears
 it once the rename is on the base branch; the pull request that renames it
 still refuses against its base.
@@ -147,10 +150,13 @@ Renaming a lone redacted label to another that redacts alike (`ghp_A…` →
 artifact `redacted_sha256` is still a digest of the whole parsed file, as on
 `1.0.0`, so drift reports that rename, or an edit to only the password in a
 step name, once as an artifact change with no grant change, and
-`--fail-on-drift` exits `20`. `check` reads the raw declarations, so renaming
-a job that declares `write-all` blocks there as a new `write-all` job. A step
-label is read for userinfo only after `scheme://`, so a scheme-less
-`user:password@host` in a step name is not read as userinfo.
+`--fail-on-drift` exits `20`. `check` pairs jobs by their raw ids, so a
+renamed job is compared with the top-level `permissions` rather than its own
+earlier declaration: a `write-all` it declares blocks, and a scope it declares
+`write` above a top-level `read` requires review as an expansion, with no row
+beside either. A step label is read for userinfo only in a token holding
+`scheme://`, so a scheme-less `user:password@host` in a step name is not read
+as userinfo.
 
 A hook row states its loading basis (#714). Parsing a hook file proves the
 file exists, not that a host loads it, so hooks are published four ways:

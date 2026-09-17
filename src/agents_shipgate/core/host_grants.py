@@ -1293,31 +1293,72 @@ def _redact_reference(text: str) -> str:
     return f"{prefix}<redacted>@{remainder}{suffix}"
 
 
-#: ``scheme://`` and the rest of its whitespace-delimited token, inside free text.
-_LABEL_SCHEME_TOKEN_RE = re.compile(r"([A-Za-z][A-Za-z0-9+.-]*://)(\S*)")
+#: A whitespace-delimited token of free text.
+_LABEL_TOKEN_RE = re.compile(r"\S+")
+#: What a URI scheme may hold (RFC 3986 §3.1): an ASCII letter first, then these.
+_SCHEME_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+.-"
+_SCHEME_NON_LETTERS = "0123456789+.-"
+
+
+def _label_scheme_end(token: str) -> int:
+    """The index just past the ``://`` of the token's first ``scheme://``, else ``-1``.
+
+    A scheme is an ASCII letter and then letters, digits, ``+``, ``.`` or
+    ``-`` running up to ``://``; it may start anywhere in the token, so
+    ``(docker://…`` and ``9docker://…`` hold ``docker://``. Each ``://`` is
+    tried in order: take the run of scheme characters just before it, and
+    its first letter opens the scheme. A ``://`` with no letter before it
+    (``9://``, ``+://``) opens none, so the next one is tried.
+
+    Linear in the token (#802 review: a backtracking pattern was quadratic).
+    ``/`` ends a run, so the run before one ``://`` never reaches back past
+    the previous one, and each segment between them is read once.
+    """
+
+    lower = 0
+    separator = token.find("://")
+    while separator != -1:
+        segment = token[lower:separator]
+        run = segment[len(segment.rstrip(_SCHEME_CHARS)):]
+        if run.lstrip(_SCHEME_NON_LETTERS):
+            return separator + 3
+        lower = separator + 3
+        separator = token.find("://", lower)
+    return -1
+
+
+def _redact_token_userinfo(match: re.Match[str]) -> str:
+    token = match.group()
+    end = _label_scheme_end(token)
+    if end == -1:
+        return token
+    rest = token[end:]
+    digest = _TRAILING_DIGEST_RE.search(rest)
+    body, suffix = (rest[: digest.start()], rest[digest.start():]) if digest else (rest, "")
+    _, at, remainder = body.rpartition("@")
+    return f"{token[:end]}<redacted>@{remainder}{suffix}" if at else token
 
 
 def _redact_label_userinfo(text: str) -> str:
     """``text`` with the userinfo of every ``scheme://…@`` token replaced (#802).
 
-    The ``scheme://`` rule of :func:`_redact_reference`, applied to each token
-    of free text rather than to a whole reference: once a trailing
-    ``@algorithm:hex`` digest is set aside, everything between ``scheme://``
-    and the token's last ``@`` is userinfo, so a password holding ``/``, ``:``
-    or ``@`` is covered. Only such tokens are read. Calling
+    The ``scheme://`` rule of :func:`_redact_reference`, applied to each
+    whitespace-delimited token of free text rather than to a whole reference:
+    in a token holding ``scheme://`` (:func:`_label_scheme_end`), once a
+    trailing ``@algorithm:hex`` digest is set aside, everything between the
+    first ``scheme://`` and the token's last ``@`` is userinfo, so a password
+    holding ``/``, ``:`` or ``@`` is covered. Only such tokens are read, and
+    what precedes the scheme in the token is kept. Calling
     :func:`_redact_reference` on a label would replace the words before the
     token too (``Pull docker://ci:pw@gcr.io/img`` → ``<redacted>@gcr.io/img``)
     and read scheme-less prose as userinfo (``Tag v1:beta@2`` → ``<redacted>@2``).
+
+    Linear in ``text``: a label may be as long as the workflow file itself.
     """
 
-    def replace(match: re.Match[str]) -> str:
-        scheme, rest = match.groups()
-        digest = _TRAILING_DIGEST_RE.search(rest)
-        body, suffix = (rest[: digest.start()], rest[digest.start():]) if digest else (rest, "")
-        _, at, remainder = body.rpartition("@")
-        return f"{scheme}<redacted>@{remainder}{suffix}" if at else match.group(0)
-
-    return _LABEL_SCHEME_TOKEN_RE.sub(replace, text)
+    if "://" not in text:
+        return text
+    return _LABEL_TOKEN_RE.sub(_redact_token_userinfo, text)
 
 
 def published_workflow_label(text: str) -> str:
@@ -1625,7 +1666,8 @@ def _uncompared_workflow_text(
     if merged:
         reasons.append(
             f"distinct {_joined(merged)} in this workflow publish alike once credential-shaped "
-            "text is redacted, so they cannot be compared apart"
+            "text is redacted, so they cannot be compared apart; rename or remove one so "
+            "each publishes a distinct label"
         )
     return "; ".join(reasons) or None
 

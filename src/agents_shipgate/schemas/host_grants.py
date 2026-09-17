@@ -551,12 +551,15 @@ class HostWorkflowGrantV6(HostWorkflowGrantV4):
 
     Every job id, trigger and permission scope name is a published label
     (#802): credential-shaped text in it is redacted, one way in every field —
-    ``permission_contexts``, ``reusable_calls``, ``step_actions``, ``triggers``
-    and the prefixes of ``write_scopes`` and ``effective_write_scopes`` — and
-    ``config_sha256`` is computed over those labels. A single redacted label
-    still compares. When two distinct labels of one kind in the workflow
-    publish alike, the inventory records a blocking coverage issue instead of
-    comparing them as one.
+    ``permission_contexts``, ``reusable_calls``, ``step_actions``, ``triggers``,
+    and the job and scope names in the ``write_scopes`` and
+    ``effective_write_scopes`` entries — and ``config_sha256`` is computed over
+    those labels. A single redacted label still compares. When two distinct
+    job ids or triggers in the workflow, or two scope names in one
+    ``permissions`` mapping that a job's permissions are read from, publish
+    alike, the inventory records a blocking coverage issue instead of comparing
+    them as one. A top-level mapping no job inherits is read only into
+    ``write_scopes``, which is neither compared nor digested.
     """
 
     reusable_calls: list[HostReusableWorkflowCallV6]

@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import random
 import re
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -25,7 +27,10 @@ from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
 from agents_shipgate.core.capability_diff_rows import capability_diff_rows
+from agents_shipgate.core.host_boundary import _evaluate_workflow_permissions, _workflow_label
 from agents_shipgate.core.host_grants import (
+    _TRAILING_DIGEST_RE,
+    _redact_label_userinfo,
     _uncompared_workflow_text,
     _workflow_grant,
     diff_host_grants,
@@ -146,6 +151,99 @@ def test_a_credential_shaped_label_publishes_redacted(value, published, secrets)
 )
 def test_an_ordinary_label_is_never_rewritten(value):
     assert published_workflow_label(value) == value
+
+
+# --- the userinfo scan is linear --------------------------------------------------------
+
+#: The userinfo rule as first written (#802 review): the same answer, from a
+#: backtracking pattern that re-walked the scheme run from every letter, so a
+#: long token took quadratic time. Kept here only as the oracle.
+_BACKTRACKING_SCHEME_TOKEN = re.compile(r"([A-Za-z][A-Za-z0-9+.-]*://)(\S*)")
+
+
+def _backtracking_userinfo_rule(text: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        scheme, rest = match.groups()
+        digest = _TRAILING_DIGEST_RE.search(rest)
+        body, suffix = (rest[: digest.start()], rest[digest.start():]) if digest else (rest, "")
+        _, at, remainder = body.rpartition("@")
+        return f"{scheme}<redacted>@{remainder}{suffix}" if at else match.group(0)
+
+    return _BACKTRACKING_SCHEME_TOKEN.sub(replace, text)
+
+
+@pytest.mark.parametrize(
+    ("value", "published"),
+    [
+        # The scheme opens at the first letter of the run before `://`.
+        ("9docker://u:PW@h", "9docker://<redacted>@h"),
+        ("x(docker://u:PW@h", "x(docker://<redacted>@h"),
+        # A `://` with no letter before it opens no scheme; the next one is tried.
+        ("1://a://u:PW@h", "1://a://<redacted>@h"),
+        ("+://u:p@h", "+://u:p@h"),
+        ("a:://u:p@h", "a:://u:p@h"),
+        # Only the first scheme in a token is read, and only ASCII letters open one.
+        ("a://b://u:PW@h", "a://<redacted>@h"),
+        ("é://u:p@h", "é://u:p@h"),
+        ("docker://image", "docker://image"),
+    ],
+)
+def test_where_a_scheme_opens_inside_a_token(value, published):
+    assert _redact_label_userinfo(value) == published == _backtracking_userinfo_rule(value)
+
+
+def test_the_linear_userinfo_scan_answers_as_the_backtracking_pattern_did():
+    rng = random.Random(802)
+    pieces = [
+        "://", "docker://", "9://", "+://", "é://", "@", ":", "/", " ", "\t", "\u2003",
+        "a", "Z", "9", ".", "-", "+", "_", "(", "u:p", f"@{_DIGEST}", "@x:" + "0" * 32,
+    ]
+    for _ in range(20_000):
+        text = "".join(rng.choice(pieces) for _ in range(rng.randint(0, 16)))
+        assert _redact_label_userinfo(text) == _backtracking_userinfo_rule(text), text
+
+
+_LONG = 300_000
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "a" * _LONG,
+        "a" * _LONG + " b://x:PW@y",
+        "a" * _LONG + "://u:PW@h",
+        "a-" * (_LONG // 2) + "://u:PW@h",
+        "1://" * (_LONG // 4),
+        "b://" + "@a" * (_LONG // 2),
+        "Pull docker://ci:" + "p" * _LONG + "@gcr.io/proj/img",
+    ],
+    ids=["letters", "letters-then-token", "letters-then-scheme", "scheme-chars", "no-letter-schemes", "many-ats", "long-password"],
+)
+def test_a_label_as_long_as_a_workflow_file_publishes_in_linear_time(label):
+    """A step name, job id, trigger or scope name may run to the 1 MiB file cap.
+
+    The backtracking pattern took about 80 seconds to publish the first of
+    these once; the linear scan takes well under a tenth of a second. The
+    budget is loose for slow runners and still far below the quadratic time,
+    and each call is timed on its own so a regression fails at the first.
+    """
+
+    def timed(publish):
+        started = time.perf_counter()
+        result = publish()
+        elapsed = time.perf_counter() - started
+        assert elapsed < 2.0, f"published a {len(label)}-character label in {elapsed:.2f}s"
+        return result
+
+    published = timed(lambda: published_workflow_label(label))
+    assert "PW" not in published and "p" * 64 not in published
+    # `check`'s evidence, and the grant, which publishes the job id and the step name.
+    assert timed(lambda: _workflow_label(label)) == published
+    grant = timed(lambda: _grant(
+        {"on": "push", "jobs": {label: {"steps": [{"name": label, "uses": "actions/checkout@v4"}]}}}
+    ))
+    step, = grant["step_actions"]
+    assert step["job"] == published and step["step"] == published
 
 
 # --- one label in every published field ------------------------------------------------
@@ -283,7 +381,7 @@ def test_two_distinct_labels_that_publish_alike_are_a_blocking_limit(kind):
     assert collided == {kind}
     assert _uncompared_workflow_text(grant, collided) == (
         f"distinct {kind} in this workflow publish alike once credential-shaped text is redacted, "
-        "so they cannot be compared apart"
+        "so they cannot be compared apart; rename or remove one so each publishes a distinct label"
     )
     for canary in (_GH_A, _GH_B):
         assert canary not in json.dumps(grant)
@@ -341,7 +439,8 @@ def test_a_collision_and_a_redacted_reference_are_named_in_one_limit():
     assert _uncompared_workflow_text(grant, collided) == (
         "a step action reference contains credential-shaped text; it is published redacted and cannot be "
         "compared; distinct job ids and permission scope names in this workflow publish alike once "
-        "credential-shaped text is redacted, so they cannot be compared apart"
+        "credential-shaped text is redacted, so they cannot be compared apart; rename or remove one so "
+        "each publishes a distinct label"
     )
 
 
@@ -658,6 +757,34 @@ def test_an_edit_only_the_raw_file_holds_is_no_row_but_drifts_once_as_an_artifac
         assert canary not in published
 
 
+def test_check_reads_a_renamed_lone_job_against_the_top_level_permissions():
+    """The documented rename limit is not only `write-all` (#802 review).
+
+    `check` pairs jobs by raw id, so `ghp_A…` renamed to `ghp_B…` has no
+    earlier declaration of its own and is compared with the top-level
+    `permissions`: a scope it declares `write` above a top-level `read` is an
+    expansion, while the published grant, and so every row, is unchanged.
+    """
+
+    def workflow(job: str) -> dict:
+        return {"on": "push", "permissions": {"contents": "read"}, "jobs": {job: {"permissions": {"contents": "write"}}}}
+
+    violations: list[tuple[str, dict]] = []
+    _evaluate_workflow_permissions(
+        workflow(_GH_A), workflow(_GH_B), SOURCE,
+        lambda rule, *, path, evidence: violations.append((rule, evidence)),
+    )
+
+    assert violations == [(
+        "HOST-WORKFLOW-PERMISSIONS-EXPANDED",
+        {
+            "kind": "workflow_permissions_expanded", "job": "[REDACTED:github_token]",
+            "scope": "contents", "old": "read", "new": "write",
+        },
+    )]
+    assert _rows(workflow(_GH_A), workflow(_GH_B)) == []
+
+
 def test_a_changed_workflow_whose_job_ids_collide_refuses_and_an_unchanged_one_is_named(tmp_path):
     base, head = (yaml.safe_dump(value, sort_keys=False) for value in _swapped_steps(_GH_A, _GH_B))
     other = ".github/workflows/release.yml"
@@ -723,6 +850,10 @@ def test_an_unchanged_collision_refuses_check_save_baseline_and_drift_until_a_jo
     assert {row["subject"] for row in payload["rows"]} == {f"claude-code {SETTINGS}"}
     limit, = payload["unchanged_limits"]
     assert limit["source"] == SOURCE and "distinct job ids in this workflow publish alike" in limit["detail"]
+    # The limit says how to clear it, in the detail and where the refusing routes send a reader.
+    assert "rename or remove one so each publishes a distinct label" in limit["detail"]
+    audit = _invoke("audit", "--host", "--workspace", str(repo))
+    assert audit.exit_code == 0 and "rename or remove one so each publishes a distinct label" in _output(audit)
 
     # `check` cannot carry the limit, so it refuses on every such run (#721).
     boundary = json.loads(_invoke(*check_args).stdout)
