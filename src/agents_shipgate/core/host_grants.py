@@ -3731,13 +3731,15 @@ def _permission_direction_signals(
     as the whole answer.
 
     A rule whose identical text only moved to another disposition in the
-    same host and source — `deny` to `allow`, say — replaced nothing, so it
-    is set aside before counting. It keeps its own `allow_rule_added` and
-    `deny_rule_removed`. Without this, moving `Bash(git log *)` out of
-    `deny` in the same edit that narrows `Bash(git status *)` to
-    `Bash(git status --short *)` counted as a second arrival, and the
-    narrower half was reported as a widening (#816). Identity is the exact
-    rule text: nothing is paired by likeness.
+    same host and source — `deny` to `allow`, say — replaced nothing, so a
+    rule that moved into `allow` is set aside before counting. It keeps its
+    own `allow_rule_added` and `deny_rule_removed`. Without this, moving
+    `Bash(git log *)` out of `deny` in the same edit that narrows
+    `Bash(git status *)` to `Bash(git status --short *)` counted as a second
+    arrival, and the narrower half was reported as a widening (#816). A rule
+    that moved out of `allow` is set aside only when another allow rule also
+    left; when it is the only one, it is the rule the arrival replaced.
+    Identity is the exact rule text: nothing is paired by likeness.
     """
 
     removed: dict[tuple[str, str, str], list[str]] = {}
@@ -3763,9 +3765,18 @@ def _permission_direction_signals(
             continue
         host, source = key[0], key[1]
         arrived = added.get(key, [])
-        only_gone = [
-            rule for rule in gone if rule not in arrived and (host, source, rule) not in moved
-        ]
+        left = [rule for rule in gone if rule not in arrived]
+        # A rule that moved out of `allow` is set aside only when another
+        # allow rule also left: that one is then what the arrival replaced.
+        # When the moved rule is the only one that left, it is. It
+        # was granted at the base, so comparing the arrival with it is the
+        # same sound base-to-head comparison as any other replacement; setting
+        # it aside instead left the arrival unpaired, so tightening
+        # `Bash(npm *)` to `Bash(npm test *)` while denying `Bash(npm *)`
+        # gained a widening (#816).
+        only_gone = [rule for rule in left if (host, source, rule) not in moved] or left
+        # A rule that moved *into* `allow` is always set aside: it was denied
+        # or asked at the base, so it is never the narrower half of anything.
         only_arrived = [
             rule for rule in arrived if rule not in gone and (host, source, rule) not in moved
         ]

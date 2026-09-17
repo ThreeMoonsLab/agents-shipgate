@@ -797,6 +797,44 @@ class TestMovedRulePairing:
 
         assert signals == []
 
+    @pytest.mark.parametrize(
+        ("before", "after"),
+        [
+            (
+                {"allow": ["Bash(npm *)"]},
+                {"allow": ["Bash(npm test *)"], "deny": ["Bash(npm *)"]},
+            ),
+            (
+                {"allow": ["Bash(git *)"]},
+                {"allow": ["Bash(git status *)"], "ask": ["Bash(git *)"]},
+            ),
+        ],
+        ids=["deny", "ask"],
+    )
+    def test_the_only_rule_that_left_allow_is_the_replaced_half(
+        self, tmp_path: Path, before: dict, after: dict
+    ) -> None:
+        """When the rule that moved out of `allow` is the only allow rule that
+        left, the arrival replaced it. It was granted at the base, so pairing
+        it is the ordinary base-to-head comparison: the tightening beside the
+        move stays silent, as it was before #816 set moved rules aside."""
+
+        assert self._signals(tmp_path, before, after) == []
+
+    def test_a_widening_past_the_only_rule_that_left_allow_is_named(
+        self, tmp_path: Path
+    ) -> None:
+        signals = self._signals(
+            tmp_path,
+            {"allow": ["Bash(git status *)"]},
+            {"allow": ["Bash(git *)"], "deny": ["Bash(git status *)"]},
+        )
+
+        assert signals == [
+            "allow_rule_added: claude-code:Bash(git *)",
+            "permission_widened: claude-code:Bash(git status *) -> Bash(git *)",
+        ]
+
     def test_a_moved_rule_is_never_read_as_the_narrower_half(self, tmp_path: Path) -> None:
         """`Bash(git log *)` was denied under `Bash(git *)` and is now the
         only allow rule. For `git log` commands that is a widening, so the

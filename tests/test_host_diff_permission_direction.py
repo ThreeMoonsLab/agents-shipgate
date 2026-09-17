@@ -13,6 +13,8 @@ the base commit.
   the same narrowing as `space`, and must read the same.
 * `moved`: `Bash(git log *)` moves from `deny` to `allow` in the edit that
   narrows `Bash(git status *)`. The move is a widening; the narrowing is not.
+  A rule moved out of `allow` that is the only allow rule to leave is the rule
+  the arrival replaced, so pairing still reads that edit's direction.
 * `mcp`: an allow for one MCP tool, which the same page ("MCP") distinguishes
   from `mcp__<server>` and `mcp__<server>__*`, the whole-server grants.
 """
@@ -157,6 +159,69 @@ CASES = {
             "SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED",
             "SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED",
         ],
+        [
+            "allow_rule_added: claude-code:Bash(git log *)",
+            "deny_rule_removed: claude-code:Bash(git log *)",
+        ],
+    ),
+    # A rule moved *out* of `allow` that is the only allow rule to leave is
+    # what the arrival replaced: the tightening stays silent and a widening
+    # past it is still named, as before #816 set moved rules aside.
+    "moved_out_to_deny": (
+        {"permissions": {"allow": ["Bash(npm *)"]}},
+        {"permissions": {"allow": ["Bash(npm test *)"], "deny": ["Bash(npm *)"]}},
+        [
+            ("added", "Bash(npm *)", False),
+            ("added", "Bash(npm test *)", False),
+            ("removed", "Bash(npm *)", False),
+        ],
+        0,
+        "allow",
+        [],
+        [],
+    ),
+    "moved_out_to_ask": (
+        {"permissions": {"allow": ["Bash(git *)"]}},
+        {"permissions": {"allow": ["Bash(git status *)"], "ask": ["Bash(git *)"]}},
+        [
+            ("added", "Bash(git *)", False),
+            ("added", "Bash(git status *)", False),
+            ("removed", "Bash(git *)", False),
+        ],
+        0,
+        "allow",
+        [],
+        [],
+    ),
+    "moved_out_widened": (
+        {"permissions": {"allow": ["Bash(git status *)"]}},
+        {"permissions": {"allow": ["Bash(git *)"], "deny": ["Bash(git status *)"]}},
+        [
+            ("added", "Bash(git *)", True),
+            ("added", "Bash(git status *)", False),
+            ("removed", "Bash(git status *)", False),
+        ],
+        1,
+        "require_review",
+        ["SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED"],
+        [
+            "allow_rule_added: claude-code:Bash(git *)",
+            "permission_widened: claude-code:Bash(git status *) -> Bash(git *)",
+        ],
+    ),
+    # A rule moved *into* `allow` under a removed broader allow was denied at
+    # the base: it keeps its warning (one more than before #816).
+    "moved_in_under_removed_allow": (
+        {"permissions": {"allow": ["Bash(git *)"], "deny": ["Bash(git log *)"]}},
+        {"permissions": {"allow": ["Bash(git log *)"]}},
+        [
+            ("added", "Bash(git log *)", True),
+            ("removed", "Bash(git *)", False),
+            ("removed", "Bash(git log *)", True),
+        ],
+        2,
+        "require_review",
+        ["SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED"],
         [
             "allow_rule_added: claude-code:Bash(git log *)",
             "deny_rule_removed: claude-code:Bash(git log *)",
