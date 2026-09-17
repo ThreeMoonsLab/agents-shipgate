@@ -327,7 +327,7 @@ def _verify_scoped_manifest(tmp_path: Path, scope: str) -> tuple[int, dict]:
             "--format",
             "control",
             "--out",
-            "sg-out",
+            str(repo / "sg-out"),
         ],
     )
     assert "embedded null" not in result.output, result.output

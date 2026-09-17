@@ -338,9 +338,10 @@ tool routing, credential enforcement, or safety.
 ```
 
 **The `Reports:` line names the directory it wrote**; every path below is
-relative to it. `--out <absolute-path>` puts them somewhere you choose instead
-— a relative `--out` resolves inside the fixture copy, not your shell's
-directory.
+relative to it. `--out <dir>` puts them somewhere you choose instead. A
+relative `--out` resolves against your shell's current directory, as it does
+for `verify`, `scan` and `audit --host`, and `Reports:` then prints the
+absolute directory.
 
 ### 3. What changed
 

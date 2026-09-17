@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 import typer
 
+from agents_shipgate.cli.current_workspace import explicit_output_path
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.cli.verify.orchestrator import run_verify
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
@@ -68,7 +69,11 @@ def fixture_run(
     out: Path | None = typer.Option(
         None,
         "--out",
-        help="Output directory for the report. Defaults to a temp location next to the fixture copy.",
+        help=(
+            "Output directory (not a file) for the report. A relative path "
+            "resolves against the current directory, not the fixture copy. "
+            "Defaults to a temp location next to the fixture copy."
+        ),
     ),
     ci_mode: str | None = typer.Option(
         None,
@@ -87,6 +92,11 @@ def fixture_run(
     """Copy a fixture to a tempdir and scan it."""
     replay = replay_fixture(name)
     src = _resolve_fixture(name)
+    if out is not None:
+        # Anchored before the copy exists: a relative --out used to be joined
+        # to the temporary copy, which is removed when --out is given, so the
+        # printed report directory was gone before it could be opened (#818).
+        out = explicit_output_path(out)
 
     if replay is not None:
         _run_replay_pr_fixture(

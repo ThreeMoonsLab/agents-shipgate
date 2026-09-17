@@ -690,8 +690,16 @@ Without `--reports-dir`, the reader looks where a default `verify --workspace`
 publishes: `agents-shipgate-reports` under `--workspace`, so `agent control
 --workspace <repo>` finds that run from any directory. An explicit
 `--reports-dir` is read as given — a relative path resolves against the current
-directory — and no other directory is searched in its place. A refusal names
-the absolute directory it searched, and its recovery command writes back to it.
+directory — and no other directory is searched in its place. An explicit
+`verify --out` follows the same rule, as do `scan --out` and `audit --host
+--out`, so `verify --out <dir>` and `agent control --reports-dir <dir>` typed in
+one shell name one directory. Where a relative `--out` names a different
+directory than the `1.0.0` rule did (the Git root for `verify`, the manifest's
+directory for `scan`), a `note:` line on stderr names both. A refusal names
+the absolute directory it searched, and its recovery command writes back to it,
+naming it as an absolute `--out` even where the producing run's recorded command
+carried a relative one; a `verify` command a run emits names `--out` absolutely
+whenever it carries one.
 
 The reports directory is left out of the change set the reader checks, just as
 `verify` leaves its output directory out of the change set it decides on, so
@@ -1376,7 +1384,13 @@ lease OID.
 
 `verifier.json` also carries `trigger`, `base_status`, `head_status`, `base_ref`,
 `head_ref`, `changed_files`, `base_notes`, the embedded `release_decision`, and an
-`artifacts` map. When present, `artifacts.capability_lock_json`,
+`artifacts` map. In `verifier.json` each artifact path (and `head_report_json`,
+`base_report_json`) inside the repository is relative to `workspace`, the Git
+root, and one outside it is absolute. `verify --format json` prints the same
+object with those relative paths spelled for the invoking shell: relative to
+its current directory when beneath it, absolute otherwise, so they open as
+printed; from the Git root the two are identical. When present,
+`artifacts.capability_lock_json`,
 `artifacts.base_capability_lock_json`,
 `artifacts.capability_lock_diff_json`, and
 `artifacts.capability_lock_diff_markdown` are review artifacts only; they do not

@@ -19,6 +19,7 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 from typer.testing import CliRunner
 
@@ -140,22 +141,27 @@ def _write_tools(repo: Path, payload: dict) -> None:
 
 
 def _verify(repo: Path) -> dict:
-    result = runner.invoke(
-        app,
-        [
-            "verify",
-            "--workspace",
-            str(repo),
-            "--config",
-            "shipgate.yaml",
-            "--base",
-            "origin/main",
-            "--head",
-            "HEAD",
-            "--format",
-            "json",
-        ],
-    )
+    # From the Git root, stdout spells artifact paths the way verifier.json
+    # records them, relative to the repository; elsewhere they are spelled for
+    # the caller (#818).
+    with pytest.MonkeyPatch.context() as patch:
+        patch.chdir(repo)
+        result = runner.invoke(
+            app,
+            [
+                "verify",
+                "--workspace",
+                str(repo),
+                "--config",
+                "shipgate.yaml",
+                "--base",
+                "origin/main",
+                "--head",
+                "HEAD",
+                "--format",
+                "json",
+            ],
+        )
     assert result.exit_code in {0, 20}, result.output
     return json.loads(result.output)
 

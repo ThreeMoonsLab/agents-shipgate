@@ -2630,6 +2630,9 @@ def test_verify_base_scan_cache_hit_skips_second_base_scan(
         "json",
     ]
 
+    # From the Git root, stdout spells artifact paths as verifier.json records
+    # them; from anywhere else they are spelled for the caller (#818).
+    monkeypatch.chdir(repo)
     first = runner.invoke(app, args)
     second = runner.invoke(app, args)
 
@@ -3408,12 +3411,15 @@ def test_non_git_preview_with_omitted_config_uses_workspace_default(
 
 def test_verify_preview_rejects_output_that_overlaps_its_config(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = tmp_path / "fresh"
     workspace.mkdir()
     config = workspace / "verifier.json"
     original = '{"manifest": "must survive"}\n'
     config.write_text(original, encoding="utf-8")
+    # `--out .` is the current directory (#818); stand in the workspace.
+    monkeypatch.chdir(workspace)
 
     result = runner.invoke(
         app,

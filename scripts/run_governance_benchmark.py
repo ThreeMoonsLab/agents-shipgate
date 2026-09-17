@@ -233,7 +233,9 @@ def _run_verifier(repo: Path) -> VerifierArtifact:
         base="origin/main",
         head="HEAD",
         archive_head=True,
-        out=Path("agents-shipgate-reports"),
+        # Absolute: run_verify resolves a relative out against the current
+        # directory, and these reports belong under the evaluated repository.
+        out=repo.resolve() / "agents-shipgate-reports",
         ci_mode=None,
         fail_on=None,
         baseline=None,

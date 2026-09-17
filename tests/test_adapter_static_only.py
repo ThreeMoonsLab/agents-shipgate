@@ -352,7 +352,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/fixture.py",
         surface="attr_call:subprocess.run",
-        line=519,
+        line=529,
         snippet=(
             "subprocess.run(['git', *args], cwd=cwd, check=True, capture_output=True, text=True)"
         ),

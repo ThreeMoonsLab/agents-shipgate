@@ -9,7 +9,9 @@ import typer
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
 from agents_shipgate.cli.current_workspace import (
     default_reports_dir,
+    explicit_output_path,
     is_default_reports_dir,
+    is_same_directory,
     live_workspace,
     output_directory_remedy,
 )
@@ -331,13 +333,14 @@ def _reports_location(workspace: Path, requested: Path | None) -> tuple[Path, st
     had that repository's pointer read and checked against this one (#575).
 
     An explicit ``--reports-dir`` keeps its meaning — absolute as given,
-    relative against the current directory — and is never retargeted. When it
-    holds no pointer the read refuses; nothing else is searched.
+    relative against the current directory, the rule an explicit ``verify
+    --out`` follows too (:func:`explicit_output_path`, #818) — and is never
+    retargeted. When it holds no pointer the read refuses; nothing else is
+    searched.
 
     The directory returned first is absolute, so each refusal and recovery
-    command names one that opens from wherever it is read. ``verify`` resolves a
-    relative ``--out`` against the Git root rather than the caller, so echoing a
-    relative spelling there would name a different directory.
+    command names one that opens from wherever it is read: a relative spelling
+    in a recovery command resolves against wherever that command is typed.
 
     The spelling is unchanged wherever it already worked: the caller's own for
     an explicit path, and for the default, relative to the current directory
@@ -346,7 +349,7 @@ def _reports_location(workspace: Path, requested: Path | None) -> tuple[Path, st
     """
 
     if requested is not None:
-        return Path(_cwd_anchored(requested)), requested.as_posix()
+        return explicit_output_path(requested), requested.as_posix()
     location = default_reports_dir(workspace)
     try:
         spelling = location.relative_to(Path.cwd().resolve()).as_posix()
@@ -380,11 +383,16 @@ def _superseded_recovery_command(
     to *name* a step — nothing here authorizes anything — and any refusal that
     could not validate the set falls back to a command rebuilt from the request
     the caller just made.
+
+    The one token it may not keep as recorded is where the command writes: a
+    refresh of *this* directory must publish into it, from whatever directory
+    the command is typed in (:func:`_publishing_into`, #818).
     """
 
-    return _producing_verification_command(exc) or _recovery_verify_command(
-        workspace, reports_dir
-    )
+    produced = _producing_verification_command(exc)
+    if produced is None:
+        return _recovery_verify_command(workspace, reports_dir)
+    return _publishing_into(produced, reports_dir=reports_dir)
 
 
 def _recovery_away_from(
@@ -548,25 +556,99 @@ def _without_output_directory(command: str) -> str | None:
     than guessing at a string it cannot parse.
     """
 
-    split = split_invocation(command)
+    split = _verify_argv(command)
     if split is None:
         return None
     executable, args = split
-    if "verify" not in args:
+    return join_argv([*executable, *_with_output_directory(args, ())])
+
+
+def _publishing_into(command: str, *, reports_dir: Path) -> str:
+    """``command`` with its ``--out`` naming ``reports_dir``, absolutely.
+
+    Returned unchanged when it already publishes there from any directory: an
+    absolute ``--out`` that physically is ``reports_dir``, or no ``--out`` and
+    an absolute ``--workspace`` whose default reports directory it is. Anything
+    else is respelled, with every other token kept in place.
+
+    ``1.0.0`` recorded a non-default ``--out`` relative to the Git root. Typed
+    anywhere else that spelling resolves against the current directory (#818),
+    so replaying it verbatim wrote a directory beside the caller, left the
+    pointer being refreshed superseded, and the next refresh named the same
+    command again. A command with no faithful argv form, or that is not a
+    ``verify`` invocation, is left as recorded: nothing here can rewrite a
+    string it cannot parse without guessing at it.
+    """
+
+    split = _verify_argv(command)
+    if split is None:
+        return command
+    executable, args = split
+    written = _written_directory(args)
+    if written is not None and is_same_directory(written, reports_dir):
+        return command
+    return join_argv(
+        [*executable, *_with_output_directory(args, ("--out", str(reports_dir)))]
+    )
+
+
+def _verify_argv(command: str) -> tuple[list[str], list[str]] | None:
+    """``(executable, args)`` for a rendered ``verify`` command, else ``None``."""
+
+    split = split_invocation(command)
+    if split is None or "verify" not in split[1]:
         return None
+    return split
+
+
+def _with_output_directory(args: list[str], replacement: tuple[str, ...]) -> list[str]:
+    """``args`` with every ``--out`` removed and ``replacement`` in the first one's place.
+
+    With no ``--out`` to replace, ``replacement`` goes before a trailing
+    ``--json``, where :func:`verify_command_for` places its options.
+    """
+
     kept: list[str] = []
+    pending = list(replacement)
     skip = False
     for token in args:
         if skip:
             skip = False
             continue
-        if token == "--out":
-            skip = True
-            continue
-        if token.startswith("--out="):
+        if token == "--out" or token.startswith("--out="):
+            skip = token == "--out"
+            kept.extend(pending)
+            pending = []
             continue
         kept.append(token)
-    return join_argv([*executable, *kept])
+    if pending:
+        at = len(kept) - 1 if kept and kept[-1] == "--json" else len(kept)
+        kept[at:at] = pending
+    return kept
+
+
+def _written_directory(args: list[str]) -> Path | None:
+    """The directory a ``verify`` argv publishes into, wherever it is typed.
+
+    ``None`` when that depends on the directory it is typed in: a relative
+    ``--out``, or no ``--out`` and a relative or omitted ``--workspace``. The
+    last spelling of an option is the one ``verify`` uses.
+    """
+
+    values: dict[str, str] = {}
+    for index, token in enumerate(args):
+        for option in ("--out", "--workspace"):
+            if token == option and index + 1 < len(args):
+                values[option] = args[index + 1]
+            elif token.startswith(f"{option}="):
+                values[option] = token.split("=", 1)[1]
+    out = values.get("--out")
+    if out is not None:
+        return Path(out) if Path(out).is_absolute() else None
+    workspace = values.get("--workspace")
+    if workspace is None or not Path(workspace).is_absolute():
+        return None
+    return default_reports_dir(Path(workspace))
 
 
 def _recovery_verify_command(workspace: Path, reports_dir: Path) -> str:

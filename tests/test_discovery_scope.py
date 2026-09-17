@@ -849,35 +849,46 @@ def test_scoped_reports_land_beside_the_manifest_that_ignores_them(
     assert "agents-shipgate-reports/" in (project / ".gitignore").read_text("utf-8")
 
 
-def test_an_explicit_out_still_resolves_against_the_repository_root(
-    monorepo: Path,
+def test_an_explicit_relative_out_resolves_against_the_current_directory(
+    monorepo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Only the default moved. A caller that names a directory keeps writing
-    exactly where it wrote before."""
+    """Only the default follows the workspace. A directory the caller names is
+    the caller's path: from the repository root it is where it always was, and
+    from anywhere else it is beneath the caller, not the Git root (#818)."""
 
     project = monorepo / "python/agents/crypto-payroll-agent"
     init = runner.invoke(app, ["init", "--workspace", str(project), "--write"])
     assert init.exit_code == 0, init.output
 
-    result = runner.invoke(
-        app,
-        [
-            "verify",
-            "--workspace",
-            str(project),
-            "--config",
-            "shipgate.yaml",
-            "--out",
-            "shared-reports",
-            "--ci-mode",
-            "advisory",
-            "--format",
-            "json",
-        ],
-    )
+    def verify(out: str):
+        return runner.invoke(
+            app,
+            [
+                "verify",
+                "--workspace",
+                str(project),
+                "--config",
+                "shipgate.yaml",
+                "--out",
+                out,
+                "--ci-mode",
+                "advisory",
+                "--format",
+                "json",
+            ],
+        )
 
-    assert result.exit_code == 0, result.output
-    assert (monorepo / "shared-reports").is_dir()
+    monkeypatch.chdir(monorepo)
+    from_root = verify("shared-reports")
+    assert from_root.exit_code == 0, from_root.output
+    assert (monorepo / "shared-reports" / "verifier.json").is_file()
+    assert "resolves against the current directory" not in from_root.output
+
+    monkeypatch.chdir(project)
+    from_project = verify("project-reports")
+    assert from_project.exit_code == 0, from_project.output
+    assert (project / "project-reports" / "verifier.json").is_file()
+    assert not (monorepo / "project-reports").exists()
 
 
 def test_the_command_init_emits_finds_the_manifest_it_wrote(

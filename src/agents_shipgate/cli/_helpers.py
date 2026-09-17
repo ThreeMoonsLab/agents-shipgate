@@ -9,6 +9,7 @@ import typer
 
 from agents_shipgate import __version__
 from agents_shipgate.checks.plugin_validation import strict_failure_messages
+from agents_shipgate.cli.current_workspace import caller_path_spelling
 from agents_shipgate.cli.diagnostics import (
     diagnose_invalid_manifest,
     diagnose_missing_manifest,
@@ -485,7 +486,15 @@ def _print_cli_summary(
     *,
     verbose: bool = False,
     human_context: HumanArtifactContext | None = None,
+    reports_base: Path | None = None,
 ) -> None:
+    """Print the single-manifest scan summary.
+
+    ``reports_base`` is the manifest's directory, which the report's
+    ``generated_reports`` paths are recorded relative to. When given, the
+    printed report paths are spelled so they open from the current directory
+    (#818); ``report.json`` keeps its manifest-relative values.
+    """
     summary = report.summary
     typer.echo(f"Agents Shipgate {__version__}")
     typer.echo("")
@@ -579,6 +588,8 @@ def _print_cli_summary(
         typer.echo("")
     typer.echo("Reports:")
     for path in report.generated_reports.values():
+        if reports_base is not None and isinstance(path, str) and not Path(path).is_absolute():
+            path = caller_path_spelling(reports_base / path)
         typer.echo(f"- {path}")
     if report.source_warnings and (verbose or recoveries):
         typer.echo("")

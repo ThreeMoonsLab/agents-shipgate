@@ -178,8 +178,8 @@ def test_a_missing_default_names_the_searched_path_and_never_uses_the_callers(la
     assert str(searched) in line["message"]
     command = line["next_actions"][0]["command"]
     # The recovery writes exactly the directory that was searched, and it says
-    # so absolutely: `verify` resolves a relative `--out` against the Git root,
-    # not against the caller, so a relative spelling would name somewhere else.
+    # so absolutely: a relative `--out` resolves against wherever the recovery
+    # is typed, which need not be here.
     assert Path(_option(command, "--out")) == searched
     assert Path(_option(command, "--workspace")) == unverified
 
@@ -786,16 +786,21 @@ def test_an_unreadable_change_set_refuses_every_pointer_kind(
     }
 
 
-def test_verify_and_agent_control_share_one_default_rule(tmp_path: Path):
+def test_verify_and_agent_control_share_one_default_rule(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     """One definition, not a second implementation that can drift.
 
     The default follows the *requested* workspace, including a project nested
-    below the Git root; an explicit `verify --out` keeps its own Git-root rule.
+    below the Git root; an explicit `verify --out`, like an explicit
+    `--reports-dir`, is the caller's path and resolves against the current
+    directory (#818).
     """
 
     from agents_shipgate.cli.current_workspace import (
         DEFAULT_REPORTS_DIR,
         default_reports_dir,
+        explicit_output_path,
     )
     from agents_shipgate.cli.verify.orchestrator import DEFAULT_OUT_DIR, _resolve_out_dir
     from agents_shipgate.schemas.contract import DEFAULT_PATHS
@@ -811,6 +816,9 @@ def test_verify_and_agent_control_share_one_default_rule(tmp_path: Path):
 
     written = _resolve_out_dir(git_root=root, requested_workspace=nested, out=None)
     assert written == default_reports_dir(nested).resolve() == nested / REPORTS
+    elsewhere = (tmp_path / "caller").resolve()
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
     assert _resolve_out_dir(
         git_root=root, requested_workspace=nested, out=Path("custom")
-    ) == root / "custom"
+    ) == elsewhere / "custom" == explicit_output_path(Path("custom")).resolve()
