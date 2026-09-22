@@ -63,6 +63,7 @@ that could not be made, is counted as not examined rather than guessed at.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import posixpath
 import re
@@ -113,6 +114,9 @@ MAX_UNREAD_CANDIDATES = 32
 MAX_MANIFEST_ANCESTORS = 8
 #: The longest external-source description a coverage item publishes.
 MAX_SOURCE_DETAIL_CHARS = 200
+#: The longest marketplace entry name a coverage item's `source` carries,
+#: before the digest that follows a name publishing changed.
+MAX_ENTRY_NAME_CHARS = 100
 
 _SIDES = ("base", "head")
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
@@ -253,13 +257,32 @@ def _side(present_on: Sequence[str]) -> str | None:
     return present_on[0] if present_on else None
 
 
-def _published_text(value: str) -> str:
+def _published_text(value: str, limit: int = MAX_SOURCE_DETAIL_CHARS) -> str:
     """Repository text as a coverage item may publish it: redacted, one line, bounded."""
 
     text = _CONTROL.sub(" ", _sanitize_sensitive_string(redact_text(value) or ""))
-    if len(text) > MAX_SOURCE_DETAIL_CHARS:
-        text = text[: MAX_SOURCE_DETAIL_CHARS - 1] + "…"
+    if len(text) > limit:
+        text = text[: limit - 1] + "…"
     return text
+
+
+def _published_entry_name(name: str) -> str:
+    """A marketplace entry name as a coverage item's `source` carries it (#821 review).
+
+    `public_host_path` redacts a path piece by piece between `/`s, which is
+    right for a path and wrong for a name: a name holding a URL with userinfo
+    would pass through whole, and one of 5,000 characters would too. So the
+    name is published as `detail` is, redacted as a whole, on one line and
+    bounded. Whenever that changed it, a short digest of the exact name
+    follows, as `public_host_path` stamps one, so two entries that publish
+    alike stay two items. A name that needs none of it is published as written.
+    """
+
+    text = _published_text(name, MAX_ENTRY_NAME_CHARS)
+    if text == name:
+        return name
+    digest = hashlib.sha256(name.encode("utf-8", "surrogateescape")).hexdigest()[:12]
+    return f"{text}~{digest}"
 
 
 def external_source_text(source: dict[str, Any]) -> str:
@@ -455,7 +478,7 @@ def _member_facts(
         side = _side(sorted(texts)) or "both"
         described = entries["head" if "head" in texts else "base"][name][0]
         fact(
-            f"{path}#plugins.{name}",
+            f"{path}#plugins.{_published_entry_name(name)}",
             side,
             {"claude-code"},
             "external_plugin_source",

@@ -311,9 +311,10 @@ widening, a `check` violation or a claim that a host loads the file.
   `.claude-plugin/marketplace.json` `plugins[]` entry whose `source` is an
   object (`github`, `git`, `url` and the like) that was added, removed or
   changed — its `repo`, `url`, `ref` or `sha` — compared as text by entry
-  name. The item is `<marketplace>#plugins.<name>` and names what the source
-  now points at (`github example/one at <sha>`), redacted; the content is
-  never fetched.
+  name. The item is `<marketplace>#plugins.<name>`, the name redacted and
+  bounded (with a digest of the exact name when that changed it), and names
+  what the source now points at (`github example/one at <sha>`), redacted; the
+  content is never fetched.
 
 A whole file is named only when no inventory published it: a file a reader
 read is an item of its own. A member is named whatever else read the file,

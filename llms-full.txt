@@ -1592,7 +1592,11 @@ with `unread_candidates_not_examined` say whether the change set was examined
 and how many candidates the bound left. An item is never a row, a widening, a
 loading claim or a `check` violation. The one route it moves: a manifest-free
 `verify` whose only host-relevant change is such an input publishes that
-comparison instead of the setup route. `minimum_control_contract_version`
+comparison instead of the setup route, and on `verify --preview` the next
+action for that change is `discover` (`audit --host`) with the comparison
+published, where it was `initialize` (`init --write`) with none, in an
+agent-related workspace too, as it already was when the change edited a host
+file this entry reads. `minimum_control_contract_version`
 stays `21`, and a `0.20` verifier reads with the search not recorded. See
 [the migration note](../STABILITY.md#unread-changed-inputs-821).
 

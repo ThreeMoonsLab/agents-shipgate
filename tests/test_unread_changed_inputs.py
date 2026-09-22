@@ -375,6 +375,79 @@ def test_a_repository_that_touches_no_candidate_keeps_the_setup_route(tmp_path: 
     assert verifier["host_comparison"] is None
 
 
+# --- `verify --preview` moves with `verify` (#821 review cycle 1) -------------
+
+AGENT = (
+    "from agents import Agent, function_tool\n\n\n"
+    "@function_tool\ndef lookup_account(account_id: str) -> str:\n    return account_id\n\n\n"
+    "agent = Agent(name='support', tools=[lookup_account])\n"
+)
+AGENT_WITH_DELETE = AGENT.replace(
+    "\n\nagent = ",
+    "\n\n@function_tool\ndef delete_account(account_id: str) -> str:\n    return account_id\n\n\n"
+    "agent = ",
+).replace("tools=[lookup_account]", "tools=[lookup_account, delete_account]")
+
+
+def _preview(repo: Path) -> dict:
+    return json.loads(_invoke([
+        "verify", "--preview", "--workspace", str(repo), "--base", "main", "--head", "HEAD", "--json",
+    ]))
+
+
+@pytest.mark.parametrize("agent_change", [False, True], ids=["host-only", "agent-related"])
+def test_preview_names_audit_host_instead_of_initialize_for_an_unread_input(
+    tmp_path: Path, agent_change: bool
+) -> None:
+    """The preview route moves exactly as `verify`'s setup route does.
+
+    On 1.1.0 a manifest-free preview whose only host-relevant change was a
+    removed `.cursor/hooks.json` guard named `initialize` (`init --write`) and
+    published no comparison, which says nothing about that change. It now
+    publishes the comparison naming it and names `discover` (`audit --host`),
+    in an agent-related workspace too — the precedence a host file this entry
+    reads already has (below). STABILITY, the CHANGELOG and the agent contract
+    say so.
+    """
+
+    base, head, expected, _line = FIXTURES["cursor-hooks-removed"]
+    base = {**base, "agent.py": AGENT}
+    if agent_change:
+        head = {**head, "agent.py": AGENT_WITH_DELETE}
+    payload = _preview(_two(tmp_path, base, head))
+
+    control = payload["control"]
+    assert control["state"] == "agent_action_required"
+    assert control["next_action"]["kind"] == "discover"
+    assert "audit --host" in control["next_action"]["command"]
+    comparison = payload["host_comparison"]
+    assert comparison is not None and comparison["rows"] == []
+    assert _unread(comparison["coverage"]) == [expected]
+
+
+def test_preview_keeps_initialize_without_an_unread_input_and_a_read_host_file_already_moved_it(
+    tmp_path: Path,
+) -> None:
+    """The controls: the same agent change alone keeps `initialize`, and the
+    same change beside an edit to a host file this entry reads took the host
+    route before #821 and still does."""
+
+    (tmp_path / "alone").mkdir()
+    (tmp_path / "read").mkdir()
+    alone = _preview(_two(tmp_path / "alone", {"agent.py": AGENT}, {"agent.py": AGENT_WITH_DELETE}))
+    assert alone["control"]["next_action"]["kind"] == "initialize"
+    assert alone["host_comparison"] is None
+
+    read = _preview(_two(
+        tmp_path / "read",
+        {"agent.py": AGENT},
+        {"agent.py": AGENT_WITH_DELETE, ".claude/settings.json": {"permissions": {"allow": ["Bash(*)"]}}},
+    ))
+    assert read["control"]["next_action"]["kind"] == "discover"
+    assert read["host_comparison"]["coverage"]["read_sources_only"] is True
+    assert len(read["host_comparison"]["rows"]) == 1
+
+
 def test_a_file_a_reader_reads_is_its_own_item_and_never_unread(tmp_path: Path) -> None:
     """Root settings, `.cursor/mcp.json` and a hook file a Claude plugin selects are read."""
 
@@ -507,6 +580,43 @@ def test_an_external_source_is_published_redacted(tmp_path: Path) -> None:
     (item,) = [item for item in payload["coverage"]["items"] if item["status"] == "changed_not_read"]
     # The URL is published only in the engine's sanitized form, as an MCP URL is.
     assert item["detail"] == "url <redacted-url> at main"
+
+
+def test_an_entry_name_is_published_redacted_bounded_and_distinct(tmp_path: Path) -> None:
+    """The entry name in `source` is repository text too (#821 review cycle 1).
+
+    Redacting it only piece by piece between `/`s let userinfo in a URL-shaped
+    name through, and a 5,000-character name through whole. It is now
+    published as `detail` is, with a digest of the exact name whenever that
+    changed it, so two names that publish alike stay two items.
+    """
+
+    names = [
+        "https://user:hunter2@host.example/x",
+        "https://user:other@host.example/x",
+        "n" * 5000,
+        "plain-name",
+    ]
+    source = {"source": "github", "repo": "example/one", "sha": "1" * 40}
+    marketplace = {"name": "m", "owner": {"name": "x"}, "plugins": [
+        {"name": name, "source": source} for name in names]}
+    repo = _two(tmp_path, {".claude-plugin/marketplace.json": {**marketplace, "plugins": []}},
+                {".claude-plugin/marketplace.json": marketplace})
+
+    text, payload = _diff(repo)
+    verifier, comment, verify_text = _verify(repo, tmp_path / "out")
+
+    for output in (text, json.dumps(payload), json.dumps(verifier), comment, verify_text):
+        assert "hunter2" not in output and "user:" not in output and "n" * 200 not in output
+    sources = sorted(source for source, *_rest in _unread(payload["coverage"]))
+    prefix = ".claude-plugin/marketplace.json#plugins."
+    assert len(sources) == len(names) == len(set(sources))
+    assert f"{prefix}plain-name" in sources
+    redacted = [s for s in sources if s.startswith(f"{prefix}https://host.example/<redacted-path>~")]
+    assert len(redacted) == 2
+    (long_name,) = [s for s in sources if s.startswith(f"{prefix}nnn")]
+    assert len(long_name) <= len(prefix) + unread_inputs.MAX_ENTRY_NAME_CHARS + 13
+    assert verifier["host_comparison"]["coverage"] == payload["coverage"]
 
 
 # --- bounds, ranking and the not-examined answer ------------------------------

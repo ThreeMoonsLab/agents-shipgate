@@ -64,7 +64,7 @@ allow list from `Bash(npm test)` / `Read(src/**)` to `Bash(*)` / `Read(**)` /
 capability-change class this pilot exists to observe.
 
 **Published build measured: `1.1.0`.** Preview measured:
-`0.16.0+preview.20260903.gb61aca7`. Source tree: `1.1.0`, runtime contract 40.
+`0.16.0+preview.20260903.gb61aca7`. Source tree: `1.1.0`, runtime contract 41.
 The released and source-tree columns were both rerun on 2026-09-22, after
 `v1.1.0` was published: the released column from `pip install
 agents-shipgate==1.1.0` in a clean virtualenv outside any checkout (the wheel
@@ -75,14 +75,14 @@ source-tree column through `./shipgate`. The preview column retains its
 recorded on the fixture base, to a file outside the repository, before the
 permission change, so it was not itself under review.
 
-The published and source-tree runs returned identical cells, version numbers
-included — runtime contract 40 and host-grant inventory schema 0.6: `check`
-blocking with four violations and visible coverage, the host-only `init`
-handoff, manifest-free `verify` exiting 0 with six advisory rows, drift naming
-all four expansion signals, and `diff` against the fixture base exiting 0 with
-`comparison_status: comparable` and the same six rows, four of them widening —
-byte-identical `--json` apart from the workspace path and the fixture's commit
-ids. That the published build and this tree answer alike on this change class
+Before #821, the published and source-tree runs returned identical cells,
+version numbers included — runtime contract 40 and host-grant inventory schema
+0.6: `check` blocking with four violations and visible coverage, the host-only
+`init` handoff, manifest-free `verify` exiting 0 with six advisory rows, drift
+naming all four expansion signals, and `diff` against the fixture base exiting
+0 with `comparison_status: comparable` and the same six rows, four of them
+widening — byte-identical `--json` apart from the workspace path and the
+fixture's commit ids. That the published build and this tree answer alike on this change class
 is a measurement, not an assumption carried over from the source column.
 
 The previous release, `v1.0.0`, was rerun the same way on 2026-09-22, from
@@ -93,6 +93,23 @@ the `disposition` field, and it publishes no `review` or `coverage` block;
 `1.1.0`'s `review.summary` counts 6 changes from 6 rows, 4 widening. On this
 fixture `1.1.0` changes what a run says about the rows, not which rows it finds.
 
+#821 then moved this tree's runtime contract to 41, and the source-tree column
+was rerun on 2026-09-22 through `./shipgate` on the fixture rebuilt from the
+description below, beside the `v1.1.0` release commit (`e3c6cb0c`, runtime
+contract 40) run the same way. The two returned identical cells except the
+runtime contract, 40 against 41: host-grant inventory schema 0.6, `check`
+blocking with four violations and visible coverage, the host-only `init`
+handoff with no manifest or workflow written, manifest-free `verify` exiting 0
+with the same six advisory rows, drift naming all four expansion signals, and
+`diff` against the fixture base exiting 0 with `comparison_status: comparable`
+and the same six rows, four of them widening. The `diff` text is identical
+apart from the fixture's commit ids. `diff --json` and `verifier.json` differ
+only in their schema versions (capability diff 0.3 against 0.4, verifier 0.20
+against 0.21) and in the members #821 adds to the coverage block: each item's
+`candidate` is `null`, and `unread_candidates` is `examined` with none left
+unexamined. This fixture changes only the two files the entry reads, so #821
+names nothing on it and `read_sources_only` stays `true`.
+
 An older release, `v0.15.0`, measured on 2026-09-05, did not. It reported
 runtime contract 10 and inventory schema 0.1; `check` returned `warn` / `none`
 with 0 violations and no coverage surface; `init --write --ci` pinned
@@ -101,7 +118,7 @@ expansion signals. It shipped as a qualified release.
 
 | | Released `v1.1.0` (`pip install`) | Preview `0.16.0+preview.20260903` (`gh release download`) | Source tree |
 | --- | --- | --- | --- |
-| Runtime contract | 40 | 29 | 40 |
+| Runtime contract | 40 | 29 | 41 |
 | Host-grant inventory schema | 0.6 | 0.2 | 0.6 |
 | `check` on the fixture | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** |
 | Coverage limit visible (`host_coverage`, `excluded_scopes`) | yes | yes | yes |
@@ -111,7 +128,7 @@ expansion signals. It shipped as a qualified release.
 | `diff` against the fixture base (Git-backed Route H) | exit 0, `comparable`, 6 rows, 4 widening | not measured | exit 0, `comparable`, the same 6 rows |
 | Qualification | **none** — advisory channel, no qualification claim | **none** — no adjudicated corpus, nothing signed | not a distributed build |
 
-Both 2026-09-22 reruns reproduced four boundary violations (`block` /
+Every 2026-09-22 rerun reproduced four boundary violations (`block` /
 `critical`) and visible coverage. `init --write --ci` writes no manifest or
 workflow and routes the host-only fixture to the read-only audit route. Manifest-free `verify` now succeeds as an advisory
 comparison: six rows name three added permissions, two removed narrower rules,
