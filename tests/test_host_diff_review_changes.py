@@ -47,8 +47,8 @@ SETTINGS = ".claude/settings.json"
 SUBJECT = "claude-code .claude/settings.json"
 #: The line every coverage block opens with (#812 follow-up).
 BOUNDARY = (
-    "only sources this entry read are listed, so this is not the whole "
-    "change: a changed file it does not read is absent"
+    "only sources this entry read or tried to read are listed, so this is "
+    "not the whole change: a changed file it does not read is absent"
 )
 GITHUB_TOKEN = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
 

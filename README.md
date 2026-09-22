@@ -67,7 +67,7 @@ Agent capability diff  origin/main (943fd29b) -> working tree
 Static configuration only: this is what the files permit, not what the agent did. No verdict is implied.
 
 What this run established:
-  only sources this entry read are listed, so this is not the whole change: a changed file it does not read is absent
+  only sources this entry read or tried to read are listed, so this is not the whole change: a changed file it does not read is absent
   .claude/settings.json (claude-code): compared; 3 rows
   .mcp.json (claude-code): compared; 1 row
 

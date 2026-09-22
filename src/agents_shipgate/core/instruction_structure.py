@@ -85,7 +85,7 @@ _ENUM_FIELDS = {
 #: nothing else. It was also the catch-all — a header that parsed into a
 #: sequence, and a value `json.dumps(allow_nan=False)` refuses, both left
 #: through it — so :func:`classify_instruction` gives those two their own
-#: reasons (`frontmatter_not_mapping`, `frontmatter_value_unencodable`) rather
+#: reasons (`frontmatter_not_mapping`, `structure_value_unencodable`) rather
 #: than letting the message assert a parse failure that did not happen.
 INVALID_SYNTAX_REASONS = frozenset(
     {"frontmatter_invalid", "frontmatter_unterminated", "instruction_text_invalid"}
@@ -330,14 +330,29 @@ def classify_instruction(path: str, text: str | None) -> InstructionStructure | 
                 pending.extend(value for _, value in item.value)
             elif isinstance(item, yaml.SequenceNode):
                 pending.extend(item.value)
-        if node is not None and not isinstance(node, yaml.MappingNode):
-            # Legal YAML whose top level is a sequence or a scalar: `- a\n- b`
-            # composes without complaint, and the skill parser then refuses it
-            # as `frontmatter must be a mapping`. Reading frontmatter as a
-            # mapping and nothing else is this profile's rule, not YAML's, so
-            # this exit gets its own reason. Left inside `frontmatter_invalid`
-            # it published `the file's own text could not be parsed`, which is
-            # false here, about a file `yaml.safe_load` reads fine.
+        if (
+            node is not None
+            # A header of `~` or `null` composes to a scalar, but the parser
+            # called on the next line resolves it to `None` and its own
+            # `raw is None` branch answers `{}` with no error — the same empty
+            # header as `---\n---`, which this profile has always read as
+            # `structured`. Deciding this exit on the node type alone made the
+            # two disagree: the file lost its digest, the entry published a
+            # blocking `unsupported` issue, and one such skill anywhere in a
+            # repository refused the whole comparison, so a widening elsewhere
+            # in the same change was published nowhere. The exit is decided the
+            # way the parser decides it, so they cannot disagree again.
+            and node.tag != "tag:yaml.org,2002:null"
+            and not isinstance(node, yaml.MappingNode)
+        ):
+            # Legal YAML whose top level is a sequence or a non-null scalar:
+            # `- a\n- b` composes without complaint, and the skill parser then
+            # refuses it as `frontmatter must be a mapping`. Reading
+            # frontmatter as a mapping and nothing else is this profile's rule,
+            # not YAML's, so this exit gets its own reason. Left inside
+            # `frontmatter_invalid` it published `the file's own text could not
+            # be parsed`, which is false here, about a file `yaml.safe_load`
+            # reads fine.
             return unresolved("frontmatter_not_mapping")
         metadata, body, _line, error, _fields = _split_frontmatter(text)
         if error:
@@ -397,9 +412,12 @@ def classify_instruction(path: str, text: str | None) -> InstructionStructure | 
         # `json.dumps(..., allow_nan=False)` and raises `ValueError`. Telling
         # that author to repair the file was advice about this digest's bound,
         # so the two exits are separated rather than both called a parse
-        # failure.
+        # failure. The reason names the structure rather than the frontmatter:
+        # the digest covers the body's inline commands too, so the exit is not
+        # a claim about which of the two the unencodable value came from
+        # (review cycle 2).
         return unresolved(
-            "frontmatter_value_unencodable" if header_parsed else "frontmatter_invalid"
+            "structure_value_unencodable" if header_parsed else "frontmatter_invalid"
         )
     return InstructionStructure(profile, "structured", structure, "declared_structure")
 

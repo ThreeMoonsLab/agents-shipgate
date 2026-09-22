@@ -131,9 +131,16 @@ COVERAGE_HEADING = "What this run established:"
 #: were deleted rather than moved. The list cannot enumerate what it does not
 #: read (that is #821), so it states that it does not, wherever it is printed
 #: and however few items survive the cap.
+#:
+#: "read or tried to read", not "read" (review cycle 2): a blocking `unreadable`
+#: or `parse_failed` item is precisely a source this entry could *not* read, and
+#: on a refused comparison every item is one of those — so the shorter wording
+#: was false about the very list it introduces. The schema docstring and the
+#: migration note already said "read, or was refused by"; this is the printed
+#: line saying the same.
 COVERAGE_BOUNDARY = (
-    "only sources this entry read are listed, so this is not the whole "
-    "change: a changed file it does not read is absent"
+    "only sources this entry read or tried to read are listed, so this is "
+    "not the whole change: a changed file it does not read is absent"
 )
 
 #: A blocking limit is what makes an inventory incomplete, which is the reason

@@ -162,7 +162,7 @@ Agent capability diff  origin/main (943fd29b) -> working tree
 Static configuration only: this is what the files permit, not what the agent did. No verdict is implied.
 
 What this run established:
-  only sources this entry read are listed, so this is not the whole change: a changed file it does not read is absent
+  only sources this entry read or tried to read are listed, so this is not the whole change: a changed file it does not read is absent
   .claude/settings.json (claude-code): compared; 3 rows
   .mcp.json (claude-code): compared; 1 row
 
@@ -198,7 +198,7 @@ Agent capability diff  origin/main (ff8c5029) -> working tree
 No static host-grant changes detected. No verdict is implied.
 
 What this run established:
-  only sources this entry read are listed, so this is not the whole change: a changed file it does not read is absent
+  only sources this entry read or tried to read are listed, so this is not the whole change: a changed file it does not read is absent
   compared with no change in what this entry reads: .claude/settings.json, .mcp.json
 
 Compared: base ff8c5029 → working tree at HEAD 4b21c7de, agents-shipgate 1.0.0.
@@ -222,7 +222,7 @@ listing it as unchanged:
 
 ```text
 What this run established:
-  only sources this entry read are listed, so this is not the whole change: a changed file it does not read is absent
+  only sources this entry read or tried to read are listed, so this is not the whole change: a changed file it does not read is absent
   .claude/settings.json (claude-code): compared; changed, but no grant this entry compares changed, so no row (redacted values such as env values and apiKeyHelper are not compared)
 ```
 
@@ -265,7 +265,7 @@ Not compared: unchanged in this change and not read, so no claim is made about t
 No static host-grant changes detected. No verdict is implied.
 
 What this run established:
-  only sources this entry read are listed, so this is not the whole change: a changed file it does not read is absent
+  only sources this entry read or tried to read are listed, so this is not the whole change: a changed file it does not read is absent
   compared with no change in what this entry reads: .claude/settings.json
 
 Compared: base 938c8aee → working tree at HEAD 6c0a92f4, agents-shipgate 1.0.0.
@@ -283,7 +283,7 @@ Cannot compare against origin/main: head_inventory_incomplete
 This is an input limit, not a finding about the change. Nothing below is a claim that the change is safe.
 
 What this run established:
-  only sources this entry read are listed, so this is not the whole change: a changed file it does not read is absent
+  only sources this entry read or tried to read are listed, so this is not the whole change: a changed file it does not read is absent
   .mcp.json (claude-code): parse_failed in head, so the head inventory is incomplete
 
 Inputs: base 943fd29b → working tree at HEAD 51dcb730, agents-shipgate 1.0.0.

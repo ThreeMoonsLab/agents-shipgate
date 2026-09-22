@@ -59,8 +59,8 @@ BASE_SETTINGS = {"permissions": {"allow": ["Read(**)"], "deny": ["Bash(curl:*)"]
 WIDENED = {"permissions": {"allow": ["Read(**)", "Bash(*)"], "deny": []}}
 HEADING = "What this run established:"
 BOUNDARY = (
-    "only sources this entry read are listed, so this is not the whole "
-    "change: a changed file it does not read is absent"
+    "only sources this entry read or tried to read are listed, so this is "
+    "not the whole change: a changed file it does not read is absent"
 )
 _GIT_ENV = {
     **os.environ,
@@ -1888,7 +1888,7 @@ def test_a_structural_refusal_prescribes_no_repair_of_a_file_that_parses(tmp_pat
         f"file declares could not be established, so no claim is made here about it. {NO_REPAIR}"
     )
     assert details[unencodable] == (
-        "Instruction structure is unresolved (frontmatter_value_unencodable); what "
+        "Instruction structure is unresolved (structure_value_unencodable); what "
         f"this file declares could not be established, so no claim is made here about it. "
         f"{NO_REPAIR}"
     )

@@ -300,7 +300,7 @@ def test_only_a_header_yaml_itself_refused_is_reported_as_a_parse_failure() -> N
     # float reaches the digest. The refusal is this entry's, not the file's.
     nan = classify_instruction(path, f"---\n{unencodable}\n---\nBody.\n")
     assert nan.status == "unresolved"
-    assert nan.reason == "frontmatter_value_unencodable"
+    assert nan.reason == "structure_value_unencodable"
 
     for reason in (sequence.reason, nan.reason):
         assert reason not in INVALID_SYNTAX_REASONS
@@ -312,6 +312,48 @@ def test_only_a_header_yaml_itself_refused_is_reported_as_a_parse_failure() -> N
     assert unresolved_reason_is_invalid_syntax(broken.reason)
     with pytest.raises(yaml.YAMLError):
         yaml.safe_load("name: [unclosed\ndescription: d")
+
+
+def test_a_null_header_is_the_empty_header_it_has_always_been() -> None:
+    """The non-mapping exit must not swallow `~` (review cycle 2).
+
+    ``yaml.compose("~")`` returns a scalar node, so deciding the exit on the
+    node type alone fired here — while ``_split_frontmatter``, called on the
+    very next line and by the skill scanner, resolves the same header through
+    ``yaml.safe_load``, takes its ``raw is None`` branch and answers ``{}``
+    with no error. That is the empty header ``---\\n---`` already digests, and
+    the digest proves it: a file that was `structured` would have become
+    `unresolved`, which publishes a *blocking* `unsupported` inventory issue,
+    which makes the inventory incomplete and refuses the whole comparison — so
+    one skill with a `~` header anywhere in a repository would have hidden a
+    widening elsewhere in the same change.
+    """
+
+    import yaml
+
+    for header in ("~", "null", "NULL"):
+        assert yaml.safe_load(header) is None
+        for path in (
+            ".claude/skills/demo/SKILL.md",
+            ".claude/commands/demo.md",
+            ".cursor/rules/demo.mdc",
+        ):
+            structure = classify_instruction(path, f"---\n{header}\n---\n\nA skill body.\n")
+            empty = classify_instruction(path, "---\n---\n\nA skill body.\n")
+            assert empty.status == "structured"
+            assert structure.status == "structured", (path, header)
+            assert structure.reason == "declared_structure"
+            # Nothing is declared either way, so nothing distinguishes them.
+            assert structure.sha256 == empty.sha256
+
+    # A scalar that is not null is still refused, so the carve-out is the null
+    # tag and not "any scalar": `yaml.safe_load` reads this one too, and the
+    # skill parser then answers `frontmatter must be a mapping`.
+    scalar = classify_instruction(
+        ".claude/skills/demo/SKILL.md", "---\nhello\n---\n\nA skill body.\n"
+    )
+    assert scalar.status == "unresolved"
+    assert scalar.reason == "frontmatter_not_mapping"
 
 
 def test_a_duplicate_key_inside_a_non_mapping_header_keeps_its_own_reason() -> None:
