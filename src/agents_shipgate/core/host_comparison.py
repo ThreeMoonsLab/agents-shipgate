@@ -128,10 +128,11 @@ def unchanged_limits(
 #: (:data:`COVERAGE_LIMIT_ORDER`), because a refused comparison publishes
 #: nothing else and the source name alone decided the cap: on a corpus
 #: repository twenty-one routine `unsupported` items sorted ahead of the one
-#: `unreadable` source and pushed it past ten (#812 follow-up). The source name
-#: is the last word everywhere, so the order is total and the same two
-#: inventories always publish the same list.
-def _coverage_rank(item: dict[str, Any]) -> tuple[int, int, str, str, str]:
+#: `unreadable` source and pushed it past ten (#812 follow-up). Then the source
+#: name, and after it every remaining field an item's identity is keyed by in
+#: :func:`_group_coverage` — side, limit and status — so no two items can tie
+#: and the same two inventories always publish the same list.
+def _coverage_rank(item: dict[str, Any]) -> tuple[int, int, str, str, str, str]:
     limit = item.get("limit")
     if item["status"] == "blocking_limit":
         rank = 0
@@ -156,7 +157,13 @@ def _coverage_rank(item: dict[str, Any]) -> tuple[int, int, str, str, str]:
         if limit in COVERAGE_LIMIT_ORDER
         else len(COVERAGE_LIMIT_ORDER)
     )
-    return (rank, kind, item["source"], item["side"], str(limit))
+    # `status` is last because the rank does not separate every status: the two
+    # statuses for a changed source with no row share rank 1, and
+    # `_group_coverage`'s key keeps them apart, so two hosts reading one source
+    # on one side can hold both at once. Without it the key ties there and only
+    # `sorted`'s stability decides, which is weaker than the order this docstring
+    # claims. Last, so no existing pair changes places.
+    return (rank, kind, item["source"], item["side"], str(limit), item["status"])
 
 
 def _group_coverage(

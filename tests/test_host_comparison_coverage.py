@@ -1782,7 +1782,11 @@ def test_the_coverage_order_is_total_and_does_not_depend_on_input_order() -> Non
 
     The cap publishes a prefix, so an order that depended on iteration order
     would publish different items for the same comparison. Every field the rank
-    reads is exercised here, ending with the source name.
+    reads is exercised here, including the pair the rank alone cannot separate:
+    the two statuses a changed source with no row can take share a rank, and
+    ``_group_coverage`` keys them apart, so two hosts reading one source on one
+    side hold both at once (review cycle 7). Ranked by name they tied, and only
+    ``sorted``'s stability decided which the cap kept.
     """
 
     from agents_shipgate.core.host_comparison import _coverage_rank
@@ -1803,6 +1807,9 @@ def test_the_coverage_order_is_total_and_does_not_depend_on_input_order() -> Non
         # A kind this build does not register sorts after every one it does.
         limit("a.json", "invented_later"),
         {"source": "c.json", "side": "both", "status": "changed_without_grant_change", "rows": 0},
+        # Same source, same side, same (absent) limit, same rank as the line
+        # above: only the status tells the two apart.
+        {"source": "c.json", "side": "both", "status": "changed_without_rows", "rows": 0},
         {"source": "d.json", "side": "both", "status": "changed_without_rows", "rows": 0},
         {"source": "e.json", "side": "head", "status": "compared", "rows": 1},
         {"source": "f.json", "side": "both", "status": "unchanged_not_proven", "rows": 0},
@@ -1813,6 +1820,13 @@ def test_the_coverage_order_is_total_and_does_not_depend_on_input_order() -> Non
 
     assert keys == sorted(keys), "the list above is the published order"
     assert len(set(keys)) == len(keys), "no two items share a rank, so no tie is left to chance"
+    # Every field an item's identity is keyed by in `_group_coverage` is in the
+    # sort key, so two items that grouping keeps apart are never left to
+    # `sorted`'s stability. The fixture is one item per such key, as `facts` is.
+    identities = {
+        (item["source"], item["status"], item["side"], item.get("limit")) for item in ordered
+    }
+    assert len(identities) == len(ordered), "the fixture holds one item per fact identity"
     for rotation in range(len(ordered)):
         shuffled = ordered[rotation:] + ordered[:rotation]
         assert sorted(shuffled, key=_coverage_rank) == ordered
