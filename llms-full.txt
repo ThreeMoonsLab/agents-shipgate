@@ -3942,7 +3942,9 @@ the project's `.mcp.json` declares. The rating comes from one table in the
 engine that also rates the setting's `audit --host` grant and its `diff`,
 `verify` and `check` rows, so every surface gives the value one severity
 (#827). `defaultMode` evidence names the `mode`; every other setting's names
-the `setting` and its `value`. `defaultMode: dontAsk` no longer reaches this
+the `setting` and its `value`. Either is the value the setting's
+`audit --host` grant publishes, with credentials redacted, cut to at most 200
+characters. `defaultMode: dontAsk` no longer reaches this
 check: Claude Code documents that it denies whatever no allow rule permits
 rather than running it, so it raises
 `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` at `medium`.
@@ -3971,6 +3973,7 @@ value — the rating the setting's grant and host-diff row carry (#827):
 | `defaultMode: auto` | high | lets Claude Code approve tool calls itself instead of prompting |
 | a `defaultMode` Claude Code does not document | high | what it permits is not established |
 | an `enabledMcpjsonServers` entry | high | approves that project `.mcp.json` server without a prompt |
+| an `enabledMcpjsonServers` entry that names no server (an object, a number, a blank string) | high | what it permits is not established |
 | `defaultMode: dontAsk` | medium | denies every tool call no allow rule already permits, instead of prompting |
 | `defaultMode: plan`, `defaultMode: default` | medium | lets nothing run without a prompt that an allow rule does not already permit |
 | `disableBypassPermissionsMode`, `disableAllHooks`, `allowManagedPermissionRulesOnly`, `allowManagedHooksOnly`, and `false` for `enableAllProjectMcpServers` or `skipDangerousModePermissionPrompt` | medium | changes which prompts, hooks or rules apply without letting anything run without a prompt that an allow rule does not permit |

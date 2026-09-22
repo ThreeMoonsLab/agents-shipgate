@@ -230,6 +230,7 @@ read it. The ratings and their basis are in
 | `false` for either, `disableAllHooks`, `allowManagedPermissionRulesOnly`, `allowManagedHooksOnly`, or a top-level `disableBypassPermissionsMode` | `medium` (unchanged) | `…-CONFIG-PARSE-FAILED`, `medium` → `…-PERMISSION-ALLOW-EXPANDED`, `medium`, kind `permission_mode_changed` |
 | any of these set under `permissions` (for example `permissions.disableBypassPermissionsMode`) | as above | `…-PERMISSION-ALLOW-EXPANDED`, `high`, kind `claude_permission_boundary_changed` → the value's rating and rule, as above |
 | an `enabledMcpjsonServers` entry | no grant → one `high` (`external`) grant per server | `…-CONFIG-PARSE-FAILED`, `medium` → `…-PERMISSION-ALLOW-EXPANDED`, `high`, one per added server |
+| an `enabledMcpjsonServers` entry that names no server (an object, a number, a blank string) | no grant → one `high` grant per distinct entry, kept whole | `…-CONFIG-PARSE-FAILED`, `medium` → `…-PERMISSION-ALLOW-EXPANDED`, `high`, one per added entry |
 
 - **Check ids.** None is added, removed or renamed; per [Check IDs](#check-ids),
   the conditions under which three of them fire move, and this note records
@@ -245,6 +246,9 @@ read it. The ratings and their basis are in
   new. `defaultMode` evidence keeps its shape (`kind`, `mode`), so
   `bypassPermissions`, `acceptEdits`, `auto`, `plan` and `default` findings keep
   their fingerprints; every other setting's evidence names `setting` and `value`.
+  Either carries the value as the setting's `audit --host` grant publishes it:
+  credentials redacted before it is rendered, then cut to at most 200
+  characters. Neither changes a documented mode or switch value.
 - **Decisions.** `check` alone on `enableAllProjectMcpServers: true` or
   `skipDangerousModePermissionPrompt: true` moves from `require_review` /
   `agent_action_required` to `block` / `human_review_required`, and a

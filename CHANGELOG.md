@@ -24,8 +24,11 @@
   (`enableAllProjectMcpServers: true`, `defaultMode: dontAsk`,
   `approval_policy: never`) instead of `True` or `dontAsk` alone, and a Claude
   Code setting's row says what the value does. `enabledMcpjsonServers` is read
-  as one `high` grant and row per approved server; `disabledMcpjsonServers`
-  stays unread. No schema, contract or check id moves; which check id fires
+  as one `high` grant and row per approved server, and an entry that names no
+  server is kept whole at `high` rather than dropped; `disabledMcpjsonServers`
+  stays unread. `check` evidence carries a setting's value as its grant
+  publishes it, with credentials redacted and at most 200 characters. No
+  schema, contract or check id moves; which check id fires
   for these values, and their decisions, do. See the `STABILITY.md`
   migration note. (#827)
 

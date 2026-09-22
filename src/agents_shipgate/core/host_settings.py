@@ -28,8 +28,9 @@ permission modes, and the ``basis`` states that in a reviewer's words:
   server.
 * ``high`` — the value lets a class of action run without a prompt
   (``acceptEdits``, ``auto``), approves one named project MCP server
-  (an ``enabledMcpjsonServers`` entry), or is a mode Claude Code does not
-  document, whose effect is therefore not established.
+  (an ``enabledMcpjsonServers`` entry), or is a mode, or a list entry, of a
+  shape Claude Code does not document, whose effect is therefore not
+  established.
 * ``medium`` — every other documented value: it changes which prompts, hooks
   or rules apply without letting anything run without a prompt that an allow
   rule does not already permit. ``dontAsk`` is one of these. Its prompts are
@@ -73,7 +74,8 @@ CLAUDE_SCALAR_SETTINGS: tuple[str, ...] = (
     "disableAllHooks",
 )
 #: List settings, read from the top level: one grant, one row and one
-#: violation per entry, so approving one more server is one change.
+#: violation per distinct entry, so approving one more server is one change.
+#: An entry that names no server is kept whole rather than dropped.
 CLAUDE_LIST_SETTINGS: tuple[str, ...] = ("enabledMcpjsonServers",)
 #: Settings whose documented value is ``true`` or ``false``.
 CLAUDE_BOOLEAN_SETTINGS: frozenset[str] = frozenset({
@@ -107,14 +109,30 @@ class SettingValue:
     value: Any
     #: ``permissions`` or ``top_level``: where the value was read.
     container: str
+    #: Whether this is one entry of a list setting rather than its whole value.
+    entry: bool = False
 
     @property
     def key(self) -> str:
         """What two sides of a change compare: the setting, or one list entry."""
 
-        if self.setting in CLAUDE_LIST_SETTINGS and isinstance(self.value, str):
-            return f"{self.setting}:{self.value}"
+        if self.setting in CLAUDE_LIST_SETTINGS and (self.entry or isinstance(self.value, str)):
+            return f"{self.setting}:{_entry_text(self.value)}"
         return self.setting
+
+
+def _entry_text(value: Any) -> str:
+    """One list entry as text: a string itself, anything else as canonical JSON."""
+
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+
+
+def _is_server_name(value: Any) -> bool:
+    """Whether a list entry names a server as Claude Code documents one: a non-blank string."""
+
+    return isinstance(value, str) and bool(value.strip())
 
 
 def claude_setting_values(data: Any) -> list[SettingValue]:
@@ -134,8 +152,17 @@ def claude_setting_values(data: Any) -> list[SettingValue]:
             continue
         value = data[setting]
         if isinstance(value, list):
-            entries = sorted({item for item in value if isinstance(item, str) and item.strip()})
-            values.extend(SettingValue(setting, entry, "top_level") for entry in entries)
+            # One value per distinct entry. An entry that names no server (an
+            # object, a number, a blank string) is kept whole and rated as an
+            # approval, as a value of the wrong shape is below: dropping it
+            # left no record of it anywhere.
+            entries: dict[str, Any] = {}
+            for entry in value:
+                entries.setdefault(_entry_text(entry), entry)
+            values.extend(
+                SettingValue(setting, entries[text], "top_level", entry=True)
+                for text in sorted(entries)
+            )
         else:
             # Not the documented shape: kept whole, and rated as an approval,
             # so an unexpected value is reviewed rather than dropped.
@@ -147,11 +174,15 @@ def setting_value_text(setting: str, value: Any) -> str:
     """A value as the settings file spells it: ``true``, ``dontAsk``, ``["a"]``.
 
     A string is printed bare, except where the setting's documented value is a
-    boolean: there ``"false"`` is quoted, so it is not read as ``false``.
+    boolean: there ``"false"`` is quoted, so it is not read as ``false``. A
+    blank list entry is quoted too, so it reads as an entry and not as nothing.
     """
 
     if isinstance(value, str):
-        return json.dumps(value) if setting in CLAUDE_BOOLEAN_SETTINGS else value
+        quoted = setting in CLAUDE_BOOLEAN_SETTINGS or (
+            setting in CLAUDE_LIST_SETTINGS and not _is_server_name(value)
+        )
+        return json.dumps(value) if quoted else value
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
 
 
@@ -241,7 +272,7 @@ def rate_claude_setting(setting: str, value: Any) -> SettingRating:
         return SettingRating(
             "external", "high",
             "approves this MCP server from the project's .mcp.json, without a prompt"
-            if isinstance(value, str)
+            if _is_server_name(value)
             else None,
         )
     return _UNKNOWN

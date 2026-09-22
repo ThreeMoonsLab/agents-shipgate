@@ -364,7 +364,11 @@ raises either rule above its default raises these violations with it; none can
 lower them.
 
 `enabledMcpjsonServers` is read as one grant per server name, so approving one
-more server is one `high` row. `disabledMcpjsonServers` is not read: a change
+more server is one `high` row. An entry that names no server — an object, a
+number, a blank string — is kept whole as its own `high` grant, row and
+violation, like a mode Claude Code does not document, rather than dropped. A
+violation's evidence carries the value its grant publishes, with credentials
+redacted, cut to at most 200 characters. `disabledMcpjsonServers` is not read: a change
 to it is still an unknown key. A setting also set under `permissions` is read
 there only, so a top-level copy beside it stays an unknown key, exactly as the
 inventory ignores it. Codex, Cursor and VS Code settings keep their own

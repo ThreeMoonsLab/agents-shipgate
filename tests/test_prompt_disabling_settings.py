@@ -658,3 +658,140 @@ def test_each_approved_server_is_its_own_precedence_key() -> None:
         ("permission_mode", "enabledMcpjsonServers:db"),
         ("permission_mode", "enabledMcpjsonServers:docs"),
     ]
+
+
+# --- what a violation's evidence publishes (#849 review) ----------------------
+
+_TOKEN = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+_PASSWORD = "correct-horse-battery-staple"
+
+
+@pytest.mark.parametrize(
+    "head",
+    [
+        pytest.param(
+            _settings(
+                enabledMcpjsonServers={
+                    "github": {"command": "npx", "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": _TOKEN}}
+                }
+            ),
+            id="enabled_mcpjson_servers_object_env",
+        ),
+        pytest.param(_settings(enableAllProjectMcpServers={"token": _TOKEN}), id="enable_all_token"),
+        pytest.param(
+            _settings(enableAllProjectMcpServers={"password": _PASSWORD}), id="enable_all_password"
+        ),
+        pytest.param(
+            {"permissions": {"allow": ["Read"], "defaultMode": {"token": _TOKEN}}},
+            id="default_mode_object",
+        ),
+        pytest.param(
+            _settings(
+                enabledMcpjsonServers=[{"name": "docs", "headers": {"Authorization": f"Bearer {_TOKEN}"}}]
+            ),
+            id="enabled_mcpjson_servers_entry_headers",
+        ),
+    ],
+)
+def test_check_evidence_publishes_the_grants_redacted_value(tmp_path: Path, head: dict) -> None:
+    """A value of an object shape was rendered before it was redacted, so its
+    credentials sat inside one string the evidence sanitizer's key-based
+    redaction cannot see, and `check` alone published them. The evidence now
+    carries the value the grant publishes, redacted, spelled as the row spells it.
+    """
+
+    repo = _repository(tmp_path, head)
+    workspace = ["--workspace", str(repo)]
+    check = ["check", "--agent", "claude-code", *workspace, "--base", "main", "--head", "HEAD", "--format"]
+    outputs = {
+        fmt: _run([*check, fmt])
+        for fmt in ("agent-boundary-json", "codex-boundary-json", "agent-control-json", "text")
+    }
+    for fmt, output in outputs.items():
+        assert _TOKEN not in output, fmt
+        assert _PASSWORD not in output, fmt
+
+    inventory = json.loads(_run(["audit", "--host", *workspace, "--json"]))
+    published = {
+        grant["setting"]: setting_value_text(grant["setting"], published_setting_value(grant))
+        for grant in inventory["grants"]
+        if grant["kind"] == "permission_mode"
+    }
+    diff = json.loads(_run(["diff", *workspace, "--base", "main", "--json"]))
+    cells = {row["after"] for row in diff["rows"]}
+    for fmt, key in (("agent-boundary-json", "violations"), ("codex-boundary-json", "violated_rules")):
+        [violation] = [
+            item
+            for item in json.loads(outputs[fmt])[key]
+            if str(item["evidence"].get("kind", "")).startswith("permission_mode_")
+        ]
+        evidence = violation["evidence"]
+        setting = "defaultMode" if "mode" in evidence else evidence["setting"]
+        text = evidence["mode"] if "mode" in evidence else evidence["value"]
+        assert "<redacted>" in text, (fmt, evidence)
+        # audit --host's rendering, and the diff row's.
+        assert text == published[setting], (fmt, evidence)
+        assert f"{setting}: {text}" in cells, (fmt, evidence)
+
+
+def test_check_evidence_bounds_a_long_value(tmp_path: Path) -> None:
+    """Bounded after it is redacted, so truncation never exposes part of a secret."""
+
+    long_value = {"description": "x" * 500, "env": {"API_TOKEN": _TOKEN}}
+    [violation] = _evaluate(tmp_path, _settings(enabledMcpjsonServers=long_value))
+    text = violation.evidence["value"]
+    assert len(text) == 200 and text.endswith("…")
+    assert _TOKEN not in text
+    full = setting_value_text(
+        "enabledMcpjsonServers", {"description": "x" * 500, "env": {"API_TOKEN": "<redacted>"}}
+    )
+    assert full.startswith(text[:-1])
+
+    [mode] = _evaluate(tmp_path, _settings(mode="m" * 300))
+    assert len(mode.evidence["mode"]) == 200 and mode.evidence["mode"].endswith("…")
+
+
+def test_an_entry_that_names_no_server_is_kept_whole(tmp_path: Path) -> None:
+    """An object, a number or a blank string in `enabledMcpjsonServers` was
+    dropped, leaving no record of it once the key stopped being an unknown
+    key. Each is now its own undocumented entry, rated as an approval."""
+
+    head = _settings(enabledMcpjsonServers=["docs", {"name": "db"}, "", 3, "docs"])
+    assert sorted(item.key for item in claude_setting_values(head)) == [
+        "enabledMcpjsonServers:",
+        "enabledMcpjsonServers:3",
+        "enabledMcpjsonServers:docs",
+        'enabledMcpjsonServers:{"name":"db"}',
+    ]
+    assert rate_claude_setting("enabledMcpjsonServers", {"name": "db"}).basis is None
+    assert rate_claude_setting("enabledMcpjsonServers", " ").basis is None
+    assert setting_value_text("enabledMcpjsonServers", "") == '""'
+
+    repo = _repository(tmp_path, head)
+    diff = json.loads(_run(["diff", "--workspace", str(repo), "--base", "main", "--json"]))
+    assert _rows(diff["rows"]) == [
+        ('enabledMcpjsonServers: ""', "high"),
+        ("enabledMcpjsonServers: 3", "high"),
+        ("enabledMcpjsonServers: docs", "high"),
+        ('enabledMcpjsonServers: {"name":"db"}', "high"),
+    ]
+    boundary = json.loads(
+        _run(
+            [
+                "check", "--agent", "claude-code", "--workspace", str(repo), "--base", "main",
+                "--head", "HEAD", "--format", "agent-boundary-json",
+            ]
+        )
+    )
+    assert PARSE_FAILED not in json.dumps(boundary)
+    assert sorted(_named(item["evidence"]) for item in boundary["violations"]) == [
+        cell for cell, _severity in _rows(diff["rows"])
+    ]
+    assert {item["risk_level"] for item in boundary["violations"]} == {"high"}
+    # An unchanged entry raises nothing; only the new object entry does.
+    unit = tmp_path / "unit"
+    unit.mkdir()
+    [added] = _evaluate(unit, head, old=_settings(enabledMcpjsonServers=["docs", "", 3]))
+    assert added.evidence == {
+        "kind": "permission_mode_changed", "setting": "enabledMcpjsonServers", "value": '{"name":"db"}',
+    }

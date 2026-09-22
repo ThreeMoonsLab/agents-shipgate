@@ -671,7 +671,8 @@ def _evaluate_claude_setting_values(old_data, new_data, path: str, add) -> None:
     change leaves as it was raises nothing, and neither does a removal, as a
     removed ``defaultMode`` never did. ``defaultMode`` keeps the ``mode``
     evidence it always published, so its findings keep their fingerprints;
-    every other setting names itself and its value.
+    every other setting names itself and its value. Either value is the one
+    the grant publishes, redacted and bounded (`_setting_evidence_text`).
     """
 
     old_values = {item.key: item.value for item in claude_setting_values(old_data)}
@@ -686,16 +687,50 @@ def _evaluate_claude_setting_values(old_data, new_data, path: str, add) -> None:
             "kind": "permission_mode_expanded" if critical else "permission_mode_changed"
         }
         if item.setting == "defaultMode":
-            evidence["mode"] = str(item.value)
+            evidence["mode"] = _setting_evidence_text(item.setting, item.value)
         else:
             evidence["setting"] = item.setting
-            evidence["value"] = setting_value_text(item.setting, item.value)
+            evidence["value"] = _setting_evidence_text(item.setting, item.value)
         add(
             "HOST-PERMISSION-WILDCARD-ALLOW" if critical else "HOST-PERMISSION-ALLOW-EXPANDED",
             path=path,
             evidence=evidence,
             rating=rating.risk,  # type: ignore[arg-type]
         )
+
+
+#: The longest setting value a violation's evidence publishes. A documented
+#: value is a word or a server name; a longer one is a shape Claude Code does
+#: not document, and its whole redacted value is its grant's (`audit --host`).
+_MAX_SETTING_EVIDENCE_CHARS = 200
+
+
+def _setting_evidence_text(setting: str, value: Any) -> str:
+    """A setting value as ``check`` evidence publishes it: its grant's, redacted and bounded.
+
+    The grant redacts a value before it renders it (``_setting_grant``).
+    Rendering first put an object's credentials inside one string, where the
+    evidence sanitizer's key-based redaction cannot see them, so an
+    ``enabledMcpjsonServers`` object holding an ``env`` token published the
+    token in ``check`` alone. The same redactor runs here first, with the same
+    parent key, and the text is bounded only after it, so truncation never
+    exposes part of a secret. ``defaultMode`` is rendered as its grant's
+    ``value`` is, the way its ``mode`` evidence always was, so a documented
+    mode keeps its fingerprint; every other setting is spelled as its row
+    spells it.
+    """
+
+    # Imported here: host_grants imports this module.
+    from agents_shipgate.core.host_grants import _redact_secret_values
+
+    redacted = _redact_secret_values(value, parent_key=setting)
+    if setting == "defaultMode" and not isinstance(redacted, (dict, list)):
+        text = str(redacted)
+    else:
+        text = setting_value_text(setting, redacted)
+    if len(text) > _MAX_SETTING_EVIDENCE_CHARS:
+        text = text[: _MAX_SETTING_EVIDENCE_CHARS - 1] + "…"
+    return text
 
 
 def _evaluate_unknown_permission_keys(old_permissions, permissions, path: str, add) -> None:
