@@ -385,20 +385,29 @@ def host_comparison_lines(
 
     coverage = coverage_lines(comparison, markdown=markdown, max_chars=coverage_max_chars)
     if comparison.comparison_status != "comparable":
-        return [
+        lines = [
             "Host capability comparison unavailable: "
             + text("; ".join(comparison.incomparable_reasons)),
             *coverage,
-            # A refused comparison is the result a reviewer is most likely to
-            # want to rerun themselves, so it names what it read and how to
-            # read it again, exactly as a result with changes does (#812
-            # follow-up). It asks no review question: there is no change to
-            # ask about, and nothing here was compared, so the commits are
-            # labelled as the inputs they are.
-            *comparison_reference_lines(
-                comparison, markdown=markdown, label=REFUSED_REFERENCE_LABEL
-            ),
         ]
+        # A refused comparison is the result a reviewer is most likely to want
+        # to rerun themselves, so it names what it read and how to read it
+        # again, exactly as a result with changes does (#812 follow-up). It
+        # asks no review question: there is no change to ask about, and
+        # nothing here was compared, so the commits are labelled as the inputs
+        # they are.
+        tail = comparison_reference_lines(
+            comparison, markdown=markdown, label=REFUSED_REFERENCE_LABEL
+        )
+        if tail:
+            if markdown and lines[-1] != "":
+                # The block ends with a blank of its own where it has items.
+                # Where it names no source it is nothing, and the headline
+                # would otherwise run into these lines as one paragraph
+                # (review cycle 4).
+                lines.append("")
+            lines.extend(tail)
+        return lines
     lines = ["Repository-declared host capability changes:"]
     changes = presented_changes(comparison)
     if not changes:

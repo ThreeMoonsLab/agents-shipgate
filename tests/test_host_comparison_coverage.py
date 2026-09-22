@@ -1958,3 +1958,54 @@ def test_the_answers_that_say_the_least_still_say_where_they_came_from(
     assert f"Reproduce: check out {_git(repo, 'rev-parse', 'HEAD')}, then run" in comment
     _verifier, _pr_comment, verify_text = _verify_with_text(repo, tmp_path / "second")
     assert "Reproduce: check out " in verify_text
+
+
+def _refusal(**coverage) -> HostComparison:
+    return HostComparison.model_validate(
+        {
+            "comparison_status": "incomparable",
+            "incomparable_reasons": ["head_inventory_incomplete"],
+            "head_kind": "worktree",
+            "base_commit": "a" * 40,
+            "head_commit": "b" * 40,
+            "coverage": {"items": [], "omitted_items": 0, **coverage},
+        }
+    )
+
+
+def test_a_refusal_naming_no_source_still_separates_its_markdown_lines() -> None:
+    """The shortest refusal is three paragraphs in the comment, not one.
+
+    Where the block has items it ends with a blank of its own, and the
+    comparable routes insert one before the reference lines. A refusal whose
+    coverage names no source prints no block at all, so the headline, `Inputs:`
+    and `Reproduce:` were three consecutive non-blank lines, which Markdown
+    renders as a single run-on paragraph (review cycle 4). Text is unchanged:
+    the separator is Markdown's paragraph rule, not a line of the answer.
+    """
+
+    comparison = _refusal()
+
+    assert coverage_lines(comparison, markdown=True) == []
+    lines = host_comparison_lines(comparison, markdown=True)
+    assert lines[0].startswith("Host capability comparison unavailable: ")
+    assert lines[1] == ""
+    assert lines[2].startswith(f"Inputs: base {'a' * 8} → working tree at HEAD {'b' * 8}, ")
+    assert lines[3].startswith("Reproduce in that working tree: ")
+    plain = host_comparison_lines(comparison)
+    assert "" not in plain and len(plain) == 3
+    assert plain[0].startswith("Host capability comparison unavailable: ")
+    assert plain[1] == lines[2]
+
+
+def test_a_refusal_that_names_a_source_is_separated_once() -> None:
+    """The block's own closing blank is the separator; nothing adds a second."""
+
+    comparison = _refusal(
+        items=[_item(status="blocking_limit", limit="unreadable", side="head", detail="d")]
+    )
+
+    lines = host_comparison_lines(comparison, markdown=True)
+
+    assert lines[-3] == "" and lines[-4] != ""
+    assert lines[-2].startswith("Inputs: base ") and lines[-1].startswith("Reproduce in that ")

@@ -186,9 +186,10 @@ entries differently. `verify`'s text and its PR comment end their entries with
 the same question and lines; when they compared a head commit, the `Reproduce`
 line says to check that commit out first. `check` and a provided diff name no base commit, so they
 print the question without those lines. Every other answer below ends with the
-same two lines: a result with no change and a refusal are the ones a reviewer
-can least check from the output, so they say where they came from too. Only the
-question is conditional — there is no change to ask about.
+same two lines, the first labelled `Inputs:` where the comparison was refused,
+since that run compared nothing: a result with no change and a refusal are the
+ones a reviewer can least check from the output, so they say where they came
+from too. Only the question is conditional — there is no change to ask about.
 
 **No change.** On a branch from `main` that only edits `README.md`:
 
