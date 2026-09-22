@@ -110,6 +110,20 @@ against 0.21) and in the members #821 adds to the coverage block: each item's
 unexamined. This fixture changes only the two files the entry reads, so #821
 names nothing on it and `read_sources_only` stays `true`.
 
+#819 publishes hook and MCP argument detail and moves the host-grant
+inventory schema to 0.7 within the same contract. On a tree with #819 and
+without #821, the source-tree column was rerun on 2026-09-22 through
+`./shipgate` beside the `1.1.0` release commit (`e3c6cb0c`) on the same
+fixture. The two returned identical cells except two version numbers,
+runtime contract 40 against 41 and host-grant inventory schema 0.6 against
+0.7: `check` blocking with the same four violations and visible coverage,
+the host-only `init` handoff with no workflow written, manifest-free `verify`
+exiting 0 with six advisory rows, drift naming all four expansion signals,
+and `diff` exiting 0, `comparable`, with the same six rows, four widening —
+byte-identical `--json` apart from the workspace path and the fixture's
+commit ids. This fixture has no hook, and neither of its MCP servers changes
+its arguments.
+
 An older release, `v0.15.0`, measured on 2026-09-05, did not. It reported
 runtime contract 10 and inventory schema 0.1; `check` returned `warn` / `none`
 with 0 violations and no coverage surface; `init --write --ci` pinned
@@ -119,7 +133,7 @@ expansion signals. It shipped as a qualified release.
 | | Released `v1.1.0` (`pip install`) | Preview `0.16.0+preview.20260903` (`gh release download`) | Source tree |
 | --- | --- | --- | --- |
 | Runtime contract | 40 | 29 | 41 |
-| Host-grant inventory schema | 0.6 | 0.2 | 0.6 |
+| Host-grant inventory schema | 0.6 | 0.2 | 0.7 |
 | `check` on the fixture | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** |
 | Coverage limit visible (`host_coverage`, `excluded_scopes`) | yes | yes | yes |
 | `init --write --ci` Action pin | not applicable — host audit handoff, no workflow written | `@v0.16.0+preview.20260903.gb61aca7` — **no such tag** (the release tag is `preview-`-prefixed) | not applicable — host audit handoff, no workflow written |

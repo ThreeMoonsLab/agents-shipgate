@@ -6,9 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from agents_shipgate.schemas.instruction_structure import InstructionStructureEvidence
 
-HOST_GRANTS_INVENTORY_SCHEMA_VERSION = "0.6"
-HOST_GRANTS_BASELINE_SCHEMA_VERSION = "0.6"
-HOST_GRANTS_DRIFT_SCHEMA_VERSION = "0.6"
+HOST_GRANTS_INVENTORY_SCHEMA_VERSION = "0.7"
+HOST_GRANTS_BASELINE_SCHEMA_VERSION = "0.7"
+HOST_GRANTS_DRIFT_SCHEMA_VERSION = "0.7"
 
 HostName = Literal["codex", "claude-code", "cursor", "vscode", "github"]
 HostGrantScope = Literal["repository", "local_static"]
@@ -616,6 +616,122 @@ class HostGrantsBaselineArtifactV6(RootModel[HostGrantsBaselineV6]):
 
 class HostGrantsDriftArtifactV6(RootModel[HostGrantsDriftV6]):
     root: HostGrantsDriftV6
+
+
+# v0.7 publishes what a hook runs and what an MCP server is launched with
+# (#819). A hook row used to read `PostToolUse → PostToolUse` whether its
+# matcher, its command or its timeout changed, and an MCP row could not show a
+# version pin moving to `@latest`: the grants carried none of it, and only
+# `config_sha256` saw the edit. These members display what `config_sha256`
+# already binds. They are bounded and redacted, and no comparison and no
+# inventory digest reads them, so a `0.6` grant and its `0.7` reading of the
+# same configuration compare as the same grant.
+class HostHookCommandV7(BaseModel):
+    """A hook command's summary: its first word and a bounded list of the words after it.
+
+    Read from the declared command string, split into words at whitespace
+    outside quotes, with the quotes removed and a backslash kept as written.
+    That is display, not a claim about how a host runs the command.
+    ``env_keys`` names each leading ``NAME=value`` assignment; its value is
+    never published, as an ``env`` value never is. Every word passes through
+    the published-label redaction, a value after a credential-named flag or in
+    an ``env``-style assignment is ``<redacted>``, a long generated-looking
+    word is ``<redacted>``, a word longer than the bound ends in ``…``, and
+    ``omitted_args`` counts the words past the bound.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    env_keys: list[str] = Field(default_factory=list)
+    argv0: str
+    args: list[str] = Field(default_factory=list)
+    omitted_args: int = Field(default=0, ge=0)
+
+
+class HostHookHandlerV7(BaseModel):
+    """One hook handler under an event: its group's matcher, its type, command and timeout.
+
+    ``matcher`` is ``None`` when its group declares none, which the host reads
+    as every tool or source. ``command`` is ``None`` for a handler with no
+    command string, such as a ``prompt`` handler, whose prompt is not
+    published. ``timeout`` is the declared number, or the value's bounded text
+    when it is not one. Other handler settings are not published; a change
+    confined to them is a row whose text says it is not shown.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    matcher: str | None = None
+    type: str | None = None
+    command: HostHookCommandV7 | None = None
+    timeout: int | float | str | None = None
+
+
+class HostHookGrantV7(HostHookGrantV2):
+    #: Every handler the event declares, in file order, at most a bounded
+    #: number; ``omitted_handlers`` counts the rest. ``None`` when the event's
+    #: value is not a list of matcher groups each holding a ``hooks`` list of
+    #: objects, the shape this reader establishes: the detail is then not
+    #: shown rather than guessed. Always present in a ``0.7`` grant, so its
+    #: absence marks a grant read by an earlier schema.
+    handlers: list[HostHookHandlerV7] | None
+    omitted_handlers: int = Field(default=0, ge=0)
+
+
+class HostMcpServerGrantV7(HostMcpServerGrantV2):
+    #: The declared ``args``, each redacted as a hook command's words are and
+    #: bounded, at most a bounded number; ``omitted_args`` counts the rest.
+    #: ``[]`` when none are declared, and ``None`` when ``args`` is not a list.
+    #: A version pin such as ``example-mcp-server@1.2.3`` is published as the
+    #: argument it is. Always present in a ``0.7`` grant.
+    args: list[str] | None
+    omitted_args: int = Field(default=0, ge=0)
+
+
+HostGrantV7 = Annotated[
+    HostMcpServerGrantV7
+    | HostPermissionRuleGrantV2
+    | HostPermissionModeGrantV2
+    | HostHookGrantV7
+    | HostSandboxGrantV2
+    | HostAdditionalPathGrantV2
+    | HostPluginGrantV2
+    | HostProfileGrantV2
+    | HostRequirementGrantV2
+    | HostWorkflowGrantV6
+    | HostInstructionGrantV2,
+    Field(discriminator="kind"),
+]
+
+
+class HostGrantsInventoryV7(HostGrantsInventoryV6):
+    host_grants_inventory_schema_version: Literal["0.7"] = "0.7"
+    grants: list[HostGrantV7] = Field(default_factory=list)
+
+
+class HostGrantsNormalizedSnapshotV7(HostGrantsNormalizedSnapshotV6):
+    grants: list[HostGrantV7] = Field(default_factory=list)
+
+
+class HostGrantsBaselineV7(HostGrantsBaselineV6):
+    host_grants_schema_version: Literal["0.7"] = "0.7"
+    inventory: HostGrantsNormalizedSnapshotV7
+
+
+class HostGrantsDriftV7(HostGrantsDriftV6):
+    host_grants_schema_version: Literal["0.7"] = "0.7"
+
+
+class HostGrantsInventoryArtifactV7(RootModel[HostGrantsInventoryV7]):
+    root: HostGrantsInventoryV7
+
+
+class HostGrantsBaselineArtifactV7(RootModel[HostGrantsBaselineV7]):
+    root: HostGrantsBaselineV7
+
+
+class HostGrantsDriftArtifactV7(RootModel[HostGrantsDriftV7]):
+    root: HostGrantsDriftV7
 
 
 __all__ = [name for name in globals() if name.startswith("Host") or name.startswith("HOST_")]

@@ -11,9 +11,11 @@ from __future__ import annotations
 import errno
 import hashlib
 import json
+import math
 import os
 import posixpath
 import re
+import shlex
 import stat
 import sys
 import tomllib
@@ -67,7 +69,7 @@ from agents_shipgate.core.permission_lattice import (
     subsumes,
     whole_tool_risk,
 )
-from agents_shipgate.core.privacy import SENSITIVE_VALUE_KEYS, redact_text
+from agents_shipgate.core.privacy import SENSITIVE_VALUE_KEYS, is_credential_key, redact_text
 from agents_shipgate.core.trust_roots import (
     IdentityBoundReadSession,
     IdentityReadBudget,
@@ -83,8 +85,9 @@ from agents_shipgate.schemas.host_grants import (
     HostGrantsBaselineV4,
     HostGrantsBaselineV5,
     HostGrantsBaselineV6,
-    HostGrantsDriftV6,
-    HostGrantsInventoryV6,
+    HostGrantsBaselineV7,
+    HostGrantsDriftV7,
+    HostGrantsInventoryV7,
 )
 
 HOST_GRANTS_SCHEMA_VERSION = HOST_GRANTS_BASELINE_SCHEMA_VERSION
@@ -847,6 +850,164 @@ def _endpoint(server: Any) -> str | None:
     return None
 
 
+#: Bounds on the hook and MCP detail a grant publishes (#819). A word is one
+#: hook command word or one MCP argument; a word past its bound ends in ``…``,
+#: and a list past its bound is counted in the grant's ``omitted_*`` member.
+MAX_DETAIL_WORD_CHARS = 80
+MAX_DETAIL_MATCHER_CHARS = 120
+MAX_HOOK_COMMAND_ARGS = 8
+MAX_HOOK_HANDLERS = 16
+MAX_MCP_ARGS = 12
+_DETAIL_REDACTED = "<redacted>"
+#: `NAME=value`, as a shell assignment or an `env`-style argument writes it.
+_DETAIL_ASSIGNMENT_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", re.DOTALL)
+#: An environment-variable-shaped name, whose assigned value is never published.
+_DETAIL_ENV_NAME_RE = re.compile(r"[A-Z_][A-Z0-9_]*")
+_DETAIL_GENERATED_RE = re.compile(r"[A-Za-z0-9+/=_-]{20,}")
+_DETAIL_HEX_RE = re.compile(r"[0-9A-Fa-f]{32,}")
+#: A generated key's characters: bits of Shannon entropy per character, and
+#: switches between a letter and a digit. A name, a path or a package with a
+#: version stays under both (`SomeLongPackageNameForTesting123` is 4.18 bits
+#: and switches once; `ModelContextProtocol2Server` 3.60 and twice); a random
+#: key of the same length is over one of them.
+_DETAIL_GENERATED_ENTROPY = 4.3
+_DETAIL_GENERATED_SWITCHES = 6
+
+
+def _bounded_detail(text: str, limit: int = MAX_DETAIL_WORD_CHARS) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _looks_generated(word: str) -> bool:
+    """Whether a word reads like a generated key rather than a name (#819).
+
+    At least thirty-two hex digits, or at least twenty characters of the base64
+    alphabet holding two of upper case, lower case and digits, whose entropy
+    reaches :data:`_DETAIL_GENERATED_ENTROPY` bits per character or whose
+    letters and digits switch :data:`_DETAIL_GENERATED_SWITCHES` times. It
+    catches a key passed as a bare positional argument that no known token
+    shape names. It cannot recognise a short or word-like secret, which is why
+    a published word is a display and never an input to any comparison.
+    """
+
+    if _DETAIL_HEX_RE.fullmatch(word):
+        return True
+    if not _DETAIL_GENERATED_RE.fullmatch(word):
+        return False
+    alnum = [char for char in word if char.isalnum()]
+    classes = (str.isupper, str.islower, str.isdigit)
+    if sum(any(test(char) for char in alnum) for test in classes) < 2:
+        return False
+    switches = sum(1 for a, b in zip(alnum, alnum[1:], strict=False) if a.isdigit() != b.isdigit())
+    if switches >= _DETAIL_GENERATED_SWITCHES:
+        return True
+    counts = {char: word.count(char) for char in set(word)}
+    entropy = -sum(n / len(word) * math.log2(n / len(word)) for n in counts.values())
+    return entropy >= _DETAIL_GENERATED_ENTROPY
+
+
+def _is_credential_flag(word: str) -> bool:
+    """``--token``, ``--api-key``, ``--auth-token``: a flag whose name names credential material."""
+
+    if not word.startswith("-"):
+        return False
+    name = word.lstrip("-").split("=", 1)[0]
+    return bool(name) and (
+        name.lower().replace("-", "_") in _SECRET_KEY_MARKERS or is_credential_key(name)
+    )
+
+
+def _home_projected(word: str) -> str:
+    """A path under the reading user's home, written from ``~`` as a local source's path is."""
+
+    try:
+        home = Path.home().as_posix().rstrip("/")
+    except (RuntimeError, KeyError):
+        return word
+    posix = word.replace("\\", "/")
+    if home and (posix == home or posix.startswith(home + "/")):
+        return "~" + posix[len(home):]
+    return word
+
+
+def _detail_label(text: str) -> str:
+    """Hook or MCP detail text through the published-label redaction (#802, #819).
+
+    A ``Bearer`` value is replaced first: the header rule alone would take
+    ``Bearer`` for the value of ``Authorization: Bearer <token>`` and keep the
+    token after it.
+    """
+
+    return published_workflow_label(_BEARER_SECRET_RE.sub(r"\1\2<redacted>", text))
+
+
+def _published_word(word: str) -> str:
+    """One hook command word or MCP argument as it may be published (#819).
+
+    The published-label redaction first (#802): known token shapes, header,
+    bearer and credential assignments, a URL reduced to its scheme and host,
+    and the userinfo of any ``scheme://…@``. Then the value of an ``env``-style
+    ``NAME=value`` assignment and of a credential-named ``--flag=value`` is
+    replaced, as is a generated-looking word or ``=`` value, a path under the
+    reading user's home is written from ``~``, and the word is bounded.
+    """
+
+    shown = _detail_label(word)
+    assignment = _DETAIL_ASSIGNMENT_RE.fullmatch(shown)
+    if assignment and _DETAIL_ENV_NAME_RE.fullmatch(assignment.group(1)):
+        return _bounded_detail(f"{assignment.group(1)}={_DETAIL_REDACTED}")
+    if shown.startswith("-") and "=" in shown:
+        flag, _, value = shown.partition("=")
+        if _is_credential_flag(flag) or _looks_generated(value):
+            return _bounded_detail(f"{flag}={_DETAIL_REDACTED}")
+        return _bounded_detail(f"{flag}={_home_projected(value)}")
+    if _looks_generated(shown):
+        return _DETAIL_REDACTED
+    return _bounded_detail(_home_projected(shown))
+
+
+def _published_words(words: list[str]) -> list[str]:
+    """Each word as :func:`_published_word` publishes it, and the value after a credential flag replaced.
+
+    ``--token VALUE`` and ``--api-key VALUE`` pass the credential as the next
+    word, which no pattern over that word alone can recognise.
+    """
+
+    shown: list[str] = []
+    redact_next = False
+    for word in words:
+        if redact_next:
+            shown.append(_DETAIL_REDACTED)
+            redact_next = False
+            continue
+        shown.append(_published_word(word))
+        redact_next = _is_credential_flag(word) and "=" not in word
+    return shown
+
+
+def _detail_text(value: Any, limit: int) -> str:
+    """A scalar detail (a matcher, a handler type, a non-numeric timeout) as it may be published."""
+
+    text = value if isinstance(value, str) else _canonical(_redact_secret_values(value))
+    return _bounded_detail(_detail_label(text), limit)
+
+
+def _mcp_args(config: dict[str, Any]) -> tuple[list[str] | None, int]:
+    """An MCP server's declared ``args`` as its grant publishes them, and how many are past the bound (#819)."""
+
+    if "args" not in config:
+        return [], 0
+    args = config["args"]
+    if not isinstance(args, list):
+        return None, 0
+    words = [
+        item if isinstance(item, str) else _canonical(_redact_secret_values(item))
+        for item in args
+    ]
+    shown = _published_words(words)
+    return shown[:MAX_MCP_ARGS], max(0, len(shown) - MAX_MCP_ARGS)
+
+
 #: VS Code's prompted-input reference, e.g. `"API_KEY": "${input:apiKey}"`.
 _VSCODE_INPUT_REF = re.compile(r"\$\{input:([^}]+)\}")
 #: The documented top level of `.vscode/mcp.json` (#731). Anything else is not
@@ -926,6 +1087,7 @@ def _mcp_grants(
         )
         env = config.get("env") if isinstance(config.get("env"), dict) else {}
         headers = config.get("headers") if isinstance(config.get("headers"), dict) else {}
+        args, omitted_args = _mcp_args(config)
         grants.append({
             **base,
             "server": str(name),
@@ -933,6 +1095,8 @@ def _mcp_grants(
             "endpoint": _endpoint(config),
             "env_keys": sorted(str(key) for key in env),
             "header_keys": sorted(str(key) for key in headers),
+            "args": args,
+            "omitted_args": omitted_args,
         })
     return grants
 
@@ -1043,6 +1207,95 @@ _HOOK_ACCESS_BY_BASIS: dict[str, tuple[str, str]] = {
 LOADED_HOOK_BASES: frozenset[str] = frozenset({"host_configuration", "project_enabled_plugin"})
 
 
+def _hook_command(value: Any) -> dict[str, Any] | None:
+    """A hook's command string as its grant summarizes it (#819).
+
+    The whole string passes through the published-label redaction first, so a
+    header or ``Bearer`` credential split across words is caught, then it is
+    split into words at whitespace outside quotes, the quotes removed and a
+    backslash kept as written (on unbalanced quotes, at whitespace alone).
+    Leading ``NAME=value`` assignments are named in ``env_keys`` and their
+    values dropped; the next word is ``argv0``; each word is published by
+    :func:`_published_words`, and at most :data:`MAX_HOOK_COMMAND_ARGS` words
+    follow ``argv0``. Splitting is display: it claims nothing about how a host
+    runs the command or what the command does.
+    """
+
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = _detail_label(value)
+    # Quotes group words; a backslash is kept as written, so a Windows path
+    # such as `C:\tools\lint.exe` is not read as a run of escapes.
+    lexer = shlex.shlex(text, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    lexer.escape = ""
+    try:
+        words = list(lexer)
+    except ValueError:
+        words = text.split()
+    env_keys: list[str] = []
+    while len(words) > 1:
+        assignment = _DETAIL_ASSIGNMENT_RE.fullmatch(words[0])
+        if not assignment:
+            break
+        env_keys.append(_bounded_detail(_detail_label(assignment.group(1))))
+        words = words[1:]
+    if not words:
+        return None
+    shown = _published_words(words)
+    args = shown[1:]
+    return {
+        "env_keys": env_keys,
+        "argv0": shown[0],
+        "args": args[:MAX_HOOK_COMMAND_ARGS],
+        "omitted_args": max(0, len(args) - MAX_HOOK_COMMAND_ARGS),
+    }
+
+
+def _hook_handlers(config: Any) -> tuple[list[dict[str, Any]] | None, int]:
+    """Every handler one hook event declares, as its grant publishes them (#819).
+
+    Only the documented shape is read: a list of matcher groups, each an
+    object with a ``hooks`` list of handler objects whose ``command``, when
+    present, is a string. Anything else is ``None``, so the detail is not
+    shown rather than guessed at, and the row still reports the change through
+    ``config_sha256``. At most :data:`MAX_HOOK_HANDLERS` handlers are listed.
+    """
+
+    if not isinstance(config, list):
+        return None, 0
+    handlers: list[dict[str, Any]] = []
+    for group in config:
+        if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
+            return None, 0
+        matcher = group.get("matcher")
+        for handler in group["hooks"]:
+            if not isinstance(handler, dict) or (
+                "command" in handler and not isinstance(handler["command"], str)
+            ):
+                return None, 0
+            timeout = handler.get("timeout")
+            numeric = (
+                isinstance(timeout, (int, float))
+                and not isinstance(timeout, bool)
+                and math.isfinite(timeout)
+            )
+            handlers.append({
+                "matcher": None if matcher is None else _detail_text(matcher, MAX_DETAIL_MATCHER_CHARS),
+                "type": None if handler.get("type") is None else _detail_text(handler["type"], MAX_DETAIL_WORD_CHARS),
+                "command": _hook_command(handler.get("command")),
+                "timeout": (
+                    None
+                    if timeout is None
+                    else timeout
+                    if numeric
+                    else _detail_text(str(timeout) if isinstance(timeout, float) else timeout, MAX_DETAIL_WORD_CHARS)
+                ),
+            })
+    return handlers[:MAX_HOOK_HANDLERS], max(0, len(handlers) - MAX_HOOK_HANDLERS)
+
+
 def _hooks_grants(
     data: Any, *, host: str, scope: HostScope, source: str,
     basis: HookLoadingBasis = "host_configuration",
@@ -1051,16 +1304,19 @@ def _hooks_grants(
     if not isinstance(hooks, dict):
         return []
     access, risk = _HOOK_ACCESS_BY_BASIS[basis]
-    return [
-        {
+    grants: list[dict[str, Any]] = []
+    for event, config in sorted(hooks.items()):
+        handlers, omitted = _hook_handlers(config)
+        grants.append({
             **_grant_base(
                 host=host, scope=scope, source=source, kind="hook",
                 identity=str(event), config=config, access=access, risk=risk,
             ),
             "event": str(event),
-        }
-        for event, config in sorted(hooks.items())
-    ]
+            "handlers": handlers,
+            "omitted_handlers": omitted,
+        })
+    return grants
 
 
 def hook_loading_basis(grant: dict[str, Any]) -> HookLoadingBasis:
@@ -3398,7 +3654,7 @@ def build_host_boundary_snapshot(
         "static_analysis_only": True,
         "runtime_session_verified": False,
     }
-    inventory = HostGrantsInventoryV6.model_validate(payload).model_dump(mode="json")
+    inventory = HostGrantsInventoryV7.model_validate(payload).model_dump(mode="json")
     return HostBoundarySnapshot(
         inventory=inventory, cache=cache, input_failures=dict(cache.input_failures),
         plugin_reference_issue_ids=frozenset(plugin_reference_issue_ids),
@@ -3437,7 +3693,7 @@ def host_audit_inventory(
 
     if snapshot is None:
         snapshot = build_host_boundary_snapshot(workspace, scope=scope, cache=cache)
-    inventory = HostGrantsInventoryV6.model_validate(snapshot.inventory)
+    inventory = HostGrantsInventoryV7.model_validate(snapshot.inventory)
     if inventory.scope != scope:
         raise ValueError(
             f"Host boundary snapshot scope {inventory.scope!r} does not match {scope!r}"
@@ -3537,7 +3793,18 @@ def normalized_host_grants(inventory: dict[str, Any]) -> dict[str, Any]:
 
 
 def host_grants_sha256(grants: dict[str, Any]) -> str:
-    return _sha(grants)
+    """The digest of a normalized inventory, read as comparisons read it (#819).
+
+    The display-only members :data:`DISPLAY_ONLY_GRANT_FIELDS` names are left
+    out, so a ``0.6`` inventory and its ``0.7`` reading of the same files have
+    one digest, and a ``0.6`` baseline's stored ``inventory_sha256`` still
+    verifies. Nothing they display is left unbound: each grant's
+    ``config_sha256``, which this digest covers, changes whenever they do.
+    """
+
+    if not isinstance(grants.get("grants"), list):
+        return _sha(grants)
+    return _sha({**grants, "grants": [compared_grant(grant) for grant in grants["grants"]]})
 
 
 def build_host_grants_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
@@ -3553,7 +3820,7 @@ def build_host_grants_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
         "inventory_sha256": host_grants_sha256(normalized),
         "inventory": normalized,
     }
-    return HostGrantsBaselineV6.model_validate(payload).model_dump(mode="json")
+    return HostGrantsBaselineV7.model_validate(payload).model_dump(mode="json")
 
 
 def load_host_grants_baseline(path: Path) -> dict[str, Any]:
@@ -3597,7 +3864,7 @@ def load_host_grants_baseline_with_text(
                 "and repair or replace it deliberately."
             )
         return data, text
-    if version not in {"0.2", "0.3", "0.4", "0.5", HOST_GRANTS_BASELINE_SCHEMA_VERSION}:
+    if version not in {"0.2", "0.3", "0.4", "0.5", "0.6", HOST_GRANTS_BASELINE_SCHEMA_VERSION}:
         raise ValueError(
             f"Host-grants baseline {path} has unsupported schema version "
             f"{version!r}. A human must review migration or replacement."
@@ -3605,7 +3872,7 @@ def load_host_grants_baseline_with_text(
     try:
         model = {"0.2": HostGrantsBaselineV2, "0.3": HostGrantsBaselineV3,
                  "0.4": HostGrantsBaselineV4, "0.5": HostGrantsBaselineV5,
-                 "0.6": HostGrantsBaselineV6}[version]
+                 "0.6": HostGrantsBaselineV6, "0.7": HostGrantsBaselineV7}[version]
         parsed = model.model_validate(data).model_dump(mode="json")
     except ValidationError:
         return (
@@ -3771,9 +4038,37 @@ def diff_host_grants(baseline: dict[str, Any], current: dict[str, Any]) -> list[
     for grant_id in sorted(set(base_by_id) | set(current_by_id)):
         before = base_by_id.get(grant_id)
         after = current_by_id.get(grant_id)
-        if before != after and not _same_workflow_grant(before, after):
+        if compared_grant(before) != compared_grant(after) and not _same_workflow_grant(
+            before, after
+        ):
             changes.append({"grant_id": grant_id, "baseline": before, "current": after})
     return changes
+
+
+#: Members a grant publishes to display what its ``config_sha256`` already
+#: binds (#819): a hook's handlers and an MCP server's launch arguments. Each is
+#: a redacted, bounded projection of the configuration that digest is computed
+#: from, redacting at least what the digest's input redacts, so read on one
+#: machine it can change only when the digest does (a path under the reading
+#: user's home is written from ``~``, which differs by machine). Grant equality and the
+#: inventory digests leave them out: a change is still a row, through
+#: ``config_sha256``, and a ``0.6`` grant, which has none of them, compares
+#: equal to its ``0.7`` reading of the same configuration.
+DISPLAY_ONLY_GRANT_FIELDS: dict[str, frozenset[str]] = {
+    "hook": frozenset({"handlers", "omitted_handlers"}),
+    "mcp_server": frozenset({"args", "omitted_args"}),
+}
+
+
+def compared_grant(grant: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The grant as comparisons and digests read it: without its display-only members (#819)."""
+
+    if grant is None:
+        return None
+    hidden = DISPLAY_ONLY_GRANT_FIELDS.get(str(grant.get("kind")))
+    if not hidden or not hidden.intersection(grant):
+        return grant
+    return {key: value for key, value in grant.items() if key not in hidden}
 
 
 def _same_workflow_grant(before: dict | None, after: dict | None) -> bool:
@@ -4109,7 +4404,7 @@ def _incomparable_payload(
         # and also route to a human before any first acknowledgement.
         "next_action": None,
     }
-    return HostGrantsDriftV6.model_validate(payload).model_dump(mode="json")
+    return HostGrantsDriftV7.model_validate(payload).model_dump(mode="json")
 
 
 #: Baseline versions a drift comparison reads as current. v0.5 only adds
@@ -4118,8 +4413,20 @@ def _incomparable_payload(
 #: inventory can never be saved, so a v0.4 baseline holds no artifact that v0.5
 #: would describe differently. Accepting it keeps every saved baseline usable.
 #: v0.6 adds workflow step references (#771); the rule below narrows which
-#: v0.4/v0.5 baselines that acceptance still covers.
-_COMPARABLE_BASELINE_SCHEMA_VERSIONS = frozenset({"0.4", "0.5", HOST_GRANTS_BASELINE_SCHEMA_VERSION})
+#: v0.4/v0.5 baselines that acceptance still covers. v0.7 adds only the hook
+#: and MCP detail no comparison reads (#819), so a v0.6 baseline compares as
+#: it did.
+_COMPARABLE_BASELINE_SCHEMA_VERSIONS = frozenset(
+    {"0.4", "0.5", "0.6", HOST_GRANTS_BASELINE_SCHEMA_VERSION}
+)
+
+#: Baseline versions ``audit --host --save-baseline`` may replace (#819). Every
+#: grant a v0.6 baseline holds compares exactly as its v0.7 reading does: v0.7
+#: adds only the display members :data:`DISPLAY_ONLY_GRANT_FIELDS` names, which
+#: no comparison and no digest reads, so refusing to replace one would make
+#: every v0.6 baseline a move-aside step for no change in what is compared.
+#: Older baselines stay refused, as they were (#771).
+OVERWRITABLE_BASELINE_SCHEMA_VERSIONS = frozenset({"0.6", HOST_GRANTS_BASELINE_SCHEMA_VERSION})
 
 #: Baseline versions whose workflow grants never read step action references
 #: (#771). Such a grant's missing ``step_actions`` is not evidence that no
@@ -4196,7 +4503,7 @@ def _comparable_drift_payload(
         "incomparable_reasons": [],
         "next_action": None,
     }
-    return HostGrantsDriftV6.model_validate(payload).model_dump(mode="json")
+    return HostGrantsDriftV7.model_validate(payload).model_dump(mode="json")
 
 
 def build_host_comparison_payload(

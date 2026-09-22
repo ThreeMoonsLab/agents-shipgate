@@ -161,6 +161,22 @@ beside either. A step label is read for userinfo only in a token holding
 `scheme://`, so a scheme-less `user:password@host` in a step name is not read
 as userinfo.
 
+A hook row names what the hook declares, and an MCP row the server's launch
+arguments (#819). A hook grant publishes each handler under its event: the
+group's `matcher`, the handler's `type`, a summary of its command (its first
+word and at most eight words after it, redacted and bounded) and its
+`timeout`. So a matcher, command or timeout edit reads
+`PostToolUse: matcher Edit → Edit|Write|Bash` rather than
+`PostToolUse → PostToolUse`. An MCP server grant publishes its declared `args`
+the same way, so a version pin moving to `@latest` is an `args` difference.
+The detail is a display of the declaration, never an input to the comparison:
+the command is not resolved or run, the script it names is not read (#702), a
+credential-shaped or generated-looking word is published as `<redacted>`, and
+a change that only such a word, a word past the bound or an unpublished setting
+carries is still a row, which says the change is in a detail it does not show.
+A hook declaration outside the documented shape publishes no handlers, and its
+row says the matcher, command and timeout are not shown.
+
 A hook row states its loading basis (#714). Parsing a hook file proves the
 file exists, not that a host loads it, so hooks are published four ways:
 

@@ -226,7 +226,13 @@ SURFACES: tuple[Surface, ...] = (
         # reserved coverage `scope`, and is read as incomparable by every
         # control route, so it adds no claim; every route to the same object,
         # and every refusal it must keep, is held by
-        # `tests/test_partial_host_comparison.py`.
+        # `tests/test_partial_host_comparison.py`. Its hook and MCP-argument
+        # text (#819) renders the handlers and `args` the engine published,
+        # redacted and bounded, on the grant: a display of what
+        # `config_sha256` binds, left out of grant equality and the inventory
+        # digests, so it restates no answer and moves no row;
+        # `tests/test_hook_mcp_detail_fields.py` holds every route to the
+        # same entry.
         {},
     ),
     Surface(

@@ -10,7 +10,8 @@ The renderer, `--json`, and `check`'s text format share these rows, so the
 three cannot describe one change three ways. The text projections read them
 through :func:`review_changes`, which adds what the published row leaves to
 the reader: a permission rule's disposition, an MCP server's published launch
-facts, and one change for a replacement or move the engine established (#795).
+facts and arguments, a hook's published handlers (#819), and one change for a
+replacement or move the engine established (#795).
 
 Those presentation facts are published too, so a machine consumer reads what a
 human reads: the rule's disposition on the row itself, and the joined changes,
@@ -20,6 +21,7 @@ their direction, the counters and the review question in the comparison's
 
 from __future__ import annotations
 
+import json
 import re
 from collections import Counter
 from collections.abc import Sequence
@@ -481,7 +483,8 @@ class ReviewChange:
     before: str
     after: str
     #: The field-level difference, in place of ``before → after``, when both
-    #: sides name the same grant (an MCP server whose launch changed).
+    #: sides name the same grant (an MCP server whose launch changed, a hook
+    #: whose matcher, command or timeout changed).
     change: str | None
     why: str
     expands: bool
@@ -640,15 +643,41 @@ def _mcp_launch(grant: dict[str, Any]) -> str | None:
     return f"{kind} {endpoint}"
 
 
+def _quoted_word(word: str) -> str:
+    """A published word as a command line writes it: quoted when it is empty or holds whitespace (#819)."""
+
+    if word and not any(char.isspace() for char in word):
+        return word
+    return "'" + word.replace("'", "'\\''") + "'"
+
+
+def _more(count: int, noun: str) -> str:
+    return f" (+{count} more {noun}{'s' if count != 1 else ''})" if count else ""
+
+
+def _args_text(args: list[str] | None, omitted: int) -> str:
+    """Published MCP arguments as one line, with the count past the bound (#819)."""
+
+    if args is None:
+        return "(not a list)"
+    if not args and not omitted:
+        return "(none)"
+    return " ".join(_quoted_word(word) for word in args) + _more(omitted, "argument")
+
+
 def _mcp_cell(value: str, grant: dict[str, Any] | None) -> str:
     """An added or removed MCP server with the launch facts its grant publishes."""
 
     if not grant or value == ABSENT:
         return value
+    args = grant.get("args")
     facts = [
         fact
         for fact in (
             _mcp_launch(grant),
+            "args " + _args_text(args, int(grant.get("omitted_args") or 0))
+            if args or grant.get("omitted_args") or ("args" in grant and args is None)
+            else None,
             "env keys " + _names(_key_names(grant["env_keys"])) if grant.get("env_keys") else None,
             "header keys " + _names(_key_names(grant["header_keys"])) if grant.get("header_keys") else None,
         )
@@ -659,6 +688,22 @@ def _mcp_cell(value: str, grant: dict[str, Any] | None) -> str:
 
 #: Every published MCP fact a changed row compares (#795).
 _MCP_FIELDS = ("transport", "endpoint", "env_keys", "header_keys")
+
+
+def _mcp_args_change(before: dict[str, Any], after: dict[str, Any]) -> str | None:
+    """The difference in two readings' published launch arguments, or ``None`` (#819).
+
+    ``None`` too when either reading does not publish them, as a grant from a
+    ``0.6`` snapshot does not.
+    """
+
+    if "args" not in before or "args" not in after:
+        return None
+    old = (before["args"], int(before.get("omitted_args") or 0))
+    new = (after["args"], int(after.get("omitted_args") or 0))
+    if old == new:
+        return None
+    return f"args {_args_text(*old)} → {_args_text(*new)}"
 
 
 def _mcp_change(name: str, before: dict[str, Any], after: dict[str, Any]) -> str | None:
@@ -691,6 +736,9 @@ def _mcp_change(name: str, before: dict[str, Any], after: dict[str, Any]) -> str
         # Printing the shared text on both sides would read as no change.
         kind = "url" if after.get("transport") == "url" else "command name"
         parts.append(f"{kind} changed ({_URL_NOT_SHOWN})")
+    arguments = _mcp_args_change(before, after)
+    if arguments is not None:
+        parts.append(arguments)
     for field, label in (("env_keys", "env keys"), ("header_keys", "header keys")):
         old, new = set(before[field] or []), set(after[field] or [])
         added, removed = sorted(new - old), sorted(old - new)
@@ -698,32 +746,189 @@ def _mcp_change(name: str, before: dict[str, Any], after: dict[str, Any]) -> str
             tokens = [f"+{key}" for key in _key_names(added)] + [f"-{key}" for key in _key_names(removed)]
             parts.append(f"{label} {_names(tokens)}")
     if not parts:
-        return f"{name}: {_mcp_unshown_change(after)}"
+        return f"{name}: {_mcp_unshown_change(after, args_compared='args' in before)}"
     return f"{name}: " + "; ".join(parts)
 
 
-def _mcp_unshown_change(grant: dict[str, Any]) -> str:
+def _mcp_unshown_change(grant: dict[str, Any], *, args_compared: bool = False) -> str:
     """A change confined to what the grant does not publish, in the words of what was compared.
 
-    Only the command's name, or the URL's recorded value, and the env and
-    header key names are compared. `npx` → `./npx` and
-    `/usr/local/bin/node` → `./scripts/node` change the command while its name
-    stays the same, so the sentence names the command's path beside its
-    arguments as what this output does not show. A URL that is not printed is
-    named `url as recorded`, never by its value.
+    Only the command's name, or the URL's recorded value, the published
+    arguments, and the env and header key names are compared. `npx` → `./npx`
+    and `/usr/local/bin/node` → `./scripts/node` change the command while its
+    name stays the same, so the sentence names the command's path as what this
+    output does not show; an argument is published redacted and bounded, so a
+    change inside a redacted or shortened one is not shown either (#819). A URL
+    that is not printed is named `url as recorded`, never by its value, and a URL
+    server that declares no arguments is not said to have compared them. A grant
+    read before arguments were published names them as not shown, as it did.
     """
 
     launch = _mcp_launch(grant)
+    arguments = (
+        "arguments, "
+        if args_compared
+        and "args" in grant
+        and (grant.get("transport") != "url" or grant.get("args") or grant.get("omitted_args"))
+        else ""
+    )
     if grant.get("transport") == "url":
         compared = "url as recorded" if _mcp_endpoint(grant) == _URL_NOT_SHOWN else launch or "url"
         unshown = "the URL's query or another setting"
     else:
         compared = launch or "command name"
-        unshown = "the command's path or arguments"
+        unshown = (
+            "the command's path, a redacted or shortened argument, or another setting"
+            if arguments
+            else "the command's path or arguments"
+        )
     return (
-        f"no difference in the {compared}, env key names or header key names; the change "
-        f"is in a detail this output does not show, such as {unshown}"
+        f"no difference in the {compared}, {arguments}env key names or header key names; the "
+        f"change is in a detail this output does not show, such as {unshown}"
     )
+
+
+#: How many hook handlers an added or removed hook's cell lists before counting.
+_HANDLER_LIMIT = 3
+
+#: What a hook row says when its declaration is not in the shape the reader
+#: establishes, and so no handler was published (#819).
+_HOOK_SHAPE_NOT_READ = (
+    "matcher, command and timeout not shown: the declaration is not a list of matcher "
+    "groups whose hooks are objects"
+)
+
+
+def _command_text(command: dict[str, Any]) -> str:
+    """A published hook command summary as one line: assignments, ``argv0``, its words, the count past the bound."""
+
+    words = [f"{key}=<redacted>" for key in command.get("env_keys") or []]
+    words += [str(command.get("argv0") or ""), *(command.get("args") or [])]
+    return " ".join(_quoted_word(word) for word in words) + _more(
+        int(command.get("omitted_args") or 0), "argument"
+    )
+
+
+def _handler_value(field: str, value: Any) -> str:
+    if value is None:
+        return "(none)"
+    if field == "command":
+        return _command_text(value)
+    if field == "matcher" and value == "":
+        return '""'
+    return str(value)
+
+
+#: A hook handler's published fields, in the order a row names them.
+_HANDLER_FIELDS = ("matcher", "type", "command", "timeout")
+
+
+def _handler_facts(handler: dict[str, Any]) -> list[str]:
+    """What one published handler declares, in a reviewer's words. ``type command`` goes unsaid."""
+
+    return [
+        f"{field} {_handler_value(field, handler.get(field))}"
+        for field in _HANDLER_FIELDS
+        if handler.get(field) is not None and not (field == "type" and handler[field] == "command")
+    ]
+
+
+def _hook_cell(value: str, grant: dict[str, Any] | None) -> str:
+    """An added or removed hook with the handlers its grant publishes (#819).
+
+    A grant read before handlers were published renders its event alone, as it did.
+    """
+
+    if not grant or value == ABSENT or "handlers" not in grant:
+        return value
+    handlers = grant["handlers"]
+    if handlers is None:
+        return f"{value} ({_HOOK_SHAPE_NOT_READ})"
+    total = len(handlers) + int(grant.get("omitted_handlers") or 0)
+    if not total:
+        return f"{value} (no handlers)"
+    if total == 1 and handlers:
+        facts = "; ".join(_handler_facts(handlers[0])) or "a handler with no matcher, command or timeout"
+        return f"{value} ({facts})"
+    listed = [
+        f"handler {index}: {', '.join(_handler_facts(handler)) or 'no matcher, command or timeout'}"
+        for index, handler in enumerate(handlers[:_HANDLER_LIMIT], start=1)
+    ]
+    rest = total - len(listed)
+    return f"{value} ({'; '.join(listed)}{_more(rest, 'handler')})"
+
+
+def _canonical_handler(handler: dict[str, Any]) -> str:
+    return json.dumps(handler, sort_keys=True, ensure_ascii=False)
+
+
+def _handler_changes(before: list[dict[str, Any]], after: list[dict[str, Any]]) -> list[str]:
+    """Field differences between two readings of one event's handlers (#819).
+
+    With the same number of handlers, handler N is compared with handler N
+    and each differing field is named with its before and after. Otherwise
+    the handlers only one side declares are listed as removed or added, since
+    nothing establishes which of them another replaced.
+    """
+
+    parts: list[str] = []
+    if len(before) == len(after) and before != after and sorted(
+        map(_canonical_handler, before)
+    ) == sorted(map(_canonical_handler, after)):
+        return ["the same handlers in a different order"]
+    if len(before) == len(after):
+        several = len(after) > 1
+        for index, (old, new) in enumerate(zip(before, after, strict=True), start=1):
+            for field in _HANDLER_FIELDS:
+                if old.get(field) != new.get(field):
+                    label = f"handler {index} {field}" if several else field
+                    parts.append(
+                        f"{label} {_handler_value(field, old.get(field))} → "
+                        f"{_handler_value(field, new.get(field))}"
+                    )
+        return parts
+    remaining = list(after)
+    removed: list[dict[str, Any]] = []
+    for handler in before:
+        if handler in remaining:
+            remaining.remove(handler)
+        else:
+            removed.append(handler)
+    for sign, handlers in (("-", removed), ("+", remaining)):
+        for handler in handlers:
+            facts = ", ".join(_handler_facts(handler)) or "no matcher, command or timeout"
+            parts.append(f"{sign}handler ({facts})")
+    return parts
+
+
+def _hook_change(event: str, before: dict[str, Any], after: dict[str, Any]) -> str | None:
+    """What differs between two readings of one hook event, in its published handlers (#819).
+
+    ``None`` when either reading does not publish handlers, as a ``0.6``
+    grant does not, so it renders ``event → event`` as it did. The row exists
+    because ``config_sha256`` changed; when no published field differs, the
+    change is in something the handlers do not show, and the text says so
+    rather than print the same handlers twice.
+    """
+
+    if "handlers" not in before or "handlers" not in after:
+        return None
+    old, new = before["handlers"], after["handlers"]
+    if old is None or new is None:
+        return f"{event}: {_HOOK_SHAPE_NOT_READ}"
+    parts = _handler_changes(old, new)
+    old_more, new_more = int(before.get("omitted_handlers") or 0), int(after.get("omitted_handlers") or 0)
+    if old_more != new_more:
+        parts.append(f"handlers past the first {len(new)}: {old_more} → {new_more}")
+    if not parts:
+        return (
+            f"{event}: no difference in the matcher, type, command summary or timeout; the "
+            "change is in a detail this output does not show, such as a redacted or shortened "
+            "word or another hook setting"
+        )
+    shown = parts[:_NAME_LIMIT]
+    rest = len(parts) - len(shown)
+    return f"{event}: " + "; ".join(shown) + (f"; and {rest} more" if rest else "")
 
 
 def _permission_cell(value: str, grant: dict[str, Any] | None) -> str:
@@ -872,6 +1077,17 @@ def capability_diff_rows(
             view = _RowView(
                 before=_mcp_cell(row.before, before_grant),
                 after=_mcp_cell(row.after, after_grant),
+            )
+        elif kind == "hook" and before_grant and after_grant:
+            view = _RowView(
+                before=row.before,
+                after=row.after,
+                change=_hook_change(row.after, before_grant, after_grant),
+            )
+        elif kind == "hook":
+            view = _RowView(
+                before=_hook_cell(row.before, before_grant),
+                after=_hook_cell(row.after, after_grant),
             )
         else:
             view = _RowView(before=row.before, after=row.after)

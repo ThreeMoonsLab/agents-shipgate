@@ -44,6 +44,22 @@ directory, still refuses its comparison. A `0.20` verifier claiming a partial
 comparison or a `scope` is refused. See
 [the migration note](../STABILITY.md#partial-host-comparison-808).
 
+The same unreleased runtime contract v41 also publishes what a hook runs and
+what an MCP server is launched with (#819). Host-grants inventory, baseline and drift
+schemas move to `0.7`: a hook grant adds `handlers[]` (each handler's group
+`matcher`, its `type`, a redacted and bounded `command` summary
+`{env_keys, argv0, args, omitted_args}` and its `timeout`) and
+`omitted_handlers`, and an MCP server grant adds its redacted, bounded `args`
+and `omitted_args`. A hook row names the changed field,
+`PostToolUse: matcher Edit → Edit|Write|Bash`, and a version pin moving to
+`@latest` is an `args` difference, in the text and in
+`review.changes[].change`. The members display what `config_sha256` already
+binds, so grant equality and the inventory digests leave them out: they move
+no row value, row count, verifier or capability-diff schema, a `0.6` baseline
+stays comparable with no new row or reason, and
+`minimum_control_contract_version` stays `21`. See
+[the migration note](../STABILITY.md#hook-mcp-detail-fields-819).
+
 Previous runtime contract v40 reads the action reference each workflow step declares
 (#771). Host-grants inventory, baseline and drift schemas move to `0.6`, and a
 workflow grant adds `step_actions[]`: the job, the step (`id`, else `name`,
@@ -735,7 +751,7 @@ Downstream repos generated with
 - Current attestation schema: `0.5` — [`docs/attestation-schema.v0.5.json`](attestation-schema.v0.5.json)
 - Current registry schema: `0.4` — [`docs/registry-schema.v0.4.json`](registry-schema.v0.4.json)
 - Current org evidence bundle schema: `shipgate.org_evidence_bundle/v2` — [`docs/org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json)
-- Current host-grants inventory, baseline, and drift schemas: `0.6` — [`inventory`](host-grants-inventory-schema.v0.6.json), [`baseline`](host-grants-baseline-schema.v0.6.json), [`drift`](host-grants-drift-schema.v0.6.json)
+- Current host-grants inventory, baseline, and drift schemas: `0.7` — [`inventory`](host-grants-inventory-schema.v0.7.json), [`baseline`](host-grants-baseline-schema.v0.7.json), [`drift`](host-grants-drift-schema.v0.7.json)
 - Current trigger catalog schema: `0.4` — [`docs/triggers.json`](triggers.json)
 - Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
 - Current governance benchmark result schema: `0.2` — [`docs/governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json)

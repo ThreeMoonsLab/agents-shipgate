@@ -52,7 +52,7 @@ drops a denial and adds an MCP server:
 Agent capability diff  origin/main (07c50e1b) -> working tree
 
 ⚠ high    added    claude-code .mcp.json
-                  billing (command name npx; env keys BILLING_TOKEN)
+                  billing (command name npx; args -y @example/billing-mcp; env keys BILLING_TOKEN)
                   an MCP tool surface the agent may call has changed
 
 ⚠ medium  widened  claude-code .claude/settings.json
@@ -105,8 +105,9 @@ change: any other changed file it does not read is absent. When more items are
 computed than it prints,
 it names how many it left out and that they rank below the ones it kept. The
 entries are for a reviewer to act on, not merge authority: each names the rule
-with its disposition, a replaced rule's before and after, and an MCP server's
-command name or redacted URL and key names, then one review question. Every
+with its disposition, a replaced rule's before and after, an MCP server's
+command name or redacted URL, arguments and key names, and a hook's matcher,
+command and timeout, then one review question. Every
 answer, a zero-row one and a refusal included, ends with the compared commits
 and the command that reproduces the comparison. `--json` publishes the same entries,
 counters, question and command beside the rows, so a script and a reader
@@ -117,11 +118,13 @@ beside the refusal. The
 [quickstart](docs/quickstart.md#review-a-host-configuration-change) shows each
 answer, the `--base <ref>` recovery when no base can be detected, and the
 [surfaces `diff` does not read](docs/host-boundary-support.md#known-unread-surfaces).
-**Released in `1.1.0`:** the output above is from the published `1.1.0`,
-installed from PyPI into a clean virtualenv outside any checkout and run in a
-clone. The previous release, `1.0.0`, names the same changes as four rows,
-without the dispositions, the joined replacement, the MCP launch details, the
-`What this run established` block, the review question and the reference lines.
+**Not yet released:** the output above is from this repository's source tree,
+which still reports version `1.1.0`, run in a clone. The published `1.1.0` from
+PyPI prints the same answer without the `billing` server's launch arguments
+(`args -y @example/billing-mcp`), which #819 added. The previous release,
+`1.0.0`, names the same changes as four rows, without the dispositions, the
+joined replacement, the MCP launch details, the `What this run established`
+block, the review question and the reference lines.
 
 When the answer is useful and you want it on every pull request, add
 [`examples/github-actions/14-host-only-advisory-pr.yml`](examples/github-actions/14-host-only-advisory-pr.yml):
