@@ -239,6 +239,7 @@
     },
     "HostGrantsBaselineV7": {
       "additionalProperties": false,
+      "description": "A saved ``0.7`` baseline: the grants a ``0.6`` baseline holds, under the ``0.7`` version.\n\nA saved baseline holds no hook ``handlers`` and no MCP ``args`` (#819):\nit is committed, and those members, read from a user, managed or\ngit-ignored file, would carry values that were never in the repository\ninto it. No comparison, row or digest reads a saved copy of them, so its\n``inventory`` is the ``0.6`` snapshot, which forbids them.",
       "properties": {
         "host_grants_schema_version": {
           "const": "0.7",
@@ -247,7 +248,7 @@
           "type": "string"
         },
         "inventory": {
-          "$ref": "#/$defs/HostGrantsNormalizedSnapshotV7"
+          "$ref": "#/$defs/HostGrantsNormalizedSnapshotV6"
         },
         "inventory_sha256": {
           "title": "Inventory Sha256",
@@ -270,7 +271,7 @@
       "title": "HostGrantsBaselineV7",
       "type": "object"
     },
-    "HostGrantsNormalizedSnapshotV7": {
+    "HostGrantsNormalizedSnapshotV6": {
       "additionalProperties": false,
       "properties": {
         "artifacts": {
@@ -285,9 +286,9 @@
             "discriminator": {
               "mapping": {
                 "additional_path": "#/$defs/HostAdditionalPathGrantV2",
-                "hook": "#/$defs/HostHookGrantV7",
+                "hook": "#/$defs/HostHookGrantV2",
                 "instruction_trust_root": "#/$defs/HostInstructionGrantV2",
-                "mcp_server": "#/$defs/HostMcpServerGrantV7",
+                "mcp_server": "#/$defs/HostMcpServerGrantV2",
                 "permission_mode": "#/$defs/HostPermissionModeGrantV2",
                 "permission_rule": "#/$defs/HostPermissionRuleGrantV2",
                 "plugin_or_app": "#/$defs/HostPluginGrantV2",
@@ -300,7 +301,7 @@
             },
             "oneOf": [
               {
-                "$ref": "#/$defs/HostMcpServerGrantV7"
+                "$ref": "#/$defs/HostMcpServerGrantV2"
               },
               {
                 "$ref": "#/$defs/HostPermissionRuleGrantV2"
@@ -309,7 +310,7 @@
                 "$ref": "#/$defs/HostPermissionModeGrantV2"
               },
               {
-                "$ref": "#/$defs/HostHookGrantV7"
+                "$ref": "#/$defs/HostHookGrantV2"
               },
               {
                 "$ref": "#/$defs/HostSandboxGrantV2"
@@ -356,45 +357,10 @@
       "required": [
         "scope"
       ],
-      "title": "HostGrantsNormalizedSnapshotV7",
+      "title": "HostGrantsNormalizedSnapshotV6",
       "type": "object"
     },
-    "HostHookCommandV7": {
-      "additionalProperties": false,
-      "description": "A hook command's summary: its first word and a bounded list of the words after it.\n\nRead from the declared command string, split into words at whitespace\noutside quotes, with the quotes removed and a backslash kept as written.\nThat is display, not a claim about how a host runs the command.\n``env_keys`` names each leading ``NAME=value`` assignment; its value is\nnever published, as an ``env`` value never is. Every word passes through\nthe published-label redaction, a value after a credential-named flag or in\nan ``env``-style assignment is ``<redacted>``, a long generated-looking\nword is ``<redacted>``, a word longer than the bound ends in ``\u2026``, and\n``omitted_args`` counts the words past the bound.",
-      "properties": {
-        "args": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Args",
-          "type": "array"
-        },
-        "argv0": {
-          "title": "Argv0",
-          "type": "string"
-        },
-        "env_keys": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Env Keys",
-          "type": "array"
-        },
-        "omitted_args": {
-          "default": 0,
-          "minimum": 0,
-          "title": "Omitted Args",
-          "type": "integer"
-        }
-      },
-      "required": [
-        "argv0"
-      ],
-      "title": "HostHookCommandV7",
-      "type": "object"
-    },
-    "HostHookGrantV7": {
+    "HostHookGrantV2": {
       "additionalProperties": false,
       "properties": {
         "access": {
@@ -422,20 +388,6 @@
           "title": "Grant Id",
           "type": "string"
         },
-        "handlers": {
-          "anyOf": [
-            {
-              "items": {
-                "$ref": "#/$defs/HostHookHandlerV7"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Handlers"
-        },
         "host": {
           "enum": [
             "codex",
@@ -452,12 +404,6 @@
           "default": "hook",
           "title": "Kind",
           "type": "string"
-        },
-        "omitted_handlers": {
-          "default": 0,
-          "minimum": 0,
-          "title": "Omitted Handlers",
-          "type": "integer"
         },
         "risk": {
           "enum": [
@@ -492,71 +438,9 @@
         "config_sha256",
         "access",
         "risk",
-        "event",
-        "handlers"
+        "event"
       ],
-      "title": "HostHookGrantV7",
-      "type": "object"
-    },
-    "HostHookHandlerV7": {
-      "additionalProperties": false,
-      "description": "One hook handler under an event: its group's matcher, its type, command and timeout.\n\n``matcher`` is ``None`` when its group declares none, which the host reads\nas every tool or source. ``command`` is ``None`` for a handler with no\ncommand string, such as a ``prompt`` handler, whose prompt is not\npublished. ``timeout`` is the declared number, or the value's bounded text\nwhen it is not one. Other handler settings are not published; a change\nconfined to them is a row whose text says it is not shown.",
-      "properties": {
-        "command": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/HostHookCommandV7"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "matcher": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Matcher"
-        },
-        "timeout": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Timeout"
-        },
-        "type": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Type"
-        }
-      },
-      "title": "HostHookHandlerV7",
+      "title": "HostHookGrantV2",
       "type": "object"
     },
     "HostInstructionGrantV2": {
@@ -642,7 +526,7 @@
       "title": "HostInstructionGrantV2",
       "type": "object"
     },
-    "HostMcpServerGrantV7": {
+    "HostMcpServerGrantV2": {
       "additionalProperties": false,
       "properties": {
         "access": {
@@ -657,20 +541,6 @@
           ],
           "title": "Access",
           "type": "string"
-        },
-        "args": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Args"
         },
         "config_sha256": {
           "title": "Config Sha256",
@@ -723,12 +593,6 @@
           "title": "Kind",
           "type": "string"
         },
-        "omitted_args": {
-          "default": 0,
-          "minimum": 0,
-          "title": "Omitted Args",
-          "type": "integer"
-        },
         "risk": {
           "enum": [
             "none",
@@ -771,10 +635,9 @@
         "access",
         "risk",
         "server",
-        "transport",
-        "args"
+        "transport"
       ],
-      "title": "HostMcpServerGrantV7",
+      "title": "HostMcpServerGrantV2",
       "type": "object"
     },
     "HostPermissionModeGrantV2": {

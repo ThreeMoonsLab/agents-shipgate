@@ -171,9 +171,12 @@ word and at most eight words after it, redacted and bounded) and its
 the same way, so a version pin moving to `@latest` is an `args` difference.
 The detail is a display of the declaration, never an input to the comparison:
 the command is not resolved or run, the script it names is not read (#702), a
-credential-shaped or generated-looking word is published as `<redacted>`, and
+credential-shaped or generated-looking word, a credential header's whole value
+and the value after a credential-named flag are published as `<redacted>`, and
 a change that only such a word, a word past the bound or an unpublished setting
 carries is still a row, which says the change is in a detail it does not show.
+A saved baseline holds none of this detail, so a command read from a user,
+managed or git-ignored settings file never reaches the committed file.
 A hook declaration outside the documented shape publishes no handlers, and its
 row says the matcher, command and timeout are not shown.
 

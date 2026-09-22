@@ -13,9 +13,13 @@ What is pinned here:
   (`review.changes[].change` in `diff --json` and `verifier.json`), with every
   row value and the row count unchanged;
 - redaction of a token in a command, a secret positional argument, an
-  `env`-style inline assignment, and bounding of an over-length command;
+  `env`-style inline assignment, a header credential after any scheme, and
+  bounding of an over-length command; a published argument redacts at least
+  what the digest's input redacts;
 - that the detail is display only: grant equality and the inventory digests
-  leave it out, so a `0.6` baseline compares as it did and may be re-saved;
+  leave it out, so a `0.6` baseline compares as it did and may be re-saved,
+  and a saved baseline holds none of it, so a user-level or git-ignored
+  file's command never reaches a committed file;
 - that plugin-selected and Codex hooks keep their loading basis, and a
   declaration outside the documented shape names the limit instead of a guess.
 """
@@ -40,6 +44,7 @@ from agents_shipgate.core.host_grants import (
     compared_grant,
     host_grants_sha256,
     load_host_grants_baseline,
+    normalized_host_grants,
 )
 from agents_shipgate.schemas.host_grants import HostGrantsBaselineV6
 from tests.test_host_diff_review_changes import (
@@ -60,7 +65,7 @@ HOOK_HEADER = "⚠ high widened claude-code .claude/settings.json"
 MCP_HEADER = "⚠ high widened claude-code .mcp.json"
 
 
-def _hooks(matcher: str, command: str, timeout: int) -> dict:
+def _hooks(matcher: str, command: str, timeout: float) -> dict:
     return {"hooks": {"PostToolUse": [{"matcher": matcher, "hooks": [
         {"type": "command", "command": command, "timeout": timeout},
     ]}]}}
@@ -156,6 +161,8 @@ def test_the_grants_publish_the_detail_the_rows_render(tmp_path: Path) -> None:
 
     inventory = _inventory(root)
     baseline = build_host_grants_baseline(inventory)
+    # A saved baseline holds the grants as comparisons read them.
+    assert baseline["inventory"]["grants"] == [compared_grant(grant) for grant in inventory["grants"]]
     drift = build_host_drift_payload(baseline=baseline, inventory=inventory, baseline_file="b.json")
     for name, payload in (("inventory", inventory), ("baseline", baseline), ("drift", drift)):
         schema = json.loads((ROOT / f"docs/host-grants-{name}-schema.v0.7.json").read_text())
@@ -204,6 +211,17 @@ def test_several_handlers_name_which_one_changed(tmp_path: Path) -> None:
         assert _table_entry(text, HOOK_HEADER)[1] == change, name
 
 
+def test_a_timeout_written_as_another_number_names_both(tmp_path: Path) -> None:
+    """`5` and `5.0` are two published values, so the entry names them, not "no difference"."""
+
+    repo = _repository(
+        tmp_path, {SETTINGS: _hooks("Edit", "bin/lint.sh", 5)}, {SETTINGS: _hooks("Edit", "bin/lint.sh", 5.0)}
+    )
+    text, payload = _diff(repo)
+    assert _table_entry(text, HOOK_HEADER)[1] == "PostToolUse: timeout 5 → 5.0"
+    assert len(payload["rows"]) == 1
+
+
 def test_an_mcp_server_added_with_arguments_names_them(tmp_path: Path) -> None:
     repo = _repository(
         tmp_path, {".mcp.json": {"mcpServers": {}}}, {".mcp.json": _server("-y", "example-mcp-server@2.0.0")}
@@ -224,6 +242,8 @@ GENERATED_KEY = "k3Y9xQ2mZ7pL4vB8nR6tW1sD5fG0hJ3a"
 CANARIES = (
     "inlinevalue-canary", "verbose-canary", "bearer-canary", "tokenflag-canary", "pw-canary",
     "path-canary", "query-canary", "apikey-canary", "access-canary", "envarg-canary",
+    "userpw-canary", "basic-canary", "authheader-canary", "basicarg-canary", "apikeyheader-canary",
+    "baretoken-canary", "authflag-canary", "underscore-canary",
     GITHUB_TOKEN, OTHER_TOKEN, GENERATED_KEY,
 )
 SECRET_COMMAND = (
@@ -232,13 +252,31 @@ SECRET_COMMAND = (
     "https://ops:pw-canary-5@hooks.example.invalid/path-canary-6?key=query-canary-7 "
     f"{GITHUB_TOKEN}"
 )
+#: A header credential after a scheme other than `Bearer`, a custom
+#: credential header and a `user:password` pair: the label rule alone kept the
+#: credential after `Basic` and the whole value of a custom header.
+HEADER_COMMAND = (
+    "curl -s -u ops:userpw-canary-11 "
+    '-H "Authorization: Basic basic-canary-12" -H "X-Auth-Token: authheader-canary-13" '
+    "https://hooks.example.invalid"
+)
 SECRET_ARGS = [
     "-y", "api-mcp@2.0.0", "--api-key", "apikey-canary-8", "--access-token=access-canary-9",
     GENERATED_KEY, "-e", "DB_PASSWORD=envarg-canary-10", OTHER_TOKEN,
 ]
+#: The same header shapes as arguments, a bare `token` item, whose next item
+#: the digest's list rule already redacts, `--auth`, and a flag spelled with
+#: underscores.
+HEADER_ARGS = [
+    "--header", "Authorization: Basic basicarg-canary-14", "--header", "api-key: apikeyheader-canary-15",
+    "serve", "token", "baretoken-canary-16", "--auth", "authflag-canary-17",
+    "--brave_api_key", "underscore-canary-18",
+]
 
 
 def _secret_repo(tmp_path: Path) -> Path:
+    head_hooks = _hooks("Edit", SECRET_COMMAND, 10)
+    head_hooks["hooks"]["Stop"] = [{"hooks": [{"type": "command", "command": HEADER_COMMAND}]}]
     return _repository(
         tmp_path,
         {
@@ -246,28 +284,39 @@ def _secret_repo(tmp_path: Path) -> Path:
             ".mcp.json": {"mcpServers": {"api": {"command": "npx", "args": ["-y", "api-mcp@1.0.0"]}}},
         },
         {
-            SETTINGS: _hooks("Edit", SECRET_COMMAND, 10),
-            ".mcp.json": {"mcpServers": {"api": {"command": "npx", "args": SECRET_ARGS}}},
+            SETTINGS: head_hooks,
+            ".mcp.json": {"mcpServers": {
+                "api": {"command": "npx", "args": SECRET_ARGS},
+                "headers": {"command": "npx", "args": HEADER_ARGS},
+            }},
         },
     )
 
 
 def test_credentials_in_a_command_or_an_argument_are_never_published(tmp_path: Path) -> None:
-    """A token in a command, a secret positional argument and `env`-style assignments."""
+    """A token in a command, a secret positional argument, `env`-style assignments and header credentials."""
 
     repo = _secret_repo(tmp_path)
-    [hook] = _grants(repo, "hook")
-    command = hook["handlers"][0]["command"]
+    hooks = {grant["event"]: grant for grant in _grants(repo, "hook")}
+    command = hooks["PostToolUse"]["handlers"][0]["command"]
     assert command["env_keys"] == ["API_KEY", "DEBUG"]
     assert command["argv0"] == "curl"
     assert command["args"] == [
-        "-H", "Authorization: <redacted> <redacted>", "--token", "<redacted>",
+        "-H", "Authorization: <redacted>", "--token", "<redacted>",
         "https://hooks.example.invalid/<redacted-path>", "[REDACTED:github_token]",
     ]
-    [server] = _grants(repo, "mcp_server")
-    assert server["args"] == [
+    assert hooks["Stop"]["handlers"][0]["command"]["args"] == [
+        "-s", "-u", "ops:<redacted>", "-H", "Authorization: <redacted>",
+        "-H", "X-Auth-Token: <redacted>", "https://hooks.example.invalid",
+    ]
+    servers = {grant["server"]: grant for grant in _grants(repo, "mcp_server")}
+    assert servers["api"]["args"] == [
         "-y", "api-mcp@2.0.0", "--api-key", "<redacted>", "--access-token=<redacted>",
         "<redacted>", "-e", "DB_PASSWORD=<redacted>", "[REDACTED:github_token]",
+    ]
+    assert servers["headers"]["args"] == [
+        "--header", "Authorization: <redacted>", "--header", "api-key: <redacted>",
+        "serve", "token", "<redacted>", "--auth", "<redacted>", "--brave_api_key", "<redacted>",
     ]
 
     out = tmp_path / "out"
@@ -281,20 +330,28 @@ def test_credentials_in_a_command_or_an_argument_are_never_published(tmp_path: P
     ])
     artifacts = [path.read_text(encoding="utf-8") for path in sorted(out.rglob("*")) if path.is_file()]
     assert artifacts
+    # Last, because it writes into the repository: a saved baseline holds no detail.
+    _invoke(["audit", "--host", "--workspace", str(repo), "--save-baseline"])
+    baseline = (repo / ".agents-shipgate/host-grants.json").read_text(encoding="utf-8")
     outputs = [
         text, json.dumps(payload), "\n".join(block), "\n".join(summary), "\n".join(check),
-        inventory, boundary, *artifacts,
+        inventory, boundary, baseline, *artifacts,
     ]
     for output in outputs:
         for canary in CANARIES:
             assert canary not in output
     # The redacted forms are what the text shows, so a reviewer sees that a
     # credential was passed, and where.
+    lines = [" ".join(line.split()) for line in text.splitlines()]
     assert (
         "PostToolUse: command bin/lint.sh → API_KEY=<redacted> DEBUG=<redacted> curl -H "
-        "'Authorization: <redacted> <redacted>' --token <redacted> "
+        "'Authorization: <redacted>' --token <redacted> "
         "https://hooks.example.invalid/<redacted-path> [REDACTED:github_token]"
-    ) in [" ".join(line.split()) for line in text.splitlines()]
+    ) in lines
+    assert (
+        "Stop (command curl -s -u ops:<redacted> -H 'Authorization: <redacted>' "
+        "-H 'X-Auth-Token: <redacted>' https://hooks.example.invalid)"
+    ) in lines
 
 
 def test_a_change_confined_to_a_redacted_value_is_a_row_that_says_so(tmp_path: Path) -> None:
@@ -380,12 +437,72 @@ def test_an_over_length_command_is_bounded_and_says_what_it_left_out(tmp_path: P
         ("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "<redacted>"),
         (f"--key={GENERATED_KEY}", "--key=<redacted>"),
         ("postgres://user:pass@db.example.invalid/app", "[REDACTED:database_url]"),
+        # A header's whole value, whatever its scheme, and a custom credential header's.
+        ("Authorization: Basic dXNlcjpwYXNz", "Authorization: <redacted>"),
+        ("Authorization: Bot abcdefghijklmnopqrstuv.wxyz", "Authorization: <redacted>"),
+        ("Authorization: Bearer abc", "Authorization: <redacted>"),
+        ("Proxy-Authorization: Digest username=u, response=r", "Proxy-Authorization: <redacted>"),
+        ("X-Auth-Token: abcdef123456", "X-Auth-Token: <redacted>"),
+        ("api-key:abcdef123456", "api-key:<redacted>"),
+        ("Cookie: a=1; session=abc", "Cookie: <redacted>"),
+        ('{"token": "abc", "user": "me"}', '{"token": "<redacted>", "user": "me"}'),
+        ("Accept: application/json", "Accept: application/json"),
+        # A credential flag spelled with underscores, and `--auth`.
+        ("--brave_api_key=BSAabcdefgh12345", "--brave_api_key=<redacted>"),
+        ("--auth=abcdEFGH1234", "--auth=<redacted>"),
+        ("--user=deploy:hunter2", "--user=deploy:<redacted>"),
+        # The word after a credential name: a bare list marker as the digest's
+        # list rule reads it, `--auth`, an underscore spelling, `-u user:password`.
+        (["serve", "token", "abcdef123456"], ["serve", "token", "<redacted>"]),
+        (["serve", "Password", "abcdef123456"], ["serve", "Password", "<redacted>"]),
+        (["--auth", "abcdEFGH1234"], ["--auth", "<redacted>"]),
+        (["--brave_api_key", "BSAabcdefgh12345"], ["--brave_api_key", "<redacted>"]),
+        (["--BRAVE-API-KEY", "BSAabcdefgh12345"], ["--BRAVE-API-KEY", "<redacted>"]),
+        (["-u", "deploy:hunter2", "https://example.invalid"], ["-u", "deploy:<redacted>", "https://example.invalid"]),
+        (["--token", "--token", "abc"], ["--token", "<redacted>", "abc"]),
+        (["sort", "-u", "names.txt"], ["sort", "-u", "names.txt"]),
     ],
 )
-def test_one_argument_is_published_by_the_documented_rule(word: str, published: str) -> None:
-    from agents_shipgate.core.host_grants import _published_word
+def test_one_argument_is_published_by_the_documented_rule(
+    word: str | list[str], published: str | list[str]
+) -> None:
+    """One word by :func:`_published_word`, and a list, where the word before decides, by :func:`_published_words`."""
 
-    assert _published_word(word) == published
+    from agents_shipgate.core.host_grants import _published_word, _published_words
+
+    if isinstance(word, str):
+        assert _published_word(word) == published
+        assert _published_words([word]) == [published]
+    else:
+        assert _published_words(word) == published
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["serve", "token", "abcdef123456"],
+        ["--token", "a", "--password", "b", "--api-key", "c", "--secret=d", "cookie", "e"],
+        ["-y", "srv", "authorization", "Basic abc", "--credential", "f", "api_key", "g"],
+        ["--header", "Authorization: Bearer abc", "--auth=x", "--cookie", "y"],
+        ["-e", "GITHUB_TOKEN=ghp_" + "Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2", "passwd", "z"],
+    ],
+)
+def test_a_published_argument_redacts_at_least_what_the_digest_input_redacts(args: list[str]) -> None:
+    """Every argument `config_sha256`'s input redacts is published redacted too (#819 review).
+
+    Otherwise rotating that value would change the published arguments while
+    the digest, and so the row set, stayed the same.
+    """
+
+    from agents_shipgate.core.host_grants import _published_words, _redact_secret_values
+
+    digested = _redact_secret_values(args)
+    published = _published_words(args)
+    for index, (raw, hashed, shown) in enumerate(zip(args, digested, published, strict=True)):
+        if hashed != raw:
+            assert shown != raw, (index, raw, hashed, shown)
+        if hashed == "<redacted>":
+            assert shown == "<redacted>", (index, raw, shown)
 
 
 @pytest.mark.parametrize(
@@ -469,7 +586,10 @@ def test_a_0_6_baseline_stays_comparable_and_may_be_re_saved(tmp_path: Path) -> 
 
     saved = json.loads(_invoke(["audit", "--host", "--workspace", str(root), "--save-baseline", "--json"]))
     assert saved["status"] == "updated"
-    assert json.loads(path.read_text())["host_grants_schema_version"] == "0.7"
+    resaved = json.loads(path.read_text())
+    assert resaved["host_grants_schema_version"] == "0.7"
+    # The re-saved grants are the `0.6` ones: only the version moved.
+    assert resaved["inventory"] == json.loads(json.dumps(_legacy_baseline(_inventory(root))))["inventory"]
 
 
 def test_an_older_baseline_is_still_refused_on_save(tmp_path: Path) -> None:
@@ -489,6 +609,86 @@ def test_an_older_baseline_is_still_refused_on_save(tmp_path: Path) -> None:
     assert result.exit_code == 2
     assert "unsupported_baseline_schema" in result.output
     assert json.loads(path.read_text()) == older
+
+
+#: Values a user-level or git-ignored file holds that no saved baseline may
+#: carry into the repository, `-p` among them: a short positional password no
+#: word rule recognises (#819 review).
+HOME_CANARIES = ("homeuser-canary", "homepw-canary", "homebasic-canary", "homeshort-canary", "homeauth-canary")
+HOME_HOOKS = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": (
+    'curl -s -u homeuser-canary:homepw-canary -H "Authorization: Basic homebasic-canary" '
+    "https://example.invalid/hook"
+)}]}]}}
+HOME_SERVERS = {"mcpServers": {"db": {"command": "db-mcp", "args": [
+    "--user", "root", "-p", "homeshort-canary", "--auth", "homeauth-canary",
+]}}}
+
+
+def _saved_detail(baseline: dict) -> list[str]:
+    return [
+        f"{grant['kind']}.{member}"
+        for grant in baseline["inventory"]["grants"]
+        for member in sorted(DISPLAY_ONLY_GRANT_FIELDS.get(grant["kind"], frozenset()).intersection(grant))
+    ]
+
+
+def test_a_local_static_baseline_holds_no_home_directory_command_or_argument(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--scope local-static --save-baseline` writes into the workspace what it is told to commit."""
+
+    workspace = tmp_path / "repo"
+    workspace.mkdir()
+    home = tmp_path / "home"
+    _write(home, ".claude/settings.json", HOME_HOOKS)
+    _write(home, ".cursor/mcp.json", HOME_SERVERS)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("CODEX_HOME", str(home / ".codex"))
+
+    audit = ["audit", "--host", "--workspace", str(workspace), "--scope", "local-static"]
+    inventory = json.loads(_invoke([*audit, "--json"]))
+    # The inventory, printed for the person who ran it, still names the detail.
+    kinds = {grant["kind"]: grant for grant in inventory["grants"] if grant["scope"] == "local_static"}
+    assert kinds["hook"]["handlers"][0]["command"]["argv0"] == "curl"
+    assert kinds["mcp_server"]["args"][:2] == ["--user", "root"]
+
+    saved = _invoke([*audit, "--save-baseline"])
+    assert "Commit it" in saved
+    text = (workspace / ".agents-shipgate/host-grants.json").read_text(encoding="utf-8")
+    for canary in HOME_CANARIES:
+        assert canary not in text
+    baseline = json.loads(text)
+    assert baseline["host_grants_schema_version"] == "0.7"
+    assert _saved_detail(baseline) == []
+    # It still acknowledges both grants, and the next drift compares as before.
+    assert sorted(grant["kind"] for grant in baseline["inventory"]["grants"]) == ["hook", "mcp_server"]
+    drift = json.loads(_invoke([*audit, "--drift", "--fail-on-drift", "--json"]))
+    assert (drift["comparison_status"], drift["has_drift"]) == ("comparable", False)
+    # A changed home hook is still drift, through `config_sha256`.
+    _write(home, ".claude/settings.json", {"hooks": {"Stop": [{"hooks": [
+        {"type": "command", "command": "bin/other.sh"},
+    ]}]}})
+    changed = json.loads(_invoke([*audit, "--drift", "--json"]))
+    assert [change["current"]["kind"] for change in changed["changes"]] == ["hook"]
+    assert "handlers" not in changed["changes"][0]["baseline"]
+
+
+def test_a_repository_baseline_holds_no_command_from_git_ignored_settings(tmp_path: Path) -> None:
+    """`.claude/settings.local.json` is read in repository scope and is usually git-ignored."""
+
+    root = tmp_path / "repo"
+    _write(root, ".claude/settings.local.json", HOME_HOOKS)
+    _write(root, ".mcp.json", HOME_SERVERS)
+    _invoke(["audit", "--host", "--workspace", str(root), "--save-baseline"])
+    text = (root / ".agents-shipgate/host-grants.json").read_text(encoding="utf-8")
+    for canary in HOME_CANARIES:
+        assert canary not in text
+    baseline = json.loads(text)
+    assert _saved_detail(baseline) == []
+    assert baseline == build_host_grants_baseline(_inventory(root))
+    # What a saved baseline compares is what the inventory compares.
+    assert baseline["inventory_sha256"] == host_grants_sha256(baseline["inventory"])
+    assert baseline["inventory_sha256"] == host_grants_sha256(normalized_host_grants(_inventory(root)))
 
 
 # --- loading basis and the documented shape ---------------------------------

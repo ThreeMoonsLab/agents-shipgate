@@ -69,7 +69,11 @@ from agents_shipgate.core.permission_lattice import (
     subsumes,
     whole_tool_risk,
 )
-from agents_shipgate.core.privacy import SENSITIVE_VALUE_KEYS, is_credential_key, redact_text
+from agents_shipgate.core.privacy import (
+    CREDENTIAL_KEY_SUFFIXES,
+    SENSITIVE_VALUE_KEYS,
+    redact_text,
+)
 from agents_shipgate.core.trust_roots import (
     IdentityBoundReadSession,
     IdentityReadBudget,
@@ -475,6 +479,17 @@ def public_host_path(source: str) -> str:
     return "/".join(marked)
 
 
+def _is_list_secret_marker(item: str) -> bool:
+    """Whether a list item names the credential the next item holds: ``token``, ``--password``, ``api-key``.
+
+    The digest's list rule (:func:`_redact_secret_values`) replaces the item
+    after one, dashes or none; a published MCP argument redacts at least as
+    much (#819).
+    """
+
+    return item.lower().lstrip("-").replace("-", "_") in _SECRET_KEY_MARKERS
+
+
 def _redact_secret_values(value: Any, *, parent_key: str | None = None) -> Any:
     if parent_key is not None and _is_secret_key(parent_key):
         return "<redacted>"
@@ -509,7 +524,7 @@ def _redact_secret_values(value: Any, *, parent_key: str | None = None) -> Any:
                 if match:
                     redacted.append(f"{match.group(1)}={match.group(3) and '<redacted>'}")
                     continue
-                if item.lower().lstrip("-").replace("-", "_") in _SECRET_KEY_MARKERS:
+                if _is_list_secret_marker(item):
                     redact_next = True
             redacted.append(_redact_secret_values(item, parent_key=parent_key))
         return redacted
@@ -561,8 +576,7 @@ def _url_capability_parts(value: Any, *, parent_key: str | None = None) -> list[
                 skip_next = False
                 continue
             if isinstance(item, str) and (
-                _SECRET_ARG_RE.fullmatch(item)
-                or item.lower().lstrip("-").replace("-", "_") in _SECRET_KEY_MARKERS
+                _SECRET_ARG_RE.fullmatch(item) or _is_list_secret_marker(item)
             ):
                 skip_next = not _SECRET_ARG_RE.fullmatch(item)
                 continue
@@ -906,15 +920,61 @@ def _looks_generated(word: str) -> bool:
     return entropy >= _DETAIL_GENERATED_ENTROPY
 
 
+#: Names that name credential material outright, compared with every character
+#: but a letter or a digit removed (#819): the digest's own markers, and
+#: ``auth``, after which the digest's string rule already redacts
+#: (``--auth VALUE``).
+_DETAIL_CREDENTIAL_NAMES = frozenset(
+    re.sub(r"[^a-z0-9]", "", marker) for marker in _SECRET_KEY_MARKERS
+) | {"auth"}
+
+
+def _names_credential(name: str) -> bool:
+    """Whether a flag name is, or ends in, a word that names credential material (#819).
+
+    Compared with every character but a letter or a digit removed, so
+    ``api-key``, ``api_key``, ``brave_api_key`` and ``BRAVE-API-KEY`` are
+    read alike. The ending is any of :data:`CREDENTIAL_KEY_SUFFIXES`
+    (``token``, ``secret``, ``password``, ``apikey`` …).
+    """
+
+    compact = re.sub(r"[^a-z0-9]", "", name.lower())
+    return bool(compact) and (
+        compact in _DETAIL_CREDENTIAL_NAMES or compact.endswith(CREDENTIAL_KEY_SUFFIXES)
+    )
+
+
 def _is_credential_flag(word: str) -> bool:
-    """``--token``, ``--api-key``, ``--auth-token``: a flag whose name names credential material."""
+    """``--token``, ``--api-key``, ``--auth``, ``--brave_api_key``: a flag whose name names credential material."""
 
     if not word.startswith("-"):
         return False
-    name = word.lstrip("-").split("=", 1)[0]
-    return bool(name) and (
-        name.lower().replace("-", "_") in _SECRET_KEY_MARKERS or is_credential_key(name)
-    )
+    return _names_credential(word.lstrip("-").split("=", 1)[0])
+
+
+#: Flags whose value is ``user:password`` (curl's ``-u``/``--user`` and
+#: ``-U``/``--proxy-user``): what follows the first ``:`` is replaced (#819).
+_DETAIL_USERINFO_FLAGS = frozenset({"-u", "--user", "-U", "--proxy-user"})
+
+
+def _without_password(value: str) -> str:
+    """``user:password`` with what follows the first ``:`` replaced; a value without one as written."""
+
+    user, colon, _password = value.partition(":")
+    return f"{user}:{_DETAIL_REDACTED}" if colon else value
+
+
+def _redacts_next_word(word: str) -> bool:
+    """Whether the word after ``word`` is published as ``<redacted>`` (#819).
+
+    After a credential-named flag written without ``=`` (``--token VALUE``,
+    ``--auth VALUE``), and after any item the digest's list rule treats as
+    naming the next one's credential, dashes or none (``token VALUE``,
+    ``password VALUE``), so a published argument redacts at least what the
+    digest's input does.
+    """
+
+    return (_is_credential_flag(word) and "=" not in word) or _is_list_secret_marker(word)
 
 
 def _home_projected(word: str) -> str:
@@ -930,26 +990,49 @@ def _home_projected(word: str) -> str:
     return word
 
 
+#: A credential written ``Name: value`` (#819): a header or key whose name is,
+#: or ends in, a word that names credential material (``Authorization``,
+#: ``Proxy-Authorization``, ``Cookie``, ``Set-Cookie``, ``X-Auth-Token``,
+#: ``api-key``, ``X-API-Key``, a JSON ``"token":``), and its whole value, the
+#: scheme included, up to the closing quote or the end of the text. The label
+#: rule replaces only the first word after the colon, which for
+#: ``Authorization: Basic <credential>`` or ``Bot <token>`` is the scheme. A
+#: name starts only where a run of name characters starts, so the scan is
+#: linear in the text.
+_DETAIL_HEADER_RE = re.compile(
+    r"(?i)(?<![A-Za-z0-9_-])"
+    r"([A-Za-z0-9_-]*?(?:authorization|auth|api[-_]?key|bearer|cookie|credentials?"
+    r"|passphrase|passw(?:or)?d|private[-_]?key|pwd|secret|signature|token))"
+    r"(['\"]?[ \t]*:[ \t]*['\"]?)([^'\"\r\n]*[^\s'\"])"
+)
+
+
 def _detail_label(text: str) -> str:
     """Hook or MCP detail text through the published-label redaction (#802, #819).
 
-    A ``Bearer`` value is replaced first: the header rule alone would take
-    ``Bearer`` for the value of ``Authorization: Bearer <token>`` and keep the
-    token after it.
+    The label rule first: known token shapes, credential assignments, a URL
+    reduced to its scheme and host, and ``scheme://`` userinfo. Then the whole
+    value of a credential header or key (:data:`_DETAIL_HEADER_RE`), so
+    ``Authorization: Basic <credential>``, ``Authorization: Bearer <token>``
+    and ``X-Auth-Token: <token>`` publish ``Authorization: <redacted>`` and
+    ``X-Auth-Token: <redacted>``. Running it after the label rule means a URL's
+    ``token:password@`` userinfo is already gone and never read as a header.
     """
 
-    return published_workflow_label(_BEARER_SECRET_RE.sub(r"\1\2<redacted>", text))
+    return _DETAIL_HEADER_RE.sub(r"\1\2<redacted>", published_workflow_label(text))
 
 
 def _published_word(word: str) -> str:
     """One hook command word or MCP argument as it may be published (#819).
 
-    The published-label redaction first (#802): known token shapes, header,
-    bearer and credential assignments, a URL reduced to its scheme and host,
-    and the userinfo of any ``scheme://…@``. Then the value of an ``env``-style
-    ``NAME=value`` assignment and of a credential-named ``--flag=value`` is
-    replaced, as is a generated-looking word or ``=`` value, a path under the
-    reading user's home is written from ``~``, and the word is bounded.
+    The published-label redaction first (#802, :func:`_detail_label`): known
+    token shapes, bearer and credential assignments, the whole value of a
+    credential header, a URL reduced to its scheme and host, and the userinfo
+    of any ``scheme://…@``. Then the value of an ``env``-style ``NAME=value``
+    assignment and of a credential-named ``--flag=value`` is replaced, as is a
+    generated-looking word or ``=`` value and the password of
+    ``--user=user:password``, a path under the reading user's home is written
+    from ``~``, and the word is bounded.
     """
 
     shown = _detail_label(word)
@@ -960,6 +1043,8 @@ def _published_word(word: str) -> str:
         flag, _, value = shown.partition("=")
         if _is_credential_flag(flag) or _looks_generated(value):
             return _bounded_detail(f"{flag}={_DETAIL_REDACTED}")
+        if flag in _DETAIL_USERINFO_FLAGS:
+            value = _without_password(value)
         return _bounded_detail(f"{flag}={_home_projected(value)}")
     if _looks_generated(shown):
         return _DETAIL_REDACTED
@@ -969,19 +1054,26 @@ def _published_word(word: str) -> str:
 def _published_words(words: list[str]) -> list[str]:
     """Each word as :func:`_published_word` publishes it, and the value after a credential flag replaced.
 
-    ``--token VALUE`` and ``--api-key VALUE`` pass the credential as the next
-    word, which no pattern over that word alone can recognise.
+    ``--token VALUE``, ``--api-key VALUE`` and ``token VALUE`` pass the
+    credential as the next word, which no pattern over that word alone can
+    recognise (:func:`_redacts_next_word`). The word after ``-u`` or
+    ``--user`` keeps its user name and loses the password after its ``:``.
     """
 
     shown: list[str] = []
     redact_next = False
+    userinfo_next = False
     for word in words:
         if redact_next:
+            # The replaced word is a value, never itself a flag, as in the
+            # digest's list rule.
             shown.append(_DETAIL_REDACTED)
-            redact_next = False
+            redact_next = userinfo_next = False
             continue
-        shown.append(_published_word(word))
-        redact_next = _is_credential_flag(word) and "=" not in word
+        published = _published_word(word)
+        shown.append(_bounded_detail(_without_password(published)) if userinfo_next else published)
+        redact_next = _redacts_next_word(word)
+        userinfo_next = word in _DETAIL_USERINFO_FLAGS
     return shown
 
 
@@ -3808,6 +3900,19 @@ def host_grants_sha256(grants: dict[str, Any]) -> str:
 
 
 def build_host_grants_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
+    """The baseline ``audit --host --save-baseline`` writes for ``inventory``.
+
+    Each grant is saved as comparisons read it (:func:`compared_grant`), so a
+    saved baseline holds none of the display-only members
+    :data:`DISPLAY_ONLY_GRANT_FIELDS` names (#819). A baseline is committed,
+    and a hook command or MCP argument read from a user or managed file
+    (``--scope local-static``) or a git-ignored ``.claude/settings.local.json``
+    would otherwise put values that were never in the repository into it, a
+    short positional password among them, which no word rule recognises. No
+    comparison, row or digest reads a saved copy, so leaving them out loses
+    nothing: ``inventory_sha256`` is the same either way.
+    """
+
     if not inventory_is_complete(inventory):
         raise ValueError(
             "Host-grants inventory is incomplete or experimental; fix its coverage "
@@ -3818,9 +3923,27 @@ def build_host_grants_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
         "host_grants_schema_version": HOST_GRANTS_BASELINE_SCHEMA_VERSION,
         "scope": inventory["scope"],
         "inventory_sha256": host_grants_sha256(normalized),
-        "inventory": normalized,
+        "inventory": {
+            **normalized,
+            "grants": [compared_grant(grant) for grant in normalized["grants"]],
+        },
     }
     return HostGrantsBaselineV7.model_validate(payload).model_dump(mode="json")
+
+
+def host_comparison_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
+    """The baseline one side of a comparison between two reads stands for (#819).
+
+    What :func:`build_host_grants_baseline` would save, refusals included,
+    with the full normalized inventory in place of the saved grants: a
+    comparison between two commits reads both sides fresh, and its rows render
+    the before side's hook handlers and MCP arguments. The display members are
+    left out of every comparison and digest, so what is compared is exactly
+    what the saved baseline would compare. It is never saved, loaded or
+    published as a baseline.
+    """
+
+    return {**build_host_grants_baseline(inventory), "inventory": normalized_host_grants(inventory)}
 
 
 def load_host_grants_baseline(path: Path) -> dict[str, Any]:
@@ -4053,7 +4176,8 @@ def diff_host_grants(baseline: dict[str, Any], current: dict[str, Any]) -> list[
 #: user's home is written from ``~``, which differs by machine). Grant equality and the
 #: inventory digests leave them out: a change is still a row, through
 #: ``config_sha256``, and a ``0.6`` grant, which has none of them, compares
-#: equal to its ``0.7`` reading of the same configuration.
+#: equal to its ``0.7`` reading of the same configuration. A saved baseline
+#: holds none of them (:func:`build_host_grants_baseline`).
 DISPLAY_ONLY_GRANT_FIELDS: dict[str, frozenset[str]] = {
     "hook": frozenset({"handlers", "omitted_handlers"}),
     "mcp_server": frozenset({"args", "omitted_args"}),
@@ -4647,6 +4771,7 @@ __all__ = [
     "diff_host_grants",
     "hook_loading_basis",
     "host_audit_inventory",
+    "host_comparison_baseline",
     "host_grant_expansion_signals",
     "host_grants_sha256",
     "inventory_is_complete",

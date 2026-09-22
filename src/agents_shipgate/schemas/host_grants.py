@@ -672,8 +672,9 @@ class HostHookGrantV7(HostHookGrantV2):
     #: number; ``omitted_handlers`` counts the rest. ``None`` when the event's
     #: value is not a list of matcher groups each holding a ``hooks`` list of
     #: objects, the shape this reader establishes: the detail is then not
-    #: shown rather than guessed. Always present in a ``0.7`` grant, so its
-    #: absence marks a grant read by an earlier schema.
+    #: shown rather than guessed. Always present in a ``0.7`` inventory grant,
+    #: so its absence marks a grant a saved baseline holds or an earlier
+    #: schema read.
     handlers: list[HostHookHandlerV7] | None
     omitted_handlers: int = Field(default=0, ge=0)
 
@@ -683,7 +684,8 @@ class HostMcpServerGrantV7(HostMcpServerGrantV2):
     #: bounded, at most a bounded number; ``omitted_args`` counts the rest.
     #: ``[]`` when none are declared, and ``None`` when ``args`` is not a list.
     #: A version pin such as ``example-mcp-server@1.2.3`` is published as the
-    #: argument it is. Always present in a ``0.7`` grant.
+    #: argument it is. Always present in a ``0.7`` inventory grant; a saved
+    #: baseline holds none.
     args: list[str] | None
     omitted_args: int = Field(default=0, ge=0)
 
@@ -709,13 +711,17 @@ class HostGrantsInventoryV7(HostGrantsInventoryV6):
     grants: list[HostGrantV7] = Field(default_factory=list)
 
 
-class HostGrantsNormalizedSnapshotV7(HostGrantsNormalizedSnapshotV6):
-    grants: list[HostGrantV7] = Field(default_factory=list)
-
-
 class HostGrantsBaselineV7(HostGrantsBaselineV6):
+    """A saved ``0.7`` baseline: the grants a ``0.6`` baseline holds, under the ``0.7`` version.
+
+    A saved baseline holds no hook ``handlers`` and no MCP ``args`` (#819):
+    it is committed, and those members, read from a user, managed or
+    git-ignored file, would carry values that were never in the repository
+    into it. No comparison, row or digest reads a saved copy of them, so its
+    ``inventory`` is the ``0.6`` snapshot, which forbids them.
+    """
+
     host_grants_schema_version: Literal["0.7"] = "0.7"
-    inventory: HostGrantsNormalizedSnapshotV7
 
 
 class HostGrantsDriftV7(HostGrantsDriftV6):

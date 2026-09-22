@@ -57,7 +57,9 @@ and `omitted_args`. A hook row names the changed field,
 binds, so grant equality and the inventory digests leave them out: they move
 no row value, row count, verifier or capability-diff schema, a `0.6` baseline
 stays comparable with no new row or reason, and
-`minimum_control_contract_version` stays `21`. See
+`minimum_control_contract_version` stays `21`. A saved baseline holds neither
+member, so a command or argument read from a user, managed or git-ignored file
+never reaches the committed file. See
 [the migration note](../STABILITY.md#hook-mcp-detail-fields-819).
 
 Previous runtime contract v40 reads the action reference each workflow step declares

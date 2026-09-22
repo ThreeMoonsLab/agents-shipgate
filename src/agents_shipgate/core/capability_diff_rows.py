@@ -694,7 +694,7 @@ def _mcp_args_change(before: dict[str, Any], after: dict[str, Any]) -> str | Non
     """The difference in two readings' published launch arguments, or ``None`` (#819).
 
     ``None`` too when either reading does not publish them, as a grant from a
-    ``0.6`` snapshot does not.
+    ``0.6`` snapshot or a saved baseline does not.
     """
 
     if "args" not in before or "args" not in after:
@@ -858,8 +858,10 @@ def _hook_cell(value: str, grant: dict[str, Any] | None) -> str:
     return f"{value} ({'; '.join(listed)}{_more(rest, 'handler')})"
 
 
-def _canonical_handler(handler: dict[str, Any]) -> str:
-    return json.dumps(handler, sort_keys=True, ensure_ascii=False)
+def _published_json(value: Any) -> str:
+    """A published value as its JSON reads, so ``5`` and ``5.0`` differ as they do there."""
+
+    return json.dumps(value, sort_keys=True, ensure_ascii=False)
 
 
 def _handler_changes(before: list[dict[str, Any]], after: list[dict[str, Any]]) -> list[str]:
@@ -868,33 +870,36 @@ def _handler_changes(before: list[dict[str, Any]], after: list[dict[str, Any]]) 
     With the same number of handlers, handler N is compared with handler N
     and each differing field is named with its before and after. Otherwise
     the handlers only one side declares are listed as removed or added, since
-    nothing establishes which of them another replaced.
+    nothing establishes which of them another replaced. Values compare as the
+    JSON publishes them: a timeout of ``5`` and one of ``5.0`` are two values
+    there, and the row names both.
     """
 
     parts: list[str] = []
-    if len(before) == len(after) and before != after and sorted(
-        map(_canonical_handler, before)
-    ) == sorted(map(_canonical_handler, after)):
+    old_json, new_json = list(map(_published_json, before)), list(map(_published_json, after))
+    if len(before) == len(after) and old_json != new_json and sorted(old_json) == sorted(new_json):
         return ["the same handlers in a different order"]
     if len(before) == len(after):
         several = len(after) > 1
         for index, (old, new) in enumerate(zip(before, after, strict=True), start=1):
             for field in _HANDLER_FIELDS:
-                if old.get(field) != new.get(field):
+                if _published_json(old.get(field)) != _published_json(new.get(field)):
                     label = f"handler {index} {field}" if several else field
                     parts.append(
                         f"{label} {_handler_value(field, old.get(field))} → "
                         f"{_handler_value(field, new.get(field))}"
                     )
         return parts
-    remaining = list(after)
+    remaining = list(zip(new_json, after, strict=True))
     removed: list[dict[str, Any]] = []
-    for handler in before:
-        if handler in remaining:
-            remaining.remove(handler)
+    for text, handler in zip(old_json, before, strict=True):
+        match = next((pair for pair in remaining if pair[0] == text), None)
+        if match is not None:
+            remaining.remove(match)
         else:
             removed.append(handler)
-    for sign, handlers in (("-", removed), ("+", remaining)):
+    added = [handler for _text, handler in remaining]
+    for sign, handlers in (("-", removed), ("+", added)):
         for handler in handlers:
             facts = ", ".join(_handler_facts(handler)) or "no matcher, command or timeout"
             parts.append(f"{sign}handler ({facts})")
@@ -905,7 +910,8 @@ def _hook_change(event: str, before: dict[str, Any], after: dict[str, Any]) -> s
     """What differs between two readings of one hook event, in its published handlers (#819).
 
     ``None`` when either reading does not publish handlers, as a ``0.6``
-    grant does not, so it renders ``event → event`` as it did. The row exists
+    grant or a saved baseline's grant does not, so it renders
+    ``event → event`` as it did. The row exists
     because ``config_sha256`` changed; when no published field differs, the
     change is in something the handlers do not show, and the text says so
     rather than print the same handlers twice.
