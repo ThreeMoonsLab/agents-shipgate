@@ -591,6 +591,18 @@
           "title": "Direction",
           "type": "string"
         },
+        "disposition": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Disposition"
+        },
         "expands": {
           "default": false,
           "title": "Expands",
@@ -2250,6 +2262,17 @@
           "title": "Paths",
           "type": "array"
         },
+        "review": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostComparisonReview"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "rows": {
           "items": {
             "$ref": "#/$defs/CapabilityDiffRow"
@@ -2429,6 +2452,141 @@
         "detail"
       ],
       "title": "HostComparisonLimit",
+      "type": "object"
+    },
+    "HostComparisonReview": {
+      "additionalProperties": false,
+      "description": "What the text says about these rows, published as data (#795).\n\n``None`` on :class:`HostComparison` means it was not recorded: a verifier\nfrom before schema ``0.20``, an incomparable comparison, which presents no\nchange and asks no question, or a caller that publishes none (`check`,\nwhose boundary result carries rows alone).\n\nIt adds no row and decides nothing. The rows stay exactly what they were;\nthis says how they are presented, which until now only the text knew, so a\nmachine consumer could read `1 widening` from a run whose rows carry two\n``expands`` flags.",
+      "properties": {
+        "changes": {
+          "items": {
+            "$ref": "#/$defs/HostComparisonReviewChange"
+          },
+          "title": "Changes",
+          "type": "array"
+        },
+        "question": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Question"
+        },
+        "reproduce_command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reproduce Command"
+        },
+        "summary": {
+          "$ref": "#/$defs/HostComparisonReviewSummary"
+        }
+      },
+      "title": "HostComparisonReview",
+      "type": "object"
+    },
+    "HostComparisonReviewChange": {
+      "additionalProperties": false,
+      "description": "One change exactly as the text prints it, referring to the rows it stands for (#795).\n\nPresentation, not a second opinion: every value is the one the shared\nrenderer prints, and ``row_indexes`` names the published rows it was read\nfrom \u2014 usually one, and two only where the engine itself linked them (an\nallow rule the permission lattice decided another replaced, or the same\nrule text that moved between dispositions). A joined change's two sides can\nnever read alike, so a route that redacts a rule's arguments publishes no\npair; it publishes those rows as their own changes, as its text prints them.\n\n``direction`` is the word the text uses, which for a joined change is\n``widened``, ``narrowed`` or ``moved`` \u2014 the classification the rows\nthemselves cannot carry, because each row is only an addition or a removal.\n``change`` is the field-level difference printed in place of\n``before \u2192 after`` when both sides name the same grant, and ``None``\notherwise.",
+      "properties": {
+        "after": {
+          "title": "After",
+          "type": "string"
+        },
+        "before": {
+          "title": "Before",
+          "type": "string"
+        },
+        "change": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Change"
+        },
+        "direction": {
+          "title": "Direction",
+          "type": "string"
+        },
+        "expands": {
+          "default": false,
+          "title": "Expands",
+          "type": "boolean"
+        },
+        "row_indexes": {
+          "items": {
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 1,
+          "title": "Row Indexes",
+          "type": "array"
+        },
+        "severity": {
+          "title": "Severity",
+          "type": "string"
+        },
+        "subject": {
+          "title": "Subject",
+          "type": "string"
+        },
+        "why": {
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "row_indexes",
+        "severity",
+        "direction",
+        "subject",
+        "before",
+        "after",
+        "why"
+      ],
+      "title": "HostComparisonReviewChange",
+      "type": "object"
+    },
+    "HostComparisonReviewSummary": {
+      "additionalProperties": false,
+      "description": "The three numbers the text prints, so a reader never recounts them (#795).",
+      "properties": {
+        "changes": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Changes",
+          "type": "integer"
+        },
+        "rows": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Rows",
+          "type": "integer"
+        },
+        "widenings": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Widenings",
+          "type": "integer"
+        }
+      },
+      "title": "HostComparisonReviewSummary",
       "type": "object"
     },
     "HumanControlAction": {

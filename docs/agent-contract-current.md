@@ -41,6 +41,18 @@ or on an incomparable result `blocking_limit` with its `limit` kind) and
 row, reason, control state, permission or next action, and `null` means not
 recorded. A `0.19` verifier reads with `coverage: null`. See
 [the migration note](../STABILITY.md#host-comparison-coverage-812).
+The same unreleased contract publishes what the text says about those rows, so
+a machine consumer and a reader cannot disagree (#795): a row adds
+`disposition` (`allow`, `ask`, `deny`, or `null` for another grant kind) on
+every route that publishes rows, and `host_comparison.review`, the same block
+`diff --json` carries, adds the changes the text prints — each with the
+`row_indexes` it stands for, a `direction` that may be `widened`, `narrowed` or
+`moved`, its cells, `why` and one `expands` — plus `summary`
+(`{rows, changes, widenings}`), `question` and `reproduce_command`. A joined
+change whose two sides read alike is refused, so `check` and a provided diff
+publish rows alone. Every row value and the row count are unchanged, and
+`null` means not recorded. See
+[the migration note](../STABILITY.md#host-diff-review-json-795).
 
 Previous runtime contract v39 reads through an in-tree link at a boundary path (#700).
 A link such as `CLAUDE.md -> AGENTS.md` or `.claude/skills -> ../.agents/skills`

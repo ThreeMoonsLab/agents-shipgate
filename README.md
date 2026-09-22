@@ -90,7 +90,9 @@ the comparison was refused, which source left an inventory incomplete. The
 entries are for a reviewer to act on, not merge authority: each names the rule
 with its disposition, a replaced rule's before and after, and an MCP server's
 command name or redacted URL and key names, then one review question and the
-command that reproduces the comparison. The
+command that reproduces the comparison. `--json` publishes the same entries,
+counters, question and command beside the rows, so a script and a reader
+describe one run the same way. The
 [quickstart](docs/quickstart.md#review-a-host-configuration-change) shows each
 answer, the `--base <ref>` recovery when no base can be detected, and the
 [surfaces `diff` does not read](docs/host-boundary-support.md#known-unread-surfaces).

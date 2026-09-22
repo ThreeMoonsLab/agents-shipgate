@@ -1517,6 +1517,10 @@ def test_a_v0_19_verifier_reads_with_coverage_not_recorded(tmp_path: Path) -> No
     with pytest.raises(ValueError, match="host comparison coverage"):
         VerifierArtifact.model_validate(legacy)
     legacy["host_comparison"].pop("coverage")
+    # Nor did it record how its rows were presented (#795 slice 2).
+    with pytest.raises(ValueError, match="how its rows were presented"):
+        VerifierArtifact.model_validate(legacy)
+    legacy["host_comparison"].pop("review")
     assert not list(Draft202012Validator(frozen).iter_errors(legacy))
     read = VerifierArtifact.model_validate(legacy)
     assert read.verifier_schema_version == "0.20"
