@@ -30,10 +30,10 @@ Three PR-shaped demos map public incident shapes to fresh verifier output:
 ./shipgate fixture run prompt_change_rides_release
 ```
 
-Those commands run from this checkout. The newest published release, `v1.0.0`,
-bundles all three, so `uvx agents-shipgate@1.0.0 fixture run <name>` runs them
-without one; the previous release, `v0.15.0`, bundled only
-`agent_weakens_gate`.
+Those commands run from this checkout. The newest published release, `v1.1.0`,
+bundles all three, as `v1.0.0` did, so
+`uvx agents-shipgate@1.1.0 fixture run <name>` runs them without one; the
+older `v0.15.0` bundled only `agent_weakens_gate`.
 
 The second command is an explicit expected-fail for the unshipped
 `.github/agents/**` governance surface. It prints both the desired and observed

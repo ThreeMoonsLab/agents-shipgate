@@ -1742,8 +1742,8 @@ def unresolvable_pins(text: str) -> list[tuple[str, str]]:
 #: the alternative #497 allows: "a resolvable supported path **or an explicit
 #: version/contract incompatibility**". None is excused today:
 #: ``examples/github-actions/10-check-run-annotations.yml`` targeted ``@main``
-#: while ``check_run_policy`` postdated the newest release, and pins ``v1.0.0``
-#: now that that release carries it.
+#: while ``check_run_policy`` postdated the newest release, and has pinned the
+#: newest published release since ``v1.0.0`` carried it.
 #:
 #: Enumerated, never inferred, for the same reason #506 enumerates reader
 #: blanks: an allowlist that guessed at "looks deliberate" is one bad guess away
@@ -2122,8 +2122,9 @@ def test_the_human_entry_path_states_what_the_published_build_provides():
 
 
 #: An immutable release tag that accepts fewer ``check --format`` values than
-#: this tree. ``v1.0.0`` carries the current option set, so the newest release
-#: can no longer witness the difference the reader exists to see; this tag can.
+#: this tree. Every release since ``v1.0.0`` carries the current option set, so
+#: the newest release can no longer witness the difference the reader exists to
+#: see; this tag can.
 _FORMAT_READER_WITNESS_TAG = "v0.15.0"
 
 

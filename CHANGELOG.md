@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Move the published-release pins, examples and adoption prompts to `v1.1.0` (contract 40) now that it is published, re-capture the README and quickstart `diff` answers from the published `1.1.0`, and re-measure the pilot ledger's Route H dry run on it. No schema or contract change. (#778)
+
 ## 1.1.0 - 2026-09-22
 
 A legibility and presentation-correctness release on the advisory channel.

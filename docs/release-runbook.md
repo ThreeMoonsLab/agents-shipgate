@@ -538,6 +538,13 @@ The shape that holds:
    then `.well-known`'s `release_status.latest_release` and every other surface
    that names the newest release — `tests/test_public_surface_contract.py`
    fails once per file until each does, so the suite enumerates them for you.
+   Two surfaces are measurements rather than pins, and are re-taken on the
+   published build installed from PyPI into a clean virtualenv outside any
+   checkout: the README and quickstart `diff` answers, which
+   `tests/test_host_diff_entry_docs.py` holds to the newest release once the
+   pages call them published output, and the pilot ledger's route readiness
+   dry run, which `tests/test_design_partner_pilot.py` holds to it on its
+   `Published build measured` line.
 
    These two govern ordinary/source/preview adoption: the `uses:`
    pin in the workflow it generates, the runner pins in the bundled adoption

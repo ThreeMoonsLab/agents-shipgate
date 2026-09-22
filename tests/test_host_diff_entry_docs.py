@@ -4,12 +4,16 @@ The README and the quickstart open on `agents-shipgate diff` against a
 permission/MCP change and quote each of its answers. The no-change, not-compared
 and cannot-compare quotes were first taken from the published `1.0.0`,
 installed outside a checkout and run in a clone of a repository with a remote;
-the change quote is this tree's output since #795, every quote since #812 adds
-the `What this run established` block, and the pages label them as not yet
-released. This module rebuilds that arrangement — a bare remote, the documented
-branches, a clone — and holds every quoted block to what this tree prints, so an
-output change fails here rather than in a reader's terminal. Commit ids and the
-version on the reference lines are the only normalized fields.
+the change quote was this tree's output from #795, and every quote gained the
+`What this run established` block with #812, while the pages labelled them as
+not yet released. Since #778 every quote is re-captured from the published
+`1.1.0`, installed from PyPI into a clean virtualenv outside any checkout, and
+the pages say so. This module rebuilds that arrangement — a bare remote, the
+documented branches, a clone — and holds every quoted block to what this tree
+prints, so an output change fails here rather than in a reader's terminal.
+Commit ids and the version on the reference lines are the only normalized
+fields; a page that calls its quotes published output is also held to the
+newest published release, on its label and on every reference line.
 
 It also holds the channel statements the entry pages make to the declaration
 that decides them, `.github/release-channels.json`, rather than to a second
@@ -330,6 +334,86 @@ def test_the_documented_partial_clone_recovery_holds(documented_remote: Path) ->
     code, output = _diff(clone, "--base", "origin/main")
     assert code == 0, output
     assert _normalize(output) == _quoted(QUICKSTART, "change")[0]
+
+
+#: The label an entry page puts on quotes it took from a published build.
+_PUBLISHED_LABEL = re.compile(r"from the published `(\d+\.\d+\.\d+[^`]*)`", re.I)
+#: The version a quoted `Compared:` / `Inputs:` line records.
+_REFERENCE_VERSION = re.compile(r"^(?:Compared|Inputs): .*, agents-shipgate (\S+?)\.$", re.M)
+
+
+def _published_quote_problems(text: str) -> list[str]:
+    """What is wrong with a page's claim about which build its quotes came from.
+
+    Two phases, and a page is in exactly one. Between a version bump and its
+    release, quotes come from the source tree and the page says they are not
+    yet released. After publication they are re-captured from the published
+    build (docs/release-runbook.md § Cutting the release, step 8), and the page
+    names that build. The second phase is the one that can go stale silently:
+    the label keeps naming the release it was captured from after a newer one
+    ships, or the reference lines keep the version of the build that was really
+    run. Normalizing the version, as the byte comparisons above must, hides
+    both, so this reads it instead.
+    """
+
+    flat = " ".join(text.split())
+    blocks = re.findall(r"```text\n(.*?)\n```", text, re.S)
+    quoted = {match.group(1) for block in blocks for match in _REFERENCE_VERSION.finditer(block)}
+    labels = set(_PUBLISHED_LABEL.findall(flat))
+    problems: list[str] = []
+    if not quoted:
+        problems.append("quotes no `Compared:` or `Inputs:` line")
+    if not labels:
+        if "not yet released" not in flat.lower():
+            problems.append(
+                "neither names the published build its quotes came from nor "
+                "says they are not yet released"
+            )
+        return problems
+    if labels != {LATEST_PUBLISHED_VERSION}:
+        problems.append(
+            f"labels its quotes as from the published {sorted(labels)}; the newest "
+            f"published release is {LATEST_PUBLISHED_VERSION}. Re-capture them from it"
+        )
+    if quoted != {LATEST_PUBLISHED_VERSION}:
+        problems.append(
+            f"calls its quotes published output, but their reference lines record "
+            f"{sorted(quoted)}, not {LATEST_PUBLISHED_VERSION}"
+        )
+    if "not yet released" in flat.lower():
+        problems.append("says its quotes are both published and not yet released")
+    return problems
+
+
+def test_quotes_labelled_published_come_from_the_newest_release() -> None:
+    """#778: the entry pages quote the published build, and say which one."""
+
+    for page in (README, QUICKSTART):
+        problems = _published_quote_problems(page.read_text(encoding="utf-8"))
+        assert not problems, f"{page.relative_to(REPO_ROOT)}: " + "; ".join(problems)
+
+
+def test_the_published_quote_guard_catches_a_stale_capture() -> None:
+    """Negative controls: each stale state this guard exists for is reported."""
+
+    def page(label: str, version: str) -> str:
+        return (
+            f"{label}\n\n```text\nAgent capability diff  origin/main (0123abcd) -> working tree\n\n"
+            f"Compared: base 0123abcd → working tree at HEAD 4567cdef, agents-shipgate {version}.\n```\n"
+        )
+
+    current = LATEST_PUBLISHED_VERSION
+    assert not _published_quote_problems(page(f"From the published `{current}`.", current))
+    # A label left naming an older release after a newer one shipped.
+    assert _published_quote_problems(page("From the published `0.0.1`.", "0.0.1"))
+    # The right label over output another build produced.
+    assert _published_quote_problems(page(f"From the published `{current}`.", "0.0.1"))
+    # The pre-publication phase must say so, and must not also claim publication.
+    assert not _published_quote_problems(page("Not yet released: the source tree.", "9.9.9"))
+    assert _published_quote_problems(page("From the source tree.", "9.9.9"))
+    assert _published_quote_problems(
+        page(f"Not yet released, from the published `{current}`.", current)
+    )
 
 
 def _table_row(text: str, first_cell: str) -> str:
