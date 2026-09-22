@@ -26,9 +26,10 @@ class HostComparisonLimit(BaseModel):
 
 
 #: The most coverage items one comparison publishes (#812). The list is a
-#: prefix of the comparator's order, which puts a file's rows after what no row
-#: shows and a compared, unchanged source last, so the cap drops those first;
-#: ``omitted_items`` counts the rest.
+#: prefix of the comparator's order, which puts a blocking limit first — by
+#: kind within those, :data:`COVERAGE_LIMIT_ORDER` below — then what no row
+#: shows, then a file's rows, and a compared, unchanged source last, so the cap
+#: drops those first; ``omitted_items`` counts the rest.
 MAX_COVERAGE_ITEMS = 10
 
 #: The issue kinds a host inventory publishes, as a blocking limit may name them.
@@ -49,11 +50,17 @@ CoverageLimitKind = Literal[
 #:
 #: `unreadable` and `parse_failed` name a source in the repository that this
 #: entry could not read at all; `unresolved_precedence` names two declarations
-#: in it competing for one grant. Those three are the author's to act on. The
-#: rest — `unsupported`, `dynamic_source_excluded`, `remote_source_excluded` —
-#: are this entry's own boundary on a file that may be exactly as its host
-#: documents, so they are listed last and are the first the cap drops. Order
-#: alone; no kind is dropped and none is called more severe than another.
+#: in it competing for one grant. The rest — `unsupported`,
+#: `dynamic_source_excluded`, `remote_source_excluded` — most often name this
+#: entry's own boundary on a file that may be exactly as its host documents, so
+#: they are listed last and are the first the cap drops.
+#:
+#: Most often, not always: `unsupported` also carries an instruction file whose
+#: own text would not parse, which
+#: :func:`~agents_shipgate.core.host_grants.unresolved_structure_message` still
+#: tells the author to repair. So this ranks kinds, not items, and an item
+#: behind the count may still be one to repair. Order alone; no kind is dropped
+#: and none is called more severe than another.
 COVERAGE_LIMIT_ORDER: tuple[str, ...] = (
     "unreadable",
     "parse_failed",

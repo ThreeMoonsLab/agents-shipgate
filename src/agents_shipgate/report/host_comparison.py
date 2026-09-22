@@ -349,9 +349,10 @@ def with_coverage_in_room(
     lines leave, at most :data:`MARKDOWN_COVERAGE_MAX_CHARS`, so every line the
     surface shows without it — the entries, the review question and
     reproduction, and the advisory, next action and evidence after them — it
-    still shows with it (review cycle 5). When not even the heading and a count
-    fit, the block is left out; whatever the other lines alone overflow is
-    theirs, as without coverage.
+    still shows with it (review cycle 5). The heading and the boundary line are
+    never dropped to make room for an item: when not even they and a count fit,
+    the block is left out; whatever the other lines alone overflow is theirs,
+    as without coverage.
     """
 
     without = lines_for(0)

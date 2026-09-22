@@ -249,9 +249,12 @@ block lists only sources the comparison read or tried to read. A file this
 entry does not recognize is not in it, so its absence says nothing about that
 file. Where more items were computed than the block prints, its last line reads
 `N more items not listed, each ranked below those above`: blocking limits come
-first, the kinds you can act on (`unreadable`, `parse_failed`,
-`unresolved_precedence`) ahead of the ones that are this entry's own limit, then
-changes no row describes, then what the entries already show.
+first, by kind — `unreadable`, `parse_failed`, `unresolved_precedence`, then
+`unsupported`, `dynamic_source_excluded`, `remote_source_excluded` — then
+changes no row describes, then what the entries already show. That order ranks
+kinds, not items, and it is order rather than severity: `unsupported` carries
+both a file this entry merely does not accept and one whose own text would not
+parse, so an item behind the count may still be one to repair.
 
 **Not compared.** A source the change did not touch, but that `diff` cannot
 read on either side, is listed before the answer rather than silently counted
