@@ -880,10 +880,10 @@ def _published_entries(review: dict) -> list[tuple[str, ...]]:
         before, after = change["before"], change["after"]
         if change["change"] is not None:
             transition = change["change"]
-        elif "—" not in (before, after):
+        elif ABSENT not in (before, after):
             transition = f"{before} → {after}"
         else:
-            transition = after if before == "—" else f"{before} → gone"
+            transition = after if before == ABSENT else f"{before} → gone"
         header = f"{marker}{change['severity']} {change['direction']} {change['subject']}"
         entries.append((header, transition, change["why"]))
     return entries
