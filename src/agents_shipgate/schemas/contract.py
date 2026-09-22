@@ -201,7 +201,8 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # grant is incomparable, since it never read step references; one without a
 # workflow stays comparable. ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21.
 # v40 also reads the named secrets a job passes to a reusable workflow (#693),
-# extended in place because neither v40 nor host-grants 0.6 has shipped: a
+# extended in place because neither v40 nor host-grants 0.6 had shipped before
+# 1.1.0, which publishes both: a
 # reusable call adds ``secret_mappings[]`` and ``uses_redacted``, both omitted
 # when unset. ``${{ github.token }}`` reads as the ``GITHUB_TOKEN`` source and
 # source names compare case-insensitively. An unreadable value is a named
@@ -209,7 +210,7 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # target blocks. A 0.4/0.5 baseline holding a reusable call also names
 # ``baseline_reusable_workflow_secret_mappings_unavailable``.
 # v40 also says what each host comparison established (#812), extended in
-# place because v40 has not shipped: verifier 0.20 adds an optional
+# place because v40 had not shipped before 1.1.0: verifier 0.20 adds an optional
 # ``host_comparison.coverage`` and ``shipgate diff --json`` (capability diff
 # 0.3) the same block. It is evidence beside the rows and moves no state,
 # permission, route or row. A 0.19 verifier reads with coverage not recorded.

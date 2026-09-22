@@ -635,6 +635,50 @@ def test_agent_contract_current_doc_is_canonical():
     )
 
 
+def test_keystone_and_stability_agree_on_whether_the_contract_shipped():
+    """STABILITY.md and docs/agent-contract-current.md carry the same
+    mirror sentences about the current contract, and release prep restates
+    them — "new in <version>" in place of "unreleased". Only STABILITY.md's
+    copies were restated for 1.1.0, so at the tag the keystone doc, and the
+    generated llms-full.txt that inlines it, would have told readers four
+    times that the contract the release publishes is unreleased.
+
+    Two claims, both decidable from the tree:
+
+    * the two documents must not disagree — either both describe the
+      current contract as unreleased, or neither does;
+    * once STABILITY.md is stamped for the version this tree emits, which
+      is the release-prep step that says these schemas ship, the keystone
+      doc may not still call that contract unreleased.
+
+    The ``<a id="migration-note-unreleased-…">`` anchors are stable link
+    targets, not claims about the current contract, and do not carry this
+    phrase.
+    """
+    keystone = _read("docs/agent-contract-current.md")
+    stability = _read("STABILITY.md")
+    keystone_count = keystone.count("unreleased contract")
+    stability_count = stability.count("unreleased contract")
+    assert bool(keystone_count) == bool(stability_count), (
+        "STABILITY.md and docs/agent-contract-current.md disagree about "
+        "whether the current contract has shipped: 'unreleased contract' "
+        f"appears {keystone_count} time(s) in the keystone doc and "
+        f"{stability_count} time(s) in STABILITY.md. Restate both together "
+        "— the keystone doc's own rule is to update STABILITY.md first, "
+        "then it."
+    )
+    stamp = re.match(r"# Stability Contract · (?P<version>\S+)", stability)
+    assert stamp, "STABILITY.md must open with '# Stability Contract · <version>'."
+    if stamp.group("version") == __version__:
+        assert keystone_count == 0, (
+            f"STABILITY.md is stamped {__version__}, the version this tree "
+            "emits, so the contract it describes ships in that release; "
+            "docs/agent-contract-current.md must not still call it an "
+            "'unreleased contract'. scripts/build-llms-full.py inlines that "
+            "file, so llms-full.txt would repeat it at the tag."
+        )
+
+
 def test_architecture_doc_contract_stamp_matches_runtime():
     """docs/architecture.md is easy to stale-date during schema bumps.
     Pin its stamp to the runtime contract so CI catches future drift."""
