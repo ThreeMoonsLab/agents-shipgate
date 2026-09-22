@@ -162,6 +162,7 @@ Agent capability diff  origin/main (943fd29b) -> working tree
 Static configuration only: this is what the files permit, not what the agent did. No verdict is implied.
 
 What this run established:
+  only sources this entry read are listed, so this is not the whole change: a changed file it does not read is absent
   .claude/settings.json (claude-code): compared; 3 rows
   .mcp.json (claude-code): compared; 1 row
 
@@ -184,7 +185,10 @@ produced this output, not a version to install; another version may word the
 entries differently. `verify`'s text and its PR comment end their entries with
 the same question and lines; when they compared a head commit, the `Reproduce`
 line says to check that commit out first. `check` and a provided diff name no base commit, so they
-print the question without those lines.
+print the question without those lines. Every other answer below ends with the
+same two lines: a result with no change and a refusal are the ones a reviewer
+can least check from the output, so they say where they came from too. Only the
+question is conditional — there is no change to ask about.
 
 **No change.** On a branch from `main` that only edits `README.md`:
 
@@ -194,12 +198,18 @@ Agent capability diff  origin/main (ff8c5029) -> working tree
 No static host-grant changes detected. No verdict is implied.
 
 What this run established:
+  only sources this entry read are listed, so this is not the whole change: a changed file it does not read is absent
   compared with no change in what this entry reads: .claude/settings.json, .mcp.json
+
+Compared: base ff8c5029 → working tree at HEAD 4b21c7de, agents-shipgate 1.0.0.
+Reproduce in that working tree: agents-shipgate diff --base ff8c50293d1a4e7b8c6f2a95d0e13b7c41a9e682
 ```
 
 That answer covers the sources both sides read, within the
 [support matrix](host-boundary-support.md), and `What this run established`
-names them. It says nothing about the
+names them. Its first line is the block's own boundary: it lists only sources
+this entry read, so a changed file it does not read is absent and the list is
+never the whole account of the change. It says nothing about the
 [surfaces `diff` does not read](host-boundary-support.md#known-unread-surfaces).
 
 A zero-row answer is not always "no change". A file is listed as compared
@@ -212,6 +222,7 @@ listing it as unchanged:
 
 ```text
 What this run established:
+  only sources this entry read are listed, so this is not the whole change: a changed file it does not read is absent
   .claude/settings.json (claude-code): compared; changed, but no grant this entry compares changed, so no row (redacted values such as env values and apiKeyHelper are not compared)
 ```
 
@@ -234,7 +245,11 @@ configuration selects. A plugin manifest or marketplace is published only
 while it declares hooks, so it reads `published by head only` instead. The
 block lists only sources the comparison read or tried to read. A file this
 entry does not recognize is not in it, so its absence says nothing about that
-file.
+file. Where more items were computed than the block prints, its last line reads
+`N more items not listed, each ranked below those above`: blocking limits come
+first, the kinds you can act on (`unreadable`, `parse_failed`,
+`unresolved_precedence`) ahead of the ones that are this entry's own limit, then
+changes no row describes, then what the entries already show.
 
 **Not compared.** A source the change did not touch, but that `diff` cannot
 read on either side, is listed before the answer rather than silently counted
@@ -250,7 +265,11 @@ Not compared: unchanged in this change and not read, so no claim is made about t
 No static host-grant changes detected. No verdict is implied.
 
 What this run established:
+  only sources this entry read are listed, so this is not the whole change: a changed file it does not read is absent
   compared with no change in what this entry reads: .claude/settings.json
+
+Compared: base 938c8aee → working tree at HEAD 6c0a92f4, agents-shipgate 1.0.0.
+Reproduce in that working tree: agents-shipgate diff --base 938c8aee71b0d4c2f5a3e96182b7dc04a5e1f3b9
 ```
 
 The no-change answer covers only the other sources; `--json` lists the skipped
@@ -264,7 +283,11 @@ Cannot compare against origin/main: head_inventory_incomplete
 This is an input limit, not a finding about the change. Nothing below is a claim that the change is safe.
 
 What this run established:
+  only sources this entry read are listed, so this is not the whole change: a changed file it does not read is absent
   .mcp.json (claude-code): parse_failed in head, so the head inventory is incomplete
+
+Compared: base 943fd29b → working tree at HEAD 51dcb730, agents-shipgate 1.0.0.
+Reproduce in that working tree: agents-shipgate diff --base 943fd29b6e483d27ad9eb52c6d909357c9f2541b
 ```
 
 This is not a pass. The block names each source that left an inventory

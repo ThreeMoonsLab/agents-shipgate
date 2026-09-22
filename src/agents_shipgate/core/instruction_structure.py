@@ -67,6 +67,29 @@ _ENUM_FIELDS = {
 }
 
 
+#: The `unresolved` reasons below that name text this entry could not parse (#812
+#: follow-up): the frontmatter fence never closes, YAML itself refused the
+#: header, or the file carries a NUL byte. Every other reason refuses a file
+#: whose syntax is legal — a field whose type this bounded profile does not
+#: accept, a key it does not know, an alias or duplicate key it will not
+#: expand, a role it does not read, text past a bound, or an unresolved inline
+#: command. On one corpus repository forty of forty-three refusals were of
+#: that second kind, and all forty-three told the author to repair the file.
+#: Callers word the two apart: a file this entry merely cannot interpret is
+#: not a file its author got wrong, and until the profiles themselves are
+#: corrected (#822), advising a repair there is advice this engine cannot
+#: stand behind.
+INVALID_SYNTAX_REASONS = frozenset(
+    {"frontmatter_invalid", "frontmatter_unterminated", "instruction_text_invalid"}
+)
+
+
+def unresolved_reason_is_invalid_syntax(reason: str) -> bool:
+    """Whether an ``unresolved`` reason means the file's own text would not parse."""
+
+    return reason in INVALID_SYNTAX_REASONS
+
+
 @dataclass(frozen=True)
 class InstructionStructure:
     profile: str

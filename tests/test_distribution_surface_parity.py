@@ -201,7 +201,11 @@ SURFACES: tuple[Surface, ...] = (
         # comparator already computed (rows, artifact changes, observed sides,
         # blocking issues, and a Git byte identity answer, identical, differs or
         # neither, which is not published) and asserts no verdict,
-        # pin or vocabulary, so it adds no claim;
+        # pin or vocabulary, so it adds no claim. Ranking those facts by how a
+        # reviewer can act on them, before a cap this surface already had,
+        # decides what is printed and not what is true, and the block states
+        # its own boundary rather than claiming coverage of the change, so the
+        # #812 follow-up adds no claim either;
         # `tests/test_host_comparison_coverage.py` holds diff, verify and the
         # PR comment to the same object.
         {},

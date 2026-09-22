@@ -41,6 +41,28 @@ CoverageLimitKind = Literal[
     "remote_source_excluded",
 ]
 
+#: Blocking kinds, most actionable first, as the cap reaches them (#812
+#: follow-up). A refused comparison publishes one item per blocking issue, and
+#: on a repository carrying many of them the cap used to be filled by whichever
+#: sources sorted first alphabetically: twenty-one routine `unsupported` items
+#: hid the one `unreadable` source that a reviewer could actually repair.
+#:
+#: `unreadable` and `parse_failed` name a source in the repository that this
+#: entry could not read at all; `unresolved_precedence` names two declarations
+#: in it competing for one grant. Those three are the author's to act on. The
+#: rest — `unsupported`, `dynamic_source_excluded`, `remote_source_excluded` —
+#: are this entry's own boundary on a file that may be exactly as its host
+#: documents, so they are listed last and are the first the cap drops. Order
+#: alone; no kind is dropped and none is called more severe than another.
+COVERAGE_LIMIT_ORDER: tuple[str, ...] = (
+    "unreadable",
+    "parse_failed",
+    "unresolved_precedence",
+    "unsupported",
+    "dynamic_source_excluded",
+    "remote_source_excluded",
+)
+
 
 class HostComparisonCoverageItem(BaseModel):
     """What one comparison established about one source (#812).
@@ -136,6 +158,14 @@ class HostComparisonCoverage(BaseModel):
     inventory, or a caller that publishes none (`check`). An empty ``items``
     list with ``omitted_items == 0`` means the comparison read no source it
     could name.
+
+    ``items`` is a prefix of the comparator's order, which is the order a
+    reviewer can act in: a blocking limit (most actionable kind first, see
+    :data:`COVERAGE_LIMIT_ORDER`), then a change no row describes, then a
+    source only one side published, then one not proven unchanged, then a
+    file's rows, then a source proven unchanged — by source within each. So
+    the cap drops the least actionable items, and ``omitted_items`` counts
+    exactly those.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -144,6 +174,13 @@ class HostComparisonCoverage(BaseModel):
         default_factory=list, max_length=MAX_COVERAGE_ITEMS
     )
     omitted_items: int = Field(default=0, ge=0)
+    #: The list's own boundary, stated rather than left to be inferred (#812
+    #: follow-up). Every item is a source an inventory read, or was refused
+    #: by; a changed file no reader of this entry reads is not an item, and
+    #: its absence here is no claim about it. So this list is never a complete
+    #: account of what the change touched, however many items it carries.
+    #: Enumerating the changed-but-unread residue is #821.
+    read_sources_only: Literal[True] = True
 
 
 class HostComparisonReviewChange(BaseModel):
@@ -227,8 +264,11 @@ class HostComparisonReview(BaseModel):
     #: asks none (no change).
     question: str | None = None
     #: The command the text offers for reading the same comparison again, or
-    #: ``None`` where it offers none. For a commit head it is run after
-    #: checking out ``head_commit``.
+    #: ``None`` where it offers none — a provided diff or a `check` comparison,
+    #: which names no base commit. For a commit head it is run after checking
+    #: out ``head_commit``. Published whether or not there is a change: a
+    #: zero-row result is the one a reviewer is most likely to want to rerun,
+    #: and the text prints it there too (#812 follow-up).
     reproduce_command: str | None = None
 
     @model_validator(mode="after")

@@ -49,7 +49,11 @@ from agents_shipgate.core.host_input_failure import (
     HostInventoryReadError,
     safe_failure_text,
 )
-from agents_shipgate.core.instruction_structure import classify_instruction, instruction_profile
+from agents_shipgate.core.instruction_structure import (
+    classify_instruction,
+    instruction_profile,
+    unresolved_reason_is_invalid_syntax,
+)
 from agents_shipgate.core.jsonc import is_vscode_mcp_path, loads_jsonc
 from agents_shipgate.core.permission_lattice import (
     scoped_risk,
@@ -1839,6 +1843,37 @@ def _instruction_grant(*, host: str, scope: HostScope, source: str, data: str, s
     }
 
 
+def unresolved_structure_message(reason: str) -> str:
+    """What an unresolved instruction structure says to the author (#812 follow-up).
+
+    The inventory issue's message is what a reviewer reads in `audit --host`,
+    in `unchanged_limits[].detail` and in a refused comparison's coverage
+    ``detail``, so it is the sentence this engine stands behind about a file.
+
+    Only a file whose own text would not parse is one an author can repair,
+    and this profile refuses far more than that: a documented field written in
+    a shape it does not accept, a key it does not list, an anchor it will not
+    expand, a duplicate key it will not choose between, a role it does not
+    read. On one corpus repository
+    forty of forty-three refusals were of that kind, on files whose YAML is
+    legal, and every one of them told the author to repair the file. Where the
+    limit may be this entry's rather than the file's, the message states what
+    could not be established and stops there; correcting the profiles
+    themselves is #822.
+    """
+
+    if unresolved_reason_is_invalid_syntax(reason):
+        return (
+            f"Instruction structure is unresolved ({reason}); the file's own text "
+            "could not be parsed. Repair or review this declared surface."
+        )
+    return (
+        f"Instruction structure is unresolved ({reason}); what this file declares "
+        "could not be established, so this comparison makes no claim about it. The "
+        "limit may be this entry's rather than the file's, so no repair is prescribed."
+    )
+
+
 def _collect_file(
     *, path: Path, source: str, host: str, scope: HostScope, kind: str,
     containment_root: Path, cache: HostStaticParseCache,
@@ -1872,7 +1907,7 @@ def _collect_file(
                 artifact["parse_status"] = "unsupported"
                 issues.append(_inventory_issue(
                     kind="unsupported", host=host, source=source,
-                    message=f"Instruction structure is unresolved ({structure.reason}); repair or review this declared surface.",
+                    message=unresolved_structure_message(structure.reason),
                     blocking=True,
                 ))
         artifacts.append(artifact)

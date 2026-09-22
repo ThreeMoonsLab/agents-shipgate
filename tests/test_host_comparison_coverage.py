@@ -29,6 +29,7 @@ import pytest
 from jsonschema import Draft202012Validator
 from typer.testing import CliRunner
 
+from agents_shipgate import __version__
 from agents_shipgate.cli.main import app
 from agents_shipgate.core.host_comparison import (
     _compared_coverage,
@@ -57,6 +58,10 @@ LOCAL = ".claude/settings.local.json"
 BASE_SETTINGS = {"permissions": {"allow": ["Read(**)"], "deny": ["Bash(curl:*)"]}}
 WIDENED = {"permissions": {"allow": ["Read(**)", "Bash(*)"], "deny": []}}
 HEADING = "What this run established:"
+BOUNDARY = (
+    "only sources this entry read are listed, so this is not the whole "
+    "change: a changed file it does not read is absent"
+)
 _GIT_ENV = {
     **os.environ,
     "GIT_AUTHOR_NAME": "fixture", "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
@@ -142,13 +147,25 @@ def _items(coverage: dict) -> list[tuple]:
     ]
 
 
-def _block(text: str) -> list[str]:
-    """The coverage block of a `diff` text output, heading included."""
+def _raw_block(text: str) -> list[str]:
+    """The coverage block of a `diff` text output, heading and boundary included."""
 
     lines = text.splitlines()
     start = lines.index(HEADING)
     end = next((i for i in range(start + 1, len(lines)) if not lines[i].strip()), len(lines))
     return lines[start:end]
+
+
+def _block(text: str) -> list[str]:
+    """The same block without the boundary line every block carries (#812 follow-up).
+
+    The boundary says what the list as a whole cannot be read as, and is
+    pinned once, on every route, by
+    :func:`test_every_block_states_the_boundary_of_what_it_lists`. Leaving it
+    out here keeps each case's assertion about what *that* run established.
+    """
+
+    return [line for line in _raw_block(text) if line.strip() != BOUNDARY]
 
 
 def _all_routes(repo: Path, tmp_path: Path, *, head: bool = True) -> tuple[str, dict, dict, str]:
@@ -163,12 +180,17 @@ def _all_routes(repo: Path, tmp_path: Path, *, head: bool = True) -> tuple[str, 
         assert comparison[key] == payload[key], key
     if HEADING in text.splitlines():
         # verify text prints the block `diff` prints, as a list.
-        block = _block(text)
+        block = _raw_block(text)
+        assert block[1] == f"  {BOUNDARY}", "every block states its own boundary first"
         verify_lines = verify_text.splitlines()
         start = verify_lines.index(HEADING)
         assert verify_lines[start : start + len(block)] == [
             block[0], *(f"- {line.removeprefix('  ')}" for line in block[1:])
         ]
+        # The comment's block is bounded and may be left out, but never
+        # printed without the boundary it is read under.
+        if HEADING in comment.splitlines():
+            assert comment.splitlines()[comment.splitlines().index(HEADING) + 1] == f"- {BOUNDARY}"
     return text, payload, comparison, comment
 
 
@@ -193,6 +215,7 @@ def test_a_docs_only_change_names_the_source_it_compared_with_no_change(tmp_path
     assert (
         "No static host-grant changes detected in the covered comparison. No verdict is implied.\n"
         f"{HEADING}\n"
+        f"- {BOUNDARY}\n"
         f"- compared with no change in what this entry reads: ` {SETTINGS} `\n"
     ) in comment
     assert "fields this entry does not read" not in text + comment
@@ -268,6 +291,7 @@ def test_a_change_with_no_compared_grant_change_is_not_described_as_no_change(
     assert (
         "No static host-grant changes detected in the covered comparison. No verdict is implied.\n"
         f"{HEADING}\n"
+        f"- {BOUNDARY}\n"
         f"- ` {SETTINGS} ` (claude-code): {finding}\n"
     ) in comment
     assert "compared with no change" not in text + comment
@@ -945,15 +969,18 @@ def test_long_paths_never_push_the_advisory_and_next_action_out_of_the_pr_commen
     coverage = payload["coverage"]
     assert payload["comparison_status"] == "incomparable"
     assert len(coverage["items"]) == MAX_COVERAGE_ITEMS and coverage["omitted_items"] == 2
-    assert _block(text)[-1] == "  2 more items not listed"
-    assert len(_block(text)) == 1 + MAX_COVERAGE_ITEMS + 1
+    ranked = "not listed, each ranked below those above"
+    assert _block(text)[-1] == f"  2 more items {ranked}"
+    assert len(_raw_block(text)) == 1 + 1 + MAX_COVERAGE_ITEMS + 1
     lines = comment.splitlines()
     start = lines.index(HEADING)
     block = lines[start : lines.index("", start)]
     assert len("\n".join(block)) <= 2000
-    listed = len(block) - 2
+    # Heading, boundary and the count are not items.
+    listed = len(block) - 3
     assert 1 <= listed < MAX_COVERAGE_ITEMS
-    assert block[-1] == f"- {len(coverage['items']) + coverage['omitted_items'] - listed} more items not listed"
+    assert block[1] == f"- {BOUNDARY}"
+    assert block[-1] == f"- {len(coverage['items']) + coverage['omitted_items'] - listed} more items {ranked}"
     assert "Advisory: no application release policy configured. This comparison grants no merge authority." in comment
     assert "- Next actor:" in comment and "- Next command:" in comment
     assert "Evidence: `verifier.json`" in comment
@@ -1041,7 +1068,9 @@ def test_the_block_never_pushes_a_line_out_of_a_pr_comment_with_many_rows(
     assert len(comment) <= 6000
     lines = comment.splitlines()
     if HEADING in lines:
-        assert lines[lines.index(HEADING) + 1] in {
+        start = lines.index(HEADING)
+        assert lines[start + 1] == f"- {BOUNDARY}"
+        assert lines[start + 2] in {
             f"- ` {SETTINGS} ` (claude-code): compared; {GRANT_UNCHANGED}",
             f"- {len(workflows) + 1} items not listed",
         }
@@ -1049,7 +1078,10 @@ def test_the_block_never_pushes_a_line_out_of_a_pr_comment_with_many_rows(
     listed_at_the_edge = omitted_at_the_edge = False
     for style in ("capability-review", "findings"):
         length = len(render_pr_comment(plain_verifier, report=None, style=style))
-        for limit in range(length - 2300, length + 60, 3):
+        # Up to the point where the room the other lines leave first fits the
+        # smallest block there is — the heading, the boundary and a count
+        # (#812 follow-up made that minimum a boundary longer).
+        for limit in range(length - 2300, length + 400, 3):
             monkeypatch.setattr(pr_comment, "_COMMENT_MAX_CHARS", limit)
             plain = render_pr_comment(plain_verifier, report=None, style=style)
             covered = render_pr_comment(verifier, report=None, style=style).splitlines()
@@ -1060,7 +1092,8 @@ def test_the_block_never_pushes_a_line_out_of_a_pr_comment_with_many_rows(
             start = covered.index(HEADING)
             end = covered.index("", start)
             assert covered[:start] + covered[end + 1 :] == plain.splitlines(), (style, limit)
-            assert covered[start + 1] in {
+            assert covered[start + 1] == f"- {BOUNDARY}", (style, limit)
+            assert covered[start + 2] in {
                 f"- ` {SETTINGS} ` (claude-code): compared; {GRANT_UNCHANGED}",
                 f"- {len(workflows) + 1} items not listed",
             }, (style, limit)
@@ -1078,20 +1111,36 @@ def _coverage_comparison(items: list[dict], omitted: int = 0) -> HostComparison:
 
 
 def test_items_not_listed_are_counted_as_items_not_sources() -> None:
-    """One source can be several items (by host or side), so the count says items."""
+    """One source can be several items (by host or side), so the count says items.
+
+    #812 follow-up: the count also says that what it stands for ranks below
+    what is listed, so a capped block cannot be read as "and a few more of the
+    same" by a reviewer who never sees ``omitted_items``.
+    """
 
     items = [
         {"source": "AGENTS.md", "hosts": ["codex"], "side": "head", "status": "compared"},
         {"source": "AGENTS.md", "hosts": ["cursor"], "side": "base", "status": "compared"},
     ]
+    ranked = "not listed, each ranked below those above"
 
-    assert coverage_lines(_coverage_comparison(items, omitted=1), bullet="  ")[-1] == "  1 more item not listed"
-    assert coverage_lines(_coverage_comparison(items, omitted=3), bullet="  ")[-1] == "  3 more items not listed"
+    assert coverage_lines(_coverage_comparison(items, omitted=1), bullet="  ")[-1] == f"  1 more item {ranked}"
+    assert coverage_lines(_coverage_comparison(items, omitted=3), bullet="  ")[-1] == f"  3 more items {ranked}"
     # A budget lists what fits and counts the rest, as items.
     comparison = _coverage_comparison(items, omitted=3)
-    first = coverage_lines(comparison, bullet="  ")[1]
-    bounded = coverage_lines(comparison, bullet="  ", max_chars=len(f"{HEADING}\n{first}\n  4 more items not listed"))
-    assert bounded == [HEADING, first, "  4 more items not listed"]
+    boundary = f"  {BOUNDARY}"
+    first = coverage_lines(comparison, bullet="  ")[2]
+    bounded = coverage_lines(
+        comparison,
+        bullet="  ",
+        max_chars=len(f"{HEADING}\n{boundary}\n{first}\n  4 more items {ranked}"),
+    )
+    assert bounded == [HEADING, boundary, first, f"  4 more items {ranked}"]
+    # With nothing listed there is nothing to rank against, so the count is
+    # stated plainly — and the boundary is still stated.
+    assert coverage_lines(comparison, bullet="  ", max_chars=len(f"{HEADING}\n{boundary}\n  5 items not listed")) == [
+        HEADING, boundary, "  5 items not listed"
+    ]
 
 
 @pytest.mark.parametrize("markdown", [False, True])
@@ -1102,6 +1151,9 @@ def test_a_bounded_block_never_exceeds_its_bound(markdown: bool) -> None:
     prefix of the unbounded block's lines, names fewer quiet sources before it
     drops their line, counts every item it does not list (without "more" when
     it lists none), and is nothing when not even the heading and a count fit.
+
+    #812 follow-up: the boundary line is part of that minimum. A budget buys
+    items only after the block has said what it is; it is never traded for one.
     """
 
     # Four changes, then six sources proven unchanged and five more like them.
@@ -1110,11 +1162,12 @@ def test_a_bounded_block_never_exceeds_its_bound(markdown: bool) -> None:
     ] + [_item(source=f"quiet/{index}.json") for index in range(6)]
     comparison = _coverage_comparison(items, omitted=5)
     close = [""] if markdown else []
+    boundary = f"- {BOUNDARY}"
     full = coverage_lines(comparison, markdown=markdown)
-    changes, quiet_line = full[1:5], full[5]
-    assert full == [HEADING, *changes, quiet_line, *close]
+    changes, quiet_line = full[2:6], full[6]
+    assert full == [HEADING, boundary, *changes, quiet_line, *close]
     assert quiet_line.endswith(" and 8 more")
-    minimum = len("\n".join([HEADING, "- 15 items not listed", *close]))
+    minimum = len("\n".join([HEADING, boundary, "- 15 items not listed", *close]))
 
     for budget in range(len("\n".join(full)) + 1):
         block = coverage_lines(comparison, markdown=markdown, max_chars=budget)
@@ -1122,10 +1175,11 @@ def test_a_bounded_block_never_exceeds_its_bound(markdown: bool) -> None:
             assert block == [], budget
             continue
         assert len("\n".join(block)) <= budget, budget
-        assert block[0] == HEADING and block[len(block) - len(close):] == close, budget
-        body = block[1 : len(block) - len(close)]
+        assert block[:2] == [HEADING, boundary], budget
+        assert block[len(block) - len(close):] == close, budget
+        body = block[2 : len(block) - len(close)]
         quiet = [line for line in body if "compared with no change in what this entry reads" in line]
-        counted = [line for line in body if line.endswith("not listed")]
+        counted = [line for line in body if line.endswith("not listed") or "not listed, " in line]
         listed = [line for line in body if line not in quiet + counted]
         assert body == [*listed, *quiet, *counted], budget
         assert listed == changes[: len(listed)], budget
@@ -1135,7 +1189,10 @@ def test_a_bounded_block_never_exceeds_its_bound(markdown: bool) -> None:
         if not unlisted:
             assert counted == [], budget
         elif listed or quiet:
-            assert counted == [f"- {unlisted} more item{'s' if unlisted != 1 else ''} not listed"], budget
+            plural = "s" if unlisted != 1 else ""
+            assert counted == [
+                f"- {unlisted} more item{plural} not listed, each ranked below those above"
+            ], budget
         else:
             assert counted == ["- 15 items not listed"], budget
     assert coverage_lines(comparison, markdown=markdown, max_chars=len("\n".join(full))) == full
@@ -1153,8 +1210,19 @@ def test_a_comparison_that_read_no_source_says_so(tmp_path: Path) -> None:
 
     text, payload = _diff(repo)
 
-    assert payload["coverage"] == {"items": [], "omitted_items": 0}
-    assert text.rstrip().splitlines()[-1] == f"{HEADING} no host configuration source was compared."
+    assert payload["coverage"] == {
+        "items": [], "omitted_items": 0, "read_sources_only": True
+    }
+    # The emptiest answer of all still says what it is an answer about, and
+    # where it came from (#812 follow-up).
+    base = _git(repo, "rev-parse", "main")
+    assert [line for line in text.rstrip().splitlines()[-5:] if line] == [
+        f"{HEADING} no host configuration source was compared.",
+        f"  {BOUNDARY}",
+        f"Compared: base {base[:8]} → working tree at HEAD "
+        f"{_git(repo, 'rev-parse', 'HEAD')[:8]}, agents-shipgate {__version__}.",
+        f"Reproduce in that working tree: agents-shipgate diff --base {base}",
+    ]
 
 
 # --- redaction, digests, other routes and readers ------------------------------
@@ -1490,7 +1558,11 @@ def test_only_a_byte_identity_proof_makes_a_zero_row_file_unchanged(
         (SETTINGS, status, "both")
     ]
     printed = coverage_lines(comparison, bullet="  ")
-    assert (printed == [HEADING, f"  compared with no change in what this entry reads: {SETTINGS}"]) is (
+    assert (printed == [
+        HEADING,
+        f"  {BOUNDARY}",
+        f"  compared with no change in what this entry reads: {SETTINGS}",
+    ]) is (
         status == "compared"
     )
     assert compare_host_inventories(
@@ -1596,3 +1668,232 @@ def test_the_list_cannot_exceed_its_cap() -> None:
         HostComparisonCoverage.model_validate(
             {"items": [_item(source=f"s{i}") for i in range(MAX_COVERAGE_ITEMS + 1)]}
         )
+
+
+# --- the follow-up: what the block cannot be read as, and what the cap keeps --
+#
+# Re-running the 23-PR public corpus on `main` after slice 1 merged showed
+# three ways a true block still misled. On one pull request it listed
+# seventeen items, named neither of the two files the change added, and showed
+# three bare hook removals — everything true, and a reviewer reading it as the
+# account of the change would conclude the hooks were deleted rather than
+# moved. On another, twenty-one routine limits sorted ahead of the one
+# unreadable source by name and pushed it past the cap. And both of the
+# answers that say the least, zero rows and a refusal, said nothing about
+# where they came from.
+
+
+#: A skill this bounded profile refuses although its YAML is legal: `effort`
+#: has a documented value set and `extreme` is not in it.
+UNSUPPORTED_SKILL = "---\nname: {name}\ndescription: A skill.\neffort: extreme\n---\n\nBody.\n"
+#: Refused by a structural type check: `metadata` is documented as a mapping of
+#: strings, and this one's value is a number. The file itself parses.
+STRUCTURAL_SKILL = "---\nname: {name}\ndescription: A skill.\nmetadata:\n  owner: 7\n---\n\nBody.\n"
+#: Refused because the file's own text does not parse: the fence never closes.
+UNPARSED_SKILL = "---\nname: {name}\ndescription: A skill.\n\nBody.\n"
+REPAIR = "Repair or review this declared surface."
+NO_REPAIR = "The limit may be this entry's rather than the file's, so no repair is prescribed."
+
+
+def test_every_block_states_the_boundary_of_what_it_lists(tmp_path: Path) -> None:
+    """The heading promises an account; the next line bounds it, on every route.
+
+    A file this entry does not read is not an item, so a block listing only
+    what it read cannot be the account of the change. Here the change adds a
+    file no host reader reads at all: the block says nothing about it, and now
+    says that it says nothing about it.
+    """
+
+    repo = _repository(tmp_path)
+    _write(repo, "scripts/pin-hooks.sh", "#!/bin/sh\necho pin\n")
+    _write(repo, SETTINGS, WIDENED)
+    _commit(repo, "widen and add a script this entry does not read")
+
+    text, payload, comparison, comment = _all_routes(repo, tmp_path)
+
+    # The added file is not an item, and is not made one here: this publishes
+    # no discovery rule. What changes is that the list says so.
+    assert "scripts/pin-hooks.sh" not in text + comment + json.dumps(payload)
+    assert _raw_block(text)[:2] == [HEADING, f"  {BOUNDARY}"]
+    assert payload["coverage"]["read_sources_only"] is True
+    assert comparison["coverage"]["read_sources_only"] is True
+    _verifier, _pr_comment, verify_text = _verify_with_text(repo, tmp_path / "again")
+    lines = verify_text.splitlines()
+    assert lines[lines.index(HEADING) + 1] == f"- {BOUNDARY}"
+
+
+def test_a_blocking_source_a_reviewer_can_repair_outranks_routine_limits(tmp_path: Path) -> None:
+    """The corpus case: one unreadable source behind twelve routine limits.
+
+    Every item here is a blocking limit, so before this the cap was decided by
+    the source name alone — and `.claude/skills/…` sorts before `notes.md`, so
+    the one source a reviewer could act on was the one item dropped. The cap is
+    unchanged; the order within it now puts the kinds an author can repair
+    first, and the count says the rest rank below what is listed.
+    """
+
+    repo = _repository(
+        tmp_path,
+        {
+            f".claude/skills/a{index:02d}/SKILL.md": UNSUPPORTED_SKILL.format(name=f"a{index:02d}")
+            for index in range(12)
+        },
+    )
+    _link(repo, "notes.md", "does/not/exist.md")
+    _commit(repo, "a link nothing can read")
+    _git(repo, "branch", "-f", "main", "HEAD")
+    _write(repo, SETTINGS, WIDENED)
+    _commit(repo, "widen")
+
+    text, payload, _comparison, comment = _all_routes(repo, tmp_path)
+
+    coverage = payload["coverage"]
+    assert payload["comparison_status"] == "incomparable"
+    assert len(coverage["items"]) == MAX_COVERAGE_ITEMS and coverage["omitted_items"] == 3
+    assert (coverage["items"][0]["source"], coverage["items"][0]["limit"]) == (
+        "notes.md",
+        "unreadable",
+    )
+    # Its name sorts last of the thirteen, so name order alone would drop it.
+    assert sorted(item["source"] for item in coverage["items"])[-1] == "notes.md"
+    assert {item["limit"] for item in coverage["items"][1:]} == {"unsupported"}
+    block = _block(text)
+    assert block[1].startswith(
+        "  notes.md (claude-code, codex, cursor): unreadable in base and head"
+    )
+    # Truncation is in the text, not only in the JSON integer beside it.
+    assert block[-1] == "  3 more items not listed, each ranked below those above"
+    assert "more items not listed, each ranked below those above" in comment
+
+
+def test_the_coverage_order_is_total_and_does_not_depend_on_input_order() -> None:
+    """One order for one pair of inventories, whatever order the facts arrive in.
+
+    The cap publishes a prefix, so an order that depended on iteration order
+    would publish different items for the same comparison. Every field the rank
+    reads is exercised here, ending with the source name.
+    """
+
+    from agents_shipgate.core.host_comparison import _coverage_rank
+
+    def limit(source: str, kind: str) -> dict:
+        return {
+            "source": source, "side": "both", "status": "blocking_limit", "rows": 0, "limit": kind,
+        }
+
+    ordered = [
+        limit("z.json", "unreadable"),
+        limit("a.json", "parse_failed"),
+        limit("a.json", "unresolved_precedence"),
+        limit("a.json", "unsupported"),
+        limit("b.json", "unsupported"),
+        limit("a.json", "dynamic_source_excluded"),
+        limit("a.json", "remote_source_excluded"),
+        # A kind this build does not register sorts after every one it does.
+        limit("a.json", "invented_later"),
+        {"source": "c.json", "side": "both", "status": "changed_without_grant_change", "rows": 0},
+        {"source": "d.json", "side": "both", "status": "changed_without_rows", "rows": 0},
+        {"source": "e.json", "side": "head", "status": "compared", "rows": 1},
+        {"source": "f.json", "side": "both", "status": "unchanged_not_proven", "rows": 0},
+        {"source": "g.json", "side": "both", "status": "compared", "rows": 2},
+        {"source": "h.json", "side": "both", "status": "compared", "rows": 0},
+    ]
+    keys = [_coverage_rank(item) for item in ordered]
+
+    assert keys == sorted(keys), "the list above is the published order"
+    assert len(set(keys)) == len(keys), "no two items share a rank, so no tie is left to chance"
+    for rotation in range(len(ordered)):
+        shuffled = ordered[rotation:] + ordered[:rotation]
+        assert sorted(shuffled, key=_coverage_rank) == ordered
+
+
+def test_a_structural_refusal_prescribes_no_repair_of_a_file_that_parses(tmp_path: Path) -> None:
+    """#812 follow-up: 40 of 43 refusals on one corpus repository read alike.
+
+    The advice was "repair or review this declared surface" whether the file's
+    own text would not parse or this bounded profile merely does not accept a
+    shape the host documents. Only the first is the author's to repair, and
+    correcting the profiles themselves is #822; until then the second says what
+    could not be established and stops there.
+    """
+
+    structural = ".claude/skills/typed/SKILL.md"
+    unparsed = ".claude/skills/broken/SKILL.md"
+    repo = _repository(
+        tmp_path,
+        {
+            structural: STRUCTURAL_SKILL.format(name="typed"),
+            unparsed: UNPARSED_SKILL.format(name="broken"),
+        },
+    )
+    _write(repo, SETTINGS, WIDENED)
+    _commit(repo, "widen")
+
+    _text, payload, _comparison, _comment = _all_routes(repo, tmp_path)
+
+    assert payload["comparison_status"] == "comparable" and len(payload["rows"]) == 2
+    details = {limit["source"]: limit["detail"] for limit in payload["unchanged_limits"]}
+    assert set(details) == {structural, unparsed}
+    assert details[structural] == (
+        "Instruction structure is unresolved (frontmatter_invalid_structure); what "
+        "this file declares could not be established, so this comparison makes no "
+        f"claim about it. {NO_REPAIR}"
+    )
+    assert details[unparsed] == (
+        "Instruction structure is unresolved (frontmatter_unterminated); the file's "
+        f"own text could not be parsed. {REPAIR}"
+    )
+
+
+def test_the_same_wording_reaches_a_refused_comparison_coverage_detail(tmp_path: Path) -> None:
+    """A coverage detail is the inventory issue's own message, so it words alike."""
+
+    added = ".claude/skills/typed/SKILL.md"
+    repo = _repository(tmp_path)
+    _write(repo, added, STRUCTURAL_SKILL.format(name="typed"))
+    _commit(repo, "add a skill this entry cannot interpret")
+
+    _text, payload, _comparison, _comment = _all_routes(repo, tmp_path)
+
+    assert payload["comparison_status"] == "incomparable"
+    item = next(item for item in payload["coverage"]["items"] if item["source"] == added)
+    assert item["limit"] == "unsupported" and item["side"] == "head"
+    assert NO_REPAIR in item["detail"] and REPAIR not in item["detail"]
+
+
+@pytest.mark.parametrize(
+    ("prepare", "status"),
+    [
+        pytest.param(
+            lambda repo: _write(repo, "README.md", "# demo\nmore\n"), "comparable", id="zero_rows"
+        ),
+        pytest.param(
+            lambda repo: _write(repo, ".mcp.json", "{not json\n"), "incomparable", id="incomparable"
+        ),
+    ],
+)
+def test_the_answers_that_say_the_least_still_say_where_they_came_from(
+    tmp_path: Path, prepare, status: str
+) -> None:
+    """A zero-row result and a refusal name the compared commits and the rerun.
+
+    They are the two answers a reviewer is least able to check and most likely
+    to want to reproduce, and they were the only two that printed neither.
+    """
+
+    repo = _repository(tmp_path)
+    prepare(repo)
+    _commit(repo, "change")
+
+    text, payload, _comparison, comment = _all_routes(repo, tmp_path)
+
+    assert payload["comparison_status"] == status and payload["rows"] == []
+    base = _git(repo, "rev-parse", "main")
+    lines = text.splitlines()
+    assert lines[-2].startswith(f"Compared: base {base[:8]} → working tree at HEAD ")
+    assert lines[-1] == f"Reproduce in that working tree: agents-shipgate diff --base {base}"
+    # No question: there is no change to ask about.
+    assert "Review question" not in text and "Review question" not in comment
+    assert f"Reproduce: check out {_git(repo, 'rev-parse', 'HEAD')}, then run" in comment
+    _verifier, _pr_comment, verify_text = _verify_with_text(repo, tmp_path / "second")
+    assert "Reproduce: check out " in verify_text

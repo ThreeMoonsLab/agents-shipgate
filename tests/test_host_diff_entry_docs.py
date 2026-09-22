@@ -225,7 +225,11 @@ def test_the_quoted_no_compared_grant_block_is_what_diff_prints(tmp_path: Path) 
     assert _NO_CHANGE in printed
     quoted = _blocks(QUICKSTART, "What this run established:")
     assert len(quoted) == 1
-    assert printed[-len(quoted[0]):] == quoted[0]
+    # The page quotes the block alone; the answer now also ends with the
+    # compared commits and the reproduction, on every result (#812 follow-up),
+    # so the quote is a run of the printed lines rather than its last ones.
+    start = printed.index(quoted[0][0])
+    assert printed[start : start + len(quoted[0])] == quoted[0]
 
 
 def test_the_documented_missing_base_recovery_holds(documented_remote: Path) -> None:
