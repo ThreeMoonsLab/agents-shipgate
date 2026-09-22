@@ -1691,6 +1691,17 @@ UNSUPPORTED_SKILL = "---\nname: {name}\ndescription: A skill.\neffort: extreme\n
 STRUCTURAL_SKILL = "---\nname: {name}\ndescription: A skill.\nmetadata:\n  owner: 7\n---\n\nBody.\n"
 #: Refused because the file's own text does not parse: the fence never closes.
 UNPARSED_SKILL = "---\nname: {name}\ndescription: A skill.\n\nBody.\n"
+#: Legal YAML whose top level is a sequence, not a mapping. `yaml.safe_load`
+#: reads it as `['a', 'b']`; reading frontmatter as a mapping is this profile's
+#: rule, so the refusal is its own and not a parse failure (review cycle 1).
+NON_MAPPING_SKILL = "---\n- a\n- b\n---\n\nBody.\n"
+#: Legal YAML carrying `.nan` under an undocumented key, which `_valid_metadata`
+#: skips by design (#730). It reaches `json.dumps(..., allow_nan=False)` in this
+#: entry's own digest, which refuses it — nothing the author can repair, and the
+#: exact class of limit this change stopped prescribing repairs for.
+UNENCODABLE_SKILL = (
+    "---\nname: {name}\ndescription: A skill.\nbudget: .nan\n---\n\nBody.\n"
+)
 REPAIR = "Repair or review this declared surface."
 NO_REPAIR = "The limit may be this entry's rather than the file's, so no repair is prescribed."
 
@@ -1807,6 +1818,28 @@ def test_the_coverage_order_is_total_and_does_not_depend_on_input_order() -> Non
         assert sorted(shuffled, key=_coverage_rank) == ordered
 
 
+def test_every_published_limit_kind_has_a_place_in_the_order() -> None:
+    """The order is pinned to the vocabulary, not to the list above (review cycle 1).
+
+    An unregistered kind sorts after every registered one, which is right for a
+    kind a *reader* does not know and wrong for one this build publishes: a
+    blocking kind added to ``CoverageLimitKind`` and not to
+    ``COVERAGE_LIMIT_ORDER`` would land last and be the first the cap drops —
+    the failure the order was written to fix, reintroduced for that kind. The
+    hand-written list in the test above would not notice.
+    """
+
+    from typing import get_args
+
+    from agents_shipgate.schemas.host_comparison import (
+        COVERAGE_LIMIT_ORDER,
+        CoverageLimitKind,
+    )
+
+    assert set(get_args(CoverageLimitKind)) == set(COVERAGE_LIMIT_ORDER)
+    assert len(COVERAGE_LIMIT_ORDER) == len(set(COVERAGE_LIMIT_ORDER))
+
+
 def test_a_structural_refusal_prescribes_no_repair_of_a_file_that_parses(tmp_path: Path) -> None:
     """#812 follow-up: 40 of 43 refusals on one corpus repository read alike.
 
@@ -1819,11 +1852,15 @@ def test_a_structural_refusal_prescribes_no_repair_of_a_file_that_parses(tmp_pat
 
     structural = ".claude/skills/typed/SKILL.md"
     unparsed = ".claude/skills/broken/SKILL.md"
+    non_mapping = ".claude/skills/sequence/SKILL.md"
+    unencodable = ".claude/skills/nan/SKILL.md"
     repo = _repository(
         tmp_path,
         {
             structural: STRUCTURAL_SKILL.format(name="typed"),
             unparsed: UNPARSED_SKILL.format(name="broken"),
+            non_mapping: NON_MAPPING_SKILL,
+            unencodable: UNENCODABLE_SKILL.format(name="nan"),
         },
     )
     _write(repo, SETTINGS, WIDENED)
@@ -1833,15 +1870,27 @@ def test_a_structural_refusal_prescribes_no_repair_of_a_file_that_parses(tmp_pat
 
     assert payload["comparison_status"] == "comparable" and len(payload["rows"]) == 2
     details = {limit["source"]: limit["detail"] for limit in payload["unchanged_limits"]}
-    assert set(details) == {structural, unparsed}
+    assert set(details) == {structural, unparsed, non_mapping, unencodable}
     assert details[structural] == (
         "Instruction structure is unresolved (frontmatter_invalid_structure); what "
-        "this file declares could not be established, so this comparison makes no "
-        f"claim about it. {NO_REPAIR}"
+        "this file declares could not be established, so no claim is made here "
+        f"about it. {NO_REPAIR}"
     )
     assert details[unparsed] == (
         "Instruction structure is unresolved (frontmatter_unterminated); the file's "
         f"own text could not be parsed. {REPAIR}"
+    )
+    # Review cycle 1: `frontmatter_invalid` was also the catch-all, so both of
+    # these published "the file's own text could not be parsed" about a header
+    # `yaml.safe_load` reads without complaint. Each exit now names itself.
+    assert details[non_mapping] == (
+        "Instruction structure is unresolved (frontmatter_not_mapping); what this "
+        f"file declares could not be established, so no claim is made here about it. {NO_REPAIR}"
+    )
+    assert details[unencodable] == (
+        "Instruction structure is unresolved (frontmatter_value_unencodable); what "
+        f"this file declares could not be established, so no claim is made here about it. "
+        f"{NO_REPAIR}"
     )
 
 
@@ -1862,18 +1911,27 @@ def test_the_same_wording_reaches_a_refused_comparison_coverage_detail(tmp_path:
 
 
 @pytest.mark.parametrize(
-    ("prepare", "status"),
+    ("prepare", "status", "label"),
     [
         pytest.param(
-            lambda repo: _write(repo, "README.md", "# demo\nmore\n"), "comparable", id="zero_rows"
+            lambda repo: _write(repo, "README.md", "# demo\nmore\n"),
+            "comparable",
+            "Compared",
+            id="zero_rows",
         ),
         pytest.param(
-            lambda repo: _write(repo, ".mcp.json", "{not json\n"), "incomparable", id="incomparable"
+            lambda repo: _write(repo, ".mcp.json", "{not json\n"),
+            "incomparable",
+            # Review cycle 1: a run that opens `Cannot compare against main: …`
+            # cannot then label the same commits `Compared:`. They are its
+            # inputs, and the reproduction below reads them again either way.
+            "Inputs",
+            id="incomparable",
         ),
     ],
 )
 def test_the_answers_that_say_the_least_still_say_where_they_came_from(
-    tmp_path: Path, prepare, status: str
+    tmp_path: Path, prepare, status: str, label: str
 ) -> None:
     """A zero-row result and a refusal name the compared commits and the rerun.
 
@@ -1890,7 +1948,10 @@ def test_the_answers_that_say_the_least_still_say_where_they_came_from(
     assert payload["comparison_status"] == status and payload["rows"] == []
     base = _git(repo, "rev-parse", "main")
     lines = text.splitlines()
-    assert lines[-2].startswith(f"Compared: base {base[:8]} → working tree at HEAD ")
+    if status == "incomparable":
+        assert lines[0].startswith("Cannot compare against main: ")
+        assert not any(line.startswith("Compared: ") for line in lines)
+    assert lines[-2].startswith(f"{label}: base {base[:8]} → working tree at HEAD ")
     assert lines[-1] == f"Reproduce in that working tree: agents-shipgate diff --base {base}"
     # No question: there is no change to ask about.
     assert "Review question" not in text and "Review question" not in comment

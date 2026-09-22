@@ -57,8 +57,17 @@ def presented_changes(comparison: HostComparison) -> list[ReviewChange]:
     ]
 
 
+#: The label on the provenance line where the comparison was refused (#812
+#: follow-up). A refused result opens with `Cannot compare against main: …`,
+#: so reading `Compared: base … → working tree …` four lines below it reads as
+#: a contradiction. The two commits are still the inputs this run was handed,
+#: and the reproduction still reads them again, so on that route they are
+#: labelled as what they are.
+REFUSED_REFERENCE_LABEL = "Inputs"
+
+
 def comparison_reference_lines(
-    comparison: HostComparison, *, markdown: bool = False
+    comparison: HostComparison, *, markdown: bool = False, label: str = "Compared"
 ) -> list[str]:
     """The compared commits, the tool version, and a command that reads the same comparison.
 
@@ -66,6 +75,11 @@ def comparison_reference_lines(
     working tree. A provided diff and `check`'s text name no base commit, so
     they print no reference rather than one they cannot stand behind. A commit
     head is checked out first: `diff` reads the working tree.
+
+    ``label`` names what the two commits were to this run. It is `Compared`
+    wherever a comparison happened, and :data:`REFUSED_REFERENCE_LABEL` where
+    one was refused, so the line cannot read as contradicting the headline
+    above it. The commits, the version and the command are the same either way.
 
     The command is the one :func:`reproduce_command` builds, the same call the
     published ``review`` block records, so the printed and the published
@@ -84,12 +98,12 @@ def comparison_reference_lines(
         command = f"`{command}`"
     if comparison.head_kind == "commit":
         return [
-            f"Compared: base {base[:8]} → head {head[:8]}, agents-shipgate {__version__}.",
+            f"{label}: base {base[:8]} → head {head[:8]}, agents-shipgate {__version__}.",
             f"Reproduce: check out {head}, then run {command}",
         ]
     at = f" at HEAD {head[:8]}" if head else ""
     return [
-        f"Compared: base {base[:8]} → working tree{at}, agents-shipgate {__version__}.",
+        f"{label}: base {base[:8]} → working tree{at}, agents-shipgate {__version__}.",
         f"Reproduce in that working tree: {command}",
     ]
 
@@ -372,8 +386,11 @@ def host_comparison_lines(
             # want to rerun themselves, so it names what it read and how to
             # read it again, exactly as a result with changes does (#812
             # follow-up). It asks no review question: there is no change to
-            # ask about.
-            *comparison_reference_lines(comparison, markdown=markdown),
+            # ask about, and nothing here was compared, so the commits are
+            # labelled as the inputs they are.
+            *comparison_reference_lines(
+                comparison, markdown=markdown, label=REFUSED_REFERENCE_LABEL
+            ),
         ]
     lines = ["Repository-declared host capability changes:"]
     changes = presented_changes(comparison)

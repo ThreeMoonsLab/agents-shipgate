@@ -264,3 +264,64 @@ def test_an_undocumented_skill_key_is_digested_not_refused() -> None:
     second = classify_instruction(path, document("./other.sh"))
     assert first.status == second.status == "structured"
     assert first.sha256 != second.sha256
+
+
+def test_only_a_header_yaml_itself_refused_is_reported_as_a_parse_failure() -> None:
+    """`frontmatter_invalid` was also the catch-all, so its message lied (review cycle 1).
+
+    ``INVALID_SYNTAX_REASONS`` promises that a reason in it names text this
+    entry could not parse, and callers print `the file's own text could not be
+    parsed. Repair or review this declared surface.` for it. Two exits reached
+    `frontmatter_invalid` without any parse having failed: a header that
+    composes into something other than a mapping, and a value the digest's
+    `json.dumps(..., allow_nan=False)` refuses. Both headers are read by
+    `yaml.safe_load` without error, asserted here so the fixtures cannot drift
+    into genuinely broken YAML.
+    """
+
+    import yaml
+
+    from agents_shipgate.core.instruction_structure import (
+        INVALID_SYNTAX_REASONS,
+        unresolved_reason_is_invalid_syntax,
+    )
+
+    path = ".claude/skills/demo/SKILL.md"
+    non_mapping = "- a\n- b"
+    unencodable = "name: demo\ndescription: Test fixture\nbudget: .nan"
+    assert yaml.safe_load(non_mapping) == ["a", "b"]
+    assert yaml.safe_load(unencodable)["name"] == "demo"
+
+    sequence = classify_instruction(path, f"---\n{non_mapping}\n---\nBody.\n")
+    assert sequence.status == "unresolved"
+    assert sequence.reason == "frontmatter_not_mapping"
+
+    # `budget` is undocumented, so `_valid_metadata` skips it (#730) and the
+    # float reaches the digest. The refusal is this entry's, not the file's.
+    nan = classify_instruction(path, f"---\n{unencodable}\n---\nBody.\n")
+    assert nan.status == "unresolved"
+    assert nan.reason == "frontmatter_value_unencodable"
+
+    for reason in (sequence.reason, nan.reason):
+        assert reason not in INVALID_SYNTAX_REASONS
+        assert not unresolved_reason_is_invalid_syntax(reason)
+
+    # YAML's own refusal keeps the reason, and keeps the repair advice.
+    broken = classify_instruction(path, "---\nname: [unclosed\ndescription: d\n---\nBody.\n")
+    assert broken.reason == "frontmatter_invalid"
+    assert unresolved_reason_is_invalid_syntax(broken.reason)
+    with pytest.raises(yaml.YAMLError):
+        yaml.safe_load("name: [unclosed\ndescription: d")
+
+
+def test_a_duplicate_key_inside_a_non_mapping_header_keeps_its_own_reason() -> None:
+    """The non-mapping exit is checked after the ambiguity walk, not before it.
+
+    Both are reasons that prescribe no repair, so nothing a reader is told
+    changes; the published reason is the more specific one, as before.
+    """
+
+    structure = classify_instruction(
+        ".claude/skills/demo/SKILL.md", "---\n- a: 1\n  a: 2\n---\nBody.\n"
+    )
+    assert structure.reason == "frontmatter_ambiguous_keys"

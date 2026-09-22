@@ -747,11 +747,15 @@ def test_no_change_and_incomparable_answers_ask_no_question(tmp_path: Path) -> N
     #812 follow-up: the compared commits and the reproduction follow it there
     too. They are not a question — there is no change to ask about — they are
     where the answer came from, which the two results that say the least used
-    to be the only ones not to state.
+    to be the only ones not to state. Review cycle 1: on the refused route they
+    are labelled `Inputs:`, since nothing there was compared.
     """
 
     def references(lines: list[str]) -> list[str]:
-        return [line for line in lines if line.startswith(("Compared: ", "Reproduce"))]
+        return [
+            line for line in lines
+            if line.startswith(("Compared: ", "Inputs: ", "Reproduce"))
+        ]
 
     repo = _repository(
         tmp_path,
@@ -802,6 +806,9 @@ def test_no_change_and_incomparable_answers_ask_no_question(tmp_path: Path) -> N
         "  .mcp.json (claude-code): parse_failed in head, so the head inventory is incomplete",
     ]
     assert lines[-3] == "" and len(references(lines)) == 2
+    # The headline says nothing was compared, so neither does the label under it.
+    assert lines[-2].startswith("Inputs: base ")
+    assert not any(line.startswith("Compared: ") for line in lines)
     # An incomparable comparison publishes no review block, so the command it
     # prints is built from the commits its JSON already names.
     assert payload["review"] is None and payload["base_commit"] in lines[-1]
@@ -819,6 +826,8 @@ def test_no_change_and_incomparable_answers_ask_no_question(tmp_path: Path) -> N
     assert _plain(summary)[:4] == block[:4]
     assert not any("Review question" in line for line in summary)
     assert len(references(block)) == len(references(_plain(summary))) == 2
+    assert references(block)[0].startswith("Inputs: base ")
+    assert not any(line.startswith("Compared: ") for line in _plain(summary))
 
 
 def test_a_comparison_read_back_from_json_prints_what_it_published(tmp_path: Path) -> None:

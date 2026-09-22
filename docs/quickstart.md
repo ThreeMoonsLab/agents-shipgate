@@ -286,7 +286,7 @@ What this run established:
   only sources this entry read are listed, so this is not the whole change: a changed file it does not read is absent
   .mcp.json (claude-code): parse_failed in head, so the head inventory is incomplete
 
-Compared: base 943fd29b → working tree at HEAD 51dcb730, agents-shipgate 1.0.0.
+Inputs: base 943fd29b → working tree at HEAD 51dcb730, agents-shipgate 1.0.0.
 Reproduce in that working tree: agents-shipgate diff --base 943fd29b6e483d27ad9eb52c6d909357c9f2541b
 ```
 

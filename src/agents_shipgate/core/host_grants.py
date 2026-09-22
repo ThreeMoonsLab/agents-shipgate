@@ -1854,12 +1854,17 @@ def unresolved_structure_message(reason: str) -> str:
     and this profile refuses far more than that: a documented field written in
     a shape it does not accept, a key it does not list, an anchor it will not
     expand, a duplicate key it will not choose between, a role it does not
-    read. On one corpus repository
+    read, a header that parses to something other than a mapping, a value the
+    digest cannot encode. On one corpus repository
     forty of forty-three refusals were of that kind, on files whose YAML is
     legal, and every one of them told the author to repair the file. Where the
     limit may be this entry's rather than the file's, the message states what
     could not be established and stops there; correcting the profiles
     themselves is #822.
+
+    The sentence holds on every route that prints it. `audit --host` compares
+    nothing, so it says no claim is made here rather than naming a comparison
+    that route never runs.
     """
 
     if unresolved_reason_is_invalid_syntax(reason):
@@ -1869,7 +1874,7 @@ def unresolved_structure_message(reason: str) -> str:
         )
     return (
         f"Instruction structure is unresolved ({reason}); what this file declares "
-        "could not be established, so this comparison makes no claim about it. The "
+        "could not be established, so no claim is made here about it. The "
         "limit may be this entry's rather than the file's, so no repair is prescribed."
     )
 
