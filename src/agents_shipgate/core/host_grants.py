@@ -1633,10 +1633,21 @@ class _AgentAction:
     modes: tuple[tuple[str, str], ...] = ()
 
 
+_CLAUDE_BASE_ACTION = _AgentAction(
+    family="claude",
+    inputs=(
+        "allowed_tools", "claude_args", "disallowed_tools", "mcp_config",
+        "plugin_marketplaces", "plugins", "settings",
+    ),
+    args="claude_args",
+)
+
 #: The documented agent actions, by ``owner/repo`` (matched case-insensitively,
 #: at any ref). The input names are those the actions' own `action.yml`
 #: declare; `allowed_tools`, `disallowed_tools` and `mcp_config` are the
-#: Claude actions' earlier inputs, still read when a workflow sets them.
+#: Claude actions' earlier inputs, still read when a workflow sets them. The
+#: base action is published both as its own repository and as the
+#: `base-action` directory of `anthropics/claude-code-action`.
 _AGENT_ACTIONS: dict[str, _AgentAction] = {
     "anthropics/claude-code-action": _AgentAction(
         family="claude",
@@ -1648,14 +1659,8 @@ _AGENT_ACTIONS: dict[str, _AgentAction] = {
         gates=("allowed_bots", "allowed_non_write_users"),
         args="claude_args",
     ),
-    "anthropics/claude-code-base-action": _AgentAction(
-        family="claude",
-        inputs=(
-            "allowed_tools", "claude_args", "disallowed_tools", "mcp_config",
-            "plugin_marketplaces", "plugins", "settings",
-        ),
-        args="claude_args",
-    ),
+    "anthropics/claude-code-base-action": _CLAUDE_BASE_ACTION,
+    "anthropics/claude-code-action/base-action": _CLAUDE_BASE_ACTION,
     "openai/codex-action": _AgentAction(
         family="codex",
         inputs=(
@@ -1782,6 +1787,34 @@ def _has_shell_expansion(text: str) -> bool:
     return False
 
 
+def _has_shell_comment(text: str) -> bool:
+    """An unquoted ``#`` that starts a word: the shell reads the rest of the line as a comment.
+
+    Read off the raw text because the word splitter keeps ``#`` as an
+    ordinary character, so a quoted ``"#123 review"`` is one word, not a comment.
+    """
+
+    quote: str | None = None
+    escaped = False
+    previous = " "
+    for char in text:
+        if escaped:
+            # An escaped character, a space included, is part of the word.
+            escaped = False
+            previous = "\\"
+            continue
+        if char == "\\" and quote != "'":
+            escaped = True
+        elif quote is not None:
+            quote = None if char == quote else quote
+        elif char in {"'", '"'}:
+            quote = char
+        elif char == "#" and (previous.isspace() or previous in _SHELL_OPERATOR_CHARS):
+            return True
+        previous = char
+    return False
+
+
 def _agent_command(words: list[str]) -> tuple[str, list[str]] | None:
     """The agent CLI one simple command launches headless, and its arguments.
 
@@ -1814,14 +1847,17 @@ def _line_agent(line: str) -> str | None:
     return (_agent_command(line.split()) or (None, None))[0]
 
 
-def _read_flags(words: list[str], table: dict[str, tuple[str, int | None]]) -> list[tuple[str, str | None]]:
-    """The documented permission flags among ``words``, each with its declared value.
+def _read_flags(
+    words: list[str] | tuple[str, ...], table: dict[str, tuple[str, int | None]]
+) -> list[tuple[str, int | None, list[str] | None]]:
+    """The documented permission flags among ``words``: primary spelling, arity and value words.
 
     A flag is read by name wherever it is a word of its own; every other word
-    — the prompt, ``--model`` and any undocumented flag — is not compared.
+    — the prompt, ``--model`` and any undocumented flag — is not compared. A
+    flag that takes no value, or is given none, has ``None``.
     """
 
-    flags: list[tuple[str, str | None]] = []
+    flags: list[tuple[str, int | None, list[str] | None]] = []
     index = 0
     while index < len(words):
         word = words[index]
@@ -1832,7 +1868,7 @@ def _read_flags(words: list[str], table: dict[str, tuple[str, int | None]]) -> l
             continue
         primary, arity = spec
         if arity == 0:
-            flags.append((primary, None))
+            flags.append((primary, arity, None))
             continue
         values = [attached] if equals else []
         if arity == 1 and not equals and index < len(words):
@@ -1842,36 +1878,392 @@ def _read_flags(words: list[str], table: dict[str, tuple[str, int | None]]) -> l
             while index < len(words) and not words[index].startswith("-"):
                 values.append(words[index])
                 index += 1
-        if not values:
-            flags.append((primary, None))
-        else:
-            flags.append((primary, values[0] if arity == 1 else shlex.join(values)))
+        flags.append((primary, arity, values or None))
     return flags
 
 
-def _published_setting(name: str, value: Any) -> dict[str, Any]:
-    """One setting as it may be published: declared text, or why it is not."""
+# --- how an agent action splits its argument input (#823) -----------------------------
+#
+# `claude_args` and `codex-args` are not shell text: no shell reads them. Each
+# action splits its input itself, and a widening rule is read from the words
+# the action passes on, so these follow the actions' own parsers rather than
+# the `run:` tokenizer above.
+
+#: One word of shell-quote's chunker once the Claude actions have made
+#: ``()|&;<>`` literal: unquoted non-space characters (a backslash escaping a
+#: quote or a blank), a double-quoted run or a single-quoted run, adjacent.
+#: An unbalanced quote matches none of them, so shell-quote skips it.
+_SHELL_QUOTE_CHUNK_RE = re.compile(r"""(?:(?:\\['" \t]|[^\s'"])+|"(?:\\"|[^"])*?"|'[^']*?')+""")
+
+#: string-argv's pattern, which `openai/codex-action` splits a shell-like
+#: `codex-args` with: a word holding quotes keeps them, a quoted string alone
+#: is its content, and whitespace, newlines included, separates the rest.
+_STRING_ARGV_RE = re.compile(
+    r"""([^\s'"]([^\s'"]*(['"])([^\x03]*?)\3)+[^\s'"]*)|[^\s'"]+|(['"])([^\x03]*?)\5"""
+)
+
+
+def _shell_quote_variable(chunk: str, index: int) -> tuple[str, int]:
+    """shell-quote's ``parseEnvVar`` with no environment, at the ``$`` at ``index``.
+
+    Returns the value, empty for any name and ``$`` for none, and the index of
+    the last character the variable took. Raises ``ValueError`` for the "Bad
+    substitution" shell-quote throws, which fails the action.
+    """
+
+    index += 1
+    char = chunk[index:index + 1]
+    if char == "{":
+        index += 1
+        if chunk[index:index + 1] == "}":
+            raise ValueError("bad substitution")
+        depth, end = 1, index
+        while depth > 0 and end < len(chunk):
+            if chunk[end] == "{" and chunk[end - 1] == "$":
+                depth += 1
+            elif chunk[end] == "}":
+                depth -= 1
+            end += 1
+        if depth != 0:
+            raise ValueError("bad substitution")
+        name, index = chunk[index:end - 1], end - 1
+    elif char and char in "*@#?$!_-":
+        # shell-quote steps past the name and then past one more character.
+        name, index = char, index + 1
+    else:
+        match = re.search(r"[^A-Za-z0-9_]", chunk[index:])
+        if match is None:
+            name, index = chunk[index:], len(chunk)
+        else:
+            name, index = chunk[index:index + match.start()], index + match.start() - 1
+    return ("" if name else "$"), index
+
+
+def _shell_quote_word(chunk: str, *, comments: bool) -> tuple[str, bool]:
+    """One chunk as shell-quote reads it: the word, and whether an unquoted ``#`` ended the input.
+
+    Quotes and backslashes work as in a shell and ``$NAME`` reads as empty.
+    With ``comments``, an unquoted ``#`` ends the word and every word after
+    it, as it does for the action; without, ``#`` is an ordinary character.
+    """
+
+    out: list[str] = []
+    quote = ""
+    escaped = False
+    index = 0
+    while index < len(chunk):
+        char = chunk[index]
+        if escaped:
+            out.append(char)
+            escaped = False
+        elif quote:
+            if char == quote:
+                quote = ""
+            elif quote == "'":
+                out.append(char)
+            elif char == "\\":
+                index += 1
+                following = chunk[index:index + 1]
+                out.append(following if following and following in "\"\\$" else "\\" + following)
+            elif char == "$":
+                value, index = _shell_quote_variable(chunk, index)
+                out.append(value)
+            else:
+                out.append(char)
+        elif char in {'"', "'"}:
+            quote = char
+        elif char == "#" and comments:
+            return "".join(out), True
+        elif char == "\\":
+            escaped = True
+        elif char == "$":
+            value, index = _shell_quote_variable(chunk, index)
+            out.append(value)
+        else:
+            out.append(char)
+        index += 1
+    return "".join(out), False
+
+
+@dataclass(frozen=True)
+class _ArgumentInput:
+    """An agent action's argument input as the action splits it (#823).
+
+    ``text`` is what the action parses. ``spans`` is every word with where it
+    sits in ``text``, for publication. ``words`` is what the action passes on,
+    or ``None`` when the action refuses the input and the agent does not run.
+    """
+
+    text: str
+    spans: tuple[tuple[str, int, int], ...]
+    words: tuple[str, ...] | None
+
+
+def _claude_argument_input(value: str) -> _ArgumentInput:
+    """``claude_args`` split as ``base-action/src/parse-sdk-options.ts`` splits it.
+
+    Each line whose first non-blank character is ``#`` is dropped, ``()|&;<>``
+    are literal, and the rest is read by shell-quote with no environment:
+    whitespace, newlines included, separates words; quotes and backslashes work
+    as in a shell; ``$NAME`` reads as empty; and an unquoted ``#`` later in the
+    input ends it.
+    """
+
+    text = "\n".join(
+        line for line in value.split("\n") if not line.strip().startswith("#")
+    ).strip()
+    spans: list[tuple[str, int, int]] = []
+    words: list[str] | None = []
+    ended = False
+    for match in _SHELL_QUOTE_CHUNK_RE.finditer(text):
+        chunk = match.group()
+        if words is not None and not ended:
+            try:
+                word, ended = _shell_quote_word(chunk, comments=True)
+            except ValueError:
+                words = None
+            else:
+                if word or not ended:
+                    words.append(word)
+        try:
+            shown = _shell_quote_word(chunk, comments=False)[0]
+        except ValueError:
+            shown = chunk
+        spans.append((shown, match.start(), match.end()))
+    return _ArgumentInput(text, tuple(spans), None if words is None else tuple(words))
+
+
+def _codex_argument_input(value: str) -> _ArgumentInput:
+    """``codex-args`` read as `openai/codex-action` reads it: a JSON array of strings, or string-argv.
+
+    A value starting with ``[`` that is not a JSON array of strings makes the
+    action refuse it. The array form has no spans: it is published whole.
+    """
+
+    if value.startswith("["):
+        try:
+            loaded = json.loads(value)
+        except (ValueError, RecursionError):
+            return _ArgumentInput(value, (), None)
+        if isinstance(loaded, list) and all(isinstance(item, str) for item in loaded):
+            return _ArgumentInput(value, (), tuple(loaded))
+        return _ArgumentInput(value, (), None)
+    spans = tuple(
+        (
+            next(group for group in (match.group(1), match.group(6), match.group(0)) if group is not None),
+            match.start(),
+            match.end(),
+        )
+        for match in _STRING_ARGV_RE.finditer(value)
+    )
+    return _ArgumentInput(value, spans, tuple(word for word, _start, _end in spans))
+
+
+def _argument_input(family: str, value: str) -> _ArgumentInput:
+    return _claude_argument_input(value) if family == "claude" else _codex_argument_input(value)
+
+
+# --- what an agent setting publishes (#823, #802) --------------------------------------
+
+#: A codex ``--config`` override under one of these keys carries values the
+#: codex host reader never publishes, as ``.mcp.json`` ``env``/``headers`` do not.
+_CONFIG_WITHHELD_KEYS = frozenset({"env", "headers", "http_headers", "env_http_headers"})
+
+
+def _withheld_json(value: Any) -> str | None:
+    """A JSON value as the host readers publish one: key names, secret-bearing values replaced.
+
+    ``env`` and ``headers`` keep their keys with every value ``<redacted>``,
+    ``apiKeyHelper`` and every other secret-named key's value is ``<redacted>``,
+    and strings go through the host sanitizer (URLs, bearer and header
+    values), exactly as `.claude/settings.json` and `.mcp.json` are read.
+    Canonical, so reformatting or reordering keys changes nothing.
+    """
+
+    try:
+        return json.dumps(
+            _redact_secret_values(value), sort_keys=True, separators=(",", ":"),
+            ensure_ascii=False, default=str,
+        )
+    except (RecursionError, TypeError, ValueError):
+        return None
+
+
+def _withheld_word(word: str) -> str | None:
+    """One word as it may be published: a JSON object by :func:`_withheld_json`, else as written.
+
+    ``None`` for a word that starts like a JSON object and does not parse: what
+    it holds cannot be told apart, so none of it may be published.
+    """
+
+    if not word.lstrip().startswith("{"):
+        return word
+    try:
+        loaded = json.loads(word)
+    except (ValueError, RecursionError):
+        return None
+    return _withheld_json(loaded)
+
+
+def _withheld_config(text: str) -> str | None:
+    """A codex ``--config key=value`` override, its secret-bearing value withheld.
+
+    A key path through ``env``, ``headers`` or a secret-named key publishes
+    ``<redacted>`` for its value; a table or array value, parsed as TOML as
+    codex parses it, publishes by :func:`_withheld_json`. Anything else is kept.
+    """
+
+    key, equals, value = text.partition("=")
+    if not equals:
+        return text
+    segments = [segment.strip().strip("\"'") for segment in key.split(".")]
+    if any(segment in _CONFIG_WITHHELD_KEYS or _is_secret_key(segment) for segment in segments):
+        return f"{key}=<redacted>"
+    try:
+        loaded = tomllib.loads(f"value = {value}").get("value")
+    except (tomllib.TOMLDecodeError, RecursionError):
+        return text
+    if isinstance(loaded, (dict, list)):
+        shown = _withheld_json(loaded)
+        return None if shown is None else f"{key}={shown}"
+    return text
+
+
+def _withheld_words(words: list[str] | tuple[str, ...], *, family: str) -> list[str] | None:
+    """Each argument word as it may be published, or ``None`` when one cannot be."""
+
+    shown: list[str] = []
+    config = False
+    for word in words:
+        if config:
+            item = _withheld_config(word)
+        elif family == "codex" and word.startswith("--config="):
+            rest = _withheld_config(word.removeprefix("--config="))
+            item = None if rest is None else f"--config={rest}"
+        else:
+            item = _withheld_word(word)
+        if item is None:
+            return None
+        shown.append(item)
+        config = family == "codex" and word in {"-c", "--config"}
+    return shown
+
+
+def _withheld_arguments(family: str, value: str) -> str | None:
+    """An argument input as it may be published: the text the action parses, JSON words withheld.
+
+    A word the host readers would not publish is replaced, quoted, by what they
+    would; every other character stays as declared. A JSON array
+    ``codex-args`` publishes as its array of withheld words.
+    """
+
+    parsed = _argument_input(family, value)
+    if family == "codex" and value.startswith("["):
+        if parsed.words is None:
+            # The action refuses it; what it holds is still withheld as JSON.
+            try:
+                return _withheld_json(json.loads(value))
+            except (ValueError, RecursionError):
+                return None
+        shown = _withheld_words(parsed.words, family=family)
+        return None if shown is None else json.dumps(shown, separators=(",", ":"), ensure_ascii=False)
+    shown = _withheld_words([word for word, _start, _end in parsed.spans], family=family)
+    if shown is None:
+        return None
+    pieces: list[str] = []
+    cursor = 0
+    for (word, start, end), published in zip(parsed.spans, shown, strict=True):
+        if published != word:
+            pieces.extend((parsed.text[cursor:start], shlex.quote(published)))
+            cursor = end
+    pieces.append(parsed.text[cursor:])
+    return "".join(pieces)
+
+
+def _url_withheld(url: str) -> str:
+    """A URL with its path and query withheld as the host sanitizer withholds them.
+
+    One holding userinfo is kept as written, so the label redaction still
+    finds the credential in it.
+    """
+
+    try:
+        netloc = urlsplit(url).netloc
+    except ValueError:
+        return url
+    return url if "@" in netloc else _sanitize_url(url)
+
+
+def _published_value(text: str) -> tuple[str, bool]:
+    """``text`` as it may be published, and whether credential-shaped text had to be redacted.
+
+    A URL's path and query are withheld the way the host sanitizer withholds
+    them from an MCP server URL (#723), and the rest of the text is published
+    and compared: a URL path is not a credential. Anything else the #802 label
+    redaction rewrites — a token shape, a credential assignment, a bearer or
+    header value, a URL's userinfo — is credential-shaped text: the value is
+    published redacted, and two values that redact alike cannot be compared
+    apart, so :func:`_uncompared_workflow_text` makes the workflow a blocking limit.
+    """
+
+    withheld = _URL_RE.sub(lambda match: _url_withheld(match.group(0)), text)
+    if published_workflow_label(withheld) == withheld:
+        return withheld, False
+    return published_workflow_label(text), True
+
+
+def _setting_text(value: Any) -> str | None:
+    """A ``with:`` value as the text GitHub passes, or ``None`` when it is not a scalar."""
 
     if isinstance(value, bool):
-        text = "true" if value else "false"
-    elif value is None:
-        text = ""
-    elif isinstance(value, (int, float)):
-        text = str(value)
-    elif isinstance(value, str):
-        text = value.strip()
-    else:
-        return {"name": name, "value": None, "unresolved_reason": "not_a_string"}
-    shown = published_workflow_label(text)
-    if shown != text:
-        return {"name": name, "value": None, "unresolved_reason": "redacted"}
-    return {"name": name, "value": text, "unresolved_reason": None}
-
-
-def _published_flag(name: str, value: str | None) -> dict[str, Any]:
+        return "true" if value else "false"
     if value is None:
+        return ""
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        return value.strip()
+    return None
+
+
+def _published_text(name: str, text: str | None) -> dict[str, Any]:
+    """A setting's withheld text as it may be published; ``None`` text is ``unparsed_json``."""
+
+    if text is None:
+        return {"name": name, "value": None, "unresolved_reason": "unparsed_json"}
+    shown, redacted = _published_value(text)
+    return {"name": name, "value": shown, "unresolved_reason": "redacted" if redacted else None}
+
+
+def _published_setting(name: str, value: Any, *, arguments: str | None = None) -> dict[str, Any]:
+    """One action input as it may be published: its text, or why it is not.
+
+    ``arguments`` names the family whose action splits this input
+    (``claude_args``, ``codex-args``); every other input is one value, a JSON
+    object published by :func:`_withheld_json`.
+    """
+
+    text = _setting_text(value)
+    if text is None:
+        return {"name": name, "value": None, "unresolved_reason": "not_a_string"}
+    return _published_text(
+        name, _withheld_word(text) if arguments is None else _withheld_arguments(arguments, text)
+    )
+
+
+def _published_flag(family: str, name: str, arity: int | None, values: list[str] | None) -> dict[str, Any]:
+    """One CLI flag as it may be published: its value words, each withheld as an input's are."""
+
+    if values is None:
         return {"name": name, "value": None, "unresolved_reason": None}
-    return _published_setting(name, value)
+    if family == "codex" and name == "--config":
+        overrides = [_withheld_config(value) for value in values]
+        shown = None if None in overrides else [str(value) for value in overrides]
+    else:
+        shown = _withheld_words(values, family=family)
+    if shown is None:
+        return _published_text(name, None)
+    return _published_text(name, shown[0] if arity == 1 else shlex.join(shown))
 
 
 def _setting_key(setting: dict[str, Any]) -> tuple[str, str, str]:
@@ -1919,6 +2311,12 @@ def _action_identity(uses: Any) -> str | None:
 
 
 def _action_launch(job: str, step_label: str, agent: str, step: dict[Any, Any]) -> dict[str, Any]:
+    """A documented agent action's launch: its documented inputs as published, and the rules they meet.
+
+    The rules are read from each input's declared text before any of it is
+    withheld for publication, so what redaction hides never hides a rule.
+    """
+
     spec = _AGENT_ACTIONS[agent]
     entry: dict[str, Any] = {
         "job": job, "step": step_label, "agent": agent, "form": "read",
@@ -1930,12 +2328,18 @@ def _action_launch(job: str, step_label: str, agent: str, step: dict[Any, Any]) 
     if not isinstance(inputs, dict):
         return {**entry, "form": "unresolved", "unresolved_reason": "inputs_not_a_mapping"}
     wanted = {name.casefold(): name for name in spec.inputs}
-    settings = [
-        _published_setting(wanted[str(key).casefold()], value)
+    declared = [
+        (wanted[str(key).casefold()], value)
         for key, value in inputs.items()
         if str(key).casefold() in wanted
     ]
-    return {**entry, "settings": sorted(settings, key=_setting_key)}
+    settings = [
+        _published_setting(name, value, arguments=spec.family if name == spec.args else None)
+        for name, value in declared
+    ]
+    return _with_rules(
+        {**entry, "settings": sorted(settings, key=_setting_key)}, _action_rules(spec, declared)
+    )
 
 
 def _run_launches(job: str, step_label: str, run: str) -> list[dict[str, Any]]:
@@ -1972,8 +2376,12 @@ def _run_launches(job: str, step_label: str, run: str) -> list[dict[str, Any]]:
     launches = [launch for command in commands if (launch := _agent_command(command))]
     if not launches:
         return []
-    single = len([command for command in commands if command]) == 1 and not any(
-        _is_operator(word) or word.startswith("#") for word in words
+    # A comment is an unquoted `#` at the start of a word, read off the raw
+    # text: the splitter keeps `#` literal, so a quoted "#123 review" is one word.
+    single = (
+        len([command for command in commands if command]) == 1
+        and not any(_is_operator(word) for word in words)
+        and not _has_shell_comment(run)
     )
     if "${{" in run:
         reason: str | None = "expression"
@@ -1990,11 +2398,15 @@ def _run_launches(job: str, step_label: str, run: str) -> list[dict[str, Any]]:
             for agent in agents
         ]
     (agent, arguments), = launches
-    settings = [_published_flag(name, value) for name, value in _read_flags(arguments, _AGENT_FLAG_TABLES[agent])]
-    return [{
-        **base, "agent": agent, "form": "read", "unresolved_reason": None,
-        "settings": sorted(settings, key=_setting_key),
-    }]
+    flags = _read_flags(arguments, _AGENT_FLAG_TABLES[agent])
+    settings = [_published_flag(agent, name, arity, values) for name, arity, values in flags]
+    return [_with_rules(
+        {
+            **base, "agent": agent, "form": "read", "unresolved_reason": None,
+            "settings": sorted(settings, key=_setting_key),
+        },
+        _flag_rules(agent, flags),
+    )]
 
 
 def _step_agent_launches(job: str, step: dict[Any, Any], index: int) -> list[dict[str, Any]]:
@@ -2026,14 +2438,21 @@ def _checkout_ref(job: str, step: dict[Any, Any], index: int) -> dict[str, Any] 
         return {**entry, "unresolved_reason": "inputs_not_a_mapping"}
     if "ref" not in inputs:
         return entry
-    setting = _published_setting("ref", inputs["ref"])
-    if setting["unresolved_reason"] is not None:
-        return {**entry, "unresolved_reason": setting["unresolved_reason"]}
-    return {**entry, "ref": setting["value"] or None}
+    text = _setting_text(inputs["ref"])
+    if text is None:
+        return {**entry, "unresolved_reason": "not_a_string"}
+    shown, redacted = _published_value(text)
+    # A redacted ref is published redacted, as a step reference is, and makes
+    # the workflow a blocking limit (#767): two refs may redact alike.
+    return {**entry, "ref": shown or None, "unresolved_reason": "redacted" if redacted else None}
 
 
 def agent_launch_key(entry: dict[str, Any]) -> tuple[Any, ...]:
-    """What an agent launch is compared by: its job, agent, form and settings, not its step."""
+    """What an agent launch is compared by: its job, agent, form, settings and rules, not its step.
+
+    The widening rules are part of it: they are read from the declared text,
+    so a rule gained where redaction withholds the text is still a change.
+    """
 
     return (
         str(entry["job"]),
@@ -2041,6 +2460,9 @@ def agent_launch_key(entry: dict[str, Any]) -> tuple[Any, ...]:
         str(entry["form"]),
         str(entry.get("unresolved_reason") or ""),
         tuple(sorted(_setting_key(setting) for setting in entry.get("settings", []))),
+        tuple(sorted(
+            (str(item["rule"]), str(item["setting"])) for item in entry.get("widening_rules", [])
+        )),
     )
 
 
@@ -2054,79 +2476,104 @@ def checkout_ref_key(entry: dict[str, Any]) -> tuple[str, str, str]:
     )
 
 
-def _argument_words(value: str, *, json_list: bool) -> list[str] | None:
-    """An arguments input's words, or ``None`` when they cannot be read literally."""
+def _claude_action_rules(words: tuple[str, ...]) -> set[str]:
+    """The widening rules the words a Claude action passes on meet.
 
-    if "${{" in value:
-        return None
-    if json_list and value.startswith("["):
-        try:
-            loaded = json.loads(value)
-        except json.JSONDecodeError:
-            return None
-        if isinstance(loaded, list) and all(isinstance(item, str) for item in loaded):
-            return loaded
-        return None
-    words = _shell_words(value)
-    if words is None or any(_is_operator(word) for word in words):
-        return None
-    return words
+    Read as ``parse-sdk-options.ts`` reads them: a word starting with ``--``
+    is always a flag and never another flag's value, so
+    ``--dangerously-skip-permissions`` counts wherever it stands, and
+    ``--permission-mode`` takes the next word unless that starts with ``--``.
+    """
 
-
-def _flag_rules(family: str, flags: list[tuple[str, str | None]]) -> set[str]:
     rules: set[str] = set()
-    for name, value in flags:
+    for index, word in enumerate(words):
+        name, equals, attached = word.partition("=")
+        if name == "--dangerously-skip-permissions":
+            rules.add("bypass_permissions")
+        elif name == "--permission-mode":
+            following = words[index + 1] if index + 1 < len(words) else ""
+            mode = attached if equals else ("" if following.startswith("--") else following)
+            if mode == "bypassPermissions":
+                rules.add("bypass_permissions")
+    return rules
+
+
+def _flag_rules(
+    family: str, flags: list[tuple[str, int | None, list[str] | None]]
+) -> set[tuple[str, str]]:
+    """The widening rules a CLI's documented flags meet, each with the flag that met it."""
+
+    rules: set[tuple[str, str]] = set()
+    for name, _arity, values in flags:
+        value = values[0] if values else None
         if family == "claude" and (
             name == "--dangerously-skip-permissions"
             or (name == "--permission-mode" and value == "bypassPermissions")
         ):
-            rules.add("bypass_permissions")
+            rules.add(("bypass_permissions", name))
         if family == "codex" and name == "--dangerously-bypass-approvals-and-sandbox":
-            rules.add("bypass_approvals_and_sandbox")
+            rules.add(("bypass_approvals_and_sandbox", name))
         if family == "codex" and name == "--sandbox" and value == "danger-full-access":
-            rules.add("danger_full_access")
+            rules.add(("danger_full_access", name))
     return rules
+
+
+def _action_rules(spec: _AgentAction, declared: list[tuple[str, Any]]) -> set[tuple[str, str]]:
+    """The documented widening rules an agent action's declared inputs meet, read from the raw text.
+
+    Read here, before anything is withheld for publication, so redaction never
+    hides a rule. Only literal values: GitHub substitutes a ``${{ }}``
+    expression into the input before the action reads it, so what it holds is
+    not known here and it meets no rule. Each rule names the input it was read from.
+    """
+
+    literal = [
+        (name, text) for name, value in declared
+        if (text := _setting_text(value)) is not None and "${{" not in text
+    ]
+    rules: set[tuple[str, str]] = set()
+    for name, text in literal:
+        if name in spec.gates and "*" in {part.strip() for part in text.split(",")}:
+            rules.add(("open_gate", name))
+        for mode, widening in spec.modes:
+            if name == mode and text == widening:
+                rules.add(("danger_full_access" if mode == "sandbox" else "unsafe_safety_strategy", name))
+        if name == spec.args:
+            words = _argument_input(spec.family, text).words
+            if words is None:
+                continue
+            if spec.family == "claude":
+                found = _claude_action_rules(words)
+            else:
+                found = {rule for rule, _flag in _flag_rules("codex", _read_flags(words, _CODEX_FLAGS))}
+            rules.update((rule, name) for rule in found)
+    return rules
+
+
+def _with_rules(entry: dict[str, Any], rules: set[tuple[str, str]]) -> dict[str, Any]:
+    """``entry`` with the rules it meets, omitted when none, as the schema omits them."""
+
+    if not rules:
+        return entry
+    return {**entry, "widening_rules": [{"rule": rule, "setting": setting} for rule, setting in sorted(rules)]}
 
 
 def agent_widening_rules(entry: dict[str, Any]) -> set[tuple[str, str]]:
     """The documented widening rules one published agent launch meets (#823).
 
     Each is ``(rule, detail)``: ``detail`` names the input for an opened gate
-    (``allowed_non_write_users``) and is empty otherwise. Read from published
-    settings only, so a redacted value, a value holding an expression, an
-    unresolved launch and an unknown flag meet no rule.
+    (``allowed_non_write_users``) and is empty otherwise, so one rule spelled
+    two ways, or moved between the CLI and an action, is one rule. Read from
+    ``widening_rules``, which the reader decided from the declared text before
+    any of it was withheld; an unresolved launch meets none.
     """
 
     if entry.get("form") != "read":
         return set()
-    agent = str(entry["agent"])
-    # Only literal values: GitHub substitutes a `${{ }}` expression into the
-    # input before the action reads it, so what it holds is not known here.
-    readable = {
-        str(setting["name"]): str(setting["value"])
-        for setting in entry.get("settings", [])
-        if setting.get("unresolved_reason") is None and setting.get("value") is not None
-        and "${{" not in str(setting["value"])
+    return {
+        (str(item["rule"]), str(item["setting"]) if item["rule"] == "open_gate" else "")
+        for item in entry.get("widening_rules", [])
     }
-    rules: set[tuple[str, str]] = set()
-    if agent in {"claude", "codex"}:
-        flags = [(str(setting["name"]), setting.get("value")) for setting in entry.get("settings", [])
-                 if setting.get("unresolved_reason") is None]
-        rules.update((rule, "") for rule in _flag_rules(agent, flags))
-        return rules
-    spec = _AGENT_ACTIONS[agent]
-    for name in spec.gates:
-        if name in readable and "*" in {part.strip() for part in readable[name].split(",")}:
-            rules.add(("open_gate", name))
-    for name, value in spec.modes:
-        if readable.get(name) == value:
-            rules.add(("danger_full_access" if name == "sandbox" else "unsafe_safety_strategy", ""))
-    if spec.args and spec.args in readable:
-        words = _argument_words(readable[spec.args], json_list=spec.family == "codex")
-        if words is not None:
-            flags = _read_flags(words, _AGENT_FLAG_TABLES[spec.family])
-            rules.update((rule, "") for rule in _flag_rules(spec.family, flags))
-    return rules
 
 
 def agent_family(agent: str) -> str:
@@ -2135,16 +2582,20 @@ def agent_family(agent: str) -> str:
     return _AGENT_ACTIONS[agent].family if agent in _AGENT_ACTIONS else agent
 
 
-def gained_agent_widenings(
-    before: dict[str, Any] | None, after: dict[str, Any] | None
-) -> list[tuple[str, str, str, dict[str, Any]]]:
-    """Documented widening rules a job's agent launches meet at ``after`` and not at ``before``.
+AgentWidening = tuple[str, str, str, dict[str, Any]]
 
-    Keyed by job, agent family and rule, so moving a launch between steps or
-    spellings (``--dangerously-skip-permissions`` and
-    ``--permission-mode bypassPermissions`` are one rule) gains nothing. Each
-    result is ``(job, rule, detail, entry)`` for the first launch at ``after``
-    that meets it.
+
+def _agent_rule_gains(
+    before: dict[str, Any] | None, after: dict[str, Any] | None
+) -> tuple[list[AgentWidening], list[AgentWidening]]:
+    """Rules a job's launches meet at ``after`` and not at ``before``: claimed, and not claimed.
+
+    A gain is not claimed where the job launched that agent at ``before`` only
+    in a form this reader does not read, such as a compound ``run:`` that
+    became a literal one: that launch may have met the rule already, as a job
+    whose permissions were not explicit may already have held a write scope
+    (``unknown_before``). A job that also launched the agent in a form that
+    was read claims the gain.
     """
 
     def met(grant: dict[str, Any] | None) -> dict[tuple[str, str, str, str], dict[str, Any]]:
@@ -2155,10 +2606,41 @@ def gained_agent_widenings(
                 found.setdefault(key, entry)
         return found
 
+    read_before: dict[tuple[str, str], bool] = {}
+    for entry in (before or {}).get("agent_launches", []):
+        key = (str(entry["job"]), agent_family(str(entry["agent"])))
+        read_before[key] = read_before.get(key, False) or entry.get("form") == "read"
+    unread = {key for key, read in read_before.items() if not read}
     old = met(before)
-    return [
-        (key[0], key[2], key[3], entry) for key, entry in met(after).items() if key not in old
-    ]
+    claimed: list[AgentWidening] = []
+    unclaimed: list[AgentWidening] = []
+    for key, entry in met(after).items():
+        if key in old:
+            continue
+        (unclaimed if key[:2] in unread else claimed).append((key[0], key[2], key[3], entry))
+    return claimed, unclaimed
+
+
+def gained_agent_widenings(before: dict[str, Any] | None, after: dict[str, Any] | None) -> list[AgentWidening]:
+    """Documented widening rules a job's agent launches meet at ``after`` and not at ``before``.
+
+    Keyed by job, agent family and rule, so moving a launch between steps or
+    spellings (``--dangerously-skip-permissions`` and
+    ``--permission-mode bypassPermissions`` are one rule) gains nothing, and a
+    rule the job's unread launch at ``before`` may already have met is not
+    claimed. Each result is ``(job, rule, detail, entry)`` for the first
+    launch at ``after`` that meets it.
+    """
+
+    return _agent_rule_gains(before, after)[0]
+
+
+def agent_widenings_unread_before(
+    before: dict[str, Any] | None, after: dict[str, Any] | None
+) -> list[AgentWidening]:
+    """Rules a job's launches now meet that are not claimed, because its launch before was unread."""
+
+    return _agent_rule_gains(before, after)[1]
 
 
 #: How an unresolved agent launch or checkout reads in the limit that names it.
@@ -2174,8 +2656,11 @@ def uncompared_agent_launch_texts(grant: dict[str, Any]) -> list[str]:
     """One message per agent launch setting or checkout ref a workflow does not compare (#823).
 
     Not blocking, like an unread secret value (#693): the launch's job, agent,
-    form and reason are still compared, so adding, removing or re-forming one
-    is a row. Only an edit inside what is named here is not reported.
+    form, reason and widening rules are still compared, so adding, removing or
+    re-forming one, or gaining a documented rule, is a row. Only an edit inside
+    what is named here is not reported. A redacted value is not named here: it
+    is published redacted, and :func:`_uncompared_workflow_text` makes it a
+    blocking limit, as a redacted step reference is (#767).
     """
 
     texts: list[str] = []
@@ -2190,19 +2675,26 @@ def uncompared_agent_launch_texts(grant: dict[str, Any]) -> list[str]:
             )
         for setting in entry.get("settings", []):
             unread = setting.get("unresolved_reason")
-            if unread:
-                what = "contains credential-shaped text" if unread == "redacted" else "is not a string"
+            what = {
+                "not_a_string": "is not a string",
+                "unparsed_json": (
+                    "holds text that starts like JSON and does not parse, so the "
+                    "values it may hold cannot be told apart from its key names"
+                ),
+            }.get(str(unread))
+            if what:
                 texts.append(
                     f"the {setting['name']} value of the agent launch at {where} {what}; it is "
-                    "neither published nor compared, so an edit to it is not reported"
+                    "neither published nor compared, so an edit to it that gains no documented "
+                    "widening rule is not reported"
                 )
     for entry in grant.get("checkout_refs", []):
         unread = entry.get("unresolved_reason")
-        if unread:
-            what = {
-                "redacted": "a ref that contains credential-shaped text",
-                "not_a_string": "a ref that is not a string",
-            }.get(str(unread), "a `with:` that is not a mapping")
+        what = {
+            "not_a_string": "a ref that is not a string",
+            "inputs_not_a_mapping": "a `with:` that is not a mapping",
+        }.get(str(unread))
+        if what:
             texts.append(
                 f"the checkout at {entry['job']}/{entry['step']} declares {what}; it is "
                 "neither published nor compared, so an edit to it is not reported"
@@ -2335,10 +2827,12 @@ def _uncompared_workflow_text(
     """Why part of a workflow grant is published but cannot be compared, or ``None``.
 
     One rule for every compared workflow text (#767, #693). A redacted step
-    reference, reusable target, or secret name could publish the same text as
-    a different one, so comparing the display would read a change as equal.
-    That is a blocking limit: a changed workflow refuses, and an unchanged one
-    is named (#721).
+    reference, reusable target, secret name, agent launch setting or checkout
+    ref (#823) could publish the same text as a different one, so comparing
+    the display would read a change as equal. That is a blocking limit: a
+    changed workflow refuses, and an unchanged one is named (#721). A URL path
+    an agent setting withholds is not credential-shaped and is not counted
+    here, as an MCP server URL's path is not (#723).
 
     A job id, trigger or permission scope name is compared by its published
     label (#802). One redacted label is still a distinct label, so it refuses
@@ -2357,6 +2851,14 @@ def _uncompared_workflow_text(
             ("a reusable workflow reference", any(call.get("uses_redacted") for call in calls)),
             ("a reusable workflow secret name", any(
                 entry["unresolved_reason"] == "redacted" for entry in mappings
+            )),
+            # An agent setting and a checkout ref are compared text too (#823).
+            ("an agent launch setting", any(
+                setting.get("unresolved_reason") == "redacted"
+                for launch in grant.get("agent_launches", []) for setting in launch.get("settings", [])
+            )),
+            ("a checkout ref", any(
+                item.get("unresolved_reason") == "redacted" for item in grant.get("checkout_refs", [])
             )),
         ) if present
     ]

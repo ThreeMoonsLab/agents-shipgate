@@ -227,7 +227,9 @@ non-widening row, so the hook stays quiet about it; `diff` and the PR comment
 still show it. The same holds for an agent launch in a workflow whose settings
 change without gaining a documented widening rule, and for a checkout's ref.
 One that gains a rule, such as `claude_args` gaining
-`--dangerously-skip-permissions`, widens, and the hook announces it (#823).
+`--dangerously-skip-permissions` on any of its lines, widens, and the hook
+announces it (#823), unless the job launched that agent before only in a form
+the audit does not read.
 It names each widening
 row once, and repeats the announcement only when the change or its rows change.
 A missing base ref, an incomparable inventory or unparsed output is never

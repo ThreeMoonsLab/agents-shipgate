@@ -53,16 +53,21 @@ An agent launch is a step whose `uses:` is a documented agent action
 `openai/codex-action`) with the permission inputs it declares, or a `run:`
 that is one literal `claude -p` / `codex exec` command with its documented
 permission flags; its `job`, `step`, `agent`, `form` (`read` or `unresolved`
-with a reason), `settings[]` (`name`, `value`, `unresolved_reason`) and
-`job_secrets[]`. A checkout ref is each `actions/checkout` step's `with.ref`,
-`null` for the default. Values are compared as text and never executed. Only a
+with a reason), `settings[]` (`name`, `value`, `unresolved_reason`),
+`widening_rules[]` (`rule`, `setting`) and `job_secrets[]`. A checkout ref is
+each `actions/checkout` step's `with.ref`, `null` for the default. Values are
+compared as text and never executed; `claude_args` and `codex-args` are split
+as each action splits them, and a setting publishes what the host readers
+would, a JSON object by its key names and a URL by its scheme and host. Only a
 documented rule a job's launches gain — bypassed permission checks, a bypassed
 or `danger-full-access` sandbox, `safety-strategy: unsafe`, or a user gate
 opened to `*` — raises `workflow_agent_widened_<added|changed>` and makes the
 row `widened`; every other edit is `changed`, and a workflow row that runs an
 agent ends its `why` with the job facts beside each agent step. A compound
 `run:`, an expansion or an expression is `unresolved` and a named non-blocking
-limit. A `0.4`–`0.6` baseline holding a workflow grant is incomparable
+limit; a setting or checkout ref holding credential-shaped text is published
+redacted and a blocking limit, as a redacted step reference is. A `0.4`–`0.6`
+baseline holding a workflow grant is incomparable
 (`baseline_workflow_agent_launches_unavailable`); one without a workflow stays
 comparable. Verifier `0.20`, capability diff `0.3` and
 `minimum_control_contract_version` `21` are unchanged. See

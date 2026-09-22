@@ -229,7 +229,8 @@ SURFACES: tuple[Surface, ...] = (
         # `tests/test_partial_host_comparison.py`.
         # Its agent-launch cells and note (#823)
         # restate no answer: direction comes from the engine's
-        # `workflow_agent_widened_*` expansion signal, and the note reads the
+        # `workflow_agent_widened_*` expansion signal, itself read off the
+        # `widening_rules` the engine published on each launch, and the note reads the
         # triggers, write scopes, secrets and checkout refs the engine already
         # published on the grant, so it adds no claim;
         # `tests/test_workflow_agent_launches.py` holds diff, verify, the PR

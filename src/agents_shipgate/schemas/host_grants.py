@@ -626,28 +626,66 @@ class HostWorkflowAgentSettingV7(BaseModel):
 
     ``name`` is the documented input (``claude_args``, ``sandbox``, …) or the
     flag's primary spelling (``--allowedTools`` for ``--allowed-tools`` too).
-    ``value`` is the declared text, stripped, published through the workflow
-    label redaction (#802); a flag that takes no value has ``null``. A value
-    the redaction rewrites, or one that is not a string, is ``null`` with
-    ``unresolved_reason``, and records a non-blocking coverage issue naming
-    its ``job/step``: it is neither published nor compared.
+    ``value`` is the declared text, stripped, as it may be published; a flag
+    that takes no value has ``null``. ``claude_args`` is the text the Claude
+    actions parse, without the full-line ``#`` comments they drop. What the
+    host readers withhold stays withheld: a JSON object (a ``settings`` or
+    ``mcp_config`` value, a ``--settings`` or ``--mcp-config`` value, any
+    argument word) publishes its key names with ``env`` and ``headers``
+    values, ``apiKeyHelper`` and every secret-named value ``<redacted>``, a
+    codex ``--config`` override under such a key publishes ``<redacted>``, and
+    a URL publishes its scheme and host with ``<redacted-path>`` for its path
+    and query (#723). The rest is published through the workflow label
+    redaction (#802). A value it rewrites beyond that is credential-shaped: it
+    is published redacted with ``unresolved_reason: redacted`` and makes the
+    workflow a blocking limit, as a redacted step reference does (#767). A
+    value that is not a string (``not_a_string``), or one holding text that
+    starts like JSON and does not parse (``unparsed_json``), is
+    ``null`` and records a non-blocking coverage issue naming its
+    ``job/step``: it is neither published nor compared.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     name: str
     value: str | None
-    unresolved_reason: Literal["not_a_string", "redacted"] | None = None
+    unresolved_reason: Literal["not_a_string", "redacted", "unparsed_json"] | None = None
+
+
+class HostWorkflowAgentRuleV7(BaseModel):
+    """One documented widening rule an agent launch meets, and the setting it was read from (#823).
+
+    Decided when the workflow is read, from the declared text, before any of
+    it is withheld for publication, so redaction never hides a rule. Only a
+    literal value meets one: a value holding ``${{ }}`` meets none.
+    ``setting`` is the input (``claude_args``, ``allowed_bots``, ``sandbox``,
+    …) or the CLI flag's primary spelling. One rule compares as one whatever
+    setting meets it, except ``open_gate``, which is one rule per gate input.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    rule: Literal[
+        "bypass_permissions",
+        "bypass_approvals_and_sandbox",
+        "danger_full_access",
+        "unsafe_safety_strategy",
+        "open_gate",
+    ]
+    setting: str
 
 
 class HostWorkflowAgentLaunchV7(BaseModel):
     """A step that launches a known coding agent, read as text and never run (#823).
 
     ``agent`` is a documented action reference's ``owner/repo`` (the step's
-    ``uses:`` at any ref) or a known agent CLI a literal ``run:`` starts with:
-    ``claude`` with ``-p``/``--print``, or ``codex exec``. ``form: read``
-    lists the documented permission inputs or flags the step declares in
-    ``settings``. ``form: unresolved`` names why the step's settings were not
+    ``uses:`` at any ref; the Claude base action also as the ``base-action``
+    directory of ``anthropics/claude-code-action``) or a known agent CLI a
+    literal ``run:`` starts with: ``claude`` with ``-p``/``--print``, or
+    ``codex exec``. ``form: read`` lists the documented permission inputs or
+    flags the step declares in ``settings``, and the documented widening
+    rules they meet in ``widening_rules``, omitted when none.
+    ``form: unresolved`` names why the step's settings were not
     read — a ``run:`` holding more than one command or quoting that does not
     balance, a shell expansion, a ``${{ }}`` expression, or ``with:`` that is
     not a mapping — with no
@@ -664,6 +702,7 @@ class HostWorkflowAgentLaunchV7(BaseModel):
     agent: Literal[
         "anthropics/claude-code-action",
         "anthropics/claude-code-base-action",
+        "anthropics/claude-code-action/base-action",
         "openai/codex-action",
         "claude",
         "codex",
@@ -676,6 +715,9 @@ class HostWorkflowAgentLaunchV7(BaseModel):
         "inputs_not_a_mapping",
     ] | None = None
     settings: list[HostWorkflowAgentSettingV7] = Field(default_factory=list)
+    widening_rules: list[HostWorkflowAgentRuleV7] = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
     job_secrets: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
 
 
@@ -684,7 +726,9 @@ class HostWorkflowCheckoutRefV7(BaseModel):
 
     ``ref`` is ``null`` when the step declares none, or an empty one: the
     checkout's default for the triggering event. A ref the label redaction
-    rewrites, a value that is not a string, or ``with:`` that is not a mapping
+    rewrites is published redacted with ``unresolved_reason: redacted`` and
+    makes the workflow a blocking limit, as a redacted step reference does
+    (#767). A value that is not a string, or ``with:`` that is not a mapping,
     is ``null`` with ``unresolved_reason`` and records a non-blocking coverage
     issue. The ref is never resolved or fetched.
     """
@@ -761,4 +805,4 @@ class HostGrantsDriftArtifactV7(RootModel[HostGrantsDriftV7]):
     root: HostGrantsDriftV7
 
 
-__all__ =[name for name in globals() if name.startswith("Host") or name.startswith("HOST_")]
+__all__ = [name for name in globals() if name.startswith("Host") or name.startswith("HOST_")]

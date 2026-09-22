@@ -30,6 +30,7 @@ from agents_shipgate.core.host_grants import (
     AGENT_WIDENING_RULES,
     UNTRUSTED_INPUT_TRIGGERS,
     agent_launch_key,
+    agent_widenings_unread_before,
     checkout_ref_key,
     gained_agent_widenings,
     hook_loading_basis,
@@ -323,9 +324,11 @@ def _agent_launch_reasons(
     """What changed in how an agent is launched, and which of it widens (#823).
 
     Only a documented rule gained by a job's agent launches is called a
-    widening, and the sentence says which rule and where. Every other
-    agent-launch or checkout edit is a change: its settings are compared as
-    declared text, and nothing here ranks one value against another.
+    widening, and the sentence says which rule and where. A rule gained where
+    the job's launch was unread before is named and not called a widening, as
+    the engine claims no expansion for it. Every other agent-launch or
+    checkout edit is a change: its settings are compared as published text,
+    and nothing here ranks one value against another.
     """
 
     def where(item: dict[str, Any]) -> str:
@@ -337,6 +340,14 @@ def _agent_launch_reasons(
         widened_at.add(where(entry))
         what = AGENT_WIDENING_RULES[rule] + (f" ({detail}: *)" if detail else "")
         reasons.append(f"an agent launch now {what} ({where(entry)})")
+    for _job, rule, detail, entry in agent_widenings_unread_before(before, after):
+        widened_at.add(where(entry))
+        what = AGENT_WIDENING_RULES[rule] + (f" ({detail}: *)" if detail else "")
+        reasons.append(
+            f"an agent launch now {what} ({where(entry)}), which is not counted as a widening: "
+            "before, this job launched the agent in a form this audit does not read, which may "
+            "already have done the same"
+        )
     # The step label only words the sentence; what changed was decided by the
     # comparator's key, which never reads it.
     old = {where(item) for item in gone}
