@@ -98,7 +98,10 @@ command name or redacted URL and key names, then one review question. Every
 answer, a zero-row one and a refusal included, ends with the compared commits
 and the command that reproduces the comparison. `--json` publishes the same entries,
 counters, question and command beside the rows, so a script and a reader
-describe one run the same way. The
+describe one run the same way; a refused comparison is the exception, which
+publishes no `review` object at all, so those two lines have no JSON
+counterpart and a reader rebuilds the command from the `base_commit` published
+beside the refusal. The
 [quickstart](docs/quickstart.md#review-a-host-configuration-change) shows each
 answer, the `--base <ref>` recovery when no base can be detected, and the
 [surfaces `diff` does not read](docs/host-boundary-support.md#known-unread-surfaces).

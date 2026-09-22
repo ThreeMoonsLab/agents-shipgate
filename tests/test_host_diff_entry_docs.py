@@ -18,6 +18,7 @@ copy of the answer.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -200,6 +201,50 @@ def test_the_quoted_incomparable_answer_is_what_diff_prints(documented_remote: P
     code, payload = _diff(clone, "--json")
     assert '"comparison_status": "incomparable"' in payload
     assert "head_inventory_incomplete" in payload
+
+
+#: The README sentence that claims `diff`'s text and its `--json` describe one
+#: run alike. Held to the one answer where they do not (review cycle 6).
+_PARITY_CLAIM = "`--json` publishes the same entries, counters, question and command"
+
+
+def test_the_readme_parity_sentence_carves_out_the_refusal(documented_remote: Path) -> None:
+    """A refusal prints the reference lines and publishes no `review`.
+
+    So the question, the counters and the command have no JSON counterpart
+    there, and the sentence claiming a script and a reader describe one run the
+    same way has to say so in its own breath — otherwise the page promises a
+    key a script will not find on the answer hardest to check. Cycles 4 and 5
+    found the same shape in the migration note and the Action's page; this
+    holds the claim to the behaviour rather than to another copy of the prose.
+    """
+
+    clone = _clone(documented_remote, "broken")
+    code, output = _diff(clone)
+    assert code == 0, output
+    printed = _normalize(output)
+    assert printed[0].startswith("Cannot compare against ")
+    # The text names its own provenance on a refusal (#812 follow-up) ...
+    assert printed[-2].startswith("Inputs: base <sha>")
+    assert printed[-1].startswith("Reproduce")
+    # ... while the JSON publishes no block those two lines could come from.
+    code, payload = _diff(clone, "--json")
+    published = json.loads(payload)
+    assert published["review"] is None
+    assert published["base_commit"], "the command the text prints is built from this"
+
+    collapsed = " ".join(README.read_text(encoding="utf-8").split())
+    assert _PARITY_CLAIM in collapsed, (
+        "README.md no longer makes the text/JSON parity claim this guard "
+        "carves out; re-point it at the sentence that replaced it."
+    )
+    sentence = collapsed[collapsed.index(_PARITY_CLAIM) :].split(". ", 1)[0]
+    assert "publishes no `review`" in sentence, (
+        "README.md claims `--json` publishes the question and command beside "
+        "the rows without naming the refusal, which publishes `review: null` "
+        "while its text still prints both reference lines. Give that sentence "
+        "the carve-out STABILITY.md already carries."
+    )
 
 
 def _with_base_url(url: str) -> str:

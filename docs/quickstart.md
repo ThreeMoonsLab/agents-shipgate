@@ -189,7 +189,8 @@ print the question without those lines. Every other answer below ends with the
 same two lines, the first labelled `Inputs:` where the comparison was refused,
 since that run compared nothing: a result with no change and a refusal are the
 ones a reviewer can least check from the output, so they say where they came
-from too. Only the question is conditional — there is no change to ask about.
+from too. Among those answers only the question is conditional — there is no
+change to ask about.
 
 **No change.** On a branch from `main` that only edits `README.md`:
 
