@@ -2,6 +2,18 @@
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
+Unreleased, after 1.1.0, still contract v40 and host-grants `0.6`: a Claude Code
+setting that disables prompts or approves project MCP servers carries one
+rating on every surface (#827). The `audit --host` grant, the `diff`, `verify`
+and `check` rows, `check`'s violation and `verify`'s finding read one table.
+`enableAllProjectMcpServers: true` and `skipDangerousModePermissionPrompt: true`
+move from `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` to
+`SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW`, and `defaultMode: dontAsk` from
+the wildcard check to `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` at
+`medium`. Setting rows name the setting and value, and `enabledMcpjsonServers`
+entries become grants. No schema, member or check id moves. See
+[the migration note](#claude-setting-ratings-827).
+
 Runtime contract v40 reads the action reference each workflow step declares
 (#771). Host-grants inventory, baseline and drift schemas move to `0.6`, and a
 workflow grant adds `step_actions[]`: the job, the step (`id`, else `name`,
@@ -192,6 +204,88 @@ from the shipped `v0.15.0` contract are in
 the Action tag) for reproducible CI.
 
 ---
+
+<a id="claude-setting-ratings-827"></a>
+
+## Migration Note: Unreleased — one rating per Claude Code setting (#827)
+
+No schema, member, check id or `minimum_control_contract_version` moves:
+host-grants stays `0.6`, capability diff `0.3`, verifier `0.20` and the runtime
+contract `40`, all as shipped in 1.1.0. What moves is the value of existing
+fields for the Claude Code settings the host inventory publishes as
+`permission_mode` grants. One table, `core/host_settings.py`, now rates each
+value, and the grant's `access` and `risk`, a row's `severity`, `before`,
+`after` and `why`, and `check`'s violation — and so `verify`'s finding — all
+read it. The ratings and their basis are in
+[`docs/host-boundary-support.md`](docs/host-boundary-support.md#claude-code-setting-ratings).
+
+| Value a change sets | Grant `risk` before → after | `check` before → after |
+| --- | --- | --- |
+| `defaultMode: bypassPermissions` | `medium` (`unknown`) → `critical` (`admin`) | `…-PERMISSION-WILDCARD-ALLOW`, `block`, `critical` (unchanged) |
+| `defaultMode: dontAsk` | `medium` (unchanged) | `…-PERMISSION-WILDCARD-ALLOW`, `block`, `critical`, kind `permission_mode_expanded` → `…-PERMISSION-ALLOW-EXPANDED`, `require_review`, `medium`, kind `permission_mode_changed` |
+| `defaultMode: acceptEdits` | `medium` → `high` (`write`) | `…-PERMISSION-ALLOW-EXPANDED`, `high` (unchanged) |
+| `defaultMode: auto`, or a mode Claude Code does not document | `medium` → `high` | `…-PERMISSION-ALLOW-EXPANDED`, `high` (unchanged) |
+| `defaultMode: plan` or `default` | `medium` (unchanged) | `…-PERMISSION-ALLOW-EXPANDED`, `high` → `medium` |
+| `enableAllProjectMcpServers: true`, `skipDangerousModePermissionPrompt: true` | `critical` (unchanged) | `…-CONFIG-PARSE-FAILED`, `require_review`, `medium`, kind `unknown_host_config_key` → `…-PERMISSION-WILDCARD-ALLOW`, `block`, `critical`, kind `permission_mode_expanded` |
+| `false` for either, `disableAllHooks`, `allowManagedPermissionRulesOnly`, `allowManagedHooksOnly`, or a top-level `disableBypassPermissionsMode` | `medium` (unchanged) | `…-CONFIG-PARSE-FAILED`, `medium` → `…-PERMISSION-ALLOW-EXPANDED`, `medium`, kind `permission_mode_changed` |
+| any of these set under `permissions` (for example `permissions.disableBypassPermissionsMode`) | as above | `…-PERMISSION-ALLOW-EXPANDED`, `high`, kind `claude_permission_boundary_changed` → the value's rating and rule, as above |
+| an `enabledMcpjsonServers` entry | no grant → one `high` (`external`) grant per server | `…-CONFIG-PARSE-FAILED`, `medium` → `…-PERMISSION-ALLOW-EXPANDED`, `high`, one per added server |
+
+- **Check ids.** None is added, removed or renamed; per [Check IDs](#check-ids),
+  the conditions under which three of them fire move, and this note records
+  it. `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` now also fires for
+  `enableAllProjectMcpServers: true` and `skipDangerousModePermissionPrompt: true`,
+  and no longer for `defaultMode: dontAsk`.
+  `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` fires for `dontAsk`, the other
+  modelled settings and each added `enabledMcpjsonServers` entry, at the value's
+  rating, which may be `medium`: below the catalog's default of `high` and at
+  its `floor_severity`. `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` no longer fires
+  for a modelled setting. A suppression or baseline entry keyed on the old id or
+  evidence for one of these values no longer matches, so the finding reads as
+  new. `defaultMode` evidence keeps its shape (`kind`, `mode`), so
+  `bypassPermissions`, `acceptEdits`, `auto`, `plan` and `default` findings keep
+  their fingerprints; every other setting's evidence names `setting` and `value`.
+- **Decisions.** `check` alone on `enableAllProjectMcpServers: true` or
+  `skipDangerousModePermissionPrompt: true` moves from `require_review` /
+  `agent_action_required` to `block` / `human_review_required`, and a
+  manifest's `verify` reports a `critical` finding that blocks the release. On
+  `dontAsk` alone it moves from `block` / `human_review_required` to
+  `require_review` / `agent_action_required`, a `medium` review item. On
+  `plan`, `default` or a setting under `permissions` rated `medium` it moves
+  from `review_publishable` to `agent_action_required`; the pull request still
+  goes to a human. On an `enabledMcpjsonServers` entry it moves from
+  `agent_action_required` to `review_publishable`.
+- **Rows.** A `permission_mode` or `sandbox` row's `before` and `after` name
+  the setting and the value as the file spells it, for every host:
+  `enableAllProjectMcpServers: true` for `True`, `defaultMode: dontAsk` for
+  `dontAsk`, `approval_policy: never` for `never`. A string where the setting's
+  documented value is a boolean is quoted (`"True"`), so it is not read as
+  one. A Claude Code setting's `why` is the table's basis, such as "skips every
+  permission prompt, so any tool call runs without one", instead of "changes a
+  permission_mode grant". Every row keeps its direction and `expands`: a mode
+  added or changed is still `⚠`, because the direction between two modes is
+  not modelled.
+- **Policy.** A host-boundary policy that raises either rule above its engine
+  default raises these violations to at least its level; `DEFAULT_RULES` stays
+  the floor for a policy file. The packaged policy states the defaults, so it
+  changes nothing.
+- **Compatibility.** A host-grants baseline saved before this change that
+  holds `bypassPermissions`, `acceptEdits`, `auto` or an undocumented mode
+  recorded it at `medium`. The grant id is unchanged, so drift reports one
+  `changed` grant for it, with no expansion signal, and `--fail-on-drift`
+  exits `20` once. One holding `enabledMcpjsonServers` reports each server as
+  an added grant with `permission_mode_added`. Review the rows and re-save the
+  baseline.
+- **Not changed.** Removing a setting raises nothing of its own, as removing
+  `defaultMode` never did; a settings change with no other violation still
+  raises `SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED`.
+  `disabledMcpjsonServers`, `outputStyle` and every other unmodelled key still
+  read as `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` with `unknown_host_config_key`.
+  A scalar setting set under `permissions` is read there only, so a top-level
+  copy beside it stays an unknown key. Codex, Cursor and VS Code setting ratings
+  are unchanged. Every vendored host-config and cold-start case replays to its
+  recorded outcome, and the recorded runs score as published: the benchmark's
+  row matcher reads both spellings of a setting row.
 
 <a id="host-comparison-coverage-812"></a>
 

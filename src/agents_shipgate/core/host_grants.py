@@ -49,6 +49,11 @@ from agents_shipgate.core.host_input_failure import (
     HostInventoryReadError,
     safe_failure_text,
 )
+from agents_shipgate.core.host_settings import (
+    CLAUDE_LIST_SETTINGS,
+    claude_setting_values,
+    rate_claude_setting,
+)
 from agents_shipgate.core.instruction_structure import (
     classify_instruction,
     instruction_profile,
@@ -518,6 +523,39 @@ def redacted_config_sha256(config: Any) -> str:
     if not url_parts:
         return _sha(redacted)
     return _sha({"redacted": redacted, "url_capability": url_parts})
+
+
+def published_setting_value(grant: dict[str, Any]) -> Any:
+    """The value a setting grant was read with, as far as its published fields say (#827).
+
+    A `permission_mode` or `sandbox` grant publishes its value as text, and a
+    JSON `true` and the string `"True"` both publish `True`. Its digest is of
+    the value itself, so a candidate the text allows — a boolean, `null`, a
+    number, a list or an object — is the value exactly when it reproduces that
+    digest. Anything else is the published text. Nothing is read beyond the
+    grant, so a grant from a saved baseline answers the same way.
+    """
+
+    text = grant.get("value")
+    setting = grant.get("setting")
+    if not isinstance(text, str) or not isinstance(setting, str):
+        return text
+    candidates: list[Any] = [True, False, None]
+    try:
+        candidates.append(json.loads(text))
+    except ValueError:
+        pass
+    for candidate in candidates:
+        if isinstance(candidate, str):
+            continue
+        rendered = (
+            _canonical(candidate) if isinstance(candidate, (dict, list)) else str(candidate)
+        )
+        if rendered == text and (
+            redacted_config_sha256({setting: candidate}) == grant.get("config_sha256")
+        ):
+            return candidate
+    return text
 
 
 def _display_path(path: Path, *, root: Path, home: Path) -> str:
@@ -998,21 +1036,13 @@ def _claude_grants(data: Any, *, scope: HostScope, source: str) -> list[dict[str
         return []
     grants = _permission_rule_grants(data.get("permissions"), host="claude-code", scope=scope, source=source)
     permissions = data.get("permissions") if isinstance(data.get("permissions"), dict) else {}
-    mode_keys = (
-        "defaultMode", "disableBypassPermissionsMode", "allowManagedPermissionRulesOnly",
-        "allowManagedHooksOnly", "skipDangerousModePermissionPrompt",
-        "enableAllProjectMcpServers", "disableAllHooks",
-    )
-    for setting in mode_keys:
-        container = permissions if setting in permissions else data
-        if setting in container:
-            value = container[setting]
-            risky = setting in {"skipDangerousModePermissionPrompt", "enableAllProjectMcpServers"} and bool(value)
-            grants.append(_setting_grant(
-                host="claude-code", scope=scope, source=source, kind="permission_mode",
-                setting=setting, value=value, access="admin" if risky else "unknown",
-                risk="critical" if risky else "medium",
-            ))
+    # One rating per value, shared with `check` and the rows (#827).
+    for item in claude_setting_values(data):
+        rating = rate_claude_setting(item.setting, item.value)
+        grants.append(_setting_grant(
+            host="claude-code", scope=scope, source=source, kind="permission_mode",
+            setting=item.setting, value=item.value, access=rating.access, risk=rating.risk,
+        ))
     for path in sorted(_string_entries(permissions.get("additionalDirectories")) + _string_entries(data.get("additionalDirectories"))):
         projected_path = _privacy_projected_path(path)
         grant = _grant_base(
@@ -2907,6 +2937,11 @@ def _claude_precedence_key(grant: dict[str, Any]) -> tuple[str, str] | None:
     """
 
     kind = grant.get("kind")
+    if kind == "permission_mode" and grant.get("setting") in CLAUDE_LIST_SETTINGS:
+        # One grant per approved server (#827). Whether Claude Code merges the
+        # list across layers is not documented, so each entry is its own key:
+        # a server one layer approves is never hidden by another layer's list.
+        return (str(kind), f"{grant.get('setting')}:{grant.get('value')}")
     if kind in {"permission_mode", "sandbox"}:
         return (str(kind), str(grant.get("setting")))
     if kind == "plugin_or_app":
@@ -3725,6 +3760,17 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
             if hook_loading_basis(after) in LOADED_HOOK_BASES:
                 signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
         elif kind in {"permission_mode", "sandbox", "additional_path", "plugin_or_app"}:
+            if (
+                kind in {"permission_mode", "sandbox"}
+                and before is not None
+                and before.get("config_sha256") == after.get("config_sha256")
+            ):
+                # One grant id is one setting and value, and the digest says
+                # the value was read the same way: only the rating moved, as
+                # when a baseline saved before #827 rated `bypassPermissions`
+                # `medium`. The file permits nothing new, so the row stays as
+                # a change without an expansion signal, as #816 did for rules.
+                continue
             signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
         elif kind == "workflow":
             previous = before or {}
@@ -4136,6 +4182,7 @@ __all__ = [
     "load_host_grants_baseline_with_text",
     "normalized_host_grants",
     "permission_rule_replacements",
+    "published_setting_value",
     "redacted_config_sha256",
     "render_host_audit_markdown",
     "render_host_drift_markdown",
