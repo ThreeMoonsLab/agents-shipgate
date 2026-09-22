@@ -540,13 +540,20 @@ The shape that holds:
    fails once per file until each does, so the suite enumerates them for you.
    Two surfaces are measurements rather than pins, and are re-taken on the
    published build installed from PyPI into a clean virtualenv outside any
-   checkout: the README and quickstart `diff` answers, which
-   `tests/test_host_diff_entry_docs.py` holds to the newest release once the
-   pages call them published output, and the pilot ledger's route readiness
-   dry run, which `tests/test_design_partner_pilot.py` holds to it on its
-   `Published build measured` line.
+   checkout. The first is the README and quickstart `diff` answers: run that
+   build's `diff` on the fixtures `tests/test_host_diff_entry_docs.py` builds,
+   and record each normalized answer's digest in its `_PUBLISHED_ANSWERS` and
+   the release in `_PUBLISHED_ANSWERS_VERSION`, which the test holds to the
+   newest release. A page that calls its quotes published output may quote
+   only recorded answers. A page that calls them not yet released must name
+   the newest release it compares them with and quote at least one answer
+   that release does not print. The record, not the version string, is what
+   tells the two builds apart: until its next version bump this tree prints
+   the published version on its reference lines. The second is the pilot
+   ledger's route readiness dry run, which `tests/test_design_partner_pilot.py`
+   holds to the newest release on its `Published build measured` line.
 
-   These two govern ordinary/source/preview adoption: the `uses:`
+   The two constants govern ordinary/source/preview adoption: the `uses:`
    pin in the workflow it generates, the runner pins in the bundled adoption
    prompts, the `shipgate_version` the bundled CI recipe installs. Moving them
    *before* the tag exists is the failure they guard against (#506) — a

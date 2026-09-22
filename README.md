@@ -241,7 +241,7 @@ declared and statically discoverable surface says. See
 > recall and the benign rate remain below their original bars, recorded as such
 > in [ROADMAP.md](ROADMAP.md#publication-and-evidence) rather than relabeled as
 > passes. The real-history numbers that follow are older, measured on
-> 2026-07-08 on the released `v0.15.0` engine and not re-run on `v1.0.0`: on
+> 2026-07-08 on the released `v0.15.0` engine and not re-run since: on
 > the **19 unique labeled engine-engaged PRs** mined from **8 distinct** real
 > agent repos, the gate **never auto-passed an unsafe
 > change** (`must_block_caught` / `needs_human_caught` = 1.0). **But it routes
