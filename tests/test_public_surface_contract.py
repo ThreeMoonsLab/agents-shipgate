@@ -667,9 +667,7 @@ def test_keystone_and_stability_agree_on_whether_the_contract_shipped():
         "— the keystone doc's own rule is to update STABILITY.md first, "
         "then it."
     )
-    stamp = re.match(r"# Stability Contract · (?P<version>\S+)", stability)
-    assert stamp, "STABILITY.md must open with '# Stability Contract · <version>'."
-    if stamp.group("version") == __version__:
+    if _stability_is_stamped_for_this_tree():
         assert keystone_count == 0, (
             f"STABILITY.md is stamped {__version__}, the version this tree "
             "emits, so the contract it describes ships in that release; "
@@ -677,6 +675,49 @@ def test_keystone_and_stability_agree_on_whether_the_contract_shipped():
             "'unreleased contract'. scripts/build-llms-full.py inlines that "
             "file, so llms-full.txt would repeat it at the tag."
         )
+
+
+def _stability_is_stamped_for_this_tree() -> bool:
+    """True once STABILITY.md's title names the version this tree emits.
+
+    Stamping the title is the release-prep step that turns "this is coming"
+    into "this ships", so it is the point after which no surface may defer a
+    claim to an unnamed future release.
+    """
+    stability = _read("STABILITY.md")
+    stamp = re.match(r"# Stability Contract · (?P<version>\S+)", stability)
+    assert stamp, "STABILITY.md must open with '# Stability Contract · <version>'."
+    return stamp.group("version") == __version__
+
+
+def test_no_deprecation_is_dated_to_an_unnamed_cycle_at_release():
+    """A deprecation has to name the release it started in.
+
+    STABILITY.md § Versioning counts the deprecation clock in shipped
+    releases, never in time on unreleased ``main``, so "deprecated in the
+    unreleased minor cycle" tells a reader nothing they can count a removal
+    from once that cycle has a number. The 1.1.0 prep restated the phrase in
+    STABILITY.md and docs/checks.md and left it in the check registry, whose
+    ``description`` is published in docs/checks.json — the machine-readable
+    catalog a coding agent fetches by URL — and in ``list-checks``, report
+    metadata and SARIF beside it.
+    """
+    if not _stability_is_stamped_for_this_tree():
+        return
+    surfaces = ["STABILITY.md", "docs/checks.md", "docs/checks.json", "llms-full.txt"]
+    surfaces += sorted(
+        str(path.relative_to(REPO_ROOT)) for path in (REPO_ROOT / "docs" / "checks").glob("*.yaml")
+    )
+    offenders = {path: _read(path).count("unreleased minor cycle") for path in surfaces}
+    offenders = {path: count for path, count in offenders.items() if count}
+    assert not offenders, (
+        f"STABILITY.md is stamped {__version__}, the version this tree emits, "
+        "so a deprecation in this cycle is deprecated in that release and the "
+        "removal clock can be counted from it. These surfaces still date it to "
+        f"'the unreleased minor cycle': {offenders}. Restate the check "
+        "registry under docs/checks/ and re-run "
+        "`python scripts/generate_schemas.py`, which rewrites docs/checks.json."
+    )
 
 
 def test_architecture_doc_contract_stamp_matches_runtime():

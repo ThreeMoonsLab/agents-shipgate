@@ -108,8 +108,8 @@ checks:
   floor_severity: medium
   mvp_tier: lifecycle
   requires_human_review: true
-  description: Deprecated in the unreleased minor cycle; retained for historical
-    reports and configuration. New runs emit no findings for this ID.
+  description: Deprecated in 1.1.0; retained for historical reports and
+    configuration. New runs emit no findings for this ID.
   rationale: Prose words do not establish changed authority. Complete parsed
     instruction structure and unresolved-input review replace word matching.
   fires_when: Never on current scans. The published ID remains available;
@@ -158,8 +158,8 @@ checks:
   floor_severity: medium
   mvp_tier: lifecycle
   requires_human_review: true
-  description: Deprecated in the unreleased minor cycle; retained for historical
-    reports and configuration. New runs emit no findings for this ID.
+  description: Deprecated in 1.1.0; retained for historical reports and
+    configuration. New runs emit no findings for this ID.
   rationale: Prose words do not establish changed authority. Complete parsed
     instruction structure and unresolved-input review replace word matching.
   fires_when: Never on current scans. The published ID remains available;
