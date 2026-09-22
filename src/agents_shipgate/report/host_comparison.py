@@ -57,8 +57,17 @@ def presented_changes(comparison: HostComparison) -> list[ReviewChange]:
     ]
 
 
+#: The label on the provenance line where the comparison was refused (#812
+#: follow-up). A refused result opens with `Cannot compare against main: …`,
+#: so reading `Compared: base … → working tree …` four lines below it reads as
+#: a contradiction. The two commits are still the inputs this run was handed,
+#: and the reproduction still reads them again, so on that route they are
+#: labelled as what they are.
+REFUSED_REFERENCE_LABEL = "Inputs"
+
+
 def comparison_reference_lines(
-    comparison: HostComparison, *, markdown: bool = False
+    comparison: HostComparison, *, markdown: bool = False, label: str = "Compared"
 ) -> list[str]:
     """The compared commits, the tool version, and a command that reads the same comparison.
 
@@ -66,6 +75,11 @@ def comparison_reference_lines(
     working tree. A provided diff and `check`'s text name no base commit, so
     they print no reference rather than one they cannot stand behind. A commit
     head is checked out first: `diff` reads the working tree.
+
+    ``label`` names what the two commits were to this run. It is `Compared`
+    wherever a comparison happened, and :data:`REFUSED_REFERENCE_LABEL` where
+    one was refused, so the line cannot read as contradicting the headline
+    above it. The commits, the version and the command are the same either way.
 
     The command is the one :func:`reproduce_command` builds, the same call the
     published ``review`` block records, so the printed and the published
@@ -84,12 +98,12 @@ def comparison_reference_lines(
         command = f"`{command}`"
     if comparison.head_kind == "commit":
         return [
-            f"Compared: base {base[:8]} → head {head[:8]}, agents-shipgate {__version__}.",
+            f"{label}: base {base[:8]} → head {head[:8]}, agents-shipgate {__version__}.",
             f"Reproduce: check out {head}, then run {command}",
         ]
     at = f" at HEAD {head[:8]}" if head else ""
     return [
-        f"Compared: base {base[:8]} → working tree{at}, agents-shipgate {__version__}.",
+        f"{label}: base {base[:8]} → working tree{at}, agents-shipgate {__version__}.",
         f"Reproduce in that working tree: {command}",
     ]
 
@@ -105,6 +119,29 @@ def _text(value: object, *, markdown: bool) -> str:
 
 
 COVERAGE_HEADING = "What this run established:"
+
+#: The block's own boundary, printed as its first line (#812 follow-up).
+#:
+#: The heading promises what the run established, and the list answers it
+#: source by source — but only for sources a reader of this entry read. On a
+#: corpus pull request the block listed seventeen items and named neither of
+#: the two files the change added, a hooks wiring file and a pin script, while
+#: showing three bare hook removals: everything printed was true, and a
+#: reviewer reading it as the account of the change would conclude the hooks
+#: were deleted rather than moved. The list cannot enumerate what it does not
+#: read (that is #821), so it states that it does not, wherever it is printed
+#: and however few items survive the cap.
+#:
+#: "read or tried to read", not "read" (review cycle 2): a blocking `unreadable`
+#: or `parse_failed` item is precisely a source this entry could *not* read, and
+#: on a refused comparison every item is one of those — so the shorter wording
+#: was false about the very list it introduces. The schema docstring and the
+#: migration note already said "read, or was refused by"; this is the printed
+#: line saying the same.
+COVERAGE_BOUNDARY = (
+    "only sources this entry read or tried to read are listed, so this is "
+    "not the whole change: a changed file it does not read is absent"
+)
 
 #: A blocking limit is what makes an inventory incomplete, which is the reason
 #: the comparison states (`base_inventory_incomplete`, `head_inventory_incomplete`).
@@ -212,19 +249,22 @@ def coverage_lines(
 ) -> list[str]:
     """The "What this run established" block (#812).
 
-    One line per item a reviewer must read, in the comparator's order — a
-    blocking limit, a change no row describes, a source only one side
-    published, a source not proven unchanged, a source with rows — then one
-    line naming the sources proven unchanged, the first three by name and the
-    rest as a count. Coverage items are a prefix of that order, so when the
-    last one listed is such a source, every item the cap omitted is one too;
-    otherwise the omitted count is stated as items not listed.
+    The heading, then :data:`COVERAGE_BOUNDARY`, which says what the list
+    cannot be read as. Then one line per item a reviewer must read, in the
+    comparator's order — a blocking limit, most actionable kind first, a change
+    no row describes, a source only one side published, a source not proven
+    unchanged, a source with rows — then one line naming the sources proven
+    unchanged, the first three by name and the rest as a count. Coverage items
+    are a prefix of that order, so when the last one listed is such a source,
+    every item the cap omitted is one too; otherwise the omitted count is
+    stated as items not listed, ranked below the ones above it.
 
-    With ``max_chars``, the block, heading, count and closing blank line
-    included, is at most that many characters joined: it lists the longest
+    With ``max_chars``, the block, heading, boundary, count and closing blank
+    line included, is at most that many characters joined: it lists the longest
     prefix of those lines that fits, naming fewer sources proven unchanged
     before it drops that line, and counts the rest, as ``N items not listed``
-    when it lists none. When not even the heading and that count fit, it is
+    when it lists none. The heading and the boundary are never dropped to make
+    room for an item: when not even they and that count fit, the block is
     nothing.
 
     Nothing when coverage was not recorded (a legacy verifier, `check`, a
@@ -241,10 +281,15 @@ def coverage_lines(
     def fits(block: list[str]) -> bool:
         return max_chars is None or len("\n".join(block)) <= max_chars
 
+    boundary = f"{bullet}{COVERAGE_BOUNDARY}"
     if not coverage.items and not coverage.omitted_items:
         if comparison.comparison_status != "comparable":
             return []
-        empty = [f"{COVERAGE_HEADING} no host configuration source was compared."]
+        empty = [
+            f"{COVERAGE_HEADING} no host configuration source was compared.",
+            boundary,
+            *([""] if markdown else []),
+        ]
         return empty if fits(empty) else []
 
     item_lines = [
@@ -267,12 +312,19 @@ def coverage_lines(
         )
 
     def block(listed: list[str], items: int) -> list[str]:
-        lines = [COVERAGE_HEADING, *listed]
+        lines = [COVERAGE_HEADING, boundary, *listed]
         unlisted = total - items
         if unlisted:
             # Items, not sources: one source can be several items (by host, side or limit).
-            more = "more " if listed else ""
-            lines.append(f"{bullet}{unlisted} {more}item{'s' if unlisted != 1 else ''} not listed")
+            plural = "s" if unlisted != 1 else ""
+            # Said in the text, not left to a JSON integer: a reviewer reading
+            # a capped list must be able to see that it is capped, and that
+            # the comparator ranked what it kept (#812 follow-up).
+            lines.append(
+                f"{bullet}{unlisted} more item{plural} not listed, each ranked below those above"
+                if listed
+                else f"{bullet}{unlisted} item{plural} not listed"
+            )
         if markdown:
             lines.append("")
         return lines
@@ -297,9 +349,10 @@ def with_coverage_in_room(
     lines leave, at most :data:`MARKDOWN_COVERAGE_MAX_CHARS`, so every line the
     surface shows without it — the entries, the review question and
     reproduction, and the advisory, next action and evidence after them — it
-    still shows with it (review cycle 5). When not even the heading and a count
-    fit, the block is left out; whatever the other lines alone overflow is
-    theirs, as without coverage.
+    still shows with it (review cycle 5). The heading and the boundary line are
+    never dropped to make room for an item: when not even they and a count fit,
+    the block is left out; whatever the other lines alone overflow is theirs,
+    as without coverage.
     """
 
     without = lines_for(0)
@@ -333,11 +386,29 @@ def host_comparison_lines(
 
     coverage = coverage_lines(comparison, markdown=markdown, max_chars=coverage_max_chars)
     if comparison.comparison_status != "comparable":
-        return [
+        lines = [
             "Host capability comparison unavailable: "
             + text("; ".join(comparison.incomparable_reasons)),
             *coverage,
         ]
+        # A refused comparison is the result a reviewer is most likely to want
+        # to rerun themselves, so it names what it read and how to read it
+        # again, exactly as a result with changes does (#812 follow-up). It
+        # asks no review question: there is no change to ask about, and
+        # nothing here was compared, so the commits are labelled as the inputs
+        # they are.
+        tail = comparison_reference_lines(
+            comparison, markdown=markdown, label=REFUSED_REFERENCE_LABEL
+        )
+        if tail:
+            if markdown and lines[-1] != "":
+                # The block ends with a blank of its own where it has items.
+                # Where it names no source it is nothing, and the headline
+                # would otherwise run into these lines as one paragraph
+                # (review cycle 4).
+                lines.append("")
+            lines.extend(tail)
+        return lines
     lines = ["Repository-declared host capability changes:"]
     changes = presented_changes(comparison)
     if not changes:
@@ -369,10 +440,18 @@ def host_comparison_lines(
         )
         for limit in comparison.unchanged_limits:
             lines.append(f"- {text(limit.host)} {text(limit.source)} — {text(limit.limit)}")
-    if changes:
+    # The question is asked only where there is a change to ask about; the
+    # compared commits and the command that reads them again are printed
+    # wherever the comparison names them, a zero-row result included (#812
+    # follow-up): that is the result whose provenance a reviewer cannot
+    # otherwise check.
+    tail = [
+        *([review_question(changes)] if changes else []),
+        *comparison_reference_lines(comparison, markdown=markdown),
+    ]
+    if tail:
         if markdown and lines[-1] != "":
             # Ends the list: a following line would otherwise continue its last item.
             lines.append("")
-        lines.append(review_question(changes))
-        lines.extend(comparison_reference_lines(comparison, markdown=markdown))
+        lines.extend(tail)
     return lines

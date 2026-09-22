@@ -45,6 +45,11 @@ _GIT_ENV = {
 }
 SETTINGS = ".claude/settings.json"
 SUBJECT = "claude-code .claude/settings.json"
+#: The line every coverage block opens with (#812 follow-up).
+BOUNDARY = (
+    "only sources this entry read or tried to read are listed, so this is "
+    "not the whole change: a changed file it does not read is absent"
+)
 GITHUB_TOKEN = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
 
 
@@ -737,51 +742,92 @@ def test_no_reference_is_printed_without_a_base_commit_and_a_readable_head(
 
 
 def test_no_change_and_incomparable_answers_ask_no_question(tmp_path: Path) -> None:
-    """Their headlines are unchanged; what the run established follows them (#812)."""
+    """Their headlines are unchanged; what the run established follows them (#812).
+
+    #812 follow-up: the compared commits and the reproduction follow it there
+    too. They are not a question — there is no change to ask about — they are
+    where the answer came from, which the two results that say the least used
+    to be the only ones not to state. Review cycle 1: on the refused route they
+    are labelled `Inputs:`, since nothing there was compared.
+    """
+
+    def references(lines: list[str]) -> list[str]:
+        return [
+            line for line in lines
+            if line.startswith(("Compared: ", "Inputs: ", "Reproduce"))
+        ]
 
     repo = _repository(
         tmp_path,
         {SETTINGS: {"permissions": {"allow": ["Bash(npm test *)"]}}, "README.md": "a\n"},
         {"README.md": "b\n"},
     )
-    text, _ = _diff(repo)
-    assert text.splitlines()[1:] == [
+    text, payload = _diff(repo)
+    lines = text.splitlines()
+    assert lines[1:-3] == [
         "",
         "No static host-grant changes detected. No verdict is implied.",
         "",
         "What this run established:",
+        f"  {BOUNDARY}",
         "  compared with no change in what this entry reads: .claude/settings.json",
     ]
-    block, summary, _ = _verify(repo, tmp_path / "quiet")
+    assert lines[-3] == ""
+    assert len(references(lines)) == 2
+    # The command the text prints is the one the JSON publishes, on a result
+    # with no change as on one with changes.
+    assert payload["review"]["question"] is None
+    assert lines[-1].endswith(payload["review"]["reproduce_command"])
+
+    block, summary, verifier = _verify(repo, tmp_path / "quiet")
     expected = [
         "Repository-declared host capability changes:",
         "No static host-grant changes detected in the covered comparison. No verdict is implied.",
         "What this run established:",
+        f"- {BOUNDARY}",
         "- compared with no change in what this entry reads: .claude/settings.json",
     ]
-    assert block == expected
-    assert _plain(summary) == expected
+    assert block[: len(expected)] == expected
+    assert _plain(summary)[: len(expected)] == expected
+    assert len(references(block)) == len(references(_plain(summary))) == 2
+    assert verifier["host_comparison"]["review"]["reproduce_command"] is not None
 
     _write(repo, ".mcp.json", '{"mcpServers": {"docs": ')
     _git(repo, "add", "-A")
     _git(repo, "commit", "-q", "-m", "truncate")
-    text, _ = _diff(repo)
-    assert text.splitlines() == [
+    text, payload = _diff(repo)
+    lines = text.splitlines()
+    assert lines[:-3] == [
         "Cannot compare against main: head_inventory_incomplete",
         "This is an input limit, not a finding about the change. Nothing below is a claim that the change is safe.",
         "",
         "What this run established:",
+        f"  {BOUNDARY}",
         "  .mcp.json (claude-code): parse_failed in head, so the head inventory is incomplete",
     ]
+    assert lines[-3] == "" and len(references(lines)) == 2
+    # The headline says nothing was compared, so neither does the label under it.
+    assert lines[-2].startswith("Inputs: base ")
+    assert not any(line.startswith("Compared: ") for line in lines)
+    # An incomparable comparison publishes no review block, so the command it
+    # prints is built from the commits its JSON already names.
+    assert payload["review"] is None and payload["base_commit"] in lines[-1]
+
     block, summary, _ = _verify(repo, tmp_path / "broken")
-    assert block == [
+    assert block[:3] == [
         "Host capability comparison unavailable: head_inventory_incomplete",
         "What this run established:",
-        "- .mcp.json (claude-code): parse_failed in head, so the head inventory is incomplete",
+        f"- {BOUNDARY}",
     ]
+    assert block[3] == (
+        "- .mcp.json (claude-code): parse_failed in head, so the head inventory is incomplete"
+    )
     assert summary[0] == "Host capability comparison unavailable: ` head_inventory_incomplete `"
-    assert _plain(summary)[:3] == block
-    assert not any("Review question" in line or "Reproduce" in line for line in summary)
+    assert _plain(summary)[:4] == block[:4]
+    assert not any("Review question" in line for line in summary)
+    assert len(references(block)) == len(references(_plain(summary))) == 2
+    assert references(block)[0].startswith("Inputs: base ")
+    assert not any(line.startswith("Compared: ") for line in _plain(summary))
 
 
 def test_a_comparison_read_back_from_json_prints_what_it_published(tmp_path: Path) -> None:
@@ -968,18 +1014,25 @@ def test_verify_json_and_the_pr_comment_carry_the_same_presentation(tmp_path: Pa
 def test_the_question_and_the_command_are_published_where_the_text_prints_them(
     tmp_path: Path, base: dict[str, object], head: dict[str, object], asked: bool
 ) -> None:
+    """The question follows a change; the command follows every comparison.
+
+    #812 follow-up: a result with no change prints, and publishes, the
+    reproduction too. Only the question is conditional — there is no change to
+    ask about — and the command is what a reviewer needs precisely where the
+    answer is hardest to check.
+    """
+
     repo = _repository(tmp_path, base, head)
 
     text, payload = _diff(repo)
     review = payload["review"]
     printed = [line for line in text.splitlines() if line.startswith("Review question: ")]
     reproduced = [line for line in text.splitlines() if line.startswith("Reproduce")]
-    assert bool(printed) is bool(reproduced) is asked
+    assert bool(printed) is asked
+    assert len(reproduced) == 1
     assert review["question"] == (printed[0] if printed else None)
-    if asked:
-        assert review["reproduce_command"] in reproduced[0]
-    else:
-        assert review["reproduce_command"] is None
+    assert review["reproduce_command"] in reproduced[0]
+    if not asked:
         assert review["summary"] == {"rows": 0, "changes": 0, "widenings": 0}
 
 

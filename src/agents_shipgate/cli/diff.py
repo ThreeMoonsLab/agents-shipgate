@@ -248,6 +248,34 @@ def _echo_coverage(comparison) -> bool:
     return bool(lines)
 
 
+def _echo_references(comparison, *, blank_before: bool = False, refused: bool = False) -> None:
+    """Print the compared commits and the command that reads them again (#812 follow-up).
+
+    On every result this command produces, not only one with a change: a
+    reviewer handed "no static host-grant changes detected" or a refusal needs
+    the compared commits and the rerun most of all, and until now the two
+    results that said the least were also the two that said nothing about
+    where the answer came from. The lines are the ones a result with changes
+    prints, from the same function.
+
+    With ``refused``, the commits are labelled as this run's inputs, so the
+    line does not read `Compared:` four lines under `Cannot compare against …`.
+    """
+
+    from agents_shipgate.report.host_comparison import (
+        REFUSED_REFERENCE_LABEL,
+        comparison_reference_lines,
+    )
+
+    lines = comparison_reference_lines(
+        comparison, label=REFUSED_REFERENCE_LABEL if refused else "Compared"
+    )
+    if lines and blank_before:
+        typer.echo("")
+    for line in lines:
+        typer.echo(line)
+
+
 def run_capability_diff(
     *,
     workspace: Path,
@@ -354,6 +382,7 @@ def run_capability_diff(
             "below is a claim that the change is safe."
         )
         _echo_coverage(comparison)
+        _echo_references(comparison, blank_before=True, refused=True)
         return 0
 
     typer.echo(
@@ -373,6 +402,7 @@ def run_capability_diff(
     if not rows:
         typer.echo("No static host-grant changes detected. No verdict is implied.")
         _echo_coverage(comparison)
+        _echo_references(comparison, blank_before=True)
         return 0
     from agents_shipgate.report.host_comparison import (
         comparison_reference_lines,

@@ -67,6 +67,7 @@ Agent capability diff  origin/main (943fd29b) -> working tree
 Static configuration only: this is what the files permit, not what the agent did. No verdict is implied.
 
 What this run established:
+  only sources this entry read or tried to read are listed, so this is not the whole change: a changed file it does not read is absent
   .claude/settings.json (claude-code): compared; 3 rows
   .mcp.json (claude-code): compared; 1 row
 
@@ -86,13 +87,21 @@ each gave, which changed with no compared grant changing (so a zero-row `env`
 or `apiKeyHelper` edit is not mistaken for no change: a file is unchanged only
 when its bytes are), which changed with no row attributed to them, which only
 one side read or published, and, when
-the comparison was refused, which source left an inventory incomplete. The
+the comparison was refused, which source left an inventory incomplete. That
+block lists only sources this entry read or tried to read, and says so on its
+first line: a changed file it does not read is absent from it, so it is never
+the whole account of the change. When more items are computed than it prints,
+it names how many it left out and that they rank below the ones it kept. The
 entries are for a reviewer to act on, not merge authority: each names the rule
 with its disposition, a replaced rule's before and after, and an MCP server's
-command name or redacted URL and key names, then one review question and the
-command that reproduces the comparison. `--json` publishes the same entries,
+command name or redacted URL and key names, then one review question. Every
+answer, a zero-row one and a refusal included, ends with the compared commits
+and the command that reproduces the comparison. `--json` publishes the same entries,
 counters, question and command beside the rows, so a script and a reader
-describe one run the same way. The
+describe one run the same way; a refused comparison is the exception, which
+publishes no `review` object at all, so those two lines have no JSON
+counterpart and a reader rebuilds the command from the `base_commit` published
+beside the refusal. The
 [quickstart](docs/quickstart.md#review-a-host-configuration-change) shows each
 answer, the `--base <ref>` recovery when no base can be detected, and the
 [surfaces `diff` does not read](docs/host-boundary-support.md#known-unread-surfaces).

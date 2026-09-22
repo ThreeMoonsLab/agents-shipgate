@@ -300,6 +300,41 @@ def test_a_shallow_clone_compares_the_history_it_has(s1, tmp_path):
     assert "init --write" not in result.output
 
 
+def test_a_refusal_that_never_reached_a_base_prints_no_reference_line(s1, tmp_path):
+    """`shallow_history` names no base commit, so it carries neither line.
+
+    The #812 follow-up ends a refusal with `Inputs:` and `Reproduce…`, but
+    only where the run named a base commit to name. `host_comparison_failure`
+    builds `shallow_history` and `comparison_input_unavailable:<Type>` with
+    neither commit, so those two refusals print neither line — and no block,
+    as they read no inventory on either side. Review cycle 5: the example
+    recipe's README claimed every unavailable comparison ends with the two
+    lines, which was false for exactly this route, so the carve-out it now
+    states is pinned here rather than left to the prose.
+    """
+
+    clone = tmp_path / "shallow"
+    subprocess.run(
+        ["git", "clone", "-q", "--depth=1", "--branch", "change", s1.as_uri(), str(clone)],
+        check=True,
+    )
+    out = tmp_path / "out"
+
+    result = CliRunner().invoke(
+        app,
+        ["verify", "--workspace", str(clone), "--base", "HEAD~1",
+         "--format", "text", "--out", str(out)],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Host capability comparison unavailable: shallow_history" in result.output
+    comment = (out / "pr-comment.md").read_text(encoding="utf-8")
+    assert "shallow_history" in comment
+    for absent in ("Inputs:", "Reproduce", "What this run established"):
+        assert absent not in result.output, absent
+        assert absent not in comment, absent
+
+
 def test_a_base_the_shallow_clone_does_not_have_still_routes_to_fetch(s1, tmp_path):
     """The recovery #683 added, on the case that still needs it: the base
     commit is genuinely absent, so no scoping makes it readable."""

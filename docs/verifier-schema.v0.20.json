@@ -2303,7 +2303,7 @@
     },
     "HostComparisonCoverage": {
       "additionalProperties": false,
-      "description": "The capped list of what a comparison established, source by source (#812).\n\n``None`` on :class:`HostComparison` means coverage was not recorded \u2014 a\nverifier from before schema ``0.20``, a comparison that never read an\ninventory, or a caller that publishes none (`check`). An empty ``items``\nlist with ``omitted_items == 0`` means the comparison read no source it\ncould name.",
+      "description": "The capped list of what a comparison established, source by source (#812).\n\n``None`` on :class:`HostComparison` means coverage was not recorded \u2014 a\nverifier from before schema ``0.20``, a comparison that never read an\ninventory, or a caller that publishes none (`check`). An empty ``items``\nlist with ``omitted_items == 0`` means the comparison read no source it\ncould name.\n\n``items`` is a prefix of the comparator's order, which is the order a\nreviewer can act in: a blocking limit (most actionable kind first, see\n:data:`COVERAGE_LIMIT_ORDER`), then a change no row describes, then a\nsource only one side published, then one not proven unchanged, then a\nfile's rows, then a source proven unchanged \u2014 by source within each. So\nthe cap drops the least actionable items, and ``omitted_items`` counts\nexactly those.",
       "properties": {
         "items": {
           "items": {
@@ -2318,6 +2318,12 @@
           "minimum": 0,
           "title": "Omitted Items",
           "type": "integer"
+        },
+        "read_sources_only": {
+          "const": true,
+          "default": true,
+          "title": "Read Sources Only",
+          "type": "boolean"
         }
       },
       "title": "HostComparisonCoverage",

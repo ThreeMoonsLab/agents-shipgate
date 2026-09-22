@@ -28,6 +28,7 @@ from agents_shipgate.core.host_grants import (
     normalized_host_grants,
 )
 from agents_shipgate.schemas.host_comparison import (
+    COVERAGE_LIMIT_ORDER,
     MAX_COVERAGE_ITEMS,
     HostComparison,
     HostComparisonCoverage,
@@ -122,7 +123,17 @@ def unchanged_limits(
 #: what they already show, a file's rows, so the cap never counts an `env` edit
 #: away behind files the entries already name (review cycle 5). The cap keeps a
 #: prefix of this order.
-def _coverage_rank(item: dict[str, Any]) -> tuple[int, str, str, str]:
+#:
+#: Within the blocking limits the kind decides next, most actionable first
+#: (:data:`COVERAGE_LIMIT_ORDER`), because a refused comparison publishes
+#: nothing else and the source name alone decided the cap: on a corpus
+#: repository twenty-one routine `unsupported` items sorted ahead of the one
+#: `unreadable` source and pushed it past ten (#812 follow-up). Then the source
+#: name, and after it every remaining field an item's identity is keyed by in
+#: :func:`_group_coverage` — side, limit and status — so no two items can tie
+#: and the same two inventories always publish the same list.
+def _coverage_rank(item: dict[str, Any]) -> tuple[int, int, str, str, str, str]:
+    limit = item.get("limit")
     if item["status"] == "blocking_limit":
         rank = 0
     elif item["status"] in {"changed_without_grant_change", "changed_without_rows"}:
@@ -135,7 +146,26 @@ def _coverage_rank(item: dict[str, Any]) -> tuple[int, str, str, str]:
         rank = 4
     else:
         rank = 5
-    return (rank, item["source"], item["side"], str(item.get("limit")))
+    # These are raw facts, not model instances yet, so the key stays total for
+    # a kind the tuple does not list: it sorts after every registered one
+    # rather than ahead of them. That is not a safety net — `limit` is a closed
+    # literal, so an item carrying such a kind is refused by the model right
+    # after this sort when the cap keeps it, and past the cap it is only
+    # counted into `omitted_items` and never reaches the model. Either way it
+    # is never printed last. What keeps a newly registered kind in its place is
+    # `test_every_published_limit_kind_has_a_place_in_the_order`.
+    kind = (
+        COVERAGE_LIMIT_ORDER.index(limit)
+        if limit in COVERAGE_LIMIT_ORDER
+        else len(COVERAGE_LIMIT_ORDER)
+    )
+    # `status` is last because the rank does not separate every status: the two
+    # statuses for a changed source with no row share rank 1, and
+    # `_group_coverage`'s key keeps them apart, so two hosts reading one source
+    # on one side can hold both at once. Without it the key ties there and only
+    # `sorted`'s stability decides, which is weaker than the order this docstring
+    # claims. Last, so no existing pair changes places.
+    return (rank, kind, item["source"], item["side"], str(limit), item["status"])
 
 
 def _group_coverage(
@@ -556,8 +586,11 @@ def host_comparison_review(
     One projection of :func:`review_changes`, so the block cannot count or
     classify a change differently from the sentence printed beside it. The
     question and the reproduction command are published only where the text
-    prints them: after at least one change, and, for the command, only where
-    the comparison names commits it can be run against.
+    prints them: the question after at least one change, and the command
+    wherever the comparison names commits it can be run against, change or no
+    change. A zero-row result is exactly where a reviewer asks how the answer
+    was reached, so it is the last place to withhold the command (#812
+    follow-up).
     """
 
     changes = review_changes(rows)
@@ -582,11 +615,7 @@ def host_comparison_review(
             widenings=sum(1 for change in changes if change.expands),
         ),
         question=review_question(changes) if changes else None,
-        reproduce_command=(
-            reproduce_command(
-                base_commit=base_commit, head_kind=head_kind, head_commit=head_commit
-            )
-            if changes
-            else None
+        reproduce_command=reproduce_command(
+            base_commit=base_commit, head_kind=head_kind, head_commit=head_commit
         ),
     )

@@ -18,6 +18,7 @@ copy of the answer.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -202,6 +203,50 @@ def test_the_quoted_incomparable_answer_is_what_diff_prints(documented_remote: P
     assert "head_inventory_incomplete" in payload
 
 
+#: The README sentence that claims `diff`'s text and its `--json` describe one
+#: run alike. Held to the one answer where they do not (review cycle 6).
+_PARITY_CLAIM = "`--json` publishes the same entries, counters, question and command"
+
+
+def test_the_readme_parity_sentence_carves_out_the_refusal(documented_remote: Path) -> None:
+    """A refusal prints the reference lines and publishes no `review`.
+
+    So the question, the counters and the command have no JSON counterpart
+    there, and the sentence claiming a script and a reader describe one run the
+    same way has to say so in its own breath — otherwise the page promises a
+    key a script will not find on the answer hardest to check. Cycles 4 and 5
+    found the same shape in the migration note and the Action's page; this
+    holds the claim to the behaviour rather than to another copy of the prose.
+    """
+
+    clone = _clone(documented_remote, "broken")
+    code, output = _diff(clone)
+    assert code == 0, output
+    printed = _normalize(output)
+    assert printed[0].startswith("Cannot compare against ")
+    # The text names its own provenance on a refusal (#812 follow-up) ...
+    assert printed[-2].startswith("Inputs: base <sha>")
+    assert printed[-1].startswith("Reproduce")
+    # ... while the JSON publishes no block those two lines could come from.
+    code, payload = _diff(clone, "--json")
+    published = json.loads(payload)
+    assert published["review"] is None
+    assert published["base_commit"], "the command the text prints is built from this"
+
+    collapsed = " ".join(README.read_text(encoding="utf-8").split())
+    assert _PARITY_CLAIM in collapsed, (
+        "README.md no longer makes the text/JSON parity claim this guard "
+        "carves out; re-point it at the sentence that replaced it."
+    )
+    sentence = collapsed[collapsed.index(_PARITY_CLAIM) :].split(". ", 1)[0]
+    assert "publishes no `review`" in sentence, (
+        "README.md claims `--json` publishes the question and command beside "
+        "the rows without naming the refusal, which publishes `review: null` "
+        "while its text still prints both reference lines. Give that sentence "
+        "the carve-out STABILITY.md already carries."
+    )
+
+
 def _with_base_url(url: str) -> str:
     return _BASE_SETTINGS.replace(
         '  "permissions"', f'  "env": {{"ANTHROPIC_BASE_URL": "{url}"}},\n  "permissions"'
@@ -225,7 +270,11 @@ def test_the_quoted_no_compared_grant_block_is_what_diff_prints(tmp_path: Path) 
     assert _NO_CHANGE in printed
     quoted = _blocks(QUICKSTART, "What this run established:")
     assert len(quoted) == 1
-    assert printed[-len(quoted[0]):] == quoted[0]
+    # The page quotes the block alone; the answer now also ends with the
+    # compared commits and the reproduction, on every result (#812 follow-up),
+    # so the quote is a run of the printed lines rather than its last ones.
+    start = printed.index(quoted[0][0])
+    assert printed[start : start + len(quoted[0])] == quoted[0]
 
 
 def test_the_documented_missing_base_recovery_holds(documented_remote: Path) -> None:

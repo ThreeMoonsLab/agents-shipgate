@@ -67,6 +67,37 @@ _ENUM_FIELDS = {
 }
 
 
+#: The `unresolved` reasons below that name text this entry could not parse (#812
+#: follow-up): the frontmatter fence never closes, YAML itself refused the
+#: header, or the file carries a NUL byte. Every other reason refuses a file
+#: whose syntax is legal — a field whose type this bounded profile does not
+#: accept, a key it does not know, an alias or duplicate key it will not
+#: expand, a role it does not read, text past a bound, a frontmatter that
+#: parses to something other than a mapping, a value the digest cannot encode,
+#: or an unresolved inline command. On one corpus repository forty of
+#: forty-three refusals were of that second kind, and all forty-three told the
+#: author to repair the file. Callers word the two apart: a file this entry
+#: merely cannot interpret is not a file its author got wrong, and until the
+#: profiles themselves are corrected (#822), advising a repair there is advice
+#: this engine cannot stand behind.
+#:
+#: This set is only true while `frontmatter_invalid` names a parse failure and
+#: nothing else. It was also the catch-all — a header that parsed into a
+#: sequence, and a value `json.dumps(allow_nan=False)` refuses, both left
+#: through it — so :func:`classify_instruction` gives those two their own
+#: reasons (`frontmatter_not_mapping`, `structure_value_unencodable`) rather
+#: than letting the message assert a parse failure that did not happen.
+INVALID_SYNTAX_REASONS = frozenset(
+    {"frontmatter_invalid", "frontmatter_unterminated", "instruction_text_invalid"}
+)
+
+
+def unresolved_reason_is_invalid_syntax(reason: str) -> bool:
+    """Whether an ``unresolved`` reason means the file's own text would not parse."""
+
+    return reason in INVALID_SYNTAX_REASONS
+
+
 @dataclass(frozen=True)
 class InstructionStructure:
     profile: str
@@ -271,6 +302,10 @@ def classify_instruction(path: str, text: str | None) -> InstructionStructure | 
     header = "\n".join(lines[1:close]) if has_frontmatter else ""
     if len(header.encode()) > MAX_FRONTMATTER_BYTES:
         return unresolved("frontmatter_limit")
+    # Whether YAML has read the header yet. Everything below that point is
+    # this entry's own reading of a header that parsed, so a refusal there is
+    # never a parse failure and must not be worded as one.
+    header_parsed = False
     try:
         # The public skill scanner imports the check registry through its
         # input helpers. Defer that import until the domain modules are loaded.
@@ -295,9 +330,36 @@ def classify_instruction(path: str, text: str | None) -> InstructionStructure | 
                 pending.extend(value for _, value in item.value)
             elif isinstance(item, yaml.SequenceNode):
                 pending.extend(item.value)
+        if (
+            node is not None
+            # A header of `~` or `null` composes to a scalar, but the parser
+            # called on the next line resolves it to `None` and its own
+            # `raw is None` branch answers `{}` with no error — the same empty
+            # header as `---\n---`, which this profile has always read as
+            # `structured`. Deciding this exit on the node type alone made the
+            # two disagree: the file lost its digest, the entry published a
+            # blocking `unsupported` issue, and one such skill anywhere in a
+            # repository refused the whole comparison, so a widening elsewhere
+            # in the same change was published nowhere. The exit is decided the
+            # way the parser decides it, so they cannot disagree again.
+            and node.tag != "tag:yaml.org,2002:null"
+            and not isinstance(node, yaml.MappingNode)
+        ):
+            # Legal YAML whose top level is a sequence or a non-null scalar:
+            # `- a\n- b` composes without complaint, and the skill parser then
+            # refuses it as `frontmatter must be a mapping`. Reading
+            # frontmatter as a mapping and nothing else is this profile's rule,
+            # not YAML's, so this exit gets its own reason. Left inside
+            # `frontmatter_invalid` it published `the file's own text could not
+            # be parsed`, which is false here, about a file `yaml.safe_load`
+            # reads fine.
+            return unresolved("frontmatter_not_mapping")
         metadata, body, _line, error, _fields = _split_frontmatter(text)
         if error:
+            # Only YAML's own refusal reaches this now: the closing delimiter
+            # was proven above, and a non-mapping header is answered above it.
             return unresolved("frontmatter_invalid")
+        header_parsed = True
         known = (
             _CURSOR_FIELDS if profile == "cursor_instruction/v1"
             else _COMMAND_FIELDS if profile == "claude_command/v1"
@@ -342,7 +404,21 @@ def classify_instruction(path: str, text: str | None) -> InstructionStructure | 
         metadata = {key: value for key, value in metadata.items() if value is not None}
         structure = _digest([profile, _json_ready(metadata), commands])
     except (yaml.YAMLError, RecursionError, TypeError, ValueError):
-        return unresolved("frontmatter_invalid")
+        # Before the header parsed, YAML itself refused it — including by
+        # running out of stack on a pathologically nested one. After it, the
+        # header is read and the refusal is this entry's own: `budget: .nan`
+        # under an undocumented key, which `_valid_metadata` skips without a
+        # documented type to check it against (#730), reaches
+        # `json.dumps(..., allow_nan=False)` and raises `ValueError`. Telling
+        # that author to repair the file was advice about this digest's bound,
+        # so the two exits are separated rather than both called a parse
+        # failure. The reason names the structure rather than the frontmatter:
+        # the digest covers the body's inline commands too, so the exit is not
+        # a claim about which of the two the unencodable value came from
+        # (review cycle 2).
+        return unresolved(
+            "structure_value_unencodable" if header_parsed else "frontmatter_invalid"
+        )
     return InstructionStructure(profile, "structured", structure, "declared_structure")
 
 
