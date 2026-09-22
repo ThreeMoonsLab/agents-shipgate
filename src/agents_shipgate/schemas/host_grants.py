@@ -6,9 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from agents_shipgate.schemas.instruction_structure import InstructionStructureEvidence
 
-HOST_GRANTS_INVENTORY_SCHEMA_VERSION = "0.6"
-HOST_GRANTS_BASELINE_SCHEMA_VERSION = "0.6"
-HOST_GRANTS_DRIFT_SCHEMA_VERSION = "0.6"
+HOST_GRANTS_INVENTORY_SCHEMA_VERSION = "0.7"
+HOST_GRANTS_BASELINE_SCHEMA_VERSION = "0.7"
+HOST_GRANTS_DRIFT_SCHEMA_VERSION = "0.7"
 
 HostName = Literal["codex", "claude-code", "cursor", "vscode", "github"]
 HostGrantScope = Literal["repository", "local_static"]
@@ -618,4 +618,147 @@ class HostGrantsDriftArtifactV6(RootModel[HostGrantsDriftV6]):
     root: HostGrantsDriftV6
 
 
-__all__ = [name for name in globals() if name.startswith("Host") or name.startswith("HOST_")]
+# v0.7 reads how a coding agent is launched inside a job (#823). The v0.6
+# workflow grant above stays frozen: a v0.4-v0.6 snapshot never read agent
+# launches or checkout refs, so its silence cannot assert that none changed.
+class HostWorkflowAgentSettingV7(BaseModel):
+    """One permission input or flag an agent launch declares, compared as text (#823).
+
+    ``name`` is the documented input (``claude_args``, ``sandbox``, …) or the
+    flag's primary spelling (``--allowedTools`` for ``--allowed-tools`` too).
+    ``value`` is the declared text, stripped, published through the workflow
+    label redaction (#802); a flag that takes no value has ``null``. A value
+    the redaction rewrites, or one that is not a string, is ``null`` with
+    ``unresolved_reason``, and records a non-blocking coverage issue naming
+    its ``job/step``: it is neither published nor compared.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    value: str | None
+    unresolved_reason: Literal["not_a_string", "redacted"] | None = None
+
+
+class HostWorkflowAgentLaunchV7(BaseModel):
+    """A step that launches a known coding agent, read as text and never run (#823).
+
+    ``agent`` is a documented action reference's ``owner/repo`` (the step's
+    ``uses:`` at any ref) or a known agent CLI a literal ``run:`` starts with:
+    ``claude`` with ``-p``/``--print``, or ``codex exec``. ``form: read``
+    lists the documented permission inputs or flags the step declares in
+    ``settings``. ``form: unresolved`` names why the step's settings were not
+    read — a ``run:`` holding more than one command or quoting that does not
+    balance, a shell expansion, a ``${{ }}`` expression, or ``with:`` that is
+    not a mapping — with no
+    settings, and records a non-blocking coverage issue. ``job_secrets`` names
+    the secrets the step's job references (``${{ secrets.NAME }}``) and the
+    workflow-level ``env`` passes: context for the row that names this step,
+    never compared. ``job`` and ``step`` are published labels (#802).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    job: str
+    step: str
+    agent: Literal[
+        "anthropics/claude-code-action",
+        "anthropics/claude-code-base-action",
+        "openai/codex-action",
+        "claude",
+        "codex",
+    ]
+    form: Literal["read", "unresolved"]
+    unresolved_reason: Literal[
+        "compound_command",
+        "shell_expansion",
+        "expression",
+        "inputs_not_a_mapping",
+    ] | None = None
+    settings: list[HostWorkflowAgentSettingV7] = Field(default_factory=list)
+    job_secrets: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
+
+
+class HostWorkflowCheckoutRefV7(BaseModel):
+    """One ``actions/checkout`` step and the ``with.ref`` it declares, as text (#823).
+
+    ``ref`` is ``null`` when the step declares none, or an empty one: the
+    checkout's default for the triggering event. A ref the label redaction
+    rewrites, a value that is not a string, or ``with:`` that is not a mapping
+    is ``null`` with ``unresolved_reason`` and records a non-blocking coverage
+    issue. The ref is never resolved or fetched.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    job: str
+    step: str
+    ref: str | None
+    unresolved_reason: Literal["not_a_string", "redacted", "inputs_not_a_mapping"] | None = None
+
+
+class HostWorkflowGrantV7(HostWorkflowGrantV6):
+    """A v0.6 workflow grant plus the agent launches and checkout refs its steps declare.
+
+    Both lists are present only when a step declares one. In a v0.7 grant an
+    absent list means the steps were read and declare none; the schema
+    version, not the key, separates that from a legacy grant that never read
+    them. ``access`` and ``risk`` still describe the workflow's token and
+    triggers alone.
+    """
+
+    agent_launches: list[HostWorkflowAgentLaunchV7] = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
+    checkout_refs: list[HostWorkflowCheckoutRefV7] = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
+
+
+HostGrantV7 = Annotated[
+    HostMcpServerGrantV2
+    | HostPermissionRuleGrantV2
+    | HostPermissionModeGrantV2
+    | HostHookGrantV2
+    | HostSandboxGrantV2
+    | HostAdditionalPathGrantV2
+    | HostPluginGrantV2
+    | HostProfileGrantV2
+    | HostRequirementGrantV2
+    | HostWorkflowGrantV7
+    | HostInstructionGrantV2,
+    Field(discriminator="kind"),
+]
+
+
+class HostGrantsInventoryV7(HostGrantsInventoryV6):
+    host_grants_inventory_schema_version: Literal["0.7"] = "0.7"
+    grants: list[HostGrantV7] = Field(default_factory=list)
+
+
+class HostGrantsNormalizedSnapshotV7(HostGrantsNormalizedSnapshotV6):
+    grants: list[HostGrantV7] = Field(default_factory=list)
+
+
+class HostGrantsBaselineV7(HostGrantsBaselineV6):
+    host_grants_schema_version: Literal["0.7"] = "0.7"
+    inventory: HostGrantsNormalizedSnapshotV7
+
+
+class HostGrantsDriftV7(HostGrantsDriftV6):
+    host_grants_schema_version: Literal["0.7"] = "0.7"
+
+
+class HostGrantsInventoryArtifactV7(RootModel[HostGrantsInventoryV7]):
+    root: HostGrantsInventoryV7
+
+
+class HostGrantsBaselineArtifactV7(RootModel[HostGrantsBaselineV7]):
+    root: HostGrantsBaselineV7
+
+
+class HostGrantsDriftArtifactV7(RootModel[HostGrantsDriftV7]):
+    root: HostGrantsDriftV7
+
+
+__all__ =[name for name in globals() if name.startswith("Host") or name.startswith("HOST_")]

@@ -227,6 +227,13 @@ SURFACES: tuple[Surface, ...] = (
         # control route, so it adds no claim; every route to the same object,
         # and every refusal it must keep, is held by
         # `tests/test_partial_host_comparison.py`.
+        # Its agent-launch cells and note (#823)
+        # restate no answer: direction comes from the engine's
+        # `workflow_agent_widened_*` expansion signal, and the note reads the
+        # triggers, write scopes, secrets and checkout refs the engine already
+        # published on the grant, so it adds no claim;
+        # `tests/test_workflow_agent_launches.py` holds diff, verify, the PR
+        # comment, check and the control envelope to the same row.
         {},
     ),
     Surface(

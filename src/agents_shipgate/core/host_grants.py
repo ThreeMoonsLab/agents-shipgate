@@ -14,6 +14,7 @@ import json
 import os
 import posixpath
 import re
+import shlex
 import stat
 import sys
 import tomllib
@@ -83,8 +84,9 @@ from agents_shipgate.schemas.host_grants import (
     HostGrantsBaselineV4,
     HostGrantsBaselineV5,
     HostGrantsBaselineV6,
-    HostGrantsDriftV6,
-    HostGrantsInventoryV6,
+    HostGrantsBaselineV7,
+    HostGrantsDriftV7,
+    HostGrantsInventoryV7,
 )
 
 HOST_GRANTS_SCHEMA_VERSION = HOST_GRANTS_BASELINE_SCHEMA_VERSION
@@ -1601,6 +1603,611 @@ def step_action_key(entry: dict[str, Any]) -> tuple[str, str, str, str]:
     )
 
 
+# --- agent launches (#823) ----------------------------------------------------------
+#
+# How a coding agent is launched inside a job: a known agent action's permission
+# inputs, a literal agent CLI command in a `run:` step, and the ref each
+# `actions/checkout` step declares. Every value is compared as declared text; no
+# action is fetched, no command is run and no expression is evaluated. A shape
+# this reader does not read — a compound shell command, an expansion, a script,
+# a composite or unknown action — is never guessed at: where it can be told
+# apart it is listed as unresolved and named as a non-blocking limit, and
+# otherwise it is one of the unread surfaces the support page names.
+
+
+@dataclass(frozen=True)
+class _AgentAction:
+    """What one documented agent action's inputs mean to this reader (#823).
+
+    ``inputs`` are compared as text. ``gates`` are comma-separated user lists
+    where a ``*`` entry opens the gate to every user. ``args`` names the input
+    that carries agent CLI arguments, read with the family's flag table for
+    the documented widening rules. ``modes`` are inputs whose value is itself
+    a documented widening.
+    """
+
+    family: Literal["claude", "codex"]
+    inputs: tuple[str, ...]
+    gates: tuple[str, ...] = ()
+    args: str | None = None
+    modes: tuple[tuple[str, str], ...] = ()
+
+
+#: The documented agent actions, by ``owner/repo`` (matched case-insensitively,
+#: at any ref). The input names are those the actions' own `action.yml`
+#: declare; `allowed_tools`, `disallowed_tools` and `mcp_config` are the
+#: Claude actions' earlier inputs, still read when a workflow sets them.
+_AGENT_ACTIONS: dict[str, _AgentAction] = {
+    "anthropics/claude-code-action": _AgentAction(
+        family="claude",
+        inputs=(
+            "additional_permissions", "allowed_bots", "allowed_non_write_users",
+            "allowed_tools", "claude_args", "disallowed_tools", "mcp_config",
+            "plugin_marketplaces", "plugins", "settings",
+        ),
+        gates=("allowed_bots", "allowed_non_write_users"),
+        args="claude_args",
+    ),
+    "anthropics/claude-code-base-action": _AgentAction(
+        family="claude",
+        inputs=(
+            "allowed_tools", "claude_args", "disallowed_tools", "mcp_config",
+            "plugin_marketplaces", "plugins", "settings",
+        ),
+        args="claude_args",
+    ),
+    "openai/codex-action": _AgentAction(
+        family="codex",
+        inputs=(
+            "allow-bot-users", "allow-bots", "allow-users", "codex-args",
+            "permission-profile", "safety-strategy", "sandbox",
+        ),
+        gates=("allow-users",),
+        args="codex-args",
+        modes=(("sandbox", "danger-full-access"), ("safety-strategy", "unsafe")),
+    ),
+}
+
+#: Flag spelling -> (primary spelling, arity): ``0`` takes no value, ``1`` one,
+#: ``None`` every following word up to the next one starting with ``-``, as the
+#: CLI's variadic options read them. From Claude Code's CLI reference.
+_CLAUDE_FLAGS: dict[str, tuple[str, int | None]] = {
+    "--permission-mode": ("--permission-mode", 1),
+    "--dangerously-skip-permissions": ("--dangerously-skip-permissions", 0),
+    "--allow-dangerously-skip-permissions": ("--allow-dangerously-skip-permissions", 0),
+    "--allowedTools": ("--allowedTools", None),
+    "--allowed-tools": ("--allowedTools", None),
+    "--disallowedTools": ("--disallowedTools", None),
+    "--disallowed-tools": ("--disallowedTools", None),
+    "--add-dir": ("--add-dir", None),
+    "--mcp-config": ("--mcp-config", None),
+    "--settings": ("--settings", 1),
+    "--permission-prompt-tool": ("--permission-prompt-tool", 1),
+}
+
+#: The same for ``codex exec``, from the Codex CLI's shared option definitions.
+_CODEX_FLAGS: dict[str, tuple[str, int | None]] = {
+    "--sandbox": ("--sandbox", 1),
+    "-s": ("--sandbox", 1),
+    "--dangerously-bypass-approvals-and-sandbox": ("--dangerously-bypass-approvals-and-sandbox", 0),
+    "--yolo": ("--dangerously-bypass-approvals-and-sandbox", 0),
+    "--approve-for-me": ("--approve-for-me", 0),
+    "--not-so-yolo": ("--approve-for-me", 0),
+    "--dangerously-bypass-hook-trust": ("--dangerously-bypass-hook-trust", 0),
+    "--add-dir": ("--add-dir", 1),
+    "--config": ("--config", 1),
+    "-c": ("--config", 1),
+    "--profile": ("--profile", 1),
+    "-p": ("--profile", 1),
+}
+
+_AGENT_FLAG_TABLES = {"claude": _CLAUDE_FLAGS, "codex": _CODEX_FLAGS}
+
+#: The widening each documented rule names, as a row's ``why`` says it.
+AGENT_WIDENING_RULES: dict[str, str] = {
+    "bypass_permissions": "skips permission checks (bypassPermissions)",
+    "bypass_approvals_and_sandbox": "bypasses approvals and the sandbox",
+    "danger_full_access": "runs without a sandbox (danger-full-access)",
+    "unsafe_safety_strategy": "runs without privilege restrictions (safety-strategy: unsafe)",
+    "open_gate": "accepts runs triggered by any user",
+}
+
+#: A literal checkout ref that names pull request code, not the base branch's:
+#: the documented pull request and workflow-run head expressions, and
+#: ``refs/pull/<n>/head`` or ``/merge``.
+_PULL_REQUEST_CODE_REF_RE = re.compile(
+    r"\$\{\{\s*(?:github\.event\.pull_request\.(?:head\.(?:sha|ref)|merge_commit_sha)"
+    r"|github\.head_ref|github\.event\.workflow_run\.head_(?:sha|branch))\s*\}\}"
+    r"|refs/pull/(?:\d+|\$\{\{[^}]*\}\})/(?:head|merge)"
+)
+
+#: Triggers that run with the base repository's context on input from people
+#: who need not hold write access, as the support page lists them.
+UNTRUSTED_INPUT_TRIGGERS = ("issue_comment", "issues", "pull_request_target", "workflow_run")
+
+_ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+_SHELL_OPERATOR_CHARS = ";&|()<>\n"
+_SECRET_REFERENCE_RE = re.compile(r"\bsecrets\.([A-Za-z_][A-Za-z0-9_]*)")
+_EXPRESSION_RE = re.compile(r"\$\{\{(.*?)\}\}", re.S)
+
+
+def pull_request_code_ref(ref: str | None) -> bool:
+    """Whether a published checkout ref names pull request code (#823)."""
+
+    return ref is not None and _PULL_REQUEST_CODE_REF_RE.fullmatch(ref.strip()) is not None
+
+
+def _shell_words(text: str) -> list[str] | None:
+    """``text`` split into shell words and operator tokens, or ``None`` when unbalanced.
+
+    Newlines, ``;``, ``&``, ``|``, parentheses and redirections outside quotes
+    are operator tokens of their own; a backslash-newline joins two lines, as
+    the shell reads it.
+    """
+
+    lexer = shlex.shlex(
+        re.sub(r"\\\r?\n", "", text), posix=True, punctuation_chars=_SHELL_OPERATOR_CHARS
+    )
+    lexer.whitespace = " \t\r"
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    try:
+        return list(lexer)
+    except ValueError:
+        return None
+
+
+def _is_operator(token: str) -> bool:
+    return bool(token) and all(char in _SHELL_OPERATOR_CHARS for char in token)
+
+
+def _has_shell_expansion(text: str) -> bool:
+    """A ``$`` or backtick the shell would expand: anywhere outside single quotes."""
+
+    quote: str | None = None
+    escaped = False
+    for char in text:
+        if escaped:
+            escaped = False
+        elif char == "\\" and quote != "'":
+            escaped = True
+        elif quote == "'":
+            quote = None if char == "'" else quote
+        elif char in {"$", "`"}:
+            return True
+        elif char == quote:
+            quote = None
+        elif quote is None and char in {"'", '"'}:
+            quote = char
+    return False
+
+
+def _agent_command(words: list[str]) -> tuple[str, list[str]] | None:
+    """The agent CLI one simple command launches headless, and its arguments.
+
+    ``claude`` with ``-p``/``--print`` anywhere in its arguments, or ``codex``
+    with ``exec`` (or its alias ``e``) as its first argument, after any leading
+    ``NAME=value`` assignments. Any other command — ``claude mcp add``,
+    ``codex login``, an ``echo`` that mentions either — launches none.
+    """
+
+    index = 0
+    while index < len(words) and _ASSIGNMENT_RE.match(words[index]):
+        index += 1
+    if index >= len(words):
+        return None
+    command, arguments = words[index], words[index + 1:]
+    if command == "claude" and any(word in {"-p", "--print"} for word in arguments):
+        return "claude", arguments
+    if command == "codex" and arguments[:1] in (["exec"], ["e"]):
+        return "codex", arguments[1:]
+    return None
+
+
+def _line_agent(line: str) -> str | None:
+    """The agent CLI one line starts headless, read as plain words: a fallback only.
+
+    Used when a ``run:``'s quoting cannot be split into commands, to name the
+    launch as unresolved rather than miss it; nothing it reads is published.
+    """
+
+    return (_agent_command(line.split()) or (None, None))[0]
+
+
+def _read_flags(words: list[str], table: dict[str, tuple[str, int | None]]) -> list[tuple[str, str | None]]:
+    """The documented permission flags among ``words``, each with its declared value.
+
+    A flag is read by name wherever it is a word of its own; every other word
+    — the prompt, ``--model`` and any undocumented flag — is not compared.
+    """
+
+    flags: list[tuple[str, str | None]] = []
+    index = 0
+    while index < len(words):
+        word = words[index]
+        name, equals, attached = word.partition("=") if word.startswith("--") else (word, "", "")
+        spec = table.get(name)
+        index += 1
+        if spec is None:
+            continue
+        primary, arity = spec
+        if arity == 0:
+            flags.append((primary, None))
+            continue
+        values = [attached] if equals else []
+        if arity == 1 and not equals and index < len(words):
+            values.append(words[index])
+            index += 1
+        elif arity is None:
+            while index < len(words) and not words[index].startswith("-"):
+                values.append(words[index])
+                index += 1
+        if not values:
+            flags.append((primary, None))
+        else:
+            flags.append((primary, values[0] if arity == 1 else shlex.join(values)))
+    return flags
+
+
+def _published_setting(name: str, value: Any) -> dict[str, Any]:
+    """One setting as it may be published: declared text, or why it is not."""
+
+    if isinstance(value, bool):
+        text = "true" if value else "false"
+    elif value is None:
+        text = ""
+    elif isinstance(value, (int, float)):
+        text = str(value)
+    elif isinstance(value, str):
+        text = value.strip()
+    else:
+        return {"name": name, "value": None, "unresolved_reason": "not_a_string"}
+    shown = published_workflow_label(text)
+    if shown != text:
+        return {"name": name, "value": None, "unresolved_reason": "redacted"}
+    return {"name": name, "value": text, "unresolved_reason": None}
+
+
+def _published_flag(name: str, value: str | None) -> dict[str, Any]:
+    if value is None:
+        return {"name": name, "value": None, "unresolved_reason": None}
+    return _published_setting(name, value)
+
+
+def _setting_key(setting: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(setting["name"]),
+        str(setting.get("unresolved_reason") or ""),
+        "" if setting.get("value") is None else str(setting["value"]),
+    )
+
+
+def _job_secrets(job: dict[Any, Any], workflow_env: Any) -> list[str]:
+    """The secret names a job references in ``${{ }}``, and those the workflow ``env`` passes.
+
+    Context for the row that names an agent step in the job, never compared.
+    Each name is a published label (#802).
+    """
+
+    names: set[str] = set()
+
+    def walk(value: Any) -> None:
+        if isinstance(value, str):
+            for expression in _EXPRESSION_RE.findall(value):
+                names.update(_SECRET_REFERENCE_RE.findall(expression))
+        elif isinstance(value, dict):
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    walk(job)
+    walk(workflow_env)
+    return sorted({published_workflow_label(name) for name in names})
+
+
+def _action_identity(uses: Any) -> str | None:
+    """A step's ``owner/repo`` in lower case when ``uses:`` is ``owner/repo@ref``."""
+
+    if not isinstance(uses, str):
+        return None
+    text = uses.strip()
+    if not _REMOTE_STEP_ACTION_RE.fullmatch(text):
+        return None
+    return text.rpartition("@")[0].casefold()
+
+
+def _action_launch(job: str, step_label: str, agent: str, step: dict[Any, Any]) -> dict[str, Any]:
+    spec = _AGENT_ACTIONS[agent]
+    entry: dict[str, Any] = {
+        "job": job, "step": step_label, "agent": agent, "form": "read",
+        "unresolved_reason": None, "settings": [],
+    }
+    inputs = step.get("with")
+    if inputs is None:
+        return entry
+    if not isinstance(inputs, dict):
+        return {**entry, "form": "unresolved", "unresolved_reason": "inputs_not_a_mapping"}
+    wanted = {name.casefold(): name for name in spec.inputs}
+    settings = [
+        _published_setting(wanted[str(key).casefold()], value)
+        for key, value in inputs.items()
+        if str(key).casefold() in wanted
+    ]
+    return {**entry, "settings": sorted(settings, key=_setting_key)}
+
+
+def _run_launches(job: str, step_label: str, run: str) -> list[dict[str, Any]]:
+    """The agent CLIs a ``run:`` step launches: read when literal, else unresolved.
+
+    Read only when the whole ``run:`` is one simple command that starts with
+    the agent CLI (after literal ``NAME=value`` assignments), holds no shell
+    expansion and no ``${{ }}`` expression: then its documented permission
+    flags are its settings. Otherwise an agent CLI found at the start of any
+    simple command in it is one ``unresolved`` entry with the reason, and none
+    of its text is published.
+    """
+
+    run = run.strip()
+    words = _shell_words(run)
+    base = {"job": job, "step": step_label}
+    if words is None:
+        # Quoting that does not balance cannot be split into commands, so no
+        # word of it is read; a line that starts an agent CLI is still named.
+        agents = sorted({
+            agent for line in run.splitlines()
+            if (agent := _line_agent(line)) is not None
+        })
+        return [
+            {**base, "agent": agent, "form": "unresolved", "unresolved_reason": "compound_command", "settings": []}
+            for agent in agents
+        ]
+    commands: list[list[str]] = [[]]
+    for word in words:
+        if _is_operator(word):
+            commands.append([])
+        else:
+            commands[-1].append(word)
+    launches = [launch for command in commands if (launch := _agent_command(command))]
+    if not launches:
+        return []
+    single = len([command for command in commands if command]) == 1 and not any(
+        _is_operator(word) or word.startswith("#") for word in words
+    )
+    if "${{" in run:
+        reason: str | None = "expression"
+    elif not single:
+        reason = "compound_command"
+    elif _has_shell_expansion(run):
+        reason = "shell_expansion"
+    else:
+        reason = None
+    if reason is not None:
+        agents = sorted({agent for agent, _arguments in launches})
+        return [
+            {**base, "agent": agent, "form": "unresolved", "unresolved_reason": reason, "settings": []}
+            for agent in agents
+        ]
+    (agent, arguments), = launches
+    settings = [_published_flag(name, value) for name, value in _read_flags(arguments, _AGENT_FLAG_TABLES[agent])]
+    return [{
+        **base, "agent": agent, "form": "read", "unresolved_reason": None,
+        "settings": sorted(settings, key=_setting_key),
+    }]
+
+
+def _step_agent_launches(job: str, step: dict[Any, Any], index: int) -> list[dict[str, Any]]:
+    """The agent launches one step declares: a known action, or a ``run:`` agent CLI."""
+
+    if "uses" in step:
+        agent = _action_identity(step["uses"])
+        if agent is not None and agent in _AGENT_ACTIONS:
+            return [_action_launch(job, _step_label(step, index), agent, step)]
+        return []
+    run = step.get("run")
+    if isinstance(run, str) and ("claude" in run or "codex" in run):
+        return _run_launches(job, _step_label(step, index), run)
+    return []
+
+
+def _checkout_ref(job: str, step: dict[Any, Any], index: int) -> dict[str, Any] | None:
+    """An ``actions/checkout`` step and the ``with.ref`` it declares, else ``None``."""
+
+    if _action_identity(step.get("uses")) != "actions/checkout":
+        return None
+    entry: dict[str, Any] = {
+        "job": job, "step": _step_label(step, index), "ref": None, "unresolved_reason": None,
+    }
+    inputs = step.get("with")
+    if inputs is None:
+        return entry
+    if not isinstance(inputs, dict):
+        return {**entry, "unresolved_reason": "inputs_not_a_mapping"}
+    if "ref" not in inputs:
+        return entry
+    setting = _published_setting("ref", inputs["ref"])
+    if setting["unresolved_reason"] is not None:
+        return {**entry, "unresolved_reason": setting["unresolved_reason"]}
+    return {**entry, "ref": setting["value"] or None}
+
+
+def agent_launch_key(entry: dict[str, Any]) -> tuple[Any, ...]:
+    """What an agent launch is compared by: its job, agent, form and settings, not its step."""
+
+    return (
+        str(entry["job"]),
+        str(entry["agent"]),
+        str(entry["form"]),
+        str(entry.get("unresolved_reason") or ""),
+        tuple(sorted(_setting_key(setting) for setting in entry.get("settings", []))),
+    )
+
+
+def checkout_ref_key(entry: dict[str, Any]) -> tuple[str, str, str]:
+    """What a checkout ref is compared by: its job and the declared ref, not its step."""
+
+    return (
+        str(entry["job"]),
+        str(entry.get("unresolved_reason") or ""),
+        "" if entry.get("ref") is None else str(entry["ref"]),
+    )
+
+
+def _argument_words(value: str, *, json_list: bool) -> list[str] | None:
+    """An arguments input's words, or ``None`` when they cannot be read literally."""
+
+    if "${{" in value:
+        return None
+    if json_list and value.startswith("["):
+        try:
+            loaded = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(loaded, list) and all(isinstance(item, str) for item in loaded):
+            return loaded
+        return None
+    words = _shell_words(value)
+    if words is None or any(_is_operator(word) for word in words):
+        return None
+    return words
+
+
+def _flag_rules(family: str, flags: list[tuple[str, str | None]]) -> set[str]:
+    rules: set[str] = set()
+    for name, value in flags:
+        if family == "claude" and (
+            name == "--dangerously-skip-permissions"
+            or (name == "--permission-mode" and value == "bypassPermissions")
+        ):
+            rules.add("bypass_permissions")
+        if family == "codex" and name == "--dangerously-bypass-approvals-and-sandbox":
+            rules.add("bypass_approvals_and_sandbox")
+        if family == "codex" and name == "--sandbox" and value == "danger-full-access":
+            rules.add("danger_full_access")
+    return rules
+
+
+def agent_widening_rules(entry: dict[str, Any]) -> set[tuple[str, str]]:
+    """The documented widening rules one published agent launch meets (#823).
+
+    Each is ``(rule, detail)``: ``detail`` names the input for an opened gate
+    (``allowed_non_write_users``) and is empty otherwise. Read from published
+    settings only, so a redacted value, a value holding an expression, an
+    unresolved launch and an unknown flag meet no rule.
+    """
+
+    if entry.get("form") != "read":
+        return set()
+    agent = str(entry["agent"])
+    readable = {
+        str(setting["name"]): str(setting["value"])
+        for setting in entry.get("settings", [])
+        if setting.get("unresolved_reason") is None and setting.get("value") is not None
+    }
+    rules: set[tuple[str, str]] = set()
+    if agent in {"claude", "codex"}:
+        flags = [(str(setting["name"]), setting.get("value")) for setting in entry.get("settings", [])
+                 if setting.get("unresolved_reason") is None]
+        rules.update((rule, "") for rule in _flag_rules(agent, flags))
+        return rules
+    spec = _AGENT_ACTIONS[agent]
+    for name in spec.gates:
+        if name in readable and "*" in {part.strip() for part in readable[name].split(",")}:
+            rules.add(("open_gate", name))
+    for name, value in spec.modes:
+        if readable.get(name) == value:
+            rules.add(("danger_full_access" if name == "sandbox" else "unsafe_safety_strategy", ""))
+    if spec.args and spec.args in readable:
+        words = _argument_words(readable[spec.args], json_list=spec.family == "codex")
+        if words is not None:
+            flags = _read_flags(words, _AGENT_FLAG_TABLES[spec.family])
+            rules.update((rule, "") for rule in _flag_rules(spec.family, flags))
+    return rules
+
+
+def agent_family(agent: str) -> str:
+    """``claude`` or ``codex``: which agent's rules a launch is read by."""
+
+    return _AGENT_ACTIONS[agent].family if agent in _AGENT_ACTIONS else agent
+
+
+def gained_agent_widenings(
+    before: dict[str, Any] | None, after: dict[str, Any] | None
+) -> list[tuple[str, str, str, dict[str, Any]]]:
+    """Documented widening rules a job's agent launches meet at ``after`` and not at ``before``.
+
+    Keyed by job, agent family and rule, so moving a launch between steps or
+    spellings (``--dangerously-skip-permissions`` and
+    ``--permission-mode bypassPermissions`` are one rule) gains nothing. Each
+    result is ``(job, rule, detail, entry)`` for the first launch at ``after``
+    that meets it.
+    """
+
+    def met(grant: dict[str, Any] | None) -> dict[tuple[str, str, str, str], dict[str, Any]]:
+        found: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+        for entry in (grant or {}).get("agent_launches", []):
+            for rule, detail in sorted(agent_widening_rules(entry)):
+                key = (str(entry["job"]), agent_family(str(entry["agent"])), rule, detail)
+                found.setdefault(key, entry)
+        return found
+
+    old = met(before)
+    return [
+        (key[0], key[2], key[3], entry) for key, entry in met(after).items() if key not in old
+    ]
+
+
+#: How an unresolved agent launch or checkout reads in the limit that names it.
+_UNRESOLVED_AGENT_PHRASES = {
+    "compound_command": "part of a `run:` that holds more than one command, or quoting this audit cannot split",
+    "shell_expansion": "a command with a shell expansion this static audit does not evaluate",
+    "expression": "a `run:` holding a `${{ }}` expression, which GitHub substitutes before the shell reads it",
+    "inputs_not_a_mapping": "a step whose `with:` is not a mapping",
+}
+
+
+def uncompared_agent_launch_texts(grant: dict[str, Any]) -> list[str]:
+    """One message per agent launch setting or checkout ref a workflow does not compare (#823).
+
+    Not blocking, like an unread secret value (#693): the launch's job, agent,
+    form and reason are still compared, so adding, removing or re-forming one
+    is a row. Only an edit inside what is named here is not reported.
+    """
+
+    texts: list[str] = []
+    for entry in grant.get("agent_launches", []):
+        where = f"{entry['job']}/{entry['step']} ({entry['agent']})"
+        reason = entry.get("unresolved_reason")
+        if reason:
+            texts.append(
+                f"the agent launch at {where} is "
+                f"{_UNRESOLVED_AGENT_PHRASES.get(str(reason), 'in an unsupported form')}; its "
+                "settings are neither published nor compared, so an edit to them is not reported"
+            )
+        for setting in entry.get("settings", []):
+            unread = setting.get("unresolved_reason")
+            if unread:
+                what = "contains credential-shaped text" if unread == "redacted" else "is not a string"
+                texts.append(
+                    f"the {setting['name']} value of the agent launch at {where} {what}; it is "
+                    "neither published nor compared, so an edit to it is not reported"
+                )
+    for entry in grant.get("checkout_refs", []):
+        unread = entry.get("unresolved_reason")
+        if unread:
+            what = {
+                "redacted": "a ref that contains credential-shaped text",
+                "not_a_string": "a ref that is not a string",
+            }.get(str(unread), "a `with:` that is not a mapping")
+            texts.append(
+                f"the checkout at {entry['job']}/{entry['step']} declares {what}; it is "
+                "neither published nor compared, so an edit to it is not reported"
+            )
+    # Two steps whose labels publish alike name one limit once.
+    return list(dict.fromkeys(texts))
+
+
 #: A whole ``secrets:`` value of this form names its source (#693). Only the
 #: property form is read; ``secrets['NAME']`` and every other expression stay
 #: unresolved rather than guessed. The ``secrets`` context name is matched as
@@ -1818,10 +2425,11 @@ def _workflow_grant(
 
     Each label is published by :func:`published_workflow_label` before it is
     used anywhere, so the job in ``permission_contexts``, ``reusable_calls``,
-    ``step_actions``, the ``write_scopes`` and ``effective_write_scopes``
-    prefixes, every row built from them, and ``config_sha256`` all hold the
-    same label, and none holds the raw text. ``collided`` receives the kinds
-    of label of which two distinct raw values publish alike.
+    ``step_actions``, ``agent_launches``, ``checkout_refs``, the
+    ``write_scopes`` and ``effective_write_scopes`` prefixes, every row built
+    from them, and ``config_sha256`` all hold the same label, and none holds
+    the raw text. ``collided`` receives the kinds of label of which two
+    distinct raw values publish alike.
     """
 
     if not isinstance(data, dict):
@@ -1838,6 +2446,8 @@ def _workflow_grant(
     permission_contexts: list[dict[str, Any]] = []
     reusable_calls: list[dict[str, Any]] = []
     step_actions: list[dict[str, Any]] = []
+    agent_launches: list[dict[str, Any]] = []
+    checkout_refs: list[dict[str, Any]] = []
 
     def collect(perms: Any, where: str) -> None:
         if perms == "write-all":
@@ -1876,6 +2486,7 @@ def _workflow_grant(
                 if not isinstance(steps, list):
                     step_actions.append(_unreadable_step(label, "steps", "steps_not_a_list"))
                     steps = []
+                job_launches: list[dict[str, Any]] = []
                 for index, step in enumerate(steps):
                     if not isinstance(step, dict):
                         step_actions.append(
@@ -1885,6 +2496,17 @@ def _workflow_grant(
                     action = _step_action(label, step, index)
                     if action is not None:
                         step_actions.append(action)
+                    job_launches.extend(_step_agent_launches(label, step, index))
+                    checkout = _checkout_ref(label, step, index)
+                    if checkout is not None:
+                        checkout_refs.append(checkout)
+                if job_launches:
+                    # Context for the note on the row, never compared (#823).
+                    secrets = _job_secrets(job, data.get("env"))
+                    agent_launches.extend(
+                        {**launch, "job_secrets": secrets} if secrets else launch
+                        for launch in job_launches
+                    )
     pull_target = "pull_request_target" in triggers
     write_all = any(entry.endswith(": write-all") for entry in effective_write_scopes)
     unknown = not permission_contexts or any(
@@ -1905,6 +2527,11 @@ def _workflow_grant(
         # Omitted when empty, as the schema omits it, so a workflow whose steps
         # declare no listed reference keeps its earlier fingerprint.
         projection["step_actions"] = step_actions
+    # Omitted when empty for the same reason (#823).
+    if agent_launches:
+        projection["agent_launches"] = agent_launches
+    if checkout_refs:
+        projection["checkout_refs"] = checkout_refs
     return {
         **_grant_base(
             host="github", scope="repository", source=source, kind="workflow",
@@ -2063,7 +2690,12 @@ def _collect_file(
                 _inventory_issue(
                     kind="unsupported", host=host, source=source, message=text, blocking=False,
                 )
-                for text in uncompared_secret_mapping_texts(grant)
+                for text in (
+                    *uncompared_secret_mapping_texts(grant),
+                    # An agent launch or checkout ref this reader does not
+                    # compare narrows that entry, not the workflow (#823).
+                    *uncompared_agent_launch_texts(grant),
+                )
             )
     elif host == "codex" and kind == "requirements":
         grants.extend(_codex_requirement_grants(data, scope=scope, source=source))
@@ -3398,7 +4030,7 @@ def build_host_boundary_snapshot(
         "static_analysis_only": True,
         "runtime_session_verified": False,
     }
-    inventory = HostGrantsInventoryV6.model_validate(payload).model_dump(mode="json")
+    inventory = HostGrantsInventoryV7.model_validate(payload).model_dump(mode="json")
     return HostBoundarySnapshot(
         inventory=inventory, cache=cache, input_failures=dict(cache.input_failures),
         plugin_reference_issue_ids=frozenset(plugin_reference_issue_ids),
@@ -3437,7 +4069,7 @@ def host_audit_inventory(
 
     if snapshot is None:
         snapshot = build_host_boundary_snapshot(workspace, scope=scope, cache=cache)
-    inventory = HostGrantsInventoryV6.model_validate(snapshot.inventory)
+    inventory = HostGrantsInventoryV7.model_validate(snapshot.inventory)
     if inventory.scope != scope:
         raise ValueError(
             f"Host boundary snapshot scope {inventory.scope!r} does not match {scope!r}"
@@ -3553,7 +4185,7 @@ def build_host_grants_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
         "inventory_sha256": host_grants_sha256(normalized),
         "inventory": normalized,
     }
-    return HostGrantsBaselineV6.model_validate(payload).model_dump(mode="json")
+    return HostGrantsBaselineV7.model_validate(payload).model_dump(mode="json")
 
 
 def load_host_grants_baseline(path: Path) -> dict[str, Any]:
@@ -3597,7 +4229,7 @@ def load_host_grants_baseline_with_text(
                 "and repair or replace it deliberately."
             )
         return data, text
-    if version not in {"0.2", "0.3", "0.4", "0.5", HOST_GRANTS_BASELINE_SCHEMA_VERSION}:
+    if version not in {"0.2", "0.3", "0.4", "0.5", "0.6", HOST_GRANTS_BASELINE_SCHEMA_VERSION}:
         raise ValueError(
             f"Host-grants baseline {path} has unsupported schema version "
             f"{version!r}. A human must review migration or replacement."
@@ -3605,7 +4237,7 @@ def load_host_grants_baseline_with_text(
     try:
         model = {"0.2": HostGrantsBaselineV2, "0.3": HostGrantsBaselineV3,
                  "0.4": HostGrantsBaselineV4, "0.5": HostGrantsBaselineV5,
-                 "0.6": HostGrantsBaselineV6}[version]
+                 "0.6": HostGrantsBaselineV6, "0.7": HostGrantsBaselineV7}[version]
         parsed = model.model_validate(data).model_dump(mode="json")
     except ValidationError:
         return (
@@ -3787,14 +4419,23 @@ def _same_workflow_grant(before: dict | None, after: dict | None) -> bool:
     # Step references compare as each job's multiset of declared references:
     # a reordered, renamed or re-id'd step that declares the same reference
     # changes no modeled fact, and no execution-order dependency is evaluated.
-    ignored = {"write_scopes", "config_sha256", "step_actions"}
+    # Agent launches and checkout refs compare the same way (#823): as each
+    # job's multiset of declared facts, never by step label, and a launch's
+    # `job_secrets` is context for the row, never compared.
+    ignored = {"write_scopes", "config_sha256", "step_actions", "agent_launches", "checkout_refs"}
 
     def comparable(grant: dict[str, Any]) -> dict[str, Any]:
         # Both sides are v0.4+ shapes here, and a drift payload refuses a
-        # v0.4/v0.5 baseline holding a workflow, so a missing key is "none".
+        # v0.4-v0.6 baseline holding a workflow, so a missing key is "none".
         projection = {key: value for key, value in grant.items() if key not in ignored}
         projection["step_actions"] = sorted(
             step_action_key(item) for item in grant.get("step_actions", [])
+        )
+        projection["agent_launches"] = sorted(
+            agent_launch_key(item) for item in grant.get("agent_launches", [])
+        )
+        projection["checkout_refs"] = sorted(
+            checkout_ref_key(item) for item in grant.get("checkout_refs", [])
         )
         # Named secrets compare as each call's set of facts, whatever order a
         # saved snapshot lists them in (#693).
@@ -3960,6 +4601,10 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
                 }
             if inherited_calls(after) - inherited_calls(previous):
                 signals.append(f"workflow_secrets_inherited_{prefix}: {after['source']}")
+            # Only a documented rule gained by a job's agent launches widens
+            # (#823); every other agent-launch or checkout edit is a change.
+            if gained_agent_widenings(before, after):
+                signals.append(f"workflow_agent_widened_{prefix}: {after['source']}")
     return sorted(set(signals))
 
 
@@ -4109,7 +4754,7 @@ def _incomparable_payload(
         # and also route to a human before any first acknowledgement.
         "next_action": None,
     }
-    return HostGrantsDriftV6.model_validate(payload).model_dump(mode="json")
+    return HostGrantsDriftV7.model_validate(payload).model_dump(mode="json")
 
 
 #: Baseline versions a drift comparison reads as current. v0.5 only adds
@@ -4117,9 +4762,12 @@ def _incomparable_payload(
 #: v0.4 inventory refused such a link as unreadable, and an incomplete
 #: inventory can never be saved, so a v0.4 baseline holds no artifact that v0.5
 #: would describe differently. Accepting it keeps every saved baseline usable.
-#: v0.6 adds workflow step references (#771); the rule below narrows which
-#: v0.4/v0.5 baselines that acceptance still covers.
-_COMPARABLE_BASELINE_SCHEMA_VERSIONS = frozenset({"0.4", "0.5", HOST_GRANTS_BASELINE_SCHEMA_VERSION})
+#: v0.6 adds workflow step references (#771) and v0.7 agent launches and
+#: checkout refs (#823); the rules below narrow which older baselines that
+#: acceptance still covers.
+_COMPARABLE_BASELINE_SCHEMA_VERSIONS = frozenset(
+    {"0.4", "0.5", "0.6", HOST_GRANTS_BASELINE_SCHEMA_VERSION}
+)
 
 #: Baseline versions whose workflow grants never read step action references
 #: (#771). Such a grant's missing ``step_actions`` is not evidence that no
@@ -4128,6 +4776,10 @@ _COMPARABLE_BASELINE_SCHEMA_VERSIONS = frozenset({"0.4", "0.5", HOST_GRANTS_BASE
 #: current inventory holds is then an added grant, whose references no side
 #: claims were compared.
 _STEP_ACTIONS_UNREAD_BASELINE_SCHEMA_VERSIONS = frozenset({"0.4", "0.5"})
+
+#: Baseline versions whose workflow grants never read agent launches or
+#: checkout refs (#823), by the same rule: silence is not evidence of none.
+_AGENT_LAUNCHES_UNREAD_BASELINE_SCHEMA_VERSIONS = frozenset({"0.4", "0.5", "0.6"})
 
 
 def build_host_drift_payload(
@@ -4140,14 +4792,19 @@ def build_host_drift_payload(
         reasons.append(
             str(baseline.get("_load_error") or "unsupported_baseline_schema")
         )
-    elif baseline.get("host_grants_schema_version") in _STEP_ACTIONS_UNREAD_BASELINE_SCHEMA_VERSIONS:
+    elif baseline.get("host_grants_schema_version") in _AGENT_LAUNCHES_UNREAD_BASELINE_SCHEMA_VERSIONS:
+        version = baseline.get("host_grants_schema_version")
         workflows = [
             grant for grant in (baseline.get("inventory") or {}).get("grants", [])
             if grant.get("kind") == "workflow"
         ]
-        if workflows:
+        if workflows and version in _STEP_ACTIONS_UNREAD_BASELINE_SCHEMA_VERSIONS:
             reasons.append("baseline_workflow_step_actions_unavailable")
-        if any(grant.get("reusable_calls") for grant in workflows):
+        if workflows:
+            reasons.append("baseline_workflow_agent_launches_unavailable")
+        if version in _STEP_ACTIONS_UNREAD_BASELINE_SCHEMA_VERSIONS and any(
+            grant.get("reusable_calls") for grant in workflows
+        ):
             # Such a call's missing ``secret_mappings`` is not evidence that it
             # passed no named secret: those snapshots never read them (#693).
             reasons.append("baseline_reusable_workflow_secret_mappings_unavailable")
@@ -4196,7 +4853,7 @@ def _comparable_drift_payload(
         "incomparable_reasons": [],
         "next_action": None,
     }
-    return HostGrantsDriftV6.model_validate(payload).model_dump(mode="json")
+    return HostGrantsDriftV7.model_validate(payload).model_dump(mode="json")
 
 
 def build_host_comparison_payload(

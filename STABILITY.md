@@ -18,6 +18,23 @@ workspace too.
 `minimum_control_contract_version` stays `21`. See
 [the migration note](#unread-changed-inputs-821).
 
+Unreleased, runtime contract v41 reads how a coding agent is launched inside a
+workflow job (#823). Contract v40 and host-grants `0.6` shipped in 1.1.0, so
+host-grants inventory, baseline and drift schemas move to `0.7`: a workflow
+grant adds `agent_launches[]` — a documented agent action's permission inputs,
+or the permission flags of a `run:` that is one literal `claude -p` or
+`codex exec` command, compared as text and never executed — and
+`checkout_refs[]`, each `actions/checkout` step's `with.ref`. Only a documented
+rule a job's launches gain widens (`workflow_agent_widened_<added|changed>`);
+every other edit is a `changed` row naming `job/step`, and a workflow row that
+runs an agent ends with the job facts beside each agent step. A compound
+command, an expansion or an expression is `unresolved`, a named non-blocking
+limit that leaves coverage complete. A `0.4`–`0.6` baseline holding a workflow
+grant is incomparable (`baseline_workflow_agent_launches_unavailable`); one
+without a workflow stays comparable. Verifier `0.20`, capability diff `0.3` and
+`minimum_control_contract_version` `21` are unchanged. See
+[the migration note](#workflow-agent-launches-contract-v41-823).
+
 Also unreleased, and moving no version of its own: a Claude Code setting that
 disables prompts or approves project MCP servers carries one rating on every
 surface (#827). The `audit --host` grant, the `diff`, `verify` and `check`
@@ -27,7 +44,7 @@ move from `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` to
 `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW`, and `defaultMode: dontAsk` from
 the wildcard check to `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` at
 `medium`. Setting rows name the setting and value, and `enabledMcpjsonServers`
-entries become grants. No schema, member or check id moves. See
+entries become grants. See
 [the migration note](#claude-setting-ratings-827).
 
 Also unreleased, and moving no version of its own: `check` and `verify` route
@@ -58,7 +75,7 @@ now always declares its worktree snapshot, so Git configuration the worktree
 readers refuse (#813) no longer leaves a preview current. See
 [the migration note](#preview-control-currency-807).
 
-Runtime contract v40 reads the action reference each workflow step declares
+Previous runtime contract v40 reads the action reference each workflow step declares
 (#771). Host-grants inventory, baseline and drift schemas move to `0.6`, and a
 workflow grant adds `step_actions[]`: the job, the step (`id`, else `name`,
 else `steps[N]`), the declared `uses`, and its `form` — `remote`, `docker`, or
@@ -299,6 +316,44 @@ is added.
 **Compatibility.** Verifier `0.21`, capability diff `0.4` and runtime contract v41 are unreleased, so they are extended in place. `comparison_status` is a closed enumeration, so a reader validating against the frozen [`docs/verifier-schema.v0.20.json`](docs/verifier-schema.v0.20.json) rejects `partial`; the current reader refuses a `0.20` artifact that claims a partial comparison or a `scope`. A consumer that treats every status but `comparable` as not comparable is unaffected. One that expected only `comparable` or `incomparable` should read `partial` as `incomparable` for any decision, and may read its rows as what is known outside the directories named.
 
 ---
+
+<a id="workflow-agent-launches-contract-v41-823"></a>
+
+## Migration Note: Unreleased — workflow agent launches (host-grants `0.7`, contract v41, #823)
+
+Contract v40 and host-grants `0.6` shipped in 1.1.0, so this mints host-grants inventory, baseline and drift `0.7` and runtime contract `41` rather than extending them in place. The `0.6` schema files stay published and unchanged. A workflow grant adds two members, each present only when a step declares one; in a `0.7` grant their absence means the steps were read and declare none:
+
+```json
+{
+  "agent_launches": [
+    {
+      "job": "review", "step": "steps[1]", "agent": "anthropics/claude-code-action",
+      "form": "read", "unresolved_reason": null,
+      "settings": [
+        {"name": "claude_args", "value": "--permission-mode bypassPermissions --allowedTools \"Bash(*)\"", "unresolved_reason": null}
+      ],
+      "job_secrets": ["CLAUDE_CODE_OAUTH_TOKEN"]
+    }
+  ],
+  "checkout_refs": [
+    {"job": "review", "step": "steps[0]", "ref": "${{ github.event.pull_request.head.sha }}", "unresolved_reason": null}
+  ]
+}
+```
+
+- **What is read.** A step whose `uses:` is `anthropics/claude-code-action`, `anthropics/claude-code-base-action` or `openai/codex-action` (at any ref, in any letter case) is an agent launch listing the documented inputs it sets; a `run:` that is one literal simple command starting with `claude` and passing `-p`/`--print`, or with `codex exec` (`codex e`), lists its documented permission flags under their primary spelling. Each `actions/checkout` step lists its `with.ref`, `null` for the default. The support page has [the input and flag tables](docs/host-boundary-support.md#known-unread-surfaces). Values are text: no action is fetched, no command run, no expression evaluated. `job_secrets` names the secrets the launch's job references and the workflow's `env` passes; it is context for the row and is not compared. `job`, `step`, values and secret names are published labels (#802).
+- **What is compared.** Each job's multiset of launches (`job`, `agent`, `form`, `unresolved_reason`, `settings`) and of checkout refs (`job`, `ref`, `unresolved_reason`), never the step label, so a rename or reorder is quiet. An added, removed or changed entry is one `changed` row on the workflow naming `job/step` and the value on each side. The prompt, `--model` and any undocumented flag of a CLI launch are not compared; an agent action's `claude_args` or `codex-args` is compared whole.
+- **Direction.** Only a documented rule a job's launches gain widens: bypassed permission checks (`--dangerously-skip-permissions` or `--permission-mode bypassPermissions`, one rule), `--dangerously-bypass-approvals-and-sandbox`, a `danger-full-access` sandbox, `safety-strategy: unsafe`, or a `*` entry in `allowed_bots`, `allowed_non_write_users` or `allow-users`. It is read from literal values only, so a value holding `${{ }}` never meets a rule. The grant then earns `workflow_agent_widened_changed` (or `_added` for a new workflow), the row is `widened` with `expands: true`, its `why` names the rule and step, and the Stop hook announces it. Every other edit is `changed` with `expands: false`, including a tool rule such as `--allowedTools "Bash(*)"` (rating its reach is #824's), `acceptEdits`, a new plugin and a head-ref checkout. `access` and `risk` still describe the token and triggers alone.
+- **The note on a workflow row.** Whatever the row is about, when its workflow runs an agent its `why` ends with the job facts beside each agent step: an untrusted-input trigger (`issue_comment`, `issues`, `pull_request_target`, `workflow_run`), the job's write scopes, the job's secrets, and a checkout of pull request code in the job. It moves no direction and is not a verdict. A removed workflow gets none.
+- **Unresolved and unreadable values are a named limit, not a blocking one.** A `run:` holding more than one command, a shell expansion or a `${{ }}` expression is `form: unresolved` (`compound_command`, `shell_expansion`, `expression`) with no settings, as is an agent action whose `with:` is not a mapping (`inputs_not_a_mapping`). A setting or ref the label redaction rewrites (`redacted`) or that is not a string (`not_a_string`) has `value`/`ref: null`. Each records a non-blocking `unsupported` coverage issue naming its `job/step`, as an unread secret value does (#693): GitHub coverage stays `complete`, and adding, removing or re-forming such an entry is still a row, one that claims no effect. Only an edit inside it is not reported.
+- **What is not read.** An action outside the table, a composite action (#701), a script the step runs, an agent CLI reached through another command (`npx`, `timeout`, `sudo`, a path), and a step's `env:`, `shell:` and `if:`. The support page lists them under Known unread surfaces.
+
+**Compatibility.**
+- **A committed `0.4`, `0.5` or `0.6` baseline holding a workflow grant** is loaded but incomparable: it never read agent launches or checkout refs, so its silence is not evidence that none changed. `audit --host --drift` reports `comparison_status: incomparable` with `baseline_workflow_agent_launches_unavailable` among `incomparable_reasons` (beside the #771 and #693 reasons for a `0.4`/`0.5` one), `has_drift: null` and `next_action: null`, and exits `20` under `--fail-on-drift`; `preflight` raises a `high`, `actor: human` `host_grant_drift` signal naming it. To migrate, follow [the #771 steps](#workflow-step-action-references-contract-v40-771) from a checkout of the reviewed default branch, keeping the old file as `host-grants.v0.6.json`: review `audit --host`, move the baseline aside, `audit --host --save-baseline`, and confirm drift is comparable with `has_drift: false`.
+- **A `0.4`–`0.6` baseline with no workflow grant** stays comparable for drift. `audit --host --save-baseline` refuses to overwrite any baseline older than `0.7`, with or without a workflow grant, and exits `2` with `unsupported_baseline_schema`; move it aside and re-save.
+- **Git-backed `diff`, `check` and manifest-free `verify`** read both refs with the current reader and need no migration. Their rows keep their shape, and verifier `0.20` and capability diff `0.3` do not move. What changes is values: a workflow row can now be `widened` for an agent launch, its `before`/`after` cells list changed launches and checkout refs, and the `why` of every workflow row whose workflow runs an agent gains the note, so a consumer that matches `why` text exactly sees new text. No check id is added or removed, and `check` decides as before.
+- **Validators pinned to the `0.6` schemas** reject a `0.7` inventory, baseline or drift payload.
+- **`minimum_control_contract_version`** stays `21`.
 
 <a id="unread-changed-inputs-821"></a>
 

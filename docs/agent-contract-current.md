@@ -44,6 +44,30 @@ directory, still refuses its comparison. A `0.20` verifier claiming a partial
 comparison or a `scope` is refused. See
 [the migration note](../STABILITY.md#partial-host-comparison-808).
 
+Runtime contract v41, unreleased, reads how a coding agent is launched inside a
+workflow job (#823). Contract v40 and host-grants `0.6` shipped in 1.1.0, so
+host-grants inventory, baseline and drift schemas move to `0.7`, and a workflow
+grant adds `agent_launches[]` and `checkout_refs[]`, each omitted when empty.
+An agent launch is a step whose `uses:` is a documented agent action
+(`anthropics/claude-code-action`, `anthropics/claude-code-base-action`,
+`openai/codex-action`) with the permission inputs it declares, or a `run:`
+that is one literal `claude -p` / `codex exec` command with its documented
+permission flags; its `job`, `step`, `agent`, `form` (`read` or `unresolved`
+with a reason), `settings[]` (`name`, `value`, `unresolved_reason`) and
+`job_secrets[]`. A checkout ref is each `actions/checkout` step's `with.ref`,
+`null` for the default. Values are compared as text and never executed. Only a
+documented rule a job's launches gain — bypassed permission checks, a bypassed
+or `danger-full-access` sandbox, `safety-strategy: unsafe`, or a user gate
+opened to `*` — raises `workflow_agent_widened_<added|changed>` and makes the
+row `widened`; every other edit is `changed`, and a workflow row that runs an
+agent ends its `why` with the job facts beside each agent step. A compound
+`run:`, an expansion or an expression is `unresolved` and a named non-blocking
+limit. A `0.4`–`0.6` baseline holding a workflow grant is incomparable
+(`baseline_workflow_agent_launches_unavailable`); one without a workflow stays
+comparable. Verifier `0.20`, capability diff `0.3` and
+`minimum_control_contract_version` `21` are unchanged. See
+[the migration note](../STABILITY.md#workflow-agent-launches-contract-v41-823).
+
 Previous runtime contract v40 reads the action reference each workflow step declares
 (#771). Host-grants inventory, baseline and drift schemas move to `0.6`, and a
 workflow grant adds `step_actions[]`: the job, the step (`id`, else `name`,
@@ -735,7 +759,7 @@ Downstream repos generated with
 - Current attestation schema: `0.5` — [`docs/attestation-schema.v0.5.json`](attestation-schema.v0.5.json)
 - Current registry schema: `0.4` — [`docs/registry-schema.v0.4.json`](registry-schema.v0.4.json)
 - Current org evidence bundle schema: `shipgate.org_evidence_bundle/v2` — [`docs/org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json)
-- Current host-grants inventory, baseline, and drift schemas: `0.6` — [`inventory`](host-grants-inventory-schema.v0.6.json), [`baseline`](host-grants-baseline-schema.v0.6.json), [`drift`](host-grants-drift-schema.v0.6.json)
+- Current host-grants inventory, baseline, and drift schemas: `0.7` — [`inventory`](host-grants-inventory-schema.v0.7.json), [`baseline`](host-grants-baseline-schema.v0.7.json), [`drift`](host-grants-drift-schema.v0.7.json)
 - Current trigger catalog schema: `0.4` — [`docs/triggers.json`](triggers.json)
 - Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
 - Current governance benchmark result schema: `0.2` — [`docs/governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json)

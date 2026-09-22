@@ -119,7 +119,7 @@ expansion signals. It shipped as a qualified release.
 | | Released `v1.1.0` (`pip install`) | Preview `0.16.0+preview.20260903` (`gh release download`) | Source tree |
 | --- | --- | --- | --- |
 | Runtime contract | 40 | 29 | 41 |
-| Host-grant inventory schema | 0.6 | 0.2 | 0.6 |
+| Host-grant inventory schema | 0.6 | 0.2 | 0.7 |
 | `check` on the fixture | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** |
 | Coverage limit visible (`host_coverage`, `excluded_scopes`) | yes | yes | yes |
 | `init --write --ci` Action pin | not applicable — host audit handoff, no workflow written | `@v0.16.0+preview.20260903.gb61aca7` — **no such tag** (the release tag is `preview-`-prefixed) | not applicable — host audit handoff, no workflow written |

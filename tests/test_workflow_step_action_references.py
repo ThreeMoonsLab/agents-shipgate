@@ -394,6 +394,9 @@ def _legacy_baseline(tmp_path: Path, version: str):
     for grant in legacy["inventory"]["grants"]:
         if grant["kind"] == "workflow":
             del grant["step_actions"]
+            # Nor did they read agent launches or checkout refs (#823).
+            grant.pop("agent_launches", None)
+            grant.pop("checkout_refs", None)
     legacy["inventory_sha256"] = host_grants_sha256(legacy["inventory"])
     return current, legacy
 
@@ -415,7 +418,10 @@ def test_a_legacy_baseline_holding_a_workflow_does_not_assert_no_step_references
     drift = build_host_drift_payload(baseline=loaded, inventory=current, baseline_file=str(baseline_path))
 
     assert drift["comparison_status"] == "incomparable"
-    assert drift["incomparable_reasons"] == ["baseline_workflow_step_actions_unavailable"]
+    assert drift["incomparable_reasons"] == [
+        "baseline_workflow_agent_launches_unavailable",
+        "baseline_workflow_step_actions_unavailable",
+    ]
     assert drift["has_drift"] is None and drift["changes"] == []
     assert baseline_path.read_text() == original
 
@@ -454,7 +460,7 @@ def test_a_current_baseline_compares_step_references(tmp_path):
     path.parent.mkdir(parents=True)
     path.write_text(_yaml({"uses": f"actions/checkout@{PINNED}"}))
     baseline = build_host_grants_baseline(host_audit_inventory(tmp_path))
-    assert baseline["host_grants_schema_version"] == "0.6"
+    assert baseline["host_grants_schema_version"] == "0.7"
 
     path.write_text(_yaml({"uses": "actions/checkout@main"}))
     drift = build_host_drift_payload(baseline=baseline, inventory=host_audit_inventory(tmp_path), baseline_file="b.json")
@@ -821,7 +827,7 @@ def test_saving_over_a_legacy_baseline_without_a_workflow_is_refused(tmp_path, v
     path.rename(path.with_name(f"host-grants.v{version}.json"))
     resaved = CliRunner().invoke(app, [*audit, "--save-baseline"])
     assert resaved.exit_code == 0, _output(resaved)
-    assert json.loads(path.read_text())["host_grants_schema_version"] == "0.6"
+    assert json.loads(path.read_text())["host_grants_schema_version"] == "0.7"
 
 
 def _output(result) -> str:
@@ -915,6 +921,8 @@ def test_the_documented_migration_from_a_legacy_baseline_holding_a_workflow(tmp_
     for grant in legacy["inventory"]["grants"]:
         if grant["kind"] == "workflow":
             grant.pop("step_actions", None)
+            grant.pop("agent_launches", None)
+            grant.pop("checkout_refs", None)
     legacy["inventory_sha256"] = host_grants_sha256(legacy["inventory"])
     path = root / ".agents-shipgate" / "host-grants.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -925,7 +933,10 @@ def test_the_documented_migration_from_a_legacy_baseline_holding_a_workflow(tmp_
     drift = CliRunner().invoke(app, [*audit, "--drift", "--json"])
     payload = json.loads(drift.stdout)
     assert payload["comparison_status"] == "incomparable"
-    assert payload["incomparable_reasons"] == ["baseline_workflow_step_actions_unavailable"]
+    assert payload["incomparable_reasons"] == [
+        "baseline_workflow_agent_launches_unavailable",
+        "baseline_workflow_step_actions_unavailable",
+    ]
     assert payload["has_drift"] is None and payload["next_action"] is None
     assert CliRunner().invoke(app, [*audit, "--drift", "--fail-on-drift", "--json"]).exit_code == 20
 
@@ -945,7 +956,7 @@ def test_the_documented_migration_from_a_legacy_baseline_holding_a_workflow(tmp_
     path.rename(path.with_name("host-grants.v0.5.json"))
     resaved = CliRunner().invoke(app, [*audit, "--save-baseline"])
     assert resaved.exit_code == 0, resaved.output
-    assert json.loads(path.read_text())["host_grants_schema_version"] == "0.6"
+    assert json.loads(path.read_text())["host_grants_schema_version"] == "0.7"
     after = json.loads(CliRunner().invoke(app, [*audit, "--drift", "--json"]).stdout)
     assert (after["comparison_status"], after["has_drift"]) == ("comparable", False)
     assert path.with_name("host-grants.v0.5.json").read_text() == original

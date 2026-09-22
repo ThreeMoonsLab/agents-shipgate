@@ -19,7 +19,7 @@ and `audit --host`.
 | Claude Code | first-class | `.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json`, `CLAUDE.md`, Claude skills | permission modes/rules, sandbox/network, additional paths, MCP restrictions, plugins and their marketplaces (`extraKnownMarketplaces`), hooks |
 | Cursor | first-class | `.cursor/cli.json`, `.cursor/mcp.json`, `.cursor/rules/**` | Shell/Read/Write rules, MCP declarations, instruction trust roots |
 | VS Code MCP | first-class | `.vscode/mcp.json` | MCP servers; `sandbox` and per-server `sandboxEnabled`; `${input:…}` references by name, never value; `envFile` recorded as a limit; other top-level keys partial |
-| Shared/GitHub | first-class | `AGENTS.md`, Shipgate policies/state, skills, `.github/workflows/*` | instruction/gate weakening, workflow permissions and triggers, remote step action references, named secret sources passed to reusable workflows |
+| Shared/GitHub | first-class | `AGENTS.md`, Shipgate policies/state, skills, `.github/workflows/*` | instruction/gate weakening, workflow permissions and triggers, remote step action references, named secret sources passed to reusable workflows, agent launches (documented agent action inputs, literal `claude -p` / `codex exec` run steps) and `actions/checkout` refs |
 
 A registered adapter reports `complete`, `not_applicable`, `partial`, or
 `experimental` coverage. A relevant malformed, unreadable, binary, oversized,
@@ -64,6 +64,13 @@ the changed inputs the candidate rules at the end of this section name (#821):
   them while that subagent runs; no adapter reads the file. A skill's `hooks`
   frontmatter is type-checked with the skill's instructions, never read as a
   hook grant, so its events get no hook row (#714).
+- **An agent launched any way the workflow reader below does not recognise**
+  (#823): an action outside its table, even one that takes `claude_args`; a
+  composite action (#701); a script the step runs (`run: ./scripts/review.sh`);
+  an agent CLI reached through another command (`npx @anthropic-ai/claude-code`,
+  `timeout 600 claude`, `sudo`, a path such as `./node_modules/.bin/claude`);
+  and a step's `env:`, `shell:` and `if:`. Editing one gives no row and names
+  no limit.
 
 Review changes to those files and fields as you would a change to the workflow,
 hook or server entry that holds them.
@@ -116,6 +123,85 @@ same unreadable form is not reported. A destination or source name, or a job's
 reusable `uses:` target, containing credential-shaped text is published
 redacted and refuses the same way a step reference does, so two values that
 redact alike never compare as unchanged.
+
+How a coding agent is launched inside a job is read (#823). Every value is
+compared as declared text; no action is fetched, no command is run and no
+expression is evaluated. Three things are listed on the workflow grant, each
+naming its `job/step` (the step's `id`, else its `name`, else `steps[N]`):
+
+- **A documented agent action** — a step whose `uses:` is one of these
+  `owner/repo` references, at any ref and in any letter case — with the inputs
+  it declares from this table. Other inputs, such as `prompt` or an API key,
+  are not listed.
+
+  | Action | Inputs compared as text | Documented widening |
+  |---|---|---|
+  | `anthropics/claude-code-action` | `additional_permissions`, `allowed_bots`, `allowed_non_write_users`, `claude_args`, `plugin_marketplaces`, `plugins`, `settings`, and the earlier `allowed_tools`, `disallowed_tools`, `mcp_config` | `claude_args` gains `--dangerously-skip-permissions` or `--permission-mode bypassPermissions`; `allowed_bots` or `allowed_non_write_users` gains a `*` entry |
+  | `anthropics/claude-code-base-action` | `claude_args`, `plugin_marketplaces`, `plugins`, `settings`, `allowed_tools`, `disallowed_tools`, `mcp_config` | `claude_args` as above |
+  | `openai/codex-action` | `allow-bot-users`, `allow-bots`, `allow-users`, `codex-args`, `permission-profile`, `safety-strategy`, `sandbox` | `sandbox` becomes `danger-full-access`; `safety-strategy` becomes `unsafe`; `codex-args` gains `--dangerously-bypass-approvals-and-sandbox` (`--yolo`) or `--sandbox danger-full-access`; `allow-users` gains a `*` entry |
+
+- **A literal agent CLI command in `run:`** — only when the whole `run:` is one
+  simple command, after any literal `NAME=value` assignments (which are skipped
+  and never published), that starts with `claude` and passes `-p`/`--print`, or
+  starts with `codex exec` (`codex e`). Its documented permission flags are
+  listed under their primary spelling, and every other word — the prompt,
+  `--model`, an undocumented flag — is not compared. For `claude`:
+  `--permission-mode`, `--dangerously-skip-permissions`,
+  `--allow-dangerously-skip-permissions`, `--allowedTools`/`--allowed-tools`,
+  `--disallowedTools`/`--disallowed-tools`, `--add-dir`, `--mcp-config`,
+  `--settings` and `--permission-prompt-tool`; gaining
+  `--dangerously-skip-permissions` or `--permission-mode bypassPermissions`
+  (one rule, so moving between the two spellings is not a widening) widens.
+  For `codex exec`: `--sandbox`/`-s`,
+  `--dangerously-bypass-approvals-and-sandbox`/`--yolo`,
+  `--approve-for-me`/`--not-so-yolo`, `--dangerously-bypass-hook-trust`,
+  `--add-dir`, `--config`/`-c` and `--profile`/`-p`; gaining
+  `--dangerously-bypass-approvals-and-sandbox` or `--sandbox danger-full-access`
+  widens. A flag the CLI reads as variadic (`--allowedTools`, `--add-dir`, …)
+  takes every following word up to the next word starting with `-`, as the CLI
+  reads it, so a prompt written after it is compared as one of its values; the
+  row shows it. A `run:` holding more than one command (a newline, `&&`, `;`,
+  `|`, a redirection or a here-doc) or quoting that does not balance, a shell
+  expansion (`$VAR`, `$(…)`, a backtick) or a `${{ }}` expression is listed as
+  `unresolved` with that reason, once for each agent CLI it starts at the head
+  of a command (of a line, when its quoting does not balance), and none of its
+  text is published. A command that launches no headless agent — `claude mcp add`,
+  `codex login`, an `echo` that mentions either — is not listed.
+- **Each `actions/checkout` step's `with.ref`**, or the default when it
+  declares none or an empty one. Adding `ref:
+  ${{ github.event.pull_request.head.sha }}` is a `changed` row naming the
+  step on both sides.
+
+Each job's multiset of launches and of checkout refs is compared, so renaming
+or reordering steps is quiet. An added, removed or changed launch or ref is a
+`changed` row on the workflow naming `job/step` and the value on each side.
+Direction is claimed only by the documented rules above, read from literal
+values: when a job's launches gain one, the workflow earns
+`workflow_agent_widened_<added|changed>`, the row is `widened` and its `why`
+names the rule and step. Any other edit — `--allowedTools "Read"` to
+`--allowedTools "Bash(*)"`, `acceptEdits`, a new plugin, a value holding
+`${{ }}`, a head-ref checkout — is `changed`; rating a tool rule's reach is a
+job for #824. `access` and `risk` still describe the token and triggers alone.
+
+A workflow row whose workflow runs an agent ends its `why` with the job facts
+beside each agent step, whatever else the row is about: an untrusted-input
+trigger (`issue_comment`, `issues`, `pull_request_target`, `workflow_run`), the
+job's write scopes, the secrets the job references (`${{ secrets.NAME }}` in the
+job, or in the workflow's `env`), and a checkout in the job of pull request
+code (`github.event.pull_request.head.sha`, `.head.ref` or `.merge_commit_sha`,
+`github.head_ref`, `github.event.workflow_run.head_sha` or `.head_branch`, or
+`refs/pull/<n>/head` and `/merge`). It is a note, not a verdict: it moves no
+direction, and `if:` conditions and the default checkout of a `pull_request`
+event are not read into it. A removed workflow gets no note.
+
+An unresolved launch, a setting whose value the label redaction rewrites or
+that is not a string, and a checkout ref of either kind publish nothing of the
+value and record a **non-blocking** `unsupported` coverage issue naming the
+`job/step`, printed under `audit --host` → Coverage issues. GitHub coverage
+stays complete, so `check`, baselines and every other row are unaffected, and
+adding, removing or re-forming such an entry is still a row that claims no
+effect; only an edit inside it is not reported. `diff`, `verify` and `check`
+carry no limit for it, as for an unread secret value (#693).
 
 A workflow's labels are published redacted (#802). A job id, a step's `id` or
 `name`, a trigger and a permission scope name go through the same redaction as
