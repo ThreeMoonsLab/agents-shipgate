@@ -6,7 +6,8 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
-from agents_shipgate.cli.current_workspace import default_reports_dir
+from agents_shipgate.cli.current_workspace import default_reports_dir, worktree_exclusion
+from agents_shipgate.cli.verify.changed_inputs import comparison_changed_inputs
 from agents_shipgate.cli.verify.git import (
     archive_tree,
     blob_path_identities,
@@ -24,6 +25,7 @@ from agents_shipgate.core.host_grants import (
     build_host_boundary_snapshot,
     without_host_issues,
 )
+from agents_shipgate.core.unread_inputs import ChangedInputs
 from agents_shipgate.schemas.host_comparison import HostComparison
 
 
@@ -55,7 +57,13 @@ def compare_host_refs(
     shared parse or shape limit on an unchanged source, and refuse otherwise.
 
     ``coverage=False`` is for `check` too: its result carries no coverage, so
-    it asks no identity question it would discard (#812).
+    it asks no identity question it would discard (#812), and lists no
+    changed files for unread inputs it would not name (#821).
+
+    A comparison that read no host artifact on either side is ``None`` as
+    before, unless its coverage names a changed input this entry does not
+    read (#821): that change is the one this result exists to name, so it is
+    not handed to the setup route, which would say nothing about it.
     """
     from agents_shipgate.cli.verify.orchestrator import (
         _safe_repository_identity,
@@ -136,6 +144,16 @@ def compare_host_refs(
         def identities(paths):
             return blob_path_identities(workspace, base_commit, compared_head, paths)
 
+        def changed_inputs() -> ChangedInputs:
+            """The change's own paths, without this run's output directory (#821)."""
+
+            try:
+                exclude = worktree_exclusion(workspace, out_dir or default_reports_dir(workspace))
+            except (OSError, RuntimeError, ValueError):
+                # Never guessed past: the change set is then not examined.
+                return ChangedInputs(paths=None)
+            return comparison_changed_inputs(workspace, base_commit, compared_head, exclude=exclude)
+
         base_snapshot = build_host_boundary_snapshot(before)
         head_snapshot = build_host_boundary_snapshot(after)
         base_inventory = base_snapshot.inventory
@@ -154,11 +172,13 @@ def compare_host_refs(
             unchanged=unchanged,
             identities=identities,
             coverage=coverage,
+            changed_inputs=changed_inputs() if coverage else None,
         )
         if identity() != captured_identity:
             raise ValueError("Host comparison inputs moved during the run")
         result.input_identity = captured_identity
-        if not result.paths and result.comparison_status == "comparable":
+        names_unread = result.coverage is not None and not result.coverage.read_sources_only
+        if not result.paths and result.comparison_status == "comparable" and not names_unread:
             return None
         return result
 

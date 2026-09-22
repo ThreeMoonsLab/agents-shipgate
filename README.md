@@ -87,10 +87,15 @@ each gave, which changed with no compared grant changing (so a zero-row `env`
 or `apiKeyHelper` edit is not mistaken for no change: a file is unchanged only
 when its bytes are), which changed with no row attributed to them, which only
 one side read or published, and, when
-the comparison was refused, which source left an inventory incomplete. That
-block lists only sources this entry read or tried to read, and says so on its
-first line: a changed file it does not read is absent from it, so it is never
-the whole account of the change. When more items are computed than it prints,
+the comparison was refused, which source left an inventory incomplete. This
+source tree, and not the published `1.1.0`, also names a changed input that a
+bounded, documented candidate list recognises but no reader of this entry reads — a plugin's `mcp.json`, a
+plugin manifest's `mcpServers`, `.cursor/hooks.json`, a nested
+`.claude/settings.json`, an external marketplace plugin source — as `changed,
+not read by this entry`, with no row and no claim that a host loads it. Its
+first line says what it lists, so it is never the whole account of the
+change: any other changed file it does not read is absent. When more items are
+computed than it prints,
 it names how many it left out and that they rank below the ones it kept. The
 entries are for a reviewer to act on, not merge authority: each names the rule
 with its disposition, a replaced rule's before and after, and an MCP server's

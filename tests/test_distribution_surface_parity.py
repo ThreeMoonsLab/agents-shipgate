@@ -178,6 +178,8 @@ SURFACES: tuple[Surface, ...] = (
             "src/agents_shipgate/core/capability_diff_rows.py",
             "src/agents_shipgate/core/host_comparison.py",
             "src/agents_shipgate/report/host_comparison.py",
+            "src/agents_shipgate/core/unread_inputs.py",
+            "src/agents_shipgate/cli/verify/changed_inputs.py",
         ),
         # No claims on purpose: this surface restates none of the engine's
         # answers. It projects the drift payload the engine produced, which
@@ -213,6 +215,12 @@ SURFACES: tuple[Surface, ...] = (
         # the rating it gave, the same one `check` raises its violation at,
         # so they add no claim; `tests/test_prompt_disabling_settings.py`
         # holds every route to that one rating.
+        # Naming the changed inputs this entry
+        # does not read (#821) is a filename-and-member-text fact about the
+        # comparison's own change set, never a grant, verdict, pin, floor or
+        # vocabulary the engine answers, so it adds no claim; the rules are
+        # held to `docs/host-boundary-support.md` and every route to the same
+        # object by `tests/test_unread_changed_inputs.py`.
         {},
     ),
     Surface(

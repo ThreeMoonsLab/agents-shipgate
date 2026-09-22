@@ -37,7 +37,11 @@ from agents_shipgate.core.host_grants import (
 # what the text says about the same rows: the changes it presents, the rows
 # each stands for, the counters it prints, its question and its reproduction
 # command (#795). Rows keep every value and the row count they published.
-DIFF_SCHEMA_VERSION = "0.3"
+# 0.4 names, in `coverage`, the changed inputs this entry does not read: a
+# `changed_not_read` item with its `candidate` rule, `read_sources_only` that
+# is `false` while one is listed, and whether the change set was examined
+# (`unread_candidates`, `unread_candidates_not_examined`) (#821).
+DIFF_SCHEMA_VERSION = "0.4"
 
 
 def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
@@ -313,6 +317,7 @@ def run_capability_diff(
             base_tree, cache=HostStaticParseCache()
         ).inventory
 
+    from agents_shipgate.cli.verify.changed_inputs import comparison_changed_inputs
     from agents_shipgate.cli.verify.git import (
         blob_path_identities,
         blob_path_unchanged,
@@ -331,6 +336,9 @@ def run_capability_diff(
         head_commit=commit_sha(workspace, "HEAD"),
         unchanged=lambda source: blob_path_unchanged(workspace, base_commit, None, source),
         identities=lambda paths: blob_path_identities(workspace, base_commit, None, paths),
+        # The change's own paths, so a changed input no reader reads is named
+        # rather than silent (#821).
+        changed_inputs=comparison_changed_inputs(workspace, base_commit, None),
     )
     rows = list(comparison.rows)
     limits = [limit.model_dump(mode="json") for limit in comparison.unchanged_limits]

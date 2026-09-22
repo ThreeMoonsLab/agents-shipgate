@@ -214,7 +214,16 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # ``host_comparison.coverage`` and ``shipgate diff --json`` (capability diff
 # 0.3) the same block. It is evidence beside the rows and moves no state,
 # permission, route or row. A 0.19 verifier reads with coverage not recorded.
-CONTRACT_VERSION: Literal["40"] = "40"
+# v41 names the changed inputs a host comparison does not read (#821): verifier
+# 0.21 and ``shipgate diff --json`` (capability diff 0.4) add a
+# ``changed_not_read`` coverage item with its ``candidate`` rule, a
+# ``read_sources_only`` that is ``false`` while one is named, and whether the
+# comparison's changed files were examined. A name is never a row, a widening
+# or a ``check`` violation. The one route it moves: a manifest-free ``verify``
+# whose only host-relevant change is such an input now publishes that
+# comparison instead of the setup route. A 0.20 verifier reads with the search
+# not recorded. ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21.
+CONTRACT_VERSION: Literal["41"] = "41"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"

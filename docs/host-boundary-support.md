@@ -46,7 +46,8 @@ cross-host trust-root edit from being reported as complete.
 These change what runs, or what it can reach, with a host's authority, but no
 adapter reads them. Editing any of them produces no row and no coverage limit, and
 a file among them that no adapter reads is not listed under `What this run
-established` either, which names only sources an inventory observed (#812):
+established` either, which names only sources an inventory observed (#812) and
+the changed inputs the candidate rules at the end of this section name (#821):
 
 - **A composite action a workflow invokes** (`uses: ./.github/actions/<name>`).
   It runs inside the calling job, with that job's `permissions` and secrets, so
@@ -217,7 +218,9 @@ No row is proof that a hook ran. What remains unread:
   other sets `false`: a `false` in `.claude/settings.local.json` is one
   machine's opt-out. Installation state, user settings and workspace trust are
   never read. A marketplace entry with a remote `source` names nothing in the
-  repository.
+  repository; a change to that source is named under `What this run
+  established`, never fetched (#821, see
+  [Changed inputs named but not read](#changed-inputs-named-but-not-read)).
 - A reference is followed only to a file named `hooks.json`, or
   `<name>-hooks.json` (`_` or `.` also separate). In a plugin manifest, any
   other name, a path outside the plugin directory, a `hooks` member of the
@@ -257,6 +260,77 @@ type-checked. An undocumented key (`version`, `author`, `category`, …) is
 digested as written rather than refused, so changing it is still a change and
 none is read as a permission. A Cursor rule still refuses a key outside
 `description`, `globs` and `alwaysApply`.
+
+#### Changed inputs named but not read
+
+These shapes are plausibly agent configuration and no adapter reads them
+either, but `diff`, `verify` and the manifest-free PR comment name a changed
+one under `What this run established`, so a zero-row result is not read as
+covering it (#821). Each is found from the comparison's own changed-file set —
+the committed `base..head` change, or the working tree's tracked and untracked
+changes against the base — never from a walk of the repository, so an
+unchanged file is never named. The item is `changed_not_read` with the
+`candidate` rule that named it, printed as `<path> (<host>): changed, not read
+by this entry: <what it is>; no row, and loading is not established` (`added`
+or `removed` for a file or member only one side has). It is never a row, a
+widening, a `check` violation or a claim that a host loads the file.
+
+- **A plugin's MCP configuration** (`plugin_mcp_config`): `mcp.json` in a
+  directory that holds `.claude-plugin/plugin.json`,
+  `.codex-plugin/plugin.json`, `.cursor-plugin/plugin.json` or
+  `.github/plugin/plugin.json` on the side it exists on, such as a Cursor
+  plugin's `plugins/demo/mcp.json` or a root `mcp.json` in a plugin
+  repository.
+- **A plugin manifest's MCP servers** (`plugin_manifest_mcp_servers`): the
+  `mcpServers` member of any of those manifests, inline or a reference, when
+  its text differs between the sides. The file a reference names is not
+  followed.
+- **A plugin manifest's hooks** (`plugin_manifest_hooks`): the `hooks` member
+  of a Codex, Cursor or Copilot manifest, when its text differs. A Claude Code
+  manifest's `hooks` is read, as described under the hook loading basis
+  above.
+- **A hook file a plugin manifest names** (`plugin_hook_file`): a changed file
+  named like a hook declaration (`hooks.json`, `<name>-hooks.json`) that the
+  `hooks` member of a Codex, Cursor or Copilot manifest in one of its eight
+  nearest ancestor directories names by a relative path inside that plugin,
+  such as `p/hooks/hooks.json` referenced by `p/.codex-plugin/plugin.json`.
+- **A plugin manifest or marketplace that does not parse**
+  (`unparsed_plugin_manifest`): a changed manifest or
+  `.claude-plugin/marketplace.json` whose members could not be compared, unless
+  an inventory already names it, as a blocking limit names an unreadable Claude
+  Code manifest.
+- **Cursor project hooks** (`cursor_project_hooks`): `.cursor/hooks.json`, at
+  any depth, such as removing a `beforeShellExecution` guard.
+- **Host settings below the repository root** (`nested_host_settings`):
+  `<dir>/.claude/settings.json`, `<dir>/.claude/settings.local.json`,
+  `<dir>/.cursor/cli.json`, `<dir>/.cursor/mcp.json` and
+  `<dir>/.vscode/mcp.json`, such as a dotfiles package's
+  `claude/.claude/settings.json`. Whether it is a nested project's settings or
+  a user-scope package's is not established.
+- **An external marketplace plugin source** (`external_plugin_source`): a
+  `.claude-plugin/marketplace.json` `plugins[]` entry whose `source` is an
+  object (`github`, `git`, `url` and the like) that was added, removed or
+  changed — its `repo`, `url`, `ref` or `sha` — compared as text by entry
+  name. The item is `<marketplace>#plugins.<name>` and names what the source
+  now points at (`github example/one at <sha>`), redacted; the content is
+  never fetched.
+
+A whole file is named only when no inventory published it: a file a reader
+read is an item of its own. A member is named whatever else read the file,
+because no reader reads that member. Nothing is fetched or run, only a
+plugin manifest or marketplace is read, and every read stays inside the
+repository within the host reader's own per-file bound. Paths under
+`node_modules`, `.venv` and the other directories the host readers never walk
+are not considered. At most 32 candidate paths are examined per comparison;
+the rest, and any whose rule needed a read that could not be made, are
+counted as not examined in the block and in
+`coverage.unread_candidates_not_examined`, never guessed at. When the changed
+files cannot be listed, the block says so and names none. Ordinary
+documentation, an unrelated `*.json`, and a candidate the change did not touch
+produce nothing, and a shape outside this list — a root `plugin.json`, a
+Codex or Cursor marketplace, a hook file a manifest names under another file
+name, a file a `mcpServers` reference names — is still neither read nor named.
+Each shape stays here until a reader exists for it (#663).
 
 ## Local-static audit scope
 

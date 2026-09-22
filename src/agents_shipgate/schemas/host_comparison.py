@@ -27,9 +27,10 @@ class HostComparisonLimit(BaseModel):
 
 #: The most coverage items one comparison publishes (#812). The list is a
 #: prefix of the comparator's order, which puts a blocking limit first — by
-#: kind within those, :data:`COVERAGE_LIMIT_ORDER` below — then what no row
-#: shows, then a file's rows, and a compared, unchanged source last, so the cap
-#: drops those first; ``omitted_items`` counts the rest.
+#: kind within those, :data:`COVERAGE_LIMIT_ORDER` below — then a changed input
+#: this entry does not read (#821), then what no row shows, then a file's rows,
+#: and a compared, unchanged source last, so the cap drops those first;
+#: ``omitted_items`` counts the rest.
 MAX_COVERAGE_ITEMS = 10
 
 #: The issue kinds a host inventory publishes, as a blocking limit may name them.
@@ -69,6 +70,21 @@ COVERAGE_LIMIT_ORDER: tuple[str, ...] = (
     "dynamic_source_excluded",
     "remote_source_excluded",
 )
+
+#: The documented rule that named a changed input this entry does not read
+#: (#821), as :mod:`agents_shipgate.core.unread_inputs` defines each one. It
+#: says what kind of file or member changed and nothing more: never that a
+#: host loads it, what it grants, or that the change is a finding.
+UnreadCandidateKind = Literal[
+    "plugin_mcp_config",
+    "plugin_manifest_mcp_servers",
+    "plugin_manifest_hooks",
+    "plugin_hook_file",
+    "unparsed_plugin_manifest",
+    "cursor_project_hooks",
+    "nested_host_settings",
+    "external_plugin_source",
+]
 
 
 class HostComparisonCoverageItem(BaseModel):
@@ -110,6 +126,16 @@ class HostComparisonCoverageItem(BaseModel):
       and never as a change.
     - ``blocking_limit``: an incomparable comparison, and this source carries
       a blocking inventory issue of kind ``limit`` on ``side``.
+    - ``changed_not_read``: a path in the comparison's own changed-file set
+      that a documented candidate rule names, and that no reader of this entry
+      read (#821). ``candidate`` names the rule. The source is the file, or a
+      member inside it (``<manifest>#mcpServers``,
+      ``<marketplace>#plugins.<name>``) whose text differs between the sides.
+      It is named from the path and, for a member, from the member's text;
+      nothing is fetched, run or read as a grant, so it never says a host
+      loads the file, gives no row and is never a finding. It can accompany a
+      refused comparison as well as a comparable one: it is not a source
+      either inventory compared.
 
     ``side`` says which inventories published the source, as an artifact or
     as the file of a grant (or carry the limit): ``base`` only, ``head`` only,
@@ -118,6 +144,8 @@ class HostComparisonCoverageItem(BaseModel):
     only the head's plugin configuration selects. A plugin manifest or
     marketplace is published only while it declares hooks, so for one of
     those ``side`` does not say whether the file exists on the other side.
+    For ``changed_not_read``, which nothing published, ``side`` is where the
+    file or member exists: ``head`` added, ``base`` removed, ``both`` changed.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -131,10 +159,15 @@ class HostComparisonCoverageItem(BaseModel):
         "changed_without_rows",
         "unchanged_not_proven",
         "blocking_limit",
+        "changed_not_read",
     ]
     rows: int = Field(default=0, ge=0)
     limit: CoverageLimitKind | None = None
+    #: A blocking limit's published issue message, or for an
+    #: ``external_plugin_source`` the source it names, redacted and bounded.
     detail: str | None = None
+    #: The candidate rule that named a ``changed_not_read`` item (#821).
+    candidate: UnreadCandidateKind | None = None
     #: Reserved for naming the scope an item belongs to once a comparison can
     #: be decided per scope (#808). Always ``None`` in this schema version.
     scope: str | None = None
@@ -142,9 +175,15 @@ class HostComparisonCoverageItem(BaseModel):
     @model_validator(mode="after")
     def item_shape(self):
         if self.status == "blocking_limit":
-            if self.limit is None or self.rows:
+            if self.limit is None or self.rows or self.candidate is not None:
                 raise ValueError("a blocking limit names its kind and publishes no rows")
-        elif self.limit is not None or self.detail is not None:
+        elif self.status == "changed_not_read":
+            if self.candidate is None or self.rows or self.limit is not None:
+                raise ValueError(
+                    "a changed input this entry does not read names its candidate rule "
+                    "and publishes no rows"
+                )
+        elif self.limit is not None or self.detail is not None or self.candidate is not None:
             raise ValueError("only a blocking limit names a limit kind or detail")
         if (
             self.status
@@ -168,11 +207,11 @@ class HostComparisonCoverage(BaseModel):
 
     ``items`` is a prefix of the comparator's order, which is the order a
     reviewer can act in: a blocking limit (most actionable kind first, see
-    :data:`COVERAGE_LIMIT_ORDER`), then a change no row describes, then a
-    source only one side published, then one not proven unchanged, then a
-    file's rows, then a source proven unchanged — by source within each. So
-    the cap drops the least actionable items, and ``omitted_items`` counts
-    exactly those.
+    :data:`COVERAGE_LIMIT_ORDER`), then a changed input this entry does not
+    read (#821), then a change no row describes, then a source only one side
+    published, then one not proven unchanged, then a file's rows, then a
+    source proven unchanged — by source within each. So the cap drops the
+    least actionable items, and ``omitted_items`` counts exactly those.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -181,13 +220,38 @@ class HostComparisonCoverage(BaseModel):
         default_factory=list, max_length=MAX_COVERAGE_ITEMS
     )
     omitted_items: int = Field(default=0, ge=0)
-    #: The list's own boundary, stated rather than left to be inferred (#812
-    #: follow-up). Every item is a source an inventory read, or was refused
-    #: by; a changed file no reader of this entry reads is not an item, and
-    #: its absence here is no claim about it. So this list is never a complete
-    #: account of what the change touched, however many items it carries.
-    #: Enumerating the changed-but-unread residue is #821.
-    read_sources_only: Literal[True] = True
+    #: Whether every item, listed or omitted, is a source an inventory read or
+    #: was refused by (#812 follow-up). ``False`` exactly when the list also
+    #: names a changed input this entry does not read (``changed_not_read``,
+    #: #821). Neither value makes the list a complete account of what the
+    #: change touched: the candidate rules are a bounded, documented list, and
+    #: a changed file outside them that no reader reads is still not an item,
+    #: its absence no claim about it.
+    read_sources_only: bool = True
+    #: Whether the comparison's changed-file set was matched against the
+    #: candidate rules (#821): ``examined``, or ``not_examined`` when the set
+    #: could not be listed, so no unread input is named and an absent one
+    #: says nothing. ``None`` means not recorded: a ``0.20`` verifier, or a
+    #: comparison built without its changed files.
+    unread_candidates: Literal["examined", "not_examined"] | None = None
+    #: Changed paths a candidate rule matched that the discovery bound, or a
+    #: read it could not make within its bounds, left unexamined. Counted,
+    #: never listed, and never counted in ``omitted_items``, which counts
+    #: items that exist.
+    unread_candidates_not_examined: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def coverage_shape(self):
+        unread = any(item.status == "changed_not_read" for item in self.items)
+        if unread and self.read_sources_only:
+            raise ValueError("a list naming a changed input this entry does not read says so")
+        if not self.read_sources_only and not unread and not self.omitted_items:
+            raise ValueError("a list of read sources only says so")
+        if self.unread_candidates != "examined" and (
+            not self.read_sources_only or self.unread_candidates_not_examined
+        ):
+            raise ValueError("only an examined changed-file set names or bounds unread inputs")
+        return self
 
 
 class HostComparisonReviewChange(BaseModel):
@@ -321,7 +385,12 @@ class HostComparison(BaseModel):
             raise ValueError("comparable input cannot carry incomparable reasons")
         if self.coverage is not None:
             statuses = {item.status for item in self.coverage.items}
-            if self.comparison_status == "incomparable" and statuses - {"blocking_limit"}:
+            # A changed input this entry does not read is not a compared
+            # source, so a refused comparison may name one beside its limits.
+            if self.comparison_status == "incomparable" and statuses - {
+                "blocking_limit",
+                "changed_not_read",
+            }:
                 raise ValueError("an incomparable comparison establishes no compared source")
             if self.comparison_status == "comparable" and "blocking_limit" in statuses:
                 raise ValueError("a comparable comparison names no blocking limit")
