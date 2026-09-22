@@ -19,7 +19,16 @@ def _declaration(tmp_path: Path, channels: object, **extra: object) -> Path:
 
 
 def test_the_committed_declaration_records_the_advisory_1_0_decision() -> None:
-    assert rc.load_declaration(REPO_ROOT / rc.DECLARATION_PATH) == {"1.0.0": "advisory"}
+    """Every version that has been decided, and nothing else.
+
+    A tagged version's entry can never change (``assert_history_preserved``),
+    so this list only grows, one reviewed line per release decision.
+    """
+
+    assert rc.load_declaration(REPO_ROOT / rc.DECLARATION_PATH) == {
+        "1.0.0": "advisory",
+        "1.1.0": "advisory",
+    }
 
 
 @pytest.mark.parametrize("channel", ["advisory", "qualified"])

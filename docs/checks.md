@@ -590,10 +590,10 @@ approval changes before local automation.
 
 ### SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED
 
-Deprecated across the unreleased minor cycle. The ID remains available for
-historical reports and configuration; current runs do not judge removed or
-softened prose. Complete parsed structure and unresolved-input review replace
-the word heuristic. Structured host readers remain active (#545, #516).
+Deprecated in 1.1.0. The ID remains available for historical reports and
+configuration; current runs do not judge removed or softened prose. Complete
+parsed structure and unresolved-input review replace the word heuristic.
+Structured host readers remain active (#545, #516).
 
 ### SHIP-CODEX-BOUNDARY-CI-GATE-REMOVED
 
@@ -612,10 +612,10 @@ before relying on them.
 
 ### SHIP-CODEX-BOUNDARY-SKILL-COMMAND-CHANGED
 
-Deprecated across the unreleased minor cycle. The ID remains readable but
-current runs emit no command claim from prose words. Supported skill frontmatter
-and preprocessing declarations remain in structural comparison; unknown or
-malformed structure remains a coverage limitation (#545, #516).
+Deprecated in 1.1.0. The ID remains readable but current runs emit no command
+claim from prose words. Supported skill frontmatter and preprocessing
+declarations remain in structural comparison; unknown or malformed structure
+remains a coverage limitation (#545, #516).
 
 ### SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED
 
@@ -1092,10 +1092,10 @@ weakening signal in the family.
 
 ### SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED
 
-Deprecated in the unreleased minor cycle (#516). The registered ID, severity
-metadata and historical report compatibility remain for at least one minor
-version cycle. Current scans emit no findings for this ID: a path change does
-not establish that natural-language instructions weakened a control.
+Deprecated in 1.1.0 (#516). The registered ID, severity metadata and historical
+report compatibility remain for at least one minor version cycle. Current scans
+emit no findings for this ID: a path change does not establish that
+natural-language instructions weakened a control.
 
 Existing structured permission, MCP, CI and hook readers remain active,
 including changes beside prose in the same directory. The local word-based

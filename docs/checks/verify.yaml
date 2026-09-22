@@ -147,8 +147,8 @@ checks:
   floor_severity: medium
   mvp_tier: lifecycle
   requires_human_review: true
-  description: Deprecated in the unreleased minor cycle; retained for historical
-    reports and configuration. New runs emit no findings for this ID.
+  description: Deprecated in 1.1.0; retained for historical reports and
+    configuration. New runs emit no findings for this ID.
   rationale: Changed-file membership cannot establish that natural-language
     instructions weakened a control. Structured permission and execution readers
     remain active. Complete parsed instruction equality can clear only the exact

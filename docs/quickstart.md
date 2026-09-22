@@ -120,7 +120,7 @@ as data.
 ### 3. Read the answer
 
 **The answers below are not yet released:** they are from this repository's
-source tree, which still reports version `1.0.0`, run in a clone outside any
+source tree, which still reports version `1.1.0`, run in a clone outside any
 source checkout of this project. The published `1.0.0` names the same changes
 as four rows, without the dispositions, the joined replacement, the MCP launch
 details, the review question and the reference lines, and none of its answers

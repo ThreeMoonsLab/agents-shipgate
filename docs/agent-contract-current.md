@@ -11,7 +11,7 @@ names different code, not new token scopes. Local `./` actions stay unread
 (`baseline_workflow_step_actions_unavailable`); one without a workflow stays
 comparable, and `minimum_control_contract_version` stays `21`. See
 [the migration note](../STABILITY.md#workflow-step-action-references-contract-v40-771).
-The same unreleased contract and `0.6` schemas also read the named secrets a
+The same contract and `0.6` schemas, new in 1.1.0, also read the named secrets a
 job passes to a reusable workflow (#693): a reusable call adds
 `secret_mappings[]` (the destination, the source name from
 `${{ secrets.NAME }}`, `form` and `unresolved_reason`) and `uses_redacted`.
@@ -20,7 +20,7 @@ Pointing a destination at a different source is a `changed` row with
 limit rather than a comparison, while a literal or another expression is a
 named non-blocking limit that leaves coverage complete. See
 [the migration note](../STABILITY.md#reusable-workflow-secret-mappings-contract-v40-693).
-The same unreleased contract and `0.6` schemas publish every workflow label
+The same contract and `0.6` schemas, new in 1.1.0, publish every workflow label
 redacted (#802): a job id, a step's `id` or `name`, a trigger and a
 permission scope name shaped like a credential (`ghp_…`, `AKIA…`) or holding
 userinfo after `scheme://` are redacted in every field, row and `check`
@@ -30,8 +30,8 @@ distinct job ids or triggers in a workflow, or scope names in one
 `permissions` mapping, that publish alike are a blocking limit: while they
 exist, `check`, `audit --host --save-baseline` and drift refuse on every run.
 See [the migration note](../STABILITY.md#workflow-label-redaction-contract-v40-802).
-The same unreleased contract says what each host comparison established
-(#812): verifier `0.20` adds `host_comparison.coverage`, and
+New in 1.1.0, still contract v40: every host comparison says what it
+established (#812). Verifier `0.20` adds `host_comparison.coverage`, and
 `shipgate diff --json` (capability diff `0.3`) the same block: a capped list of sources with
 their `side` (`base`, `head`, `both`), a `status` (`compared` with its `rows`,
 zero on both sides only for a file proven byte-identical,
@@ -41,17 +41,17 @@ or on an incomparable result `blocking_limit` with its `limit` kind) and
 row, reason, control state, permission or next action, and `null` means not
 recorded. A `0.19` verifier reads with `coverage: null`. See
 [the migration note](../STABILITY.md#host-comparison-coverage-812).
-The same unreleased contract publishes what the text says about those rows, so
-a machine consumer and a reader cannot disagree (#795): a row adds
-`disposition` (`allow`, `ask`, `deny`, or `null` for another grant kind) on
-every route that publishes rows, and `host_comparison.review`, the same block
-`diff --json` carries, adds the changes the text prints — each with the
-`row_indexes` it stands for, a `direction` that may be `widened`, `narrowed` or
-`moved`, its cells, `why` and one `expands` — plus `summary`
-(`{rows, changes, widenings}`), `question` and `reproduce_command`. A joined
-change whose two sides read alike is refused, so `check` and a provided diff
-publish rows alone. Every row value and the row count are unchanged, and
-`null` means not recorded. See
+New in 1.1.0, still contract v40: the same two versions publish what the text
+says about those rows, so a machine consumer and a reader cannot disagree
+(#795). A row adds `disposition` (`allow`, `ask`, `deny`, or `null` for
+another grant kind) on every route that publishes rows, and
+`host_comparison.review`, the same block `diff --json` carries, adds the
+changes the text prints — each with the `row_indexes` it stands for, a
+`direction` that may be `widened`, `narrowed` or `moved`, its cells, `why` and
+one `expands` — plus `summary` (`{rows, changes, widenings}`), `question` and
+`reproduce_command`. A joined change whose two sides read alike is refused, so
+`check` and a provided diff publish rows alone. Every row value and the row
+count are unchanged, and `null` means not recorded. See
 [the migration note](../STABILITY.md#host-diff-review-json-795).
 
 Previous runtime contract v39 reads through an in-tree link at a boundary path (#700).
@@ -159,7 +159,7 @@ Verify the installed CLI contract locally before relying on hard-coded docs:
 agents-shipgate contract --json
 ```
 
-### Unreleased declaration-review migration
+### 1.0.0 declaration-review migration
 
 Runtime contract v29 coordinates the public artifacts that carry changed
 action declarations: report v0.43 (now frozen at `1.0`), packet v0.18, and verifier v0.16.
@@ -667,7 +667,7 @@ Downstream repos generated with
 `.shipgate/agent-contract.json`.
 
 - Latest release: `v1.0.0`
-- In-tree runtime: `1.0.0` — see [pyproject.toml](../pyproject.toml)
+- In-tree runtime: `1.1.0` — see [pyproject.toml](../pyproject.toml)
 - Runtime contract: `40` (minimum control contract: `21`)
 - Current report schema: `1.0`, frozen, superseding `0.43` — [`docs/report-schema.v1.0.json`](report-schema.v1.0.json); the `1.x` rules are in [`docs/report-1-0-contract.md`](report-1-0-contract.md)
 - Current packet schema: `0.18` — [`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json)

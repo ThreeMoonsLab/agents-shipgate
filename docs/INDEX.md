@@ -216,6 +216,7 @@ repository [`README.md`](../README.md) is the landing page that routes to both.
 - [`release-runbook.md`](release-runbook.md) — cutting a tag: mandatory rehearsal, the two-job publication transaction, provenance bindings, and the recovery path when PyPI succeeds but finalization fails
 - [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) — the approved release evidence bar: the 38-case `pre_1_0` policy for `0.x` tags, the 80-case `beta` policy from 1.0 on, and the promotion path between them (decided 2026-08-29, #341; amended 2026-09-04, #520)
 - [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) § Amendment 2 — the unqualified preview channel: the admissibility finding, the five conditions it holds under, and what would have made it inadmissible (decided 2026-09-02, #491)
+- [`changelog/1.1.0.md`](changelog/1.1.0.md) — the full reviewed prose for every 1.1.0 change; `CHANGELOG.md` carries the one-line-per-change release note
 - [`changelog/1.0.0.md`](changelog/1.0.0.md) — the full reviewed prose for every 1.0.0 change made after the `0.16.0` section was cut; `CHANGELOG.md` carries the one-line-per-change release note
 - [`changelog/0.16.0.md`](changelog/0.16.0.md) — the full reviewed prose for every 0.16.0 change; `CHANGELOG.md` carries the one-line-per-change release note
 - [`decisions.md`](decisions.md) — architectural decisions

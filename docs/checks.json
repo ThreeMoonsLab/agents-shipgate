@@ -1357,7 +1357,7 @@
       "autofix_safe": false,
       "category": "codex_boundary",
       "default_severity": "medium",
-      "description": "Deprecated in the unreleased minor cycle; retained for historical reports and configuration. New runs emit no findings for this ID.",
+      "description": "Deprecated in 1.1.0; retained for historical reports and configuration. New runs emit no findings for this ID.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-codex-boundary-agents-shipgate-requirement-removed",
       "dynamic_default": false,
       "evidence_fields": [
@@ -1600,7 +1600,7 @@
       "autofix_safe": false,
       "category": "codex_boundary",
       "default_severity": "medium",
-      "description": "Deprecated in the unreleased minor cycle; retained for historical reports and configuration. New runs emit no findings for this ID.",
+      "description": "Deprecated in 1.1.0; retained for historical reports and configuration. New runs emit no findings for this ID.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-codex-boundary-skill-command-changed",
       "dynamic_default": false,
       "evidence_fields": [
@@ -2928,7 +2928,7 @@
       "autofix_safe": false,
       "category": "verify",
       "default_severity": "medium",
-      "description": "Deprecated in the unreleased minor cycle; retained for historical reports and configuration. New runs emit no findings for this ID.",
+      "description": "Deprecated in 1.1.0; retained for historical reports and configuration. New runs emit no findings for this ID.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-verify-agent-instructions-weakened",
       "dynamic_default": false,
       "evidence_fields": [

@@ -1,4 +1,4 @@
-# Stability Contract · 1.0.0
+# Stability Contract · 1.1.0
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
@@ -13,7 +13,7 @@ names different code, not new token scopes. Local `./` actions stay unread
 (`baseline_workflow_step_actions_unavailable`); one without a workflow stays
 comparable, and `minimum_control_contract_version` stays `21`. See
 [the migration note](#workflow-step-action-references-contract-v40-771).
-The same unreleased contract and `0.6` schemas also read the named secrets a
+The same contract and `0.6` schemas, new in 1.1.0, also read the named secrets a
 job passes to a reusable workflow (#693): a reusable call adds
 `secret_mappings[]` (the destination, the source name from
 `${{ secrets.NAME }}`, `form` and `unresolved_reason`) and `uses_redacted`.
@@ -22,7 +22,7 @@ Pointing a destination at a different source is a `changed` row with
 limit rather than a comparison, while a literal or another expression is a
 named non-blocking limit that leaves coverage complete. See
 [the migration note](#reusable-workflow-secret-mappings-contract-v40-693).
-The same unreleased contract and `0.6` schemas publish every workflow label
+The same contract and `0.6` schemas, new in 1.1.0, publish every workflow label
 redacted (#802): a job id, a step's `id` or `name`, a trigger and a
 permission scope name shaped like a credential (`ghp_…`, `AKIA…`) or holding
 userinfo after `scheme://` are redacted in every field, row and `check`
@@ -33,7 +33,7 @@ distinct job ids or triggers in a workflow, or scope names in one
 exist, `check`, `audit --host --save-baseline` and drift refuse on every run.
 See [the migration note](#workflow-label-redaction-contract-v40-802).
 
-Unreleased, still contract v40: a hook grant states its loading basis (#714).
+New in 1.1.0, still contract v40: a hook grant states its loading basis (#714).
 A Claude Code hook file nothing in the repository selects is published with
 `access: unknown` and earns no expansion signal. A hook a plugin manifest or
 marketplace entry selects is `execute`/`medium` and earns none either, unless
@@ -45,7 +45,7 @@ non-widening row. `check` decides as `1.0.0` did when a plugin reference cannot
 be read, and its host comparison refuses when only one side carries that limit.
 See [the migration note](#hook-loading-basis-714).
 
-Unreleased, still contract v40 and host-grants `0.6`: permission rule direction
+New in 1.1.0, still contract v40 and host-grants `0.6`: permission rule direction
 follows Claude Code's documented rule syntax (#816). A `Bash` rule's trailing
 `:*` is the trailing ` *` it spells, and a trailing ` *` covers the bare command,
 so `Bash(npm:*)` -> `Bash(npm test:*)` is no longer an expansion. A rule whose
@@ -58,7 +58,7 @@ member, schema or check id moves; `expansion_signals`, row `direction`,
 `expands`, `severity` and `why`, and `check` decisions change for these shapes.
 See [the migration note](#permission-rule-direction-816).
 
-Unreleased, still contract v40: every host comparison says what it established,
+New in 1.1.0, still contract v40: every host comparison says what it established,
 source by source (#812). Verifier `0.20` adds `host_comparison.coverage`, and
 `shipgate diff --json` moves to capability diff `0.3` with the same block: at
 most ten items of `{source, hosts, side, status, rows, limit, detail, scope}`
@@ -80,7 +80,7 @@ reason, route, digest or baseline moves. A `0.19` verifier reads with coverage
 not recorded; one that claims coverage is refused. See
 [the migration note](#host-comparison-coverage-812).
 
-Unreleased, still contract v40: the same two versions publish what the text
+New in 1.1.0, still contract v40: the same two versions publish what the text
 says about the rows, so the two cannot disagree (#795). A row adds
 `disposition`, the `allow`/`ask`/`deny` list a permission rule is declared
 under (`null` for every other kind), on every route that publishes rows, and
@@ -195,7 +195,7 @@ the Action tag) for reproducible CI.
 
 <a id="host-comparison-coverage-812"></a>
 
-## Migration Note: Unreleased — what each host comparison established (verifier `0.20`, capability diff `0.3`, contract v40, #812)
+## Migration Note: 1.1.0 — what each host comparison established (verifier `0.20`, capability diff `0.3`, contract v40, #812)
 
 A reviewer given zero rows could not tell a docs-only change from an `env` or
 `apiKeyHelper` edit this entry does not compare, or from a deleted settings file
@@ -239,7 +239,7 @@ verdict, command or input is added.
 
 **Text.** `diff`, `verify --format text` and the manifest-free PR comment print the block as `What this run established:`, and under it, always, one line stating what the list cannot be read as: `only sources this entry read or tried to read are listed, so this is not the whole change: a changed file it does not read is absent`. That line is not an item and is never dropped to make room for one; a bound that cannot hold it and a count prints no block at all. `diff` prints it after the rows and summary (before the review question), after the no-change line, or after the cannot-compare lines; `verify` and the PR comment print it after the entries or the no-change or unavailable line. Each item a reviewer must read is one line — `.claude/settings.json (claude-code): compared; changed, but no grant this entry compares changed, so no row (redacted values such as env values and apiKeyHelper are not compared)`, `.claude/settings.json (claude-code): compared; no grant this entry compares changed, but the file was not proven unchanged (redacted values such as env values and apiKeyHelper are not compared)`, `.claude-plugin/plugin.json (claude-code): compared; changed, but no row is attributed to this path`, `… read in base only; 2 rows`, `.mcp.json (claude-code): parse_failed in head, so the head inventory is incomplete` — and sources proven byte-identical share one line, `compared with no change in what this entry reads: <first three> and N more`. On one side only, a file that holds no compared grant reads `read in base only; declares no grant this entry compares, so no row (redacted values such as env values and apiKeyHelper are not compared)`. A file whose path the inventory reads as instructions, such as `AGENTS.md`, `CLAUDE.md`, a skill or a Cursor rule, holds no such value, so its line has no redacted-values note: a `CLAUDE.md` link to `AGENTS.md` reads `CLAUDE.md (claude-code): compared; no grant this entry compares changed, but the file was not proven unchanged` on a docs-only change. One side is `read in base only` or `read in head only`, except for a plugin manifest or marketplace, which is `published by base only` or `published by head only`. A new instruction file the engine reads as guidance publishes no grant: `AGENTS.md (claude-code, codex, cursor): read in head only; declares no grant this entry compares, so no row`. Items past the cap are `N more items not listed, each ranked below those above` (items, not sources: one source can be several items), so a capped block says in words that it is capped and that nothing more actionable is hidden behind the count; where nothing at all is listed it is `N items not listed`. The PR comment's human summary is bounded as a whole, so there the block gets only the room its other lines leave — the entries, the review question and reproduction, and the advisory, next action and evidence after it — and at most 2000 characters of it. It lists what fits, counts the rest the same way (`N items not listed` when it lists none), and is left out when not even the heading, the boundary and that count fit. So the block never pushes out a line the comment prints without it (review cycle 5). A row list long enough to fill the comment by itself still truncates it, as on `1.0.0`. A comparison that read no source prints `What this run established: no host configuration source was compared.`, with the same boundary line under it. The no-change, entries and cannot-compare headlines are unchanged.
 
-**What does not change.** `comparison_status`, `incomparable_reasons`, `rows`, `unchanged_limits`, the identity answer itself (which is not published), the inventory digests, saved host-grants baselines and drift payloads, `check`'s boundary result and text (which carry no coverage, so neither `check` nor a provided diff asks Git anything for it), the control envelope's `capability_rows`, and every control state, permission and next action — an incomparable manifest-free `verify` still routes to `audit --host`. `minimum_control_contract_version` stays `21`, and runtime contract v40, unreleased, is extended in place.
+**What does not change.** `comparison_status`, `incomparable_reasons`, `rows`, `unchanged_limits`, the identity answer itself (which is not published), the inventory digests, saved host-grants baselines and drift payloads, `check`'s boundary result and text (which carry no coverage, so neither `check` nor a provided diff asks Git anything for it), the control envelope's `capability_rows`, and every control state, permission and next action — an incomparable manifest-free `verify` still routes to `audit --host`. `minimum_control_contract_version` stays `21`, and runtime contract v40, unpublished before 1.1.0, is extended in place.
 
 **What it does not claim.** The list names only sources an inventory already observed. A file this entry does not recognize, such as a plugin's `mcp.json` or an unselected hook file, is not an item, so its absence says nothing about it; naming relevant unread candidates is #821. That was true of slice 1 and is now stated where it is read, in the block's own first line and in `read_sources_only`, because a true list under the heading `What this run established` still reads as the account of the change: on one corpus pull request the block listed seventeen items, named neither of the two files the change added — a hooks wiring file and a pin script — and showed three bare hook removals, inviting the conclusion that the hooks were deleted rather than moved.
 
@@ -256,7 +256,7 @@ Both were already `unresolved` with `sha256: null`, and both still are, so the `
 
 <a id="host-diff-review-json-795"></a>
 
-## Migration Note: Unreleased — the row semantics the text shows, published (verifier `0.20`, capability diff `0.3`, contract v40, #795)
+## Migration Note: 1.1.0 — the row semantics the text shows, published (verifier `0.20`, capability diff `0.3`, contract v40, #795)
 
 Once the text named a permission rule's disposition and printed an engine-linked replacement or move as one change, the two surfaces described one run differently. On a twenty-row change carrying one `deny` → `allow` move and one narrowed rule, `diff` printed `18 change(s) from 20 rows, 1 widening what the agent may do (⚠).`, while `diff --json` published twenty rows whose `direction` was only `added` (18) and `removed` (2), with no disposition, no `moved` or `narrowed`, and `expands: true` on two of them. Neither answer was wrong about a grant — each row is one grant that left or arrived — but [`CLAUDE.md`](CLAUDE.md) tells an agent to parse `--json` and calls that shape the contract, so a script read two widenings from the run whose text said one, and no script could reproduce the sentence a human was reading.
 
@@ -286,14 +286,14 @@ The presentation is now published beside the rows, additively. **Every row keeps
   - **`summary`** is `{rows, changes, widenings}` — exactly the three numbers `diff`'s summary line prints, with `rows` the published row count.
   - **`question`** is the review question verbatim, `null` where the text asks none (no change). **`reproduce_command`** is the copyable `agents-shipgate diff --base <sha>`, `null` where the text offers none — a provided diff or a `check` comparison, which names no base commit. For a commit head it is run after checking out `head_commit`, which the comparison already publishes. It is published on a result with no change too, because the text prints it there ([#812 follow-up](#host-comparison-coverage-812)); an incomparable comparison publishes no `review` at all, and its text builds the same line from the commits the comparison already names.
 - **What the block cannot say.** The contract refuses a block that disagrees with its rows: the changes must stand for every published row exactly once, `summary` must count them, and **a joined change whose two sides read alike is refused**. So a route that redacts a rule's arguments cannot publish `allow: Bash(<redacted-arguments>) → allow: Bash(<redacted-arguments>)`; `check` and a provided diff publish their rows alone, as their text prints them, one entry per row.
-- **Where.** Top-level `review` in `shipgate diff --json` (capability diff `0.3`) and `host_comparison.review` in `verifier.json` (verifier schema `0.20`, [`docs/verifier-schema.v0.20.json`](docs/verifier-schema.v0.20.json)). The two are the same object for the same comparison. Neither version is published yet — `1.0.0` shipped `0.2` and `0.19` — so both are extended in place rather than bumped again, alongside #812's `coverage`. `check`'s boundary result (`shipgate.agent_boundary_result/v3`) gains the row member only; the control envelope's `capability_rows` is untouched.
+- **Where.** Top-level `review` in `shipgate diff --json` (capability diff `0.3`) and `host_comparison.review` in `verifier.json` (verifier schema `0.20`, [`docs/verifier-schema.v0.20.json`](docs/verifier-schema.v0.20.json)). The two are the same object for the same comparison. Neither version had shipped before 1.1.0, which publishes both — `1.0.0` shipped `0.2` and `0.19` — so both are extended in place rather than bumped again, alongside #812's `coverage`. `check`'s boundary result (`shipgate.agent_boundary_result/v3`) gains the row member only; the control envelope's `capability_rows` is untouched.
 - **Text.** Unchanged, line for line, for every run this build produces. The renderer now reads the published block where a comparison carries one, so a `HostComparison` validated back from `verifier.json` prints the entries that artifact published instead of its bare rows; a comparison with no block, such as the one `check` builds from its own rows, still renders through `review_changes`, and so does a copy whose rows a caller sliced.
-- **What does not change.** `comparison_status`, `incomparable_reasons`, `rows` and every row value, `unchanged_limits`, `coverage`, the inventory digests, saved host-grants baselines and drift payloads, `check`'s decision, the control envelope's `capability_rows`, and every control state, permission and next action. `minimum_control_contract_version` stays `21`, and runtime contract v40, unreleased, is extended in place.
+- **What does not change.** `comparison_status`, `incomparable_reasons`, `rows` and every row value, `unchanged_limits`, `coverage`, the inventory digests, saved host-grants baselines and drift payloads, `check`'s decision, the control envelope's `capability_rows`, and every control state, permission and next action. `minimum_control_contract_version` stays `21`, and runtime contract v40, unpublished before 1.1.0, is extended in place.
 - **Compatibility.** `host_comparison` is a closed object, so a reader validating against the published [`docs/verifier-schema.v0.19.json`](docs/verifier-schema.v0.19.json) rejects a `0.20` artifact for `review` as it already does for `coverage`; that schema stays frozen. A row is *not* closed in any published schema, so the same `0.19` reader, and a `1.0.0` reader of `docs/agent-boundary-result-schema.v3.json`, still validate a row carrying `disposition`. The current reader reads a `0.19` (or `0.18`) artifact with `review: null` and no disposition, which is what that build knew, and refuses one that claims either. A `diff --json` consumer sees `capability_diff_schema_version: "0.3"` and one more new top-level key.
 
 <a id="host-diff-review-text-795"></a>
 
-## Migration Note: Unreleased — concrete permission and MCP changes, and a review question, in host-diff text (#795)
+## Migration Note: 1.1.0 — concrete permission and MCP changes, and a review question, in host-diff text (#795)
 
 This is slice 1, the text. No schema, contract, member, row, row value, row count, check id, exit code or `minimum_control_contract_version` moved with it: `diff --json`, `verifier.json`'s `host_comparison`, `check`'s `rows` and the control envelope's `capability_rows` published exactly what they published before, and the host-config and cold-start benchmark replays were unchanged. What changed is the human text of `diff`, `verify --format text`, the manifest-free PR comment (`pr-comment.md`) and `check --format text`, which now read the rows through one function, `review_changes` in `core/capability_diff_rows.py`. Slice 2 publishes the same facts, so a machine consumer reads them too; the row values and the row count stay untouched there as well. See [the JSON migration note](#host-diff-review-json-795).
 
@@ -308,7 +308,7 @@ This is slice 1, the text. No schema, contract, member, row, row value, row coun
 
 <a id="relative-out-current-directory-818"></a>
 
-## Migration Note: Unreleased — a relative `--out` resolves against the current directory, and printed artifact paths open from the caller (#818)
+## Migration Note: 1.1.0 — a relative `--out` resolves against the current directory, and printed artifact paths open from the caller (#818)
 
 No schema, contract, refusal code or `minimum_control_contract_version` moves, and no error kind, exit code or JSON field is added. What changes is where `verify` and `scan` write for a relative `--out` typed outside the directory they used to join it to, how `verify --format json` and `scan` spell the artifact paths they print, the `--out` in the commands `verify` emits, and how `audit --host` answers an `--out` that names a directory.
 
@@ -337,9 +337,9 @@ No schema, contract, refusal code or `minimum_control_contract_version` moves, a
 
 <a id="permission-rule-direction-816"></a>
 
-## Migration Note: Unreleased — permission rule direction: `:*` rules, moved rules and one MCP tool (#816)
+## Migration Note: 1.1.0 — permission rule direction: `:*` rules, moved rules and one MCP tool (#816)
 
-This extends host-grants `0.6` and runtime contract `40` in place, as #693 and #714 did: neither has shipped in a tagged release, and published `1.0.0` emits host-grants `0.5` and contract `39`. No schema, member, check id, evidence kind or `minimum_control_contract_version` moves. What changes is the value of existing fields for three rule shapes: drift `expansion_signals`; row `direction`, `expands`, `severity` and `why` in `diff`, `verify`'s `host_comparison`, `check` rows and the control envelope's `capability_rows`; a one-tool MCP allow grant's `wildcard`, `access` and `risk`, and so what counts wildcard grants (the `audit --host` Markdown wildcard warning and `org`'s `wildcard_permission_rule_count`); and `check` decisions, with the `host_settings_narrowed` diagnostic and the `SHIP-VERIFY-TRUST-ROOT-TOUCHED` excuse #661 ties to it. Most rows in the table below remove a warning or a blocking decision, but not all: two `Bash(npm run test:unit)` rows and the `Bash(git log *)` moved-in row add a warning or review, and two rows lose a `permission_widened` name. Each reading follows Claude Code's permissions documentation (https://code.claude.com/docs/en/permissions, "Wildcard patterns" and "MCP").
+This extends host-grants `0.6` and runtime contract `40` in place, as #693 and #714 did: neither had shipped in a tagged release before 1.1.0, and published `1.0.0` emits host-grants `0.5` and contract `39`. No schema, member, check id, evidence kind or `minimum_control_contract_version` moves. What changes is the value of existing fields for three rule shapes: drift `expansion_signals`; row `direction`, `expands`, `severity` and `why` in `diff`, `verify`'s `host_comparison`, `check` rows and the control envelope's `capability_rows`; a one-tool MCP allow grant's `wildcard`, `access` and `risk`, and so what counts wildcard grants (the `audit --host` Markdown wildcard warning and `org`'s `wildcard_permission_rule_count`); and `check` decisions, with the `host_settings_narrowed` diagnostic and the `SHIP-VERIFY-TRUST-ROOT-TOUCHED` excuse #661 ties to it. Most rows in the table below remove a warning or a blocking decision, but not all: two `Bash(npm run test:unit)` rows and the `Bash(git log *)` moved-in row add a warning or review, and two rows lose a `permission_widened` name. Each reading follows Claude Code's permissions documentation (https://code.claude.com/docs/en/permissions, "Wildcard patterns" and "MCP").
 
 | Edit | `expansion_signals` before → after | ⚠ rows before → after | `check` before → after |
 | --- | --- | --- | --- |
@@ -369,7 +369,7 @@ This extends host-grants `0.6` and runtime contract `40` in place, as #693 and #
 
 <a id="partial-clone-diff-objects-missing-817"></a>
 
-## Migration Note: Unreleased — `diff` refuses a partial clone missing its base objects (#817)
+## Migration Note: 1.1.0 — `diff` refuses a partial clone missing its base objects (#817)
 
 No schema, contract or `minimum_control_contract_version` moves, no new exit code is added, and no JSON field is added. This adds one agent-mode error kind, `objects_missing`, and corrects the hydration example `verify` prints for its `objects_missing` diff status.
 
@@ -384,7 +384,7 @@ No schema, contract or `minimum_control_contract_version` moves, no new exit cod
 
 <a id="workspace-read-cause-813"></a>
 
-## Migration Note: Unreleased — a workspace that cannot be read is named, and refuses every Git-bound pointer (#813)
+## Migration Note: 1.1.0 — a workspace that cannot be read is named, and refuses every Git-bound pointer (#813)
 
 No schema, contract, error kind, refusal code or `minimum_control_contract_version` moves, and no JSON field is added. What changes is the text of some refusals, the `next_actions` `agent control` prints for them, and which pointers read as current when the workspace cannot be observed.
 
@@ -409,7 +409,7 @@ No schema, contract, error kind, refusal code or `minimum_control_contract_versi
 
 <a id="output-directory-repository-content-804"></a>
 
-## Migration Note: Unreleased — an output directory that holds repository content is refused (#804)
+## Migration Note: 1.1.0 — an output directory that holds repository content is refused (#804)
 
 No schema, contract, error kind, refusal code, exit code or `minimum_control_contract_version` moves. What changes is which `verify --out` values are accepted, and which pointers read as current.
 
@@ -451,9 +451,9 @@ The way out depends on the directory, and the message, the next action and `agen
 
 <a id="workflow-label-redaction-contract-v40-802"></a>
 
-## Migration Note: 1.0.x — redacted workflow job, step, trigger and scope labels (contract v40, #802)
+## Migration Note: 1.1.0 — redacted workflow job, step, trigger and scope labels (contract v40, #802)
 
-This extends host-grants `0.6` and runtime contract `40` in place, as #693 did: neither has shipped in a tagged release. No member is added or removed. Only values change: a label that holds credential-shaped text, the entries of scope names that collide (below), and `check`'s `evidence.old` when the earlier level is not one GitHub accepts. Published `1.0.0` already printed a job id verbatim in `permission_contexts[].job`, `reusable_calls[].job`, the `write_scopes` and `effective_write_scopes` prefixes and the row text, a trigger in `triggers`, a permission scope name in `permission_contexts[].permissions` and the write-scope entries, and a job id and scope name in `check`'s `evidence.job` and `evidence.scope`; #771 and #693 added `step_actions[].job` and `.step` and the `job/step` and `job/destination` labels in `why`. A job id GitHub accepts may be shaped like a token (`ghp_` followed by 36 characters), and a step name may carry registry credentials (`Pull docker://ci:<password>@gcr.io/proj/img`), so each of those surfaces republished them.
+This extends host-grants `0.6` and runtime contract `40` in place, as #693 did: neither had shipped in a tagged release before 1.1.0. No member is added or removed. Only values change: a label that holds credential-shaped text, the entries of scope names that collide (below), and `check`'s `evidence.old` when the earlier level is not one GitHub accepts. Published `1.0.0` already printed a job id verbatim in `permission_contexts[].job`, `reusable_calls[].job`, the `write_scopes` and `effective_write_scopes` prefixes and the row text, a trigger in `triggers`, a permission scope name in `permission_contexts[].permissions` and the write-scope entries, and a job id and scope name in `check`'s `evidence.job` and `evidence.scope`; #771 and #693 added `step_actions[].job` and `.step` and the `job/step` and `job/destination` labels in `why`. A job id GitHub accepts may be shaped like a token (`ghp_` followed by 36 characters), and a step name may carry registry credentials (`Pull docker://ci:<password>@gcr.io/proj/img`), so each of those surfaces republished them.
 
 - **What is redacted.** Every workflow label — a job id, a step's `id` or `name`, an `on:` trigger and a permission scope name — is published by one rule: the report redactor (known token shapes such as `ghp_…`, `AKIA…`, `xoxb-…`), then the host sanitizer (credential assignments such as `token=…`, and URLs), then the userinfo of every `scheme://…@` token inside the label, whatever it holds, which becomes `scheme://<redacted>@`. As for a step reference, the userinfo is everything before the token's last `@` once a trailing `@algorithm:hex` digest is set aside, so a password holding `/`, `:` or `@` is covered. `Pull docker://ci:<password>@gcr.io/proj/img` publishes as `Pull docker://<redacted>@gcr.io/proj/img`, and a job id `ghp_…` as `[REDACTED:github_token]`.
 - **Where.** The label is computed once, where the workflow grant is built, and used in every field that names the job, trigger or scope: `permission_contexts[].job` and its `permissions` keys, `reusable_calls[].job`, `step_actions[].job` and `.step`, `triggers`, and the `write_scopes` and `effective_write_scopes` entries. The inventory, saved baselines, drift, `diff`, `check` rows, manifest-free `verify`, `verifier.json`, the PR comment and the control envelope read those fields, so they print the same label. `check`'s own workflow evidence (`evidence.job` and `evidence.scope` on `SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL` and `-PERMISSIONS-EXPANDED`) uses the same rule; it is not read from the grant but derived from the raw declarations, which it still compares, and two violations whose redacted evidence is identical dedupe into one, with the same rule, path and decision. `evidence.old` on `-PERMISSIONS-EXPANDED` publishes only `read`, `write` or `none`; an earlier level holding any other text, which GitHub rejects, is `null`, as a non-string level already was. The decision is unchanged.
@@ -480,9 +480,9 @@ This extends host-grants `0.6` and runtime contract `40` in place, as #693 did: 
 
 <a id="reusable-workflow-secret-mappings-contract-v40-693"></a>
 
-## Migration Note: 1.0.x — named reusable-workflow secret mappings (contract v40, #693)
+## Migration Note: 1.1.0 — named reusable-workflow secret mappings (contract v40, #693)
 
-This extends host-grants `0.6` and runtime contract `40` in place rather than minting `0.7`/`41`. Neither has shipped in a tagged release: published `1.0.0` emits contract `39` and host-grants `0.5`, and the `0.5` schemas stay untouched. A reusable call gains two members, each present only when set, so a call with no named mapping and an ordinary target keeps the shape #771 gave it:
+This extends host-grants `0.6` and runtime contract `40` in place rather than minting `0.7`/`41`. Neither had shipped in a tagged release before 1.1.0: published `1.0.0` emits contract `39` and host-grants `0.5`, and the `0.5` schemas stay untouched. A reusable call gains two members, each present only when set, so a call with no named mapping and an ordinary target keeps the shape #771 gave it:
 
 ```json
 {
@@ -511,7 +511,7 @@ This extends host-grants `0.6` and runtime contract `40` in place rather than mi
 
 <a id="workflow-step-action-references-contract-v40-771"></a>
 
-## Migration Note: 1.0.x — workflow step action references (contract v40, #771)
+## Migration Note: 1.1.0 — workflow step action references (contract v40, #771)
 
 Host-grants inventory, baseline and drift schemas `0.6` add one member to a workflow grant, present only when a step declares a listed reference. In a `0.6` grant its absence means the steps were read and declare none:
 
@@ -549,7 +549,7 @@ Host-grants inventory, baseline and drift schemas `0.6` add one member to a work
 
 <a id="hook-loading-basis-714"></a>
 
-## Migration Note: Unreleased — hook loading basis (#714)
+## Migration Note: 1.1.0 — hook loading basis (#714)
 
 No schema, contract or `minimum_control_contract_version` moves. What changes is the value of existing fields on `hook` grants, and which of them earn an expansion signal. A parsed hook file proves the file exists, not that a host loads it.
 
@@ -3684,7 +3684,7 @@ config error, exit 2). They are ordinary `Finding`s routed through
   workflow path is in the changed files and no longer exists on disk (the PR
   deleted the gate).
 - `SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` (medium, floor medium) —
-  **deprecated in the unreleased minor cycle (#516)**. New scans emit no
+  **deprecated in 1.1.0 (#516)**. New scans emit no
   findings for this ID. It remains registered with the same metadata for
   historical reports, configured overrides and suppressions, for at least one
   minor-version cycle after the deprecation ships. It is not repurposed as a

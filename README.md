@@ -106,7 +106,7 @@ beside the refusal. The
 answer, the `--base <ref>` recovery when no base can be detected, and the
 [surfaces `diff` does not read](docs/host-boundary-support.md#known-unread-surfaces).
 **Not yet released:** the output above is from this repository's source tree,
-which still reports version `1.0.0`, run in a clone. The published `1.0.0` from
+which still reports version `1.1.0`, run in a clone. The published `1.0.0` from
 PyPI names the same changes as four rows, without the dispositions, the joined
 replacement, the MCP launch details, the `What this run established` block, the
 review question and the reference lines.

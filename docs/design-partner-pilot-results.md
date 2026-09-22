@@ -64,7 +64,7 @@ allow list from `Bash(npm test)` / `Read(src/**)` to `Bash(*)` / `Read(**)` /
 capability-change class this pilot exists to observe.
 
 **Published build measured: `1.0.0`.** Preview measured:
-`0.16.0+preview.20260903.gb61aca7`. Source tree: `1.0.0`, runtime contract 40.
+`0.16.0+preview.20260903.gb61aca7`. Source tree: `1.1.0`, runtime contract 40.
 The released and source-tree columns were both rerun on 2026-09-14, after
 `v1.0.0` was published: the released column from `pip install
 agents-shipgate==1.0.0` in a clean virtualenv outside any checkout, the
@@ -84,6 +84,15 @@ same six rows, four of them widening — byte-identical `--json` apart from the
 workspace path. #771 reads workflow step action references, and this fixture
 has no workflow. That the published build and this tree answer alike on this change class is a
 measurement, not an assumption carried over from the source column.
+
+The source-tree label moved to `1.1.0` when that release was prepared. Its
+cells still carry the 2026-09-14 measurement, and the tree has not been
+re-measured since: the runtime contract (40) and host-grant inventory schema
+(0.6) those cells name are this tree's, and the 1.1.0 cycle changes what a run
+says about itself rather than which sources it reads, but that is a reading of
+the change set, not a re-run. Re-running this dry run against the published
+`v1.1.0` and re-dating the section is step 8 of
+[`release-runbook.md`](release-runbook.md).
 
 The previous release, `v0.15.0`, measured on 2026-09-05, did not. It reported
 runtime contract 10 and inventory schema 0.1; `check` returned `warn` / `none`
