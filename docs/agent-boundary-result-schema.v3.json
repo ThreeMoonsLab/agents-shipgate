@@ -641,6 +641,18 @@
           "title": "Direction",
           "type": "string"
         },
+        "disposition": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Disposition"
+        },
         "expands": {
           "default": false,
           "title": "Expands",

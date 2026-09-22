@@ -133,7 +133,9 @@ and `.mcp.json` configures one server, `docs`. The PR branch allows
 permission rule is named with its disposition (`allow`, `deny` or `ask`); an
 allow rule the engine decided another replaced is one entry with its before and
 after, `widened` or `narrowed`, as is the same rule moved from one disposition
-to another (`moved`); `--json` keeps those as their removal and addition rows. An MCP
+to another (`moved`); `--json` keeps those as their removal and addition rows,
+and publishes the joined change, its direction, the counters printed below and
+this question in `review`, so a script reads what you read. An MCP
 server is named with the command name or redacted URL and the env and header
 key names its declaration publishes; the command's path and arguments are not
 shown, so an edit confined to them says so. A URL is printed only as its scheme

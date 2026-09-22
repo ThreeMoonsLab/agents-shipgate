@@ -10,35 +10,51 @@ from agents_shipgate.core.boundary_registry import (
     is_claude_plugin_manifest_path,
     is_claude_plugin_marketplace_path,
 )
-from agents_shipgate.core.capability_diff_rows import ReviewChange, review_changes
+from agents_shipgate.core.capability_diff_rows import (
+    ReviewChange,
+    review_changes,
+    review_question,
+)
+from agents_shipgate.core.host_comparison import reproduce_command
 from agents_shipgate.core.host_grants import _source_kind
 from agents_shipgate.schemas.host_comparison import HostComparison, HostComparisonCoverageItem
 
-#: The tokens a reviewer copies to read the same comparison again (#795). The
-#: canonical console script, not this process's spelling: the command is for
-#: whoever reads the output, on their machine.
-REPRODUCE_PROGRAM = "agents-shipgate"
 
+def presented_changes(comparison: HostComparison) -> list[ReviewChange]:
+    """The changes this comparison presents, as it published them (#795).
 
-def review_question(changes: list[ReviewChange]) -> str:
-    """One bounded question for a reviewer, asked only about changes that exist (#795).
+    A comparison that carries a ``review`` block is read from it, so the text
+    and every JSON reader of the same artifact say the same thing — including a
+    comparison read back from `verifier.json`, whose rows no longer hold the
+    in-memory view they were built with. A comparison without one, such as the
+    object `check` builds from its own rows, is read through
+    :func:`review_changes`, the function that produced the block.
 
-    Where an entry joins rows, the question names the row count too: the
-    control headline beside it in `verify` and the PR comment counts rows
-    (`8 repository-declared host capability change(s)`), and `diff`'s summary
-    already says `from 8 rows`.
+    A block is used only while it still stands for exactly these rows. Model
+    validation requires that, but a caller may copy a comparison with fewer
+    rows without revalidating, and a block describing rows that are no longer
+    published would print changes this comparison does not carry. Such a copy
+    is read through :func:`review_changes`, as it was before the block existed.
     """
 
-    # `capability`, not `permission`: an entry may be an MCP server, a hook, a
-    # workflow grant or instructions as well as a permission rule.
-    rows = sum(change.rows for change in changes)
-    bridge = f" (from {rows} rows)" if rows != len(changes) else ""
-    if len(changes) == 1:
-        return f"Review question: Does the team intend this declared capability change{bridge}?"
-    return (
-        f"Review question: Does the team intend these {len(changes)} declared capability "
-        f"changes{bridge}?"
-    )
+    if comparison.review is None or sorted(
+        index for change in comparison.review.changes for index in change.row_indexes
+    ) != list(range(len(comparison.rows))):
+        return review_changes(comparison.rows)
+    return [
+        ReviewChange(
+            severity=change.severity,
+            direction=change.direction,
+            subject=change.subject,
+            before=change.before,
+            after=change.after,
+            change=change.change,
+            why=change.why,
+            expands=change.expands,
+            row_indexes=tuple(change.row_indexes),
+        )
+        for change in comparison.review.changes
+    ]
 
 
 def comparison_reference_lines(
@@ -50,16 +66,20 @@ def comparison_reference_lines(
     working tree. A provided diff and `check`'s text name no base commit, so
     they print no reference rather than one they cannot stand behind. A commit
     head is checked out first: `diff` reads the working tree.
+
+    The command is the one :func:`reproduce_command` builds, the same call the
+    published ``review`` block records, so the printed and the published
+    command cannot differ.
     """
 
     from agents_shipgate import __version__
 
     base, head = comparison.base_commit, comparison.head_commit
-    if not base or comparison.head_kind not in {"commit", "worktree"}:
+    command = reproduce_command(
+        base_commit=base, head_kind=comparison.head_kind, head_commit=head
+    )
+    if command is None:
         return []
-    if comparison.head_kind == "commit" and not head:
-        return []
-    command = f"{REPRODUCE_PROGRAM} diff --base {base}"
     if markdown:
         command = f"`{command}`"
     if comparison.head_kind == "commit":
@@ -319,7 +339,7 @@ def host_comparison_lines(
             *coverage,
         ]
     lines = ["Repository-declared host capability changes:"]
-    changes = review_changes(comparison.rows)
+    changes = presented_changes(comparison)
     if not changes:
         lines.append(
             "No static host-grant changes detected in the covered comparison. No verdict is implied."

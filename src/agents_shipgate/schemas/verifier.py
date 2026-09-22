@@ -800,6 +800,17 @@ class VerifierArtifact(BaseModel):
                 raise ValueError("Legacy verifier cannot claim unchanged comparison limits")
             if isinstance(comparison, dict) and "coverage" in comparison:
                 raise ValueError("Legacy verifier cannot claim host comparison coverage")
+            if isinstance(comparison, dict) and (
+                "review" in comparison
+                or any(
+                    isinstance(row, dict) and "disposition" in row
+                    for row in comparison.get("rows") or []
+                )
+            ):
+                # Neither build presented its rows: it published no `review`
+                # block and no rule's disposition, so a payload that claims one
+                # under a `0.18`/`0.19` version is not that build's output (#795).
+                raise ValueError("Legacy verifier cannot claim how its rows were presented")
             # v0.18 compared only complete inventories, so it named no limit: an
             # empty list is exactly what that build knew (#721). Neither
             # recorded what a comparison established per source, so coverage

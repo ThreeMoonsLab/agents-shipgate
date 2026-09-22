@@ -11,6 +11,11 @@ three cannot describe one change three ways. The text projections read them
 through :func:`review_changes`, which adds what the published row leaves to
 the reader: a permission rule's disposition, an MCP server's published launch
 facts, and one change for a replacement or move the engine established (#795).
+
+Those presentation facts are published too, so a machine consumer reads what a
+human reads: the rule's disposition on the row itself, and the joined changes,
+their direction, the counters and the review question in the comparison's
+``review`` block, built here and never re-derived by a renderer (#795 slice 2).
 """
 
 from __future__ import annotations
@@ -448,7 +453,8 @@ class ReviewChange:
     engine itself established the link: the allow rule the permission lattice
     decided another replaced (`widened` or `narrowed`), or the exact same rule
     text that left one disposition and arrived in another (`moved`). Nothing is
-    paired by likeness, and ``rows`` says how many published rows it stands for.
+    paired by likeness, and ``row_indexes`` names the rows it stands for, by
+    position in the sequence it was read from.
     """
 
     severity: str
@@ -461,7 +467,16 @@ class ReviewChange:
     change: str | None
     why: str
     expands: bool
-    rows: int = 1
+    #: Where its rows stand in the sequence passed to :func:`review_changes`.
+    #: The changes of one sequence partition it: every row belongs to exactly
+    #: one change, which is what lets a summary count rows and changes apart.
+    row_indexes: tuple[int, ...]
+
+    @property
+    def rows(self) -> int:
+        """How many published rows this change stands for."""
+
+        return len(self.row_indexes)
 
 
 def review_changes(rows: Sequence[CapabilityDiffRow]) -> list[ReviewChange]:
@@ -499,7 +514,7 @@ def review_changes(rows: Sequence[CapabilityDiffRow]) -> list[ReviewChange]:
                     change=None,
                     why=link.why,
                     expands=row.expands or other.expands,
-                    rows=2,
+                    row_indexes=tuple(group),
                 )
             )
             continue
@@ -513,9 +528,35 @@ def review_changes(rows: Sequence[CapabilityDiffRow]) -> list[ReviewChange]:
                 change=view.change if view is not None else None,
                 why=row.why,
                 expands=row.expands,
+                row_indexes=(index,),
             )
         )
     return changes
+
+
+def review_question(changes: Sequence[ReviewChange]) -> str:
+    """One bounded question for a reviewer, asked only about changes that exist (#795).
+
+    Where a change joins rows, the question names the row count too: the
+    control headline beside it in `verify` and the PR comment counts rows
+    (`8 repository-declared host capability change(s)`), and `diff`'s summary
+    already says `from 8 rows`.
+
+    It lives beside :func:`review_changes` because it is one of the facts the
+    published comparison now carries: the text and `--json` must not be able to
+    ask and record two different questions about the same rows.
+    """
+
+    # `capability`, not `permission`: a change may be an MCP server, a hook, a
+    # workflow grant or instructions as well as a permission rule.
+    rows = sum(change.rows for change in changes)
+    bridge = f" (from {rows} rows)" if rows != len(changes) else ""
+    if len(changes) == 1:
+        return f"Review question: Does the team intend this declared capability change{bridge}?"
+    return (
+        f"Review question: Does the team intend these {len(changes)} declared capability "
+        f"changes{bridge}?"
+    )
 
 
 #: How many names one field difference lists before counting the rest.
@@ -786,6 +827,15 @@ def capability_diff_rows(
             ),
             severity=str(grant.get("risk") or "unknown"),
             expands=expands,
+            # A permission grant's identity is its disposition and its rule, so
+            # a row with both sides has one disposition; every other kind has
+            # none. Published, unlike the cells below, because it is a fact of
+            # the grant and not a rendering of it (#795 follow-up).
+            disposition=(
+                str(grant["disposition"])
+                if grant.get("kind") == "permission_rule" and grant.get("disposition")
+                else None
+            ),
         )
         kind = grant.get("kind")
         if kind == "permission_rule":
@@ -827,4 +877,11 @@ def capability_diff_rows(
 _SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
 
-__all__ = ["CapabilityDiffRow", "ReviewChange", "capability_diff_rows", "review_changes", "ABSENT"]
+__all__ = [
+    "ABSENT",
+    "CapabilityDiffRow",
+    "ReviewChange",
+    "capability_diff_rows",
+    "review_changes",
+    "review_question",
+]

@@ -146,6 +146,104 @@ class HostComparisonCoverage(BaseModel):
     omitted_items: int = Field(default=0, ge=0)
 
 
+class HostComparisonReviewChange(BaseModel):
+    """One change exactly as the text prints it, referring to the rows it stands for (#795).
+
+    Presentation, not a second opinion: every value is the one the shared
+    renderer prints, and ``row_indexes`` names the published rows it was read
+    from — usually one, and two only where the engine itself linked them (an
+    allow rule the permission lattice decided another replaced, or the same
+    rule text that moved between dispositions). A joined change's two sides can
+    never read alike, so a route that redacts a rule's arguments publishes no
+    pair; it publishes those rows as their own changes, as its text prints them.
+
+    ``direction`` is the word the text uses, which for a joined change is
+    ``widened``, ``narrowed`` or ``moved`` — the classification the rows
+    themselves cannot carry, because each row is only an addition or a removal.
+    ``change`` is the field-level difference printed in place of
+    ``before → after`` when both sides name the same grant, and ``None``
+    otherwise.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Positions in this comparison's ``rows``, ascending, as it publishes
+    #: them. Which of a pair's two rows the ``before`` came from is read off
+    #: the rows themselves: one is the removal, the other the addition.
+    row_indexes: list[int] = Field(min_length=1, max_length=2)
+    severity: str
+    direction: str
+    subject: str
+    before: str
+    after: str
+    change: str | None = None
+    why: str
+    #: The engine called at least one of the rows behind this change an
+    #: expansion. The count a reader sees is this one, per change, not the
+    #: per-row ``expands``: a joined pair is one widening printed once.
+    expands: bool = False
+
+    @model_validator(mode="after")
+    def change_shape(self):
+        if len(set(self.row_indexes)) != len(self.row_indexes):
+            raise ValueError("a change names each row it stands for once")
+        if any(index < 0 for index in self.row_indexes):
+            raise ValueError("a change refers to published rows by position")
+        if len(self.row_indexes) == 2 and self.before == self.after:
+            raise ValueError("a joined change whose two sides read alike is not published")
+        return self
+
+
+class HostComparisonReviewSummary(BaseModel):
+    """The three numbers the text prints, so a reader never recounts them (#795)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rows: int = Field(default=0, ge=0)
+    changes: int = Field(default=0, ge=0)
+    #: Changes the engine called an expansion — `diff`'s "N widening" count.
+    widenings: int = Field(default=0, ge=0)
+
+
+class HostComparisonReview(BaseModel):
+    """What the text says about these rows, published as data (#795).
+
+    ``None`` on :class:`HostComparison` means it was not recorded: a verifier
+    from before schema ``0.20``, an incomparable comparison, which presents no
+    change and asks no question, or a caller that publishes none (`check`,
+    whose boundary result carries rows alone).
+
+    It adds no row and decides nothing. The rows stay exactly what they were;
+    this says how they are presented, which until now only the text knew, so a
+    machine consumer could read `1 widening` from a run whose rows carry two
+    ``expands`` flags.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    changes: list[HostComparisonReviewChange] = Field(default_factory=list)
+    summary: HostComparisonReviewSummary = Field(default_factory=HostComparisonReviewSummary)
+    #: The review question the text ends with, verbatim, or ``None`` where it
+    #: asks none (no change).
+    question: str | None = None
+    #: The command the text offers for reading the same comparison again, or
+    #: ``None`` where it offers none. For a commit head it is run after
+    #: checking out ``head_commit``.
+    reproduce_command: str | None = None
+
+    @model_validator(mode="after")
+    def review_counts(self):
+        if self.summary.changes != len(self.changes):
+            raise ValueError("the summary counts the changes it publishes")
+        if self.summary.widenings != sum(1 for change in self.changes if change.expands):
+            raise ValueError("the summary counts the changes the engine called expansions")
+        if self.summary.rows != sum(len(change.row_indexes) for change in self.changes):
+            raise ValueError("every published row belongs to exactly one change")
+        if self.question is None and self.changes:
+            raise ValueError("a presented change is asked about")
+        return self
+
+
 class HostComparison(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -161,6 +259,7 @@ class HostComparison(BaseModel):
     rows: list[CapabilityDiffRow] = Field(default_factory=list)
     unchanged_limits: list[HostComparisonLimit] = Field(default_factory=list)
     coverage: HostComparisonCoverage | None = None
+    review: HostComparisonReview | None = None
     static_analysis_only: Literal[True] = True
 
     @model_validator(mode="after")
@@ -184,4 +283,10 @@ class HostComparison(BaseModel):
                 not self.coverage.omitted_items and attributed != len(self.rows)
             ):
                 raise ValueError("coverage must attribute every published row to its source")
+        if self.review is not None:
+            if self.comparison_status == "incomparable":
+                raise ValueError("an incomparable comparison presents no change")
+            positions = [index for change in self.review.changes for index in change.row_indexes]
+            if sorted(positions) != list(range(len(self.rows))):
+                raise ValueError("the presented changes must stand for every published row once")
         return self

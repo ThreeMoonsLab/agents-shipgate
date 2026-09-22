@@ -182,7 +182,13 @@ SURFACES: tuple[Surface, ...] = (
         # No claims on purpose: this surface restates none of the engine's
         # answers. It projects the drift payload the engine produced, which
         # is why it cannot disagree with it. Its text joins only the rows the
-        # engine linked (#795). Its reference lines name the compared commits,
+        # engine linked (#795), and publishes that joining, the rule's
+        # disposition, the counters, the question and the reproduction command
+        # beside the rows, so the text and `--json` state one set of facts
+        # about one comparison rather than two; the block is one projection of
+        # the same `review_changes`, adds no row and changes no row value, and
+        # is refused unless it accounts for every published row once, so it
+        # cannot become a second answer. Its reference lines name the compared commits,
         # the version of the build that produced the output, and an unpinned
         # `agents-shipgate diff --base <sha>`: the version records what ran,
         # which may be an unreleased tree, and is not a pin, floor or ref for

@@ -26,7 +26,6 @@ from agents_shipgate.core.boundary_registry import is_boundary_surface_path
 from agents_shipgate.core.capability_diff_rows import (
     ABSENT,
     ReviewChange,
-    review_changes,
 )
 from agents_shipgate.core.host_grants import (
     HostStaticParseCache,
@@ -34,7 +33,10 @@ from agents_shipgate.core.host_grants import (
 )
 
 # 0.2 adds `unchanged_limits` (#721). 0.3 adds `coverage`, what the run
-# established about each source it read or could not read (#812).
+# established about each source it read or could not read (#812), and `review`,
+# what the text says about the same rows: the changes it presents, the rows
+# each stands for, the counters it prints, its question and its reproduction
+# command (#795). Rows keep every value and the row count they published.
 DIFF_SCHEMA_VERSION = "0.3"
 
 
@@ -326,6 +328,14 @@ def run_capability_diff(
                         if comparison.coverage is not None
                         else None
                     ),
+                    # The same block `verifier.json` publishes, so the two
+                    # answer alike, and the counters here are the ones the text
+                    # prints below (#795).
+                    "review": (
+                        comparison.review.model_dump(mode="json")
+                        if comparison.review is not None
+                        else None
+                    ),
                     "static_analysis_only": True,
                 },
                 indent=2,
@@ -366,17 +376,19 @@ def run_capability_diff(
         return 0
     from agents_shipgate.report.host_comparison import (
         comparison_reference_lines,
+        presented_changes,
         review_question,
     )
 
-    changes = review_changes(rows)
+    changes = presented_changes(comparison)
     for line in _render_table(changes):
         typer.echo(line)
     typer.echo("")
     widened = sum(1 for change in changes if change.expands)
     typer.echo(
+        # The three numbers `--json`'s `review.summary` publishes: a linked
+        # replacement or move is one change, and `rows` stays the row count.
         f"{len(changes)} change(s)"
-        # `--json` lists a linked replacement or move as its two rows.
         + (f" from {len(rows)} rows" if len(rows) != len(changes) else "")
         + (f", {widened} widening what the agent may do (⚠)" if widened else "")
         + "."

@@ -475,7 +475,9 @@ remains the release gate.
 Git-backed Route H — read `shipgate-diff.json`: `comparison_status` first (only
 `comparable` is a result), then each row's subject, before → after, the stated
 reason and `expands`, then `unchanged_limits`, the sources nothing is claimed
-about.
+about. `review` says how those rows read as changes — the pairs the engine
+linked, their `widened`/`narrowed`/`moved` direction, the `summary` counters
+and the review question — so a report quotes them instead of recounting rows.
 Baseline Route H — read the drift record first: the expansion signals, then the
 per-surface added/removed rules, then the re-acknowledge next action. Then
 read `check`'s `decision`, `risk_level`, and its coverage fields.

@@ -1,13 +1,19 @@
-"""#795 slice 1: the text projections name the concrete change and a review question.
+"""#795: the text names the concrete change, and the JSON says the same thing.
 
 An unfamiliar reviewer reading `diff`, `verify`'s text or the PR comment must be
 able to name the rule and its disposition, the before and after of a replacement
 the engine established, an MCP server's published launch difference, the
 compared commits, and one question to answer, without a maintainer translating.
 
+Slice 2 holds the machine consumer to the same answer. `--json` publishes the
+rows it always published, and beside them the presentation the text reads: the
+rule's disposition on the row, and the changes, their pairings, the counters,
+the question and the reproduction command in `review`. The two cannot disagree:
+a run whose text says one widening cannot publish a shape a script reads as two.
+
 Each case is a real two-commit repository driven through the documented
-commands. What is pinned is what the reader is shown. The JSON rows every route
-publishes are held unchanged beside it: this slice adds no row, field or value.
+commands. What is pinned is what the reader is shown, and what a script reads
+beside it.
 """
 
 from __future__ import annotations
@@ -16,6 +22,7 @@ import json
 import os
 import re
 import subprocess
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -23,7 +30,7 @@ from typer.testing import CliRunner
 
 from agents_shipgate import __version__
 from agents_shipgate.cli.main import app
-from agents_shipgate.core.capability_diff_rows import review_changes
+from agents_shipgate.core.capability_diff_rows import ABSENT, review_changes
 from agents_shipgate.report.host_comparison import (
     comparison_reference_lines,
     host_comparison_lines,
@@ -777,19 +784,28 @@ def test_no_change_and_incomparable_answers_ask_no_question(tmp_path: Path) -> N
     assert not any("Review question" in line or "Reproduce" in line for line in summary)
 
 
-def test_rows_read_back_from_json_render_their_published_values(tmp_path: Path) -> None:
-    """The reviewer view is not published: a re-read comparison prints what it holds."""
+def test_a_comparison_read_back_from_json_prints_what_it_published(tmp_path: Path) -> None:
+    """The presentation is published, so re-reading the artifact prints the same entry."""
 
     repo = _repository(
         tmp_path,
         {SETTINGS: {"permissions": {"allow": ["Bash(npm test *)"]}}},
         {SETTINGS: {"permissions": {"allow": ["Bash(npm *)"]}}},
     )
-    _, _, verifier = _verify(repo, tmp_path / "out")
+    block, _, verifier = _verify(repo, tmp_path / "out")
     reread = HostComparison.model_validate(verifier["host_comparison"])
 
     lines = host_comparison_lines(reread)
-    assert lines[1:7] == [
+    assert lines[1:4] == [
+        f"- ⚠ medium / widened — {SUBJECT}",
+        "  allow: Bash(npm test *) → allow: Bash(npm *)",
+        "  the new rule matches everything the old rule matched; runs without a prompt",
+    ]
+    assert lines == block
+    # A comparison that publishes no presentation — `check` builds one from its
+    # own rows — still renders from the rows it holds.
+    without = reread.model_copy(update={"review": None})
+    assert host_comparison_lines(without)[1:7] == [
         f"- ⚠ medium / added — {SUBJECT}",
         "  — → Bash(npm *)",
         "  runs without a prompt",
@@ -821,3 +837,270 @@ def test_a_pair_split_by_a_caller_prints_each_row_alone(tmp_path: Path) -> None:
     # Equality and the published row ignore the view.
     reread = HostComparison.model_validate_json(comparison.model_dump_json())
     assert reread == comparison
+
+
+# --- slice 2: the presentation `--json` publishes ---------------------------
+
+#: The corpus shape #795 reopened on: one `deny` → `allow` move and one
+#: narrowed rule among sixteen plain additions. The text joined both pairs and
+#: counted one widening, while `--json` published twenty rows with `added` and
+#: `removed` only, no disposition, and `expands` on the move's two rows — so a
+#: script reading the contract counted two widenings where a human read one.
+CORPUS_ADDED = [f"Bash(tool{index:02d} *)" for index in range(16)]
+CORPUS_BASE = {"permissions": {"allow": ["Bash(npm *)"], "deny": ["Bash(git push *)"]}}
+CORPUS_HEAD = {
+    "permissions": {
+        "allow": ["Bash(npm test *)", "Bash(git push *)"],
+        "ask": CORPUS_ADDED,
+    }
+}
+CORPUS_SUMMARY = "18 change(s) from 20 rows, 1 widening what the agent may do (⚠)."
+CORPUS_QUESTION = (
+    "Review question: Does the team intend these 18 declared capability changes "
+    "(from 20 rows)?"
+)
+
+
+def _printed_entries(text: str) -> list[tuple[str, ...]]:
+    """`diff`'s table as (header, transition, why) triples, in printed order."""
+
+    lines = [" ".join(line.split()) for line in text.splitlines()]
+    end = next(index for index, line in enumerate(lines) if re.match(r"^\d+ change\(s\)", line))
+    block = [line for line in lines[2:end] if line]
+    assert len(block) % 3 == 0, block
+    return [tuple(block[index : index + 3]) for index in range(0, len(block), 3)]
+
+
+def _published_entries(review: dict) -> list[tuple[str, ...]]:
+    """The same triples, rebuilt from `review.changes` alone."""
+
+    entries: list[tuple[str, ...]] = []
+    for change in review["changes"]:
+        marker = "⚠ " if change["expands"] else ""
+        before, after = change["before"], change["after"]
+        if change["change"] is not None:
+            transition = change["change"]
+        elif "—" not in (before, after):
+            transition = f"{before} → {after}"
+        else:
+            transition = after if before == "—" else f"{before} → gone"
+        header = f"{marker}{change['severity']} {change['direction']} {change['subject']}"
+        entries.append((header, transition, change["why"]))
+    return entries
+
+
+def test_the_published_presentation_says_what_the_text_prints(tmp_path: Path) -> None:
+    """The corpus case: one move, one narrowing, sixteen additions, one widening."""
+
+    repo = _repository(tmp_path, {SETTINGS: CORPUS_BASE}, {SETTINGS: CORPUS_HEAD})
+
+    text, payload = _diff(repo)
+    assert CORPUS_SUMMARY in text
+
+    # The rows are the twenty the engine published before this change, with
+    # their directions, their values and their per-row `expands` untouched.
+    rows = payload["rows"]
+    assert len(rows) == 20
+    assert Counter(row["direction"] for row in rows) == {"added": 18, "removed": 2}
+    assert sum(1 for row in rows if row["expands"]) == 2
+    assert Counter(row["disposition"] for row in rows) == {"ask": 16, "allow": 3, "deny": 1}
+
+    review = payload["review"]
+    assert review["summary"] == {"rows": 20, "changes": 18, "widenings": 1}
+    assert review["question"] == CORPUS_QUESTION
+    joined = {
+        change["direction"]: change
+        for change in review["changes"]
+        if len(change["row_indexes"]) == 2
+    }
+    assert set(joined) == {"moved", "narrowed"}
+    assert (joined["moved"]["before"], joined["moved"]["after"], joined["moved"]["expands"]) == (
+        "deny: Bash(git push *)", "allow: Bash(git push *)", True,
+    )
+    assert (
+        joined["narrowed"]["before"], joined["narrowed"]["after"], joined["narrowed"]["expands"]
+    ) == ("allow: Bash(npm *)", "allow: Bash(npm test *)", False)
+    # Each joined change names the two rows it stands for, and they are the
+    # removal and the addition the engine published for that rule.
+    for change in joined.values():
+        pair = [rows[index] for index in change["row_indexes"]]
+        assert {row["direction"] for row in pair} == {"added", "removed"}
+        gone = next(row for row in pair if row["after"] == ABSENT)
+        arrived = next(row for row in pair if row["before"] == ABSENT)
+        assert change["before"].endswith(gone["before"])
+        assert change["after"].endswith(arrived["after"])
+
+    # Every entry the reader sees is one published change, in the same order.
+    assert _printed_entries(text) == _published_entries(review)
+
+
+def test_verify_json_and_the_pr_comment_carry_the_same_presentation(tmp_path: Path) -> None:
+    repo = _repository(tmp_path, {SETTINGS: CORPUS_BASE}, {SETTINGS: CORPUS_HEAD})
+    base = _git(repo, "rev-parse", "main")
+
+    block, summary, verifier = _verify(repo, tmp_path / "out")
+    review = verifier["host_comparison"]["review"]
+    assert review["summary"] == {"rows": 20, "changes": 18, "widenings": 1}
+    assert len(verifier["host_comparison"]["rows"]) == 20
+    assert review["question"] == CORPUS_QUESTION == block[-3]
+    assert review["reproduce_command"] == f"agents-shipgate diff --base {base}"
+    assert review["reproduce_command"] in block[-1]
+    # The PR comment renders the published question and command, not its own.
+    assert CORPUS_QUESTION in _plain(summary)
+    assert any(review["reproduce_command"] in line for line in _plain(summary))
+    # `diff --json` and `verifier.json` publish one block for one comparison.
+    _, payload = _diff(repo)
+    assert payload["review"] == review
+
+
+@pytest.mark.parametrize(
+    ("base", "head", "asked"),
+    [
+        pytest.param(
+            {SETTINGS: {"permissions": {"allow": ["Bash(npm test *)"]}}},
+            {SETTINGS: {"permissions": {"allow": ["Bash(npm *)"]}}},
+            True,
+            id="one_change",
+        ),
+        pytest.param({"README.md": "a\n"}, {"README.md": "b\n"}, False, id="no_change"),
+    ],
+)
+def test_the_question_and_the_command_are_published_where_the_text_prints_them(
+    tmp_path: Path, base: dict[str, object], head: dict[str, object], asked: bool
+) -> None:
+    repo = _repository(tmp_path, base, head)
+
+    text, payload = _diff(repo)
+    review = payload["review"]
+    printed = [line for line in text.splitlines() if line.startswith("Review question: ")]
+    reproduced = [line for line in text.splitlines() if line.startswith("Reproduce")]
+    assert bool(printed) is bool(reproduced) is asked
+    assert review["question"] == (printed[0] if printed else None)
+    if asked:
+        assert review["reproduce_command"] in reproduced[0]
+    else:
+        assert review["reproduce_command"] is None
+        assert review["summary"] == {"rows": 0, "changes": 0, "widenings": 0}
+
+
+def test_an_incomparable_result_publishes_no_presentation(tmp_path: Path) -> None:
+    """It presents no change and asks nothing, so there is nothing to record."""
+
+    repo = _repository(tmp_path, {SETTINGS: CORPUS_BASE}, {".mcp.json": '{"mcpServers": {"a": '})
+
+    text, payload = _diff(repo)
+    assert text.splitlines()[0].startswith("Cannot compare against main: ")
+    assert payload["rows"] == [] and payload["review"] is None
+    _, _, verifier = _verify(repo, tmp_path / "out")
+    assert verifier["host_comparison"]["review"] is None
+
+
+def test_the_routes_that_redact_rule_arguments_publish_no_pair(tmp_path: Path) -> None:
+    """A joined pair would read `X → X` there, so those routes publish rows alone."""
+
+    repo = _repository(tmp_path, {SETTINGS: CORPUS_BASE}, {SETTINGS: CORPUS_HEAD})
+    patch = tmp_path / "change.diff"
+    patch.write_text(_git(repo, "diff", "main", "HEAD") + "\n", encoding="utf-8")
+    head = _git(repo, "rev-parse", "HEAD")
+
+    for selection in (["--base", "main", "--head", head], ["--diff", str(patch)]):
+        payload = json.loads(_invoke([
+            "check", "--workspace", str(repo), *selection, "--format", "agent-boundary-json",
+        ]))
+        rows = payload["rows"]
+        # Every row names the list its rule is declared under, as the text does.
+        assert len(rows) == 20
+        assert Counter(row["disposition"] for row in rows) == {"ask": 16, "allow": 3, "deny": 1}
+        # The redacted rules read alike, so nothing may pair them: the boundary
+        # result carries rows alone, and its text prints one entry per row.
+        assert "review" not in payload
+        assert all("<redacted-arguments>" in row["before"] + row["after"] for row in rows)
+        lines = _check(repo, *selection)
+        assert sum(1 for line in lines if line.startswith("- ")) == len(rows)
+        assert " / moved — " not in "\n".join(lines) and " / narrowed — " not in "\n".join(lines)
+        assert lines[-1] == (
+            "Review question: Does the team intend these 20 declared capability changes?"
+        )
+
+
+def test_a_published_presentation_cannot_disagree_with_its_rows() -> None:
+    """The contract refuses a block that miscounts, double-counts or reads alike."""
+
+    from pydantic import ValidationError
+
+    row = {
+        "subject": SUBJECT, "before": ABSENT, "after": "Bash(npm *)", "direction": "added",
+        "why": "runs without a prompt", "severity": "medium", "expands": True,
+        "disposition": "allow",
+    }
+    change = {
+        "row_indexes": [0], "severity": "medium", "direction": "added", "subject": SUBJECT,
+        "before": ABSENT, "after": "allow: Bash(npm *)", "change": None,
+        "why": "runs without a prompt", "expands": True,
+    }
+    question = "Review question: Does the team intend this declared capability change?"
+
+    def comparison(review: dict, rows: list[dict] | None = None) -> dict:
+        return {
+            "comparison_status": "comparable", "head_kind": "worktree",
+            "rows": [row] if rows is None else rows, "review": review,
+        }
+
+    good = {
+        "changes": [change],
+        "summary": {"rows": 1, "changes": 1, "widenings": 1},
+        "question": question,
+        "reproduce_command": None,
+    }
+    assert HostComparison.model_validate(comparison(good)).review is not None
+    for broken, message in (
+        ({**good, "summary": {"rows": 1, "changes": 2, "widenings": 1}}, "counts the changes"),
+        ({**good, "summary": {"rows": 1, "changes": 1, "widenings": 0}}, "called expansions"),
+        ({**good, "summary": {"rows": 2, "changes": 1, "widenings": 1}}, "exactly one change"),
+        ({**good, "question": None}, "is asked about"),
+        (
+            {
+                "changes": [{**change, "row_indexes": [0, 0]}],
+                "summary": {"rows": 2, "changes": 1, "widenings": 1},
+                "question": question, "reproduce_command": None,
+            },
+            "names each row it stands for once",
+        ),
+        (
+            {
+                "changes": [{
+                    **change, "row_indexes": [0, 1], "direction": "moved",
+                    "before": "allow: Bash(npm *)", "after": "allow: Bash(npm *)",
+                }],
+                "summary": {"rows": 2, "changes": 1, "widenings": 1},
+                "question": question, "reproduce_command": None,
+            },
+            "two sides read alike",
+        ),
+    ):
+        with pytest.raises(ValidationError, match=message):
+            HostComparison.model_validate(comparison(broken, rows=[row, row]))
+    # A block that leaves a published row unaccounted for is refused too.
+    with pytest.raises(ValidationError, match="stand for every published row once"):
+        HostComparison.model_validate(comparison(good, rows=[row, row]))
+
+
+def test_a_reader_of_the_published_row_shape_still_validates_a_row(tmp_path: Path) -> None:
+    """`disposition` is an added optional member: `1.0.0`'s row schema still reads a row."""
+
+    from jsonschema import Draft202012Validator
+
+    frozen = json.loads(
+        (Path(__file__).parents[1] / "docs/verifier-schema.v0.19.json").read_text(encoding="utf-8")
+    )
+    repo = _repository(tmp_path, {SETTINGS: CORPUS_BASE}, {SETTINGS: CORPUS_HEAD})
+
+    _, payload = _diff(repo)
+    validator = Draft202012Validator(frozen["$defs"]["CapabilityDiffRow"])
+    for published in payload["rows"]:
+        validator.validate(published)
+        # And a row from that build, with no disposition, still reads here.
+        legacy = {key: value for key, value in published.items() if key != "disposition"}
+        assert HostComparison.model_validate({
+            "comparison_status": "comparable", "head_kind": "worktree", "rows": [legacy],
+        }).rows[0].disposition is None

@@ -10,7 +10,12 @@ from agents_shipgate.core.boundary_registry import (
     is_claude_plugin_manifest_path,
     is_claude_plugin_marketplace_path,
 )
-from agents_shipgate.core.capability_diff_rows import capability_diff_rows
+from agents_shipgate.core.capability_diff_rows import (
+    CapabilityDiffRow,
+    capability_diff_rows,
+    review_changes,
+    review_question,
+)
 from agents_shipgate.core.host_grants import (
     _CLAUDE_PROJECT_SETTINGS_SOURCES,
     _PATH_REDACTION_MARKER,
@@ -27,6 +32,9 @@ from agents_shipgate.schemas.host_comparison import (
     HostComparison,
     HostComparisonCoverage,
     HostComparisonCoverageItem,
+    HostComparisonReview,
+    HostComparisonReviewChange,
+    HostComparisonReviewSummary,
 )
 
 #: Coverage's identity question (#812): every path it asks about, in one call,
@@ -479,6 +487,11 @@ def compare_host_inventories(
         if reasons
         else _compared_coverage(before, after, payload, limits, identities)
     )
+    rows = (
+        []
+        if reasons
+        else capability_diff_rows(payload, redact_permission_arguments=redact_permission_arguments)
+    )
     return HostComparison(
         comparison_status="incomparable" if reasons else "comparable",
         incomparable_reasons=reasons,
@@ -490,9 +503,90 @@ def compare_host_inventories(
         paths=sorted(
             {item["path"] for inventory in (before, after) for item in inventory["artifacts"]}
         ),
-        rows=[] if reasons else capability_diff_rows(
-            payload, redact_permission_arguments=redact_permission_arguments
-        ),
+        rows=rows,
         unchanged_limits=limits,
         coverage=established,
+        # How these rows are presented, decided here where the rows are built
+        # and published with them, so the text and every JSON reader state the
+        # same facts about the same comparison (#795).
+        review=(
+            None
+            if reasons
+            else host_comparison_review(
+                rows, base_commit=base_commit, head_kind=head_kind, head_commit=head_commit
+            )
+        ),
+    )
+
+
+#: The tokens a reviewer copies to read the same comparison again (#795). The
+#: canonical console script, not this process's spelling: the command is for
+#: whoever reads the output, on their machine.
+REPRODUCE_PROGRAM = "agents-shipgate"
+
+
+def reproduce_command(
+    *, base_commit: str | None, head_kind: str, head_commit: str | None
+) -> str | None:
+    """The command that reads this comparison again, or ``None`` where there is none.
+
+    Only where the comparison names a base commit and its head is a commit or a
+    working tree. A provided diff and `check` name no base commit, so they
+    offer no command rather than one they cannot stand behind. For a commit
+    head the command is run after checking that commit out; `diff` reads the
+    working tree.
+    """
+
+    if not base_commit or head_kind not in {"commit", "worktree"}:
+        return None
+    if head_kind == "commit" and not head_commit:
+        return None
+    return f"{REPRODUCE_PROGRAM} diff --base {base_commit}"
+
+
+def host_comparison_review(
+    rows: Sequence[CapabilityDiffRow],
+    *,
+    base_commit: str | None,
+    head_kind: str,
+    head_commit: str | None,
+) -> HostComparisonReview:
+    """What the text says about these rows, as data (#795).
+
+    One projection of :func:`review_changes`, so the block cannot count or
+    classify a change differently from the sentence printed beside it. The
+    question and the reproduction command are published only where the text
+    prints them: after at least one change, and, for the command, only where
+    the comparison names commits it can be run against.
+    """
+
+    changes = review_changes(rows)
+    return HostComparisonReview(
+        changes=[
+            HostComparisonReviewChange(
+                row_indexes=list(change.row_indexes),
+                severity=change.severity,
+                direction=change.direction,
+                subject=change.subject,
+                before=change.before,
+                after=change.after,
+                change=change.change,
+                why=change.why,
+                expands=change.expands,
+            )
+            for change in changes
+        ],
+        summary=HostComparisonReviewSummary(
+            rows=len(rows),
+            changes=len(changes),
+            widenings=sum(1 for change in changes if change.expands),
+        ),
+        question=review_question(changes) if changes else None,
+        reproduce_command=(
+            reproduce_command(
+                base_commit=base_commit, head_kind=head_kind, head_commit=head_commit
+            )
+            if changes
+            else None
+        ),
     )
