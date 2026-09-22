@@ -447,12 +447,14 @@ def test_a_documented_rule_gained_is_a_widening(before, after, rule):
         (_workflow(_agent(allowed_non_write_users="*")), _workflow(_agent(allowed_non_write_users="octocat"))),
         # an expression is text, never a rule
         (_workflow(_agent()), _workflow(_agent("--dangerously-skip-permissions ${{ inputs.extra }}"))),
+        (_workflow(_agent()), _workflow(_agent(allowed_non_write_users="${{ vars.USERS }}, *"))),
         # widened by a tool rule, which is #824's to rate
         (_workflow(_agent('--allowedTools "Read"')), _workflow(_agent('--allowedTools "Bash(*)"'))),
         (_workflow({"run": "claude -p --permission-mode default 'x'"}),
          _workflow({"run": "claude -p --permission-mode acceptEdits 'x'"})),
     ],
-    ids=["respelled", "moved-to-action", "narrowed", "gate-closed", "expression", "tool-rule", "accept-edits"],
+    ids=["respelled", "moved-to-action", "narrowed", "gate-closed", "expression", "gate-expression", "tool-rule",
+         "accept-edits"],
 )
 def test_any_other_edit_is_changed(before, after):
     assert host_grant_expansion_signals(_changes(before, after)) == []

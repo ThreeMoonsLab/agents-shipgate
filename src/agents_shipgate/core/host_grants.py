@@ -2100,10 +2100,13 @@ def agent_widening_rules(entry: dict[str, Any]) -> set[tuple[str, str]]:
     if entry.get("form") != "read":
         return set()
     agent = str(entry["agent"])
+    # Only literal values: GitHub substitutes a `${{ }}` expression into the
+    # input before the action reads it, so what it holds is not known here.
     readable = {
         str(setting["name"]): str(setting["value"])
         for setting in entry.get("settings", [])
         if setting.get("unresolved_reason") is None and setting.get("value") is not None
+        and "${{" not in str(setting["value"])
     }
     rules: set[tuple[str, str]] = set()
     if agent in {"claude", "codex"}:
