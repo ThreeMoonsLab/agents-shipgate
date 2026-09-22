@@ -1084,14 +1084,31 @@ def test_contract_statement_guard_reads_both_spellings():
 
     assert _CONTRACT_MENTION.findall("emits runtime contract v40") == ["40"]
     assert _CONTRACT_MENTION.findall("emits runtime contract 40") == ["40"]
+    release = f"Latest public release (contract {LATEST_PUBLISHED_CONTRACT_VERSION})"
     if CONTRACT_VERSION != LATEST_PUBLISHED_CONTRACT_VERSION:
         seeded = f"the published `v1.0.0` emits runtime contract v{CONTRACT_VERSION}"
         with pytest.raises(AssertionError, match="pairs this tree's unreleased contract"):
             _assert_contract_statements_apart(
                 "seeded",
                 [seeded],
-                release=f"Latest public release (contract {LATEST_PUBLISHED_CONTRACT_VERSION})",
+                release=release,
                 source=f"source tree (contract {CONTRACT_VERSION}, unreleased)",
+            )
+    else:
+        # The other phase (#778): once the release that emits this contract is
+        # published, the source line may not go on calling it unreleased. The
+        # qualifier `llms.txt` carried until the pins moved to `v1.1.0` is the
+        # seed, so this branch is exercised rather than skipped while the two
+        # contracts are equal.
+        with pytest.raises(AssertionError, match="is the published one now"):
+            _assert_contract_statements_apart(
+                "seeded",
+                [],
+                release=release,
+                source=(
+                    f"source-tree runtime (contract {CONTRACT_VERSION}; unreleased, "
+                    "ahead of the latest public release)"
+                ),
             )
 
 
