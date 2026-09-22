@@ -145,8 +145,12 @@ def _coverage_rank(item: dict[str, Any]) -> tuple[int, int, str, str, str]:
         rank = 4
     else:
         rank = 5
-    # An unregistered kind sorts after every registered one rather than
-    # ahead of them: a limit this build does not know is not more actionable.
+    # These are raw facts, not model instances yet, so the key stays total for
+    # a kind the tuple does not list: it sorts after every registered one
+    # rather than ahead of them. That is not a safety net — `limit` is a closed
+    # literal, so such an item is refused by the model right after this sort
+    # rather than printed last. What keeps a newly registered kind in its place
+    # is `test_every_published_limit_kind_has_a_place_in_the_order`.
     kind = (
         COVERAGE_LIMIT_ORDER.index(limit)
         if limit in COVERAGE_LIMIT_ORDER

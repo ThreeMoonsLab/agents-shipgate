@@ -88,10 +88,10 @@ or `apiKeyHelper` edit is not mistaken for no change: a file is unchanged only
 when its bytes are), which changed with no row attributed to them, which only
 one side read or published, and, when
 the comparison was refused, which source left an inventory incomplete. That
-block lists only sources this entry read, and says so on its first line: a
-changed file it does not read is absent from it, so it is never the whole
-account of the change. When more items are computed than it prints, it names
-how many it left out and that they rank below the ones it kept. The
+block lists only sources this entry read or tried to read, and says so on its
+first line: a changed file it does not read is absent from it, so it is never
+the whole account of the change. When more items are computed than it prints,
+it names how many it left out and that they rank below the ones it kept. The
 entries are for a reviewer to act on, not merge authority: each names the rule
 with its disposition, a replaced rule's before and after, and an MCP server's
 command name or redacted URL and key names, then one review question. Every

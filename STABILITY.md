@@ -75,9 +75,9 @@ new or untracked one or a hook file only the head's plugin configuration
 selects); and an incomparable comparison names each blocking source and its
 kind, with the refusal unchanged. `diff`, `verify` text and the PR comment print
 it as `What this run established`, under one line saying what the list cannot
-be read as: only sources this entry read are in it. No row, reason, route,
-digest or baseline moves. A `0.19` verifier reads with coverage not recorded;
-one that claims coverage is refused. See
+be read as: only sources this entry read or tried to read are in it. No row,
+reason, route, digest or baseline moves. A `0.19` verifier reads with coverage
+not recorded; one that claims coverage is refused. See
 [the migration note](#host-comparison-coverage-812).
 
 Unreleased, still contract v40: the same two versions publish what the text

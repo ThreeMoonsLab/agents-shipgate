@@ -208,9 +208,9 @@ Reproduce in that working tree: agents-shipgate diff --base ff8c50293d1a4e7b8c6f
 That answer covers the sources both sides read, within the
 [support matrix](host-boundary-support.md), and `What this run established`
 names them. Its first line is the block's own boundary: it lists only sources
-this entry read, so a changed file it does not read is absent and the list is
-never the whole account of the change. It says nothing about the
-[surfaces `diff` does not read](host-boundary-support.md#known-unread-surfaces).
+this entry read or tried to read, so a changed file it does not read is absent
+and the list is never the whole account of the change. It says nothing about
+the [surfaces `diff` does not read](host-boundary-support.md#known-unread-surfaces).
 
 A zero-row answer is not always "no change". A file is listed as compared
 with no change only when its bytes are proven identical on both sides. When a
