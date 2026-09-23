@@ -1061,27 +1061,94 @@ def path_present_at_ref(workspace: Path, ref: str, path: Path) -> bool | None:
     return False
 
 
-def blob_path_unchanged(workspace: Path, base: str, head: str | None, path: str) -> bool:
-    """Whether ``path`` is the same regular file at ``base`` and at ``head``.
+#: The longest link text a tree entry is read for. No platform accepts a
+#: longer path, so a longer text is never followed.
+_MAX_LINK_TEXT_BYTES = 4096
 
-    ``head=None`` means the working tree. The answer is ``False`` whenever
-    identity cannot be proven: a path absent on either side, a symlink or a
-    symlinked parent, a tree or submodule, an unreadable file, or any Git
-    failure. Blob object IDs are compared rather than `git diff` output, so a
-    ``.gitattributes`` filter or textconv cannot make two different byte
-    sequences read as equal (#721).
+#: How the host reader reaches a file: each link it follows, with that link's
+#: own text, and the in-tree path of the regular file it opens (#822).
+_ReaderPath = tuple[tuple[tuple[str, str], ...], str]
+
+
+def _reader_path(
+    path: str,
+    kind: Callable[[str], str | None],
+    link_text: Callable[[str], str | None],
+) -> _ReaderPath | None:
+    """How the host reader reaches the file at ``path`` on one side, or ``None`` (#822).
+
+    ``kind`` names the entry at an in-tree path without following it:
+    ``"tree"``, ``"blob"`` (a regular file) or ``"link"``, and ``None`` for
+    anything else or nothing. ``link_text`` is a link entry's own text.
+
+    A link is followed only as the reader follows one (#700, the reader's
+    ``_resolve_in_tree_link``) and the archive would also resolve it (#711,
+    :func:`_resolve_tree_link`): its text is relative and lands inside the
+    tree after normalization, every directory above where it lands is a
+    directory and not a link, and the chain ends at a directory or regular file
+    within :data:`_MAX_TREE_LINK_HOPS` links. A path holds links at one
+    component only, because a directory the reader reads through holds no
+    link, and every other component must be a directory. ``None`` means the
+    reader would not reach a regular file at ``path`` that way, so nothing
+    about it can be proven.
     """
 
-    from pathlib import PurePosixPath
+    parts = path.split("/")
+    real: list[str] = []
+    links: list[tuple[str, str]] = []
+    for index, part in enumerate(parts):
+        current = "/".join((*real, part))
+        current_kind = kind(current)
+        if current_kind == "link":
+            if links:
+                return None
+            for _ in range(_MAX_TREE_LINK_HOPS):
+                text = link_text(current)
+                if not text or "\0" in text or os.path.isabs(text) or text.startswith(("/", "\\")):
+                    return None
+                joined = posixpath.normpath(posixpath.join(posixpath.dirname(current), text))
+                if joined in {".", ".."} or joined.startswith("../"):
+                    return None
+                links.append((current, text))
+                landed = joined.split("/")
+                if any(kind("/".join(landed[:depth])) != "tree" for depth in range(1, len(landed))):
+                    return None
+                current, current_kind = joined, kind(joined)
+                if current_kind != "link":
+                    break
+            else:
+                return None
+            real = current.split("/")
+        else:
+            real.append(part)
+        if index == len(parts) - 1:
+            return (tuple(links), current) if current_kind == "blob" else None
+        if current_kind != "tree":
+            return None
+    return None
 
-    relative = PurePosixPath(path)
-    if not path or relative.is_absolute() or ".." in relative.parts or "\\" in path:
-        return False
 
-    def entry(commit: str) -> tuple[str, str, str] | None:
+class _CommitEntries:
+    """One commit's tree entries, each read exactly, by its own `ls-tree`."""
+
+    def __init__(self, workspace: Path, commit: str) -> None:
+        self._workspace = workspace
+        self._commit = commit
+        self._entries: dict[str, tuple[str, str, str] | None] = {}
+
+    def entry(self, path: str) -> tuple[str, str, str] | None:
+        """``(mode, type, oid)`` of exactly this path; ``None`` for none, or a Git failure."""
+
+        if path not in self._entries:
+            self._entries[path] = self._read(path)
+        return self._entries[path]
+
+    def _read(self, path: str) -> tuple[str, str, str] | None:
+        # One path per listing: a pathspec that names a directory another
+        # pathspec is under lists that directory's children, not the directory.
         result = _run_git(
-            workspace,
-            ["--literal-pathspecs", "ls-tree", "-z", "--full-tree", commit, "--", path],
+            self._workspace,
+            ["--literal-pathspecs", "ls-tree", "-z", "--full-tree", self._commit, "--", path],
             check=False,
             text=False,
         )
@@ -1094,27 +1161,128 @@ def blob_path_unchanged(workspace: Path, base: str, head: str | None, path: str)
         fields = header.split()
         if not separator or len(fields) != 3 or name != path.encode("utf-8"):
             return None
-        mode, kind, oid = (field.decode("ascii") for field in fields)
-        if kind != "blob" or mode not in {"100644", "100755"}:
+        mode, object_type, oid = (field.decode("ascii", errors="replace") for field in fields)
+        if not _GIT_OBJECT_RE.fullmatch(oid):
             return None
-        return mode, kind, oid
+        return mode, object_type, oid
+
+    def kind(self, path: str) -> str | None:
+        entry = self.entry(path)
+        if entry is None:
+            return None
+        mode, object_type, _oid = entry
+        if object_type == "tree" and mode == "040000":
+            return "tree"
+        if object_type == "blob" and mode in {"100644", "100755"}:
+            return "blob"
+        if object_type == "blob" and mode == "120000":
+            return "link"
+        return None
+
+    def link_text(self, path: str) -> str | None:
+        entry = self.entry(path)
+        if entry is None or entry[:2] != ("120000", "blob"):
+            return None
+        data = _run_git_bounded_output(
+            self._workspace, ["cat-file", "blob", entry[2]], max_output_bytes=_MAX_LINK_TEXT_BYTES
+        )
+        if data is None:
+            return None
+        try:
+            return data.decode("utf-8", errors="strict")
+        except UnicodeDecodeError:
+            return None
+
+    def reader_path(self, path: str) -> _ReaderPath | None:
+        # A regular blob listed under the path's own name has no link above
+        # it, because a listing never descends through one. That is the one
+        # listing a path with no link took before #822, and still takes.
+        if self.kind(path) == "blob":
+            return (), path
+        return _reader_path(path, self.kind, self.link_text)
+
+
+def _worktree_reader_path(workspace: Path, path: str) -> _ReaderPath | None:
+    """How the reader reaches ``path`` in the working tree, read without following a link."""
+
+    from agents_shipgate.core.trust_roots import _directory_member_kind
+
+    kinds = {"directory": "tree", "file": "blob", "symlink": "link"}
+
+    def kind(relative: str) -> str | None:
+        try:
+            return kinds.get(_directory_member_kind(workspace / relative))
+        except OSError:
+            return None
+
+    def link_text(relative: str) -> str | None:
+        try:
+            return os.readlink(workspace / relative)
+        except (OSError, ValueError):
+            return None
+
+    return _reader_path(path, kind, link_text)
+
+
+def blob_path_unchanged(workspace: Path, base: str, head: str | None, path: str) -> bool:
+    """Whether the file the host reader opens at ``path`` is the same at ``base`` and ``head``.
+
+    ``head=None`` means the working tree. Both sides must reach that file the
+    same way. With no link on the path, it is the same regular file at
+    ``path``, as before. Through an in-tree link (#822), such as
+    ``.claude/skills -> ../.agents/skills``, every link on the way must be a
+    link on both sides with the same text, every other component a
+    directory, and the file it lands on the same regular file at the same
+    in-tree path. Links are followed only as :func:`_reader_path` states: the
+    rules the reader and the archive already follow them by, so a link either
+    of them would not read through is never followed here.
+
+    The answer is ``False`` whenever identity cannot be proven: a path absent
+    on either side, a link added, removed or given another text (even one that
+    lands on the same file), a link that leaves the repository, dangles, loops
+    or passes the hop bound, a tree or submodule, an unreadable file, or any
+    Git failure. The base is always read from its Git tree entries, and so is a
+    commit head. A working tree is read without following any link, each link
+    by its own text and the file by its unfiltered hash, against the base's
+    entries. Blob object IDs are compared rather than `git diff` output, so a
+    ``.gitattributes`` filter or textconv cannot make two different byte
+    sequences read as equal (#721).
+    """
+
+    from pathlib import PurePosixPath
+
+    relative = PurePosixPath(path)
+    if (
+        not path
+        or relative.is_absolute()
+        or relative.as_posix() != path
+        or ".." in relative.parts
+        or "\\" in path
+        or "\0" in path
+    ):
+        return False
+    try:
+        path.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
 
     base_commit = commit_sha(workspace, base)
-    base_entry = entry(base_commit) if base_commit else None
-    if base_entry is None:
+    if base_commit is None:
+        return False
+    base_tree = _CommitEntries(workspace, base_commit)
+    before = base_tree.reader_path(path)
+    base_entry = base_tree.entry(before[1]) if before is not None else None
+    if before is None or base_entry is None:
         return False
     if head is not None:
         head_commit = commit_sha(workspace, head)
-        head_entry = entry(head_commit) if head_commit else None
-        return head_entry == base_entry
-    target = workspace / path
-    try:
-        parents = [workspace / Path(*relative.parts[:index]) for index in range(1, len(relative.parts))]
-        if any(parent.is_symlink() for parent in parents) or target.is_symlink() or not target.is_file():
+        if head_commit is None:
             return False
-    except OSError:
+        head_tree = _CommitEntries(workspace, head_commit)
+        return head_tree.reader_path(path) == before and head_tree.entry(before[1]) == base_entry
+    if _worktree_reader_path(workspace, path) != before:
         return False
-    hashed = _run_git(workspace, ["hash-object", "--no-filters", "--", path], check=False)
+    hashed = _run_git(workspace, ["hash-object", "--no-filters", "--", before[1]], check=False)
     return hashed.returncode == 0 and hashed.stdout.strip() == base_entry[2]
 
 
@@ -1306,7 +1474,7 @@ def blob_path_identities(
     ``head=None`` means the working tree. Every path requested has an answer:
 
     - ``True``: identical. The same regular-file blob on both sides, exactly
-      as :func:`blob_path_unchanged` proves it.
+      as :func:`blob_path_unchanged` proves it for a path no link reaches.
     - ``False``: differs. Between commits, two regular-file blobs with
       different object IDs. In the working tree, a regular file whose
       unfiltered hash differs from the base blob, on a path no `filter`,
@@ -1322,7 +1490,8 @@ def blob_path_identities(
     No clean or smudge filter runs: a configured filter driver is a command
     line, so a converted path is answered ``None`` rather than converted.
     ``blob_path_unchanged`` is left as it is for ``unchanged_limits``, where
-    anything short of identity refuses.
+    anything short of identity refuses; only it follows an in-tree link
+    (#822), so a path through one is ``None`` here.
 
     The cost is bounded per call, not per path: one tree listing per commit,
     one `hash-object --stdin-paths` and, only for paths whose hashes differ,

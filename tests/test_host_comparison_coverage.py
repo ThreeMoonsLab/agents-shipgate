@@ -819,13 +819,11 @@ INCOMPARABLE = {
         _dangling_link, WIDENED, BOTH,
         {("NOTES.md", "unreadable", "both")},
     ),
-    "skill-metadata-through-link": (
-        _linked_skill, {"permissions": {"allow": ["Read(**)"], "deny": []}}, BOTH,
-        {
-            (".agents/skills/demo/SKILL.md", "unsupported", "both"),
-            (".claude/skills/demo/SKILL.md", "unsupported", "both"),
-        },
-    ),
+    # The same skill through `.claude/skills -> ../.agents/skills` alone was a
+    # case here until #822: its link and target are unchanged, so it is now
+    # named in `unchanged_limits` and the rest compared
+    # (`tests/test_linked_unchanged_limits.py`). With a link inside the linked
+    # directory the reader does not read through it, and that still refuses.
     "skill-metadata-and-nested-link": (
         _linked_skill_with_nested_link, {"permissions": {"allow": ["Read(**)"], "deny": []}}, BOTH,
         {

@@ -26,7 +26,12 @@ A registered adapter reports `complete`, `not_applicable`, `partial`, or
 external, unresolved-symlink, or unsupported input prevents a complete control
 result. An in-tree symlink at a boundary path is read at its target and recorded
 in `resolved_through` (#700), and so is a link anywhere that points at an
-in-tree file. A dangling link, a link that leaves the repository, or a
+in-tree file. A limit on a file read that way, such as a skill whose
+structure could not be established behind `.claude/skills -> ../.agents/skills`,
+is named as unchanged, like one at its own path, only when the link, with the
+same text at each link on the way, and the file it lands on are both
+unchanged between the compared sides (#822); any change to either still
+refuses the comparison. A dangling link, a link that leaves the repository, or a
 directory link outside the boundary paths refuses the whole comparison, even
 when no host file sits behind it (#688). That refusal is deliberate (#659),
 and it caused every widening the 1.0 host-config measurement missed.

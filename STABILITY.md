@@ -594,6 +594,92 @@ Outside a repository a preview still declares no snapshot and still reads.
   `verification_plan` through the pointer reads `verification-plan.json` or
   `verify-run.json` directly; neither was ever current evidence for a preview.
 
+<a id="linked-unchanged-limits-822"></a>
+
+## Migration Note: Unreleased — an unchanged limit reached through an in-tree link is named, not a refusal (#822)
+
+No schema, member, reason code, check id or `minimum_control_contract_version`
+moves, and host-grants stays `0.6`. This change adds no version of its own:
+capability diff, verifier and the runtime contract are what the rest of the
+unreleased tree carries. What moves is which comparisons name an unchanged
+limit instead of refusing, and so which are `comparable`.
+
+Since `1.0.0`, a per-source `unsupported` or `parse_failed` limit that both
+sides share on an untouched file is named in `unchanged_limits` and the rest
+is compared ([#721](#unchanged-comparison-limits-contract-v37-721)). The host
+reader reads an in-tree link at a boundary path through to its target
+([#700](#link-read-through-at-boundary-paths-contract-v39-700)),
+but the unchanged proof accepted only a file at its own path, so a limit on a
+file read through a link refused the whole comparison. With a skill whose
+`metadata.internal` is `true`, which this entry's bounded profile does not
+accept, and a change that only drops `deny: Bash(curl *)` from
+`.claude/settings.json`:
+
+| Where the unchanged skill lives | `1.1.0` `diff`, `verify` and PR comment | now |
+| --- | --- | --- |
+| `.claude/skills/review/SKILL.md` | `comparable`; the limit named; the removed `deny` row | unchanged |
+| `.agents/skills/review/SKILL.md`, read through `.claude/skills -> ../.agents/skills` | `incomparable`, `base_inventory_incomplete; head_inventory_incomplete`, no row | `comparable`; the limit named on `.claude/skills/review/SKILL.md`, and on `.agents/skills/review/SKILL.md` for each host that reads it there; the removed `deny` row |
+| `skills/review/SKILL.md`, read through `.claude/skills/review -> ../../skills/review` | the same refusal | `comparable`; the limit named; the removed `deny` row |
+| a file link at `.claude/skills/review/SKILL.md`, or a chain of file links | the same refusal | the same |
+
+- **The proof.** A limit is still named only when it is present with the same
+  kind, host and source on both sides and its source is unchanged. For a
+  source no link reaches, unchanged means what it did: the same regular-file
+  blob at that path, by Git object ID between commits and by unfiltered hash
+  against a working tree. For a source the reader reaches through an in-tree
+  link, two things must hold on both sides:
+  - **the link:** at each link the resolution follows, a link entry at the
+    same path with the same text, and a directory at every other component;
+  - **what it lands on:** the same regular-file blob at the same in-tree path.
+
+  The base and a commit head are read from their Git tree entries, never from
+  the archived tree the reader read. A working-tree head is read without
+  following any link: each link by its own text, each directory by its own
+  entry, and the file by its unfiltered hash against the base's blob. No
+  `textconv` or filter runs.
+- **Only links the reader reads through.** A link is followed only as the
+  reader and the base archive already follow one (#700, #711): a relative text
+  that lands inside the repository after normalization, only directories above
+  where it lands, a chain that ends at a directory or regular file within eight
+  links, and links at one component of the path only, since a directory the
+  reader reads through holds no link. A link it does not read through is an
+  `unreadable` limit, and `unreadable` is never named as unchanged, so a
+  dangling, looping, absolute or escaping link, a chain past eight links, a
+  link above where another lands, and a link inside a linked directory all
+  still refuse, unchanged or not.
+- **Still refused.** Any change to the link or to what it lands on: a skill
+  added or edited behind the link, a link retargeted, even to an identical
+  copy, or rewritten to land on the same file (`../../skills/review` to
+  `../../skills/./review`), a link replaced by a directory holding the same
+  bytes or the reverse, and any later link of a chain retargeted.
+- **Not coerced.** The metadata value is not reinterpreted: `internal: true`
+  is still an unresolved structure, `unsupported`, published with the same
+  `detail` as at a direct path. `internal: "true"` was and is read, with no
+  limit.
+- **Who reads the proof.** One function answers it for every consumer, so they
+  move together: `unchanged_limits` in `diff --json` and `verifier.json`; the
+  `Not compared: unchanged in this change and not read` list of `diff`,
+  `verify` text and the PR comment; the unchanged limits a `partial`
+  comparison may carry beside its withheld directories
+  ([#808](#partial-host-comparison-808)); and the shared plugin-reference
+  limits `check` leaves out of its comparison (#714). `check`'s boundary result
+  still cannot name a limit, so where the other routes now compare past one it
+  refuses with `unchanged_limits_not_representable`, the reason it already
+  gives for a limit at its own path, instead of `base_inventory_incomplete` /
+  `head_inventory_incomplete`. Its rows stay empty, and its decision,
+  violations and control do not move.
+- **Not changed.** The inventory, its issues and `resolved_through`, saved
+  host-grants baselines, drift, `audit --host`, every row and every control
+  state and route. The coverage block asks its own identity question and asks
+  none for a file read through a link, so a zero-row file read that way is
+  still `unchanged_not_proven`. The host-config and cold-start benchmark
+  replays reproduce their run-of-record scores.
+
+**Compatibility.** No field changes shape. A consumer that switches on
+`comparison_status` reads `comparable` where it read `incomparable` for these
+layouts, with the limit in `unchanged_limits` exactly as a limit at its own
+path has been published since `1.0.0`.
+
 <a id="host-comparison-coverage-812"></a>
 
 ## Migration Note: 1.1.0 — what each host comparison established (verifier `0.20`, capability diff `0.3`, contract v40, #812)

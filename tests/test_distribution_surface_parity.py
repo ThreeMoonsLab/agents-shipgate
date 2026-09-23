@@ -226,7 +226,12 @@ SURFACES: tuple[Surface, ...] = (
         # reserved coverage `scope`, and is read as incomparable by every
         # control route, so it adds no claim; every route to the same object,
         # and every refusal it must keep, is held by
-        # `tests/test_partial_host_comparison.py`.
+        # `tests/test_partial_host_comparison.py`. Naming an unchanged limit
+        # the reader reached through an in-tree link (#822) rests on a Git
+        # identity fact about the link and the file it lands on, the proof
+        # every unchanged limit already rested on, so it restates no engine
+        # answer and adds no claim; `tests/test_linked_unchanged_limits.py`
+        # holds diff, verify, the PR comment and `check` to it.
         {},
     ),
     Surface(
