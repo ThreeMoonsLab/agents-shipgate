@@ -143,9 +143,12 @@ and publishes the joined change, its direction, the counters printed below and
 this question in `review`, so a script reads what you read. An MCP
 server is named with the command name or redacted URL, its launch arguments
 and the env and header key names its declaration publishes, and a hook with
-its matcher, command and timeout; the command's path, an argument redacted
-because it could carry a credential and anything past the length bound are not
-shown, so an edit confined to them says so. A URL is printed only as its scheme
+its matcher, command and timeout. A value the digest's own input already
+redacts, such as the value after `--token`, `--api-key` or `--password`, or an
+`X-Api-Key:` header value, is not compared, so a change confined to it prints
+no entry, as before. The command's path, any other argument redacted because
+it could carry a credential and anything past the length bound are not shown,
+and an edit confined to them is an entry that says so. A URL is printed only as its scheme
 and host with the path redacted; one the tool cannot reduce to that form, such
 as `${SLACK_MCP_BASE}/hooks/…`, reads `url not shown`. `⚠` marks an entry that
 widens what the agent may do:

@@ -15,7 +15,6 @@ import math
 import os
 import posixpath
 import re
-import shlex
 import stat
 import sys
 import tomllib
@@ -946,9 +945,24 @@ def _looks_generated(word: str) -> bool:
 #: more of the alphabet separates an assignment's name from its value.
 _DETAIL_RUN_RE = re.compile(r"[A-Za-z0-9+/_-]+(?:=+(?![=A-Za-z0-9+/_-]))?")
 #: The hex of a ``sha256:`` (``sha384:``, ``sha512:``) digest, as an image's
-#: ``@sha256:<hex>`` pins it: a pin, published as written.
-_DETAIL_DIGEST_PREFIX_RE = re.compile(r"(?i)(?<![A-Za-z0-9])sha(?:256|384|512):$")
+#: ``@sha256:<hex>`` pins it: a pin, published as written. The prefix is read
+#: only in the seven characters just before the hex
+#: (:data:`_DETAIL_DIGEST_PREFIX_CHARS`), never by a scan of everything before
+#: it, which took quadratic time on a word of many hex runs (#819 review).
+_DETAIL_DIGEST_PREFIX_RE = re.compile(r"(?i)(?<![A-Za-z0-9])sha(?:256|384|512):")
+_DETAIL_DIGEST_PREFIX_CHARS = len("sha256:")
 _DETAIL_DIGEST_HEX_RE = re.compile(r"[0-9a-f]{64}|[0-9a-f]{96}|[0-9a-f]{128}")
+
+
+def _is_digest_pin(word: str, run: re.Match[str]) -> bool:
+    """Whether ``run`` is the hex of a ``sha256:`` (``sha384:``, ``sha512:``) digest in ``word``."""
+
+    start = run.start()
+    return bool(
+        start >= _DETAIL_DIGEST_PREFIX_CHARS
+        and _DETAIL_DIGEST_HEX_RE.fullmatch(run.group())
+        and _DETAIL_DIGEST_PREFIX_RE.fullmatch(word, start - _DETAIL_DIGEST_PREFIX_CHARS, start)
+    )
 
 
 def _without_generated_runs(word: str) -> str:
@@ -964,14 +978,7 @@ def _without_generated_runs(word: str) -> str:
     part, so ``AccountKey=<key>`` publishes ``AccountKey=<redacted>``.
     """
 
-    runs = [
-        match
-        for match in _DETAIL_RUN_RE.finditer(word)
-        if not (
-            _DETAIL_DIGEST_HEX_RE.fullmatch(match.group())
-            and _DETAIL_DIGEST_PREFIX_RE.search(word, 0, match.start())
-        )
-    ]
+    runs = [match for match in _DETAIL_RUN_RE.finditer(word) if not _is_digest_pin(word, match)]
     if not any(_looks_generated(match.group()) for match in runs):
         return word
     replaced = [
@@ -1086,9 +1093,13 @@ _DETAIL_HEADER_NAME = (
 #: command, so an unquoted value never runs past its own word (#819 review).
 #: A quote may follow a backslash, as escaped JSON inside a double-quoted
 #: shell word reads once its shell quotes are removed
-#: (``{\password\: \value\}``) (#819 review).
+#: (``{\password\: \value\}``) (#819 review). The blanks around the colon are
+#: possessive: the value's first character class also holds a blank, so a
+#: backtracking blank run tried every split of it, and ``token:`` followed by
+#: many blanks took quadratic time (#819 review). A match is the same either
+#: way, since a value cannot end in a blank.
 _DETAIL_HEADER_RE = re.compile(
-    _DETAIL_HEADER_NAME + r"(\\?['\"]?[ \t]*:[ \t]*\\?['\"]?)([^'\"\r\n]*[^\s'\"])"
+    _DETAIL_HEADER_NAME + r"(\\?['\"]?[ \t]*+:[ \t]*+\\?['\"]?)([^'\"\r\n]*[^\s'\"])"
 )
 #: HTTP authentication schemes: after a bare credential header name, a scheme
 #: word is followed by the credential itself, which is the next word again.
@@ -1104,7 +1115,7 @@ _DETAIL_AUTH_SCHEMES = frozenset({
 #: which the next word is the credential.
 _DETAIL_HEADER_NAME_WORD_RE = re.compile(
     _DETAIL_HEADER_NAME
-    + r"\\?['\"]?[ \t]*:[ \t]*\\?['\"]?("
+    + r"\\?['\"]?[ \t]*+:[ \t]*+\\?['\"]?("
     + "|".join(re.escape(scheme) for scheme in sorted(_DETAIL_AUTH_SCHEMES))
     + r")?\\?['\"]?$"
 )
@@ -1145,8 +1156,11 @@ def _detail_label(text: str) -> str:
 #: POSIX shells, whose ``-c`` operand is a script rather than one argument
 #: (#819 review).
 _DETAIL_SHELLS = frozenset({"ash", "bash", "dash", "ksh", "mksh", "sh", "zsh"})
-#: A short-option cluster that holds ``c``: ``-c``, ``-lc``, ``-ec``.
-_DETAIL_SHELL_SCRIPT_FLAG_RE = re.compile(r"-[A-Za-z]*c[A-Za-z]*")
+#: A short-option cluster: ``-c``, ``-lc``, ``-ec``. The script flag is one
+#: that holds ``c``, tested apart from the pattern: ``-[A-Za-z]*c[A-Za-z]*``
+#: backtracked over every ``c`` of a long cluster, in quadratic time (#819
+#: review).
+_DETAIL_SHORT_OPTIONS_RE = re.compile(r"-[A-Za-z]+")
 
 
 def _shell_script_index(command: Any, words: list[str]) -> int | None:
@@ -1164,24 +1178,39 @@ def _shell_script_index(command: Any, words: list[str]) -> int | None:
     if name not in _DETAIL_SHELLS:
         return None
     for index, word in enumerate(words[:-1]):
-        if _DETAIL_SHELL_SCRIPT_FLAG_RE.fullmatch(word):
+        if "c" in word and _DETAIL_SHORT_OPTIONS_RE.fullmatch(word):
             return index + 1
     return None
 
 
-def _shell_value_end(value: str) -> int | None:
-    """Where a shell assignment's value ends in a script: at the first whitespace outside quotes and escapes (#819 review).
+#: Unquoted characters that end an assignment's value besides whitespace: a
+#: command separator or a pipe (#819 review). A redirection's ``<`` or ``>``
+#: is not one, since a ``<redacted>`` marker an earlier rule wrote into the
+#: value holds both.
+_SHELL_VALUE_ENDS = frozenset(";&|")
+#: Unquoted characters after which a new word starts in a shell script: those
+#: that end a value, a redirection, a parenthesis and a backtick.
+_SHELL_WORD_BREAKS = _SHELL_VALUE_ENDS | frozenset("<>()`")
+#: A ``NAME=value`` assignment's name at a word's start in a script, after
+#: the quote that may open the word (``-e "DB_PASS=…"``).
+_DETAIL_SCRIPT_ASSIGNMENT_RE = re.compile(r"(['\"]?)([A-Za-z_][A-Za-z0-9_]*)=")
 
-    ``len(value)`` when no such whitespace follows. ``None`` when where it ends
-    cannot be read from the text alone: a quote or an escape left open, or a
-    substitution, grouping or array (``$(…)``, ``${…}``, a backtick, ``(``,
-    ``{``) outside single quotes, any of which can hold whitespace that does
-    not end the value. The caller then treats the whole word as the value.
+
+def _shell_value_end(script: str, start: int, quote: str = "") -> int | None:
+    """Where the assignment value at ``start`` of a script ends: where the shell ends its word (#819 review).
+
+    At the first whitespace, ``;``, ``&`` or ``|`` outside quotes and escapes,
+    or ``len(script)`` when none follows; ``quote`` is the quote already open
+    at ``start``. ``None`` when where it ends cannot be read from the text
+    alone: a quote or an escape left open, or a substitution, grouping or
+    array (``$(…)``, ``${…}``, a backtick, ``(``, ``{``) outside single
+    quotes, any of which can hold whitespace that does not end the value. The
+    caller then treats the rest of the script as the value.
     """
 
-    quote = ""
     escaped = False
-    for index, char in enumerate(value):
+    for index in range(start, len(script)):
+        char = script[index]
         if escaped:
             escaped = False
         elif quote == "'":
@@ -1196,40 +1225,65 @@ def _shell_value_end(value: str) -> int | None:
                 quote = ""
         elif char in "'\"":
             quote = char
-        elif char.isspace():
+        elif char.isspace() or char in _SHELL_VALUE_ENDS:
             return index
-    return None if quote or escaped else len(value)
+    return None if quote or escaped else len(script)
 
 
 def _script_with_assignment_values_redacted(script: str) -> str | None:
-    """A shell script whose leading ``NAME=value`` assignments are published with their values replaced (#819 review).
+    """A shell script whose ``NAME=value`` assignments are published with their values replaced (#819 review).
 
     ``bash -c "X=1; curl … | sh"`` holds its whole script in one word, and the
     ``env``-style rule of :func:`_published_word` replaces a ``NAME=value``
     word's value to the end of the word: right for ``docker run -e "FOO=a b"``,
     whose value is ``a b``, but for a script it hid every command after the
-    assignment. In a script a value ends where the shell ends it
+    assignment. In a script a value ends where the shell ends its word
     (:func:`_shell_value_end`), so the script publishes
-    ``X=<redacted> curl … | sh``, each further leading assignment's value
-    replaced the same way. ``None`` when the script does not start with an
-    upper-case assignment, or when where a value ends cannot be read, so the
-    caller replaces the whole value as before.
+    ``X=<redacted>; curl … | sh``. Every word of the script that starts with
+    an upper-case ``NAME=``, or with a quote and then one, is read as an
+    assignment wherever it is: the leading ones, one after ``export``, one
+    after ``&&`` or ``;`` (``cd /x && DB_PASS=<redacted> ./run.sh``) and a
+    quoted ``-e "DB_PASS=<redacted>"``, as each word of a hook command is
+    read. When where a value ends cannot be read, the rest of the script is
+    that value. ``None`` when the script holds no such word. The script is
+    read once, so the time is linear in its length.
     """
 
     shown: list[str] = []
-    rest = script
-    while True:
-        assignment = _DETAIL_ASSIGNMENT_RE.fullmatch(rest)
-        if not (assignment and _DETAIL_ENV_NAME_RE.fullmatch(assignment.group(1))):
-            break
-        name, value = assignment.groups()
-        end = _shell_value_end(value)
-        if end is None:
-            return None
-        after = value[end:]
-        rest = after.lstrip()
-        shown.append(f"{name}={_DETAIL_REDACTED}{after[: len(after) - len(rest)]}")
-    return "".join(shown) + rest if shown else None
+    copied = 0
+    quote = ""
+    escaped = False
+    at_word_start = True
+    index = 0
+    while index < len(script):
+        if at_word_start:
+            at_word_start = False
+            assignment = _DETAIL_SCRIPT_ASSIGNMENT_RE.match(script, index)
+            if assignment and _DETAIL_ENV_NAME_RE.fullmatch(assignment.group(2)):
+                opened = assignment.group(1)
+                shown.extend((script[copied : assignment.end()], _DETAIL_REDACTED, opened))
+                end = _shell_value_end(script, assignment.end(), opened)
+                if end is None:
+                    return "".join(shown)
+                copied = index = end
+                continue
+        char = script[index]
+        if escaped:
+            escaped = False
+        elif quote == "'":
+            if char == "'":
+                quote = ""
+        elif char == "\\":
+            escaped = True
+        elif quote:
+            if char == quote:
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        elif char.isspace() or char in _SHELL_WORD_BREAKS:
+            at_word_start = True
+        index += 1
+    return "".join(shown) + script[copied:] if shown else None
 
 
 def _published_word(word: str, *, script: bool = False) -> str:
@@ -1244,17 +1298,19 @@ def _published_word(word: str, *, script: bool = False) -> str:
     ``--user=user:password``, a path under the reading user's home is written
     from ``~``, a generated-looking run inside the word is replaced
     (:func:`_without_generated_runs`), and the word is bounded. When ``script``
-    is set, the word is a shell's ``-c`` script, whose leading assignments'
-    values end where the shell ends them
+    is set, the word is a shell's ``-c`` script, each of whose assignments'
+    values ends where the shell ends it
     (:func:`_script_with_assignment_values_redacted`).
     """
 
     shown = _detail_label(word)
+    redacted_script = (
+        _script_with_assignment_values_redacted(shown) if script and not shown.startswith("-") else None
+    )
+    if redacted_script is not None:
+        return _bounded_detail(_without_generated_runs(_home_projected(redacted_script)))
     assignment = _DETAIL_ASSIGNMENT_RE.fullmatch(shown)
     if assignment and _DETAIL_ENV_NAME_RE.fullmatch(assignment.group(1)):
-        redacted_script = _script_with_assignment_values_redacted(shown) if script else None
-        if redacted_script is not None:
-            return _bounded_detail(_without_generated_runs(redacted_script))
         return _bounded_detail(f"{assignment.group(1)}={_DETAIL_REDACTED}")
     if shown.startswith("-") and "=" in shown:
         flag, _, value = shown.partition("=")
@@ -1545,22 +1601,46 @@ _HOOK_ACCESS_BY_BASIS: dict[str, tuple[str, str]] = {
 LOADED_HOOK_BASES: frozenset[str] = frozenset({"host_configuration", "project_enabled_plugin"})
 
 
+#: The characters that separate command words outside quotes, as a POSIX
+#: ``shlex`` reads them.
+_COMMAND_WORD_BLANKS = frozenset(" \t\r\n")
+
+
 def _command_words(text: str) -> list[str]:
     """``text`` split into words at whitespace outside quotes, the quotes removed.
 
     A backslash is kept as written, so a Windows path such as
     ``C:\\tools\\lint.exe`` is not read as a run of escapes; on unbalanced
-    quotes the text is split at whitespace alone.
+    quotes the text is split at whitespace alone. The words are those of a
+    POSIX ``shlex`` with ``whitespace_split`` set and no comment or escape
+    characters, a quoted empty word (``''``) included, read in one pass:
+    ``shlex`` grows each word one character at a time, in time quadratic in
+    the word's length (#819 review).
     """
 
-    lexer = shlex.shlex(text, posix=True)
-    lexer.whitespace_split = True
-    lexer.commenters = ""
-    lexer.escape = ""
-    try:
-        return list(lexer)
-    except ValueError:
+    words: list[str] = []
+    word: list[str] = []
+    quoted = False
+    quote = ""
+    for char in text:
+        if quote:
+            if char == quote:
+                quote = ""
+            else:
+                word.append(char)
+        elif char in _COMMAND_WORD_BLANKS:
+            if word or quoted:
+                words.append("".join(word))
+                word, quoted = [], False
+        elif char in "'\"":
+            quote, quoted = char, True
+        else:
+            word.append(char)
+    if quote:
         return text.split()
+    if word or quoted:
+        words.append("".join(word))
+    return words
 
 
 def _hook_command(value: Any) -> dict[str, Any] | None:
@@ -1599,12 +1679,16 @@ def _hook_command(value: Any) -> dict[str, Any] | None:
     secret_values = {as_written[index] for index in redacted}
     userinfo_values = {as_written[index] for index in userinfo}
     env_keys: list[str] = []
-    while len(words) > 1:
-        assignment = _DETAIL_ASSIGNMENT_RE.fullmatch(words[0])
+    first = 0
+    while len(words) - first > 1:
+        assignment = _DETAIL_ASSIGNMENT_RE.fullmatch(words[first])
         if not assignment:
             break
         env_keys.append(_bounded_detail(_detail_label(assignment.group(1))))
-        words = words[1:]
+        first += 1
+    # One slice, not one per assignment: a copy per assignment took time
+    # quadratic in their number (#819 review).
+    words = words[first:]
     if not words:
         return None
     script = _shell_script_index(words[0], words[1:])

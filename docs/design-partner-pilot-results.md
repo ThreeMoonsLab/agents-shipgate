@@ -110,19 +110,21 @@ against 0.21) and in the members #821 adds to the coverage block: each item's
 unexamined. This fixture changes only the two files the entry reads, so #821
 names nothing on it and `read_sources_only` stays `true`.
 
-#819 publishes hook and MCP argument detail and moves the host-grant
-inventory schema to 0.7 within the same contract. On a tree with #819 and
-without #821, the source-tree column was rerun on 2026-09-22 through
-`./shipgate` beside the `1.1.0` release commit (`e3c6cb0c`) on the same
-fixture. The two returned identical cells except two version numbers,
-runtime contract 40 against 41 and host-grant inventory schema 0.6 against
-0.7: `check` blocking with the same four violations and visible coverage,
-the host-only `init` handoff with no workflow written, manifest-free `verify`
-exiting 0 with six advisory rows, drift naming all four expansion signals,
-and `diff` exiting 0, `comparable`, with the same six rows, four widening —
-byte-identical `--json` apart from the workspace path and the fixture's
-commit ids. This fixture has no hook, and neither of its MCP servers changes
-its arguments.
+#819 then published hook and MCP argument detail and moved the host-grant
+inventory schema to 0.7 within the same contract. With both in the tree, the
+source-tree column was rerun on 2026-09-22 from this tree's source, beside the
+`v1.1.0` release commit (`e3c6cb0c`) exported and run the same way, on the
+fixture rebuilt from the description below. The cells are the ones above:
+`check` blocking with four violations and the same boundary result byte for
+byte, the host-only `init` handoff with no file written, manifest-free `verify`
+exiting 0 with six advisory rows, drift naming all four expansion signals, and
+`diff` exiting 0, `comparable`, with the same six rows, four widening, its text
+identical apart from the fixture's commit ids. The JSON differs only in schema
+versions (capability diff 0.3 against 0.4, verifier 0.20 against 0.21,
+host-grant inventory 0.6 against 0.7), in #821's coverage members as above, in
+`init --json`'s contract version and input id, and in drift's added
+`payments-remote` grant, which carries #819's `args: []` and `omitted_args: 0`.
+This fixture has no hook, and `billing`'s arguments do not change.
 
 An older release, `v0.15.0`, measured on 2026-09-05, did not. It reported
 runtime contract 10 and inventory schema 0.1; `check` returned `warn` / `none`
