@@ -454,7 +454,7 @@ def test_a_current_baseline_compares_step_references(tmp_path):
     path.parent.mkdir(parents=True)
     path.write_text(_yaml({"uses": f"actions/checkout@{PINNED}"}))
     baseline = build_host_grants_baseline(host_audit_inventory(tmp_path))
-    assert baseline["host_grants_schema_version"] == "0.6"
+    assert baseline["host_grants_schema_version"] == "0.7"
 
     path.write_text(_yaml({"uses": "actions/checkout@main"}))
     drift = build_host_drift_payload(baseline=baseline, inventory=host_audit_inventory(tmp_path), baseline_file="b.json")
@@ -821,7 +821,7 @@ def test_saving_over_a_legacy_baseline_without_a_workflow_is_refused(tmp_path, v
     path.rename(path.with_name(f"host-grants.v{version}.json"))
     resaved = CliRunner().invoke(app, [*audit, "--save-baseline"])
     assert resaved.exit_code == 0, _output(resaved)
-    assert json.loads(path.read_text())["host_grants_schema_version"] == "0.6"
+    assert json.loads(path.read_text())["host_grants_schema_version"] == "0.7"
 
 
 def _output(result) -> str:
@@ -945,7 +945,7 @@ def test_the_documented_migration_from_a_legacy_baseline_holding_a_workflow(tmp_
     path.rename(path.with_name("host-grants.v0.5.json"))
     resaved = CliRunner().invoke(app, [*audit, "--save-baseline"])
     assert resaved.exit_code == 0, resaved.output
-    assert json.loads(path.read_text())["host_grants_schema_version"] == "0.6"
+    assert json.loads(path.read_text())["host_grants_schema_version"] == "0.7"
     after = json.loads(CliRunner().invoke(app, [*audit, "--drift", "--json"]).stdout)
     assert (after["comparison_status"], after["has_drift"]) == ("comparable", False)
     assert path.with_name("host-grants.v0.5.json").read_text() == original

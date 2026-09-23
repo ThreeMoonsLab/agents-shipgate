@@ -1761,8 +1761,15 @@ def test_stop_hook_without_manifest_names_widening_rows_once(tmp_path: Path) -> 
     [
         json.dumps({"comparison_status": "incomparable", "incomparable_reasons": ["head_inventory_incomplete"], "rows": []}),
         "not json",
+        # #808: a partial comparison is not a whole one. Its rows are never
+        # announced as the change, and the hook still says to treat the
+        # change as unreviewed.
+        json.dumps({
+            "comparison_status": "partial", "incomparable_reasons": ["head_inventory_incomplete"],
+            "rows": [_WIDENING],
+        }),
     ],
-    ids=["incomparable", "unparsed"],
+    ids=["incomparable", "unparsed", "partial"],
 )
 def test_stop_hook_without_manifest_is_never_quiet_when_it_cannot_compare(tmp_path: Path, diff_payload: str) -> None:
     _host_diff_workspace(tmp_path)
@@ -1770,6 +1777,8 @@ def test_stop_hook_without_manifest_is_never_quiet_when_it_cannot_compare(tmp_pa
 
     message = json.loads(result.stdout)["systemMessage"]
     assert "could not compare the host configuration" in message
+    assert "Treat it as unreviewed" in message
+    assert "These rows widen" not in message
     assert "agents-shipgate diff" in message
 
 

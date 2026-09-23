@@ -27,7 +27,7 @@ uses only inert synthetic text and generic release metadata.
 ```
 
 The published release carries this fixture; replay it with
-`uvx agents-shipgate@1.0.0 fixture run prompt_change_rides_release`.
+`uvx agents-shipgate@1.1.0 fixture run prompt_change_rides_release`.
 
 Fresh output from the fixture contract:
 

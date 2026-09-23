@@ -174,8 +174,8 @@ def _all_routes(repo: Path, tmp_path: Path, *, head: bool = True) -> tuple[str, 
     text, payload = _diff(repo)
     verifier, comment, verify_text = _verify_with_text(repo, tmp_path / "out", head=head)
     comparison = verifier["host_comparison"]
-    assert payload["capability_diff_schema_version"] == "0.3"
-    assert verifier["verifier_schema_version"] == "0.20"
+    assert payload["capability_diff_schema_version"] == "0.4"
+    assert verifier["verifier_schema_version"] == "0.21"
     for key in ("comparison_status", "incomparable_reasons", "rows", "unchanged_limits", "coverage"):
         assert comparison[key] == payload[key], key
     if HEADING in text.splitlines():
@@ -942,7 +942,7 @@ def test_the_list_is_capped_with_the_changed_source_first(tmp_path: Path) -> Non
         ".github/workflows/w00.yml, .github/workflows/w01.yml and 9 more",
     ]
     assert "and 9 more" in comment
-    schema = json.loads((ROOT / "docs/verifier-schema.v0.20.json").read_text(encoding="utf-8"))
+    schema = json.loads((ROOT / "docs/verifier-schema.v0.21.json").read_text(encoding="utf-8"))
     Draft202012Validator(schema).validate(json.loads((tmp_path / "out/verifier.json").read_text("utf-8")))
 
 
@@ -1211,7 +1211,9 @@ def test_a_comparison_that_read_no_source_says_so(tmp_path: Path) -> None:
     text, payload = _diff(repo)
 
     assert payload["coverage"] == {
-        "items": [], "omitted_items": 0, "read_sources_only": True
+        "items": [], "omitted_items": 0, "read_sources_only": True,
+        # A README is no candidate, and the change set was examined (#821).
+        "unread_candidates": "examined", "unread_candidates_not_examined": 0,
     }
     # The emptiest answer of all still says what it is an answer about, and
     # where it came from (#812 follow-up).
@@ -1576,7 +1578,7 @@ def test_a_v0_19_verifier_reads_with_coverage_not_recorded(tmp_path: Path) -> No
     _commit(repo, "env")
     verifier, _comment = _verify(repo, tmp_path / "out")
     assert verifier["host_comparison"]["coverage"]["items"]
-    current = json.loads((ROOT / "docs/verifier-schema.v0.20.json").read_text(encoding="utf-8"))
+    current = json.loads((ROOT / "docs/verifier-schema.v0.21.json").read_text(encoding="utf-8"))
     Draft202012Validator(current).validate(verifier)
 
     # A strict 0.19 reader rejects the new member: the reason the version moved.
@@ -1595,7 +1597,7 @@ def test_a_v0_19_verifier_reads_with_coverage_not_recorded(tmp_path: Path) -> No
     legacy["host_comparison"].pop("review")
     assert not list(Draft202012Validator(frozen).iter_errors(legacy))
     read = VerifierArtifact.model_validate(legacy)
-    assert read.verifier_schema_version == "0.20"
+    assert read.verifier_schema_version == "0.21"
     assert read.host_comparison is not None and read.host_comparison.coverage is None
     # Not recorded prints no block, never an invented one.
     assert coverage_lines(read.host_comparison) == []
@@ -1711,8 +1713,9 @@ def test_every_block_states_the_boundary_of_what_it_lists(tmp_path: Path) -> Non
 
     A file this entry does not read is not an item, so a block listing only
     what it read cannot be the account of the change. Here the change adds a
-    file no host reader reads at all: the block says nothing about it, and now
-    says that it says nothing about it.
+    file no host reader reads at all, and no candidate rule names either
+    (#821): the block says nothing about it, and says that it says nothing
+    about it.
     """
 
     repo = _repository(tmp_path)
@@ -1722,8 +1725,8 @@ def test_every_block_states_the_boundary_of_what_it_lists(tmp_path: Path) -> Non
 
     text, payload, comparison, comment = _all_routes(repo, tmp_path)
 
-    # The added file is not an item, and is not made one here: this publishes
-    # no discovery rule. What changes is that the list says so.
+    # The added file is not an item: a shell script is outside the bounded
+    # candidate rules (#821), so the list says what it is not.
     assert "scripts/pin-hooks.sh" not in text + comment + json.dumps(payload)
     assert _raw_block(text)[:2] == [HEADING, f"  {BOUNDARY}"]
     assert payload["coverage"]["read_sources_only"] is True

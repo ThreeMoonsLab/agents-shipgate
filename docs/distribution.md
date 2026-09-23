@@ -6,7 +6,7 @@ These items require release infrastructure, registry credentials, domains, or Gi
 
 | Line | Carries | Install | Promises | Cadence |
 | --- | --- | --- | --- | --- |
-| **Advisory** | `diff`, `check`, `audit --host`, drift, advisory PR comments | a `v*` release declared `advisory` — `v1.0.0` is one, on PyPI — or an unqualified preview pre-release | plain-language capability rows; **no blocking authority** unless an adopter configures a blocking policy | 14 days |
+| **Advisory** | `diff`, `check`, `audit --host`, drift, advisory PR comments | a `v*` release declared `advisory` — `v1.1.0` is one, on PyPI — or an unqualified preview pre-release | plain-language capability rows; **no blocking authority** unless an adopter configures a blocking policy | 14 days |
 | **Qualified gate** | blocking verdicts backed by qualification evidence, receipts, attestations | a `v*` release on the qualified line | every bar in [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) | on evidence only |
 
 A `v*` tag's shape does not say which line it is on. Each release version is
@@ -27,15 +27,15 @@ still needed to prove the shipping cadence.
 
 
 - `agents-shipgate` is published on PyPI.
-- Pinned GitHub Action release tags are published, including `v1.0.0`.
+- Pinned GitHub Action release tags are published, including `v1.1.0`.
 - A **qualified** `v*` GitHub Release attaches the independently qualified
   wheel, SBOM, `safety-qualification.json`, and their Sigstore bundles.
 - An **advisory** `v*` GitHub Release attaches the wheel, a wheel-scoped SBOM,
   `provenance.json`, `candidate-manifest.json` and a signed
   `advisory-statement.json`, with Sigstore bundles for the wheel, SBOM and
-  statement, and no qualification artifact. `v1.0.0` is published this way;
-  its statement records advisory defaults, blocking opt-in and no
-  qualification claim.
+  statement, and no qualification artifact. `v1.0.0` and `v1.1.0` are
+  published this way; each statement records advisory defaults, blocking
+  opt-in and no qualification claim.
 - The tag workflow does not rebuild or publish an unqualified sdist.
 - **Unqualified previews** are published as GitHub *pre-releases* at
   `preview-<version>`, carrying one wheel and no qualification artifact. They

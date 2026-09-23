@@ -62,3 +62,11 @@ class VerificationContext(BaseModel):
     # compare. It never relaxes a verdict; it only stops the head from
     # claiming a comparison it did not get.
     base_comparison_unavailable: bool = False
+    # The files that hold hooks of a plugin the repository's project settings
+    # enable, read from both compared sides (an ``EnabledPluginHookFiles``),
+    # and the input issues from reading them (``BoundaryInputIssue``s), as
+    # `check` reads them (#809). ``None`` reads the scanned tree only, which
+    # cannot see a hook file the change deleted. Run-private: excluded from
+    # serialization and never published.
+    enabled_plugin_hooks: Any = Field(default=None, exclude=True, repr=False)
+    enabled_plugin_hook_issues: tuple[Any, ...] = Field(default=(), exclude=True, repr=False)

@@ -75,7 +75,7 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     ]
     assert payload["schema_version"] == LOCAL_CONTRACT_SCHEMA_VERSION == "10"
     assert payload["agents_shipgate_version"] == __version__
-    assert payload["contract_version"] == CONTRACT_VERSION == "40"
+    assert payload["contract_version"] == CONTRACT_VERSION == "41"
     assert payload["minimum_control_contract_version"] == "21"
     assert payload["default_paths"]["local_contract"] == LOCAL_CONTRACT_RELATIVE_PATH
     assert payload["primary_commands"] == dict(PRIMARY_COMMANDS)
@@ -125,7 +125,7 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     ]
     assert payload["verifier_read_order"][-2:] == ["request_id", "decision_id"]
     assert payload["gating_signal"] == GATING_SIGNAL
-    assert payload["verifier_schema_version"] == "0.20"
+    assert payload["verifier_schema_version"] == "0.21"
     assert payload["verify_run_schema_version"] == "shipgate.verify_run/v5"
     assert payload["human_authorization_request_schema_version"] == (
         "shipgate.human_authorization_request/v1"
@@ -156,9 +156,9 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     assert payload["attestation_schema_version"] == "0.5"
     assert payload["registry_schema_version"] == "0.4"
     assert payload["org_evidence_bundle_schema_version"] == ("shipgate.org_evidence_bundle/v2")
-    assert payload["host_grants_inventory_schema_version"] == "0.6"
-    assert payload["host_grants_baseline_schema_version"] == "0.6"
-    assert payload["host_grants_drift_schema_version"] == "0.6"
+    assert payload["host_grants_inventory_schema_version"] == "0.7"
+    assert payload["host_grants_baseline_schema_version"] == "0.7"
+    assert payload["host_grants_drift_schema_version"] == "0.7"
     assert payload["trigger_catalog_schema_version"] == "0.4"
     assert payload["agent_result_schema_version"] == "agent_result_v3"
     assert payload["agent_result_schema_path"] == "docs/agent-result-schema.v3.json"

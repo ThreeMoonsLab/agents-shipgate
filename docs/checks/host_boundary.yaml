@@ -53,7 +53,11 @@ checks:
     review.
   fires_when: A changed .mcp.json, .cursor/mcp.json, .vscode/mcp.json,
     .claude/settings(.local).json, or .github/workflows file cannot be parsed
-    as JSON or YAML, or its content cannot be resolved from the diff.
+    as JSON or YAML, or its content cannot be resolved from the diff. A
+    settings file that parses but changes a top-level key outside the
+    host-boundary rule allow-list records the key here with evidence kind
+    unknown_host_config_key; a Claude Code setting the host-grant table
+    models is rated by that table instead (#827).
   evidence_fields: [kind, error, source]
   recommendation: Fix the malformed host config or have a human review the
     change.
@@ -97,8 +101,14 @@ checks:
     adds an allow rule that is '*', a bare tool name, or a wildcard-shaped
     rule such as 'Bash(*)' or 'Bash(*:*)'. An MCP rule naming tools within
     one server, such as 'mcp__github__get_issue', is scoped; 'mcp__github'
-    and 'mcp__github__*' grant the whole server.
-  evidence_fields: [kind, rule]
+    and 'mcp__github__*' grant the whole server. It also fires, at critical,
+    when the change sets a Claude Code setting the host-grant table rates
+    critical, one that removes a prompt wholesale - defaultMode set to
+    bypassPermissions (every permission prompt),
+    skipDangerousModePermissionPrompt set to true (the confirmation before
+    that mode) or enableAllProjectMcpServers set to true (every project MCP
+    server's approval) - naming the setting in the evidence (#827).
+  evidence_fields: [kind, rule, mode, setting, value]
   recommendation: Do not allow wildcard tool permissions; scope the rule to
     specific commands.
 - id: SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED
@@ -110,8 +120,14 @@ checks:
   rationale: Every new allow rule widens what the host executes without a
     prompt; expansion needs a human in the loop.
   fires_when: A changed .claude/settings.json or .claude/settings.local.json
-    adds a non-wildcard permissions.allow entry.
-  evidence_fields: [kind, rule]
+    adds a non-wildcard permissions.allow entry. It also fires when the
+    change sets any other value of a Claude Code setting the host-grant table
+    models - a 'defaultMode' such as 'acceptEdits' or 'dontAsk', an
+    'enabledMcpjsonServers' entry, 'disableBypassPermissionsMode',
+    'disableAllHooks', the managed-only switches, or 'false' for the prompt
+    switches - at the rating the table gives the value, which is the rating
+    its grant and host-diff row carry (#827).
+  evidence_fields: [kind, rule, mode, setting, value]
   recommendation: Have a human approve the new permission allow rule.
 - id: SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED
   default_severity: high

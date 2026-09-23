@@ -1,5 +1,147 @@
 # Changelog
 
+## Unreleased
+
+### Changes
+
+- Move the published-release pins, examples and adoption prompts to `v1.1.0` (contract 40) now that it is published, re-capture the README and quickstart `diff` answers from the published `1.1.0`, and re-measure the pilot ledger's Route H dry run on it. No schema or contract change. (#778)
+- A host comparison names the changed inputs it does not read, so a zero-row result is not read as covering them. (#821; slice 2 of #812)
+  - **The problem.** A pull request that added a Cursor plugin's `mcp.json`, removed a `beforeShellExecution` guard from `.cursor/hooks.json`, gave a dotfiles package's `claude/.claude/settings.json` `Bash(*)`, or moved a marketplace plugin's pinned `sha` printed `No static host-grant changes detected`, as a docs-only change does. Re-running a 23-PR public corpus after #812 found 11 of 23 pull requests were such coverage gaps: 0 of the 9 comparable zero-row results named the changed relevant file, and 4 of them named a file the pull request did not touch while omitting the one it did.
+  - **What is named.** `diff`, `verify` and the manifest-free PR comment list, under `What this run established`, each path in the comparison's own changed-file set that a bounded, documented candidate rule recognises and no reader of this entry read: `mcp.json` in a plugin directory, a plugin manifest's `mcpServers`, a Codex, Cursor or Copilot manifest's `hooks` and the hook files it names, a manifest or marketplace that does not parse, `.cursor/hooks.json`, host settings below the repository root, and an external marketplace plugin source — `plugins/demo/mcp.json (cursor): added, not read by this entry: MCP configuration in a plugin directory; no row, and loading is not established`. An external source names what it now points at, redacted, and is never fetched. The block's first line says the list includes them. Ordinary documentation, an unrelated `*.json` and an unchanged candidate name nothing.
+  - **What it is not.** Never a row, a widening, a `check` violation or a claim that a host loads the file. Nothing is fetched or run, only plugin manifests and marketplaces are read, and at most 32 candidates are examined; the rest, and any whose rule needed a file that was not read or did not parse, are counted as not examined, on a line that names both causes. The rules are listed in `docs/host-boundary-support.md` under *Changed inputs named but not read*.
+  - **JSON.** A `changed_not_read` coverage item with its `candidate` rule, ranked right after the blocking limits and inside the existing cap; `read_sources_only` is `false` while one is named, and `unread_candidates` / `unread_candidates_not_examined` say whether the change set was examined. Verifier `0.20` → `0.21`, capability diff `0.3` → `0.4`, runtime contract 40 → 41; host-grants does not move for it (#819, below, moves it to `0.7` in the same contract), and `minimum_control_contract_version` stays `21`. A `0.20` verifier reads with the search not recorded.
+  - **One route moves, on `verify` and `verify --preview` alike.** A manifest-free `verify` whose only host-relevant change is such an input, or a changed candidate it counts as not examined, now publishes the host comparison (advisory, exit `0`) instead of the setup route, which said nothing about the change. `verify --preview` moves the same way: its next action is now `discover` (`audit --host`) with the comparison published, where it was `initialize` (`init --write`) with none. That includes an agent-related workspace, as it already did when the change edited a host file this entry reads. The pilot ledger's source-tree column was re-measured for contract 41. Rows, digests, baselines, `audit --host`, `check` and the benchmark replays are unchanged.
+- A hook row now names what changed in the hook, and an MCP row names a change to the server's launch arguments. Before, `diff`, `verify`, the manifest-free PR comment and `check` printed `PostToolUse → PostToolUse` whether the edit was to the hook's matcher, its command or its timeout, and an MCP server whose version pin moved from `example-mcp-server@1.2.3` to `@latest` read `docs: no difference in the command name npx, env key names or header key names; the change is in a detail this output does not show, such as the command's path or arguments`: the grants carried none of it, and only `config_sha256` saw the edit. On five of 23 public pull requests measured on 2026-09-15, the hook rows showed only event names. (#819, slice 2 of #795; direction is #820, an unpinned-launch note #825)
+  - **The rows a reviewer reads:** `PostToolUse: matcher Edit → Edit|Write|Bash`, `PostToolUse: command changed (lint.sh sha256:d075f5f4772e → curl sha256:a510416cbecc)`, `PostToolUse: timeout 10 → 600` and `docs: package example-mcp-server@1.2.3 → example-mcp-server@latest`, in `diff`, `verify` text, the PR comment and `check` text, and in `review.changes[].change` in `diff --json` and `verifier.json`; any other launch argument edit reads `launch arguments changed (sha256:… → sha256:…)`, a digest printed as its first twelve hex digits. A timeout written as text prints quoted, so it never reads as a number or a boolean: `timeout 5 → "5"`, `timeout true → "true"`. With several handlers under one event the entry names which one (`handler 2 timeout 5 → 50`), and an added or removed handler is listed as such. The same published handlers in another order read `the published handlers in a different order; a detail this output does not show may also differ, such as …`, never that they are the same handlers. An added or removed hook names its handlers, `SessionEnd (command cleanup.sh sha256:18d2c7ec39bc)`, and an added MCP server its package. When none of the published fields differ, the entry says the change is in a detail it does not show — another hook setting such as `async`, or a redacted or shortened matcher or timeout; for an MCP server, the command's path or another setting such as `cwd` — instead of repeating the same values. The row's direction, severity, `why` and loading basis are unchanged: plugin-selected (#714) and Codex hooks read as before, and no entry claims a direction (#820), runtime loading or what a command does.
+  - **No command or argument text is published, on any surface.** A hook command is published as its executable's name — the last path segment of its first word, only when that is a plain token (`[A-Za-z0-9._+-]`, at most 80 characters) that no redaction rule rewrites, not a shell reserved word such as `if` and not part of a URL (a first word holding `://`), otherwise `<not-shown>` — and the SHA-256 of the whole command as `config_sha256`'s input holds it. An MCP server's arguments are published as at most one package specification of a strict shape (npm `name@version` or `@scope/name@version` with a version of two or three numeric parts, a `^`/`~` range on one or a common dist-tag; PyPI `name==version` with a version of two or more parts; an OCI image reference with a path and a tag or `sha256` digest) that no redaction rule rewrites and that follows no flag but a package runner's own (`-y`, `--from`, `--rm` …), and the SHA-256 of every argument with the package replaced by a marker and its position digested beside them. The matcher passes the #802 published-label redaction and is cut at 120 characters, and a matcher longer than 1,024 characters as `config_sha256`'s input holds it is `<not-shown>`, never redacted or cut; a timeout is the number or boolean as declared, an over-80-digit integer's cut digits, a plain-token string, or `<not-shown>` for anything else, a non-finite float among them. Earlier drafts published redacted command words, and each of four review cycles found a credential the redaction rules missed inside free-form shell text; publishing none of it closes the class.
+  - **Host-grants `0.7`:** a hook grant adds `handlers[]` — each handler's group `matcher`, its `command` `{executable, sha256}` and its `timeout` — and `omitted_handlers` (at most sixteen handlers are listed); an MCP server grant adds `package` and `args_sha256`, both `null` when no `args` is declared. A declaration outside the documented shape (a list of matcher groups whose `hooks` are objects, each `command` a string where one is declared) publishes `handlers: null`, and its row says the matcher, command and timeout are not shown because `the declaration is not a list of matcher groups whose hooks are objects and whose commands are strings`; when only one side is outside it, the row names that side (`base` or `head`) and lists the other side's handlers. Runtime contract v41.
+  - **Saved baselines hold none of it:** `audit --host --save-baseline` writes each hook and MCP grant without `handlers`, `package` or `args_sha256`, in either scope, so nothing read from `~/.claude/settings.json`, `~/.cursor/mcp.json`, managed settings or a git-ignored `.claude/settings.local.json` reaches the committed baseline. A saved `0.7` baseline's grants are the ones a `0.6` baseline holds; no comparison, row or digest read them, and `inventory_sha256` is unchanged.
+  - **The PR comment keeps every line 1.1.0 kept:** its 6,000-character bound cuts at the first line that does not fit, so long entries could hide every row after them, the coverage block, the change count, the review question, the reproduction and the advisory. The lines 1.1.0 printed now get their room first, the coverage block included, and the entries only what is left: an entry is printed whole when the whole comment fits; otherwise every longer entry is cut to the widest length of at least 60 characters at which it does, ending in `…`; and where not even that fits, entries are printed in their shortest form, longest first: a field-level difference cut after its name (`PreToolUse: …`), an added or removed grant as its row (`(absent) → PreToolUse`). No entry in that form is longer than the one 1.1.0 printed, and a permission rule's entry is never shortened. One line after the rows, not one per entry, says entries were shortened and that `verifier.json` holds each whole. On a pull request that moves two hook scripts under 14 events, 1.1.0's comment held every row, the coverage block, the review question, the reproduction and the advisory, and so does this one, within the same 6,000 characters. `verifier.json` and the other routes keep every entry whole. A comment with no readiness report now points to `verifier.json` when it omits detail, not to a `report.md` that route does not write.
+  - **Unchanged:** grant equality and every inventory digest leave the new members out, so a change is a row exactly when it was one before, through `config_sha256`; a value the digest's own input redacts (after `--token`, `--api-key` or `--password`, a `--password=…` value, an `X-Api-Key:` header value, a URL's path) moves no published digest, so a change confined to it is no row, as on 1.1.0; every row value, the row count, `check`'s boundary result and the control envelope's `capability_rows` publish what they did; verifier `0.21` and capability diff `0.4` do not move for it; the host-config and cold-start benchmark replays reproduce their run-of-record scores. The digest's credential-assignment rule gained a lookahead that removes its quadratic time on a long run of name characters and matches exactly what it matched, so every `config_sha256` is unchanged. Re-running `diff --json` on the 80 vendored benchmark cases with the prepared `1.1.0` commit and this tree on 2026-09-23 gave byte-identical rows on all 80; 23 entries on 22 cases changed, and each of the 7 changed hook or MCP entries (six repositories; one is vendored in both benchmarks) that read `PreToolUse → PreToolUse` or `no difference in the command name …` now names the field that changed, such as `mcp-outline: package mcp-outline==1.10.0 → mcp-outline==1.10.1` or `PreToolUse: handler 2 timeout 30 → 120`.
+  - **Compatibility:** a `0.6` baseline stays comparable with no new row or reason, and `audit --host --save-baseline` may now replace it; an older one is still refused, as before. Validators pinned to the `0.6` schemas reject a `0.7` inventory, baseline or drift payload; the `0.6` files stay published. See the [migration note](STABILITY.md#hook-mcp-detail-fields-819).
+
+- A plugin directory that cannot be compared no longer hides the host changes outside it. (#808)
+  - **The problem.** A pull request that broke `plugins/demo/.claude-plugin/plugin.json` and also dropped a `deny` rule from `.claude/settings.json` printed `Cannot compare against main: head_inventory_incomplete` and no row on `diff`, `verify` and the manifest-free PR comment, where the published `1.0.0` showed the removed denial. The plugin-reference limit #714 introduced refused the whole comparison, including files that plugin cannot reach.
+  - **What changes.** When every blocking limit that refused a comparison is a plugin-reference limit bounded by its plugin directory — a reference is followed only inside it, so that is all it can hide — and nothing outside the directory depends on it, the comparison is `partial`: the directory is left uncompared on both sides and named, and the rows outside it are published. `diff` opens with `Partial comparison against main (…) -> working tree: head_inventory_incomplete` and `Not compared: plugins/demo, a plugin directory this entry could not read completely, …` before any row; `verify` and the PR comment open with `Host capability comparison partial: …` and the same line. A partial result with no row says it is not a no-change answer and never prints `No static host-grant changes detected`.
+  - **Where it still refuses.** Any other limit that is not an unchanged one (an unreadable settings file, an instruction file whose structure could not be established, a link #700 does not read through), a reference that leaves its plugin, a plugin at the repository root or holding `.claude/settings.json`, a marketplace elsewhere declaring inline hooks for that plugin, or nothing read outside the directory: `incomparable`, no row, exactly as before. A hook file another plugin also selects is withheld with the directory.
+  - **JSON.** `comparison_status` adds `partial`, with the same `incomparable_reasons` the refusal would have named, and `rows`, `review` and `unchanged_limits` for what was compared. The reserved `coverage.items[].scope` now names the withheld directory on each `blocking_limit` item of a partial comparison, and is `null` everywhere else. In a partial comparison a changed project settings file with no row of its own is `changed_without_rows`, never `changed_without_grant_change`: the hooks whose loading basis it decides are not all compared. Verifier `0.21`, capability diff `0.4` and contract 41 are extended in place; a `0.20` verifier that claims a partial comparison or a scope is refused.
+  - **What does not move.** Every decision and route. `verify`'s control state, permissions, next action and exit code are the incomplete comparison's; the control envelope's `capability_rows` projects a partial comparison as `incomparable` with no rows; `check` names no scope, so it refuses its comparison as before, and the #808 fixture still gives `require_review` with `HOST-PERMISSION-DENY-REMOVED`; the Stop hook still says to treat the change as unreviewed. `audit --host`, digests, baselines and drift payloads are unchanged (host-grants stays `0.6`), and the host-config and cold-start benchmark replays reproduce their run-of-record scores. See the `STABILITY.md` migration note.
+
+- A Claude Code setting that disables prompts or approves project MCP servers
+  now carries one rating on every surface that names it. One table in the
+  engine rates each value, with its documented basis, and the `audit --host`
+  grant, the `diff`, `verify` and `check` rows, `check`'s violation and
+  `verify`'s finding all read it. `enableAllProjectMcpServers: true` and
+  `skipDangerousModePermissionPrompt: true` are no longer recorded as keys that
+  "could not be parsed" at `medium`: like `defaultMode: bypassPermissions`,
+  whose grant and row now read `critical`, they are `critical` everywhere and
+  `check` blocks with `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW`.
+  `defaultMode: dontAsk`, which Claude Code documents as denying whatever no
+  allow rule permits, is `medium` everywhere and no longer blocks; it is
+  reviewed through `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED`. `acceptEdits`
+  and `auto` grants and rows move from `medium` to the `high` `check` already
+  gave them, and `plan`, `default` and the other modelled settings move in
+  `check` to the `medium` their rows show. Rows name the setting and value
+  (`enableAllProjectMcpServers: true`, `defaultMode: dontAsk`,
+  `approval_policy: never`) instead of `True` or `dontAsk` alone, and a Claude
+  Code setting's row says what the value does. `enabledMcpjsonServers` is read
+  as one `high` grant and row per approved server, and an entry that names no
+  server is kept whole at `high` rather than dropped; `disabledMcpjsonServers`
+  stays unread. `check` evidence carries a setting's value as its grant
+  publishes it, with credentials redacted and at most 200 characters. A value
+  moved between `permissions` and the top level is one the change sets, so a
+  top-level `defaultMode: bypassPermissions` moved into `permissions`, where
+  Claude Code reads it, still blocks. No schema, contract or check id moves;
+  which check id fires for these values, and their decisions, do. See the
+  `STABILITY.md` migration note. (#827)
+
+- `check` and `verify` no longer pass a change to a Claude Code plugin's hook
+  that the repository's own project settings enable just because the plugin
+  keeps the hook outside the registry paths. 1.1.0 published such a hook as
+  `execute`/`high` and its change as a `widened`, expanding row, yet `check`
+  gave `allow` with `merge` permitted beside it, and a `verify` with a manifest
+  gave `passed` / `mergeable`, while the same hook at
+  `.claude/hooks/hooks.json` got `require_review` and `review_required`.
+  - **Routed.** A changed hook file an enabled plugin selects, such as
+    `plugins/demo/cfg/hooks.json`, and a plugin manifest or marketplace whose
+    inline hooks an enabled plugin loads, now reach the existing
+    protected-surface review: `SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED`
+    (evidence `hook_loading_basis: project_enabled_plugin`). In `check` that is
+    `require_review` with `merge` withheld. In a `verify` with a manifest it is
+    a finding that moves the release gate to `review_required` and the merge
+    verdict to `human_review_required`, and the PR comment says so. The route
+    needs both the file's name, one the plugin hook reader opens, and the
+    reader's finding, in the base or the head, that an enabled plugin loads
+    hooks from it. `check` and `verify` read both sides the same way, so a hook
+    file deleted with its reference is routed by both, and a hook a plugin only
+    selects stays unrouted, as #714 made it.
+  - **Unread.** A changed hook file an enabled plugin selects under a name the
+    static reader does not follow (`cfg/lifecycle.json`, not `hooks.json` or
+    `<name>-hooks.json`), or inside a directory the walk skips, holds hooks the
+    host loads and nothing read. It is now incomplete input,
+    `SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE`, in both: `human_review_required`,
+    where 1.1.0 gave `allow` with complete input.
+  - **Broken heads.** A head that leaves a routed hook file or plugin manifest
+    unreadable is incomplete input, as at a registry path. A marketplace the
+    head makes unparseable is different, because a marketplace limit never
+    blocks: the route still gives `require_review`, input stays `complete`, and
+    the comparison shows the marketplace's inline hooks as `removed`.
+  - **Unchanged.** Rows, the host inventory, `diff` and the trigger catalog.
+    A change only to a selector, a manifest's `hooks` reference or a
+    marketplace entry, that makes an enabled plugin load an existing,
+    unchanged hook file is still `allow` beside that file's `added` or
+    `widened` row. `check` gives the same when the selected file sits at a
+    registry path, so that is a separate limit. No schema, contract or check
+    id moves; what moves is when two existing check ids fire. See the
+    `STABILITY.md` migration note. (#809)
+
+- `verify --preview` in a repository with a `shipgate.yaml` no longer sends
+  the caller to a human for missing evidence. `verify --preview --json` there
+  answered `agent_action_required` with the exact `verify` command, while
+  `verify --preview --format control` answered `human_review_required` with
+  "The recorded source and dependency inputs are no longer current: input
+  directory capture is unavailable; re-run verification", and every
+  `agent control` refresh exited `4` with `workspace_unverifiable`. Re-running
+  reproduced it, with the default, an in-repository and a sibling `--out`
+  alike, on `1.0.0` and `1.1.0`.
+  - **The cause.** A manifest lets the preview record the verification plan a
+    `verify` would run, and the preview's pointer bound that plan as its
+    currency evidence. A preview runs no adapter, so none of the plan's inputs
+    was captured and the plan has no input-directory census, which every
+    reader refuses.
+  - **Now.** A preview's pointer binds its verifier route and never the plan,
+    and is read against the working tree it was run on, exactly as a
+    manifest-free preview's already was: `--format control` prints the
+    `--json` state and command, and `agent control` returns them, with the same
+    `current_control_id`, until a tracked edit, a new untracked file or a
+    removal refuses it as `workspace_changed`. Restoring the tree makes it
+    current again. The plan is still written, and `verify-run.json` still
+    embeds it.
+  - **Still refused.** A pointer that binds a plan without its census, such
+    as one a `1.1.0` configured preview left in a reports directory, is
+    `workspace_unverifiable` as before, with a `verify` command as its next
+    action; re-running the preview replaces it. The plan gains no census, so
+    `verification worker` still refuses to replay it. Nothing else reads a
+    missing census as complete.
+  - **A tree that cannot be read stays refused.** Under Git configuration the
+    worktree readers refuse (#813), the overlay a plan-less pointer binds
+    cannot be read, and such a pointer declared no snapshot at all, so the
+    refresh compared HEAD alone: a manifest-free preview stayed current over
+    any later edit, and a configured one would have too once it stopped
+    binding its plan. Every pointer published inside a repository without a
+    plan — a preview, or a `verify` that stopped before building one at a
+    `--config` or `--head` that does not exist — now declares the worktree
+    snapshot, so it is refused as `workspace_unverifiable` with the cause
+    first and a `review` next action, like every other pointer there, and the
+    run's own `--format control` says `human_review_required`, manifest or
+    not. `--json` is unchanged.
+  - **One refusal names the tree.** A preview refused as `workspace_changed`
+    now names up to three paths that differ from HEAD, redacted, instead of
+    saying the paths it was read from no longer had their content, which was
+    false for a tracked edit or a new file after a preview of a clean tree.
+  - No schema, contract, member, error kind, refusal code or exit code moves.
+    See the `STABILITY.md` migration note. (#807)
+
 ## 1.1.0 - 2026-09-22
 
 A legibility and presentation-correctness release on the advisory channel.

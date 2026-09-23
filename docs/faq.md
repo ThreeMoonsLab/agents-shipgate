@@ -147,8 +147,8 @@ Skip emission with `--no-packet`; re-render later with
 
 ## Is it production-ready?
 
-v1.0.0 is the latest published release. It ships on the advisory channel —
-runtime contract 39, report schema `1.0` — and makes no qualification claim:
+v1.1.0 is the latest published release. It ships on the advisory channel —
+runtime contract 40, report schema `1.0` — and makes no qualification claim:
 `.github/release-channels.json` declares it `advisory`, not `qualified`. What
 is frozen, and how it may change, is in [`STABILITY.md`](../STABILITY.md).
 

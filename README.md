@@ -49,7 +49,7 @@ entry per changed grant or replaced rule. If the PR targets another branch, pass
 drops a denial and adds an MCP server:
 
 ```text
-Agent capability diff  origin/main (943fd29b) -> working tree
+Agent capability diff  origin/main (07c50e1b) -> working tree
 
 ⚠ high    added    claude-code .mcp.json
                   billing (command name npx; env keys BILLING_TOKEN)
@@ -72,8 +72,8 @@ What this run established:
   .mcp.json (claude-code): compared; 1 row
 
 Review question: Does the team intend these 3 declared capability changes (from 4 rows)?
-Compared: base 943fd29b → working tree at HEAD 8982b16e, agents-shipgate 1.0.0.
-Reproduce in that working tree: agents-shipgate diff --base 943fd29b6e483d27ad9eb52c6d909357c9f2541b
+Compared: base 07c50e1b → working tree at HEAD 55a980d1, agents-shipgate 1.1.0.
+Reproduce in that working tree: agents-shipgate diff --base 07c50e1bc59a0b3b2ba60b9ad781db4f04c11202
 ```
 
 The answer is one of these, and they mean different things: named changes,
@@ -81,16 +81,28 @@ like these; `No static host-grant changes detected.` when no compared grant
 differs; or `Cannot compare against <base>: <reason>` when an input could not be
 read, which is an input limit and never a quiet pass. Either of the first two
 can open with `Not compared:` and a list of sources the change did not touch
-and `diff` could not read; nothing is claimed about those. Every answer then
+and `diff` could not read; nothing is claimed about those. This source tree,
+and not the published `1.1.0`, also has a fourth answer, `Partial comparison
+against <base> …: <reason>`, where the only inputs it could not read are
+plugin directories whose references stop inside them: it names each one as
+`Not compared: <directory>`, shows the changes outside it, and says they are
+not the whole change. It is never a pass, and a partial answer with no entry
+is never a no-change answer. Every answer then
 says `What this run established`: which sources were compared and how many rows
 each gave, which changed with no compared grant changing (so a zero-row `env`
 or `apiKeyHelper` edit is not mistaken for no change: a file is unchanged only
 when its bytes are), which changed with no row attributed to them, which only
 one side read or published, and, when
-the comparison was refused, which source left an inventory incomplete. That
-block lists only sources this entry read or tried to read, and says so on its
-first line: a changed file it does not read is absent from it, so it is never
-the whole account of the change. When more items are computed than it prints,
+the comparison was refused, which source left an inventory incomplete. This
+source tree, and not the published `1.1.0`, also names a changed input that a
+bounded, documented candidate list recognises but no reader of this entry
+reads — a plugin's `mcp.json`, a plugin manifest's `mcpServers`,
+`.cursor/hooks.json`, a nested `.claude/settings.json`, an external marketplace
+plugin source — as `added`, `removed` or `changed, not read by this entry`,
+with no row and no claim that a host loads it. Its
+first line says what it lists, so it is never the whole account of the
+change: any other changed file it does not read is absent. When more items are
+computed than it prints,
 it names how many it left out and that they rank below the ones it kept. The
 entries are for a reviewer to act on, not merge authority: each names the rule
 with its disposition, a replaced rule's before and after, and an MCP server's
@@ -105,11 +117,11 @@ beside the refusal. The
 [quickstart](docs/quickstart.md#review-a-host-configuration-change) shows each
 answer, the `--base <ref>` recovery when no base can be detected, and the
 [surfaces `diff` does not read](docs/host-boundary-support.md#known-unread-surfaces).
-**Not yet released:** the output above is from this repository's source tree,
-which still reports version `1.1.0`, run in a clone. The published `1.0.0` from
-PyPI names the same changes as four rows, without the dispositions, the joined
-replacement, the MCP launch details, the `What this run established` block, the
-review question and the reference lines.
+**Released in `1.1.0`:** the output above is from the published `1.1.0`,
+installed from PyPI into a clean virtualenv outside any checkout and run in a
+clone. The previous release, `1.0.0`, names the same changes as four rows,
+without the dispositions, the joined replacement, the MCP launch details, the
+`What this run established` block, the review question and the reference lines.
 
 When the answer is useful and you want it on every pull request, add
 [`examples/github-actions/14-host-only-advisory-pr.yml`](examples/github-actions/14-host-only-advisory-pr.yml):
@@ -186,7 +198,7 @@ projection of it. Five-minute version:
 Host configuration alone needs none of this: [What did this PR
 change?](#what-did-this-pr-change) is the whole route. [Route
 H](docs/quickstart.md#route-h--no-manifest) adds a snapshot audit and an
-optional committed baseline for jobs that want them, and `v1.0.0`'s discovery
+optional committed baseline for jobs that want them, and `v1.1.0`'s discovery
 routes host-only repositories there through `host_boundary_candidates`.
 Filename detection never establishes verified permissions.
 
@@ -231,7 +243,7 @@ declared and statically discoverable surface says. See
 [Limitations](#limitations) and [ROADMAP.md](ROADMAP.md).
 
 > [!IMPORTANT]
-> **Status: `v1.0.0`, advisory.** The published release makes no qualification
+> **Status: `v1.1.0`, advisory.** The published release makes no qualification
 > claim. Its defaults are advisory, and blocking CI is a policy you opt into
 > explicitly. The decision engine is deterministic; the accuracy evidence is
 > small-n and incomplete, and the parts below their bars are stated here rather
@@ -241,7 +253,7 @@ declared and statically discoverable surface says. See
 > recall and the benign rate remain below their original bars, recorded as such
 > in [ROADMAP.md](ROADMAP.md#publication-and-evidence) rather than relabeled as
 > passes. The real-history numbers that follow are older, measured on
-> 2026-07-08 on the released `v0.15.0` engine and not re-run on `v1.0.0`: on
+> 2026-07-08 on the released `v0.15.0` engine and not re-run since: on
 > the **19 unique labeled engine-engaged PRs** mined from **8 distinct** real
 > agent repos, the gate **never auto-passed an unsafe
 > change** (`must_block_caught` / `needs_human_caught` = 1.0). **But it routes
@@ -268,7 +280,7 @@ no-op over one. Alternatives — `pip`, `uv`, and zero-install `uvx` — are in
 **not** need Python 3.12; the CLI installs separately.
 
 **Two lines, two promises.** The advisory line publishes rows a reviewer
-reads, and no authority to block anything by default; `v1.0.0` is an advisory
+reads, and no authority to block anything by default; `v1.1.0` is an advisory
 release. The gate line publishes blocking verdicts and keeps every
 qualification bar. Each `v*` version is declared on exactly one line in
 [`.github/release-channels.json`](.github/release-channels.json). Neither line
@@ -279,16 +291,16 @@ two months out of reach.
 
 | Line | Carries | Install | Promises | Cadence |
 | --- | --- | --- | --- | --- |
-| **Advisory** | `diff`, `check`, `audit --host`, drift, advisory PR comments | `pipx install agents-shipgate` (`v1.0.0`), or an unqualified preview pre-release | plain-language capability rows; **no blocking authority** unless you configure a blocking policy | 14 days |
-| **Qualified gate** | blocking verdicts backed by qualification evidence, receipts, attestations | a `v*` release declared on the qualified line; `v1.0.0` is not one | every bar in [`release-evidence-policy-decision.md`](docs/release-evidence-policy-decision.md) | on evidence only |
+| **Advisory** | `diff`, `check`, `audit --host`, drift, advisory PR comments | `pipx install agents-shipgate` (`v1.1.0`), or an unqualified preview pre-release | plain-language capability rows; **no blocking authority** unless you configure a blocking policy | 14 days |
+| **Qualified gate** | blocking verdicts backed by qualification evidence, receipts, attestations | a `v*` release declared on the qualified line; `v1.1.0` is not one | every bar in [`release-evidence-policy-decision.md`](docs/release-evidence-policy-decision.md) | on evidence only |
 
 **Read [which build you get](docs/quickstart.md#which-build-you-get) before you
-start.** The newest published release is `v1.0.0`, which implements runtime
-contract `39` — the agent control envelope, `current-control.json` and
+start.** The newest published release is `v1.1.0`, which implements runtime
+contract `40` — the agent control envelope, `current-control.json` and
 `--format agent-boundary-json` included — and is what `pipx install
 agents-shipgate` installs. It ships on the advisory channel and makes no
-qualification claim. The quickstart says what an older `v0.15.0` install lacks,
-and what the unqualified preview does and does not come with.
+qualification claim. The quickstart says what an older `v1.0.0` or `v0.15.0`
+install lacks, and what the unqualified preview does and does not come with.
 
 ## Where to go next
 

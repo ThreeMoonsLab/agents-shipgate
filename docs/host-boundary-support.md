@@ -46,7 +46,8 @@ cross-host trust-root edit from being reported as complete.
 These change what runs, or what it can reach, with a host's authority, but no
 adapter reads them. Editing any of them produces no row and no coverage limit, and
 a file among them that no adapter reads is not listed under `What this run
-established` either, which names only sources an inventory observed (#812):
+established` either, which names only sources an inventory observed (#812) and
+the changed inputs the candidate rules at the end of this section name (#821):
 
 - **A composite action a workflow invokes** (`uses: ./.github/actions/<name>`).
   It runs inside the calling job, with that job's `permissions` and secrets, so
@@ -160,6 +161,35 @@ beside either. A step label is read for userinfo only in a token holding
 `scheme://`, so a scheme-less `user:password@host` in a step name is not read
 as userinfo.
 
+A hook row names what changed in the hook, and an MCP row a change to the
+server's launch arguments (#819), without publishing any command or argument
+text. A hook grant publishes each handler under its event: the group's
+`matcher`, through the published-label redaction (a matcher longer than 1,024
+characters, as `config_sha256`'s input holds it, is `<not-shown>`); its command as the name of its executable — the
+last path segment of its first word, only when that is a plain token and the
+word is no URL, otherwise `<not-shown>` — and a SHA-256 digest of the whole
+command; and its `timeout`. So a matcher, command or timeout edit reads
+`PostToolUse: matcher Edit → Edit|Write|Bash`,
+`PostToolUse: command changed (lint.sh sha256:… → curl sha256:…)` or
+`PostToolUse: timeout 10 → 600` rather than `PostToolUse → PostToolUse`. An
+MCP server grant publishes, from its arguments, only a package specification
+of a strict shape (npm `name@version`, PyPI `name==version`, an OCI image with
+a tag or digest) and a digest of the rest, so a version pin moving to
+`@latest` reads `package example-mcp-server@1.2.3 → example-mcp-server@latest`
+and any other argument edit `launch arguments changed` with both digests. The
+detail is a display of the declaration, never an input to the comparison: the
+command is not resolved or run, the script it names is not read (#702), and
+the digests are of the configuration as `config_sha256`'s input holds it. A
+value that input already redacts, such as the value after `--token`,
+`--api-key` or `--password`, a `--password=…` value, an `X-Api-Key:` header
+value or a URL's path, moves no digest, so a change confined to it is no row,
+as before. A saved baseline holds none of
+this detail, so nothing read from a user, managed or git-ignored settings file
+reaches the committed file. A hook declaration outside the documented shape
+publishes no handlers, and its row says the matcher, command and timeout are
+not shown; when only one side is outside it, the row names that side and lists
+the other side's handlers.
+
 A hook row states its loading basis (#714). Parsing a hook file proves the
 file exists, not that a host loads it, so hooks are published four ways:
 
@@ -217,16 +247,24 @@ No row is proof that a hook ran. What remains unread:
   other sets `false`: a `false` in `.claude/settings.local.json` is one
   machine's opt-out. Installation state, user settings and workspace trust are
   never read. A marketplace entry with a remote `source` names nothing in the
-  repository.
+  repository; a change to that source is named under `What this run
+  established`, never fetched (#821, see
+  [Changed inputs named but not read](#changed-inputs-named-but-not-read)).
 - A reference is followed only to a file named `hooks.json`, or
   `<name>-hooks.json` (`_` or `.` also separate). In a plugin manifest, any
   other name, a path outside the plugin directory, a `hooks` member of the
   wrong type, and an unreadable manifest are blocking coverage limits. `diff`
-  and `verify` refuse the comparison when the limit is new, changed or on one
-  side only, and name a parse or shape limit when the manifest is unchanged.
-  A read limit is never named as unchanged: an untouched plugin hook file over
-  the read bound makes `diff` and `verify` incomparable, as an oversize
-  settings file already did in `1.0.0`.
+  and `verify` name a parse or shape limit when the manifest is unchanged; in
+  a `partial` comparison every plugin-reference limit, an unchanged one
+  included, is named instead with the directory it leaves uncompared. A
+  read limit is never named as unchanged. When the limit is new, changed or on
+  one side only — or is a read limit, such as an untouched plugin hook file
+  over the read bound — `diff` and `verify` never compare that plugin: they
+  leave its directory uncompared on both sides, name it, and compare the rest,
+  as a `partial` comparison, where nothing outside the directory depends on it
+  (#808, see [Partial comparisons](#partial-comparisons)). Otherwise they
+  refuse the whole comparison, as an oversize settings file already did in
+  `1.0.0`.
 - The same problems in a marketplace entry are named without blocking, and so
   is a `metadata.pluginRoot` that is not a `./` path inside the marketplace.
   So are a reference to a file that does not exist, a reference into a
@@ -237,18 +275,49 @@ No row is proof that a hook ran. What remains unread:
   matches, erring toward showing a hook a case-insensitive filesystem would
   load.
 - `check` routes a changed `.claude/hooks/hooks.json` to protected-surface
-  review whatever its basis. It does not route a plugin manifest, a
-  marketplace or a plugin-selected hook file, so a plugin-reference limit
-  never changes a `check` decision from what `1.0.0` gave. A hook an enabled
-  plugin selects outside the registry paths therefore gets an expanding row
-  under an `allow` decision, as `1.0.0` allowed the same change with no row
-  (#809). Its host
+  review whatever its basis. It also routes a changed file that declares
+  hooks of a plugin the project settings enable, wherever the plugin keeps
+  it (#809): a hook file such a plugin selects, such as
+  `plugins/demo/cfg/hooks.json`, and a manifest or marketplace whose inline
+  hooks it loads. The route takes two facts. The path must be one the plugin
+  hook reader opens (a hook-named file, a `.claude-plugin/plugin.json` or a
+  `.claude-plugin/marketplace.json`), and the reader must find, in the base
+  or the head, that an enabled plugin loads hooks from it. So a hook file
+  deleted along with its reference is still routed from the base, and a
+  change to one gets `require_review` through
+  `SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED`, with evidence
+  `hook_loading_basis: project_enabled_plugin`, beside the same expanding row
+  as before. A `verify` with a manifest runs the same check from the same
+  two-sided evidence, so there the finding moves the release gate to
+  `review_required` and the merge verdict to `human_review_required`, and
+  the PR comment shows both. A head that leaves such a hook file or plugin
+  manifest unreadable is also incomplete input, as at a registry path. A
+  marketplace the head makes unparseable is not: a marketplace limit never
+  blocks, so the route still gives `require_review` with input `complete`,
+  and the comparison shows its inline hooks as `removed`. For a provided
+  `--diff`, enablement is read from the workspace tree alone.
+- A hook file an enabled plugin selects under a name the reader does not
+  follow, such as `./cfg/lifecycle.json`, or inside a directory the walk
+  skips, holds hooks the host loads and that nothing read. Its limit, named
+  above, counts as `check` and `verify` input when the change touches the
+  file, including when only the base still selects it, so the change gets
+  `SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE` and `human_review_required`. It is
+  not routed to protected-surface review, since nothing in it was read.
+- A hook a plugin only selects is not routed, and neither is a plugin
+  manifest or marketplace that only references hook files: a change that
+  makes an enabled plugin load an existing, unchanged file has an `added` or
+  `widened` row for that file under an `allow` decision. `check` gives the
+  same when that file is `.claude/hooks/hooks.json`, so this limit is not
+  specific to plugin paths. Otherwise a plugin-reference limit never changes
+  a `check` decision from what `1.0.0` gave. Its host
   comparison leaves out a limit both sides share on an untouched source,
   because its result cannot name a limit. A limit only one side carries, or
   one on a source the change touched, makes that comparison incomparable
   (`base_inventory_incomplete` or `head_inventory_incomplete`), so no added or
-  removed row is built from a manifest that could not be read. That refusal is
-  repository-wide, so an unrelated row is withheld too (#808).
+  removed row is built from a manifest that could not be read. In `check` that
+  refusal stays repository-wide, so an unrelated row is withheld too: its
+  boundary result cannot name the directory a `partial` comparison leaves
+  uncompared (#808), and its decision comes from its own routing either way.
 
 Skill and command frontmatter is read the way Claude Code documents it (#730).
 Frontmatter is optional: a skill without it takes its name from the directory
@@ -257,6 +326,83 @@ type-checked. An undocumented key (`version`, `author`, `category`, …) is
 digested as written rather than refused, so changing it is still a change and
 none is read as a permission. A Cursor rule still refuses a key outside
 `description`, `globs` and `alwaysApply`.
+
+#### Changed inputs named but not read
+
+These shapes are plausibly agent configuration and no adapter reads them
+either, but `diff`, `verify` and the manifest-free PR comment name a changed
+one under `What this run established`, so a zero-row result is not read as
+covering it (#821). Each is found from the comparison's own changed-file set —
+the committed `base..head` change, or the working tree's tracked and untracked
+changes against the base — never from a walk of the repository, so an
+unchanged file is never named. The item is `changed_not_read` with the
+`candidate` rule that named it, printed as `<path> (<host>): changed, not read
+by this entry: <what it is>; no row, and loading is not established` (`added`
+or `removed` for a file or member only one side has). It is never a row, a
+widening, a `check` violation or a claim that a host loads the file.
+
+- **A plugin's MCP configuration** (`plugin_mcp_config`): `mcp.json` in a
+  directory that holds `.claude-plugin/plugin.json`,
+  `.codex-plugin/plugin.json`, `.cursor-plugin/plugin.json` or
+  `.github/plugin/plugin.json` on the side it exists on, such as a Cursor
+  plugin's `plugins/demo/mcp.json` or a root `mcp.json` in a plugin
+  repository.
+- **A plugin manifest's MCP servers** (`plugin_manifest_mcp_servers`): the
+  `mcpServers` member of any of those manifests, inline or a reference, when
+  its text differs between the sides. The file a reference names is not
+  followed.
+- **A plugin manifest's hooks** (`plugin_manifest_hooks`): the `hooks` member
+  of a Codex, Cursor or Copilot manifest, when its text differs. A Claude Code
+  manifest's `hooks` is read, as described under the hook loading basis
+  above.
+- **A hook file a plugin manifest names** (`plugin_hook_file`): a changed file
+  named like a hook declaration (`hooks.json`, `<name>-hooks.json`) that the
+  `hooks` member of a Codex, Cursor or Copilot manifest in one of its eight
+  nearest ancestor directories names by a relative path inside that plugin,
+  such as `p/hooks/hooks.json` referenced by `p/.codex-plugin/plugin.json`.
+- **A plugin manifest or marketplace that does not parse**
+  (`unparsed_plugin_manifest`): a changed manifest or
+  `.claude-plugin/marketplace.json` whose members could not be compared, unless
+  an inventory already names it, as a blocking limit names an unreadable Claude
+  Code manifest.
+- **Cursor project hooks** (`cursor_project_hooks`): `.cursor/hooks.json`, at
+  any depth, such as removing a `beforeShellExecution` guard.
+- **Host settings below the repository root** (`nested_host_settings`):
+  `<dir>/.claude/settings.json`, `<dir>/.claude/settings.local.json`,
+  `<dir>/.cursor/cli.json`, `<dir>/.cursor/mcp.json` and
+  `<dir>/.vscode/mcp.json`, such as a dotfiles package's
+  `claude/.claude/settings.json`. Whether it is a nested project's settings or
+  a user-scope package's is not established.
+- **An external marketplace plugin source** (`external_plugin_source`): a
+  `.claude-plugin/marketplace.json` `plugins[]` entry whose `source` is an
+  object (`github`, `git`, `url` and the like) that was added, removed or
+  changed — its `repo`, `url`, `ref` or `sha` — compared as text by entry
+  name. The item is `<marketplace>#plugins.<name>`, the name redacted and
+  bounded (with a digest of the exact name when that changed it), and names
+  what the source now points at (`github example/one at <sha>`), redacted; the
+  content is never fetched.
+
+A whole file is named only when no inventory published it: a file a reader
+read is an item of its own. A member is named whatever else read the file,
+because no reader reads that member. Nothing is fetched or run, only a
+plugin manifest or marketplace is read, and every read stays inside the
+repository within the host reader's own per-file bound. Paths under
+`node_modules`, `.venv` and the other directories the host readers never walk
+are not considered. At most 32 candidate paths are examined per comparison;
+the rest, and any whose rule needed a file it could not use — a manifest a
+hook file could be named by that was not read or did not parse, or a changed
+manifest or marketplace present but not read, such as a link — are counted
+as not examined, never guessed at: one count in
+`coverage.unread_candidates_not_examined`, and one line in the block,
+`N changed candidate inputs not examined: past the discovery bound, or a file
+the rule needed was not read or did not parse`, which names both causes
+because the count does not tell them apart. When the changed files cannot be
+listed or looked at, the block says so and names none. Ordinary
+documentation, an unrelated `*.json`, and a candidate the change did not touch
+produce nothing, and a shape outside this list — a root `plugin.json`, a
+Codex or Cursor marketplace, a hook file a manifest names under another file
+name, a file a `mcpServers` reference names — is still neither read nor named.
+Each shape stays here until a reader exists for it (#663).
 
 ## Local-static audit scope
 
@@ -312,10 +458,111 @@ example `outputStyle`) is complete input; its
 `unknown_host_config_key` and the key's name, records the change and still owes
 review. Some keys outside that allow-list are modelled elsewhere: inventory and
 diff rows still describe `enabledPlugins` and `extraKnownMarketplaces` as
-plugin and marketplace grants, and `enableAllProjectMcpServers` as a
-permission-mode grant that approves project MCP servers, while the boundary
-rules only record the key. A file that could not be parsed or resolved is
-`partial` and never authorizes publication.
+plugin and marketplace grants, while the boundary rules only record the key.
+The Claude Code settings in [the setting table](#claude-code-setting-ratings)
+are not unknown keys: `check` rates them by that table. A file that could not
+be parsed or resolved is `partial` and never authorizes publication.
+
+### Partial comparisons
+
+A plugin directory `diff` and `verify` could not compare no longer hides the
+changes outside it (#808). They publish `comparison_status: partial` — a
+status of the comparison, not a host's `partial` coverage — with the same
+`incomparable_reasons` the refusal would name, when every blocking limit that
+refused the comparison is one of the plugin-reference limits listed under
+[Known unread surfaces](#known-unread-surfaces), bounded by the plugin
+directory whose references raised it, and every other limit is an unchanged
+one. A reference is followed only inside its plugin
+directory, so that directory holds everything such a limit can hide. It is
+left uncompared on both sides — every host's artifacts, grants and
+non-blocking issues under it, not only the plugin's, matched
+case-insensitively — and named as `scope` on the limit's coverage
+item; a directory inside another is covered by the outer one, and a hook file
+another plugin also selects is withheld with it. The rows outside it are
+published, led by `Not compared: <directory>, a plugin directory this entry
+could not read completely, …`, and a partial result with no row is never a
+no-change answer. A changed `.claude/settings.json` or
+`.claude/settings.local.json` with no row of its own reads `changed, but no
+row is attributed to this path` there, never that no compared grant changed:
+those settings decide the loading basis of the hooks in the directory, which
+were not compared.
+
+Independence is read off the reference graph, never off directory names. The
+comparison refuses as before when a limit is neither a bounded plugin
+reference nor unchanged (an unreadable settings file, an instruction file
+whose structure could not be established, a link that is not read through),
+when a reference names a path outside its plugin, when the plugin is at the
+repository root, when its directory holds `.claude/settings.json` or
+`.claude/settings.local.json`, which decide every plugin hook's loading basis,
+when a marketplace outside the directory declares inline hooks for that
+plugin, when the directory does not publish as itself (a redacted or shortened
+path), and when nothing outside it was read. A partial comparison is not
+comparable: `verify`'s control, `check`'s decision, the control envelope, the
+Stop hook, baselines and drift treat it as they treated the refusal.
+
+### Claude Code setting ratings
+
+One table in the engine (`core/host_settings.py`) rates every Claude Code
+setting the host inventory publishes as a `permission_mode` grant, and every
+surface reads it (#827). The `audit --host` grant carries the rating as its
+`risk`; a `diff`, `verify` or `check` row carries it as its `severity`, names
+the setting and its value (`enableAllProjectMcpServers: true`,
+`defaultMode: dontAsk`) and states the table's basis as its `why`; and `check`
+raises one violation for each value a change sets, at the same rating, which
+`verify` reports as a finding of that severity. Before, one value could carry
+three answers: `enableAllProjectMcpServers: true` was a `critical` grant and row
+but a `medium` "could not be parsed" violation, and `defaultMode: dontAsk` a
+`medium` row but a blocking `critical` violation.
+
+Each value is rated by what Claude Code documents it to do:
+
+| Value | Rating | `check` raises |
+| --- | --- | --- |
+| `defaultMode: bypassPermissions` — skips every permission prompt | critical | `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` (blocks) |
+| `skipDangerousModePermissionPrompt: true` — skips the confirmation before that mode starts | critical | `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` (blocks) |
+| `enableAllProjectMcpServers: true` — approves every MCP server the project's `.mcp.json` declares | critical | `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` (blocks) |
+| `defaultMode: acceptEdits` — accepts file edits without a prompt | high | `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` |
+| `defaultMode: auto` — lets Claude Code approve tool calls itself | high | `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` |
+| a `defaultMode` Claude Code does not document | high | `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` |
+| an `enabledMcpjsonServers` entry — approves that one project server | high | `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` |
+| `defaultMode: dontAsk` — denies every tool call no allow rule permits, instead of prompting | medium | `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` |
+| `defaultMode: plan` or `default` | medium | `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` |
+| `disableBypassPermissionsMode`, `disableAllHooks`, `allowManagedPermissionRulesOnly`, `allowManagedHooksOnly`, and `false` for the two `critical` switches | medium | `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` |
+
+`dontAsk` removes prompts, but by refusing what no allow rule permits, not by
+running it; this repository's own rater harness sets it to confine a session.
+A value is rated the same whichever settings file sets it: `bypassPermissions`,
+`auto` and `skipDangerousModePermissionPrompt` in a project file are rated as
+though they take effect, as the inventory already lists them, because a static
+audit cannot see whether the installed client predates the release that
+ignores them there (see [Local-static audit scope](#local-static-audit-scope)).
+A `medium` violation stays in the graded review band, so the coding agent is
+routed to `verify` and the pull request still goes to a human. A rating is of
+the value, not of the change: whether one mode is wider than the one it
+replaced is not modelled, so every value a change sets is reviewed, and a
+row's `⚠` still marks every added or changed mode. Moving a value between
+`permissions` and the top level sets it too, in either direction: the
+inventory reads a setting from either place, but Claude Code documents
+`defaultMode` under `permissions` and `enableAllProjectMcpServers` at the top
+level, so moving a top-level `defaultMode: bypassPermissions` into
+`permissions` turns the mode on without changing its value, and `check` blocks
+it. Its grant is the same value on both sides, so `diff`, `verify` and the
+`check` rows show no row for the move; the violation, and `verify`'s finding,
+is its record. Removing a setting raises nothing of its own, as removing
+`defaultMode` never did; the file is still a protected surface and the removal
+is still a row. A host-boundary policy that raises either rule above its
+default raises these violations with it; none can lower them.
+
+`enabledMcpjsonServers` is read as one grant per server name, so approving one
+more server is one `high` row. An entry that names no server — an object, a
+number, a blank string — is kept whole as its own `high` grant, row and
+violation, like a mode Claude Code does not document, rather than dropped. A
+violation's evidence carries the value its grant publishes, with credentials
+redacted, cut to at most 200 characters. `disabledMcpjsonServers` is not read: a change
+to it is still an unknown key. A setting also set under `permissions` is read
+there only, so a top-level copy beside it stays an unknown key, exactly as the
+inventory ignores it. Codex, Cursor and VS Code settings keep their own
+readers' ratings; their rows name the setting and value too.
 
 When host inventory fails, `violations[].evidence.recovery` carries the observed
 read phase, reason and source, plus configured limits when a resource bound is
