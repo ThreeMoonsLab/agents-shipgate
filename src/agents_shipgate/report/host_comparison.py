@@ -143,6 +143,45 @@ COVERAGE_BOUNDARY = (
     "not the whole change: a changed file it does not read is absent"
 )
 
+#: The same boundary where the list also names changed inputs this entry does
+#: not read (#821). The line above would then be false about the list it
+#: introduces, so it is replaced, never printed beside this one. The list is
+#: still not the account of the change: the candidate rules are a bounded,
+#: documented list, and any other changed file no reader reads is absent.
+COVERAGE_BOUNDARY_WITH_UNREAD = (
+    "sources this entry read or tried to read are listed, and changed inputs "
+    "a bounded candidate list names that it does not read, so this is not the "
+    "whole change: any other changed file it does not read is absent"
+)
+
+#: Said when the comparison's changed files could not be listed, or were
+#: listed but neither side could then be looked at (#821), so an absent unread
+#: input is not read as there being none.
+UNREAD_NOT_EXAMINED = (
+    "the changed files could not be listed or looked at, so no changed input "
+    "this entry does not read is named"
+)
+
+
+def unread_not_examined_text(count: int) -> str:
+    """The line counting candidates discovery did not examine (#821 review).
+
+    The count has two causes, and the line names both: a candidate past the
+    discovery bound, and one whose rule needed a file it could not use — a
+    changed manifest or marketplace present on a side but not read within its
+    bound, or a manifest a hook file could be named by that was not read or
+    did not parse, while no readable one names it. The published count does
+    not say which, so neither does the line. It used to say "more ... past the
+    discovery bound" for both, with one candidate against a bound of 32.
+    """
+
+    plural = count != 1
+    return (
+        f"{count} changed candidate input{'s' if plural else ''} not examined: "
+        "past the discovery bound, or a file the rule needed was not read or "
+        "did not parse"
+    )
+
 #: A blocking limit is what makes an inventory incomplete, which is the reason
 #: the comparison states (`base_inventory_incomplete`, `head_inventory_incomplete`).
 _SIDE_LIMIT = {
@@ -150,6 +189,70 @@ _SIDE_LIMIT = {
     "head": "in head, so the head inventory is incomplete",
     "both": "in base and head, so neither inventory is complete",
 }
+
+#: The side of a limit a partial comparison is bounded by (#808): the
+#: inventory is still incomplete, and what that costs is the named directory.
+_SIDE_SCOPE = {"base": "in base", "head": "in head", "both": "in base and head"}
+
+
+def partial_scopes(comparison: HostComparison) -> tuple[list[str], bool]:
+    """Directories a partial comparison left uncompared, and whether the cap may hide one (#808).
+
+    Read off the coverage items, the one place the comparison names them.
+    Blocking limits rank first, so an item past the cap can name another
+    directory only when the last item listed is itself a blocking limit.
+    """
+
+    coverage = comparison.coverage
+    if comparison.comparison_status != "partial" or coverage is None:
+        return [], False
+    scopes = sorted({item.scope for item in coverage.items if item.scope is not None})
+    hidden = bool(coverage.omitted_items) and bool(coverage.items) and (
+        coverage.items[-1].status == "blocking_limit"
+    )
+    return scopes, hidden
+
+
+def partial_scope_lines(comparison: HostComparison, *, markdown: bool = False) -> list[str]:
+    """What a partial comparison did not compare, and what that makes of its rows (#808).
+
+    Printed right under the headline, before any row, so a reviewer reads the
+    rows as what is known outside the named directories and never as the
+    whole change. A partial result with no row says so without saying "no
+    change": nothing inside the directories was compared.
+    """
+
+    scopes, hidden = partial_scopes(comparison)
+    if not scopes:
+        return []
+    plural = len(scopes) > 1 or hidden
+    names = ", ".join(_text(scope, markdown=markdown) for scope in scopes)
+    it = "them" if plural else "it"
+    if hidden:
+        # The cap reached the limits themselves, so the list may be longer.
+        named = (
+            f"{names}, and any other plugin directory a limit not listed below names; "
+            "this entry could not read them completely"
+        )
+    elif plural:
+        named = f"{names}, plugin directories this entry could not read completely"
+    else:
+        named = f"{names}, a plugin directory this entry could not read completely"
+    lines = [
+        f"Not compared: {named}, so no change inside {it} is shown "
+        f"and nothing is claimed about {it}."
+    ]
+    if comparison.rows:
+        lines.append(
+            f"The changes below come only from sources outside {it}, so they are not the "
+            "whole change; nothing here is a claim that the change is safe."
+        )
+    else:
+        lines.append(
+            f"No static host-grant change was detected outside {it}. That is not a "
+            "no-change answer for this change, and no verdict is implied."
+        )
+    return lines
 
 
 def _published_only_with_hooks(source: str) -> bool:
@@ -193,11 +296,58 @@ def _redacted_values_note(source: str) -> str:
     return "" if _source_kind(source) == "instructions" else f" {_REDACTED_VALUES}"
 
 
-def coverage_item_text(item: HostComparisonCoverageItem) -> str:
+#: What each candidate rule names (#821), as the line says it. None of these
+#: says what the file grants or that a host loads it.
+_UNREAD_CANDIDATE_TEXT = {
+    "plugin_mcp_config": "MCP configuration in a plugin directory",
+    "plugin_manifest_mcp_servers": "a plugin manifest's mcpServers",
+    "plugin_manifest_hooks": "a plugin manifest's hooks",
+    "plugin_hook_file": "a hook file a plugin manifest's hooks names",
+    "unparsed_plugin_manifest": (
+        "a plugin manifest or marketplace that did not parse, so its members were not compared"
+    ),
+    "cursor_project_hooks": "Cursor project hooks",
+    "nested_host_settings": (
+        "host settings below the repository root, whose scope (a nested project "
+        "or a user-scope package) is not established"
+    ),
+}
+
+#: A changed input's side as the change it describes: it was published by
+#: neither inventory, so `read in` would be false about it.
+_UNREAD_CHANGE = {"both": "changed", "head": "added", "base": "removed"}
+
+
+def _unread_item_text(item: HostComparisonCoverageItem, *, markdown: bool) -> str:
+    """A changed input this entry does not read, and what is not established about it (#821)."""
+
+    change = _UNREAD_CHANGE[item.side]
+    if item.candidate == "external_plugin_source":
+        named = ""
+        if item.detail:
+            tense = "was" if item.side == "base" else "now"
+            named = f", {tense} {_text(item.detail, markdown=markdown)}"
+        return (
+            f"{change}, not read by this entry: an external plugin source{named}; "
+            "no row, and its content is not fetched"
+        )
+    what = _UNREAD_CANDIDATE_TEXT.get(str(item.candidate), "a candidate input")
+    return f"{change}, not read by this entry: {what}; no row, and loading is not established"
+
+
+def coverage_item_text(item: HostComparisonCoverageItem, *, markdown: bool = False) -> str:
     """One item's finding, in words a reviewer reads without the schema (#812)."""
 
     if item.status == "blocking_limit":
+        if item.scope is not None:
+            # A partial comparison (#808): the limit cost that directory only.
+            return (
+                f"{item.limit} {_SIDE_SCOPE[item.side]}, so nothing in "
+                f"{_text(item.scope, markdown=markdown)} was compared"
+            )
         return f"{item.limit} {_SIDE_LIMIT[item.side]}"
+    if item.status == "changed_not_read":
+        return _unread_item_text(item, markdown=markdown)
     if item.status == "changed_without_grant_change":
         # One side only is an added or removed file: it declares no compared grant.
         change = (
@@ -250,10 +400,14 @@ def coverage_lines(
     """The "What this run established" block (#812).
 
     The heading, then :data:`COVERAGE_BOUNDARY`, which says what the list
-    cannot be read as. Then one line per item a reviewer must read, in the
-    comparator's order — a blocking limit, most actionable kind first, a change
-    no row describes, a source only one side published, a source not proven
-    unchanged, a source with rows — then one line naming the sources proven
+    cannot be read as — :data:`COVERAGE_BOUNDARY_WITH_UNREAD` instead while the
+    list names a changed input this entry does not read (#821) — and, when the
+    search for those could not run, or left a candidate unexamined, a line
+    saying so.
+    Then one line per item a reviewer must read, in the comparator's order — a
+    blocking limit, most actionable kind first, a changed input this entry does
+    not read, a change no row describes, a source only one side published, a
+    source not proven unchanged, a source with rows — then one line naming the sources proven
     unchanged, the first three by name and the rest as a count. Coverage items
     are a prefix of that order, so when the last one listed is such a source,
     every item the cap omitted is one too; otherwise the omitted count is
@@ -281,20 +435,33 @@ def coverage_lines(
     def fits(block: list[str]) -> bool:
         return max_chars is None or len("\n".join(block)) <= max_chars
 
-    boundary = f"{bullet}{COVERAGE_BOUNDARY}"
+    # The boundary, and what the search for unread inputs could not do, are
+    # the lines the list is read under (#812 follow-up, #821): never dropped
+    # to make room for an item.
+    boundary = [
+        f"{bullet}"
+        + (COVERAGE_BOUNDARY if coverage.read_sources_only else COVERAGE_BOUNDARY_WITH_UNREAD)
+    ]
+    if coverage.unread_candidates == "not_examined":
+        boundary.append(f"{bullet}{UNREAD_NOT_EXAMINED}")
+    if coverage.unread_candidates_not_examined:
+        boundary.append(
+            f"{bullet}{unread_not_examined_text(coverage.unread_candidates_not_examined)}"
+        )
     if not coverage.items and not coverage.omitted_items:
         if comparison.comparison_status != "comparable":
             return []
         empty = [
             f"{COVERAGE_HEADING} no host configuration source was compared.",
-            boundary,
+            *boundary,
             *([""] if markdown else []),
         ]
         return empty if fits(empty) else []
 
     item_lines = [
         f"{bullet}{_text(item.source, markdown=markdown)} "
-        f"({', '.join(single_line_text(host) for host in item.hosts)}): {coverage_item_text(item)}"
+        f"({', '.join(single_line_text(host) for host in item.hosts)}): "
+        f"{coverage_item_text(item, markdown=markdown)}"
         for item in coverage.items
         if not _quiet(item)
     ]
@@ -312,7 +479,7 @@ def coverage_lines(
         )
 
     def block(listed: list[str], items: int) -> list[str]:
-        lines = [COVERAGE_HEADING, boundary, *listed]
+        lines = [COVERAGE_HEADING, *boundary, *listed]
         unlisted = total - items
         if unlisted:
             # Items, not sources: one source can be several items (by host, side or limit).
@@ -385,7 +552,8 @@ def host_comparison_lines(
         return _text(value, markdown=markdown)
 
     coverage = coverage_lines(comparison, markdown=markdown, max_chars=coverage_max_chars)
-    if comparison.comparison_status != "comparable":
+    partial = comparison.comparison_status == "partial"
+    if comparison.comparison_status != "comparable" and not partial:
         lines = [
             "Host capability comparison unavailable: "
             + text("; ".join(comparison.incomparable_reasons)),
@@ -409,9 +577,25 @@ def host_comparison_lines(
                 lines.append("")
             lines.extend(tail)
         return lines
-    lines = ["Repository-declared host capability changes:"]
     changes = presented_changes(comparison)
-    if not changes:
+    if partial:
+        # What was not compared leads (#808): the rows below it are what is
+        # known outside those directories, never the whole change, and a
+        # partial result with no row is never a no-change answer.
+        lines = [
+            "Host capability comparison partial: "
+            + text("; ".join(comparison.incomparable_reasons)),
+            *partial_scope_lines(comparison, markdown=markdown),
+        ]
+        if changes:
+            if markdown:
+                # Its own paragraph: the rows heading would otherwise read as
+                # the end of the sentence saying they are not the whole change.
+                lines.append("")
+            lines.append("Repository-declared host capability changes:")
+    else:
+        lines = ["Repository-declared host capability changes:"]
+    if not changes and not partial:
         lines.append(
             "No static host-grant changes detected in the covered comparison. No verdict is implied."
         )

@@ -214,7 +214,30 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # ``host_comparison.coverage`` and ``shipgate diff --json`` (capability diff
 # 0.3) the same block. It is evidence beside the rows and moves no state,
 # permission, route or row. A 0.19 verifier reads with coverage not recorded.
-CONTRACT_VERSION: Literal["40"] = "40"
+# v41 names the changed inputs a host comparison does not read (#821): verifier
+# 0.21 and ``shipgate diff --json`` (capability diff 0.4) add a
+# ``changed_not_read`` coverage item with its ``candidate`` rule, a
+# ``read_sources_only`` that is ``false`` while one is named, and whether the
+# comparison's changed files were examined. A name is never a row, a widening
+# or a ``check`` violation. The one route it moves, on ``verify`` and
+# ``verify --preview`` alike: a manifest-free comparison whose only
+# host-relevant change is such an input, or a changed candidate it counts as
+# not examined, is now published, on the host route's
+# ``audit --host`` next action, instead of the setup route (``verify``) or the
+# ``initialize`` next action (``verify --preview``). A 0.20 verifier reads
+# with the search not recorded. ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at
+# 21.
+# v41 also keeps what a comparison established outside a plugin directory it
+# could not compare (#808), extended in place because v41 is unreleased: where
+# every blocking limit is a plugin-reference limit that its plugin directory
+# bounds, and no compared source depends on that directory, verifier 0.21 and
+# capability diff 0.4 publish ``comparison_status: partial`` with the rows
+# outside it, the same ``incomparable_reasons``, and the directory as the
+# reserved ``coverage.items[].scope`` on those limits. A partial comparison is
+# not comparable: every control state, permission, route and ``check``
+# decision is the refusal's, and the control envelope projects it as
+# ``incomparable`` with no rows. A 0.20 verifier claiming either is refused.
+CONTRACT_VERSION: Literal["41"] = "41"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"

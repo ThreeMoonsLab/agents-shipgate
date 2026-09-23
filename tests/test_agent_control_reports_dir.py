@@ -417,6 +417,10 @@ def test_preview_into_an_outside_directory_matches_the_in_repository_preview(
     then reported as "an uncommitted change this decision never saw" — on every
     rerun (#575 review). It must see what an in-repository preview sees and its
     pointer must refresh the same way.
+
+    The sample carries a manifest, so this is a configured preview: until #807
+    both directories refreshed as "input directory capture is unavailable",
+    equally and never current. Now both are current until the tree moves.
     """
 
     monkeypatch.chdir(tmp_path)
@@ -431,12 +435,13 @@ def test_preview_into_an_outside_directory_matches_the_in_repository_preview(
         refreshed = _outcome(
             _control("--workspace", workspace, "--reports-dir", str(reports))
         )
+        assert refreshed == (0, "agent_action_required")
         _dirty(repo, "tracked")
         drifted = _outcome(
             _control("--workspace", workspace, "--reports-dir", str(reports))
         )
         assert drifted[0] == 4
-        assert "(workspace_changed)" in drifted[1] and "(tools.json)" in drifted[1]
+        assert "(workspace_changed)" in drifted[1] and "tools.json" in drifted[1]
         outcomes[where] = (
             payload["control_state"],
             payload["next_action"]["why"],

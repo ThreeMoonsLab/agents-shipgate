@@ -17,6 +17,7 @@ import re
 import stat
 import sys
 import tomllib
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
@@ -31,6 +32,7 @@ from agents_shipgate.core.boundary_registry import (
     CLAUDE_PLUGIN_MARKETPLACE,
     is_claude_plugin_manifest_path,
     is_claude_plugin_marketplace_path,
+    is_claude_plugin_reference_path,
     is_explicit_boundary_file_path,
     is_hook_declaration_file_name,
 )
@@ -48,6 +50,11 @@ from agents_shipgate.core.host_input_failure import (
     HostInputFailure,
     HostInventoryReadError,
     safe_failure_text,
+)
+from agents_shipgate.core.host_settings import (
+    CLAUDE_LIST_SETTINGS,
+    claude_setting_values,
+    rate_claude_setting,
 )
 from agents_shipgate.core.instruction_structure import (
     classify_instruction,
@@ -301,6 +308,26 @@ class HostStaticParseCache:
 
 
 @dataclass(frozen=True)
+class PluginScopeFacts:
+    """The plugin reference graph one inventory was read through (#808).
+
+    Private reader facts, never published. They are what bounds a
+    plugin-reference limit to a directory: every hook file a plugin can select
+    lies under its directory, because a reference that leaves it is refused
+    rather than followed (#714), so a limit raised there can only hide grants
+    published under that directory — except inline hooks a marketplace entry
+    outside it declares for that plugin, which ``inline_roots`` names.
+    """
+
+    #: ``{issue id: the plugin directories whose references raised it}``;
+    #: ``None`` in the set when the reference named a path outside its plugin,
+    #: so no directory bounds what it hides.
+    issue_roots: Mapping[str, frozenset[str | None]] = field(default_factory=dict)
+    #: ``{inline hook source, as its grants publish it: its plugin directory}``.
+    inline_roots: Mapping[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class HostBoundarySnapshot:
     """Reusable normalized snapshot for audit/check/verify projections."""
 
@@ -309,9 +336,55 @@ class HostBoundarySnapshot:
     input_failures: dict[str, HostInputFailure] = field(default_factory=dict)
     #: Issues raised while reading a plugin manifest, a marketplace or a hook
     #: file only a plugin selects (#714). Private reader facts, never
-    #: published: `check`, which routes no plugin file and cannot name a
-    #: limit, leaves them out of its completeness.
+    #: published: `check`, which cannot name a limit, leaves them out of its
+    #: completeness, except on a changed file that holds hooks of a plugin
+    #: the project settings enable (#809).
     plugin_reference_issue_ids: frozenset[str] = frozenset()
+    #: The repository paths of the files that declare hooks of a plugin this
+    #: repository's project settings enable (#809): every hook file such a
+    #: plugin selects, and a manifest or marketplace whose inline hooks it
+    #: loads. The same selection publishes those hooks as
+    #: ``project_enabled_plugin``. A private reader fact, never published:
+    #: `check` routes a change to one of these files to protected-surface
+    #: review, as it routes a settings layer.
+    enabled_plugin_hook_sources: frozenset[str] = frozenset()
+    #: The hook files such a plugin selects that the reader does not open
+    #: (#809): a name other than `hooks.json` or `<name>-hooks.json`, or a
+    #: directory the walk skips. The host loads their hooks and the inventory
+    #: names each one as a limit, so a change to one is input `check` could
+    #: not read, never a change it may allow. Private, never published.
+    enabled_plugin_unread_hook_files: frozenset[str] = frozenset()
+    #: The directory each of those issues is bounded by (#808): what `diff`
+    #: and `verify` may leave uncompared while comparing the rest.
+    plugin_scopes: PluginScopeFacts = field(default_factory=PluginScopeFacts)
+
+
+@dataclass(frozen=True)
+class EnabledPluginHookFiles:
+    """The files holding hooks of a plugin the project settings enable (#809).
+
+    The two private snapshot facts, gathered across the sides of a change a
+    caller could read, so `check` and `verify` decide from the same evidence.
+    """
+
+    #: Files the reader opened that declare such hooks
+    #: (``HostBoundarySnapshot.enabled_plugin_hook_sources``).
+    sources: frozenset[str] = frozenset()
+    #: Files such a plugin selects whose hooks the reader did not read
+    #: (``HostBoundarySnapshot.enabled_plugin_unread_hook_files``).
+    unread: frozenset[str] = frozenset()
+
+    @classmethod
+    def of(cls, snapshot: HostBoundarySnapshot) -> EnabledPluginHookFiles:
+        return cls(
+            sources=snapshot.enabled_plugin_hook_sources,
+            unread=snapshot.enabled_plugin_unread_hook_files,
+        )
+
+    def union(self, other: EnabledPluginHookFiles) -> EnabledPluginHookFiles:
+        return EnabledPluginHookFiles(
+            sources=self.sources | other.sources, unread=self.unread | other.unread
+        )
 
 
 def _canonical(value: Any) -> str:
@@ -518,6 +591,39 @@ def redacted_config_sha256(config: Any) -> str:
     if not url_parts:
         return _sha(redacted)
     return _sha({"redacted": redacted, "url_capability": url_parts})
+
+
+def published_setting_value(grant: dict[str, Any]) -> Any:
+    """The value a setting grant was read with, as far as its published fields say (#827).
+
+    A `permission_mode` or `sandbox` grant publishes its value as text, and a
+    JSON `true` and the string `"True"` both publish `True`. Its digest is of
+    the value itself, so a candidate the text allows — a boolean, `null`, a
+    number, a list or an object — is the value exactly when it reproduces that
+    digest. Anything else is the published text. Nothing is read beyond the
+    grant, so a grant from a saved baseline answers the same way.
+    """
+
+    text = grant.get("value")
+    setting = grant.get("setting")
+    if not isinstance(text, str) or not isinstance(setting, str):
+        return text
+    candidates: list[Any] = [True, False, None]
+    try:
+        candidates.append(json.loads(text))
+    except ValueError:
+        pass
+    for candidate in candidates:
+        if isinstance(candidate, str):
+            continue
+        rendered = (
+            _canonical(candidate) if isinstance(candidate, (dict, list)) else str(candidate)
+        )
+        if rendered == text and (
+            redacted_config_sha256({setting: candidate}) == grant.get("config_sha256")
+        ):
+            return candidate
+    return text
 
 
 def _display_path(path: Path, *, root: Path, home: Path) -> str:
@@ -979,11 +1085,7 @@ def hook_loading_basis(grant: dict[str, Any]) -> HookLoadingBasis:
 
     source = str(grant.get("source") or "").replace("\\", "/").split("#", 1)[0]
     pair = (grant.get("access"), grant.get("risk"))
-    if grant.get("host") == "claude-code" and (
-        is_hook_declaration_file_name(source)
-        or is_claude_plugin_manifest_path(source)
-        or is_claude_plugin_marketplace_path(source)
-    ):
+    if grant.get("host") == "claude-code" and is_claude_plugin_reference_path(source):
         for basis in ("project_enabled_plugin", "plugin_selected", "declared_only"):
             if pair == _HOOK_ACCESS_BY_BASIS[basis]:
                 return basis  # type: ignore[return-value]
@@ -998,21 +1100,13 @@ def _claude_grants(data: Any, *, scope: HostScope, source: str) -> list[dict[str
         return []
     grants = _permission_rule_grants(data.get("permissions"), host="claude-code", scope=scope, source=source)
     permissions = data.get("permissions") if isinstance(data.get("permissions"), dict) else {}
-    mode_keys = (
-        "defaultMode", "disableBypassPermissionsMode", "allowManagedPermissionRulesOnly",
-        "allowManagedHooksOnly", "skipDangerousModePermissionPrompt",
-        "enableAllProjectMcpServers", "disableAllHooks",
-    )
-    for setting in mode_keys:
-        container = permissions if setting in permissions else data
-        if setting in container:
-            value = container[setting]
-            risky = setting in {"skipDangerousModePermissionPrompt", "enableAllProjectMcpServers"} and bool(value)
-            grants.append(_setting_grant(
-                host="claude-code", scope=scope, source=source, kind="permission_mode",
-                setting=setting, value=value, access="admin" if risky else "unknown",
-                risk="critical" if risky else "medium",
-            ))
+    # One rating per value, shared with `check` and the rows (#827).
+    for item in claude_setting_values(data):
+        rating = rate_claude_setting(item.setting, item.value)
+        grants.append(_setting_grant(
+            host="claude-code", scope=scope, source=source, kind="permission_mode",
+            setting=item.setting, value=item.value, access=rating.access, risk=rating.risk,
+        ))
     for path in sorted(_string_entries(permissions.get("additionalDirectories")) + _string_entries(data.get("additionalDirectories"))):
         projected_path = _privacy_projected_path(path)
         grant = _grant_base(
@@ -2020,8 +2114,24 @@ class _PluginHookSelection:
     #: The selected hook files that a plugin this repository's project
     #: settings enable selects, published as ``project_enabled_plugin``.
     enabled: set[str] = field(default_factory=set)
+    #: The manifests and marketplaces whose inline hooks such a plugin loads,
+    #: by file (#809): an inline hook's `source` is the manifest, or
+    #: `<marketplace>#plugins.<name>`.
+    enabled_inline: set[str] = field(default_factory=set)
+    #: The hook files such a plugin selects that the reader refused to open,
+    #: by name or by a skipped directory (#809). Each is a named limit.
+    enabled_unread: set[str] = field(default_factory=set)
     #: Every issue raised while resolving that selection.
     reference_issue_ids: set[str] = field(default_factory=set)
+    #: ``{issue id: the plugin directories whose references raised it}`` (#808).
+    #: ``None`` stands for a reference that names a path outside its plugin,
+    #: which no directory bounds.
+    issue_roots: dict[str, set[str | None]] = field(default_factory=dict)
+    #: ``{hook file: every plugin directory that selects it}``, as spelled (#808).
+    roots: dict[str, set[str]] = field(default_factory=dict)
+    #: ``{inline hook selector: its plugin directory}``: a manifest, or a
+    #: marketplace entry ``<marketplace>#plugins.<name>`` (#808).
+    inline_roots: dict[str, str] = field(default_factory=dict)
 
 
 def _plugin_relative_path(reference: str, *, allow_root: bool = False) -> str | None:
@@ -2132,6 +2242,8 @@ def _resolve_claude_plugin_hooks(
     roots_by_file: dict[str, set[str]] = {}
     #: Inline hook objects, kept until the same is known for their root.
     inline: list[tuple[Any, str, str]] = []
+    #: ``{hook file the reader refused: the plugin roots that select it}``.
+    unread_roots_by_file: dict[str, set[str]] = {}
     enabled_roots: set[str] = set()
     folded_links = {link.casefold() for link in unread_links}
 
@@ -2141,10 +2253,17 @@ def _resolve_claude_plugin_hooks(
         matches = by_folded.get(relative.casefold(), [])
         return matches[0] if len(matches) == 1 else None
 
-    def issue(*, source: str, message: str, blocking: bool) -> None:
+    def issue(*, source: str, message: str, blocking: bool, plugin_root: str | None) -> None:
+        """Raise a plugin-reference issue, bounded by ``plugin_root`` (#808).
+
+        ``None`` for a reference that names a path outside its plugin: what
+        it would select is not bounded by any directory.
+        """
+
         item = _claude_plugin_hook_issue(source=source, message=message, blocking=blocking)
         issues.append(item)
         result.reference_issue_ids.add(item["issue_id"])
+        result.issue_roots.setdefault(item["issue_id"], set()).add(plugin_root)
 
     def under(plugin_root: str, relative: str) -> str:
         return posixpath.join(plugin_root, relative) if plugin_root else relative
@@ -2152,6 +2271,7 @@ def _resolve_claude_plugin_hooks(
     def select(hook_file: str, *, plugin_root: str, selector: str) -> None:
         result.selected.setdefault(hook_file, selector)
         roots_by_file.setdefault(hook_file, set()).add(plugin_root.casefold())
+        result.roots.setdefault(hook_file, set()).add(plugin_root)
 
     def select_default(plugin_root: str, selector: str) -> None:
         default = existing(under(plugin_root, CLAUDE_PLUGIN_DEFAULT_HOOKS))
@@ -2227,7 +2347,7 @@ def _resolve_claude_plugin_hooks(
         relative = _plugin_relative_path(reference)
         if relative is None:
             issue(
-                source=selector.split("#", 1)[0], blocking=blocking,
+                source=selector.split("#", 1)[0], blocking=blocking, plugin_root=None,
                 message=(
                     f"{selector} names hooks at {shown!r}, which is not a `./` path inside the "
                     "plugin directory; the hooks it names were not read"
@@ -2239,8 +2359,9 @@ def _resolve_claude_plugin_hooks(
             (part for part in target.split("/") if part in _WALK_SKIPPED_DIRECTORIES), None
         )
         if skipped is not None:
+            unread_roots_by_file.setdefault(target, set()).add(plugin_root.casefold())
             issue(
-                source=target, blocking=False,
+                source=target, blocking=False, plugin_root=plugin_root,
                 message=(
                     f"{selector} selects this hook file inside `{skipped}`, a directory the "
                     "static reader does not walk; its hooks were not read"
@@ -2248,8 +2369,9 @@ def _resolve_claude_plugin_hooks(
             )
             return
         if not is_hook_declaration_file_name(target):
+            unread_roots_by_file.setdefault(target, set()).add(plugin_root.casefold())
             issue(
-                source=target, blocking=blocking,
+                source=target, blocking=blocking, plugin_root=plugin_root,
                 message=(
                     f"{selector} selects this hook file, whose name is not `hooks.json` or "
                     "`<name>-hooks.json`; the static reader follows only such names, so its "
@@ -2264,7 +2386,7 @@ def _resolve_claude_plugin_hooks(
                 # non-blocking "not in the repository" would contradict it.
                 return
             issue(
-                source=target, blocking=False,
+                source=target, blocking=False, plugin_root=plugin_root,
                 message=(
                     f"{selector} selects this hook file, which is not in the repository; "
                     "no hooks were read from it"
@@ -2278,6 +2400,7 @@ def _resolve_claude_plugin_hooks(
     ) -> None:
         if isinstance(declared, dict):
             inline.append((declared, plugin_root, selector))
+            result.inline_roots[selector] = plugin_root
             return
         if isinstance(declared, str):
             references = [declared]
@@ -2285,7 +2408,7 @@ def _resolve_claude_plugin_hooks(
             references = list(declared)
         else:
             issue(
-                source=selector.split("#", 1)[0], blocking=blocking,
+                source=selector.split("#", 1)[0], blocking=blocking, plugin_root=plugin_root,
                 message=(
                     f"{selector} `hooks` must be a `./` path, an array of such paths or an "
                     "object of hook events; the hooks it names were not read"
@@ -2310,6 +2433,7 @@ def _resolve_claude_plugin_hooks(
             )
             issues.append(failure)
             result.reference_issue_ids.add(failure["issue_id"])
+            result.issue_roots.setdefault(failure["issue_id"], set()).add(plugin_root)
             artifacts.append(_artifact(
                 host="claude-code", scope="repository", source=manifest, kind="config",
                 status="failed", resolved_through=resolved_through,
@@ -2317,7 +2441,7 @@ def _resolve_claude_plugin_hooks(
             continue
         if not isinstance(data, dict):
             issue(
-                source=manifest, blocking=True,
+                source=manifest, blocking=True, plugin_root=plugin_root,
                 message=(
                     "Cannot interpret a Claude Code plugin manifest that is not an object; "
                     "the hook files it may select were not read."
@@ -2348,7 +2472,7 @@ def _resolve_claude_plugin_hooks(
         plugins = data.get("plugins") if isinstance(data, dict) else None
         if error_kind is not None or not isinstance(plugins, list):
             issue(
-                source=marketplace, blocking=False,
+                source=marketplace, blocking=False, plugin_root=marketplace_root,
                 message=(
                     "Cannot read this Claude Code marketplace's `plugins` array; the hooks its "
                     "plugin entries may select were not read"
@@ -2365,7 +2489,7 @@ def _resolve_claude_plugin_hooks(
         )
         if isinstance(root_reference, str) and plugin_base is None:
             issue(
-                source=marketplace, blocking=False,
+                source=marketplace, blocking=False, plugin_root=marketplace_root,
                 message=(
                     f"{marketplace} `metadata.pluginRoot` "
                     f"{_sanitize_sensitive_string(root_reference)!r} is not a `./` path inside the "
@@ -2385,7 +2509,7 @@ def _resolve_claude_plugin_hooks(
                 relative = _plugin_relative_path(source, allow_root=True)
                 if relative is None:
                     issue(
-                        source=marketplace, blocking=False,
+                        source=marketplace, blocking=False, plugin_root=marketplace_root,
                         message=(
                             f"{selector} source {_sanitize_sensitive_string(source)!r} leaves the "
                             "marketplace directory; the hooks that plugin may select were not read"
@@ -2421,16 +2545,18 @@ def _resolve_claude_plugin_hooks(
     # Every enabled root is known only now: a manifest is read before the
     # marketplace that enables its plugin.
     for declared, plugin_root, selector in inline:
+        enabled_here = plugin_root.casefold() in enabled_roots
+        if enabled_here:
+            result.enabled_inline.add(selector.split("#", 1)[0])
         grants.extend(_hooks_grants(
             {"hooks": declared}, host="claude-code", scope="repository", source=selector,
-            basis=(
-                "project_enabled_plugin"
-                if plugin_root.casefold() in enabled_roots
-                else "plugin_selected"
-            ),
+            basis="project_enabled_plugin" if enabled_here else "plugin_selected",
         ))
     result.enabled = {
         hook_file for hook_file, roots in roots_by_file.items() if roots & enabled_roots
+    }
+    result.enabled_unread = {
+        hook_file for hook_file, roots in unread_roots_by_file.items() if roots & enabled_roots
     }
     return result
 
@@ -2602,11 +2728,7 @@ def _repository_paths(
         # (#714). Taken from the same entries, so links and read-through
         # resolve exactly as above.
         for path, relative, resolved_through in entries:
-            if (
-                is_claude_plugin_manifest_path(relative)
-                or is_claude_plugin_marketplace_path(relative)
-                or is_hook_declaration_file_name(relative)
-            ):
+            if is_claude_plugin_reference_path(relative):
                 plugin_candidates[relative] = (path, resolved_through)
 
     for path, relative, resolved_through in entries:
@@ -2907,6 +3029,11 @@ def _claude_precedence_key(grant: dict[str, Any]) -> tuple[str, str] | None:
     """
 
     kind = grant.get("kind")
+    if kind == "permission_mode" and grant.get("setting") in CLAUDE_LIST_SETTINGS:
+        # One grant per approved server (#827). Whether Claude Code merges the
+        # list across layers is not documented, so each entry is its own key:
+        # a server one layer approves is never hidden by another layer's list.
+        return (str(kind), f"{grant.get('setting')}:{grant.get('value')}")
     if kind in {"permission_mode", "sandbox"}:
         return (str(kind), str(grant.get("setting")))
     if kind == "plugin_or_app":
@@ -3127,6 +3254,14 @@ def build_host_boundary_snapshot(
     )
     selected_hooks = selection.selected
     plugin_reference_issue_ids = set(selection.reference_issue_ids)
+    issue_roots: dict[str, set[str | None]] = {
+        issue_id: set(roots) for issue_id, roots in selection.issue_roots.items()
+    }
+
+    def bound_by_selecting_roots(issue_id: str, source: str) -> None:
+        # A limit of a hook file only a plugin selects hides that file's
+        # hooks, and the file lies under every directory that selects it (#808).
+        issue_roots.setdefault(issue_id, set()).update(selection.roots.get(source, ()))
 
     def note_unusable_selected_hooks(data: Any, *, source: str) -> None:
         if isinstance(data, dict) and not isinstance(data.get("hooks"), dict):
@@ -3139,6 +3274,7 @@ def build_host_boundary_snapshot(
             )
             issues.append(item)
             plugin_reference_issue_ids.add(item["issue_id"])
+            bound_by_selecting_roots(item["issue_id"], source)
 
     collected_claude_sources: set[str] = set()
     for path, source, host, kind, resolved_through in repository_paths:
@@ -3176,6 +3312,8 @@ def build_host_boundary_snapshot(
         # plugin-reference limits. A registered hook path above keeps the
         # limits 1.0.0 already gave it.
         plugin_reference_issue_ids.update(item["issue_id"] for item in issues[raised:])
+        for item in issues[raised:]:
+            bound_by_selecting_roots(item["issue_id"], source)
         note_unusable_selected_hooks(data, source=source)
 
     excluded = [
@@ -3264,6 +3402,27 @@ def build_host_boundary_snapshot(
     return HostBoundarySnapshot(
         inventory=inventory, cache=cache, input_failures=dict(cache.input_failures),
         plugin_reference_issue_ids=frozenset(plugin_reference_issue_ids),
+        # Nothing parsed is trustworthy once the inventory failed, so no
+        # enablement is read from it either; its blocking issues stand.
+        enabled_plugin_hook_sources=(
+            frozenset()
+            if inventory_failures
+            else frozenset(selection.enabled | selection.enabled_inline)
+        ),
+        enabled_plugin_unread_hook_files=(
+            frozenset() if inventory_failures else frozenset(selection.enabled_unread)
+        ),
+        plugin_scopes=PluginScopeFacts(
+            issue_roots={
+                issue_id: frozenset(roots)
+                for issue_id, roots in issue_roots.items()
+                if issue_id in plugin_reference_issue_ids
+            },
+            inline_roots={
+                public_host_path(selector): root
+                for selector, root in selection.inline_roots.items()
+            },
+        ),
     )
 
 
@@ -3315,6 +3474,46 @@ def without_host_issues(
             scope=inventory.get("scope", "repository"),
             artifacts=list(inventory.get("artifacts") or []),
             issues=kept,
+        ),
+    }
+
+
+def without_host_sources(
+    inventory: dict[str, Any],
+    *,
+    issue_ids: set[str] | frozenset[str],
+    withheld: Callable[[str], bool],
+) -> dict[str, Any]:
+    """The inventory without these issues and every source ``withheld`` names (#808).
+
+    For a comparison that leaves a plugin directory uncompared and compares
+    the rest. An artifact, a grant or a non-blocking issue is dropped when
+    ``withheld`` names its whole published source, and host coverage is
+    recomputed exactly as the reader derives it. A member (``<file>#...``)
+    only extends its file's path, so it is under a directory exactly when its
+    file is; cutting at the first ``#`` would instead read a sibling such as
+    ``plugins/demo#x/...`` as inside ``plugins/demo`` and drop it unnamed. A
+    blocking issue is dropped only by id: one the caller has not accounted
+    for stays, so what remains must still answer for it.
+    """
+
+    def kept(source: object) -> bool:
+        return not withheld(str(source))
+
+    issues = [
+        item
+        for item in inventory.get("issues", [])
+        if item.get("issue_id") not in issue_ids
+        and (item.get("blocking") or kept(item.get("source")))
+    ]
+    artifacts = [item for item in inventory.get("artifacts") or [] if kept(item.get("path"))]
+    return {
+        **inventory,
+        "artifacts": artifacts,
+        "grants": [item for item in inventory.get("grants") or [] if kept(item.get("source"))],
+        "issues": issues,
+        "host_coverage": _coverage(
+            scope=inventory.get("scope", "repository"), artifacts=artifacts, issues=issues
         ),
     }
 
@@ -3725,6 +3924,17 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
             if hook_loading_basis(after) in LOADED_HOOK_BASES:
                 signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
         elif kind in {"permission_mode", "sandbox", "additional_path", "plugin_or_app"}:
+            if (
+                kind in {"permission_mode", "sandbox"}
+                and before is not None
+                and before.get("config_sha256") == after.get("config_sha256")
+            ):
+                # One grant id is one setting and value, and the digest says
+                # the value was read the same way: only the rating moved, as
+                # when a baseline saved before #827 rated `bypassPermissions`
+                # `medium`. The file permits nothing new, so the row stays as
+                # a change without an expansion signal, as #816 did for rules.
+                continue
             signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
         elif kind == "workflow":
             previous = before or {}
@@ -4123,6 +4333,7 @@ __all__ = [
     "HostBoundarySnapshot",
     "HostStaticParseCache",
     "PermissionRuleReplacement",
+    "PluginScopeFacts",
     "build_host_boundary_snapshot",
     "build_host_drift_payload",
     "build_host_grants_baseline",
@@ -4136,8 +4347,10 @@ __all__ = [
     "load_host_grants_baseline_with_text",
     "normalized_host_grants",
     "permission_rule_replacements",
+    "published_setting_value",
     "redacted_config_sha256",
     "render_host_audit_markdown",
     "render_host_drift_markdown",
     "without_host_issues",
+    "without_host_sources",
 ]

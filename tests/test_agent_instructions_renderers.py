@@ -45,13 +45,13 @@ ALL_RENDERERS = {
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": "c474cec05fdba44430a0c42857fc7b761e5aa84791b1c64042aebdcb3bac86e3",
-    ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": "73576619d8d140935949f1ca2b7ccbcea8109ad3546f649b53cd2d3e71cb6672",
-    ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": "ae1495dc5c950baac583813076c59bb602dc42f84c39a6f4b32b7c4250f4728f",
-    ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": "0f4285d7261dbaaab5a201061d9e2187d57e6d2af839fbfb170eae0630acaa62",
+    ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": "82e290efca0d7c11f7bcc86d054290ddc9566101cd3d66c9e3eb9a18ba23ae79",
+    ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": "160256b5892d5fb18a0e66250f2eee08be7abf2e2d1473e2112d29ad747a7223",
+    ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": "ab28dd4fd777e1ff1100fdd343d39eeb5ba5831295e0cf7435cda7fb61d2e01f",
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829",
     ".claude/skills/agents-shipgate/prompts/fix-top-finding.md": "1956133a2d1003326e471f8ecab7b781e655dc9c33fbd2d1d681711f9ac0f08c",
     ".claude/skills/agents-shipgate/prompts/recommend-fixes.md": "162aa2fb96066535425d9cf86a247a6782b8ec7cc661a18b42dbedf394779475",
-    ".claude/skills/agents-shipgate/prompts/stabilize-strict-mode.md": "f6e00cc67cd064721358361f2f47e9b68cb55359642419e6c978f5cb474c7fef",
+    ".claude/skills/agents-shipgate/prompts/stabilize-strict-mode.md": "45a9b3bfcd41aa616f74644f52c95abf4d146ca30164276ff4954ddf0ab7b314",
     ".claude/skills/agents-shipgate/prompts/triage-false-positive.md": "8cfbb0d4b6e2c36569d24260384d3a54165f966276112f4b143b4ac234b51ada",
     ".claude/skills/agents-shipgate/prompts/upgrade-shipgate-version.md": "992122338eba26ae5d8056b9658117d718a6b477b9928c2a438dd449b5effb68",
     ".claude/skills/agents-shipgate/prompts/verify-agent-diff.md": "1e0279c7b6beae88f468f478b4e3b7401d7cc53bead5c53b6edcc256f59e159c",
@@ -59,7 +59,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": "34ef4bdac90ff7b409eb2254f6b73c52888e92bd9ba44824d6f056c44c2a50ff",
     ".agents/skills/agents-shipgate/agents/openai.yaml": "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef",
-    ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml": "fc819304ad838e4976e92afe64eba20289772360e7c23bd99588d3e88019a2a2",
+    ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml": "0ece178f492d7590713529539c009d30faedb29cfb111abb5cdfd9eec7ac7006",
     ".agents/skills/agents-shipgate/references/recipes.md": "dcf9f982036d6189e4663923a97bf56ecd3ae68f34b4ce46081d135a88c4b564",
     ".agents/skills/agents-shipgate/references/report-reading.md": "d9709d600fa6ed6c697202f731977e66c102a4757e29ab825fa89935abe8f72a",
 }
@@ -199,13 +199,13 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
     assert payload["schema_version"] == "10"
     assert payload["agents_shipgate_version"]
-    assert payload["contract_version"] == "40"
+    assert payload["contract_version"] == "41"
     assert payload["minimum_control_contract_version"] == "21"
     assert payload["primary_commands"]["verify_pr"].startswith("agents-shipgate verify")
     assert payload["primary_commands"]["host_audit"].startswith("shipgate audit --host")
     assert "verify_local" not in payload["primary_commands"]
     assert payload["commands"]["verify_local"].startswith("agents-shipgate verify")
-    assert payload["verifier_schema_version"] == "0.20"
+    assert payload["verifier_schema_version"] == "0.21"
     assert payload["verify_run_schema_version"] == "shipgate.verify_run/v5"
     assert payload["agent_handoff_schema_version"] == "shipgate.agent_handoff/v9"
     assert payload["agent_handoff_schema_path"] == "docs/agent-handoff-schema.v9.json"

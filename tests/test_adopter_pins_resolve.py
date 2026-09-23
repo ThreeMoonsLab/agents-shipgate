@@ -465,7 +465,8 @@ def test_the_shipped_floor_is_decided_against_the_release_the_prompts_pin():
 
     They disagreed through `v0.15.0`, which predates the control contract
     entirely — its `contract --json` carries no floor field at all — and the
-    prompts said so; `v1.0.0` reports contract 39 against a floor of 21. This
+    prompts said so; `v1.0.0` reports contract 39 and `v1.1.0` contract 40
+    against a floor of 21. This
     asserts the comparison is live: whichever way it resolves, the rendered
     prose is the one that matches.
     """

@@ -27,9 +27,10 @@ class HostComparisonLimit(BaseModel):
 
 #: The most coverage items one comparison publishes (#812). The list is a
 #: prefix of the comparator's order, which puts a blocking limit first — by
-#: kind within those, :data:`COVERAGE_LIMIT_ORDER` below — then what no row
-#: shows, then a file's rows, and a compared, unchanged source last, so the cap
-#: drops those first; ``omitted_items`` counts the rest.
+#: kind within those, :data:`COVERAGE_LIMIT_ORDER` below — then a changed input
+#: this entry does not read (#821), then what no row shows, then a file's rows,
+#: and a compared, unchanged source last, so the cap drops those first;
+#: ``omitted_items`` counts the rest.
 MAX_COVERAGE_ITEMS = 10
 
 #: The issue kinds a host inventory publishes, as a blocking limit may name them.
@@ -70,6 +71,21 @@ COVERAGE_LIMIT_ORDER: tuple[str, ...] = (
     "remote_source_excluded",
 )
 
+#: The documented rule that named a changed input this entry does not read
+#: (#821), as :mod:`agents_shipgate.core.unread_inputs` defines each one. It
+#: says what kind of file or member changed and nothing more: never that a
+#: host loads it, what it grants, or that the change is a finding.
+UnreadCandidateKind = Literal[
+    "plugin_mcp_config",
+    "plugin_manifest_mcp_servers",
+    "plugin_manifest_hooks",
+    "plugin_hook_file",
+    "unparsed_plugin_manifest",
+    "cursor_project_hooks",
+    "nested_host_settings",
+    "external_plugin_source",
+]
+
 
 class HostComparisonCoverageItem(BaseModel):
     """What one comparison established about one source (#812).
@@ -94,12 +110,16 @@ class HostComparisonCoverageItem(BaseModel):
       difference a checkout conversion can explain is not shown. It does not say
       which fields changed: reordering or repeating a rule moves the digest
       too. Never a plugin manifest or marketplace, a retargeted link, or a
-      Claude Code project settings file while a hook's loading basis changed.
+      Claude Code project settings file while a hook's loading basis changed
+      or, in a ``partial`` comparison, at all: the hooks of a directory it
+      did not compare are not shown, so neither is whether their loading
+      basis moved (#808).
     - ``changed_without_rows``: the file changed and no row is attributed to
       it, but the data does not show that no compared grant moved: a plugin
       manifest or marketplace (its ``hooks`` rows are published under the hook
       files it selects), a retargeted link, a parse or instruction-structure
-      change, or project settings while a hook's loading basis changed.
+      change, or project settings while a hook's loading basis changed or in
+      a ``partial`` comparison.
     - ``unchanged_not_proven``: both sides read the file, it gives no row and
       its artifact did not change, but its bytes could be neither proven
       identical nor shown to differ, so a change in a value the artifact
@@ -108,8 +128,22 @@ class HostComparisonCoverageItem(BaseModel):
       differ only as a checkout conversion such as ``eol=crlf`` or
       ``core.autocrlf`` makes them, cannot be proven. Never read as no change,
       and never as a change.
-    - ``blocking_limit``: an incomparable comparison, and this source carries
-      a blocking inventory issue of kind ``limit`` on ``side``.
+    - ``blocking_limit``: an incomparable or partial comparison, and this
+      source carries a blocking inventory issue of kind ``limit`` on ``side``.
+      On a ``partial`` comparison it also names ``scope``, the directory
+      that comparison did not compare because of this issue (#808): the
+      plugin directory the issue is bounded by, or a withheld plugin
+      directory that holds it.
+    - ``changed_not_read``: a path in the comparison's own changed-file set
+      that a documented candidate rule names, and that no reader of this entry
+      read (#821). ``candidate`` names the rule. The source is the file, or a
+      member inside it (``<manifest>#mcpServers``,
+      ``<marketplace>#plugins.<name>``) whose text differs between the sides.
+      It is named from the path and, for a member, from the member's text;
+      nothing is fetched, run or read as a grant, so it never says a host
+      loads the file, gives no row and is never a finding. It can accompany a
+      refused comparison as well as a comparable one: it is not a source
+      either inventory compared.
 
     ``side`` says which inventories published the source, as an artifact or
     as the file of a grant (or carry the limit): ``base`` only, ``head`` only,
@@ -118,6 +152,10 @@ class HostComparisonCoverageItem(BaseModel):
     only the head's plugin configuration selects. A plugin manifest or
     marketplace is published only while it declares hooks, so for one of
     those ``side`` does not say whether the file exists on the other side.
+    For ``changed_not_read``, which nothing published, ``side`` is where the
+    file or member exists: ``head`` added, ``base`` removed, ``both`` changed,
+    and ``hosts`` is the host the candidate rule attributes the path to (which
+    can be ``copilot``), never a host whose reader read it.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -131,20 +169,41 @@ class HostComparisonCoverageItem(BaseModel):
         "changed_without_rows",
         "unchanged_not_proven",
         "blocking_limit",
+        "changed_not_read",
     ]
     rows: int = Field(default=0, ge=0)
     limit: CoverageLimitKind | None = None
+    #: A blocking limit's published issue message, or for an
+    #: ``external_plugin_source`` the source it names, redacted and bounded.
     detail: str | None = None
-    #: Reserved for naming the scope an item belongs to once a comparison can
-    #: be decided per scope (#808). Always ``None`` in this schema version.
+    #: The candidate rule that named a ``changed_not_read`` item (#821).
+    candidate: UnreadCandidateKind | None = None
+    #: The directory a ``partial`` comparison left uncompared because of this
+    #: blocking limit (#808). The limit is bounded by the plugin directory
+    #: whose manifest or hook file raised it, since the reader follows a
+    #: reference only inside its plugin; the scope is that directory, or the
+    #: outermost withheld plugin directory holding it. No source under it is
+    #: a row, and none is an item except such a limit or a changed input no
+    #: reader read (#821). ``None`` on every other item, and on every item of
+    #: a comparable or incomparable comparison.
     scope: str | None = None
 
     @model_validator(mode="after")
     def item_shape(self):
+        if self.scope is not None and self.status != "blocking_limit":
+            raise ValueError("only a blocking limit names the scope it left uncompared")
+        if self.scope is not None and not self.scope:
+            raise ValueError("a scope names a directory, never the whole repository")
         if self.status == "blocking_limit":
-            if self.limit is None or self.rows:
+            if self.limit is None or self.rows or self.candidate is not None:
                 raise ValueError("a blocking limit names its kind and publishes no rows")
-        elif self.limit is not None or self.detail is not None:
+        elif self.status == "changed_not_read":
+            if self.candidate is None or self.rows or self.limit is not None:
+                raise ValueError(
+                    "a changed input this entry does not read names its candidate rule "
+                    "and publishes no rows"
+                )
+        elif self.limit is not None or self.detail is not None or self.candidate is not None:
             raise ValueError("only a blocking limit names a limit kind or detail")
         if (
             self.status
@@ -168,11 +227,11 @@ class HostComparisonCoverage(BaseModel):
 
     ``items`` is a prefix of the comparator's order, which is the order a
     reviewer can act in: a blocking limit (most actionable kind first, see
-    :data:`COVERAGE_LIMIT_ORDER`), then a change no row describes, then a
-    source only one side published, then one not proven unchanged, then a
-    file's rows, then a source proven unchanged — by source within each. So
-    the cap drops the least actionable items, and ``omitted_items`` counts
-    exactly those.
+    :data:`COVERAGE_LIMIT_ORDER`), then a changed input this entry does not
+    read (#821), then a change no row describes, then a source only one side
+    published, then one not proven unchanged, then a file's rows, then a
+    source proven unchanged — by source within each. So the cap drops the
+    least actionable items, and ``omitted_items`` counts exactly those.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -181,13 +240,42 @@ class HostComparisonCoverage(BaseModel):
         default_factory=list, max_length=MAX_COVERAGE_ITEMS
     )
     omitted_items: int = Field(default=0, ge=0)
-    #: The list's own boundary, stated rather than left to be inferred (#812
-    #: follow-up). Every item is a source an inventory read, or was refused
-    #: by; a changed file no reader of this entry reads is not an item, and
-    #: its absence here is no claim about it. So this list is never a complete
-    #: account of what the change touched, however many items it carries.
-    #: Enumerating the changed-but-unread residue is #821.
-    read_sources_only: Literal[True] = True
+    #: Whether every item, listed or omitted, is a source an inventory read or
+    #: was refused by (#812 follow-up). ``False`` exactly when the list also
+    #: names a changed input this entry does not read (``changed_not_read``,
+    #: #821). Neither value makes the list a complete account of what the
+    #: change touched: the candidate rules are a bounded, documented list, and
+    #: a changed file outside them that no reader reads is still not an item,
+    #: its absence no claim about it.
+    read_sources_only: bool = True
+    #: Whether the comparison's changed-file set was matched against the
+    #: candidate rules (#821): ``examined``, or ``not_examined`` when the set
+    #: could not be listed, or was listed but its sides could not then be
+    #: looked at, so no unread input is named and an absent one says nothing.
+    #: ``None`` means not recorded: a ``0.20`` verifier, or a comparison built
+    #: without its changed files.
+    unread_candidates: Literal["examined", "not_examined"] | None = None
+    #: Changed paths a candidate rule matched that were not examined, for
+    #: either of two causes this one count does not tell apart: past the
+    #: discovery bound, or the rule needed a file it could not use (a changed
+    #: manifest or marketplace present on a side but not read within its
+    #: bound, or a manifest a hook file could be named by that was not read or
+    #: did not parse, while no readable one names it). Counted, never listed,
+    #: and never counted in ``omitted_items``, which counts items that exist.
+    unread_candidates_not_examined: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def coverage_shape(self):
+        unread = any(item.status == "changed_not_read" for item in self.items)
+        if unread and self.read_sources_only:
+            raise ValueError("a list naming a changed input this entry does not read says so")
+        if not self.read_sources_only and not unread and not self.omitted_items:
+            raise ValueError("a list of read sources only says so")
+        if self.unread_candidates != "examined" and (
+            not self.read_sources_only or self.unread_candidates_not_examined
+        ):
+            raise ValueError("only an examined changed-file set names or bounds unread inputs")
+        return self
 
 
 class HostComparisonReviewChange(BaseModel):
@@ -255,7 +343,9 @@ class HostComparisonReview(BaseModel):
     ``None`` on :class:`HostComparison` means it was not recorded: a verifier
     from before schema ``0.20``, an incomparable comparison, which presents no
     change and asks no question, or a caller that publishes none (`check`,
-    whose boundary result carries rows alone).
+    whose boundary result carries rows alone). A ``partial`` comparison
+    presents the rows it established outside the scopes it did not compare
+    (#808).
 
     It adds no row and decides nothing. The rows stay exactly what they were;
     this says how they are presented, which until now only the text knew, so a
@@ -292,10 +382,31 @@ class HostComparisonReview(BaseModel):
 
 
 class HostComparison(BaseModel):
+    """One host comparison between two inventories; advisory evidence, never a verdict.
+
+    ``comparison_status``:
+
+    - ``comparable``: every source either side read was compared, or named in
+      ``unchanged_limits``.
+    - ``incomparable``: at least one inventory is incomplete in a way nothing
+      bounds, or the inputs could not be compared; no rows.
+    - ``partial`` (#808): an inventory is incomplete, at least one of its
+      blocking limits is bounded by a plugin directory whose contents no
+      compared source depends on, and every other one is a limit both sides
+      share on an unchanged source, named in ``unchanged_limits`` as on a
+      comparable comparison. Each such directory is left uncompared on both
+      sides — each limit it bounds is a ``blocking_limit`` coverage item
+      naming it as ``scope`` — and the ``rows`` are the changes established
+      outside it. ``incomparable_reasons`` still names which inventory is
+      incomplete. It is never a complete comparison: read it as
+      ``incomparable`` for any decision, and its rows as what is known, not
+      as the whole change.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     input_identity: CurrentControlWorkspaceIdentity | None = None
-    comparison_status: Literal["comparable", "incomparable"]
+    comparison_status: Literal["comparable", "partial", "incomparable"]
     incomparable_reasons: list[str] = Field(default_factory=list)
     base_commit: str | None = None
     head_commit: str | None = None
@@ -319,9 +430,35 @@ class HostComparison(BaseModel):
             raise ValueError("incomparable input names no unchanged limits")
         if self.comparison_status == "comparable" and self.incomparable_reasons:
             raise ValueError("comparable input cannot carry incomparable reasons")
+        if self.comparison_status == "partial":
+            if not self.incomparable_reasons:
+                raise ValueError("a partial comparison names which inventory is incomplete")
+            if self.coverage is None or not any(
+                item.status == "blocking_limit" and item.scope is not None
+                for item in self.coverage.items
+            ):
+                # The scope is named nowhere else, so a partial comparison
+                # that did not record it would read as a complete one.
+                raise ValueError("a partial comparison names the scope it did not compare")
         if self.coverage is not None:
             statuses = {item.status for item in self.coverage.items}
-            if self.comparison_status == "incomparable" and statuses - {"blocking_limit"}:
+            scoped = [
+                item.scope is not None
+                for item in self.coverage.items
+                if item.status == "blocking_limit"
+            ]
+            if self.comparison_status == "partial" and not all(scoped):
+                # Every other limit was either bounded by a scope or named as
+                # unchanged; one that was neither refuses the comparison.
+                raise ValueError("every blocking limit of a partial comparison names its scope")
+            if self.comparison_status != "partial" and any(scoped):
+                raise ValueError("only a partial comparison leaves a scope uncompared")
+            # A changed input this entry does not read is not a compared
+            # source, so a refused comparison may name one beside its limits.
+            if self.comparison_status == "incomparable" and statuses - {
+                "blocking_limit",
+                "changed_not_read",
+            }:
                 raise ValueError("an incomparable comparison establishes no compared source")
             if self.comparison_status == "comparable" and "blocking_limit" in statuses:
                 raise ValueError("a comparable comparison names no blocking limit")

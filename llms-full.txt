@@ -35,7 +35,7 @@ Authoritative instructions for AI coding agents (Claude Code, Codex, Cursor, Aid
 
 The deterministic merge gate for AI-generated agent capability changes. Reads `shipgate.yaml` plus tool sources (MCP exports, MCP server source (TypeScript/Go registration idioms), OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files, OpenAI API artifacts, Codex repo config, Codex plugin packages and marketplaces, n8n workflow JSON/stubs, Conductor OSS workflow JSON) and produces deterministic findings. Local-first and static by default — no agent execution, tool calls, LLM calls, or network access.
 
-- **Host-configuration review:** `agents-shipgate diff` shows what a change does to declared coding-agent configuration — `.claude/settings.json`, `.mcp.json`, hooks, Codex, Cursor and VS Code MCP config, GitHub workflow permissions — with no `shipgate.yaml`, saved baseline or skill. It compares against the base already in Git history, names recognized sources it could not read, and implies no verdict. A no-change answer covers only what both sides read and says nothing about the [surfaces `diff` does not read](docs/host-boundary-support.md#known-unread-surfaces), such as hook scripts, composite actions and subagent hooks; see **Run (canonical)** and [`docs/host-boundary-support.md`](docs/host-boundary-support.md) for what it reads.
+- **Host-configuration review:** `agents-shipgate diff` shows what a change does to declared coding-agent configuration — `.claude/settings.json`, `.mcp.json`, hooks, Codex, Cursor and VS Code MCP config, GitHub workflow permissions — with no `shipgate.yaml`, saved baseline or skill. It compares against the base already in Git history, names recognized sources it could not read, and implies no verdict. A no-change answer covers only what both sides read. It names a changed input a bounded candidate list recognises but no reader reads — a plugin's `mcp.json`, `.cursor/hooks.json`, a nested `.claude/settings.json`, an external marketplace source — as `added`, `removed` or `changed, not read by this entry`, and says nothing about the other [surfaces `diff` does not read](docs/host-boundary-support.md#known-unread-surfaces), such as hook scripts, composite actions and subagent hooks; see **Run (canonical)** and [`docs/host-boundary-support.md`](docs/host-boundary-support.md) for what it reads.
 - **Inputs:** MCP · MCP server source · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI · OpenAI API · Codex config · Codex plugin · n8n · Conductor OSS workflow JSON
 - **Outputs:** Markdown · JSON · SARIF
 - **Trust:** Static-by-default. No agent execution, tool calls, LLM calls, or network access.
@@ -854,7 +854,7 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Report schema (v0.6 frozen reference) | [`docs/report-schema.v0.6.json`](docs/report-schema.v0.6.json) | `0.6` |
 | Packet schema (Release Evidence Packet, latest) | [`docs/packet-schema.v0.18.json`](docs/packet-schema.v0.18.json) | `0.18` |
 | Agent result schema (current) | [`docs/agent-result-schema.v3.json`](docs/agent-result-schema.v3.json) | `agent_result_v3` |
-| Verifier schema (current) | [`docs/verifier-schema.v0.20.json`](docs/verifier-schema.v0.20.json) | `0.20` |
+| Verifier schema (current) | [`docs/verifier-schema.v0.21.json`](docs/verifier-schema.v0.21.json) | `0.21` |
 | Agent handoff schema (current) | [`docs/agent-handoff-schema.v9.json`](docs/agent-handoff-schema.v9.json) | `shipgate.agent_handoff/v9` |
 | Preflight schema (current) | [`docs/preflight-schema.v0.5.json`](docs/preflight-schema.v0.5.json) | `0.5` |
 | Host-grants inventory schema | [`docs/host-grants-inventory-schema.v0.6.json`](docs/host-grants-inventory-schema.v0.6.json) | `0.6` |
@@ -1574,7 +1574,51 @@ up with an explicit edit.
 
 # Current Agent Contract
 
-Runtime contract v40 reads the action reference each workflow step declares
+Runtime contract v41, unreleased, names the changed inputs a host comparison
+does not read (#821). A zero-row comparison used to print "No static
+host-grant changes detected" for a pull request that added a Cursor plugin's
+`mcp.json` or moved a marketplace plugin's pinned `sha`, exactly as for a
+docs-only one. Verifier `0.21` and `shipgate diff --json` (capability diff
+`0.4`) now add, inside the existing `coverage` block, a `changed_not_read`
+item for each path in the comparison's own changed-file set that a bounded,
+documented candidate rule names and no reader of this entry read, with its
+`candidate` rule (`plugin_mcp_config`, `plugin_manifest_mcp_servers`,
+`plugin_manifest_hooks`, `plugin_hook_file`, `unparsed_plugin_manifest`,
+`cursor_project_hooks`, `nested_host_settings`, `external_plugin_source`) and,
+for an external plugin source, the source it names as `detail`, never fetched.
+`read_sources_only` is `false` while such an item is named, and
+`unread_candidates` (`examined`, `not_examined`, or `null` for not recorded)
+with `unread_candidates_not_examined` say whether the change set was examined
+and how many candidates were not, past the bound or because a file their rule
+needed was not read or did not parse. An item is never a row, a widening, a
+loading claim or a `check` violation. The one route it moves: a manifest-free
+`verify` whose only host-relevant change is such an input, or a changed
+candidate it counts as not examined, publishes that comparison instead of the
+setup route, and on `verify --preview` the next
+action for that change is `discover` (`audit --host`) with the comparison
+published, where it was `initialize` (`init --write`) with none, in an
+agent-related workspace too, as it already was when the change edited a host
+file this entry reads. `minimum_control_contract_version`
+stays `21`, and a `0.20` verifier reads with the search not recorded. See
+[the migration note](../STABILITY.md#unread-changed-inputs-821).
+
+Still contract v41, unreleased: a plugin directory a host comparison cannot
+compare no longer hides the changes outside it (#808). Where every blocking
+limit that refused the comparison is a plugin-reference limit bounded by its
+plugin directory, and no compared source depends on that directory, verifier
+`0.21` and `shipgate diff --json` (capability diff `0.4`) publish
+`comparison_status: partial`: the same `incomparable_reasons`, the `rows`,
+`review` and `unchanged_limits` established outside the directory, and the
+directory as `scope` on each such `blocking_limit` coverage item, which
+`0.20` reserved as always `null`. Treat `partial` as `incomparable` for any
+decision: every control state, permission, next action and `check` decision
+is the refusal's, the control envelope's `capability_rows` projects it as
+`incomparable` with no rows, and `check`, whose boundary result cannot name a
+directory, still refuses its comparison. A `0.20` verifier claiming a partial
+comparison or a `scope` is refused. See
+[the migration note](../STABILITY.md#partial-host-comparison-808).
+
+Previous runtime contract v40 reads the action reference each workflow step declares
 (#771). Host-grants inventory, baseline and drift schemas move to `0.6`, and a
 workflow grant adds `step_actions[]`: the job, the step (`id`, else `name`,
 else `steps[N]`), the declared `uses`, and its `form` — `remote`, `docker`, or
@@ -2240,13 +2284,13 @@ Downstream repos generated with
 `init --agent-instructions=default` get the minimal local copy at
 `.shipgate/agent-contract.json`.
 
-- Latest release: `v1.0.0`
+- Latest release: `v1.1.0`
 - In-tree runtime: `1.1.0` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `40` (minimum control contract: `21`)
+- Runtime contract: `41` (minimum control contract: `21`)
 - Current report schema: `1.0`, frozen, superseding `0.43` — [`docs/report-schema.v1.0.json`](report-schema.v1.0.json); the `1.x` rules are in [`docs/report-1-0-contract.md`](report-1-0-contract.md)
 - Current packet schema: `0.18` — [`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
-- Current verifier schema: `0.20` — [`docs/verifier-schema.v0.20.json`](verifier-schema.v0.20.json) (`0.19` and earlier stay frozen; `0.20` says what each host comparison established, source by source)
+- Current verifier schema: `0.21` — [`docs/verifier-schema.v0.21.json`](verifier-schema.v0.21.json) (`0.20` and earlier stay frozen; `0.20` says what each host comparison established, source by source, and `0.21` also names the changed inputs it does not read)
 - Current verify-run schema: `shipgate.verify_run/v5` — [`docs/verify-run-schema.v5.json`](verify-run-schema.v5.json)
 - Current verification identity schemas: [`plan v1`](verification-plan-schema.v1.json), [`unit result v1`](verification-unit-result-schema.v1.json), [`artifact manifest v1`](verification-artifact-manifest-schema.v1.json), and [`terminal receipt v1`](verification-receipt-schema.v1.json)
 - Current control pointer schema: `shipgate.current_control/v1` — [`docs/current-control-schema.v1.json`](current-control-schema.v1.json)
@@ -2410,6 +2454,25 @@ Uncommitted work is checked according to what the decision actually covered:
   covered, and a stale `human_review_required` must not keep enforcing a
   pre-change stop. Re-running the same archived `--head` verification cannot
   clear that, so the refusal routes to a worktree verification instead.
+- A **preview** (`operation: "preview"`) decided nothing about the inputs a
+  plan names, so its pointer binds no `verification_plan` — also in a
+  repository with a manifest, where the preview still records the plan a
+  `verify` would run and `verify-run.json` embeds it. Its path set is
+  therefore not recorded: the overlay of every path that differs from HEAD is
+  recomputed live and compared with the one it was read from, so any tracked
+  edit, new untracked file or removal refuses it as `workspace_changed`, and
+  restoring the tree it read makes it current again. A configured and a
+  manifest-free preview are read the same way, whether their reports are in
+  the default directory, another directory inside the repository or beside
+  it (#807). Inside a repository such a pointer always declares the worktree
+  snapshot, even when its overlay could not be read, so under Git
+  configuration the worktree readers refuse it is refused with the cause like
+  every other pointer; one published over an overlay it could not read is
+  current, once the tree can be read, only over a tree identical to HEAD.
+  A pointer that does bind a plan is read against that plan's
+  recorded inputs, and one whose plan lacks its input-directory census is
+  refused as `workspace_unverifiable`, as before; see
+  [the census](verification-reproducibility.md).
 
 An overlay row carries content *and* the two metadata axes Git itself tracks:
 entry kind and the executable bit. Content alone is not the capability —
@@ -2464,7 +2527,9 @@ accepts any `--out` name under its artifacts root, so an older canonical receipt
 must not be mistaken for the one a run just closed. A `scan` or `preview`
 pointer is structurally incapable of authorizing completion or merge, and each
 binds only the artifacts it actually wrote: a `scan --format markdown` after a
-verify does not claim that verifier's `report.json`. While a run is in flight the pointer reads
+verify does not claim that verifier's `report.json`. A `preview` binds its
+verifier route and never the `verification-plan.json` a manifest lets it
+record, because it read none of that plan's inputs. While a run is in flight the pointer reads
 `lifecycle_state: "in_progress"` with `control.state: "unavailable"`,
 `must_stop: true`, so an interrupted or crashed run leaves a directory that
 denies cached control rather than one that still authorizes it. Consumers built
@@ -2743,7 +2808,13 @@ emits a `verifier.json` with
 next recommended action: an exact
 `init --workspace <workspace> --write --json`
 command for unconfigured repos, or an exact `verify` command for configured
-repos using the supplied workspace/config/base/head/out arguments. Use it as the
+repos using the supplied workspace/config/base/head/out arguments.
+`verify --preview --format control` prints that same state and command, and an
+`agent control` refresh of the pointer it published returns them until the
+working tree moves. Where the working tree cannot be read, both withhold them
+and lead with the cause instead
+([how a preview is read](#two-read-entry-points)).
+Use it as the
 first touch before a full scan. To evaluate just the run/skip trigger, run
 `agents-shipgate trigger --base origin/main --head HEAD --json`.
 
@@ -2777,7 +2848,7 @@ agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --jso
 ```
 
 In `agents-shipgate-reports/verifier.json`, read the fields below (full
-schema [`docs/verifier-schema.v0.20.json`](verifier-schema.v0.20.json)). **Lead
+schema [`docs/verifier-schema.v0.21.json`](verifier-schema.v0.21.json)). **Lead
 with `control.state`.** Every release and merge field below is a mirror or
 deterministic projection of `report.json`; the authorization evaluation is an
 operational overlay and cannot change those fields.
@@ -3358,8 +3429,8 @@ baseline summary and do not fail CI.
 | `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` | medium | A coding-agent host configuration file could not be parsed. |
 | `SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED` | high | A new MCP server was declared for the coding-agent host. |
 | `SHIP-HOST-BOUNDARY-MCP-SERVER-CHANGED` | high | An existing MCP server declaration changed its command, URL, args, or env keys. |
-| `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` | critical | A Claude Code allow rule grants a wildcard surface over a tool that can execute, reach the network, or write. |
-| `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` | high | The Claude Code permission allowlist expanded, by a scoped rule or a read-only wildcard. |
+| `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` | critical | A Claude Code allow rule grants a wildcard surface over a tool that can execute, reach the network, or write, or a setting removes a prompt wholesale. |
+| `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` | high | The Claude Code permission allowlist expanded, by a scoped rule or a read-only wildcard, or a modelled setting changed, at the setting's rating. |
 | `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED` | high | A Claude Code permission deny rule was removed. |
 | `SHIP-HOST-BOUNDARY-HOOK-CHANGED` | high | Claude Code hooks changed. |
 | `SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL` | critical | A GitHub workflow grants write-all permissions. |
@@ -3891,6 +3962,16 @@ A changed `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`,
 or its content cannot be resolved from the diff. Fix the malformed host config
 or have a human review the change.
 
+A settings file that parses but changes a top-level key outside the
+host-boundary rule allow-list, such as `outputStyle`, also raises this check,
+with evidence kind `unknown_host_config_key` and the key's name: the file was
+read and the key's meaning is not modelled. A Claude Code setting the host
+inventory models is not an unknown key. `enableAllProjectMcpServers`,
+`skipDangerousModePermissionPrompt`, `enabledMcpjsonServers`,
+`disableAllHooks` and the managed-only switches are rated by the setting table
+and raise `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` or
+`SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` instead (#827).
+
 ### SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED
 
 A changed MCP server declaration file adds a server key that did not exist
@@ -3924,6 +4005,21 @@ exfiltration needs a network or write grant, which is its own finding. Before
 v0.17 every wildcard shape reached this check, so the ordinary coding-agent
 configuration blocked the release at `critical` (#657).
 
+A Claude Code setting that removes a prompt wholesale raises this check too,
+at `critical`: `defaultMode: bypassPermissions` skips every permission prompt,
+`skipDangerousModePermissionPrompt: true` skips the confirmation before that
+mode starts, and `enableAllProjectMcpServers: true` approves every MCP server
+the project's `.mcp.json` declares. The rating comes from one table in the
+engine that also rates the setting's `audit --host` grant and its `diff`,
+`verify` and `check` rows, so every surface gives the value one severity
+(#827). `defaultMode` evidence names the `mode`; every other setting's names
+the `setting` and its `value`. Either is the value the setting's
+`audit --host` grant publishes, with credentials redacted, cut to at most 200
+characters. `defaultMode: dontAsk` no longer reaches this
+check: Claude Code documents that it denies whatever no allow rule permits
+rather than running it, so it raises
+`SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` at `medium`.
+
 ### SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED
 
 A changed Claude Code settings file adds a `permissions.allow` entry that is
@@ -3937,6 +4033,33 @@ spellings of one rule, which also allows the bare `npm`, so replacing either
 with `Bash(npm test:*)` or `Bash(npm test)` does not fire (#816). The space
 before the star is part of the rule, so `Bash(npm run test:*)` does not cover
 `npm run test:unit`: adding that command fires.
+
+It also fires when a change sets any other value of a Claude Code setting the
+host inventory models, at the rating the engine's setting table gives that
+value — the rating the setting's grant and host-diff row carry (#827):
+
+| Setting and value | Rating | Why |
+| --- | --- | --- |
+| `defaultMode: acceptEdits` | high | accepts file edits without a prompt |
+| `defaultMode: auto` | high | lets Claude Code approve tool calls itself instead of prompting |
+| a `defaultMode` Claude Code does not document | high | what it permits is not established |
+| an `enabledMcpjsonServers` entry | high | approves that project `.mcp.json` server without a prompt |
+| an `enabledMcpjsonServers` entry that names no server (an object, a number, a blank string) | high | what it permits is not established |
+| `defaultMode: dontAsk` | medium | denies every tool call no allow rule already permits, instead of prompting |
+| `defaultMode: plan`, `defaultMode: default` | medium | lets nothing run without a prompt that an allow rule does not already permit |
+| `disableBypassPermissionsMode`, `disableAllHooks`, `allowManagedPermissionRulesOnly`, `allowManagedHooksOnly`, and `false` for `enableAllProjectMcpServers` or `skipDangerousModePermissionPrompt` | medium | changes which prompts, hooks or rules apply without letting anything run without a prompt that an allow rule does not permit |
+
+A rating is of the value, not of the change: whether a value is wider than the
+one it replaced is not modelled, so every value a change sets is reviewed.
+Moving a value between `permissions` and the top level sets it, in either
+direction, and raises this check or `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW`
+at the value's rating: the host inventory reads a setting from either place,
+but Claude Code documents `defaultMode` under `permissions` and
+`enableAllProjectMcpServers` at the top level, so moving a top-level
+`defaultMode: bypassPermissions` into `permissions` turns the mode on without
+changing its value. Removing a setting raises nothing of its own, as removing
+`defaultMode` never did. A host-boundary policy may raise this rule, and then
+raises these ratings with it; it cannot lower them.
 
 ### SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED
 

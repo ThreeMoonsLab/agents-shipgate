@@ -178,6 +178,8 @@ SURFACES: tuple[Surface, ...] = (
             "src/agents_shipgate/core/capability_diff_rows.py",
             "src/agents_shipgate/core/host_comparison.py",
             "src/agents_shipgate/report/host_comparison.py",
+            "src/agents_shipgate/core/unread_inputs.py",
+            "src/agents_shipgate/cli/verify/changed_inputs.py",
         ),
         # No claims on purpose: this surface restates none of the engine's
         # answers. It projects the drift payload the engine produced, which
@@ -207,7 +209,24 @@ SURFACES: tuple[Surface, ...] = (
         # its own boundary rather than claiming coverage of the change, so the
         # #812 follow-up adds no claim either;
         # `tests/test_host_comparison_coverage.py` holds diff, verify and the
-        # PR comment to the same object.
+        # PR comment to the same object. A setting row naming its setting and
+        # value, and a Claude Code setting's `why` quoting the engine's one
+        # setting table (#827), restate the grant the engine published and
+        # the rating it gave, the same one `check` raises its violation at,
+        # so they add no claim; `tests/test_prompt_disabling_settings.py`
+        # holds every route to that one rating. Naming the changed inputs this
+        # entry does not read (#821) is a filename-and-member-text fact about
+        # the comparison's own change set, never a grant, verdict, pin, floor
+        # or vocabulary the engine answers, so it adds no claim; the rules are
+        # held to `docs/host-boundary-support.md` and every route to the same
+        # object by `tests/test_unread_changed_inputs.py`. A `partial`
+        # comparison (#808) restates no engine answer either: it publishes the
+        # rows the same comparator established outside plugin directories the
+        # reader's reference graph bounds, names those directories as the
+        # reserved coverage `scope`, and is read as incomparable by every
+        # control route, so it adds no claim; every route to the same object,
+        # and every refusal it must keep, is held by
+        # `tests/test_partial_host_comparison.py`.
         {},
     ),
     Surface(
@@ -1742,8 +1761,8 @@ def unresolvable_pins(text: str) -> list[tuple[str, str]]:
 #: the alternative #497 allows: "a resolvable supported path **or an explicit
 #: version/contract incompatibility**". None is excused today:
 #: ``examples/github-actions/10-check-run-annotations.yml`` targeted ``@main``
-#: while ``check_run_policy`` postdated the newest release, and pins ``v1.0.0``
-#: now that that release carries it.
+#: while ``check_run_policy`` postdated the newest release, and has pinned the
+#: newest published release since ``v1.0.0`` carried it.
 #:
 #: Enumerated, never inferred, for the same reason #506 enumerates reader
 #: blanks: an allowlist that guessed at "looks deliberate" is one bad guess away
@@ -2122,8 +2141,9 @@ def test_the_human_entry_path_states_what_the_published_build_provides():
 
 
 #: An immutable release tag that accepts fewer ``check --format`` values than
-#: this tree. ``v1.0.0`` carries the current option set, so the newest release
-#: can no longer witness the difference the reader exists to see; this tag can.
+#: this tree. Every release since ``v1.0.0`` carries the current option set, so
+#: the newest release can no longer witness the difference the reader exists to
+#: see; this tag can.
 _FORMAT_READER_WITNESS_TAG = "v0.15.0"
 
 

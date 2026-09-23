@@ -30,13 +30,18 @@ from agents_shipgate.core.host_grants import (
     hook_loading_basis,
     host_grant_expansion_signals,
     permission_rule_replacements,
+    published_setting_value,
     published_workflow_label,
     secret_mapping_key,
     step_action_key,
 )
+from agents_shipgate.core.host_settings import rate_claude_setting, setting_value_text
 from agents_shipgate.schemas.capability_diff import CapabilityDiffRow as CapabilityDiffRow
 
 ABSENT = "—"
+
+#: Grant kinds that publish a `setting` and its `value`.
+_SETTING_KINDS = frozenset({"permission_mode", "sandbox"})
 
 #: A job and one named secret mapping its reusable call declares (#693).
 SecretMapping = tuple[str, dict[str, Any]]
@@ -294,6 +299,11 @@ def _grant_value(
         parts.extend(_secret_mapping_value(item) for item in secret_mappings or [])
         parts.extend(_step_action_value(item) for item in step_actions or [])
         return ", ".join(part for part in parts if part) or kind
+    if kind in _SETTING_KINDS and grant.get("setting"):
+        # A setting row read `True` or `dontAsk` alone, which names no setting
+        # (#827). It names both, the value as the settings file spells it.
+        setting = str(grant["setting"])
+        return f"{setting}: {setting_value_text(setting, published_setting_value(grant))}"
     # `event` names a hook's trigger. Without it a hook row rendered as
     # "hook", which tells a reviewer a hook changed and not which one (#689).
     for key in ("rule", "server", "name", "event", "value", "permission"):
@@ -416,6 +426,14 @@ def _why(
         )
     if kind == "instruction_trust_root":
         return "changes instructions the agent is given"
+    if kind == "permission_mode" and grant.get("host") == "claude-code" and grant.get("setting"):
+        # The basis of the rating the row's severity carries, from the one
+        # table `check` rates the same value with (#827).
+        basis = rate_claude_setting(
+            str(grant["setting"]), published_setting_value(grant)
+        ).basis
+        if basis:
+            return f"removes a setting that {basis}" if direction == REMOVED else basis
     return f"changes a {kind or 'host'} grant"
 
 
@@ -805,6 +823,11 @@ def capability_diff_rows(
             direction = WIDENED
         gone_steps, new_steps = _step_action_changes(before_grant, after_grant)
         gone_secrets, new_secrets = _secret_mapping_changes(before_grant, after_grant)
+        why = _why(
+            grant, direction,
+            gone_steps=gone_steps, new_steps=new_steps,
+            gone_secrets=gone_secrets, new_secrets=new_secrets,
+        )
         row = CapabilityDiffRow(
             subject=_subject(grant),
             before=_grant_value(
@@ -820,11 +843,7 @@ def capability_diff_rows(
                 secret_mappings=new_secrets,
             ),
             direction=direction,
-            why=_why(
-                grant, direction,
-                gone_steps=gone_steps, new_steps=new_steps,
-                gone_secrets=gone_secrets, new_secrets=new_secrets,
-            ),
+            why=why,
             severity=str(grant.get("risk") or "unknown"),
             expands=expands,
             # A permission grant's identity is its disposition and its rule, so

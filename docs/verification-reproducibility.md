@@ -159,6 +159,14 @@ current reads or worker replay. A matching snapshot context alone does not
 attest that adapter loading occurred. Existing historical receipt integrity
 remains readable and does not grant current authority.
 
+`verify --preview` in a repository with a manifest writes such a fallback plan:
+it names what a `verify` would read, and the preview read none of it. Its
+pointer therefore does not bind the plan, and is read against the working tree
+it was run on instead, as a manifest-free preview is (#807). The plan gains no
+census, so it stays refused for worker replay, and a pointer that does bind a
+plan without one — including the one a `1.1.0` configured preview published —
+is still refused as `workspace_unverifiable`.
+
 The [normative control recipe](agent-contract-current.md#two-read-entry-points)
 defines freshness and permission routing. These boundaries change neither its
 wire format nor the release decision.
