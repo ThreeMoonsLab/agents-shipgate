@@ -5264,14 +5264,35 @@ def _publish_run_control(
             out_dir=out_dir,
             git_root=git_root,
             verifier=verifier,
+            operation=operation,
         ),
         # A preview never runs a scan, so report.json and packet.json in this
         # directory belong to some earlier run.  Binding them would present two
         # generations as one current artifact set.
         artifact_keys=(
-            VERIFIER_ROUTE_CONTROL_ARTIFACT_KEYS if operation == "preview" or verifier.host_comparison is not None else None
+            _PREVIEW_CONTROL_ARTIFACT_KEYS
+            if operation == "preview"
+            else VERIFIER_ROUTE_CONTROL_ARTIFACT_KEYS
+            if verifier.host_comparison is not None
+            else None
         ),
     )
+
+
+#: What a ``verify --preview`` pointer binds: the verifier route it wrote, never
+#: the verification plan. In a configured repository the preview still records
+#: a plan (``verify-run.json`` embeds it), but that plan is the request a
+#: ``verify`` would make, built from what the manifest declares, and nothing it
+#: names was read: a preview runs no adapter. Bound, the plan made its input
+#: capture the preview's currency test, and a plan whose inputs were never
+#: captured has no census to reconfirm — so every refresh refused with "input
+#: directory capture is unavailable", and ``verify --preview --format control``
+#: sent the caller to a human for it (#807). Unbound, a configured preview is
+#: read exactly as a manifest-free one: against the working tree it read.
+#: A plan that *is* bound and lacks its census still refuses, as before.
+_PREVIEW_CONTROL_ARTIFACT_KEYS: frozenset[str] = VERIFIER_ROUTE_CONTROL_ARTIFACT_KEYS - {
+    "verification_plan"
+}
 
 
 def _current_control_workspace_identity(
@@ -5279,12 +5300,17 @@ def _current_control_workspace_identity(
     out_dir: Path,
     git_root: Path,
     verifier: VerifierArtifact,
+    operation: CurrentControlOperation = "verify",
 ) -> CurrentControlWorkspaceIdentity:
     """Bind what this run was evaluated against.
 
     The verification plan is the authoritative source when the run produced
     one, because that is the same subject the receipt closes over.  Runs that
-    stopped before plan construction fall back to the verifier's coarser view.
+    stopped before plan construction fall back to the verifier's coarser view,
+    and so does every preview: its pointer binds no plan
+    (:data:`_PREVIEW_CONTROL_ARTIFACT_KEYS`), and a plan identity on a
+    plan-less pointer would ask the reader to recompute an overlay over paths
+    it has no record of.
 
     That fallback binds *this worktree's* HEAD, which is deliberately not
     ``head_ref``: a preview reads project markers from the working tree, so the
@@ -5308,7 +5334,7 @@ def _current_control_workspace_identity(
     if verifier.host_comparison is not None and verifier.host_comparison.input_identity is not None:
         return verifier.host_comparison.input_identity
     plan_path = out_dir / "verification-plan.json"
-    if plan_path.is_file() and not plan_path.is_symlink():
+    if operation != "preview" and plan_path.is_file() and not plan_path.is_symlink():
         try:
             plan = VerificationPlan.model_validate_json(plan_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -5316,14 +5342,23 @@ def _current_control_workspace_identity(
         if plan is not None:
             return workspace_identity_from_plan(plan)
     bound, overlay = _safe_worktree_overlay(git_root, exclude=out_dir)
+    head_commit = _safe_worktree_sha(git_root, commit_sha)
     return CurrentControlWorkspaceIdentity(
         repository=_safe_repository_identity(git_root),
         head_ref=verifier.head_ref,
-        head_commit_sha=_safe_worktree_sha(git_root, commit_sha),
+        head_commit_sha=head_commit,
         # An evaluated tree, when the run recorded one, is what this answer
         # describes; otherwise the worktree's own HEAD tree is.
         head_tree_sha=verifier.head_tree_sha or _safe_worktree_sha(git_root, tree_sha),
-        snapshot_kind="worktree_overlay" if bound else None,
+        # Inside a repository the answer always rests on its working tree, so
+        # the pointer says so even when the overlay could not be read here —
+        # Git configuration the worktree readers refuse, a read bound, a
+        # timeout. Declaring no snapshot kind instead left the reader nothing
+        # to compare, and it returned such a pointer as current over any later
+        # edit, while the same configuration refused every other pointer
+        # (#813). A preview reaches this path in every repository since it
+        # stopped binding its plan (#807), a configured one included.
+        snapshot_kind="worktree_overlay" if bound or head_commit is not None else None,
         worktree_overlay_sha256=overlay,
     )
 
@@ -5337,8 +5372,13 @@ def _safe_worktree_overlay(git_root: Path, *, exclude: Path) -> tuple[bool, str 
     the clean case as unbound instead would leave the pointer with nothing to
     validate, and a later edit invisible — which is the state this is fixing.
 
-    ``bound=False`` is the genuinely unknown case, and it declares no snapshot
-    kind at all rather than manufacturing currency from an unreadable tree.
+    ``bound=False`` is the genuinely unknown case. Inside a repository the
+    pointer still declares a worktree snapshot, with no overlay: the reader
+    then refuses it, with the cause, for as long as the tree cannot be read,
+    and afterwards reads it as current only over a tree identical to HEAD —
+    the committed evidence a run falls back on when it could not read the tree
+    either. Declaring no snapshot kind, as this once did, skipped that check
+    entirely. Outside a repository nothing is declared, and nothing is compared.
     """
 
     try:

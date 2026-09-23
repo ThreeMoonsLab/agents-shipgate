@@ -87,6 +87,53 @@
     id moves; what moves is when two existing check ids fire. See the
     `STABILITY.md` migration note. (#809)
 
+- `verify --preview` in a repository with a `shipgate.yaml` no longer sends
+  the caller to a human for missing evidence. `verify --preview --json` there
+  answered `agent_action_required` with the exact `verify` command, while
+  `verify --preview --format control` answered `human_review_required` with
+  "The recorded source and dependency inputs are no longer current: input
+  directory capture is unavailable; re-run verification", and every
+  `agent control` refresh exited `4` with `workspace_unverifiable`. Re-running
+  reproduced it, with the default, an in-repository and a sibling `--out`
+  alike, on `1.0.0` and `1.1.0`.
+  - **The cause.** A manifest lets the preview record the verification plan a
+    `verify` would run, and the preview's pointer bound that plan as its
+    currency evidence. A preview runs no adapter, so none of the plan's inputs
+    was captured and the plan has no input-directory census, which every
+    reader refuses.
+  - **Now.** A preview's pointer binds its verifier route and never the plan,
+    and is read against the working tree it was run on, exactly as a
+    manifest-free preview's already was: `--format control` prints the
+    `--json` state and command, and `agent control` returns them, with the same
+    `current_control_id`, until a tracked edit, a new untracked file or a
+    removal refuses it as `workspace_changed`. Restoring the tree makes it
+    current again. The plan is still written, and `verify-run.json` still
+    embeds it.
+  - **Still refused.** A pointer that binds a plan without its census, such
+    as one a `1.1.0` configured preview left in a reports directory, is
+    `workspace_unverifiable` as before, with a `verify` command as its next
+    action; re-running the preview replaces it. The plan gains no census, so
+    `verification worker` still refuses to replay it. Nothing else reads a
+    missing census as complete.
+  - **A tree that cannot be read stays refused.** Under Git configuration the
+    worktree readers refuse (#813), the overlay a plan-less pointer binds
+    cannot be read, and such a pointer declared no snapshot at all, so the
+    refresh compared HEAD alone: a manifest-free preview stayed current over
+    any later edit, and a configured one would have too once it stopped
+    binding its plan. Every pointer published inside a repository without a
+    plan — a preview, or a `verify` that stopped before building one at a
+    `--config` or `--head` that does not exist — now declares the worktree
+    snapshot, so it is refused as `workspace_unverifiable` with the cause
+    first and a `review` next action, like every other pointer there, and the
+    run's own `--format control` says `human_review_required`, manifest or
+    not. `--json` is unchanged.
+  - **One refusal names the tree.** A preview refused as `workspace_changed`
+    now names up to three paths that differ from HEAD, redacted, instead of
+    saying the paths it was read from no longer had their content, which was
+    false for a tracked edit or a new file after a preview of a clean tree.
+  - No schema, contract, member, error kind, refusal code or exit code moves.
+    See the `STABILITY.md` migration note. (#807)
+
 ## 1.1.0 - 2026-09-22
 
 A legibility and presentation-correctness release on the advisory channel.
