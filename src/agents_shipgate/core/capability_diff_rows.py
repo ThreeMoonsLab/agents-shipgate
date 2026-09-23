@@ -746,11 +746,14 @@ def _mcp_change(name: str, before: dict[str, Any], after: dict[str, Any]) -> str
             tokens = [f"+{key}" for key in _key_names(added)] + [f"-{key}" for key in _key_names(removed)]
             parts.append(f"{label} {_names(tokens)}")
     if not parts:
-        return f"{name}: {_mcp_unshown_change(after, args_compared='args' in before)}"
+        bounded = any(int(grant.get("omitted_args") or 0) for grant in (before, after))
+        return f"{name}: {_mcp_unshown_change(after, args_compared='args' in before, args_bounded=bounded)}"
     return f"{name}: " + "; ".join(parts)
 
 
-def _mcp_unshown_change(grant: dict[str, Any], *, args_compared: bool = False) -> str:
+def _mcp_unshown_change(
+    grant: dict[str, Any], *, args_compared: bool = False, args_bounded: bool = False
+) -> str:
     """A change confined to what the grant does not publish, in the words of what was compared.
 
     Only the command's name, or the URL's recorded value, the published
@@ -758,10 +761,13 @@ def _mcp_unshown_change(grant: dict[str, Any], *, args_compared: bool = False) -
     and `/usr/local/bin/node` → `./scripts/node` change the command while its
     name stays the same, so the sentence names the command's path as what this
     output does not show; an argument is published redacted and bounded, so a
-    change inside a redacted or shortened one is not shown either (#819). A URL
-    that is not printed is named `url as recorded`, never by its value, and a URL
-    server that declares no arguments is not said to have compared them. A grant
-    read before arguments were published names them as not shown, as it did.
+    change inside a redacted or shortened one is not shown either (#819). When
+    either side declares more arguments than are published (``args_bounded``),
+    only the first N were compared, and an argument past them is named among
+    what is not shown (#819 review). A URL that is not printed is named
+    `url as recorded`, never by its value, and a URL server that declares no
+    arguments is not said to have compared them. A grant read before arguments
+    were published names them as not shown, as it did.
     """
 
     launch = _mcp_launch(grant)
@@ -772,13 +778,18 @@ def _mcp_unshown_change(grant: dict[str, Any], *, args_compared: bool = False) -
         and (grant.get("transport") != "url" or grant.get("args") or grant.get("omitted_args"))
         else ""
     )
+    past_bound = ""
+    if arguments and args_bounded:
+        shown = len(grant.get("args") or [])
+        arguments = f"the first {shown} arguments, "
+        past_bound = f"an argument past the first {shown}, "
     if grant.get("transport") == "url":
         compared = "url as recorded" if _mcp_endpoint(grant) == _URL_NOT_SHOWN else launch or "url"
-        unshown = "the URL's query or another setting"
+        unshown = f"{past_bound}the URL's query or another setting"
     else:
         compared = launch or "command name"
         unshown = (
-            "the command's path, a redacted or shortened argument, or another setting"
+            f"{past_bound}the command's path, a redacted or shortened argument, or another setting"
             if arguments
             else "the command's path or arguments"
         )
@@ -914,7 +925,11 @@ def _hook_change(event: str, before: dict[str, Any], after: dict[str, Any]) -> s
     ``event → event`` as it did. The row exists
     because ``config_sha256`` changed; when no published field differs, the
     change is in something the handlers do not show, and the text says so
-    rather than print the same handlers twice.
+    rather than print the same handlers twice. When either side lists fewer
+    handlers than it declares, or summarizes a command with fewer arguments
+    than it has, the sentence says only the first ones were compared and names
+    a handler or command argument past them among what it does not show
+    (#819 review).
     """
 
     if "handlers" not in before or "handlers" not in after:
@@ -927,10 +942,21 @@ def _hook_change(event: str, before: dict[str, Any], after: dict[str, Any]) -> s
     if old_more != new_more:
         parts.append(f"handlers past the first {len(new)}: {old_more} → {new_more}")
     if not parts:
+        compared, past = "", ""
+        if old_more or new_more:
+            compared = f" of the first {len(new)} handlers"
+            past = f"a handler past the first {len(new)}, "
+        bounded = [
+            handler["command"]
+            for handler in (*old, *new)
+            if isinstance(handler.get("command"), dict) and int(handler["command"].get("omitted_args") or 0)
+        ]
+        if bounded:
+            past += f"a command argument past the first {len(bounded[0].get('args') or [])}, "
         return (
-            f"{event}: no difference in the matcher, type, command summary or timeout; the "
-            "change is in a detail this output does not show, such as a redacted or shortened "
-            "word or another hook setting"
+            f"{event}: no difference in the matcher, type, command summary or timeout{compared}; "
+            f"the change is in a detail this output does not show, such as {past}a redacted or "
+            "shortened word or another hook setting"
         )
     shown = parts[:_NAME_LIMIT]
     rest = len(parts) - len(shown)

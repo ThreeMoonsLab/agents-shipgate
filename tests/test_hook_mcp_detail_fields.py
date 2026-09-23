@@ -37,6 +37,8 @@ from agents_shipgate.core.host_grants import (
     DISPLAY_ONLY_GRANT_FIELDS,
     MAX_DETAIL_WORD_CHARS,
     MAX_HOOK_COMMAND_ARGS,
+    MAX_HOOK_HANDLERS,
+    MAX_MCP_ARGS,
     HostStaticParseCache,
     build_host_boundary_snapshot,
     build_host_drift_payload,
@@ -238,13 +240,37 @@ GITHUB_TOKEN = "ghp_" + "Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2"
 OTHER_TOKEN = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
 #: A key no known token shape names, passed as a bare positional argument.
 GENERATED_KEY = "k3Y9xQ2mZ7pL4vB8nR6tW1sD5fG0hJ3a"
+#: Generated keys joined to other text by `.`, `:`, `;` or `=`, in the shapes
+#: of real tokens no known pattern names (#819 review): a SendGrid key
+#: `SG.<id>.<secret>`, a Telegram bot token `<bot id>:<secret>`, an Airtable
+#: personal access token `pat<id>.<secret>`, a Discord bot token, a Mapbox
+#: secret token `sk.<payload>.<signature>` and an Azure storage connection
+#: string. The whole-word test never ran on them, because of the separators.
+SENDGRID_ID = "Sg9Id4Kq2Xw5Lm1Vb8Nc3T"
+SENDGRID_SECRET = "sendgridCanary" + "Qp7Rz4Tv8Wn1Yc6Ud5Ef0Gh3Ij2Kl"
+TELEGRAM_SECRET = "AAtelegramCanary" + "H1vGWJxfSeo0K5PALDs"
+AIRTABLE_SECRET = "ca9a7e" + "0123456789abcdef" * 3 + "fedcba9876"
+DISCORD_SECRET = "discordCanary" + "m1XVW7vRze4b7Cq4s"
+MAPBOX_PAYLOAD = "eyJ1IjoiZXhhbXBsZSIsImEiOiJjbGFiY2RlZjEyMyJ9"
+#: Too short for the key test alone; replaced because the payload beside it is a key.
+MAPBOX_SIGNATURE = "mapboxCanary" + "Hj3Kl9Qw"
+AZURE_KEY = "azureCanary" + "b3Xk9Lm2Qp7Rz4Tv8Wn1Yc6Ud5Ef0Gh3Ij2Kl9Mn8Op7Qr6St5Uv4Wx3Yz2Ab1Cd0Ef9Gh8Ij7Kl6Mn5Op4=="
+SENDGRID_KEY = f"SG.{SENDGRID_ID}.{SENDGRID_SECRET}"
+TELEGRAM_TOKEN = f"123456789:{TELEGRAM_SECRET}"
+AIRTABLE_PAT = f"patAbCdEfGhIjKlMn.{AIRTABLE_SECRET}"
+DISCORD_TOKEN = f"MTk4NjIyNDgzNDcxOTI1MjQ4.Cl2FMQ.{DISCORD_SECRET}"
+MAPBOX_TOKEN = f"sk.{MAPBOX_PAYLOAD}.{MAPBOX_SIGNATURE}"
+AZURE_CONNECTION = f"AccountName=acct;AccountKey={AZURE_KEY}"
 #: Every value below must never reach any output or artifact.
 CANARIES = (
     "inlinevalue-canary", "verbose-canary", "bearer-canary", "tokenflag-canary", "pw-canary",
     "path-canary", "query-canary", "apikey-canary", "access-canary", "envarg-canary",
     "userpw-canary", "basic-canary", "authheader-canary", "basicarg-canary", "apikeyheader-canary",
-    "baretoken-canary", "authflag-canary", "underscore-canary",
+    "baretoken-canary", "authflag-canary", "underscore-canary", "chained-canary", "secretkey-canary",
+    "pass-canary", "glued-canary",
     GITHUB_TOKEN, OTHER_TOKEN, GENERATED_KEY,
+    SENDGRID_ID, SENDGRID_SECRET, TELEGRAM_SECRET, AIRTABLE_SECRET, DISCORD_SECRET, MAPBOX_PAYLOAD,
+    MAPBOX_SIGNATURE, AZURE_KEY,
 )
 SECRET_COMMAND = (
     "API_KEY=inlinevalue-canary-1 DEBUG=verbose-canary-2 "
@@ -272,11 +298,27 @@ HEADER_ARGS = [
     "serve", "token", "baretoken-canary-16", "--auth", "authflag-canary-17",
     "--brave_api_key", "underscore-canary-18",
 ]
+#: Joined tokens, and a known token shape that runs into the flag after it:
+#: the `sk-` pattern takes `--password` with it, so only the digest's own rule,
+#: run first, still sees the value it redacts.
+TOKEN_COMMAND = (
+    f"bin/notify.sh {SENDGRID_KEY} {TELEGRAM_TOKEN} {MAPBOX_TOKEN} "
+    + "sk-" + "abcdefghijklmnopq--password glued-canary-22"
+)
+#: Joined tokens as arguments; a boolean credential-named flag that takes the
+#: next flag as its value, while the digest's list rule reads that flag as
+#: naming the value after it; and access- and secret-key flags.
+TOKEN_ARGS = [
+    AZURE_CONNECTION, AIRTABLE_PAT, DISCORD_TOKEN,
+    "--no-password", "--token", "chained-canary-19", "--secret-key", "secretkey-canary-20",
+    "--pass", "pass-canary-21",
+]
 
 
 def _secret_repo(tmp_path: Path) -> Path:
     head_hooks = _hooks("Edit", SECRET_COMMAND, 10)
     head_hooks["hooks"]["Stop"] = [{"hooks": [{"type": "command", "command": HEADER_COMMAND}]}]
+    head_hooks["hooks"]["Notification"] = [{"hooks": [{"type": "command", "command": TOKEN_COMMAND}]}]
     return _repository(
         tmp_path,
         {
@@ -288,13 +330,15 @@ def _secret_repo(tmp_path: Path) -> Path:
             ".mcp.json": {"mcpServers": {
                 "api": {"command": "npx", "args": SECRET_ARGS},
                 "headers": {"command": "npx", "args": HEADER_ARGS},
+                "tokens": {"command": "npx", "args": TOKEN_ARGS},
             }},
         },
     )
 
 
 def test_credentials_in_a_command_or_an_argument_are_never_published(tmp_path: Path) -> None:
-    """A token in a command, a secret positional argument, `env`-style assignments and header credentials."""
+    """A token in a command, a secret positional argument, `env`-style assignments, header
+    credentials, generated keys joined by `.`, `:`, `;` or `=`, and a chained credential flag."""
 
     repo = _secret_repo(tmp_path)
     hooks = {grant["event"]: grant for grant in _grants(repo, "hook")}
@@ -309,6 +353,10 @@ def test_credentials_in_a_command_or_an_argument_are_never_published(tmp_path: P
         "-s", "-u", "ops:<redacted>", "-H", "Authorization: <redacted>",
         "-H", "X-Auth-Token: <redacted>", "https://hooks.example.invalid",
     ]
+    assert hooks["Notification"]["handlers"][0]["command"]["args"] == [
+        "SG.<redacted>.<redacted>", "123456789:<redacted>", "sk.<redacted>.<redacted>",
+        "[REDACTED:openai_api_key]", "<redacted>",
+    ]
     servers = {grant["server"]: grant for grant in _grants(repo, "mcp_server")}
     assert servers["api"]["args"] == [
         "-y", "api-mcp@2.0.0", "--api-key", "<redacted>", "--access-token=<redacted>",
@@ -317,6 +365,11 @@ def test_credentials_in_a_command_or_an_argument_are_never_published(tmp_path: P
     assert servers["headers"]["args"] == [
         "--header", "Authorization: <redacted>", "--header", "api-key: <redacted>",
         "serve", "token", "<redacted>", "--auth", "<redacted>", "--brave_api_key", "<redacted>",
+    ]
+    assert servers["tokens"]["args"] == [
+        "AccountName=acct;AccountKey=<redacted>", "patAbCdEfGhIjKlMn.<redacted>",
+        "<redacted>.Cl2FMQ.<redacted>", "--no-password", "<redacted>", "<redacted>",
+        "--secret-key", "<redacted>", "--pass", "<redacted>",
     ]
 
     out = tmp_path / "out"
@@ -351,6 +404,15 @@ def test_credentials_in_a_command_or_an_argument_are_never_published(tmp_path: P
     assert (
         "Stop (command curl -s -u ops:<redacted> -H 'Authorization: <redacted>' "
         "-H 'X-Auth-Token: <redacted>' https://hooks.example.invalid)"
+    ) in lines
+    assert (
+        "Notification (command bin/notify.sh SG.<redacted>.<redacted> 123456789:<redacted> "
+        "sk.<redacted>.<redacted> [REDACTED:openai_api_key] <redacted>)"
+    ) in lines
+    assert (
+        "tokens (command name npx; args AccountName=acct;AccountKey=<redacted> "
+        "patAbCdEfGhIjKlMn.<redacted> <redacted>.Cl2FMQ.<redacted> --no-password <redacted> "
+        "<redacted> --secret-key <redacted> --pass <redacted>)"
     ) in lines
 
 
@@ -390,6 +452,26 @@ def test_a_value_the_digest_already_redacts_stays_quiet_as_before(tmp_path: Path
     assert "canary" not in text
 
 
+def test_a_value_after_a_chained_credential_flag_stays_quiet_and_redacted(tmp_path: Path) -> None:
+    """`--no-password --token X`: the digest's list rule redacts X, so the published argument does too (#819 review).
+
+    Before, the boolean `--no-password` consumed `--token` and `X` was
+    published, so rotating it changed the published arguments with no row.
+    """
+
+    def server(value: str) -> dict:
+        return {"mcpServers": {"api": {"command": "api-mcp", "args": ["--no-password", "--token", value]}}}
+
+    repo = _repository(
+        tmp_path, {".mcp.json": server("abc123canary")}, {".mcp.json": server("zzz999canary")}
+    )
+    [server_grant] = _grants(repo, "mcp_server")
+    assert server_grant["args"] == ["--no-password", "<redacted>", "<redacted>"]
+    text, payload = _diff(repo)
+    assert payload["rows"] == []
+    assert "canary" not in text
+
+
 def test_an_over_length_command_is_bounded_and_says_what_it_left_out(tmp_path: Path) -> None:
     long_word = "L" * 500
     words = [f"arg{index}" for index in range(30)]
@@ -412,6 +494,73 @@ def test_an_over_length_command_is_bounded_and_says_what_it_left_out(tmp_path: P
         f"PostToolUse: command bin/lint.sh → {shown} (+{31 - MAX_HOOK_COMMAND_ARGS} more arguments)"
     )
     assert long_word not in text
+
+
+def test_a_change_past_the_argument_bound_says_only_the_first_arguments_were_compared(
+    tmp_path: Path,
+) -> None:
+    """A pin in the fourteenth argument moves; only twelve are published (#819 review)."""
+
+    def github(tag: str) -> dict:
+        return {"mcpServers": {"github": {"command": "docker", "args": [
+            "run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "-e", "GITHUB_TOOLSETS",
+            "-e", "GITHUB_READ_ONLY", "-v", "/tmp/cache:/cache", "--network", "host",
+            f"ghcr.io/github/github-mcp-server:{tag}",
+        ]}}}
+
+    repo = _repository(tmp_path, {".mcp.json": github("v0.5.0")}, {".mcp.json": github("latest")})
+    [server] = _grants(repo, "mcp_server")
+    assert (len(server["args"]), server["omitted_args"]) == (MAX_MCP_ARGS, 2)
+
+    text, payload = _diff(repo)
+    change = (
+        "github: no difference in the command name docker, the first 12 arguments, env key "
+        "names or header key names; the change is in a detail this output does not show, such "
+        "as an argument past the first 12, the command's path, a redacted or shortened "
+        "argument, or another setting"
+    )
+    assert _table_entry(text, MCP_HEADER)[1] == change
+    assert [entry["change"] for entry in payload["review"]["changes"]] == [change]
+    assert len(payload["rows"]) == 1
+
+
+def test_a_change_past_the_handler_or_command_bound_says_so(tmp_path: Path) -> None:
+    """A seventeenth handler, and a command's tenth argument, are counted, not shown (#819 review)."""
+
+    def handlers(last_timeout: int) -> dict:
+        groups = [
+            {"matcher": "Edit", "hooks": [{"type": "command", "command": f"bin/h{index}.sh"}]}
+            for index in range(MAX_HOOK_HANDLERS)
+        ]
+        groups.append({"matcher": "Edit", "hooks": [
+            {"type": "command", "command": "bin/last.sh", "timeout": last_timeout},
+        ]})
+        return {"hooks": {"PostToolUse": groups}}
+
+    (tmp_path / "handlers").mkdir()
+    repo = _repository(tmp_path / "handlers", {SETTINGS: handlers(5)}, {SETTINGS: handlers(50)})
+    [hook] = _grants(repo, "hook")
+    assert (len(hook["handlers"]), hook["omitted_handlers"]) == (MAX_HOOK_HANDLERS, 1)
+    text, payload = _diff(repo)
+    assert _table_entry(text, HOOK_HEADER)[1] == (
+        "PostToolUse: no difference in the matcher, type, command summary or timeout of the "
+        "first 16 handlers; the change is in a detail this output does not show, such as a "
+        "handler past the first 16, a redacted or shortened word or another hook setting"
+    )
+    assert len(payload["rows"]) == 1
+
+    def command(last: str) -> dict:
+        return _hooks("Edit", " ".join(["bin/run.sh", *(f"arg{index}" for index in range(9)), last]), 10)
+
+    (tmp_path / "command").mkdir()
+    repo = _repository(tmp_path / "command", {SETTINGS: command("--dry-run")}, {SETTINGS: command("--force")})
+    text, payload = _diff(repo)
+    assert _table_entry(text, HOOK_HEADER)[1] == (
+        "PostToolUse: no difference in the matcher, type, command summary or timeout; the change "
+        "is in a detail this output does not show, such as a command argument past the first 8, "
+        "a redacted or shortened word or another hook setting"
+    )
+    assert len(payload["rows"]) == 1
 
 
 @pytest.mark.parametrize(
@@ -459,8 +608,37 @@ def test_an_over_length_command_is_bounded_and_says_what_it_left_out(tmp_path: P
         (["--brave_api_key", "BSAabcdefgh12345"], ["--brave_api_key", "<redacted>"]),
         (["--BRAVE-API-KEY", "BSAabcdefgh12345"], ["--BRAVE-API-KEY", "<redacted>"]),
         (["-u", "deploy:hunter2", "https://example.invalid"], ["-u", "deploy:<redacted>", "https://example.invalid"]),
-        (["--token", "--token", "abc"], ["--token", "<redacted>", "abc"]),
         (["sort", "-u", "names.txt"], ["sort", "-u", "names.txt"]),
+        # A consumed word that itself names a credential redacts the word after
+        # it, which the digest's list rule redacts (#819 review).
+        (["--token", "--token", "abc"], ["--token", "<redacted>", "<redacted>"]),
+        (["--no-password", "--token", "abc"], ["--no-password", "<redacted>", "<redacted>"]),
+        (["--auth", "--port", "8080"], ["--auth", "<redacted>", "8080"]),
+        # Access-key, secret-key and `pass` flags (#819 review).
+        (["--secret-key", "hunter2"], ["--secret-key", "<redacted>"]),
+        (["--aws-access-key", "abc"], ["--aws-access-key", "<redacted>"]),
+        (["-pass", "pass:hunter2"], ["-pass", "<redacted>"]),
+        ("--secret-key=hunter2", "--secret-key=<redacted>"),
+        (["--key", "names.txt"], ["--key", "names.txt"]),
+        # A generated key joined to other text is found run by run (#819 review).
+        (SENDGRID_KEY, "SG.<redacted>.<redacted>"),
+        (TELEGRAM_TOKEN, "123456789:<redacted>"),
+        (AIRTABLE_PAT, "patAbCdEfGhIjKlMn.<redacted>"),
+        (DISCORD_TOKEN, "<redacted>.Cl2FMQ.<redacted>"),
+        (MAPBOX_TOKEN, "sk.<redacted>.<redacted>"),
+        (AZURE_CONNECTION, "AccountName=acct;AccountKey=<redacted>"),
+        (f"--connection-string={AZURE_CONNECTION}", "--connection-string=AccountName=acct;AccountKey=<redacted>"),
+        (f"{GENERATED_KEY}@example.invalid", "<redacted>@example.invalid"),
+        # ...while a digest pin, a tag, a version and a dotted path are published as written.
+        ("srv@sha256:" + "0a1b2c3d" * 8, "srv@sha256:" + "0a1b2c3d" * 8),
+        ("ghcr.io/github/github-mcp-server:v0.5.0", "ghcr.io/github/github-mcp-server:v0.5.0"),
+        ("@upstash/context7-mcp@1.0.14", "@upstash/context7-mcp@1.0.14"),
+        ("mcp-outline==1.10.1", "mcp-outline==1.10.1"),
+        (
+            "$CLAUDE_PROJECT_DIR/.claude/hooks/PostToolUse-Format.sh",
+            "$CLAUDE_PROJECT_DIR/.claude/hooks/PostToolUse-Format.sh",
+        ),
+        ("DefaultEndpointsProtocol=https;EndpointSuffix=core.windows.net", "DefaultEndpointsProtocol=https;EndpointSuffix=core.windows.net"),
     ],
 )
 def test_one_argument_is_published_by_the_documented_rule(
@@ -485,6 +663,11 @@ def test_one_argument_is_published_by_the_documented_rule(
         ["-y", "srv", "authorization", "Basic abc", "--credential", "f", "api_key", "g"],
         ["--header", "Authorization: Bearer abc", "--auth=x", "--cookie", "y"],
         ["-e", "GITHUB_TOKEN=ghp_" + "Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2", "passwd", "z"],
+        # A credential-named flag consumed as another's value (#819 review, cycle 2).
+        ["--no-password", "--token", "abc123"],
+        ["--auth", "--token", "abc123"],
+        ["--use-token", "--api-key", "abc123"],
+        ["--token", "password", "secret", "value"],
     ],
 )
 def test_a_published_argument_redacts_at_least_what_the_digest_input_redacts(args: list[str]) -> None:
@@ -494,15 +677,64 @@ def test_a_published_argument_redacts_at_least_what_the_digest_input_redacts(arg
     the digest, and so the row set, stayed the same.
     """
 
+    _assert_published_redacts_what_the_digest_does(args)
+
+
+def _assert_published_redacts_what_the_digest_does(args: list[str]) -> None:
     from agents_shipgate.core.host_grants import _published_words, _redact_secret_values
 
     digested = _redact_secret_values(args)
     published = _published_words(args)
     for index, (raw, hashed, shown) in enumerate(zip(args, digested, published, strict=True)):
         if hashed != raw:
-            assert shown != raw, (index, raw, hashed, shown)
+            assert shown != raw, (args, index, raw, hashed, shown)
         if hashed == "<redacted>":
-            assert shown == "<redacted>", (index, raw, shown)
+            assert shown == "<redacted>", (args, index, raw, shown)
+
+
+def test_every_short_argument_list_redacts_at_least_what_the_digest_input_redacts() -> None:
+    """The invariant over every list of up to four words from a vocabulary of flag shapes (#819 review).
+
+    A boolean credential flag, a credential flag and list marker with and
+    without dashes, `=` forms, `-u`, and plain values, in every order: no
+    chain of consumed words publishes a value the digest's list rule redacts.
+    """
+
+    from itertools import product
+
+    vocabulary = [
+        "--token", "token", "--no-password", "--auth", "--api-key=x", "-u", "--port", "value",
+    ]
+    for length in range(1, 5):
+        for args in product(vocabulary, repeat=length):
+            _assert_published_redacts_what_the_digest_does(list(args))
+
+
+@pytest.mark.parametrize(
+    ("args", "canary"),
+    [
+        # A known token shape that runs into the flag after it (#819 review).
+        (["sk-" + "abcdefghijklmnopq--password glued-canary"], "glued-canary"),
+        (["ghp_" + "abcdefghijklmnopqrstuvwxyzAPI_TOKEN=glued-canary"], "glued-canary"),
+        (["xoxb-" + "abcdefghijkl--token glued-canary"], "glued-canary"),
+        (["--password hunter2-canary"], "hunter2-canary"),
+        (["--no-password", "--token", "chained-canary"], "chained-canary"),
+    ],
+)
+def test_a_value_the_digest_input_redacts_inside_a_word_is_never_published(
+    args: list[str], canary: str
+) -> None:
+    """Checked by value, since a partly redacted word differs from its raw text either way."""
+
+    from agents_shipgate.core.host_grants import (
+        _hook_command,
+        _published_words,
+        _redact_secret_values,
+    )
+
+    assert canary not in json.dumps(_redact_secret_values(args))
+    assert canary not in json.dumps(_published_words(args))
+    assert canary not in json.dumps(_hook_command(" ".join(["bin/run.sh", *args])))
 
 
 @pytest.mark.parametrize(

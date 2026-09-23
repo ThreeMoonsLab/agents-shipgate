@@ -892,6 +892,15 @@ def _bounded_detail(text: str, limit: int = MAX_DETAIL_WORD_CHARS) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
+def _generated_shape(word: str) -> bool:
+    """Twenty or more characters of the base64 alphabet holding two of upper case, lower case and digits."""
+
+    if not _DETAIL_GENERATED_RE.fullmatch(word):
+        return False
+    classes = (str.isupper, str.islower, str.isdigit)
+    return sum(any(test(char) for char in word) for test in classes) >= 2
+
+
 def _looks_generated(word: str) -> bool:
     """Whether a word reads like a generated key rather than a name (#819).
 
@@ -906,12 +915,9 @@ def _looks_generated(word: str) -> bool:
 
     if _DETAIL_HEX_RE.fullmatch(word):
         return True
-    if not _DETAIL_GENERATED_RE.fullmatch(word):
+    if not _generated_shape(word):
         return False
     alnum = [char for char in word if char.isalnum()]
-    classes = (str.isupper, str.islower, str.isdigit)
-    if sum(any(test(char) for char in alnum) for test in classes) < 2:
-        return False
     switches = sum(1 for a, b in zip(alnum, alnum[1:], strict=False) if a.isdigit() != b.isdigit())
     if switches >= _DETAIL_GENERATED_SWITCHES:
         return True
@@ -920,13 +926,70 @@ def _looks_generated(word: str) -> bool:
     return entropy >= _DETAIL_GENERATED_ENTROPY
 
 
+#: A run of the base64 alphabet inside a word, with the ``=`` padding that
+#: ends one (#819 review). A word is read run by run, so a generated key joined
+#: to other text by ``.``, ``:``, ``;``, ``,``, ``@`` or ``=`` is still tested:
+#: a SendGrid ``SG.<id>.<secret>`` key, a Telegram ``<bot id>:<secret>`` token,
+#: an Airtable ``pat<id>.<secret>`` token, a Discord bot token, a Mapbox
+#: ``sk.<payload>.<signature>`` token and an Azure
+#: ``AccountName=…;AccountKey=<key>`` connection string. An ``=`` followed by
+#: more of the alphabet separates an assignment's name from its value.
+_DETAIL_RUN_RE = re.compile(r"[A-Za-z0-9+/_-]+(?:=+(?![=A-Za-z0-9+/_-]))?")
+#: The hex of a ``sha256:`` (``sha384:``, ``sha512:``) digest, as an image's
+#: ``@sha256:<hex>`` pins it: a pin, published as written.
+_DETAIL_DIGEST_PREFIX_RE = re.compile(r"(?i)(?<![A-Za-z0-9])sha(?:256|384|512):$")
+_DETAIL_DIGEST_HEX_RE = re.compile(r"[0-9a-f]{64}|[0-9a-f]{96}|[0-9a-f]{128}")
+
+
+def _without_generated_runs(word: str) -> str:
+    """``word`` with every generated-looking run of the base64 alphabet in it replaced (#819 review).
+
+    A run :func:`_looks_generated` reads as a key is ``<redacted>``, unless it
+    is the hex of a ``sha256:`` (``sha384:``, ``sha512:``) digest, which is a
+    pin. Once one run of a word is a key, every other run of it with the key's
+    shape (:func:`_generated_shape`) is replaced too, whatever its entropy: a
+    token's other parts, such as a SendGrid key id or a Mapbox signature, are
+    as random as the part the test caught, and too short for the test to be
+    sure of. A run followed by ``=`` is an assignment's name, never a key's
+    part, so ``AccountKey=<key>`` publishes ``AccountKey=<redacted>``.
+    """
+
+    runs = [
+        match
+        for match in _DETAIL_RUN_RE.finditer(word)
+        if not (
+            _DETAIL_DIGEST_HEX_RE.fullmatch(match.group())
+            and _DETAIL_DIGEST_PREFIX_RE.search(word, 0, match.start())
+        )
+    ]
+    if not any(_looks_generated(match.group()) for match in runs):
+        return word
+    replaced = [
+        match
+        for match in runs
+        if _looks_generated(match.group())
+        or (_generated_shape(match.group()) and not word.startswith("=", match.end()))
+    ]
+    shown: list[str] = []
+    end = 0
+    for match in replaced:
+        shown.extend((word[end : match.start()], _DETAIL_REDACTED))
+        end = match.end()
+    return "".join(shown) + word[end:]
+
+
 #: Names that name credential material outright, compared with every character
-#: but a letter or a digit removed (#819): the digest's own markers, and
+#: but a letter or a digit removed (#819): the digest's own markers,
 #: ``auth``, after which the digest's string rule already redacts
-#: (``--auth VALUE``).
+#: (``--auth VALUE``), and ``pass`` (``openssl -pass``, ``--pass``).
 _DETAIL_CREDENTIAL_NAMES = frozenset(
     re.sub(r"[^a-z0-9]", "", marker) for marker in _SECRET_KEY_MARKERS
-) | {"auth"}
+) | {"auth", "pass"}
+#: Endings that make a flag name credential-bearing beside
+#: :data:`CREDENTIAL_KEY_SUFFIXES`: an access or secret key
+#: (``--secret-key``, ``--aws-access-key``) (#819 review). A bare ``key`` is
+#: not one, for the reason that tuple gives.
+_DETAIL_CREDENTIAL_SUFFIXES = (*CREDENTIAL_KEY_SUFFIXES, "accesskey", "secretkey")
 
 
 def _names_credential(name: str) -> bool:
@@ -934,13 +997,13 @@ def _names_credential(name: str) -> bool:
 
     Compared with every character but a letter or a digit removed, so
     ``api-key``, ``api_key``, ``brave_api_key`` and ``BRAVE-API-KEY`` are
-    read alike. The ending is any of :data:`CREDENTIAL_KEY_SUFFIXES`
-    (``token``, ``secret``, ``password``, ``apikey`` …).
+    read alike. The ending is any of :data:`_DETAIL_CREDENTIAL_SUFFIXES`
+    (``token``, ``secret``, ``password``, ``apikey``, ``secretkey`` …).
     """
 
     compact = re.sub(r"[^a-z0-9]", "", name.lower())
     return bool(compact) and (
-        compact in _DETAIL_CREDENTIAL_NAMES or compact.endswith(CREDENTIAL_KEY_SUFFIXES)
+        compact in _DETAIL_CREDENTIAL_NAMES or compact.endswith(_DETAIL_CREDENTIAL_SUFFIXES)
     )
 
 
@@ -958,8 +1021,10 @@ _DETAIL_USERINFO_FLAGS = frozenset({"-u", "--user", "-U", "--proxy-user"})
 
 
 def _without_password(value: str) -> str:
-    """``user:password`` with what follows the first ``:`` replaced; a value without one as written."""
+    """``user:password`` with what follows the first ``:`` replaced; a value without one, or a redaction marker, as written."""
 
+    if _PATH_REDACTION_MARKER.fullmatch(value):
+        return value
     user, colon, _password = value.partition(":")
     return f"{user}:{_DETAIL_REDACTED}" if colon else value
 
@@ -1010,16 +1075,23 @@ _DETAIL_HEADER_RE = re.compile(
 def _detail_label(text: str) -> str:
     """Hook or MCP detail text through the published-label redaction (#802, #819).
 
-    The label rule first: known token shapes, credential assignments, a URL
-    reduced to its scheme and host, and ``scheme://`` userinfo. Then the whole
-    value of a credential header or key (:data:`_DETAIL_HEADER_RE`), so
+    The digest's own string rule (:func:`_sanitize_sensitive_string`) runs on
+    the text as written, before any other pattern can take part of it: a known
+    token shape can run into the flag or name that follows it
+    (``sk-…--password hunter2``), and that rule would then no longer see the
+    value it redacts from ``config_sha256``'s input (#819 review). Then the
+    label rule: known token shapes, credential assignments, a URL reduced to
+    its scheme and host, and ``scheme://`` userinfo. Then the whole value of a
+    credential header or key (:data:`_DETAIL_HEADER_RE`), so
     ``Authorization: Basic <credential>``, ``Authorization: Bearer <token>``
     and ``X-Auth-Token: <token>`` publish ``Authorization: <redacted>`` and
     ``X-Auth-Token: <redacted>``. Running it after the label rule means a URL's
     ``token:password@`` userinfo is already gone and never read as a header.
     """
 
-    return _DETAIL_HEADER_RE.sub(r"\1\2<redacted>", published_workflow_label(text))
+    return _DETAIL_HEADER_RE.sub(
+        r"\1\2<redacted>", published_workflow_label(_sanitize_sensitive_string(text))
+    )
 
 
 def _published_word(word: str) -> str:
@@ -1032,7 +1104,8 @@ def _published_word(word: str) -> str:
     assignment and of a credential-named ``--flag=value`` is replaced, as is a
     generated-looking word or ``=`` value and the password of
     ``--user=user:password``, a path under the reading user's home is written
-    from ``~``, and the word is bounded.
+    from ``~``, a generated-looking run inside the word is replaced
+    (:func:`_without_generated_runs`), and the word is bounded.
     """
 
     shown = _detail_label(word)
@@ -1045,10 +1118,10 @@ def _published_word(word: str) -> str:
             return _bounded_detail(f"{flag}={_DETAIL_REDACTED}")
         if flag in _DETAIL_USERINFO_FLAGS:
             value = _without_password(value)
-        return _bounded_detail(f"{flag}={_home_projected(value)}")
+        return _bounded_detail(_without_generated_runs(f"{flag}={_home_projected(value)}"))
     if _looks_generated(shown):
         return _DETAIL_REDACTED
-    return _bounded_detail(_home_projected(shown))
+    return _bounded_detail(_without_generated_runs(_home_projected(shown)))
 
 
 def _published_words(words: list[str]) -> list[str]:
@@ -1058,23 +1131,39 @@ def _published_words(words: list[str]) -> list[str]:
     credential as the next word, which no pattern over that word alone can
     recognise (:func:`_redacts_next_word`). The word after ``-u`` or
     ``--user`` keeps its user name and loses the password after its ``:``.
+
+    Which word is replaced depends only on the word before it, never on
+    whether that word was itself replaced (#819 review): in
+    ``--no-password --token abc`` the boolean ``--no-password`` takes
+    ``--token`` as its value, while the digest's list rule reads ``--token`` as
+    naming ``abc``, so both are replaced. Every word that rule redacts is
+    therefore published redacted, whichever word before it was consumed.
     """
 
-    shown: list[str] = []
-    redact_next = False
-    userinfo_next = False
-    for word in words:
-        if redact_next:
-            # The replaced word is a value, never itself a flag, as in the
-            # digest's list rule.
-            shown.append(_DETAIL_REDACTED)
-            redact_next = userinfo_next = False
-            continue
-        published = _published_word(word)
-        shown.append(_bounded_detail(_without_password(published)) if userinfo_next else published)
-        redact_next = _redacts_next_word(word)
-        userinfo_next = word in _DETAIL_USERINFO_FLAGS
-    return shown
+    redacted, userinfo = _credential_values(words)
+    return [
+        _DETAIL_REDACTED
+        if index in redacted
+        else _bounded_detail(_without_password(_published_word(word)))
+        if index in userinfo
+        else _published_word(word)
+        for index, word in enumerate(words)
+    ]
+
+
+def _credential_values(words: list[str]) -> tuple[set[int], set[int]]:
+    """The indices of the words that follow a credential name, and of those that follow ``-u`` (#819).
+
+    A word is a credential's value when the word before it names one
+    (:func:`_redacts_next_word`), and a ``user:password`` value when the word
+    before it is a :data:`_DETAIL_USERINFO_FLAGS` flag.
+    """
+
+    redacted = {index for index in range(1, len(words)) if _redacts_next_word(words[index - 1])}
+    userinfo = {
+        index for index in range(1, len(words)) if words[index - 1] in _DETAIL_USERINFO_FLAGS
+    } - redacted
+    return redacted, userinfo
 
 
 def _detail_text(value: Any, limit: int) -> str:
@@ -1299,6 +1388,24 @@ _HOOK_ACCESS_BY_BASIS: dict[str, tuple[str, str]] = {
 LOADED_HOOK_BASES: frozenset[str] = frozenset({"host_configuration", "project_enabled_plugin"})
 
 
+def _command_words(text: str) -> list[str]:
+    """``text`` split into words at whitespace outside quotes, the quotes removed.
+
+    A backslash is kept as written, so a Windows path such as
+    ``C:\\tools\\lint.exe`` is not read as a run of escapes; on unbalanced
+    quotes the text is split at whitespace alone.
+    """
+
+    lexer = shlex.shlex(text, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    lexer.escape = ""
+    try:
+        return list(lexer)
+    except ValueError:
+        return text.split()
+
+
 def _hook_command(value: Any) -> dict[str, Any] | None:
     """A hook's command string as its grant summarizes it (#819).
 
@@ -1311,21 +1418,23 @@ def _hook_command(value: Any) -> dict[str, Any] | None:
     :func:`_published_words`, and at most :data:`MAX_HOOK_COMMAND_ARGS` words
     follow ``argv0``. Splitting is display: it claims nothing about how a host
     runs the command or what the command does.
+
+    The whole-string redaction can take a credential-named flag as another
+    flag's value: the digest's string rule writes ``--no-password --token abc``
+    as ``--no-password <redacted> abc``, so no word rule over the redacted
+    words sees ``--token`` (#819 review). A word that follows a credential name
+    in the command as written (:func:`_credential_values`) is therefore
+    ``<redacted>`` wherever the redacted words still hold it, and the password
+    of one that follows ``-u`` is dropped.
     """
 
     if not isinstance(value, str) or not value.strip():
         return None
-    text = _detail_label(value)
-    # Quotes group words; a backslash is kept as written, so a Windows path
-    # such as `C:\tools\lint.exe` is not read as a run of escapes.
-    lexer = shlex.shlex(text, posix=True)
-    lexer.whitespace_split = True
-    lexer.commenters = ""
-    lexer.escape = ""
-    try:
-        words = list(lexer)
-    except ValueError:
-        words = text.split()
+    words = _command_words(_detail_label(value))
+    as_written = _command_words(value)
+    redacted, userinfo = _credential_values(as_written)
+    secret_values = {as_written[index] for index in redacted}
+    userinfo_values = {as_written[index] for index in userinfo}
     env_keys: list[str] = []
     while len(words) > 1:
         assignment = _DETAIL_ASSIGNMENT_RE.fullmatch(words[0])
@@ -1335,7 +1444,14 @@ def _hook_command(value: Any) -> dict[str, Any] | None:
         words = words[1:]
     if not words:
         return None
-    shown = _published_words(words)
+    shown = [
+        _DETAIL_REDACTED
+        if word in secret_values
+        else _bounded_detail(_without_password(published))
+        if word in userinfo_values
+        else published
+        for word, published in zip(words, _published_words(words), strict=True)
+    ]
     args = shown[1:]
     return {
         "env_keys": env_keys,
