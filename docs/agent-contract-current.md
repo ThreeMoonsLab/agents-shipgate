@@ -15,7 +15,8 @@ for an external plugin source, the source it names as `detail`, never fetched.
 `read_sources_only` is `false` while such an item is named, and
 `unread_candidates` (`examined`, `not_examined`, or `null` for not recorded)
 with `unread_candidates_not_examined` say whether the change set was examined
-and how many candidates the bound left. An item is never a row, a widening, a
+and how many candidates were not, past the bound or because a file their rule
+needed was not read or did not parse. An item is never a row, a widening, a
 loading claim or a `check` violation. The one route it moves: a manifest-free
 `verify` whose only host-relevant change is such an input publishes that
 comparison instead of the setup route, and on `verify --preview` the next

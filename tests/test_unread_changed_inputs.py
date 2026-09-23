@@ -45,6 +45,7 @@ from agents_shipgate.report.host_comparison import (
     UNREAD_NOT_EXAMINED,
     coverage_lines,
     host_comparison_lines,
+    unread_not_examined_text,
 )
 from agents_shipgate.schemas.host_comparison import (
     HostComparison,
@@ -636,10 +637,109 @@ def test_discovery_is_bounded_and_says_what_it_did_not_examine(tmp_path: Path) -
     assert coverage["unread_candidates_not_examined"] == 3
     assert len(coverage["items"]) == 10
     assert coverage["omitted_items"] == MAX_UNREAD_CANDIDATES - 10
-    assert "  3 more changed candidate inputs not examined, past the discovery bound" in text.splitlines()
+    assert (
+        "  3 changed candidate inputs not examined: past the discovery bound, or a file "
+        "the rule needed was not read or did not parse"
+    ) in text.splitlines()
     assert f"  {MAX_UNREAD_CANDIDATES - 10} more items not listed, each ranked below those above" in (
         text.splitlines()
     )
+
+
+#: The line counting candidates discovery did not examine, for a count of one.
+ONE_NOT_EXAMINED = (
+    "  1 changed candidate input not examined: past the discovery bound, or a file "
+    "the rule needed was not read or did not parse"
+)
+
+
+def test_a_hook_file_whose_manifest_does_not_parse_is_not_said_to_be_past_the_bound(
+    tmp_path: Path,
+) -> None:
+    """#821 review cycle 1: the count has a second cause, and the line names both.
+
+    The head edits only a hook file its Codex manifest names, and that
+    manifest does not parse, so whether it names the file cannot be
+    established: one candidate against a bound of 32, not examined. The line
+    used to say "1 more changed candidate input not examined, past the
+    discovery bound" under a block that listed nothing.
+    """
+
+    manifest = '{"name": "p", "hooks": "./hooks/hooks.json",}'
+    repo = _two(
+        tmp_path,
+        {"p/.codex-plugin/plugin.json": manifest, "p/hooks/hooks.json": {"hooks": {}}},
+        {"p/hooks/hooks.json": {"hooks": {"Stop": []}}},
+    )
+
+    text, payload = _diff(repo)
+
+    assert payload["coverage"]["unread_candidates"] == "examined"
+    assert payload["coverage"]["unread_candidates_not_examined"] == 1
+    assert _unread(payload["coverage"]) == []
+    assert ONE_NOT_EXAMINED in text.splitlines()
+    assert "more changed candidate" not in text
+
+
+def test_a_changed_manifest_that_is_a_link_is_not_said_to_be_past_the_bound(
+    tmp_path: Path,
+) -> None:
+    """#821 review cycle 1: a present manifest that is not read is counted, and worded so."""
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _write(repo, "x/.cursor-plugin/plugin.json", {"name": "x"})
+    _write(repo, "x/other.json", {"name": "x", "mcpServers": {}})
+    _commit(repo, "base")
+    _git(repo, "checkout", "-q", "-b", "change")
+    (repo / "x/.cursor-plugin/plugin.json").unlink()
+    (repo / "x/.cursor-plugin/plugin.json").symlink_to("../other.json")
+    _commit(repo, "head")
+
+    text, payload = _diff(repo)
+
+    assert payload["coverage"]["unread_candidates_not_examined"] == 1
+    assert ONE_NOT_EXAMINED in text.splitlines()
+    assert "more changed candidate" not in text
+
+
+def test_a_manifest_nested_past_what_json_writes_is_named_unparsed_not_a_crash(
+    tmp_path: Path,
+) -> None:
+    """#821 review cycle 1: `json.loads` accepts nesting `json.dumps` then refuses.
+
+    A 110,000-deep `mcpServers` in a Cursor plugin manifest made `diff` exit 1
+    with a `RecursionError` from comparing the member's text. Whichever of the
+    two refuses it on this interpreter, the manifest is one whose members
+    could not be compared, and the run completes.
+    """
+
+    depth = 110_000
+    deep = '{"name": "x", "mcpServers": ' + '{"a":' * depth + "1" + "}" * depth + "}"
+    repo = _two(
+        tmp_path,
+        {"x/.cursor-plugin/plugin.json": {"name": "x"}},
+        {"x/.cursor-plugin/plugin.json": deep},
+    )
+
+    _text, payload = _diff(repo)
+
+    assert _unread(payload["coverage"]) == [
+        ("x/.cursor-plugin/plugin.json", "both", "unparsed_plugin_manifest", ["cursor"])
+    ]
+
+
+def test_an_unpinned_url_source_keeps_the_comma_its_url_is_redacted_beside() -> None:
+    """#821 review cycle 1: the URL sanitizer took the comma for part of the URL."""
+
+    described = unread_inputs.external_source_text(
+        {"source": "url", "url": "https://h.example/team/plugin.git"}
+    )
+    assert described == "url https://h.example/<redacted-path>, no ref pinned"
+    long = unread_inputs.external_source_text({"source": "npm", "package": "p" * 500})
+    assert long.endswith("…, no ref pinned")
+    assert len(long) == unread_inputs.MAX_SOURCE_DETAIL_CHARS
 
 
 def _fake(paths, files: dict[str, dict[str, bytes]], calls: list | None = None) -> ChangedInputs:
@@ -899,3 +999,9 @@ def test_the_entry_pages_quote_what_diff_prints() -> None:
     assert FIXTURES["cursor-plugin-mcp"][3] in quickstart
     assert COVERAGE_BOUNDARY_WITH_UNREAD in quickstart
     assert FIXTURES["cursor-plugin-mcp"][3] in flat("STABILITY.md")
+    # The two lines the block is read under, as the pages quote them (#821
+    # review cycle 1): the not-examined count names both of its causes.
+    counted = unread_not_examined_text(2).replace("2", "N", 1)
+    for page in ("STABILITY.md", "docs/host-boundary-support.md"):
+        assert counted in flat(page), page
+    assert UNREAD_NOT_EXAMINED in flat("STABILITY.md")

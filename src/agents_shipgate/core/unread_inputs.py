@@ -57,8 +57,12 @@ the like) is not considered.
 
 Bounds: at most :data:`MAX_UNREAD_CANDIDATES` candidate paths are examined,
 in path order, and each file read is at most the host reader's own
-per-file bound. A candidate past the bound, or one whose rule needed a read
-that could not be made, is counted as not examined rather than guessed at.
+per-file bound. A candidate is counted as not examined, rather than guessed
+at, when it is past that bound, or when its rule needed a file it could not
+use: a changed manifest or marketplace present on a side but not read within
+its bound, or a manifest a hook file could be named by that was not read or
+did not parse as a JSON object, while no readable one names it. The one count
+covers both causes.
 """
 
 from __future__ import annotations
@@ -225,6 +229,10 @@ def _parsed(raw: bytes | None) -> dict[str, Any] | None:
         return None
     try:
         value = json.loads(raw.decode("utf-8"))
+        # `json.loads` accepts nesting that `json.dumps` then refuses with a
+        # `RecursionError` (#821 review). A document that deep is read as one
+        # that did not parse, whose members cannot be compared, never a crash.
+        _canonical(value)
     except (UnicodeDecodeError, ValueError, RecursionError):
         return None
     return value if isinstance(value, dict) else None
@@ -299,8 +307,12 @@ def external_source_text(source: dict[str, Any]) -> str:
     if text("path"):
         parts.append(f"path {text('path')}")
     pin = text("sha") or text("ref") or text("version")
-    described = " ".join(parts) + (f" at {pin}" if pin else ", no ref pinned")
-    return _published_text(described)
+    if pin:
+        return _published_text(f"{' '.join(parts)} at {pin}")
+    # Redacted before the suffix is added: a URL's sanitizer would otherwise
+    # take the comma as part of the URL and redact it with the path.
+    suffix = ", no ref pinned"
+    return _published_text(" ".join(parts), MAX_SOURCE_DETAIL_CHARS - len(suffix)) + suffix
 
 
 def _external_sources(marketplace: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:

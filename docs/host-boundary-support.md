@@ -323,10 +323,15 @@ plugin manifest or marketplace is read, and every read stays inside the
 repository within the host reader's own per-file bound. Paths under
 `node_modules`, `.venv` and the other directories the host readers never walk
 are not considered. At most 32 candidate paths are examined per comparison;
-the rest, and any whose rule needed a read that could not be made, are
-counted as not examined in the block and in
-`coverage.unread_candidates_not_examined`, never guessed at. When the changed
-files cannot be listed, the block says so and names none. Ordinary
+the rest, and any whose rule needed a file it could not use — a manifest a
+hook file could be named by that was not read or did not parse, or a changed
+manifest or marketplace present but not read, such as a link — are counted
+as not examined, never guessed at: one count in
+`coverage.unread_candidates_not_examined`, and one line in the block,
+`N changed candidate inputs not examined: past the discovery bound, or a file
+the rule needed was not read or did not parse`, which names both causes
+because the count does not tell them apart. When the changed files cannot be
+listed or looked at, the block says so and names none. Ordinary
 documentation, an unrelated `*.json`, and a candidate the change did not touch
 produce nothing, and a shape outside this list — a root `plugin.json`, a
 Codex or Cursor marketplace, a hook file a manifest names under another file

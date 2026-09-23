@@ -219,10 +219,13 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # ``changed_not_read`` coverage item with its ``candidate`` rule, a
 # ``read_sources_only`` that is ``false`` while one is named, and whether the
 # comparison's changed files were examined. A name is never a row, a widening
-# or a ``check`` violation. The one route it moves: a manifest-free ``verify``
-# whose only host-relevant change is such an input now publishes that
-# comparison instead of the setup route. A 0.20 verifier reads with the search
-# not recorded. ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21.
+# or a ``check`` violation. The one route it moves, on ``verify`` and
+# ``verify --preview`` alike: a manifest-free comparison whose only
+# host-relevant change is such an input is now published, on the host route's
+# ``audit --host`` next action, instead of the setup route (``verify``) or the
+# ``initialize`` next action (``verify --preview``). A 0.20 verifier reads
+# with the search not recorded. ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at
+# 21.
 CONTRACT_VERSION: Literal["41"] = "41"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"

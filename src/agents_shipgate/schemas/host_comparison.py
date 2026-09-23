@@ -145,7 +145,9 @@ class HostComparisonCoverageItem(BaseModel):
     marketplace is published only while it declares hooks, so for one of
     those ``side`` does not say whether the file exists on the other side.
     For ``changed_not_read``, which nothing published, ``side`` is where the
-    file or member exists: ``head`` added, ``base`` removed, ``both`` changed.
+    file or member exists: ``head`` added, ``base`` removed, ``both`` changed,
+    and ``hosts`` is the host the candidate rule attributes the path to (which
+    can be ``copilot``), never a host whose reader read it.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -230,14 +232,18 @@ class HostComparisonCoverage(BaseModel):
     read_sources_only: bool = True
     #: Whether the comparison's changed-file set was matched against the
     #: candidate rules (#821): ``examined``, or ``not_examined`` when the set
-    #: could not be listed, so no unread input is named and an absent one
-    #: says nothing. ``None`` means not recorded: a ``0.20`` verifier, or a
-    #: comparison built without its changed files.
+    #: could not be listed, or was listed but its sides could not then be
+    #: looked at, so no unread input is named and an absent one says nothing.
+    #: ``None`` means not recorded: a ``0.20`` verifier, or a comparison built
+    #: without its changed files.
     unread_candidates: Literal["examined", "not_examined"] | None = None
-    #: Changed paths a candidate rule matched that the discovery bound, or a
-    #: read it could not make within its bounds, left unexamined. Counted,
-    #: never listed, and never counted in ``omitted_items``, which counts
-    #: items that exist.
+    #: Changed paths a candidate rule matched that were not examined, for
+    #: either of two causes this one count does not tell apart: past the
+    #: discovery bound, or the rule needed a file it could not use (a changed
+    #: manifest or marketplace present on a side but not read within its
+    #: bound, or a manifest a hook file could be named by that was not read or
+    #: did not parse, while no readable one names it). Counted, never listed,
+    #: and never counted in ``omitted_items``, which counts items that exist.
     unread_candidates_not_examined: int = Field(default=0, ge=0)
 
     @model_validator(mode="after")

@@ -154,12 +154,33 @@ COVERAGE_BOUNDARY_WITH_UNREAD = (
     "whole change: any other changed file it does not read is absent"
 )
 
-#: Said when the comparison's changed files could not be listed (#821), so an
-#: absent unread input is not read as there being none.
+#: Said when the comparison's changed files could not be listed, or were
+#: listed but neither side could then be looked at (#821), so an absent unread
+#: input is not read as there being none.
 UNREAD_NOT_EXAMINED = (
-    "the changed files could not be listed, so no changed input this entry "
-    "does not read is named"
+    "the changed files could not be listed or looked at, so no changed input "
+    "this entry does not read is named"
 )
+
+
+def unread_not_examined_text(count: int) -> str:
+    """The line counting candidates discovery did not examine (#821 review).
+
+    The count has two causes, and the line names both: a candidate past the
+    discovery bound, and one whose rule needed a file it could not use — a
+    changed manifest or marketplace present on a side but not read within its
+    bound, or a manifest a hook file could be named by that was not read or
+    did not parse, while no readable one names it. The published count does
+    not say which, so neither does the line. It used to say "more ... past the
+    discovery bound" for both, with one candidate against a bound of 32.
+    """
+
+    plural = count != 1
+    return (
+        f"{count} changed candidate input{'s' if plural else ''} not examined: "
+        "past the discovery bound, or a file the rule needed was not read or "
+        "did not parse"
+    )
 
 #: A blocking limit is what makes an inventory incomplete, which is the reason
 #: the comparison states (`base_inventory_incomplete`, `head_inventory_incomplete`).
@@ -311,7 +332,8 @@ def coverage_lines(
     The heading, then :data:`COVERAGE_BOUNDARY`, which says what the list
     cannot be read as — :data:`COVERAGE_BOUNDARY_WITH_UNREAD` instead while the
     list names a changed input this entry does not read (#821) — and, when the
-    search for those could not run or reached its bound, a line saying so.
+    search for those could not run, or left a candidate unexamined, a line
+    saying so.
     Then one line per item a reviewer must read, in the comparator's order — a
     blocking limit, most actionable kind first, a changed input this entry does
     not read, a change no row describes, a source only one side published, a
@@ -353,10 +375,8 @@ def coverage_lines(
     if coverage.unread_candidates == "not_examined":
         boundary.append(f"{bullet}{UNREAD_NOT_EXAMINED}")
     if coverage.unread_candidates_not_examined:
-        count = coverage.unread_candidates_not_examined
         boundary.append(
-            f"{bullet}{count} more changed candidate input{'s' if count != 1 else ''} "
-            "not examined, past the discovery bound"
+            f"{bullet}{unread_not_examined_text(coverage.unread_candidates_not_examined)}"
         )
     if not coverage.items and not coverage.omitted_items:
         if comparison.comparison_status != "comparable":
