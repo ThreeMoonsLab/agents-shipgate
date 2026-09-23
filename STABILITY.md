@@ -44,6 +44,20 @@ such a plugin selects under a name the reader does not follow fires
 still not routed. No schema, member, row or check id moves. See
 [the migration note](#enabled-plugin-hook-routing-809).
 
+Also unreleased, and moving no version of its own: a `verify --preview` pointer
+never binds the verification plan (#807). In a repository with a manifest, the
+preview's pointer bound the plan a `verify` would run, whose inputs a preview
+never reads, so it had no input-directory census and every reader refused it:
+`verify --preview --format control` said `human_review_required` where `--json`
+said `agent_action_required` with the `verify` command, and `agent control`
+exited `4`. The pointer now binds the verifier route and the working tree it
+was read from, as a manifest-free preview's does, so both answer the `--json`
+route until the tree moves. A pointer that binds a plan without its census is
+refused as before, and a pointer published inside a repository without a plan
+now always declares its worktree snapshot, so Git configuration the worktree
+readers refuse (#813) no longer leaves a preview current. See
+[the migration note](#preview-control-currency-807).
+
 Runtime contract v40 reads the action reference each workflow step declares
 (#771). Host-grants inventory, baseline and drift schemas move to `0.6`, and a
 workflow grant adds `step_actions[]`: the job, the step (`id`, else `name`,
@@ -450,6 +464,84 @@ gave a `widened`, `expands: true` row beside `decision: allow` and
   existing, unchanged hook file is still `allow` beside that file's `added` or
   `widened` row. `check` gives the same when the selected file is
   `.claude/hooks/hooks.json`, so this limit is not specific to plugin paths.
+
+<a id="preview-control-currency-807"></a>
+
+## Migration Note: Unreleased — a preview is read against the working tree it read, configured or not (#807)
+
+No schema, contract, member, error kind, refusal code, exit code or
+`minimum_control_contract_version` moves. What changes is which artifacts a
+`verify --preview` pointer binds and what its `workspace_identity` records in
+a repository with a manifest, and so what `verify --preview --format control`
+(and `--format text`'s control headline) and an `agent control` refresh of that
+pointer answer.
+
+**Why.** With a manifest present, `verify --preview` records the verification
+plan a `verify` would run (`verification-plan.json`, embedded in
+`verify-run.json`), built from what the manifest declares. Its pointer bound
+that plan, took its `workspace_identity` from it, and so made the plan's
+recorded inputs its currency test. A preview runs no adapter, so none of those
+inputs was captured and the plan carries no `inputs.options.input_directories`
+census, and a missing census is unknown capture, which every reader refuses
+([the census](docs/verification-reproducibility.md)). On `1.0.0` and `1.1.0`,
+in a repository with a committed `shipgate.yaml`, `verify --preview --json`
+answered `agent_action_required` with the exact `verify` command, while
+`verify --preview --format control` answered `human_review_required` ("The
+recorded source and dependency inputs are no longer current: input directory
+capture is unavailable; re-run verification") and `agent control` exited `4`
+with `workspace_unverifiable`, with the default `--out`, an in-repository one
+and a sibling one alike. Re-running reproduced it.
+
+**Now.**
+
+| In a repository with a manifest | before | now |
+| --- | --- | --- |
+| `verify --preview --format control` | `human_review_required`, no command | `agent_action_required`, the `--json` `next_action` (`kind: "verify"` and its command) |
+| `agent control` over that pointer, worktree unchanged | exit `4`, `workspace_unverifiable` | exit `0`, the same state, command and `current_control_id` |
+| after a tracked edit or a new untracked file | exit `4`, `workspace_changed`, as a change the decision never saw | exit `4`, `workspace_changed`, naming up to three paths that differ from HEAD, redacted |
+| after that change is undone | exit `4`, `workspace_unverifiable` | exit `0`, current again |
+| the pointer's `artifacts` | include `verification_plan` | the verifier route without `verification_plan` |
+| its `workspace_identity` | the plan's: base, merge base, policy snapshot, the plan's overlay | the working tree's: repository, HEAD, its tree, `snapshot_kind: "worktree_overlay"` and the overlay of every path differing from HEAD |
+
+A manifest-free preview already published that shape and answers as before,
+except in two ways. Its `workspace_changed` refusal now names the paths as
+well: it said the paths it was read from "no longer have the content they
+had", which was false for a tracked edit or a new file after a preview of a
+clean tree. And a repository whose Git configuration the worktree readers
+refuse (#813) no longer leaves it current:
+
+| Under Git configuration the worktree readers refuse | before | now |
+| --- | --- | --- |
+| a pointer published inside the repository without a plan: a preview, or a `verify` that stopped before building one (a `--config` or `--head` that does not exist) | `workspace_identity` without a `snapshot_kind`, so the refresh compared HEAD alone: `agent control` exit `0` over any later edit | `snapshot_kind: "worktree_overlay"`, with no overlay when it could not be read: exit `4`, `workspace_unverifiable`, the cause first and a `review` next action, as for every other pointer there |
+| `--format control` of that run | `agent_action_required` with its route; a configured preview, which bound its plan, was already `human_review_required` with the cause | `human_review_required`, the cause first; `--json`, the exit code and the route in `verifier.json` are unchanged |
+
+Such a pointer whose overlay could not be read claims none: once the
+configuration is gone, it reads as current only over a tree identical to HEAD,
+the committed evidence a preview falls back on when it cannot read the tree.
+Outside a repository a preview still declares no snapshot and still reads.
+
+- **Unchanged.** `verify --preview --json`, its exit code, `verifier.json`,
+  `verify-run.json` and the plan's bytes. The one containment rule every output
+  directory follows (#575, #804): a directory outside the repository needs no
+  exclusion, and one inside it is left out of the overlay and must be ignored
+  or hold nothing but Shipgate artifacts. The causes an unreadable workspace
+  is refused with (#813). Every `verify` pointer, which binds its plan as
+  before.
+- **Still refused.** A pointer that binds a plan without its census —
+  including one a `1.0.0` or `1.1.0` configured preview left in a reports
+  directory — is `workspace_unverifiable`, and `agent control`'s next action
+  re-runs `verify`; re-running the preview replaces the pointer. The plan gains
+  no census, so `verification worker` still refuses to replay it.
+- **What the refresh checks.** A preview's answer rests on the working tree,
+  not on the plan's inputs, so it is compared the way a manifest-free preview
+  is: HEAD, its tree and the live overlay. A base the preview detected is not
+  bound, as it was not for a manifest-free preview, and a gitignored file is
+  outside the overlay: removing a manifest kept out of Git, such as a local
+  review manifest in `.git/info/exclude`, does not make the preview stale, and
+  the `verify` it routes to then reports the missing manifest.
+- **Compatibility.** A consumer that read a configured preview's
+  `verification_plan` through the pointer reads `verification-plan.json` or
+  `verify-run.json` directly; neither was ever current evidence for a preview.
 
 <a id="host-comparison-coverage-812"></a>
 
