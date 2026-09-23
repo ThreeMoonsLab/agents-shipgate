@@ -115,6 +115,23 @@ the entry reads and has no workflow, so #821 names nothing on it and
 `read_sources_only` stays `true`, and #823, which reads agent launches and
 checkout refs in workflows, adds nothing to its grants.
 
+#819 then published hook and MCP launch detail and moved the host-grant
+inventory schema to 0.7 within the same contract. With both in the tree, the
+source-tree column was rerun on 2026-09-23 from this tree's source, beside the
+`v1.1.0` release commit (`e3c6cb0c`) exported and run the same way, on the
+fixture rebuilt from the description below. The cells are the ones above:
+`check` blocking with four violations and the same boundary result byte for
+byte, the host-only `init` handoff with no file written, manifest-free `verify`
+exiting 0 with six advisory rows, drift naming all four expansion signals, and
+`diff` exiting 0, `comparable`, with the same six rows, four widening, its text
+identical apart from the fixture's commit ids. The JSON differs only in schema
+versions (capability diff 0.3 against 0.4, verifier 0.20 against 0.21,
+host-grant inventory 0.6 against 0.7), in #821's coverage members as above, in
+`init --json`'s contract version and input id, and in drift's added
+`payments-remote` grant, which carries #819's `package: null` and
+`args_sha256: null`. This fixture has no hook, and `billing`'s arguments do not
+change.
+
 An older release, `v0.15.0`, measured on 2026-09-05, did not. It reported
 runtime contract 10 and inventory schema 0.1; `check` returned `warn` / `none`
 with 0 violations and no coverage surface; `init --write --ci` pinned

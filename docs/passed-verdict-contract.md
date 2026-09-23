@@ -1,6 +1,6 @@
 # Evidence-backed `passed` verdict
 
-In the Agents Shipgate `1.0.0` runtime (contract v41, report schema v1.0),
+In the Agents Shipgate runtime since `1.0.0` (report schema v1.0; runtime contract v41 in this tree),
 `release_decision.decision: passed` means the configured root
 agent and its complete reachable tool/handoff graph were statically proven,
 and every reachable capability has complete, conflict-free static identity,

@@ -118,7 +118,7 @@ repository [`README.md`](../README.md) is the landing page that routes to both.
 - [`org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json) — JSON Schema for `agents-shipgate org bundle`; compact CI/ledger ingestion artifact over verifier/report/attestation/org/host-grant evidence, not a release verdict
 - [`registry-schema.v0.4.json`](registry-schema.v0.4.json) — JSON Schema for `agents-shipgate registry query --json`, `registry summary --json`, `registry verify --json`, and `registry report --bypass --json`
 - [`registry-schema.v0.3.json`](registry-schema.v0.3.json) — frozen v0.3 registry reference
-- [`host-grants-inventory-schema.v0.7.json`](host-grants-inventory-schema.v0.7.json) — current typed, redacted, scope-aware host inventory; records the in-tree links a read followed, each workflow step's action reference, and each agent launch and checkout ref a workflow declares
+- [`host-grants-inventory-schema.v0.7.json`](host-grants-inventory-schema.v0.7.json) — current typed, redacted, scope-aware host inventory; records the in-tree links a read followed, each workflow step's action reference, and each agent launch and checkout ref a workflow declares, plus hook handlers and MCP package/argument digests
 - [`host-grants-inventory-schema.v0.6.json`](host-grants-inventory-schema.v0.6.json) — frozen v0.6 reference
 - [`host-grants-inventory-schema.v0.5.json`](host-grants-inventory-schema.v0.5.json) — frozen v0.5 reference
 - [`host-grants-inventory-schema.v0.4.json`](host-grants-inventory-schema.v0.4.json) — frozen v0.4 reference

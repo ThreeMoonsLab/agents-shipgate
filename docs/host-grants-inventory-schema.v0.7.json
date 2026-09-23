@@ -259,9 +259,9 @@
             "discriminator": {
               "mapping": {
                 "additional_path": "#/$defs/HostAdditionalPathGrantV2",
-                "hook": "#/$defs/HostHookGrantV2",
+                "hook": "#/$defs/HostHookGrantV7",
                 "instruction_trust_root": "#/$defs/HostInstructionGrantV2",
-                "mcp_server": "#/$defs/HostMcpServerGrantV2",
+                "mcp_server": "#/$defs/HostMcpServerGrantV7",
                 "permission_mode": "#/$defs/HostPermissionModeGrantV2",
                 "permission_rule": "#/$defs/HostPermissionRuleGrantV2",
                 "plugin_or_app": "#/$defs/HostPluginGrantV2",
@@ -274,7 +274,7 @@
             },
             "oneOf": [
               {
-                "$ref": "#/$defs/HostMcpServerGrantV2"
+                "$ref": "#/$defs/HostMcpServerGrantV7"
               },
               {
                 "$ref": "#/$defs/HostPermissionRuleGrantV2"
@@ -283,7 +283,7 @@
                 "$ref": "#/$defs/HostPermissionModeGrantV2"
               },
               {
-                "$ref": "#/$defs/HostHookGrantV2"
+                "$ref": "#/$defs/HostHookGrantV7"
               },
               {
                 "$ref": "#/$defs/HostSandboxGrantV2"
@@ -363,7 +363,28 @@
       "title": "HostGrantsInventoryV7",
       "type": "object"
     },
-    "HostHookGrantV2": {
+    "HostHookCommandV7": {
+      "additionalProperties": false,
+      "description": "A hook command as its grant publishes it: the executable's name and a digest of the whole command.\n\n``executable`` is the last path segment of the command's first\nwhitespace-separated word, when it is a plain token\n(``[A-Za-z0-9._+-]``, at most 80 characters) no redaction rule rewrites\nand the word is no shell reserved word and holds no ``://``, and\n``<not-shown>`` otherwise, so no part of a URL is named. It\nis a label, not a claim about what a host runs. ``sha256`` is the digest of the whole command as\n``config_sha256``'s input holds it, so it moves only when that digest\ndoes; a value that input redacts moves neither. The command's text is\nnever published.",
+      "properties": {
+        "executable": {
+          "title": "Executable",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "executable",
+        "sha256"
+      ],
+      "title": "HostHookCommandV7",
+      "type": "object"
+    },
+    "HostHookGrantV7": {
       "additionalProperties": false,
       "properties": {
         "access": {
@@ -391,6 +412,20 @@
           "title": "Grant Id",
           "type": "string"
         },
+        "handlers": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/HostHookHandlerV7"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Handlers"
+        },
         "host": {
           "enum": [
             "codex",
@@ -407,6 +442,12 @@
           "default": "hook",
           "title": "Kind",
           "type": "string"
+        },
+        "omitted_handlers": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Omitted Handlers",
+          "type": "integer"
         },
         "risk": {
           "enum": [
@@ -441,9 +482,62 @@
         "config_sha256",
         "access",
         "risk",
-        "event"
+        "event",
+        "handlers"
       ],
-      "title": "HostHookGrantV2",
+      "title": "HostHookGrantV7",
+      "type": "object"
+    },
+    "HostHookHandlerV7": {
+      "additionalProperties": false,
+      "description": "One hook handler under an event: its group's matcher, its command and its timeout.\n\n``matcher`` is ``None`` when its group declares none, which the host reads\nas every tool or source, and ``<not-shown>`` when it is not a string or is\nlonger than 1,024 characters as ``config_sha256``'s input holds it;\notherwise it passes through the published-label redaction and is cut at\n120 characters. ``command`` is ``None`` for a handler with\nno command string, such as a ``prompt`` handler, whose prompt is not\npublished. ``timeout`` is the declared number or boolean; an integer of\nmore than 80 digits is published as its digits cut with ``\u2026``, a string\nas written when it is a plain token, and any other value, a non-finite\nfloat among them, as ``<not-shown>``. Other handler settings are not\npublished; a change confined to them is a row whose text says it is not\nshown.",
+      "properties": {
+        "command": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostHookCommandV7"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "matcher": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Matcher"
+        },
+        "timeout": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout"
+        }
+      },
+      "title": "HostHookHandlerV7",
       "type": "object"
     },
     "HostInstructionGrantV2": {
@@ -583,7 +677,7 @@
       "title": "HostInventoryIssueV2",
       "type": "object"
     },
-    "HostMcpServerGrantV2": {
+    "HostMcpServerGrantV7": {
       "additionalProperties": false,
       "properties": {
         "access": {
@@ -598,6 +692,18 @@
           ],
           "title": "Access",
           "type": "string"
+        },
+        "args_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Args Sha256"
         },
         "config_sha256": {
           "title": "Config Sha256",
@@ -650,6 +756,17 @@
           "title": "Kind",
           "type": "string"
         },
+        "package": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Package"
+        },
         "risk": {
           "enum": [
             "none",
@@ -692,9 +809,11 @@
         "access",
         "risk",
         "server",
-        "transport"
+        "transport",
+        "package",
+        "args_sha256"
       ],
-      "title": "HostMcpServerGrantV2",
+      "title": "HostMcpServerGrantV7",
       "type": "object"
     },
     "HostPermissionModeGrantV2": {

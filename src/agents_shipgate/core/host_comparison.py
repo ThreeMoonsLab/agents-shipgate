@@ -24,8 +24,8 @@ from agents_shipgate.core.host_grants import (
     _issue_source_label,
     build_host_comparison_payload,
     build_host_drift_payload,
-    build_host_grants_baseline,
     hook_loading_basis,
+    host_comparison_baseline,
     host_grants_sha256,
     inventory_is_complete,
     normalized_host_grants,
@@ -813,7 +813,7 @@ def compare_host_inventories(
         payload = build_host_comparison_payload(before=before, after=after, baseline_file=baseline_file)
     else:
         payload = build_host_drift_payload(
-            baseline=build_host_grants_baseline(before),
+            baseline=host_comparison_baseline(before),
             inventory=after,
             baseline_file=baseline_file,
         )

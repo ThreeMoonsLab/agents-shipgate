@@ -11,6 +11,7 @@ from __future__ import annotations
 import errno
 import hashlib
 import json
+import math
 import os
 import posixpath
 import re
@@ -119,8 +120,18 @@ _HEADER_SECRET_RE = re.compile(
     r"(\s*:\s*)([^\s'\";,\)]+)"
 )
 _BEARER_SECRET_RE = re.compile(r"(?i)\b(bearer)(\s+)([^\s'\";,\)]+)")
+#: ``NAME=value`` whose name holds a credential word. The lookahead states what
+#: every match needs after the name's whole run of name characters, ``=`` and
+#: a value's first character, so a long run with neither after it is passed
+#: over in one scan instead of being retried at every split of the run, which
+#: took time quadratic in its length (#819 review: 40,000 characters of
+#: ``password`` took 1.6 seconds). It matches exactly what the pattern without
+#: it matches, with the same groups: a name can only end where its run ends,
+#: since what follows it must be whitespace or ``=``, so ``config_sha256`` is
+#: unchanged.
 _ASSIGNMENT_SECRET_RE = re.compile(
-    r"(?i)\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|APIKEY|CREDENTIAL)[A-Z0-9_]*)"
+    r"(?i)\b(?=[A-Z0-9_]*+\s*+=\s*+[^\s'\";,\)])"
+    r"([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|APIKEY|CREDENTIAL)[A-Z0-9_]*)"
     r"(\s*=\s*)([^\s'\";,\)]+)"
 )
 _SPACE_ARG_SECRET_RE = re.compile(
@@ -849,6 +860,145 @@ def _endpoint(server: Any) -> str | None:
     return None
 
 
+#: Bounds on the hook and MCP detail a grant publishes (#819). A matcher past
+#: its bound ends in ``…``; handlers past theirs are counted in
+#: ``omitted_handlers``; a timeout written as more digits than a word's bound
+#: is published as its cut text.
+MAX_DETAIL_WORD_CHARS = 80
+MAX_DETAIL_MATCHER_CHARS = 120
+MAX_HOOK_HANDLERS = 16
+#: A matcher longer than this is not published (#819 review, cycle 5). The
+#: published-label redaction has patterns whose time is quadratic in their
+#: input, so a 128 KiB matcher took 4.2 seconds to read, and a matcher cut
+#: before that redaction runs could publish part of a credential.
+MAX_DETAIL_MATCHER_INPUT_CHARS = 1024
+#: What a grant publishes in place of an executable name, or a timeout written
+#: as text, that is not a plain token (#819).
+DETAIL_NOT_SHOWN = "<not-shown>"
+#: A plain token: the one shape in which an executable's name, or a timeout
+#: written as text, is published (#819).
+_PLAIN_TOKEN_RE = re.compile(r"[A-Za-z0-9._+-]{1,80}")
+
+
+def _bounded_detail(text: str, limit: int = MAX_DETAIL_WORD_CHARS) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _detail_string_rules(text: str) -> str:
+    """A matcher's text through the digest's string rule and the published-label rule (#802, #819)."""
+
+    return published_workflow_label(_sanitize_sensitive_string(text))
+
+
+def _plain_token(text: str) -> str:
+    """``text`` when it is a plain token no redaction rule rewrites, else :data:`DETAIL_NOT_SHOWN` (#819)."""
+
+    if _PLAIN_TOKEN_RE.fullmatch(text) and _detail_string_rules(text) == text:
+        return text
+    return DETAIL_NOT_SHOWN
+
+
+def _published_matcher(value: Any) -> str:
+    """A matcher as it may be published: the published-label redaction, then the bound (#819).
+
+    A matcher is a string of at most :data:`MAX_DETAIL_MATCHER_INPUT_CHARS`
+    characters as ``config_sha256``'s input holds it; any other value is
+    :data:`DETAIL_NOT_SHOWN`, so no structured text a file puts there is
+    published and the published-label redaction never reads a long one. The
+    bound is on that input's text, not the file's, so two matchers that input
+    holds alike publish alike (#819 review, cycle 6): the digest's own string
+    rule, which runs over every matcher already, is linear.
+    """
+
+    if not isinstance(value, str):
+        return DETAIL_NOT_SHOWN
+    held = _sanitize_sensitive_string(value)
+    if len(held) > MAX_DETAIL_MATCHER_INPUT_CHARS:
+        return DETAIL_NOT_SHOWN
+    return _bounded_detail(published_workflow_label(held), MAX_DETAIL_MATCHER_CHARS)
+
+
+#: A package specification an MCP server's arguments may publish, and nothing
+#: else of them (#819): an npm ``name@version`` or ``@scope/name@version``
+#: (a version of at least two parts, a ``^``/``~`` range on one, or a common
+#: dist-tag), a PyPI ``name==version``, or an OCI image reference with a
+#: registry or namespace path and a tag or a ``sha256`` digest.
+_PACKAGE_SPEC_RE = re.compile(
+    r"(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*"
+    r"@(?:[~^]?v?\d+(?:\.\d+){1,2}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
+    r"|latest|next|beta|alpha|canary|rc|stable|experimental|nightly|insiders|dev|preview)"
+    r"|[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?(?:\[[A-Za-z0-9._,-]+\])?"
+    r"==\d+(?:\.\d+)+(?:(?:a|b|rc)\d+)?(?:\.post\d+)?(?:\.dev\d+)?"
+    r"|[a-z0-9][a-z0-9._-]*(?::\d+)?(?:/[a-z0-9][a-z0-9._-]*)+"
+    r"(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}(?:@sha256:[0-9a-f]{64})?|@sha256:[0-9a-f]{64})"
+)
+MAX_DETAIL_PACKAGE_CHARS = 200
+#: Flags a package runner writes before the package it runs (``npx -y``,
+#: ``uvx --from``, ``docker run -i --rm``). After any other flag an argument
+#: may be that flag's value, so it is never published as a package; that
+#: includes ``uvx --with``, whose value is an extra requirement beside the
+#: server rather than the server (#819 review, cycle 5).
+_PACKAGE_PREFIX_FLAGS = frozenset({
+    "-y", "--yes", "--package", "--from", "--spec", "-i", "--interactive", "--rm",
+    "--init", "-q", "--quiet",
+})
+#: What the published package stands for in the digest of the arguments, so a
+#: package change is named once, by the package.
+_PACKAGE_MARKER = "<package>"
+
+
+def _published_package_index(args: list[Any], redacted: list[Any]) -> int | None:
+    """The index of the argument an MCP server publishes as its package, or ``None`` (#819).
+
+    The first argument that matches :data:`_PACKAGE_SPEC_RE` in full, that
+    neither the digest's input redaction (``redacted``, index for index) nor
+    the published-label redaction rewrites, and that follows no flag but one
+    of :data:`_PACKAGE_PREFIX_FLAGS`.
+    """
+
+    for index, item in enumerate(args):
+        previous = redacted[index - 1] if index else None
+        if (
+            isinstance(item, str)
+            and len(item) <= MAX_DETAIL_PACKAGE_CHARS
+            and redacted[index] == item
+            and _PACKAGE_SPEC_RE.fullmatch(item)
+            and published_workflow_label(item) == item
+            and not (
+                isinstance(previous, str)
+                and previous.startswith("-")
+                and previous not in _PACKAGE_PREFIX_FLAGS
+            )
+        ):
+            return index
+    return None
+
+
+def _mcp_launch_args(config: dict[str, Any]) -> tuple[str | None, str | None]:
+    """An MCP server's published ``package`` and ``args_sha256`` (#819).
+
+    No argument text is published but the package
+    (:func:`_published_package_index`). Every argument contributes to
+    ``args_sha256``, the digest of the declared ``args`` as
+    ``config_sha256``'s input holds them (:func:`redacted_config_sha256`),
+    with the package replaced by :data:`_PACKAGE_MARKER` and the package's
+    position digested beside them, so the package and the digest determine
+    the arguments even when one of them is a literal marker (#819 review,
+    cycle 5); ``args`` that is not a list is digested as declared. Both are
+    ``None`` when no ``args`` is declared.
+    """
+
+    if "args" not in config:
+        return None, None
+    args = config["args"]
+    if isinstance(args, list):
+        index = _published_package_index(args, _redact_secret_values(args))
+        if index is not None:
+            marked = [*args[:index], _PACKAGE_MARKER, *args[index + 1 :]]
+            return args[index], redacted_config_sha256({"args": marked, "package_index": index})
+    return None, redacted_config_sha256(args)
+
+
 #: VS Code's prompted-input reference, e.g. `"API_KEY": "${input:apiKey}"`.
 _VSCODE_INPUT_REF = re.compile(r"\$\{input:([^}]+)\}")
 #: The documented top level of `.vscode/mcp.json` (#731). Anything else is not
@@ -928,6 +1078,7 @@ def _mcp_grants(
         )
         env = config.get("env") if isinstance(config.get("env"), dict) else {}
         headers = config.get("headers") if isinstance(config.get("headers"), dict) else {}
+        package, args_sha256 = _mcp_launch_args(config)
         grants.append({
             **base,
             "server": str(name),
@@ -935,6 +1086,8 @@ def _mcp_grants(
             "endpoint": _endpoint(config),
             "env_keys": sorted(str(key) for key in env),
             "header_keys": sorted(str(key) for key in headers),
+            "package": package,
+            "args_sha256": args_sha256,
         })
     return grants
 
@@ -1045,6 +1198,121 @@ _HOOK_ACCESS_BY_BASIS: dict[str, tuple[str, str]] = {
 LOADED_HOOK_BASES: frozenset[str] = frozenset({"host_configuration", "project_enabled_plugin"})
 
 
+#: Shell reserved words, which open a compound command rather than name a
+#: program, so a command that starts with one names no executable (#819).
+_SHELL_RESERVED_WORDS = frozenset({
+    "case", "coproc", "do", "done", "elif", "else", "esac", "fi", "for", "function", "if", "in",
+    "select", "then", "time", "until", "while",
+})
+
+
+def _hook_command(value: Any) -> dict[str, str] | None:
+    """A hook's command as its grant publishes it: the executable's name and a digest (#819).
+
+    The command's text is never published. ``sha256`` is the digest of the
+    whole command as ``config_sha256``'s input holds it
+    (:func:`redacted_config_sha256`), so it moves only when that digest does,
+    and a value that input redacts moves neither. ``executable`` is the last
+    ``/`` or ``\\`` segment of the command's first whitespace-separated word
+    as that input holds it, quotes around the segment removed, when that
+    segment is a plain token no redaction rule rewrites (:func:`_plain_token`),
+    and :data:`DETAIL_NOT_SHOWN` otherwise: a leading ``NAME=value``
+    assignment, a word whose quote a blank leaves open (``'my tool.sh'``), a
+    shell reserved word such as ``if`` (:data:`_SHELL_RESERVED_WORDS`) or a
+    URL, a first word holding ``://`` as written or as that input holds it,
+    is never named: that input keeps a URL's host and drops the rest, so its
+    last segment would be the host (#819 review, cycle 5). It is a label, not
+    a claim about what a host runs.
+    """
+
+    if not isinstance(value, str) or not value.strip():
+        return None
+    written = value.split(maxsplit=1)[0]
+    words = _sanitize_sensitive_string(value).split(maxsplit=1)
+    first = words[0] if words else ""
+    named = (
+        first not in _SHELL_RESERVED_WORDS
+        and not (first.count("'") % 2 or first.count('"') % 2)
+        and "://" not in written
+        and "://" not in first
+    )
+    name = re.split(r"[/\\]", first)[-1].strip("'\"") if named else ""
+    return {"executable": _plain_token(name), "sha256": redacted_config_sha256(value)}
+
+
+def _hook_handlers(config: Any) -> tuple[list[dict[str, Any]] | None, int]:
+    """Every handler one hook event declares, as its grant publishes them (#819).
+
+    Only the documented shape is read: a list of matcher groups, each an
+    object with a ``hooks`` list of handler objects whose ``command``, when
+    present, is a string. Anything else is ``None``, so the detail is not
+    shown rather than guessed at, and the row still reports the change through
+    ``config_sha256``. At most :data:`MAX_HOOK_HANDLERS` handlers are listed,
+    and only those are read for publishing: a group's matcher is read once,
+    and only when one of its handlers is listed, so a file of many handlers
+    under one long matcher reads it no more than once (#819 review, cycle 5).
+    """
+
+    if not isinstance(config, list):
+        return None, 0
+    handlers: list[dict[str, Any]] = []
+    declared = 0
+    for group in config:
+        if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
+            return None, 0
+        entries = group["hooks"]
+        if not all(
+            isinstance(handler, dict) and isinstance(handler.get("command", ""), str)
+            for handler in entries
+        ):
+            return None, 0
+        listed = entries[: max(0, MAX_HOOK_HANDLERS - declared)]
+        declared += len(entries)
+        if not listed:
+            continue
+        matcher = group.get("matcher")
+        published = None if matcher is None else _published_matcher(matcher)
+        handlers.extend(
+            {
+                "matcher": published,
+                "command": _hook_command(handler.get("command")),
+                "timeout": _hook_timeout(handler.get("timeout")),
+            }
+            for handler in listed
+        )
+    return handlers, max(0, declared - MAX_HOOK_HANDLERS)
+
+
+def _hook_timeout(timeout: Any) -> bool | int | float | str | None:
+    """A handler's ``timeout`` as its grant publishes it (#819).
+
+    A boolean, a finite float, or an integer whose digits fit the word bound,
+    is published as the value it is. An integer with more digits than
+    :data:`MAX_DETAIL_WORD_CHARS` is published as its digits, cut and ending in
+    ``…`` (#819 review); a string as written when it is a plain token
+    (:func:`_plain_token`); and any other value, an infinite or
+    not-a-number float among them, as :data:`DETAIL_NOT_SHOWN`. No two of
+    these publish alike: a boolean, or such a float, was published as the
+    text a string could spell, so ``true`` → ``"true"`` and ``Infinity`` →
+    ``"inf"`` read as no difference (#819 review, cycle 6). An integer is
+    never converted to a float, so one too large for a float is not an error.
+    """
+
+    if timeout is None or isinstance(timeout, bool):
+        return timeout
+    if isinstance(timeout, int):
+        # The bit length bounds the digits before any conversion to text:
+        # 4 bits per decimal digit is more than enough (log2(10) < 3.33).
+        if timeout.bit_length() <= 4 * MAX_DETAIL_WORD_CHARS and len(str(timeout)) <= MAX_DETAIL_WORD_CHARS:
+            return timeout
+        return _bounded_detail(str(timeout))
+    if isinstance(timeout, float) and math.isfinite(timeout):
+        return timeout
+    if isinstance(timeout, str):
+        return _plain_token(timeout)
+    return DETAIL_NOT_SHOWN
+
+
 def _hooks_grants(
     data: Any, *, host: str, scope: HostScope, source: str,
     basis: HookLoadingBasis = "host_configuration",
@@ -1053,16 +1321,19 @@ def _hooks_grants(
     if not isinstance(hooks, dict):
         return []
     access, risk = _HOOK_ACCESS_BY_BASIS[basis]
-    return [
-        {
+    grants: list[dict[str, Any]] = []
+    for event, config in sorted(hooks.items()):
+        handlers, omitted = _hook_handlers(config)
+        grants.append({
             **_grant_base(
                 host=host, scope=scope, source=source, kind="hook",
                 identity=str(event), config=config, access=access, risk=risk,
             ),
             "event": str(event),
-        }
-        for event, config in sorted(hooks.items())
-    ]
+            "handlers": handlers,
+            "omitted_handlers": omitted,
+        })
+    return grants
 
 
 def hook_loading_basis(grant: dict[str, Any]) -> HookLoadingBasis:
@@ -1868,7 +2139,8 @@ def _run_command(run: str) -> tuple[str, list[str]] | None:
     if index >= len(words):
         return None
     program, arguments = words[index].rsplit("/", 1)[-1], words[index + 1:]
-    if program == "claude" and any(word in {"-p", "--print"} for word in arguments):
+    options = arguments[:arguments.index("--")] if "--" in arguments else arguments
+    if program == "claude" and any(word in {"-p", "--print"} for word in options):
         return "claude", arguments
     if program == "codex" and arguments[:1] in (["exec"], ["e"]):
         return "codex", arguments[1:]
@@ -1954,10 +2226,14 @@ def _read_flags(
     (#823 review cycle 3).
     """
 
+    # A standalone terminator makes every following word positional prompt
+    # text, even when it spells a permission flag.
     flags: list[tuple[str, int | None, list[str] | None]] = []
     index = 0
     while index < len(words):
         word = words[index]
+        if word == "--":
+            break
         if word.startswith("--"):
             name, equals, attached = word.partition("=")
         elif len(word) > 2 and table.get(word[:2], ("", 0))[1] == 1:
@@ -5041,10 +5317,34 @@ def normalized_host_grants(inventory: dict[str, Any]) -> dict[str, Any]:
 
 
 def host_grants_sha256(grants: dict[str, Any]) -> str:
-    return _sha(grants)
+    """The digest of a normalized inventory, read as comparisons read it (#819).
+
+    The display-only members :data:`DISPLAY_ONLY_GRANT_FIELDS` names are left
+    out, so a ``0.6`` inventory and its ``0.7`` reading of the same files have
+    one digest, and a ``0.6`` baseline's stored ``inventory_sha256`` still
+    verifies. Nothing they display is left unbound: each grant's
+    ``config_sha256``, which this digest covers, changes whenever they do.
+    """
+
+    if not isinstance(grants.get("grants"), list):
+        return _sha(grants)
+    return _sha({**grants, "grants": [compared_grant(grant) for grant in grants["grants"]]})
 
 
 def build_host_grants_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
+    """The baseline ``audit --host --save-baseline`` writes for ``inventory``.
+
+    Each grant is saved as comparisons read it (:func:`compared_grant`), so a
+    saved baseline holds none of the display-only members
+    :data:`DISPLAY_ONLY_GRANT_FIELDS` names (#819). A baseline is committed,
+    and a hook's matcher, executable name and command digest, or an MCP
+    server's package and argument digest, read from a user or managed file
+    (``--scope local-static``) or a git-ignored ``.claude/settings.local.json``
+    would otherwise put facts about files that were never in the repository
+    into it. No comparison, row or digest reads a saved copy, so leaving them
+    out loses nothing: ``inventory_sha256`` is the same either way.
+    """
+
     if not inventory_is_complete(inventory):
         raise ValueError(
             "Host-grants inventory is incomplete or experimental; fix its coverage "
@@ -5055,9 +5355,27 @@ def build_host_grants_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
         "host_grants_schema_version": HOST_GRANTS_BASELINE_SCHEMA_VERSION,
         "scope": inventory["scope"],
         "inventory_sha256": host_grants_sha256(normalized),
-        "inventory": normalized,
+        "inventory": {
+            **normalized,
+            "grants": [compared_grant(grant) for grant in normalized["grants"]],
+        },
     }
     return HostGrantsBaselineV7.model_validate(payload).model_dump(mode="json")
+
+
+def host_comparison_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
+    """The baseline one side of a comparison between two reads stands for (#819).
+
+    What :func:`build_host_grants_baseline` would save, refusals included,
+    with the full normalized inventory in place of the saved grants: a
+    comparison between two commits reads both sides fresh, and its rows render
+    the before side's hook handlers and MCP launch arguments. The display members are
+    left out of every comparison and digest, so what is compared is exactly
+    what the saved baseline would compare. It is never saved, loaded or
+    published as a baseline.
+    """
+
+    return {**build_host_grants_baseline(inventory), "inventory": normalized_host_grants(inventory)}
 
 
 def load_host_grants_baseline(path: Path) -> dict[str, Any]:
@@ -5275,9 +5593,38 @@ def diff_host_grants(baseline: dict[str, Any], current: dict[str, Any]) -> list[
     for grant_id in sorted(set(base_by_id) | set(current_by_id)):
         before = base_by_id.get(grant_id)
         after = current_by_id.get(grant_id)
-        if before != after and not _same_workflow_grant(before, after):
+        if compared_grant(before) != compared_grant(after) and not _same_workflow_grant(
+            before, after
+        ):
             changes.append({"grant_id": grant_id, "baseline": before, "current": after})
     return changes
+
+
+#: Members a grant publishes to display what its ``config_sha256`` already
+#: binds (#819): a hook's handlers and an MCP server's package and argument
+#: digest. Each is a function of the configuration as that digest's input
+#: holds it, and publishes no command or argument text but a plain-token
+#: executable name and a package specification, so it can change only when
+#: the digest does. Grant equality and the inventory digests leave them out:
+#: a change is still a row, through ``config_sha256``, and a ``0.6`` grant,
+#: which has none of them, compares equal to its ``0.7`` reading of the same
+#: configuration. A saved baseline holds none of them
+#: (:func:`build_host_grants_baseline`).
+DISPLAY_ONLY_GRANT_FIELDS: dict[str, frozenset[str]] = {
+    "hook": frozenset({"handlers", "omitted_handlers"}),
+    "mcp_server": frozenset({"package", "args_sha256"}),
+}
+
+
+def compared_grant(grant: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The grant as comparisons and digests read it: without its display-only members (#819)."""
+
+    if grant is None:
+        return None
+    hidden = DISPLAY_ONLY_GRANT_FIELDS.get(str(grant.get("kind")))
+    if not hidden or not hidden.intersection(grant):
+        return grant
+    return {key: value for key, value in grant.items() if key not in hidden}
 
 
 def _same_workflow_grant(before: dict | None, after: dict | None) -> bool:
@@ -5646,6 +5993,9 @@ _COMPARABLE_BASELINE_SCHEMA_VERSIONS = frozenset(
     {"0.4", "0.5", "0.6", HOST_GRANTS_BASELINE_SCHEMA_VERSION}
 )
 
+#: Baselines without workflow grants retain the v0.6 replacement route (#819).
+OVERWRITABLE_BASELINE_SCHEMA_VERSIONS = frozenset({"0.6", HOST_GRANTS_BASELINE_SCHEMA_VERSION})
+
 #: Baseline versions whose workflow grants never read step action references
 #: (#771). Such a grant's missing ``step_actions`` is not evidence that no
 #: step declared one, so a baseline holding a workflow grant is incomparable.
@@ -5874,6 +6224,7 @@ __all__ = [
     "diff_host_grants",
     "hook_loading_basis",
     "host_audit_inventory",
+    "host_comparison_baseline",
     "host_grant_expansion_signals",
     "host_grants_sha256",
     "inventory_is_complete",

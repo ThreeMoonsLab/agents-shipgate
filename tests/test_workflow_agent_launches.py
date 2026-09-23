@@ -1896,7 +1896,7 @@ def test_a_v0_6_baseline_holding_a_workflow_does_not_assert_no_agent_launches(tm
     assert drift["has_drift"] is None and drift["changes"] == []
 
 
-def test_a_v0_6_baseline_without_a_workflow_stays_comparable_and_saving_over_it_is_refused(tmp_path):
+def test_a_v0_6_baseline_without_a_workflow_stays_comparable_and_can_be_replaced(tmp_path):
     from agents_shipgate.core.host_grants import build_host_drift_payload
 
     _write(tmp_path, {".claude/settings.json": json.dumps({"permissions": {"allow": ["Read(**)"]}})})
@@ -1909,11 +1909,6 @@ def test_a_v0_6_baseline_without_a_workflow_stays_comparable_and_saving_over_it_
     original = json.dumps(legacy, indent=2, sort_keys=True) + "\n"
     path.write_text(original)
     audit = ["audit", "--host", "--workspace", str(tmp_path), "--baseline-file", str(path)]
-    refused = CliRunner().invoke(app, [*audit, "--save-baseline"])
-    assert refused.exit_code == 2
-    assert path.read_text() == original
-
-    path.rename(path.with_name("host-grants.v0.6.json"))
     resaved = CliRunner().invoke(app, [*audit, "--save-baseline"])
     assert resaved.exit_code == 0, resaved.output
     assert json.loads(path.read_text())["host_grants_schema_version"] == "0.7"
@@ -2380,3 +2375,42 @@ def test_an_unchanged_workflow_holding_redacted_prose_leaves_check_comparable(tm
     assert boundary["comparison_status"] == "comparable", boundary
     row, = boundary["rows"]
     assert row["direction"] == "added" and ".mcp.json" in row["subject"]
+
+
+@pytest.mark.parametrize(("command", "flag"), [
+    ("codex exec", "--yolo"),
+    ("codex exec", "--dangerously-bypass-approvals-and-sandbox"),
+    ("claude -p", "--dangerously-skip-permissions"),
+    ("claude --print", "--dangerously-skip-permissions"),
+])
+def test_removing_end_of_options_activates_bypass_and_widens(command, flag):
+    before = _workflow({"run": f"{command} -- {flag}"})
+    after = _workflow({"run": f"{command} {flag}"})
+    assert _launches(before)[0]["settings"] == []
+    row, = _rows(before, after)
+    assert (row.direction, row.expands) == ("widened", True)
+
+
+@pytest.mark.parametrize("command", ["codex exec", "claude -p"])
+def test_end_of_options_prompt_is_not_published_as_a_permission_setting(command):
+    workflow = _workflow({"run": f"{command} -- --add-dir private-prompt-canary"})
+    launch, = _launches(workflow)
+    assert launch["settings"] == []
+    assert "private-prompt-canary" not in json.dumps(_grant(workflow))
+
+
+@pytest.mark.parametrize("flag", ["-p", "--print"])
+def test_claude_print_flag_after_end_of_options_is_not_headless(flag):
+    workflow = _workflow({"run": f"claude -- {flag}"})
+    assert _launches(workflow) == []
+    assert len(_unread(workflow)) == 1
+
+
+@pytest.mark.parametrize("command", [
+    "codex exec --yolo", "claude -p --dangerously-skip-permissions",
+])
+def test_end_of_options_preserves_bypass_before_it(command):
+    before = _workflow({"run": command})
+    after = _workflow({"run": f"{command} -- Review"})
+    assert _launches(after)[0]["widening_rules"]
+    assert _rows(before, after) == []

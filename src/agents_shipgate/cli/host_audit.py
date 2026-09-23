@@ -21,6 +21,7 @@ from agents_shipgate.core.host_grants import (
     HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
     HOST_GRANTS_SCHEMA_VERSION,
     INCOMPARABLE_BASELINE_REVIEW,
+    OVERWRITABLE_BASELINE_SCHEMA_VERSIONS,
     build_host_drift_payload,
     build_host_grants_baseline,
     diff_host_grants,
@@ -641,8 +642,15 @@ def _refuse_invalid_baseline_overwrite(
             next_action=INCOMPARABLE_BASELINE_REVIEW,
             command=None,
         ) from exc
+    # Display-only hook/MCP fields preserve v0.6 compatibility (#819), but
+    # workflow grants did not read agent launches until v0.7 (#823).
+    unread_workflow = baseline.get("host_grants_schema_version") == "0.6" and any(
+        grant.get("kind") == "workflow"
+        for grant in (baseline.get("inventory") or {}).get("grants", [])
+    )
     if (
-        baseline.get("host_grants_schema_version") != HOST_GRANTS_SCHEMA_VERSION
+        baseline.get("host_grants_schema_version") not in OVERWRITABLE_BASELINE_SCHEMA_VERSIONS
+        or unread_workflow
         or baseline.get("_load_error")
     ):
         reason = str(baseline.get("_load_error") or "unsupported_baseline_schema")
