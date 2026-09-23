@@ -18,6 +18,13 @@ reverse, and every link the reader does not read through (dangling, looping,
 external, escaping, past the hop bound). The metadata value is never coerced:
 `internal: true` stays an `unsupported` structure (#811).
 
+The same proof decides which shared plugin-reference limits `check` leaves
+out of its comparison (#714). A `parse_failed` `plugin.json` behind a file
+link was kept, so `check` refused with no row, and `diff` and `verify`
+withheld its plugin directory as `partial` (#808). Now `check` compares and
+publishes its rows, and the others are `comparable` with the limit named,
+exactly as for a `plugin.json` at its own path.
+
 Every route case is a real repository driven through `diff` (text and
 `--json`, whose head is the working tree), `verify` (`verifier.json` and its
 text, whose head is a commit), the PR comment `verify` writes, and `check`.
@@ -257,22 +264,125 @@ def test_a_metadata_value_is_never_coerced(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("layout", list(LAYOUTS))
 def test_check_refuses_exactly_as_it_does_for_a_direct_limit(tmp_path: Path, layout: str) -> None:
-    """`check`'s boundary result cannot name a limit (#721), so it refuses its
-    comparison with the reason a direct limit gives; its decision comes from its
-    own routing and does not move."""
+    """`check`'s boundary result cannot name a limit (#721), and an instruction
+    file's limit is not one it may leave out, so it refuses its comparison with
+    the reason a direct limit gives; its decision comes from its own routing and
+    does not move."""
 
     repo = _layout(tmp_path, layout)
 
-    payload = json.loads(_invoke([
-        "check", "--workspace", str(repo), "--base", "main", "--head", "HEAD",
-        "--format", "agent-boundary-json",
-    ]))
+    payload = _check(repo, "agent-boundary-json")
 
     assert payload["comparison_status"] == "incomparable"
     assert payload["incomparable_reasons"] == ["unchanged_limits_not_representable"]
     assert payload["rows"] == []
     assert payload["decision"] == "require_review"
     assert "HOST-PERMISSION-DENY-REMOVED" in [item["id"] for item in payload["violations"]]
+
+
+def _check(repo: Path, format_: str) -> dict:
+    return json.loads(_invoke([
+        "check", "--workspace", str(repo), "--base", "main", "--head", "HEAD", "--format", format_,
+    ]))
+
+
+# --- a plugin-reference limit behind a link: as at its own path --------------------
+
+PLUGIN_MANIFEST = "plugins/demo/.claude-plugin/plugin.json"
+PLUGIN_HOOKS = json.dumps(
+    {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo hi"}]}]}}
+)
+#: An unparseable plugin manifest beside a plugin hook file: at its own path,
+#: where `check` has left the shared limit out since #714, or behind a file
+#: link the reader reads through.
+PLUGIN_LAYOUTS: dict[str, tuple[dict[str, str], dict[str, str]]] = {
+    "direct": ({PLUGIN_MANIFEST: "{not json", "plugins/demo/cfg/hooks.json": PLUGIN_HOOKS}, {}),
+    "file-link": (
+        {"vendor/plugin.json": "{not json", "plugins/demo/cfg/hooks.json": PLUGIN_HOOKS},
+        {PLUGIN_MANIFEST: "../../../vendor/plugin.json"},
+    ),
+}
+#: `check` redacts rule arguments.
+CHECK_DENY_REMOVED = [("claude-code .claude/settings.json", "Bash(<redacted-arguments>)", "removed")]
+#: #808's line for a withheld plugin directory, as text and as the PR comment
+#: spells it.
+PLUGIN_WITHHELD = ("Not compared: plugins/demo, a plugin directory", "Not compared: ` plugins/demo `")
+
+
+@pytest.mark.parametrize("layout", list(PLUGIN_LAYOUTS))
+def test_check_leaves_out_a_shared_plugin_reference_limit_behind_a_link_as_at_its_own_path(
+    tmp_path: Path, layout: str
+) -> None:
+    """`check` leaves out a plugin-reference limit both sides share on an
+    unchanged source (#714), which the proof now establishes behind a link. So
+    it compares and publishes the row it finds, where it refused with
+    `base_inventory_incomplete` / `head_inventory_incomplete` and no row; its
+    decision, violations and control state are what they were."""
+
+    repo = _repository(tmp_path, *PLUGIN_LAYOUTS[layout])
+
+    boundary = _check(repo, "agent-boundary-json")
+    control = _check(repo, "agent-control-json")
+
+    assert blob_path_unchanged(repo, "main", "HEAD", PLUGIN_MANIFEST)
+    assert boundary["comparison_status"] == "comparable"
+    assert boundary["incomparable_reasons"] == []
+    assert _rows(boundary) == CHECK_DENY_REMOVED
+    assert boundary["decision"] == "require_review"
+    assert "HOST-PERMISSION-DENY-REMOVED" in [item["id"] for item in boundary["violations"]]
+    rows = control["capability_rows"]
+    assert rows["comparison_status"] == "comparable"
+    assert rows["incomparable_reasons"] == []
+    assert _rows(rows) == CHECK_DENY_REMOVED
+    assert control["control_state"] == "review_publishable"
+
+
+@pytest.mark.parametrize("layout", list(PLUGIN_LAYOUTS))
+def test_a_shared_plugin_reference_limit_behind_a_link_is_named_not_withheld(
+    tmp_path: Path, layout: str
+) -> None:
+    """Behind a link the limit could not be proven unchanged, so #808 withheld
+    its plugin directory and the comparison was `partial`. Now it is named in
+    `unchanged_limits` and the directory compared, as at its own path."""
+
+    repo = _repository(tmp_path, *PLUGIN_LAYOUTS[layout])
+
+    text, payload, verify_text, comment = _all_routes(repo, tmp_path)
+
+    assert payload["comparison_status"] == "comparable"
+    assert payload["incomparable_reasons"] == []
+    assert _rows(payload) == DENY_REMOVED
+    assert _limits(payload) == {("claude-code", PLUGIN_MANIFEST, "parse_failed")}
+    assert all(item["scope"] is None for item in payload["coverage"]["items"])
+    assert NOT_COMPARED in text and f"  claude-code {PLUGIN_MANIFEST} — parse_failed" in text
+    assert NOT_COMPARED in comment
+    for output in (text, verify_text, comment):
+        assert not any(line in output for line in PLUGIN_WITHHELD)
+        assert "Partial comparison" not in output and "comparison partial" not in output
+
+
+def test_a_plugin_manifest_edited_behind_the_link_is_still_withheld(tmp_path: Path) -> None:
+    """The negative control: the file the link lands on changed, so the limit is
+    kept. `diff` and `verify` withhold the directory as before (#808), and
+    `check` refuses with no row as before."""
+
+    files, links = PLUGIN_LAYOUTS["file-link"]
+    repo = _repository(tmp_path, files, links, head_files={"vendor/plugin.json": "{still not json"})
+
+    text, payload, _verify_text, comment = _all_routes(repo, tmp_path)
+    boundary = _check(repo, "agent-boundary-json")
+
+    assert not blob_path_unchanged(repo, "main", "HEAD", PLUGIN_MANIFEST)
+    assert payload["comparison_status"] == "partial"
+    assert payload["incomparable_reasons"] == BOTH
+    assert _rows(payload) == DENY_REMOVED
+    assert payload["unchanged_limits"] == []
+    assert PLUGIN_WITHHELD[0] in text and PLUGIN_WITHHELD[1] in comment
+    assert boundary["comparison_status"] == "incomparable"
+    assert boundary["incomparable_reasons"] == BOTH
+    assert boundary["rows"] == []
+    assert boundary["decision"] == "require_review"
+    assert "HOST-PERMISSION-DENY-REMOVED" in [item["id"] for item in boundary["violations"]]
 
 
 # --- negative controls: what the change touched still refuses ---------------------
@@ -425,3 +535,31 @@ def test_a_link_the_reader_does_not_read_through_still_refuses(tmp_path: Path, s
     assert payload["comparison_status"] == "incomparable"
     assert payload["rows"] == [] and payload["unchanged_limits"] == []
     assert "unreadable" in {item["limit"] for item in payload["coverage"]["items"]}
+
+
+def test_a_link_added_inside_the_linked_directory_still_refuses(tmp_path: Path) -> None:
+    """The path proof covers the links on the way to `SOURCE`, not every
+    condition the reader puts on reading a whole linked directory, so it is
+    necessary for naming a limit, not sufficient. A head that adds a link
+    inside `.agents/skills` leaves every link on the way unchanged, but the
+    reader no longer reads through `.claude/skills`: that side carries an
+    `unreadable` limit, never an unchanged one, and every route still refuses."""
+
+    files, links = LAYOUTS["directory-link"]
+    repo = _repository(
+        tmp_path,
+        {**files, "img/logo.txt": "logo\n"},
+        links,
+        head_links={".agents/skills/review/logo": "../../../img/logo.txt"},
+    )
+
+    _text, payload, _verify_text, _comment = _all_routes(repo, tmp_path)
+    boundary = _check(repo, "agent-boundary-json")
+
+    assert payload["comparison_status"] == "incomparable"
+    assert payload["rows"] == [] and payload["unchanged_limits"] == []
+    assert ("unreadable", "head") in {
+        (item["limit"], item["side"]) for item in payload["coverage"]["items"]
+    }
+    assert boundary["comparison_status"] == "incomparable"
+    assert boundary["rows"] == []

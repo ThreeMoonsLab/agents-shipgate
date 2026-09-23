@@ -1081,16 +1081,23 @@ def _reader_path(
     ``"tree"``, ``"blob"`` (a regular file) or ``"link"``, and ``None`` for
     anything else or nothing. ``link_text`` is a link entry's own text.
 
-    A link is followed only as the reader follows one (#700, the reader's
-    ``_resolve_in_tree_link``) and the archive would also resolve it (#711,
-    :func:`_resolve_tree_link`): its text is relative and lands inside the
-    tree after normalization, every directory above where it lands is a
-    directory and not a link, and the chain ends at a directory or regular file
-    within :data:`_MAX_TREE_LINK_HOPS` links. A path holds links at one
+    A link is followed only by rules the reader also applies (#700, the
+    reader's ``_resolve_in_tree_link``) and the archive would also resolve it
+    by (#711, :func:`_resolve_tree_link`): its text is relative and lands
+    inside the tree after normalization, every directory above where it lands
+    is a directory and not a link, and the chain ends at a directory or regular
+    file within :data:`_MAX_TREE_LINK_HOPS` links. A path holds links at one
     component only, because a directory the reader reads through holds no
     link, and every other component must be a directory. ``None`` means the
     reader would not reach a regular file at ``path`` that way, so nothing
     about it can be proven.
+
+    These are the rules for the links on the way to ``path``, not every
+    condition the reader puts on reading a whole linked directory (the
+    reader's ``_reads_through_directory_link``: no link anywhere beneath the
+    target, no skipped name on the way, a boundary location). So an answer
+    other than ``None`` is necessary for the reader to open the file there,
+    not sufficient: see :func:`blob_path_unchanged`.
     """
 
     parts = path.split("/")
@@ -1233,9 +1240,19 @@ def blob_path_unchanged(workspace: Path, base: str, head: str | None, path: str)
     ``.claude/skills -> ../.agents/skills``, every link on the way must be a
     link on both sides with the same text, every other component a
     directory, and the file it lands on the same regular file at the same
-    in-tree path. Links are followed only as :func:`_reader_path` states: the
-    rules the reader and the archive already follow them by, so a link either
-    of them would not read through is never followed here.
+    in-tree path. Links are followed only by the rules :func:`_reader_path`
+    states, which the reader and the archive also apply to the links on the
+    way.
+
+    ``True`` is necessary for naming a limit on ``path`` as unchanged, not
+    sufficient: this does not model every condition the reader puts on reading
+    a whole linked directory, so it can answer ``True`` where one side's reader
+    does not read ``path`` at all, such as a head that adds a link inside
+    ``.agents/skills``. Its callers ask only about a limit both sides carry on
+    ``path``, and a side whose reader does not read ``path`` carries none
+    there: in that example it carries an ``unreadable`` limit on the link
+    instead, which is never named as unchanged, so the comparison still
+    refuses whatever this answers.
 
     The answer is ``False`` whenever identity cannot be proven: a path absent
     on either side, a link added, removed or given another text (even one that

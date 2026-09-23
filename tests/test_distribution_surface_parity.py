@@ -231,7 +231,8 @@ SURFACES: tuple[Surface, ...] = (
         # identity fact about the link and the file it lands on, the proof
         # every unchanged limit already rested on, so it restates no engine
         # answer and adds no claim; `tests/test_linked_unchanged_limits.py`
-        # holds diff, verify, the PR comment and `check` to it.
+        # holds diff, verify, the PR comment and `check` to it, including the
+        # shared plugin-reference limits `check` leaves out by the same proof.
         {},
     ),
     Surface(

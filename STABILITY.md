@@ -602,7 +602,8 @@ No schema, member, reason code, check id or `minimum_control_contract_version`
 moves, and host-grants stays `0.6`. This change adds no version of its own:
 capability diff, verifier and the runtime contract are what the rest of the
 unreleased tree carries. What moves is which comparisons name an unchanged
-limit instead of refusing, and so which are `comparable`.
+limit instead of refusing, and so which are `comparable`, and which `check`
+compares.
 
 Since `1.0.0`, a per-source `unsupported` or `parse_failed` limit that both
 sides share on an untouched file is named in `unchanged_limits` and the rest
@@ -662,23 +663,56 @@ accept, and a change that only drops `deny: Bash(curl *)` from
   `verify` text and the PR comment; the unchanged limits a `partial`
   comparison may carry beside its withheld directories
   ([#808](#partial-host-comparison-808)); and the shared plugin-reference
-  limits `check` leaves out of its comparison (#714). `check`'s boundary result
-  still cannot name a limit, so where the other routes now compare past one it
-  refuses with `unchanged_limits_not_representable`, the reason it already
-  gives for a limit at its own path, instead of `base_inventory_incomplete` /
-  `head_inventory_incomplete`. Its rows stay empty, and its decision,
-  violations and control do not move.
+  limits `check` leaves out of its comparison (#714).
+- **`check`.** Its boundary result still cannot name a limit, so what it does
+  depends on whether it may leave the limit out, exactly as for a limit at its
+  own path:
+  - **A limit it cannot leave out**, such as the skill above: where the other
+    routes now compare past one it refuses with
+    `unchanged_limits_not_representable`, the reason it already gives for a
+    limit at its own path, instead of `base_inventory_incomplete` /
+    `head_inventory_incomplete`. Its rows stay empty.
+  - **A plugin-reference limit both sides share**, such as a `parse_failed`
+    `plugins/demo/.claude-plugin/plugin.json` that is a file link to
+    `../../../vendor/plugin.json`: `check` leaves it out of its comparison
+    once the proof holds, as it has left out one at its own path since #714.
+    So it now compares, and publishes the rows it finds where it refused with
+    `base_inventory_incomplete` / `head_inventory_incomplete` and no row. With
+    the change above, the boundary result and the control envelope's
+    `capability_rows` are `comparable` with the removed `deny` row, the same
+    row `check` publishes when `plugin.json` sits at its own path. Edited
+    behind the link, the limit is kept and `check` refuses as before.
+
+  Either way, `check`'s decision, violations and control state do not move:
+  the change above is still `require_review` with
+  `HOST-PERMISSION-DENY-REMOVED`.
+- **`partial` becomes `comparable`.** On this unreleased tree, a comparison
+  refused only by such a plugin-reference limit is `partial` (#808): `diff`,
+  `verify` and the PR comment withhold its plugin directory, as
+  `Not compared: plugins/demo`, and publish the rows outside it. Once the
+  proof holds, the limit is an unchanged one, so a comparison that was
+  `partial` only because of it is `comparable` instead: the directory is
+  compared, and the limit is named in `unchanged_limits` and the
+  `Not compared: unchanged in this change and not read` list, with no
+  `scope`, exactly as for a `plugin.json` at its own path. `1.1.0`, which has
+  no `partial`, refused it outright. `verify`'s control state and next action
+  do not move; its `reason` is the comparable result's sentence. Edited behind
+  the link, it is still `partial`.
 - **Not changed.** The inventory, its issues and `resolved_through`, saved
-  host-grants baselines, drift, `audit --host`, every row and every control
-  state and route. The coverage block asks its own identity question and asks
-  none for a file read through a link, so a zero-row file read that way is
-  still `unchanged_not_proven`. The host-config and cold-start benchmark
-  replays reproduce their run-of-record scores.
+  host-grants baselines, drift, `audit --host`, every row's value and every
+  control state and route. The coverage block asks its own identity question
+  and asks none for a file read through a link, so a zero-row file read that
+  way is still `unchanged_not_proven`. The host-config and cold-start
+  benchmark replays reproduce their run-of-record scores.
 
 **Compatibility.** No field changes shape. A consumer that switches on
 `comparison_status` reads `comparable` where it read `incomparable` for these
-layouts, with the limit in `unchanged_limits` exactly as a limit at its own
-path has been published since `1.0.0`.
+layouts, or `partial` on this unreleased tree for a plugin-reference limit,
+with the limit in `unchanged_limits` exactly as a limit at its own path has
+been published since `1.0.0`. Where such a limit was its only refusal,
+`check`'s boundary result reads `unchanged_limits_not_representable` for a
+limit it cannot leave out, and for a shared plugin-reference limit it
+compares, with the rows it finds, as for the same limit at its own path.
 
 <a id="host-comparison-coverage-812"></a>
 
