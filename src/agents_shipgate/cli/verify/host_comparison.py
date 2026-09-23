@@ -63,7 +63,10 @@ def compare_host_refs(
     (#809). A plugin-reference limit both sides share on an untouched source
     is dropped there; one only one side has, or one the change touched, still
     refuses the comparison. `diff` and `verify` keep every limit: they name a
-    shared parse or shape limit on an unchanged source, and refuse otherwise.
+    shared parse or shape limit on an unchanged source, leave a plugin
+    directory a plugin-reference limit is bounded by uncompared when nothing
+    they compare depends on it (a ``partial`` comparison, #808), and refuse
+    otherwise.
 
     ``coverage=False`` is for `check` too: its result carries no coverage, so
     it asks no identity question it would discard (#812), and lists no
@@ -184,6 +187,10 @@ def compare_host_refs(
             identities=identities,
             coverage=coverage,
             changed_inputs=changed_inputs() if coverage else None,
+            # A plugin directory a limit is bounded by is left uncompared and
+            # named, and the rest compared (#808). Only where coverage names
+            # it: `check` records none, so it refuses as before.
+            plugin_scopes=(base_snapshot.plugin_scopes, head_snapshot.plugin_scopes),
         )
         if identity() != captured_identity:
             raise ValueError("Host comparison inputs moved during the run")

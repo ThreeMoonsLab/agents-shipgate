@@ -808,6 +808,20 @@ class VerifierArtifact(BaseModel):
                 # payload claiming either under that version is not that
                 # build's output.
                 raise ValueError("Legacy verifier cannot claim unread changed inputs")
+            if isinstance(comparison, dict) and (
+                comparison.get("comparison_status") == "partial"
+                or (
+                    isinstance(coverage, dict)
+                    and any(
+                        isinstance(item, dict) and item.get("scope") is not None
+                        for item in coverage.get("items") or []
+                    )
+                )
+            ):
+                # `0.20` reserved `scope` as always `null` and refused any
+                # comparison it could not complete (#808), so a partial one,
+                # or a limit naming a scope, is not that build's output.
+                raise ValueError("Legacy verifier cannot claim a partial host comparison")
             # Its coverage reads as it was published: every item a read
             # source, and the search for unread inputs not recorded.
             return {**normalized, "verifier_schema_version": "0.21"}

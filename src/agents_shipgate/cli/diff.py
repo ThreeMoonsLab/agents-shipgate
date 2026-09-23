@@ -40,7 +40,10 @@ from agents_shipgate.core.host_grants import (
 # 0.4 names, in `coverage`, the changed inputs this entry does not read: a
 # `changed_not_read` item with its `candidate` rule, `read_sources_only` that
 # is `false` while one is listed, and whether the change set was examined
-# (`unread_candidates`, `unread_candidates_not_examined`) (#821).
+# (`unread_candidates`, `unread_candidates_not_examined`) (#821). 0.4, still
+# unreleased, also publishes `comparison_status: partial`: the rows outside a
+# plugin directory the comparison could not compare, with that directory as
+# `coverage.items[].scope` on the limits that caused it (#808).
 DIFF_SCHEMA_VERSION = "0.4"
 
 
@@ -239,13 +242,16 @@ def _render_table(changes: list[ReviewChange]) -> list[str]:
     return lines[:-1]
 
 
-def _echo_coverage(comparison) -> bool:
-    """Print "What this run established" after a blank line; true if anything printed (#812)."""
+def _echo_coverage(comparison, *, blank_before: bool = True) -> bool:
+    """Print "What this run established" after a blank line; true if anything printed (#812).
+
+    ``blank_before=False`` where the line just printed was already blank.
+    """
 
     from agents_shipgate.report.host_comparison import coverage_lines
 
     lines = coverage_lines(comparison, bullet="  ")
-    if lines:
+    if lines and blank_before:
         typer.echo("")
     for line in lines:
         typer.echo(line)
@@ -313,9 +319,8 @@ def run_capability_diff(
             # The head is the working tree, so the base is the only side that
             # reads objects. Any other archive failure is raised as it was.
             _refuse_objects_missing(workspace, base_ref, base_commit)
-        base_inventory = build_host_boundary_snapshot(
-            base_tree, cache=HostStaticParseCache()
-        ).inventory
+        base_snapshot = build_host_boundary_snapshot(base_tree, cache=HostStaticParseCache())
+        base_inventory = base_snapshot.inventory
 
     from agents_shipgate.cli.verify.changed_inputs import comparison_changed_inputs
     from agents_shipgate.cli.verify.git import (
@@ -339,6 +344,10 @@ def run_capability_diff(
         # The change's own paths, so a changed input no reader reads is named
         # rather than silent (#821).
         changed_inputs=comparison_changed_inputs(workspace, base_commit, None),
+        # A plugin directory whose limit refuses the comparison is left
+        # uncompared and named, and the rest compared, where nothing outside
+        # it depends on it (#808).
+        plugin_scopes=(base_snapshot.plugin_scopes, head.plugin_scopes),
     )
     rows = list(comparison.rows)
     limits = [limit.model_dump(mode="json") for limit in comparison.unchanged_limits]
@@ -380,7 +389,8 @@ def run_capability_diff(
         )
         return 0
 
-    if payload.get("comparison_status") != "comparable":
+    partial = payload.get("comparison_status") == "partial"
+    if payload.get("comparison_status") != "comparable" and not partial:
         typer.echo(
             f"Cannot compare against {_one_line(base_ref)}: "
             + "; ".join(_one_line(reason) for reason in payload.get("incomparable_reasons") or [])
@@ -393,9 +403,22 @@ def run_capability_diff(
         _echo_references(comparison, blank_before=True, refused=True)
         return 0
 
-    typer.echo(
-        f"Agent capability diff  {_one_line(base_ref)} ({base_commit[:8]}) -> working tree"
-    )
+    if partial:
+        from agents_shipgate.report.host_comparison import partial_scope_lines
+
+        # Never the comparable headline (#808): what was not compared is
+        # named before any row, and a zero-row result is never "no change".
+        typer.echo(
+            f"Partial comparison against {_one_line(base_ref)} ({base_commit[:8]}) "
+            "-> working tree: "
+            + "; ".join(_one_line(reason) for reason in payload.get("incomparable_reasons") or [])
+        )
+        for line in partial_scope_lines(comparison):
+            typer.echo(line)
+    else:
+        typer.echo(
+            f"Agent capability diff  {_one_line(base_ref)} ({base_commit[:8]}) -> working tree"
+        )
     typer.echo("")
     if limits:
         typer.echo(
@@ -408,8 +431,12 @@ def run_capability_diff(
             )
         typer.echo("")
     if not rows:
-        typer.echo("No static host-grant changes detected. No verdict is implied.")
-        _echo_coverage(comparison)
+        if not partial:
+            typer.echo("No static host-grant changes detected. No verdict is implied.")
+        # A partial result already said, above, that it is not a no-change
+        # answer, and a blank line followed it; its block names what was and
+        # was not compared.
+        _echo_coverage(comparison, blank_before=not partial)
         _echo_references(comparison, blank_before=True)
         return 0
     from agents_shipgate.report.host_comparison import (

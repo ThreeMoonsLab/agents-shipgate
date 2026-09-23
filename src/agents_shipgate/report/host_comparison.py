@@ -190,6 +190,70 @@ _SIDE_LIMIT = {
     "both": "in base and head, so neither inventory is complete",
 }
 
+#: The side of a limit a partial comparison is bounded by (#808): the
+#: inventory is still incomplete, and what that costs is the named directory.
+_SIDE_SCOPE = {"base": "in base", "head": "in head", "both": "in base and head"}
+
+
+def partial_scopes(comparison: HostComparison) -> tuple[list[str], bool]:
+    """Directories a partial comparison left uncompared, and whether the cap may hide one (#808).
+
+    Read off the coverage items, the one place the comparison names them.
+    Blocking limits rank first, so an item past the cap can name another
+    directory only when the last item listed is itself a blocking limit.
+    """
+
+    coverage = comparison.coverage
+    if comparison.comparison_status != "partial" or coverage is None:
+        return [], False
+    scopes = sorted({item.scope for item in coverage.items if item.scope is not None})
+    hidden = bool(coverage.omitted_items) and bool(coverage.items) and (
+        coverage.items[-1].status == "blocking_limit"
+    )
+    return scopes, hidden
+
+
+def partial_scope_lines(comparison: HostComparison, *, markdown: bool = False) -> list[str]:
+    """What a partial comparison did not compare, and what that makes of its rows (#808).
+
+    Printed right under the headline, before any row, so a reviewer reads the
+    rows as what is known outside the named directories and never as the
+    whole change. A partial result with no row says so without saying "no
+    change": nothing inside the directories was compared.
+    """
+
+    scopes, hidden = partial_scopes(comparison)
+    if not scopes:
+        return []
+    plural = len(scopes) > 1 or hidden
+    names = ", ".join(_text(scope, markdown=markdown) for scope in scopes)
+    it = "them" if plural else "it"
+    if hidden:
+        # The cap reached the limits themselves, so the list may be longer.
+        named = (
+            f"{names}, and any other plugin directory a limit not listed below names; "
+            "this entry could not read them completely"
+        )
+    elif plural:
+        named = f"{names}, plugin directories this entry could not read completely"
+    else:
+        named = f"{names}, a plugin directory this entry could not read completely"
+    lines = [
+        f"Not compared: {named}, so no change inside {it} is shown "
+        f"and nothing is claimed about {it}."
+    ]
+    if comparison.rows:
+        lines.append(
+            f"The changes below come only from sources outside {it}, so they are not the "
+            "whole change; nothing here is a claim that the change is safe."
+        )
+    else:
+        lines.append(
+            f"No static host-grant change was detected outside {it}. That is not a "
+            "no-change answer for this change, and no verdict is implied."
+        )
+    return lines
+
 
 def _published_only_with_hooks(source: str) -> bool:
     """A plugin manifest or marketplace, or a source inside one (#812).
@@ -275,6 +339,12 @@ def coverage_item_text(item: HostComparisonCoverageItem, *, markdown: bool = Fal
     """One item's finding, in words a reviewer reads without the schema (#812)."""
 
     if item.status == "blocking_limit":
+        if item.scope is not None:
+            # A partial comparison (#808): the limit cost that directory only.
+            return (
+                f"{item.limit} {_SIDE_SCOPE[item.side]}, so nothing in "
+                f"{_text(item.scope, markdown=markdown)} was compared"
+            )
         return f"{item.limit} {_SIDE_LIMIT[item.side]}"
     if item.status == "changed_not_read":
         return _unread_item_text(item, markdown=markdown)
@@ -482,7 +552,8 @@ def host_comparison_lines(
         return _text(value, markdown=markdown)
 
     coverage = coverage_lines(comparison, markdown=markdown, max_chars=coverage_max_chars)
-    if comparison.comparison_status != "comparable":
+    partial = comparison.comparison_status == "partial"
+    if comparison.comparison_status != "comparable" and not partial:
         lines = [
             "Host capability comparison unavailable: "
             + text("; ".join(comparison.incomparable_reasons)),
@@ -506,9 +577,25 @@ def host_comparison_lines(
                 lines.append("")
             lines.extend(tail)
         return lines
-    lines = ["Repository-declared host capability changes:"]
     changes = presented_changes(comparison)
-    if not changes:
+    if partial:
+        # What was not compared leads (#808): the rows below it are what is
+        # known outside those directories, never the whole change, and a
+        # partial result with no row is never a no-change answer.
+        lines = [
+            "Host capability comparison partial: "
+            + text("; ".join(comparison.incomparable_reasons)),
+            *partial_scope_lines(comparison, markdown=markdown),
+        ]
+        if changes:
+            if markdown:
+                # Its own paragraph: the rows heading would otherwise read as
+                # the end of the sentence saying they are not the whole change.
+                lines.append("")
+            lines.append("Repository-declared host capability changes:")
+    else:
+        lines = ["Repository-declared host capability changes:"]
+    if not changes and not partial:
         lines.append(
             "No static host-grant changes detected in the covered comparison. No verdict is implied."
         )

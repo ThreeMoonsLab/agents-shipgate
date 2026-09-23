@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from agents_shipgate.core.boundary_registry import (
@@ -19,6 +20,7 @@ from agents_shipgate.core.capability_diff_rows import (
 from agents_shipgate.core.host_grants import (
     _CLAUDE_PROJECT_SETTINGS_SOURCES,
     _PATH_REDACTION_MARKER,
+    PluginScopeFacts,
     _issue_source_label,
     build_host_comparison_payload,
     build_host_drift_payload,
@@ -28,6 +30,7 @@ from agents_shipgate.core.host_grants import (
     inventory_is_complete,
     normalized_host_grants,
     public_host_path,
+    without_host_sources,
 )
 from agents_shipgate.core.unread_inputs import (
     ChangedInputs,
@@ -256,29 +259,44 @@ def _unread(
     return discover_unread_inputs(changed_inputs, read_by_entry=_read_by_entry(before, after))
 
 
-def _blocking_coverage(
-    before: dict[str, Any], after: dict[str, Any], unread: UnreadDiscovery | None = None
-) -> HostComparisonCoverage:
-    """The sources behind a refused comparison, each with its limit and side (#812).
+def _blocking_facts(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    scope_of: Mapping[tuple[str, str], str] | None = None,
+) -> dict[tuple[str, str, str, str | None], dict[str, Any]]:
+    """The blocking issues behind a refused or partial comparison, as coverage facts (#812).
 
     Only what the inventories already published: every blocking issue, keyed
-    by its published source and kind. The refusal itself is decided elsewhere
-    and is not changed by naming them. A changed input this entry does not
-    read (#821) is named beside them: it is not a source either side compared.
+    by its published source and kind. With ``scope_of`` — ``{(side, issue
+    id): the directory a partial comparison left uncompared}`` (#808) — only
+    those issues, each naming its directory as ``scope``: any other blocking
+    issue of a partial comparison is an unchanged limit, named there instead.
     """
 
-    def blocking(inventory: dict[str, Any]) -> dict[tuple[str, str, str], str]:
-        return {
-            (str(issue["source"]), str(issue["kind"]), str(issue["host"])): str(issue["message"])
-            for issue in inventory.get("issues", [])
-            if issue.get("blocking")
-        }
+    Found = dict[tuple[str, str, str], tuple[str, str | None]]
 
-    base, head = blocking(before), blocking(after)
+    def blocking(side: str, inventory: dict[str, Any]) -> Found:
+        found: Found = {}
+        for issue in inventory.get("issues", []):
+            if not issue.get("blocking"):
+                continue
+            scope = None
+            if scope_of is not None:
+                scope = scope_of.get((side, str(issue["issue_id"])))
+                if scope is None:
+                    continue
+            key = (str(issue["source"]), str(issue["kind"]), str(issue["host"]))
+            found[key] = (str(issue["message"]), scope)
+        return found
+
+    base, head = blocking("base", before), blocking("head", after)
     facts: dict[tuple[str, str, str, str | None], dict[str, Any]] = {}
     for key in sorted(set(base) | set(head)):
         source, kind, host = key
         side = "both" if key in base and key in head else "base" if key in base else "head"
+        # The head's message first, as a refused comparison has always named
+        # it, and with it the directory the head's limit is bounded by.
+        message, scope = head.get(key) or base[key]
         item = facts.setdefault(
             (source, "blocking_limit", side, kind),
             {
@@ -290,11 +308,26 @@ def _blocking_coverage(
                 "limit": kind,
                 # The first host's message, in host order: hosts reading one
                 # source through one reader publish the same one.
-                "detail": head.get(key) or base.get(key),
+                "detail": message,
+                **({"scope": scope} if scope is not None else {}),
             },
         )
         item["hosts"].add(host)
-    return _group_coverage(facts, unread)
+    return facts
+
+
+def _blocking_coverage(
+    before: dict[str, Any], after: dict[str, Any], unread: UnreadDiscovery | None = None
+) -> HostComparisonCoverage:
+    """The sources behind a refused comparison, each with its limit and side (#812).
+
+    Only what the inventories already published: every blocking issue, keyed
+    by its published source and kind. The refusal itself is decided elsewhere
+    and is not changed by naming them. A changed input this entry does not
+    read (#821) is named beside them: it is not a source either side compared.
+    """
+
+    return _group_coverage(_blocking_facts(before, after), unread)
 
 
 #: The digest `public_host_path` stamps after a redacted component. A source
@@ -393,6 +426,23 @@ def _compared_coverage(
 ) -> HostComparisonCoverage:
     """What a comparable comparison established about each source it read (#812).
 
+    :func:`_compared_facts`, grouped and capped with any unread inputs.
+    """
+
+    return _group_coverage(_compared_facts(before, after, payload, limits, identities), unread)
+
+
+def _compared_facts(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    payload: dict[str, Any],
+    limits: list[dict[str, str]],
+    identities: IdentityAnswers | None,
+    *,
+    hooks_withheld: bool = False,
+) -> dict[tuple[str, str, str, str | None], dict[str, Any]]:
+    """What a comparison established about each source it compared, as coverage facts (#812).
+
     Read off the payload the rows were projected from and the two inventories.
     A file's rows are the grant changes it publishes, including those of a
     source inside it. The side is which inventories published the file, as
@@ -400,6 +450,13 @@ def _compared_coverage(
     ``changed_without_grant_change`` only where :func:`_no_grant_change_shown`
     shows it, and otherwise ``changed_without_rows``. A source named as an
     unchanged limit is already published there and is not repeated.
+
+    ``hooks_withheld`` is a partial comparison's (#808): its inventories leave
+    out the withheld directories, and with them any hook grant whose loading
+    basis the project settings decide. Whether a settings change moved that
+    basis is then not shown, so it is taken as moved, and a changed project
+    settings file with no row is ``changed_without_rows``, never
+    ``changed_without_grant_change``.
 
     A file both sides read that gives no row and whose artifact did not change
     takes its status from ``identities``, asked once for all such files. The
@@ -438,7 +495,8 @@ def _compared_coverage(
         }
 
     rows: dict[tuple[str, str], int] = {}
-    hook_basis_changed = False
+    # A withheld hook grant is compared nowhere, so its basis is not shown unmoved.
+    hook_basis_changed = hooks_withheld
     #: Hosts with a row from inside a file no published file could be named
     #: for: no file on such a host is said to have changed no compared grant.
     unattributed: set[str] = set()
@@ -528,7 +586,154 @@ def _compared_coverage(
         )
         item["hosts"].add(host)
         item["rows"] += count
-    return _group_coverage(facts, unread)
+    return facts
+
+
+#: Both sides' plugin reference graphs, base first (#808).
+PluginScopes = tuple[PluginScopeFacts, PluginScopeFacts]
+
+
+def _within(path: str, directory: str) -> bool:
+    """Whether ``path`` is ``directory`` or lies under it, compared case-insensitively.
+
+    Folded because the plugin reader matches a reference to a file
+    case-insensitively (#714): a selection may reach a file spelled otherwise.
+    """
+
+    folded, root = path.casefold(), directory.casefold()
+    return folded == root or folded.startswith(f"{root}/")
+
+
+def _bounded(root: str | None) -> bool:
+    """Whether a plugin directory can bound what a limit hides (#808).
+
+    It must name a directory below the repository root, and publish as itself:
+    a redacted or shortened path would no longer be a prefix of the published
+    paths under it, and a ``#`` would be read as a member separator.
+    """
+
+    return bool(root) and "#" not in str(root) and _issue_source_label(str(root)) == root
+
+
+@dataclass(frozen=True)
+class _Retained:
+    """The part of a comparison that no withheld plugin directory can affect (#808)."""
+
+    #: The outermost directories left uncompared, in order.
+    scopes: tuple[str, ...]
+    #: Both inventories without anything under them.
+    before: dict[str, Any]
+    after: dict[str, Any]
+    #: The unchanged limits of what remains.
+    limits: list[dict[str, str]]
+    #: ``{(side, issue id): the directory it left uncompared}``.
+    scope_of: dict[tuple[str, str], str]
+
+
+def _independent_of_plugin_scopes(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    scopes: PluginScopes,
+    unchanged: Callable[[str], bool] | None,
+) -> _Retained | None:
+    """The comparison outside the plugin directories its limits are bounded by, or ``None`` (#808).
+
+    Independence is read off the reference graph the inventories were built
+    from, never off directory names alone. A plugin-reference limit can hide
+    only what that plugin's references select, and a reference is followed
+    only inside its plugin directory (#714), so what it hides is published
+    under that directory. In this entry's repository scope every other grant
+    is read from its own file alone. Two edges leave a plugin directory, and
+    either one refuses retention, because a row outside the directory would
+    then depend on what is inside it:
+
+    - project settings (``.claude/settings.json``, ``.claude/settings.local.json``)
+      decide the loading basis of every plugin's hooks, so a withheld
+      directory holding them withholds nothing independently;
+    - a marketplace entry outside a withheld directory can declare inline
+      hooks for the plugin inside it, and those grants are published under
+      the marketplace.
+
+    ``None`` — refuse as before — whenever independence is not established:
+    a blocking limit that is not a plugin reference and not an unchanged
+    limit of the rest, a reference no directory bounds (one naming a path
+    outside its plugin), a plugin at the repository root, a directory that
+    does not publish as itself, either edge above, a host coverage status
+    this reader does not derive from its issues, or nothing read outside the
+    directories at all, which would retain nothing.
+    """
+
+    if any(
+        item.get("status") not in {"complete", "partial"}
+        for inventory in (before, after)
+        for item in inventory.get("host_coverage", [])
+    ):
+        # What remains has its coverage recomputed from its artifacts and
+        # blocking issues, which can only say `complete` or `partial`; any
+        # other status would be lost, so nothing is retained past one.
+        return None
+    roots_by_issue: dict[tuple[str, str], frozenset[str | None]] = {}
+    for side, inventory, facts in (("base", before, scopes[0]), ("head", after, scopes[1])):
+        for issue in inventory.get("issues", []):
+            if not issue.get("blocking"):
+                continue
+            roots = facts.issue_roots.get(str(issue["issue_id"]))
+            if roots is None:
+                continue  # Not a plugin reference: what remains must answer for it.
+            if not roots or not all(_bounded(root) for root in roots):
+                return None
+            roots_by_issue[(side, str(issue["issue_id"]))] = roots
+    if not roots_by_issue:
+        return None
+    outer: list[str] = []
+    for root in sorted(
+        {str(root) for roots in roots_by_issue.values() for root in roots},
+        key=lambda root: (root.count("/"), root),
+    ):
+        if not any(_within(root, kept) for kept in outer):
+            outer.append(root)
+
+    def withheld(path: str) -> bool:
+        return any(_within(path, root) for root in outer)
+
+    if any(withheld(settings) for settings in _CLAUDE_PROJECT_SETTINGS_SOURCES):
+        return None
+    for facts in scopes:
+        for source, root in facts.inline_roots.items():
+            # The whole source: its member only extends the marketplace's path.
+            if withheld(root) and not withheld(source):
+                return None
+    ids = {
+        side: {issue for key_side, issue in roots_by_issue if key_side == side}
+        for side in ("base", "head")
+    }
+    rest_before = without_host_sources(before, issue_ids=ids["base"], withheld=withheld)
+    rest_after = without_host_sources(after, issue_ids=ids["head"], withheld=withheld)
+    if not any(
+        inventory.get("artifacts") or inventory.get("grants")
+        for inventory in (rest_before, rest_after)
+    ):
+        return None
+    limits: list[dict[str, str]] | None = []
+    if not (inventory_is_complete(rest_before) and inventory_is_complete(rest_after)):
+        # Whatever remains incomplete must be a limit both sides share on a
+        # source the change did not touch, proven exactly as #721 proves one.
+        limits = (
+            unchanged_limits(rest_before, rest_after, unchanged) if unchanged is not None else None
+        )
+    if limits is None:
+        return None
+    scope_of = {
+        key: next(root for root in outer if any(_within(str(each), root) for each in roots))
+        for key, roots in roots_by_issue.items()
+    }
+    return _Retained(
+        scopes=tuple(sorted(outer)),
+        before=rest_before,
+        after=rest_after,
+        limits=limits,
+        scope_of=scope_of,
+    )
 
 
 def compare_host_inventories(
@@ -543,6 +748,7 @@ def compare_host_inventories(
     identities: IdentityAnswers | None = None,
     coverage: bool = True,
     changed_inputs: ChangedInputs | None = None,
+    plugin_scopes: PluginScopes | None = None,
 ) -> HostComparison:
     """Compare two inventories, refusing unless every limit is proven unchanged.
 
@@ -565,10 +771,23 @@ def compare_host_inventories(
     and records whether the set could be listed. Without it, coverage records
     nothing about such inputs. It never touches the rows, the reasons, the
     limits or the digests.
+
+    ``plugin_scopes`` are both readers' plugin reference graphs (#808). With
+    them, and with coverage recorded, a comparison refused only by
+    plugin-reference limits that each plugin directory bounds, and that no
+    compared source depends on, is ``partial`` instead: those directories are
+    left uncompared on both sides and named, as ``scope``, on the blocking
+    limits that caused it, and the rest is compared as a comparable
+    comparison would be, so any other blocking limit must be one
+    ``unchanged`` proves, and is then named in ``unchanged_limits``.
+    ``incomparable_reasons`` stays what the refusal would have said. Without
+    coverage the scope could be named nowhere, so such a comparison refuses
+    as before; that is `check`'s.
     """
 
     reasons: list[str] = []
     limits: list[dict[str, str]] = []
+    retained: _Retained | None = None
     if not (inventory_is_complete(before) and inventory_is_complete(after)):
         shared = unchanged_limits(before, after, unchanged) if unchanged is not None else None
         if shared is None:
@@ -576,11 +795,20 @@ def compare_host_inventories(
                 reasons.append("base_inventory_incomplete")
             if not inventory_is_complete(after):
                 reasons.append("head_inventory_incomplete")
+            if coverage and plugin_scopes is not None:
+                retained = _independent_of_plugin_scopes(before, after, plugin_scopes, unchanged)
         else:
             limits = shared
     baseline_file = base_commit or "compared input"
-    if reasons:
-        payload: dict = {}
+    if retained is not None:
+        # Both sides without the withheld directories, whose remaining limits
+        # were proven unchanged exactly as a comparable comparison's are.
+        limits = retained.limits
+        payload: dict = build_host_comparison_payload(
+            before=retained.before, after=retained.after, baseline_file=baseline_file
+        )
+    elif reasons:
+        payload = {}
     elif limits:
         payload = build_host_comparison_payload(before=before, after=after, baseline_file=baseline_file)
     else:
@@ -589,27 +817,49 @@ def compare_host_inventories(
             inventory=after,
             baseline_file=baseline_file,
         )
-    reasons.extend(payload.get("incomparable_reasons") or [])
-    if reasons:
+    if payload.get("incomparable_reasons"):
+        reasons.extend(payload["incomparable_reasons"])
+        retained = None
+    # Refused: nothing was compared, so no row, limit or review is published.
+    refused = bool(reasons) and retained is None
+    if refused:
         limits = []
     # What the run established, from the facts above and nothing else (#812).
     # It stays on the comparison: it is not an input to the inventory digests,
     # a saved baseline or the rows.
     unread = _unread(before, after, changed_inputs) if coverage else None
-    established = (
-        None
-        if not coverage
-        else _blocking_coverage(before, after, unread)
-        if reasons
-        else _compared_coverage(before, after, payload, limits, identities, unread)
-    )
+    if not coverage:
+        established = None
+    elif refused:
+        established = _blocking_coverage(before, after, unread)
+    elif retained is not None:
+        # The limits that left a directory uncompared, each naming it, then
+        # what the rest established, read off the inventories it compared.
+        established = _group_coverage(
+            {
+                **_blocking_facts(before, after, retained.scope_of),
+                **_compared_facts(
+                    retained.before,
+                    retained.after,
+                    payload,
+                    limits,
+                    identities,
+                    hooks_withheld=True,
+                ),
+            },
+            unread,
+        )
+    else:
+        established = _compared_coverage(before, after, payload, limits, identities, unread)
     rows = (
         []
-        if reasons
+        if refused
         else capability_diff_rows(payload, redact_permission_arguments=redact_permission_arguments)
     )
     return HostComparison(
-        comparison_status="incomparable" if reasons else "comparable",
+        comparison_status=(
+            "incomparable" if refused else "partial" if retained is not None else "comparable"
+        ),
         incomparable_reasons=reasons,
         base_commit=base_commit,
         head_commit=head_commit,
@@ -627,7 +877,7 @@ def compare_host_inventories(
         # same facts about the same comparison (#795).
         review=(
             None
-            if reasons
+            if refused
             else host_comparison_review(
                 rows, base_commit=base_commit, head_kind=head_kind, head_commit=head_commit
             )

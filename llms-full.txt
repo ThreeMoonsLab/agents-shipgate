@@ -1602,6 +1602,22 @@ file this entry reads. `minimum_control_contract_version`
 stays `21`, and a `0.20` verifier reads with the search not recorded. See
 [the migration note](../STABILITY.md#unread-changed-inputs-821).
 
+Still contract v41, unreleased: a plugin directory a host comparison cannot
+compare no longer hides the changes outside it (#808). Where every blocking
+limit that refused the comparison is a plugin-reference limit bounded by its
+plugin directory, and no compared source depends on that directory, verifier
+`0.21` and `shipgate diff --json` (capability diff `0.4`) publish
+`comparison_status: partial`: the same `incomparable_reasons`, the `rows`,
+`review` and `unchanged_limits` established outside the directory, and the
+directory as `scope` on each such `blocking_limit` coverage item, which
+`0.20` reserved as always `null`. Treat `partial` as `incomparable` for any
+decision: every control state, permission, next action and `check` decision
+is the refusal's, the control envelope's `capability_rows` projects it as
+`incomparable` with no rows, and `check`, whose boundary result cannot name a
+directory, still refuses its comparison. A `0.20` verifier claiming a partial
+comparison or a `scope` is refused. See
+[the migration note](../STABILITY.md#partial-host-comparison-808).
+
 Previous runtime contract v40 reads the action reference each workflow step declares
 (#771). Host-grants inventory, baseline and drift schemas move to `0.6`, and a
 workflow grant adds `step_actions[]`: the job, the step (`id`, else `name`,

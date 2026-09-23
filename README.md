@@ -81,7 +81,13 @@ like these; `No static host-grant changes detected.` when no compared grant
 differs; or `Cannot compare against <base>: <reason>` when an input could not be
 read, which is an input limit and never a quiet pass. Either of the first two
 can open with `Not compared:` and a list of sources the change did not touch
-and `diff` could not read; nothing is claimed about those. Every answer then
+and `diff` could not read; nothing is claimed about those. This source tree,
+and not the published `1.1.0`, also has a fourth answer, `Partial comparison
+against <base> …: <reason>`, where the only inputs it could not read are
+plugin directories whose references stop inside them: it names each one as
+`Not compared: <directory>`, shows the changes outside it, and says they are
+not the whole change. It is never a pass, and a partial answer with no entry
+is never a no-change answer. Every answer then
 says `What this run established`: which sources were compared and how many rows
 each gave, which changed with no compared grant changing (so a zero-row `env`
 or `apiKeyHelper` edit is not mistaken for no change: a file is unchanged only

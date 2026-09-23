@@ -219,7 +219,14 @@ SURFACES: tuple[Surface, ...] = (
         # the comparison's own change set, never a grant, verdict, pin, floor
         # or vocabulary the engine answers, so it adds no claim; the rules are
         # held to `docs/host-boundary-support.md` and every route to the same
-        # object by `tests/test_unread_changed_inputs.py`.
+        # object by `tests/test_unread_changed_inputs.py`. A `partial`
+        # comparison (#808) restates no engine answer either: it publishes the
+        # rows the same comparator established outside plugin directories the
+        # reader's reference graph bounds, names those directories as the
+        # reserved coverage `scope`, and is read as incomparable by every
+        # control route, so it adds no claim; every route to the same object,
+        # and every refusal it must keep, is held by
+        # `tests/test_partial_host_comparison.py`.
         {},
     ),
     Surface(

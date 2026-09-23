@@ -329,9 +329,14 @@ def capability_rows_block(
     survive the cap: rows the engine called an expansion first, each half in
     the producer's order. ``why`` is the only field capped, because it is the
     only prose.
+
+    A ``partial`` comparison (#808) is projected as ``incomparable``, with its
+    reasons and no rows, exactly as it was before it could be partial: this
+    block cannot name the directories it left uncompared, and the envelope is
+    control, where a comparison that is not whole is not one.
     """
 
-    if comparison_status == "incomparable":
+    if comparison_status in {"incomparable", "partial"}:
         return EnvelopeCapabilityRows(
             comparison_status="incomparable",
             incomparable_reasons=list(incomparable_reasons),
