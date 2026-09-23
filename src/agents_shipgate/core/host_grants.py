@@ -866,6 +866,11 @@ def _endpoint(server: Any) -> str | None:
 MAX_DETAIL_WORD_CHARS = 80
 MAX_DETAIL_MATCHER_CHARS = 120
 MAX_HOOK_HANDLERS = 16
+#: A matcher longer than this is not published (#819 review, cycle 5). The
+#: published-label redaction has patterns whose time is quadratic in their
+#: input, so a 128 KiB matcher took 4.2 seconds to read, and a matcher cut
+#: before that redaction runs could publish part of a credential.
+MAX_DETAIL_MATCHER_INPUT_CHARS = 1024
 #: What a grant publishes in place of an executable name, or a timeout written
 #: as text, that is not a plain token (#819).
 DETAIL_NOT_SHOWN = "<not-shown>"
@@ -892,16 +897,17 @@ def _plain_token(text: str) -> str:
     return DETAIL_NOT_SHOWN
 
 
-def _detail_text(value: Any, limit: int) -> str:
+def _published_matcher(value: Any) -> str:
     """A matcher as it may be published: the published-label redaction, then the bound (#819).
 
-    A matcher is a string; any other value is :data:`DETAIL_NOT_SHOWN`, so no
-    structured text a file puts there is published.
+    A matcher is a string of at most :data:`MAX_DETAIL_MATCHER_INPUT_CHARS`
+    characters; any other value is :data:`DETAIL_NOT_SHOWN`, so no structured
+    text a file puts there is published and no redaction reads a long one.
     """
 
-    if not isinstance(value, str):
+    if not isinstance(value, str) or len(value) > MAX_DETAIL_MATCHER_INPUT_CHARS:
         return DETAIL_NOT_SHOWN
-    return _bounded_detail(_detail_string_rules(value), limit)
+    return _bounded_detail(_detail_string_rules(value), MAX_DETAIL_MATCHER_CHARS)
 
 
 #: A package specification an MCP server's arguments may publish, and nothing
@@ -921,9 +927,11 @@ _PACKAGE_SPEC_RE = re.compile(
 MAX_DETAIL_PACKAGE_CHARS = 200
 #: Flags a package runner writes before the package it runs (``npx -y``,
 #: ``uvx --from``, ``docker run -i --rm``). After any other flag an argument
-#: may be that flag's value, so it is never published as a package.
+#: may be that flag's value, so it is never published as a package; that
+#: includes ``uvx --with``, whose value is an extra requirement beside the
+#: server rather than the server (#819 review, cycle 5).
 _PACKAGE_PREFIX_FLAGS = frozenset({
-    "-y", "--yes", "--package", "--from", "--with", "--spec", "-i", "--interactive", "--rm",
+    "-y", "--yes", "--package", "--from", "--spec", "-i", "--interactive", "--rm",
     "--init", "-q", "--quiet",
 })
 #: What the published package stands for in the digest of the arguments, so a
@@ -965,9 +973,11 @@ def _mcp_launch_args(config: dict[str, Any]) -> tuple[str | None, str | None]:
     (:func:`_published_package_index`). Every argument contributes to
     ``args_sha256``, the digest of the declared ``args`` as
     ``config_sha256``'s input holds them (:func:`redacted_config_sha256`),
-    with the package replaced by :data:`_PACKAGE_MARKER`; ``args`` that is not
-    a list is digested as declared. Both are ``None`` when no ``args`` is
-    declared.
+    with the package replaced by :data:`_PACKAGE_MARKER` and the package's
+    position digested beside them, so the package and the digest determine
+    the arguments even when one of them is a literal marker (#819 review,
+    cycle 5); ``args`` that is not a list is digested as declared. Both are
+    ``None`` when no ``args`` is declared.
     """
 
     if "args" not in config:
@@ -977,7 +987,7 @@ def _mcp_launch_args(config: dict[str, Any]) -> tuple[str | None, str | None]:
         index = _published_package_index(args, _redact_secret_values(args))
         if index is not None:
             marked = [*args[:index], _PACKAGE_MARKER, *args[index + 1 :]]
-            return args[index], redacted_config_sha256(marked)
+            return args[index], redacted_config_sha256({"args": marked, "package_index": index})
     return None, redacted_config_sha256(args)
 
 
@@ -1201,14 +1211,23 @@ def _hook_command(value: Any) -> dict[str, str] | None:
     and :data:`DETAIL_NOT_SHOWN` otherwise: a leading ``NAME=value``
     assignment, a word whose quote a blank leaves open (``'my tool.sh'``), a
     shell reserved word such as ``if`` (:data:`_SHELL_RESERVED_WORDS`) or a
-    URL is never named. It is a label, not a claim about what a host runs.
+    URL, a first word holding ``://`` as written or as that input holds it,
+    is never named: that input keeps a URL's host and drops the rest, so its
+    last segment would be the host (#819 review, cycle 5). It is a label, not
+    a claim about what a host runs.
     """
 
     if not isinstance(value, str) or not value.strip():
         return None
+    written = value.split(maxsplit=1)[0]
     words = _sanitize_sensitive_string(value).split(maxsplit=1)
     first = words[0] if words else ""
-    named = first not in _SHELL_RESERVED_WORDS and not (first.count("'") % 2 or first.count('"') % 2)
+    named = (
+        first not in _SHELL_RESERVED_WORDS
+        and not (first.count("'") % 2 or first.count('"') % 2)
+        and "://" not in written
+        and "://" not in first
+    )
     name = re.split(r"[/\\]", first)[-1].strip("'\"") if named else ""
     return {"executable": _plain_token(name), "sha256": redacted_config_sha256(value)}
 
@@ -1220,27 +1239,40 @@ def _hook_handlers(config: Any) -> tuple[list[dict[str, Any]] | None, int]:
     object with a ``hooks`` list of handler objects whose ``command``, when
     present, is a string. Anything else is ``None``, so the detail is not
     shown rather than guessed at, and the row still reports the change through
-    ``config_sha256``. At most :data:`MAX_HOOK_HANDLERS` handlers are listed.
+    ``config_sha256``. At most :data:`MAX_HOOK_HANDLERS` handlers are listed,
+    and only those are read for publishing: a group's matcher is read once,
+    and only when one of its handlers is listed, so a file of many handlers
+    under one long matcher reads it no more than once (#819 review, cycle 5).
     """
 
     if not isinstance(config, list):
         return None, 0
     handlers: list[dict[str, Any]] = []
+    declared = 0
     for group in config:
         if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
             return None, 0
+        entries = group["hooks"]
+        if not all(
+            isinstance(handler, dict) and isinstance(handler.get("command", ""), str)
+            for handler in entries
+        ):
+            return None, 0
+        listed = entries[: max(0, MAX_HOOK_HANDLERS - declared)]
+        declared += len(entries)
+        if not listed:
+            continue
         matcher = group.get("matcher")
-        for handler in group["hooks"]:
-            if not isinstance(handler, dict) or (
-                "command" in handler and not isinstance(handler["command"], str)
-            ):
-                return None, 0
-            handlers.append({
-                "matcher": None if matcher is None else _detail_text(matcher, MAX_DETAIL_MATCHER_CHARS),
+        published = None if matcher is None else _published_matcher(matcher)
+        handlers.extend(
+            {
+                "matcher": published,
                 "command": _hook_command(handler.get("command")),
                 "timeout": _hook_timeout(handler.get("timeout")),
-            })
-    return handlers[:MAX_HOOK_HANDLERS], max(0, len(handlers) - MAX_HOOK_HANDLERS)
+            }
+            for handler in listed
+        )
+    return handlers, max(0, declared - MAX_HOOK_HANDLERS)
 
 
 def _hook_timeout(timeout: Any) -> int | float | str | None:

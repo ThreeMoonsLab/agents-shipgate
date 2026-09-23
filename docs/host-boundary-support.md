@@ -164,9 +164,10 @@ as userinfo.
 A hook row names what changed in the hook, and an MCP row a change to the
 server's launch arguments (#819), without publishing any command or argument
 text. A hook grant publishes each handler under its event: the group's
-`matcher`, through the published-label redaction; its command as the name of
-its executable — the last path segment of its first word, only when that is a
-plain token, otherwise `<not-shown>` — and a SHA-256 digest of the whole
+`matcher`, through the published-label redaction (a matcher longer than 1,024
+characters is `<not-shown>`); its command as the name of its executable — the
+last path segment of its first word, only when that is a plain token and the
+word is no URL, otherwise `<not-shown>` — and a SHA-256 digest of the whole
 command; and its `timeout`. So a matcher, command or timeout edit reads
 `PostToolUse: matcher Edit → Edit|Write|Bash`,
 `PostToolUse: command changed (lint.sh sha256:… → curl sha256:…)` or
@@ -186,7 +187,8 @@ as before. A saved baseline holds none of
 this detail, so nothing read from a user, managed or git-ignored settings file
 reaches the committed file. A hook declaration outside the documented shape
 publishes no handlers, and its row says the matcher, command and timeout are
-not shown.
+not shown; when only one side is outside it, the row names that side and lists
+the other side's handlers.
 
 A hook row states its loading basis (#714). Parsing a hook file proves the
 file exists, not that a host loads it, so hooks are published four ways:

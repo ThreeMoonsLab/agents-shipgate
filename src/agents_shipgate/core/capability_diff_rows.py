@@ -22,6 +22,7 @@ their direction, the counters and the review question in the comparison's
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections import Counter
 from collections.abc import Sequence
@@ -777,12 +778,11 @@ def _mcp_unshown_change(grant: dict[str, Any], *, args_compared: bool = False) -
 #: How many hook handlers an added or removed hook's cell lists before counting.
 _HANDLER_LIMIT = 3
 
-#: What a hook row says when its declaration is not in the shape the reader
-#: establishes, and so no handler was published (#819).
-_HOOK_SHAPE_NOT_READ = (
-    "matcher, command and timeout not shown: the declaration is not a list of matcher "
-    "groups whose hooks are objects"
-)
+#: Why a hook declaration published no handler: it is not in the shape the
+#: reader establishes (#819).
+_HOOK_SHAPE_REASON = "the declaration is not a list of matcher groups whose hooks are objects"
+#: What a hook row says when its declaration is outside that shape.
+_HOOK_SHAPE_NOT_READ = f"matcher, command and timeout not shown: {_HOOK_SHAPE_REASON}"
 
 #: What a hook's published handlers do not show, and so where a change the
 #: rows cannot name may be (#819). The command is digested whole, so no part
@@ -796,13 +796,28 @@ def _command_text(command: dict[str, Any]) -> str:
     return f"{command.get('executable') or DETAIL_NOT_SHOWN} {_digest_text(command.get('sha256'))}"
 
 
+def _reads_as_number(text: str) -> bool:
+    try:
+        return math.isfinite(float(text))
+    except ValueError:
+        return False
+
+
 def _handler_value(field: str, value: Any) -> str:
+    """A published handler field as a row prints it (#819).
+
+    A timeout published as text that reads as a finite number is quoted, so
+    ``5`` → ``"5"`` never reads as the same value twice (#819 review, cycle 5).
+    """
+
     if value is None:
         return "(none)"
     if field == "command":
         return _command_text(value)
     if field == "matcher" and value == "":
         return '""'
+    if field == "timeout" and isinstance(value, str) and _reads_as_number(value):
+        return json.dumps(value, ensure_ascii=False)
     return str(value)
 
 
@@ -828,21 +843,25 @@ def _hook_cell(value: str, grant: dict[str, Any] | None) -> str:
 
     if not grant or value == ABSENT or "handlers" not in grant:
         return value
-    handlers = grant["handlers"]
-    if handlers is None:
+    if grant["handlers"] is None:
         return f"{value} ({_HOOK_SHAPE_NOT_READ})"
+    return f"{value} ({_listed_handlers(grant)})"
+
+
+def _listed_handlers(grant: dict[str, Any]) -> str:
+    """The handlers a grant publishes, as a cell lists them: at most three, then a count (#819)."""
+
+    handlers = grant["handlers"]
     total = len(handlers) + int(grant.get("omitted_handlers") or 0)
     if not total:
-        return f"{value} (no handlers)"
+        return "no handlers"
     if total == 1 and handlers:
-        facts = "; ".join(_handler_facts(handlers[0])) or "a handler with no matcher, command or timeout"
-        return f"{value} ({facts})"
+        return "; ".join(_handler_facts(handlers[0])) or "a handler with no matcher, command or timeout"
     listed = [
         f"handler {index}: {', '.join(_handler_facts(handler)) or 'no matcher, command or timeout'}"
         for index, handler in enumerate(handlers[:_HANDLER_LIMIT], start=1)
     ]
-    rest = total - len(listed)
-    return f"{value} ({'; '.join(listed)}{_more(rest, 'handler')})"
+    return "; ".join(listed) + _more(total - len(listed), "handler")
 
 
 def _published_json(value: Any) -> str:
@@ -913,14 +932,24 @@ def _hook_change(event: str, before: dict[str, Any], after: dict[str, Any]) -> s
     since a setting such as ``async`` is not published (#819 review, cycle
     4). When either side lists fewer handlers than it declares, only the
     first ones were compared, and a handler past them is named among what is
-    not shown (#819 review).
+    not shown (#819 review). When only one side's declaration is outside the
+    documented shape, that side is named and the other side's handlers are
+    listed as an added or removed hook's are, so a change that brings a
+    declaration into the shape never reads as though the new one were outside
+    it (#819 review, cycle 5).
     """
 
     if "handlers" not in before or "handlers" not in after:
         return None
     old, new = before["handlers"], after["handlers"]
-    if old is None or new is None:
+    if old is None and new is None:
         return f"{event}: {_HOOK_SHAPE_NOT_READ}"
+    if old is None or new is None:
+        unread, read, grant = ("base", "head", after) if old is None else ("head", "base", before)
+        return (
+            f"{event}: {unread} matcher, command and timeout not shown ({_HOOK_SHAPE_REASON}); "
+            f"{read} ({_listed_handlers(grant)})"
+        )
     changes = _handler_changes(old, new)
     parts = changes or []
     old_more, new_more = int(before.get("omitted_handlers") or 0), int(after.get("omitted_handlers") or 0)

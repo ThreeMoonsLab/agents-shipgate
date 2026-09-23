@@ -633,7 +633,8 @@ class HostHookCommandV7(BaseModel):
     ``executable`` is the last path segment of the command's first
     whitespace-separated word, when it is a plain token
     (``[A-Za-z0-9._+-]``, at most 80 characters) no redaction rule rewrites
-    and the word is no shell reserved word, and ``<not-shown>`` otherwise. It
+    and the word is no shell reserved word and holds no ``://``, and
+    ``<not-shown>`` otherwise, so no part of a URL is named. It
     is a label, not a claim about what a host runs. ``sha256`` is the digest of the whole command as
     ``config_sha256``'s input holds it, so it moves only when that digest
     does; a value that input redacts moves neither. The command's text is
@@ -650,9 +651,10 @@ class HostHookHandlerV7(BaseModel):
     """One hook handler under an event: its group's matcher, its command and its timeout.
 
     ``matcher`` is ``None`` when its group declares none, which the host reads
-    as every tool or source, and ``<not-shown>`` when it is not a string; it
-    passes through the published-label redaction and is cut at 120
-    characters. ``command`` is ``None`` for a handler with
+    as every tool or source, and ``<not-shown>`` when it is not a string or is
+    longer than 1,024 characters; otherwise it passes through the
+    published-label redaction and is cut at 120 characters. ``command`` is
+    ``None`` for a handler with
     no command string, such as a ``prompt`` handler, whose prompt is not
     published. ``timeout`` is the declared number; an integer of more than 80
     digits, a non-finite float or a boolean is published as its bounded text,
@@ -689,8 +691,9 @@ class HostMcpServerGrantV7(HostMcpServerGrantV2):
     #: ``--from``, ``--rm`` …). ``None`` when no argument is one.
     package: str | None
     #: The digest of the declared ``args`` as ``config_sha256``'s input holds
-    #: them, the package replaced by a marker, so every other argument is
-    #: compared and none is published. ``None`` when no ``args`` is declared.
+    #: them, the package replaced by a marker and its position digested beside
+    #: them, so every other argument is compared and none is published.
+    #: ``None`` when no ``args`` is declared.
     #: Both members are always present in a ``0.7`` inventory grant; a saved
     #: baseline holds neither.
     args_sha256: str | None = Field(pattern=r"^[0-9a-f]{64}$")
