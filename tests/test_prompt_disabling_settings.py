@@ -443,6 +443,94 @@ def test_removing_a_setting_raises_nothing_of_its_own(tmp_path: Path) -> None:
     assert boundary["decision"] == "require_review"
 
 
+#: name -> (base, head, decision, control state, violation). Each moves one
+#: value between `permissions` and the top level without changing it.
+MOVES = {
+    # Claude Code reads `defaultMode` under `permissions`: the move turns the
+    # mode on. Before #827 `check` blocked it; a comparison keyed by setting
+    # alone read the two copies as one and raised nothing.
+    "bypass_permissions_into_permissions": (
+        {**BASE, "defaultMode": "bypassPermissions"},
+        _settings(mode="bypassPermissions"),
+        "block",
+        "human_review_required",
+        _violation(WILDCARD, "critical", {"kind": "permission_mode_expanded", "mode": "bypassPermissions"}),
+    ),
+    "accept_edits_into_permissions": (
+        {**BASE, "defaultMode": "acceptEdits"},
+        _settings(mode="acceptEdits"),
+        "require_review",
+        "review_publishable",
+        _violation(EXPANDED, "high", {"kind": "permission_mode_changed", "mode": "acceptEdits"}),
+    ),
+    # Claude Code reads `enableAllProjectMcpServers` at the top level.
+    "enable_all_out_of_permissions": (
+        {"permissions": {"allow": ["Read"], "enableAllProjectMcpServers": True}},
+        _settings(enableAllProjectMcpServers=True),
+        "block",
+        "human_review_required",
+        _violation(
+            WILDCARD, "critical",
+            {"kind": "permission_mode_expanded", "setting": "enableAllProjectMcpServers", "value": "true"},
+        ),
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(MOVES))
+def test_a_value_moved_between_permissions_and_the_top_level_is_set(tmp_path: Path, case: str) -> None:
+    """Where a value is read is part of what a change sets (#827)."""
+
+    base, head, decision, state, violation = MOVES[case]
+    repo = _repository(tmp_path, head, base=base, manifest=True)
+    workspace = ["--workspace", str(repo)]
+    boundary = json.loads(
+        _run(
+            [
+                "check", "--agent", "claude-code", *workspace, "--base", "main",
+                "--head", "HEAD", "--format", "agent-boundary-json",
+            ]
+        )
+    )
+    assert (boundary["decision"], boundary["control"]["state"]) == (decision, state)
+    assert _violations(boundary) == [violation]
+
+    # The grant is the same value on both sides, so neither `diff` nor
+    # `check` has a row for the move; the violation is its only record.
+    assert boundary["rows"] == []
+    diff = json.loads(_run(["diff", *workspace, "--base", "main", "--json"]))
+    assert (diff["comparison_status"], diff["rows"]) == ("comparable", [])
+
+    _run(
+        [
+            "verify", *workspace, "--config", "shipgate.yaml", "--base", "main",
+            "--head", "HEAD", "--ci-mode", "advisory", "--format", "json",
+        ]
+    )
+    report = json.loads((repo / "agents-shipgate-reports" / "report.json").read_text())
+    decision = report["release_decision"]
+    listed = "blockers" if violation[1] == "block" else "review_items"
+    assert (violation[0], violation[2]) in [
+        (item["check_id"], item["severity"]) for item in decision[listed]
+    ]
+    if violation[1] == "block":
+        assert decision["decision"] == "blocked"
+
+
+def test_a_value_left_where_it_was_raises_nothing(tmp_path: Path) -> None:
+    """The comparison is keyed by where the value is read, not only by its setting."""
+
+    for base in (
+        {**BASE, "defaultMode": "bypassPermissions", "enableAllProjectMcpServers": True},
+        {"permissions": {"allow": ["Read"], "defaultMode": "bypassPermissions", "enableAllProjectMcpServers": True}},
+    ):
+        head = {**base, "permissions": {**base["permissions"], "allow": ["Read", "Grep"]}}
+        violations = _evaluate(tmp_path, head, old=base)
+        assert [(item.id, item.evidence) for item in violations] == [
+            ("HOST-PERMISSION-ALLOW-EXPANDED", {"kind": "permission_allow_expanded", "rule": "Grep"})
+        ]
+
+
 # --- the table and the readers that share it ----------------------------------
 
 

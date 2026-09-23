@@ -673,11 +673,23 @@ def _evaluate_claude_setting_values(old_data, new_data, path: str, add) -> None:
     evidence it always published, so its findings keep their fingerprints;
     every other setting names itself and its value. Either value is the one
     the grant publishes, redacted and bounded (`_setting_evidence_text`).
+
+    Two sides compare by where the value is read as well as by its setting,
+    so a value that moves between ``permissions`` and the top level is a
+    value the change sets, in either direction, and raises at its rating.
+    The reader accepts a scalar setting in either place, but Claude Code
+    documents each in one of them (``defaultMode`` under ``permissions``,
+    ``enableAllProjectMcpServers`` at the top level), so moving a
+    ``bypassPermissions`` copy the base kept at the top level into
+    ``permissions`` turns the mode on without changing its value.
     """
 
-    old_values = {item.key: item.value for item in claude_setting_values(old_data)}
+    old_values = {
+        (item.container, item.key): item.value for item in claude_setting_values(old_data)
+    }
     for item in claude_setting_values(new_data):
-        if item.key in old_values and _canonical_json(old_values[item.key]) == _canonical_json(
+        compared = (item.container, item.key)
+        if compared in old_values and _canonical_json(old_values[compared]) == _canonical_json(
             item.value
         ):
             continue

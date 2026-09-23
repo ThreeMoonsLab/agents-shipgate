@@ -357,11 +357,18 @@ A `medium` violation stays in the graded review band, so the coding agent is
 routed to `verify` and the pull request still goes to a human. A rating is of
 the value, not of the change: whether one mode is wider than the one it
 replaced is not modelled, so every value a change sets is reviewed, and a
-row's `⚠` still marks every added or changed mode. Removing a setting raises
-nothing of its own, as removing `defaultMode` never did; the file is still a
-protected surface and the removal is still a row. A host-boundary policy that
-raises either rule above its default raises these violations with it; none can
-lower them.
+row's `⚠` still marks every added or changed mode. Moving a value between
+`permissions` and the top level sets it too, in either direction: the
+inventory reads a setting from either place, but Claude Code documents
+`defaultMode` under `permissions` and `enableAllProjectMcpServers` at the top
+level, so moving a top-level `defaultMode: bypassPermissions` into
+`permissions` turns the mode on without changing its value, and `check` blocks
+it. Its grant is the same value on both sides, so `diff`, `verify` and the
+`check` rows show no row for the move; the violation, and `verify`'s finding,
+is its record. Removing a setting raises nothing of its own, as removing
+`defaultMode` never did; the file is still a protected surface and the removal
+is still a row. A host-boundary policy that raises either rule above its
+default raises these violations with it; none can lower them.
 
 `enabledMcpjsonServers` is read as one grant per server name, so approving one
 more server is one `high` row. An entry that names no server — an object, a

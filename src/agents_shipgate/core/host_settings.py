@@ -43,6 +43,8 @@ permission modes, and the ``basis`` states that in a reviewer's words:
 
 A rating is of the value, not of the change: whether one value is wider than
 the one it replaced is not modelled, so every value a change sets is reviewed.
+A value that moves between ``permissions`` and the top level is one a change
+sets, because Claude Code documents each setting in one of them.
 Removing a setting raises nothing of its own here, as removing ``defaultMode``
 never did; the settings file is still a protected surface, and a removal is
 still a row.

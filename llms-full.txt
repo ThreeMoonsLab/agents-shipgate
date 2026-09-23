@@ -3980,9 +3980,15 @@ value — the rating the setting's grant and host-diff row carry (#827):
 
 A rating is of the value, not of the change: whether a value is wider than the
 one it replaced is not modelled, so every value a change sets is reviewed.
-Removing a setting raises nothing of its own, as removing `defaultMode` never
-did. A host-boundary policy may raise this rule, and then raises these
-ratings with it; it cannot lower them.
+Moving a value between `permissions` and the top level sets it, in either
+direction, and raises this check or `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW`
+at the value's rating: the host inventory reads a setting from either place,
+but Claude Code documents `defaultMode` under `permissions` and
+`enableAllProjectMcpServers` at the top level, so moving a top-level
+`defaultMode: bypassPermissions` into `permissions` turns the mode on without
+changing its value. Removing a setting raises nothing of its own, as removing
+`defaultMode` never did. A host-boundary policy may raise this rule, and then
+raises these ratings with it; it cannot lower them.
 
 ### SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED
 

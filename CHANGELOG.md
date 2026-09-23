@@ -27,10 +27,12 @@
   as one `high` grant and row per approved server, and an entry that names no
   server is kept whole at `high` rather than dropped; `disabledMcpjsonServers`
   stays unread. `check` evidence carries a setting's value as its grant
-  publishes it, with credentials redacted and at most 200 characters. No
-  schema, contract or check id moves; which check id fires
-  for these values, and their decisions, do. See the `STABILITY.md`
-  migration note. (#827)
+  publishes it, with credentials redacted and at most 200 characters. A value
+  moved between `permissions` and the top level is one the change sets, so a
+  top-level `defaultMode: bypassPermissions` moved into `permissions`, where
+  Claude Code reads it, still blocks. No schema, contract or check id moves;
+  which check id fires for these values, and their decisions, do. See the
+  `STABILITY.md` migration note. (#827)
 
 ## 1.1.0 - 2026-09-22
 
