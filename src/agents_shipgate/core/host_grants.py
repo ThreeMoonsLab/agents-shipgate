@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import errno
 import hashlib
+import itertools
 import json
 import math
 import os
@@ -901,13 +902,22 @@ def _bounded_detail(text: str, limit: int = MAX_DETAIL_WORD_CHARS) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
+#: Upper case, lower case and digits, each searched for in a word already
+#: known to be ASCII, rather than tested character by character.
+_DETAIL_CHARACTER_CLASS_RES = (re.compile(r"[A-Z]"), re.compile(r"[a-z]"), re.compile(r"[0-9]"))
+_DETAIL_NOT_ALNUM_RE = re.compile(r"[^A-Za-z0-9]")
+#: A run of letters or of digits. With every other character removed, the
+#: runs alternate, so a word's letters and digits switch one time fewer than
+#: it has runs.
+_DETAIL_ALNUM_RUN_RE = re.compile(r"[A-Za-z]+|[0-9]+")
+
+
 def _generated_shape(word: str) -> bool:
     """Twenty or more characters of the base64 alphabet holding two of upper case, lower case and digits."""
 
     if not _DETAIL_GENERATED_RE.fullmatch(word):
         return False
-    classes = (str.isupper, str.islower, str.isdigit)
-    return sum(any(test(char) for char in word) for test in classes) >= 2
+    return sum(1 for pattern in _DETAIL_CHARACTER_CLASS_RES if pattern.search(word)) >= 2
 
 
 def _looks_generated(word: str) -> bool:
@@ -926,9 +936,11 @@ def _looks_generated(word: str) -> bool:
         return True
     if not _generated_shape(word):
         return False
-    alnum = [char for char in word if char.isalnum()]
-    switches = sum(1 for a, b in zip(alnum, alnum[1:], strict=False) if a.isdigit() != b.isdigit())
-    if switches >= _DETAIL_GENERATED_SWITCHES:
+    # The word is ASCII here (`_generated_shape`), and only whether the
+    # switches reach the threshold matters, so at most one more run than it is
+    # read.
+    runs = _DETAIL_ALNUM_RUN_RE.finditer(_DETAIL_NOT_ALNUM_RE.sub("", word))
+    if sum(1 for _ in itertools.islice(runs, _DETAIL_GENERATED_SWITCHES + 1)) - 1 >= _DETAIL_GENERATED_SWITCHES:
         return True
     counts = {char: word.count(char) for char in set(word)}
     entropy = -sum(n / len(word) * math.log2(n / len(word)) for n in counts.values())
@@ -944,6 +956,12 @@ def _looks_generated(word: str) -> bool:
 #: ``AccountName=…;AccountKey=<key>`` connection string. An ``=`` followed by
 #: more of the alphabet separates an assignment's name from its value.
 _DETAIL_RUN_RE = re.compile(r"[A-Za-z0-9+/_-]+(?:=+(?![=A-Za-z0-9+/_-]))?")
+#: The runs of :data:`_DETAIL_RUN_RE` that can read as a key: those twenty or
+#: more characters long, padding included, since no shorter run is ever
+#: replaced. A word of many short runs is then read without a step per run.
+_DETAIL_CANDIDATE_RUN_RE = re.compile(
+    r"(?<![A-Za-z0-9+/_-])(?=[A-Za-z0-9+/=_-]{20})" + _DETAIL_RUN_RE.pattern
+)
 #: The hex of a ``sha256:`` (``sha384:``, ``sha512:``) digest, as an image's
 #: ``@sha256:<hex>`` pins it: a pin, published as written. The prefix is read
 #: only in the seven characters just before the hex
@@ -978,7 +996,7 @@ def _without_generated_runs(word: str) -> str:
     part, so ``AccountKey=<key>`` publishes ``AccountKey=<redacted>``.
     """
 
-    runs = [match for match in _DETAIL_RUN_RE.finditer(word) if not _is_digest_pin(word, match)]
+    runs = [match for match in _DETAIL_CANDIDATE_RUN_RE.finditer(word) if not _is_digest_pin(word, match)]
     if not any(_looks_generated(match.group()) for match in runs):
         return word
     replaced = [
@@ -1183,17 +1201,22 @@ def _shell_script_index(command: Any, words: list[str]) -> int | None:
     return None
 
 
-#: Unquoted characters that end an assignment's value besides whitespace: a
-#: command separator or a pipe (#819 review). A redirection's ``<`` or ``>``
-#: is not one, since a ``<redacted>`` marker an earlier rule wrote into the
-#: value holds both.
-_SHELL_VALUE_ENDS = frozenset(";&|")
-#: Unquoted characters after which a new word starts in a shell script: those
-#: that end a value, a redirection, a parenthesis and a backtick.
-_SHELL_WORD_BREAKS = _SHELL_VALUE_ENDS | frozenset("<>()`")
 #: A ``NAME=value`` assignment's name at a word's start in a script, after
 #: the quote that may open the word (``-e "DB_PASS=…"``).
 _DETAIL_SCRIPT_ASSIGNMENT_RE = re.compile(r"(['\"]?)([A-Za-z_][A-Za-z0-9_]*)=")
+#: Where a scan of a script next has to look, so it jumps over every other
+#: character instead of reading each (#819 review). Outside quotes, an
+#: assignment's value ends at whitespace or at a command separator or pipe
+#: (``;``, ``&``, ``|``), but not at a redirection's ``<`` or ``>``, since a
+#: ``<redacted>`` marker an earlier rule wrote into the value holds both; a
+#: new word starts after whitespace, those three, a redirection, a
+#: parenthesis or a backtick. A backslash escapes the next character outside
+#: single quotes, and inside single quotes only the closing quote matters.
+#: ``\s`` is ``str.isspace``.
+_VALUE_UNQUOTED_STOP_RE = re.compile(r"[\s'\"\\`(){};&|]")
+_VALUE_DOUBLE_QUOTED_STOP_RE = re.compile(r'["\\`(){}]')
+_SCRIPT_UNQUOTED_STOP_RE = re.compile(r"[\s'\"\\;&|<>()`]")
+_SCRIPT_DOUBLE_QUOTED_STOP_RE = re.compile(r'["\\]')
 
 
 def _shell_value_end(script: str, start: int, quote: str = "") -> int | None:
@@ -1208,26 +1231,30 @@ def _shell_value_end(script: str, start: int, quote: str = "") -> int | None:
     caller then treats the rest of the script as the value.
     """
 
-    escaped = False
-    for index in range(start, len(script)):
-        char = script[index]
-        if escaped:
-            escaped = False
-        elif quote == "'":
-            if char == "'":
-                quote = ""
-        elif char == "\\":
-            escaped = True
+    index = start
+    while True:
+        if quote == "'":
+            close = script.find("'", index)
+            if close < 0:
+                return None
+            quote, index = "", close + 1
+            continue
+        stop = (_VALUE_DOUBLE_QUOTED_STOP_RE if quote else _VALUE_UNQUOTED_STOP_RE).search(script, index)
+        if stop is None:
+            return None if quote else len(script)
+        char, index = stop.group(), stop.end()
+        if char == "\\":
+            if index >= len(script):
+                return None
+            index += 1
         elif char in "`(){}":
             return None
         elif quote:
-            if char == quote:
-                quote = ""
+            quote = ""
         elif char in "'\"":
             quote = char
-        elif char.isspace() or char in _SHELL_VALUE_ENDS:
-            return index
-    return None if quote or escaped else len(script)
+        else:
+            return stop.start()
 
 
 def _script_with_assignment_values_redacted(script: str) -> str | None:
@@ -1252,7 +1279,6 @@ def _script_with_assignment_values_redacted(script: str) -> str | None:
     shown: list[str] = []
     copied = 0
     quote = ""
-    escaped = False
     at_word_start = True
     index = 0
     while index < len(script):
@@ -1267,22 +1293,24 @@ def _script_with_assignment_values_redacted(script: str) -> str | None:
                     return "".join(shown)
                 copied = index = end
                 continue
-        char = script[index]
-        if escaped:
-            escaped = False
-        elif quote == "'":
-            if char == "'":
-                quote = ""
-        elif char == "\\":
-            escaped = True
+        if quote == "'":
+            close = script.find("'", index)
+            if close < 0:
+                break
+            quote, index = "", close + 1
+            continue
+        stop = (_SCRIPT_DOUBLE_QUOTED_STOP_RE if quote else _SCRIPT_UNQUOTED_STOP_RE).search(script, index)
+        if stop is None:
+            break
+        char, index = stop.group(), stop.end()
+        if char == "\\":
+            index += 1
         elif quote:
-            if char == quote:
-                quote = ""
+            quote = ""
         elif char in "'\"":
             quote = char
-        elif char.isspace() or char in _SHELL_WORD_BREAKS:
+        else:
             at_word_start = True
-        index += 1
     return "".join(shown) + script[copied:] if shown else None
 
 
@@ -1601,9 +1629,10 @@ _HOOK_ACCESS_BY_BASIS: dict[str, tuple[str, str]] = {
 LOADED_HOOK_BASES: frozenset[str] = frozenset({"host_configuration", "project_enabled_plugin"})
 
 
-#: The characters that separate command words outside quotes, as a POSIX
-#: ``shlex`` reads them.
-_COMMAND_WORD_BLANKS = frozenset(" \t\r\n")
+#: One piece of a command, as a POSIX ``shlex`` reads it: a run of the
+#: characters that separate words outside quotes, a quoted run (its text in
+#: group 1 or 2), a quote with no closing quote, or a run of anything else.
+_COMMAND_WORD_PIECE_RE = re.compile(r"[ \t\r\n]+|'([^']*)'|\"([^\"]*)\"|['\"]|[^ \t\r\n'\"]+")
 
 
 def _command_words(text: str) -> list[str]:
@@ -1613,31 +1642,27 @@ def _command_words(text: str) -> list[str]:
     ``C:\\tools\\lint.exe`` is not read as a run of escapes; on unbalanced
     quotes the text is split at whitespace alone. The words are those of a
     POSIX ``shlex`` with ``whitespace_split`` set and no comment or escape
-    characters, a quoted empty word (``''``) included, read in one pass:
-    ``shlex`` grows each word one character at a time, in time quadratic in
-    the word's length (#819 review).
+    characters, a quoted empty word (``''``) included, read a piece at a time
+    (:data:`_COMMAND_WORD_PIECE_RE`): ``shlex`` grows each word one character
+    at a time, in time quadratic in the word's length (#819 review).
     """
 
     words: list[str] = []
     word: list[str] = []
     quoted = False
-    quote = ""
-    for char in text:
-        if quote:
-            if char == quote:
-                quote = ""
-            else:
-                word.append(char)
-        elif char in _COMMAND_WORD_BLANKS:
+    for piece in _COMMAND_WORD_PIECE_RE.finditer(text):
+        first = text[piece.start()]
+        if first in " \t\r\n":
             if word or quoted:
                 words.append("".join(word))
                 word, quoted = [], False
-        elif char in "'\"":
-            quote, quoted = char, True
+        elif first in "'\"":
+            if piece.lastindex is None:
+                return text.split()
+            word.append(piece.group(piece.lastindex))
+            quoted = True
         else:
-            word.append(char)
-    if quote:
-        return text.split()
+            word.append(piece.group())
     if word or quoted:
         words.append("".join(word))
     return words

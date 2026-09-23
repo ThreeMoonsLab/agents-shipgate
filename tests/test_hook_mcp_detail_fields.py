@@ -855,9 +855,12 @@ def test_a_file_at_the_reader_bound_is_read_in_linear_time(tmp_path: Path, name:
     `token:` and 64,000 blanks took 20 seconds and 128,000 took 77; a 64 KB
     `sh -ccc…c1` hook 13 seconds; a 520 KB argument of hex runs 20 seconds:
     four times as long for twice the text. Each shape here is as long as a file
-    can make it; read in linear time, the whole inventory takes under two
-    seconds, and the bound leaves room for a slow runner while the three
-    reviewed shapes took minutes or more at this length.
+    can make it. Read in linear time, the whole inventory takes under three
+    seconds on a laptop, and up to about thirteen on a CI runner that traces
+    coverage, where the many-assignment shapes spend it in per-word Python.
+    At this length the reviewed shapes took from over a minute (the hex runs)
+    to over an hour (the header blanks), so the bound fails any return of them
+    while leaving a shared runner room.
     """
 
     import time
@@ -867,7 +870,8 @@ def test_a_file_at_the_reader_bound_is_read_in_linear_time(tmp_path: Path, name:
     assert (tmp_path / path).stat().st_size <= 1024 * 1024
     started = time.perf_counter()
     inventory = _inventory(tmp_path)
-    assert time.perf_counter() - started < 10
+    elapsed = time.perf_counter() - started
+    assert elapsed < 60, f"read a {name} file in {elapsed:.1f}s"
     [grant] = [grant for grant in inventory["grants"] if grant["kind"] in {"hook", "mcp_server"}]
     if grant["kind"] == "mcp_server":
         assert grant["args"] == published
@@ -936,6 +940,133 @@ def test_the_rules_made_linear_read_as_before() -> None:
                 host_grants._DETAIL_DIGEST_HEX_RE.fullmatch(run.group())
                 and prefix_before.search(word, 0, run.start())
             ), word
+
+
+def _value_end_by_character(script: str, start: int, quote: str = "") -> int | None:
+    """`_shell_value_end` read one character at a time, as it was first written."""
+
+    escaped = False
+    for index in range(start, len(script)):
+        char = script[index]
+        if escaped:
+            escaped = False
+        elif quote == "'":
+            if char == "'":
+                quote = ""
+        elif char == "\\":
+            escaped = True
+        elif char in "`(){}":
+            return None
+        elif quote:
+            if char == quote:
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        elif char.isspace() or char in ";&|":
+            return index
+    return None if quote or escaped else len(script)
+
+
+def _script_by_character(script: str) -> str | None:
+    """`_script_with_assignment_values_redacted` read one character at a time."""
+
+    from agents_shipgate.core import host_grants
+
+    shown: list[str] = []
+    copied, quote, escaped, at_word_start, index = 0, "", False, True, 0
+    while index < len(script):
+        if at_word_start:
+            at_word_start = False
+            assignment = host_grants._DETAIL_SCRIPT_ASSIGNMENT_RE.match(script, index)
+            if assignment and host_grants._DETAIL_ENV_NAME_RE.fullmatch(assignment.group(2)):
+                shown.extend((script[copied : assignment.end()], "<redacted>", assignment.group(1)))
+                end = _value_end_by_character(script, assignment.end(), assignment.group(1))
+                if end is None:
+                    return "".join(shown)
+                copied = index = end
+                continue
+        char = script[index]
+        if escaped:
+            escaped = False
+        elif quote == "'":
+            if char == "'":
+                quote = ""
+        elif char == "\\":
+            escaped = True
+        elif quote:
+            if char == quote:
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        elif char.isspace() or char in ";&|<>()`":
+            at_word_start = True
+        index += 1
+    return "".join(shown) + script[copied:] if shown else None
+
+
+def test_the_scanners_that_jump_read_as_the_character_loops() -> None:
+    """The script, value, generated-key and run scans jump between the characters that matter (#819 review).
+
+    Reading a 1 MiB script, word or argument a character at a time in Python
+    took over ten seconds on a CI runner tracing coverage. Each scan now finds
+    the next character that matters with a pattern, and publishes what the
+    character-by-character reading published.
+    """
+
+    import math
+    import random
+
+    from agents_shipgate.core import host_grants
+
+    def looks_generated_before(word: str) -> bool:
+        if host_grants._DETAIL_HEX_RE.fullmatch(word):
+            return True
+        if not host_grants._DETAIL_GENERATED_RE.fullmatch(word):
+            return False
+        if sum(any(test(char) for char in word) for test in (str.isupper, str.islower, str.isdigit)) < 2:
+            return False
+        alnum = [char for char in word if char.isalnum()]
+        if sum(1 for a, b in zip(alnum, alnum[1:], strict=False) if a.isdigit() != b.isdigit()) >= 6:
+            return True
+        counts = [word.count(char) for char in set(word)]
+        return -sum(n / len(word) * math.log2(n / len(word)) for n in counts) >= 4.3
+
+    def without_runs_before(word: str) -> str:
+        runs = [
+            run for run in host_grants._DETAIL_RUN_RE.finditer(word)
+            if not host_grants._is_digest_pin(word, run)
+        ]
+        if not any(looks_generated_before(run.group()) for run in runs):
+            return word
+        shown, end = [], 0
+        for run in runs:
+            if looks_generated_before(run.group()) or (
+                host_grants._generated_shape(run.group()) and not word.startswith("=", run.end())
+            ):
+                shown.extend((word[end : run.start()], "<redacted>"))
+                end = run.end()
+        return "".join(shown) + word[end:]
+
+    rng = random.Random(819)
+    script_pieces = [
+        "X=", "DB_PASS=", "a=", "'", '"', "\\", " ", "\t", "\n", " ", " ", ";", "&", "|", "<", ">",
+        "(", ")", "{", "}", "`", "$", "x", "1", "export ", "-e ", "<redacted>", "é", "_",
+    ]
+    word_pieces = [
+        "a", "B", "7", "q1W2e3R4t5", "abcdefghij", "ABCDEFGHIJ", "0123456789", "=", "==", ".", ":", "@", "/",
+        "+", "-", "_", " ", "sha256:", _HEX_RUN, "SG.", "é", "AccountKey=", "x" * 19, "Zz9" * 7,
+    ]
+    for _ in range(10_000):
+        script = "".join(rng.choice(script_pieces) for _ in range(rng.randint(0, 10)))
+        assert host_grants._script_with_assignment_values_redacted(script) == _script_by_character(script), script
+        for start in range(len(script) + 1):
+            for quote in ("", "'", '"'):
+                assert host_grants._shell_value_end(script, start, quote) == _value_end_by_character(
+                    script, start, quote
+                ), (script, start, quote)
+        word = "".join(rng.choice(word_pieces) for _ in range(rng.randint(0, 8)))
+        assert host_grants._looks_generated(word) == looks_generated_before(word), word
+        assert host_grants._without_generated_runs(word) == without_runs_before(word), word
 
 
 def test_an_over_length_command_is_bounded_and_says_what_it_left_out(tmp_path: Path) -> None:
