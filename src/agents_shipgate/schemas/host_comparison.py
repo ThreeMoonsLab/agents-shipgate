@@ -110,12 +110,16 @@ class HostComparisonCoverageItem(BaseModel):
       difference a checkout conversion can explain is not shown. It does not say
       which fields changed: reordering or repeating a rule moves the digest
       too. Never a plugin manifest or marketplace, a retargeted link, or a
-      Claude Code project settings file while a hook's loading basis changed.
+      Claude Code project settings file while a hook's loading basis changed
+      or, in a ``partial`` comparison, at all: the hooks of a directory it
+      did not compare are not shown, so neither is whether their loading
+      basis moved (#808).
     - ``changed_without_rows``: the file changed and no row is attributed to
       it, but the data does not show that no compared grant moved: a plugin
       manifest or marketplace (its ``hooks`` rows are published under the hook
       files it selects), a retargeted link, a parse or instruction-structure
-      change, or project settings while a hook's loading basis changed.
+      change, or project settings while a hook's loading basis changed or in
+      a ``partial`` comparison.
     - ``unchanged_not_proven``: both sides read the file, it gives no row and
       its artifact did not change, but its bytes could be neither proven
       identical nor shown to differ, so a change in a value the artifact
@@ -126,9 +130,10 @@ class HostComparisonCoverageItem(BaseModel):
       and never as a change.
     - ``blocking_limit``: an incomparable or partial comparison, and this
       source carries a blocking inventory issue of kind ``limit`` on ``side``.
-      On a ``partial`` comparison it also names ``scope``, the plugin
-      directory the issue is bounded by, which that comparison did not
-      compare (#808).
+      On a ``partial`` comparison it also names ``scope``, the directory
+      that comparison did not compare because of this issue (#808): the
+      plugin directory the issue is bounded by, or a withheld plugin
+      directory that holds it.
     - ``changed_not_read``: a path in the comparison's own changed-file set
       that a documented candidate rule names, and that no reader of this entry
       read (#821). ``candidate`` names the rule. The source is the file, or a
@@ -174,10 +179,13 @@ class HostComparisonCoverageItem(BaseModel):
     #: The candidate rule that named a ``changed_not_read`` item (#821).
     candidate: UnreadCandidateKind | None = None
     #: The directory a ``partial`` comparison left uncompared because of this
-    #: blocking limit (#808): a plugin directory, every hook file of which the
-    #: reader could only reach through a reference this limit stopped. Nothing
-    #: published under it is a row or an item. ``None`` on every other item,
-    #: and on every item of a comparable or incomparable comparison.
+    #: blocking limit (#808). The limit is bounded by the plugin directory
+    #: whose manifest or hook file raised it, since the reader follows a
+    #: reference only inside its plugin; the scope is that directory, or the
+    #: outermost withheld plugin directory holding it. No source under it is
+    #: a row, and none is an item except such a limit or a changed input no
+    #: reader read (#821). ``None`` on every other item, and on every item of
+    #: a comparable or incomparable comparison.
     scope: str | None = None
 
     @model_validator(mode="after")
@@ -382,14 +390,17 @@ class HostComparison(BaseModel):
       ``unchanged_limits``.
     - ``incomparable``: at least one inventory is incomplete in a way nothing
       bounds, or the inputs could not be compared; no rows.
-    - ``partial`` (#808): an inventory is incomplete, and every blocking limit
-      that makes it so is bounded by a plugin directory whose contents no
-      compared source depends on. That directory is left uncompared on both
-      sides — each such limit is a ``blocking_limit`` coverage item naming it
-      as ``scope`` — and the ``rows`` are the changes established outside it.
-      ``incomparable_reasons`` still names which inventory is incomplete. It
-      is never a complete comparison: read it as ``incomparable`` for any
-      decision, and its rows as what is known, not as the whole change.
+    - ``partial`` (#808): an inventory is incomplete, at least one of its
+      blocking limits is bounded by a plugin directory whose contents no
+      compared source depends on, and every other one is a limit both sides
+      share on an unchanged source, named in ``unchanged_limits`` as on a
+      comparable comparison. Each such directory is left uncompared on both
+      sides — each limit it bounds is a ``blocking_limit`` coverage item
+      naming it as ``scope`` — and the ``rows`` are the changes established
+      outside it. ``incomparable_reasons`` still names which inventory is
+      incomplete. It is never a complete comparison: read it as
+      ``incomparable`` for any decision, and its rows as what is known, not
+      as the whole change.
     """
 
     model_config = ConfigDict(extra="forbid")

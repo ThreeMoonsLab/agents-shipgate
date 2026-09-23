@@ -6947,10 +6947,12 @@ def run_preview(
             "Advisory comparison only; no application release policy configured."
             if host_comparison.comparison_status == "comparable"
             # Partial (#808): the rows are known, the comparison is not whole,
-            # and the route is the incomplete one's.
+            # and the route is the incomplete one's. The rows are named where
+            # they are published: the control envelope's `capability_rows`
+            # projects a partial comparison as incomparable, with none.
             else f"Host comparison is partial: {len(host_comparison.rows)} repository-declared "
-            "host capability change(s) outside what it could not compare; "
-            "review its input limits before interpreting changes."
+            "host capability change(s) outside what it could not compare, listed under "
+            "host_comparison in verifier.json; review its input limits before interpreting changes."
             if host_comparison.comparison_status == "partial"
             else "Host comparison is incomplete; review its input limits before interpreting changes."
         )

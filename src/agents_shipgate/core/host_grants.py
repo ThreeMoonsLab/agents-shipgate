@@ -3488,14 +3488,17 @@ def without_host_sources(
 
     For a comparison that leaves a plugin directory uncompared and compares
     the rest. An artifact, a grant or a non-blocking issue is dropped when
-    ``withheld`` names the file it belongs to — its published path, before
-    any ``#`` member — and host coverage is recomputed exactly as the reader
-    derives it. A blocking issue is dropped only by id: one the caller has not
-    accounted for stays, so what remains must still answer for it.
+    ``withheld`` names its whole published source, and host coverage is
+    recomputed exactly as the reader derives it. A member (``<file>#...``)
+    only extends its file's path, so it is under a directory exactly when its
+    file is; cutting at the first ``#`` would instead read a sibling such as
+    ``plugins/demo#x/...`` as inside ``plugins/demo`` and drop it unnamed. A
+    blocking issue is dropped only by id: one the caller has not accounted
+    for stays, so what remains must still answer for it.
     """
 
     def kept(source: object) -> bool:
-        return not withheld(str(source).split("#", 1)[0])
+        return not withheld(str(source))
 
     issues = [
         item

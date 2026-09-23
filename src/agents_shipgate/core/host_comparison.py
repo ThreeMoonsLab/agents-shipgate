@@ -438,6 +438,8 @@ def _compared_facts(
     payload: dict[str, Any],
     limits: list[dict[str, str]],
     identities: IdentityAnswers | None,
+    *,
+    hooks_withheld: bool = False,
 ) -> dict[tuple[str, str, str, str | None], dict[str, Any]]:
     """What a comparison established about each source it compared, as coverage facts (#812).
 
@@ -448,6 +450,13 @@ def _compared_facts(
     ``changed_without_grant_change`` only where :func:`_no_grant_change_shown`
     shows it, and otherwise ``changed_without_rows``. A source named as an
     unchanged limit is already published there and is not repeated.
+
+    ``hooks_withheld`` is a partial comparison's (#808): its inventories leave
+    out the withheld directories, and with them any hook grant whose loading
+    basis the project settings decide. Whether a settings change moved that
+    basis is then not shown, so it is taken as moved, and a changed project
+    settings file with no row is ``changed_without_rows``, never
+    ``changed_without_grant_change``.
 
     A file both sides read that gives no row and whose artifact did not change
     takes its status from ``identities``, asked once for all such files. The
@@ -486,7 +495,8 @@ def _compared_facts(
         }
 
     rows: dict[tuple[str, str], int] = {}
-    hook_basis_changed = False
+    # A withheld hook grant is compared nowhere, so its basis is not shown unmoved.
+    hook_basis_changed = hooks_withheld
     #: Hosts with a row from inside a file no published file could be named
     #: for: no file on such a host is said to have changed no compared grant.
     unattributed: set[str] = set()
@@ -690,7 +700,8 @@ def _independent_of_plugin_scopes(
         return None
     for facts in scopes:
         for source, root in facts.inline_roots.items():
-            if withheld(root) and not withheld(source.split("#", 1)[0]):
+            # The whole source: its member only extends the marketplace's path.
+            if withheld(root) and not withheld(source):
                 return None
     ids = {
         side: {issue for key_side, issue in roots_by_issue if key_side == side}
@@ -767,9 +778,11 @@ def compare_host_inventories(
     compared source depends on, is ``partial`` instead: those directories are
     left uncompared on both sides and named, as ``scope``, on the blocking
     limits that caused it, and the rest is compared as a comparable
-    comparison would be. ``incomparable_reasons`` stays what the refusal
-    would have said. Without coverage the scope could be named nowhere, so
-    such a comparison refuses as before; that is `check`'s.
+    comparison would be, so any other blocking limit must be one
+    ``unchanged`` proves, and is then named in ``unchanged_limits``.
+    ``incomparable_reasons`` stays what the refusal would have said. Without
+    coverage the scope could be named nowhere, so such a comparison refuses
+    as before; that is `check`'s.
     """
 
     reasons: list[str] = []
@@ -826,7 +839,12 @@ def compare_host_inventories(
             {
                 **_blocking_facts(before, after, retained.scope_of),
                 **_compared_facts(
-                    retained.before, retained.after, payload, limits, identities
+                    retained.before,
+                    retained.after,
+                    payload,
+                    limits,
+                    identities,
+                    hooks_withheld=True,
                 ),
             },
             unread,

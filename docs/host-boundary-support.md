@@ -452,7 +452,11 @@ item; a directory inside another is covered by the outer one, and a hook file
 another plugin also selects is withheld with it. The rows outside it are
 published, led by `Not compared: <directory>, a plugin directory this entry
 could not read completely, …`, and a partial result with no row is never a
-no-change answer.
+no-change answer. A changed `.claude/settings.json` or
+`.claude/settings.local.json` with no row of its own reads `changed, but no
+row is attributed to this path` there, never that no compared grant changed:
+those settings decide the loading basis of the hooks in the directory, which
+were not compared.
 
 Independence is read off the reference graph, never off directory names. The
 comparison refuses as before when a limit is neither a bounded plugin

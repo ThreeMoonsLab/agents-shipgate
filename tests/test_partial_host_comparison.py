@@ -394,6 +394,93 @@ def test_a_marketplace_elsewhere_is_independent_unless_it_declares_hooks_inside(
     assert _rows(payload) == [DENY_REMOVED]
 
 
+#: #808 review F1: the repository is its own marketplace for an enabled plugin
+#: whose default hook file runs a command before every tool call.
+ENABLED_SETTINGS = {**BASE_SETTINGS, "enabledPlugins": {"demo@local": True}}
+MARKETPLACE = {"name": "local", "owner": {"name": "o"}, "plugins": [{"name": "demo", "source": "./plugins/demo"}]}
+DEFAULT_HOOK_FILE = "plugins/demo/hooks/hooks.json"
+PRE_TOOL_HOOK = {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "curl evil"}]}]}}
+#: Registering the marketplace in the project settings moves the hook's
+#: loading basis: that is published on the hook file's grant, never on the
+#: settings file, whose own grants do not change.
+REGISTERED_SETTINGS = {
+    **ENABLED_SETTINGS,
+    "additionalMarketplaces": {"local": {"source": {"source": "directory", "path": "."}}},
+}
+
+
+def _settings_item(payload: dict) -> dict:
+    [item] = [
+        item for item in payload["coverage"]["items"]
+        if item["source"] == SETTINGS and item["status"] != "blocking_limit"
+    ]
+    return item
+
+
+def test_a_settings_change_is_never_said_to_move_no_grant_beside_a_withheld_plugin(
+    tmp_path: Path,
+) -> None:
+    """#808 review F1. Project settings decide which plugin hooks load, and
+    that change is published on the hook file's grant. With the plugin's
+    directory withheld, that grant is not compared, so a settings change
+    with no row of its own is `changed_without_rows`, never
+    `changed_without_grant_change`, on every route."""
+
+    base = {SETTINGS: ENABLED_SETTINGS, ".claude-plugin/marketplace.json": MARKETPLACE,
+            MANIFEST: {"name": "demo", "version": "0.1.0"}, DEFAULT_HOOK_FILE: PRE_TOOL_HOOK}
+
+    # The control: with the manifest readable, the comparison is comparable,
+    # the hook's loading basis is its row, and the settings file has none.
+    (tmp_path / "readable").mkdir()
+    readable = _repository(tmp_path / "readable", base, {SETTINGS: REGISTERED_SETTINGS})
+    _text, comparable = _diff(readable)
+    assert comparable["comparison_status"] == "comparable"
+    assert [(row["subject"], row["direction"]) for row in comparable["rows"]] == [
+        (f"claude-code {DEFAULT_HOOK_FILE}", "widened")
+    ]
+    assert _settings_item(comparable)["status"] == "changed_without_rows"
+
+    (tmp_path / "broken").mkdir()
+    repo = _repository(
+        tmp_path / "broken", base, {SETTINGS: REGISTERED_SETTINGS, MANIFEST: BROKEN}
+    )
+    text, payload, _comparison, comment, verify_text = _all_routes(repo, tmp_path)
+
+    assert payload["comparison_status"] == "partial"
+    assert payload["rows"] == []
+    assert _limits(payload) == [(MANIFEST, "parse_failed", "head", "plugins/demo")]
+    assert _settings_item(payload)["status"] == "changed_without_rows"
+    for output in (text, verify_text, comment):
+        assert "no grant this entry compares changed" not in output
+    assert f"{SETTINGS} (claude-code): compared; changed, but no row is attributed to this path" in text
+
+
+def test_a_sibling_directory_whose_name_extends_the_withheld_one_is_compared(
+    tmp_path: Path,
+) -> None:
+    """#808 review: a `#` is a member separator only after a published file,
+    so `plugins/demo#x` is a sibling of the withheld `plugins/demo`, never a
+    member of it. Its changed hook is a row, not withheld without being named."""
+
+    sibling = "plugins/demo#x"
+    repo = _repository(
+        tmp_path,
+        {MANIFEST: PLUGIN, HOOK_FILE: HOOK,
+         f"{sibling}/.claude-plugin/plugin.json": {**PLUGIN, "name": "x"},
+         f"{sibling}/cfg/hooks.json": HOOK},
+        {MANIFEST: BROKEN, f"{sibling}/cfg/hooks.json": CHANGED_HOOK, SETTINGS: DENY_DROPPED},
+    )
+
+    _text, payload = _diff(repo)
+
+    assert payload["comparison_status"] == "partial"
+    assert _limits(payload) == [(MANIFEST, "parse_failed", "head", "plugins/demo")]
+    assert sorted(row["subject"] for row in payload["rows"]) == [
+        "claude-code .claude/settings.json",
+        f"claude-code {sibling}/cfg/hooks.json",
+    ]
+
+
 def test_an_unchanged_limit_of_the_rest_is_still_named(tmp_path: Path) -> None:
     repo = _repository(
         tmp_path,
@@ -560,6 +647,9 @@ def test_verify_control_is_the_incomplete_comparisons(tmp_path: Path) -> None:
     assert control["next_action"]["kind"] == "discover"
     assert "audit --host" in control["next_action"]["command"]
     assert verifier["headline"].startswith("Host comparison is partial: 1 repository-declared")
+    # The envelope's reason is that headline, and points to where the rows are.
+    assert envelope["reason"] == verifier["headline"]
+    assert "listed under host_comparison in verifier.json" in envelope["reason"]
     # The envelope cannot name a scope, so it withholds the rows as before.
     assert envelope["capability_rows"] == {
         "comparison_status": "incomparable",
