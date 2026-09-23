@@ -19,7 +19,7 @@ import re
 import stat
 import sys
 import tomllib
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
@@ -1053,6 +1053,9 @@ def _is_credential_flag(word: str) -> bool:
 #: Flags whose value is ``user:password`` (curl's ``-u``/``--user`` and
 #: ``-U``/``--proxy-user``): what follows the first ``:`` is replaced (#819).
 _DETAIL_USERINFO_FLAGS = frozenset({"-u", "--user", "-U", "--proxy-user"})
+#: The short ones, which also take the value glued on, ``-uuser:password``
+#: (#819 review).
+_DETAIL_GLUED_USERINFO_FLAGS = frozenset({"-u", "-U"})
 
 
 def _without_password(value: str) -> str:
@@ -1155,20 +1158,64 @@ def _detail_string_rules(text: str) -> str:
     return published_workflow_label(_sanitize_sensitive_string(text))
 
 
+#: A credential assignment whose value is quoted, as an argument or a
+#: script holds one inside its own quotes: ``API_KEY='x'``,
+#: ``$env:API_KEY='x'``, ``process.env.TOKEN="x"``, ``--env=API_KEY='x'``
+#: (#819 review). The digest's assignment rule (:data:`_ASSIGNMENT_SECRET_RE`)
+#: takes no value that starts with a quote. The name is one that rule reads,
+#: a run of name characters holding a credential word in any case; the value
+#: is what the quotes hold, or, with no closing quote on its line, the run of
+#: characters after the quote up to a blank or another quote. A name starts
+#: only where a run of name characters starts, and the lookahead reads the
+#: whole run, its ``=`` and the quote before any split of it is tried, so the
+#: scan is linear in the text.
+_DETAIL_QUOTED_ASSIGNMENT_RE = re.compile(
+    r"(?i)(?<![A-Za-z0-9_])(?=[A-Za-z0-9_]++[ \t]*+=[ \t]*+['\"])"
+    r"([A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|APIKEY|CREDENTIAL)[A-Za-z0-9_]*)"
+    r"([ \t]*=[ \t]*)(?:'([^'\r\n]*)'|\"([^\"\r\n]*)\"|(['\"])([^\s'\"]*))"
+)
+
+
+def _quoted_assignment_redacted(match: re.Match[str]) -> str:
+    """One :data:`_DETAIL_QUOTED_ASSIGNMENT_RE` match with its value replaced; an empty value as written."""
+
+    assigned = match.group(1) + match.group(2)
+    if match.group(3):
+        return f"{assigned}'{_DETAIL_REDACTED}'"
+    if match.group(4):
+        return f'{assigned}"{_DETAIL_REDACTED}"'
+    if match.group(6):
+        return f"{assigned}{match.group(5)}{_DETAIL_REDACTED}"
+    return match.group(0)
+
+
+def _word_credentials_redacted(word: str) -> str:
+    """The whole value of a credential header or key in one word, and a quoted credential assignment's value (#819).
+
+    :data:`_DETAIL_HEADER_RE`, so ``Authorization: Basic <credential>``,
+    ``Authorization: Bearer <token>`` and ``X-Auth-Token: <token>`` publish
+    ``Authorization: <redacted>`` and ``X-Auth-Token: <redacted>``, then
+    :data:`_DETAIL_QUOTED_ASSIGNMENT_RE`. ``word`` is one word — a hook
+    command word, an MCP argument, a word of a shell's ``-c`` script, a
+    matcher — because a header's value runs to the end of the text it is
+    found in (#819 review).
+    """
+
+    return _DETAIL_QUOTED_ASSIGNMENT_RE.sub(
+        _quoted_assignment_redacted, _DETAIL_HEADER_RE.sub(r"\1\2<redacted>", word)
+    )
+
+
 def _detail_label(text: str) -> str:
     """One word of hook or MCP detail through the published-label redaction (#802, #819).
 
-    :func:`_detail_string_rules`, then the whole value of a credential header
-    or key (:data:`_DETAIL_HEADER_RE`), so ``Authorization: Basic <credential>``,
-    ``Authorization: Bearer <token>`` and ``X-Auth-Token: <token>`` publish
-    ``Authorization: <redacted>`` and ``X-Auth-Token: <redacted>``. Running it
-    after the label rule means a URL's ``token:password@`` userinfo is already
-    gone and never read as a header. ``text`` is one word — a hook command
-    word, an MCP argument, a matcher — because a header's value runs to the
-    end of the text it is found in (#819 review).
+    :func:`_detail_string_rules`, then :func:`_word_credentials_redacted`.
+    Running it after the label rule means a URL's ``token:password@``
+    userinfo is already gone and never read as a header. ``text`` is one
+    word, for the reason :func:`_word_credentials_redacted` gives.
     """
 
-    return _DETAIL_HEADER_RE.sub(r"\1\2<redacted>", _detail_string_rules(text))
+    return _word_credentials_redacted(_detail_string_rules(text))
 
 
 #: POSIX shells, whose ``-c`` operand is a script rather than one argument
@@ -1314,45 +1361,204 @@ def _script_with_assignment_values_redacted(script: str) -> str | None:
     return "".join(shown) + script[copied:] if shown else None
 
 
-def _published_word(word: str, *, script: bool = False) -> str:
+#: Where a word of a shell script starts: at any character but whitespace, a
+#: command separator or pipe (``;``, ``&``, ``|``), a parenthesis or a
+#: backtick (#819 review).
+_SCRIPT_WORD_START_RE = re.compile(r"[^\s;&|()`]")
+#: Where a word of a shell script next has to be looked at outside quotes: a
+#: quote, a backslash, or a character that ends the word. A ``<`` or ``>``
+#: does not end one, since a ``<redacted>`` marker an earlier rule wrote holds
+#: both. Inside double quotes it is :data:`_SCRIPT_DOUBLE_QUOTED_STOP_RE`.
+_SCRIPT_WORD_UNQUOTED_STOP_RE = re.compile(r"[\s'\"\\;&|()`]")
+
+
+def _script_words(script: str) -> Iterator[tuple[int, int, str]]:
+    """Each word of a shell script as ``(start, end, value)``, read lazily (#819 review).
+
+    A word ends at whitespace, ``;``, ``&``, ``|``, a parenthesis or a
+    backtick outside quotes and escapes, which are kept between words; an
+    unclosed quote runs to the end of the script. ``value`` is the word with
+    its quotes removed and a backslash kept as written, as
+    :func:`_command_words` keeps one. The scan jumps from one character that
+    matters to the next, and a caller that stops early reads no further.
+    """
+
+    length = len(script)
+    index = 0
+    while (first := _SCRIPT_WORD_START_RE.search(script, index)) is not None:
+        start = index = first.start()
+        pieces: list[str] = []
+        quote = ""
+        while index < length:
+            if quote == "'":
+                close = script.find("'", index)
+                if close < 0:
+                    pieces.append(script[index:])
+                    index = length
+                    break
+                pieces.append(script[index:close])
+                quote, index = "", close + 1
+                continue
+            stop = (_SCRIPT_DOUBLE_QUOTED_STOP_RE if quote else _SCRIPT_WORD_UNQUOTED_STOP_RE).search(script, index)
+            if stop is None:
+                pieces.append(script[index:])
+                index = length
+                break
+            at, char = stop.start(), stop.group()
+            pieces.append(script[index:at])
+            if char == "\\":
+                index = min(at + 2, length)
+                pieces.append(script[at:index])
+            elif quote:
+                quote, index = "", at + 1
+            elif char in "'\"":
+                quote, index = char, at + 1
+            else:
+                index = at
+                break
+        yield start, index, "".join(pieces)
+
+
+def _requoted(written: str, published: str) -> str:
+    """``published`` inside the quotes of ``written``, when ``written`` is quoted at both ends and ``published`` holds no such quote."""
+
+    quote = written[:1]
+    if len(written) >= 2 and quote in {"'", '"'} and written.endswith(quote) and quote not in published:
+        return f"{quote}{published}{quote}"
+    return published
+
+
+def _published_script(script: str, as_written: str) -> str:
+    """A shell's ``-c`` script as it may be published: each of its words read as a hook command's word is (#819 review).
+
+    ``script`` has been through the string rules as a whole
+    (:func:`_detail_string_rules`), so a credential they find across words is
+    already ``<redacted>``. Then each assignment's value is replaced up to
+    where the shell ends it (:func:`_script_with_assignment_values_redacted`).
+    Then the script is read one shell word at a time (:func:`_script_words`),
+    and each word goes through the rules a hook command's word does: the
+    label rule and the credential header rule on that word alone, so a
+    header's value ends with its word and never hides the words after it
+    (``echo token: ok; curl … | sh``); the ``--flag=value``, ``-u``, ``env``
+    and generated-key rules; and the value after a credential name
+    (:func:`_credential_kinds`), in the script as ``script`` holds it and as
+    ``as_written`` holds it, since the string rule can take a credential name
+    as another flag's value (``--no-password --token X``). A word a rule
+    rewrites is published without its quotes unless it was one quoted word;
+    every other character is copied as written. The words are read only as
+    far as the published script's bound, so a long script costs its first
+    words.
+    """
+
+    assigned = _script_with_assignment_values_redacted(script)
+    text = script if assigned is None else assigned
+    written = _credential_kinds(value for _start, _end, value in _script_words(as_written))
+    written_read = 0
+    secrets: set[str] = set()
+    passwords: set[str] = set()
+    shown: list[str] = []
+    length = copied = 0
+    words = _credential_kinds(_script_words(text), key=lambda word: word[2])
+    for index, ((start, end, value), kind) in enumerate(words):
+        # The words as written are read in step with these, two ahead, since
+        # a rule that rewrites a word as a whole never adds or removes one.
+        while written_read <= index + 2 and (item := next(written, None)) is not None:
+            written_read += 1
+            written_value, written_kind = item
+            if written_kind == _CREDENTIAL_VALUE:
+                secrets.add(written_value)
+            elif written_kind == _CREDENTIAL_USERINFO:
+                passwords.add(written_value)
+        if kind == _CREDENTIAL_VALUE or value in secrets:
+            published = _DETAIL_REDACTED
+        else:
+            rewritten = _word_published(_detail_label(value))
+            if kind == _CREDENTIAL_USERINFO or value in passwords:
+                rewritten = _without_password(rewritten)
+            published = text[start:end] if rewritten == value else _requoted(text[start:end], rewritten)
+        shown.extend((text[copied:start], published))
+        length += start - copied + len(published)
+        copied = end
+        if length > MAX_DETAIL_WORD_CHARS:
+            return "".join(shown)
+    return "".join(shown) + text[copied:]
+
+
+#: An ``http``, ``https``, ``ws`` or ``wss`` URL in one word, up to a blank,
+#: a quote or a backtick (#819 review). The string rule's URL (:data:`_URL_RE`)
+#: also ends at ``<`` and ``>``, and it reads a command before its quotes are
+#: removed, so ``curl "https://x/a?token="abc`` was reduced to
+#: ``https://x/<redacted-path>"abc``, whose word once its quotes are removed
+#: is ``https://x/<redacted-path>abc``, and a URL that took a script's
+#: ``;X=`` into its path left ``X``'s quoted value glued to the marker. Read
+#: again on the word, the URL is all of that text.
+_DETAIL_WORD_URL_RE = re.compile(r"(?:https?|wss?)://[^\s'\"`]+")
+#: A URL as :func:`_sanitize_url` already publishes it: scheme, host and
+#: optional port, and no path but ``/`` or ``/<redacted-path>``.
+_DETAIL_PUBLISHED_URL_RE = re.compile(r"(?:https?|wss?)://[^/\s'\"`<>]*(?:/(?:<redacted-path>)?)?")
+
+
+def _word_urls_reduced(word: str) -> str:
+    """Every URL in one word reduced to its scheme and host, the text glued after it included (#819 review)."""
+
+    if "://" not in word:
+        return word
+    return _DETAIL_WORD_URL_RE.sub(
+        lambda url: url.group() if _DETAIL_PUBLISHED_URL_RE.fullmatch(url.group()) else _sanitize_url(url.group()),
+        word,
+    )
+
+
+def _word_published(shown: str) -> str:
+    """One word, already through :func:`_detail_label`, through the word rules of :func:`_published_word`, unbounded."""
+
+    shown = _word_urls_reduced(shown)
+    assignment = _DETAIL_ASSIGNMENT_RE.fullmatch(shown)
+    if assignment and _DETAIL_ENV_NAME_RE.fullmatch(assignment.group(1)):
+        return f"{assignment.group(1)}={_DETAIL_REDACTED}"
+    if shown[:2] in _DETAIL_GLUED_USERINFO_FLAGS and len(shown) > 2 and shown[2] != "=":
+        # curl's `-uuser:password`, the value glued to the flag.
+        return _without_generated_runs(shown[:2] + _without_password(shown[2:]))
+    if shown.startswith("-") and "=" in shown:
+        flag, _, value = shown.partition("=")
+        if _is_credential_flag(flag) or _looks_generated(value):
+            return f"{flag}={_DETAIL_REDACTED}"
+        if flag in _DETAIL_USERINFO_FLAGS:
+            value = _without_password(value)
+        return _without_generated_runs(f"{flag}={_home_projected(value)}")
+    if _looks_generated(shown):
+        return _DETAIL_REDACTED
+    return _without_generated_runs(_home_projected(shown))
+
+
+def _published_word(word: str, *, script: bool = False, as_written: str | None = None) -> str:
     """One hook command word or MCP argument as it may be published (#819).
 
     The published-label redaction first (#802, :func:`_detail_label`): known
     token shapes, bearer and credential assignments, the whole value of a
-    credential header, a URL reduced to its scheme and host, and the userinfo
-    of any ``scheme://…@``. Then the value of an ``env``-style ``NAME=value``
-    assignment and of a credential-named ``--flag=value`` is replaced, as is a
-    generated-looking word or ``=`` value and the password of
-    ``--user=user:password``, a path under the reading user's home is written
+    credential header and of a quoted credential assignment, a URL reduced to
+    its scheme and host, and the userinfo of any ``scheme://…@``. Then the
+    value of an ``env``-style ``NAME=value`` assignment and of a
+    credential-named ``--flag=value`` is replaced, as is a generated-looking
+    word or ``=`` value and the password of ``--user=user:password`` or a
+    glued ``-uuser:password``, a path under the reading user's home is written
     from ``~``, a generated-looking run inside the word is replaced
     (:func:`_without_generated_runs`), and the word is bounded. When ``script``
-    is set, the word is a shell's ``-c`` script, each of whose assignments'
-    values ends where the shell ends it
-    (:func:`_script_with_assignment_values_redacted`).
+    is set, the word is a shell's ``-c`` script, published a shell word at a
+    time (:func:`_published_script`); ``as_written`` is that script before any
+    rule ran on the command it is part of, ``word`` itself when omitted.
     """
 
-    shown = _detail_label(word)
-    redacted_script = (
-        _script_with_assignment_values_redacted(shown) if script and not shown.startswith("-") else None
-    )
-    if redacted_script is not None:
-        return _bounded_detail(_without_generated_runs(_home_projected(redacted_script)))
-    assignment = _DETAIL_ASSIGNMENT_RE.fullmatch(shown)
-    if assignment and _DETAIL_ENV_NAME_RE.fullmatch(assignment.group(1)):
-        return _bounded_detail(f"{assignment.group(1)}={_DETAIL_REDACTED}")
-    if shown.startswith("-") and "=" in shown:
-        flag, _, value = shown.partition("=")
-        if _is_credential_flag(flag) or _looks_generated(value):
-            return _bounded_detail(f"{flag}={_DETAIL_REDACTED}")
-        if flag in _DETAIL_USERINFO_FLAGS:
-            value = _without_password(value)
-        return _bounded_detail(_without_generated_runs(f"{flag}={_home_projected(value)}"))
-    if _looks_generated(shown):
-        return _DETAIL_REDACTED
-    return _bounded_detail(_without_generated_runs(_home_projected(shown)))
+    if script:
+        shown = _detail_string_rules(word)
+        if not shown.startswith("-"):
+            return _bounded_detail(_published_script(shown, word if as_written is None else as_written))
+    return _bounded_detail(_word_published(_detail_label(word)))
 
 
-def _published_words(words: list[str], *, script: int | None = None) -> list[str]:
+def _published_words(
+    words: list[str], *, script: int | None = None, script_as_written: str | None = None
+) -> list[str]:
     """Each word as :func:`_published_word` publishes it, and the value after a credential flag replaced.
 
     ``--token VALUE``, ``--api-key VALUE`` and ``token VALUE`` pass the
@@ -1360,7 +1566,9 @@ def _published_words(words: list[str], *, script: int | None = None) -> list[str
     recognise (:func:`_redacts_next_word`). The word after ``-u`` or
     ``--user`` keeps its user name and loses the password after its ``:``.
     ``script`` is the index of a shell's ``-c`` script among ``words``
-    (:func:`_shell_script_index`).
+    (:func:`_shell_script_index`), and ``script_as_written`` that script as
+    the command held it before any rule ran, when ``words`` are not as
+    written.
 
     Which word is replaced depends only on the word before it, never on
     whether that word was itself replaced (#819 review): in
@@ -1376,34 +1584,70 @@ def _published_words(words: list[str], *, script: int | None = None) -> list[str
         if index in redacted
         else _bounded_detail(_without_password(_published_word(word)))
         if index in userinfo
-        else _published_word(word, script=index == script)
+        else _published_word(
+            word, script=index == script, as_written=script_as_written if index == script else None
+        )
         for index, word in enumerate(words)
     ]
+
+
+#: What :func:`_credential_kinds` says of a word: a credential's value, or a
+#: ``user:password`` value.
+_CREDENTIAL_VALUE = "value"
+_CREDENTIAL_USERINFO = "userinfo"
+
+
+def _credential_kinds(
+    items: Iterable[Any], key: Callable[[Any], str] | None = None
+) -> Iterator[tuple[Any, str | None]]:
+    """Each item, and whether its word follows a credential name or ``-u`` (#819).
+
+    A word is a credential's value (:data:`_CREDENTIAL_VALUE`) when the word
+    before it names one (:func:`_redacts_next_word`), and a ``user:password``
+    value (:data:`_CREDENTIAL_USERINFO`) when the word before it is a
+    :data:`_DETAIL_USERINFO_FLAGS` flag. A word that ends in a credential
+    header or key name and its colon (``Authorization:``, ``X-Auth-Token:``,
+    ``{"token":``) leaves its value to the next word, and when that word is an
+    authentication scheme (``Basic``, ``Bearer``), to the word after it too
+    (#819 review): the header rule reads one word at a time. ``key`` is an
+    item's word, the item itself when omitted. Read lazily, one word behind,
+    so a caller that stops early reads no further (#819 review).
+    """
+
+    previous: str | None = None
+    previous_header: re.Match[str] | None = None
+    after_scheme = False
+    for item in items:
+        word = item if key is None else key(item)
+        kind: str | None = None
+        if previous is not None:
+            if after_scheme or previous_header is not None or _redacts_next_word(previous):
+                kind = _CREDENTIAL_VALUE
+            elif previous in _DETAIL_USERINFO_FLAGS:
+                kind = _CREDENTIAL_USERINFO
+        header = _DETAIL_HEADER_NAME_WORD_RE.search(word)
+        after_scheme = (
+            previous_header is not None
+            and previous_header.group(2) is None
+            and word.lower() in _DETAIL_AUTH_SCHEMES
+        )
+        previous, previous_header = word, header
+        yield item, kind
 
 
 def _credential_values(words: list[str]) -> tuple[set[int], set[int]]:
     """The indices of the words that follow a credential name, and of those that follow ``-u`` (#819).
 
-    A word is a credential's value when the word before it names one
-    (:func:`_redacts_next_word`), and a ``user:password`` value when the word
-    before it is a :data:`_DETAIL_USERINFO_FLAGS` flag. A word that ends in a
-    credential header or key name and its colon (``Authorization:``,
-    ``X-Auth-Token:``, ``{"token":``) leaves its value to the next word, and
-    when that word is an authentication scheme (``Basic``, ``Bearer``), to the
-    word after it too (#819 review): the header rule reads one word at a time.
+    What :func:`_credential_kinds` says of each word.
     """
 
-    redacted = {index for index in range(1, len(words)) if _redacts_next_word(words[index - 1])}
-    for index in range(1, len(words)):
-        header = _DETAIL_HEADER_NAME_WORD_RE.search(words[index - 1])
-        if header is None:
-            continue
-        redacted.add(index)
-        if header.group(2) is None and index + 1 < len(words) and words[index].lower() in _DETAIL_AUTH_SCHEMES:
-            redacted.add(index + 1)
-    userinfo = {
-        index for index in range(1, len(words)) if words[index - 1] in _DETAIL_USERINFO_FLAGS
-    } - redacted
+    redacted: set[int] = set()
+    userinfo: set[int] = set()
+    for index, (_word, kind) in enumerate(_credential_kinds(words)):
+        if kind == _CREDENTIAL_VALUE:
+            redacted.add(index)
+        elif kind == _CREDENTIAL_USERINFO:
+            userinfo.add(index)
     return redacted, userinfo
 
 
@@ -1668,6 +1912,15 @@ def _command_words(text: str) -> list[str]:
     return words
 
 
+def _leading_assignments(words: list[str]) -> int:
+    """How many of a command's words are leading ``NAME=value`` assignments; the last word is always the command."""
+
+    first = 0
+    while len(words) - first > 1 and _DETAIL_ASSIGNMENT_RE.fullmatch(words[first]):
+        first += 1
+    return first
+
+
 def _hook_command(value: Any) -> dict[str, Any] | None:
     """A hook's command string as its grant summarizes it (#819).
 
@@ -1704,19 +1957,26 @@ def _hook_command(value: Any) -> dict[str, Any] | None:
     secret_values = {as_written[index] for index in redacted}
     userinfo_values = {as_written[index] for index in userinfo}
     env_keys: list[str] = []
-    first = 0
-    while len(words) - first > 1:
-        assignment = _DETAIL_ASSIGNMENT_RE.fullmatch(words[first])
-        if not assignment:
-            break
-        env_keys.append(_bounded_detail(_detail_label(assignment.group(1))))
-        first += 1
+    first = _leading_assignments(words)
+    for word in words[:first]:
+        env_keys.append(_bounded_detail(_detail_label(word.partition("=")[0])))
     # One slice, not one per assignment: a copy per assignment took time
     # quadratic in their number (#819 review).
     words = words[first:]
     if not words:
         return None
     script = _shell_script_index(words[0], words[1:])
+    # The script as written, found the same way, so its words are read for a
+    # credential name the string rule took as another flag's value.
+    written_first = _leading_assignments(as_written)
+    written_script = (
+        _shell_script_index(as_written[written_first], as_written[written_first + 1 :])
+        if written_first < len(as_written)
+        else None
+    )
+    script_as_written = (
+        None if script is None or written_script is None else as_written[written_first + 1 + written_script]
+    )
     shown = [
         _DETAIL_REDACTED
         if word in secret_values
@@ -1724,7 +1984,11 @@ def _hook_command(value: Any) -> dict[str, Any] | None:
         if word in userinfo_values
         else published
         for word, published in zip(
-            words, _published_words(words, script=None if script is None else script + 1), strict=True
+            words,
+            _published_words(
+                words, script=None if script is None else script + 1, script_as_written=script_as_written
+            ),
+            strict=True,
         )
     ]
     args = shown[1:]

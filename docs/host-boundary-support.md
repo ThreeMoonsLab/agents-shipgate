@@ -173,8 +173,10 @@ The detail is a display of the declaration, never an input to the comparison:
 the command is not resolved or run, the script it names is not read (#702), and
 a credential-shaped word, a generated-looking key even when `.`, `:` or `;` joins
 it to other text (`SG.<redacted>.<redacted>`), a credential header's whole
-value within its word and the value after a credential-named flag are
-published as `<redacted>`. A value the digest's own input already redacts, such
+value within its word, a quoted credential assignment's value and the value
+after a credential-named flag are published as `<redacted>`. A shell's `-c`
+script is read one shell word at a time, so a credential word in it never
+hides the commands after it (`echo token: <redacted>; ./notify.sh`). A value the digest's own input already redacts, such
 as the value after `--token`, `--api-key` or `--password`, a `--password=…`
 value or an `X-Api-Key:` header value, is not compared, so a change confined
 to it is no row, as before. A change carried only by any other redacted word —
@@ -184,7 +186,11 @@ not name (`--secret-key …`) — by a word past the bound or by an unpublished
 setting is still a row, which says the change is in a detail it does not show
 and, past a bound, that only the first arguments or handlers were compared.
 A saved baseline holds none of this detail, so a command read from a user,
-managed or git-ignored settings file never reaches the committed file.
+managed or git-ignored settings file never reaches the committed file. A
+comparison whose head is the working tree does read a git-ignored
+`.claude/settings.local.json` there, as it read that file's events before, so
+its commands can appear in the local `diff` output, `pr-comment.md` and
+`verifier.json`; a CI checkout has no such file.
 A hook declaration outside the documented shape publishes no handlers, and its
 row says the matcher, command and timeout are not shown.
 
