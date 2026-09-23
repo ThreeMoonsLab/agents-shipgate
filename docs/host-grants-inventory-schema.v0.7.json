@@ -490,7 +490,7 @@
     },
     "HostHookHandlerV7": {
       "additionalProperties": false,
-      "description": "One hook handler under an event: its group's matcher, its command and its timeout.\n\n``matcher`` is ``None`` when its group declares none, which the host reads\nas every tool or source, and ``<not-shown>`` when it is not a string or is\nlonger than 1,024 characters; otherwise it passes through the\npublished-label redaction and is cut at 120 characters. ``command`` is\n``None`` for a handler with\nno command string, such as a ``prompt`` handler, whose prompt is not\npublished. ``timeout`` is the declared number; an integer of more than 80\ndigits, a non-finite float or a boolean is published as its bounded text,\na string as written when it is a plain token, and any other value as\n``<not-shown>``. Other handler settings are not published; a change\nconfined to them is a row whose text says it is not shown.",
+      "description": "One hook handler under an event: its group's matcher, its command and its timeout.\n\n``matcher`` is ``None`` when its group declares none, which the host reads\nas every tool or source, and ``<not-shown>`` when it is not a string or is\nlonger than 1,024 characters as ``config_sha256``'s input holds it;\notherwise it passes through the published-label redaction and is cut at\n120 characters. ``command`` is ``None`` for a handler with\nno command string, such as a ``prompt`` handler, whose prompt is not\npublished. ``timeout`` is the declared number or boolean; an integer of\nmore than 80 digits is published as its digits cut with ``\u2026``, a string\nas written when it is a plain token, and any other value, a non-finite\nfloat among them, as ``<not-shown>``. Other handler settings are not\npublished; a change confined to them is a row whose text says it is not\nshown.",
       "properties": {
         "command": {
           "anyOf": [
@@ -517,6 +517,9 @@
         },
         "timeout": {
           "anyOf": [
+            {
+              "type": "boolean"
+            },
             {
               "type": "integer"
             },

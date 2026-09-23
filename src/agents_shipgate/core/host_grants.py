@@ -901,13 +901,20 @@ def _published_matcher(value: Any) -> str:
     """A matcher as it may be published: the published-label redaction, then the bound (#819).
 
     A matcher is a string of at most :data:`MAX_DETAIL_MATCHER_INPUT_CHARS`
-    characters; any other value is :data:`DETAIL_NOT_SHOWN`, so no structured
-    text a file puts there is published and no redaction reads a long one.
+    characters as ``config_sha256``'s input holds it; any other value is
+    :data:`DETAIL_NOT_SHOWN`, so no structured text a file puts there is
+    published and the published-label redaction never reads a long one. The
+    bound is on that input's text, not the file's, so two matchers that input
+    holds alike publish alike (#819 review, cycle 6): the digest's own string
+    rule, which runs over every matcher already, is linear.
     """
 
-    if not isinstance(value, str) or len(value) > MAX_DETAIL_MATCHER_INPUT_CHARS:
+    if not isinstance(value, str):
         return DETAIL_NOT_SHOWN
-    return _bounded_detail(_detail_string_rules(value), MAX_DETAIL_MATCHER_CHARS)
+    held = _sanitize_sensitive_string(value)
+    if len(held) > MAX_DETAIL_MATCHER_INPUT_CHARS:
+        return DETAIL_NOT_SHOWN
+    return _bounded_detail(published_workflow_label(held), MAX_DETAIL_MATCHER_CHARS)
 
 
 #: A package specification an MCP server's arguments may publish, and nothing
@@ -1275,31 +1282,31 @@ def _hook_handlers(config: Any) -> tuple[list[dict[str, Any]] | None, int]:
     return handlers, max(0, declared - MAX_HOOK_HANDLERS)
 
 
-def _hook_timeout(timeout: Any) -> int | float | str | None:
+def _hook_timeout(timeout: Any) -> bool | int | float | str | None:
     """A handler's ``timeout`` as its grant publishes it (#819).
 
-    A finite float, or an integer whose digits fit the word bound, is published
-    as the number it is. An integer with more digits than
+    A boolean, a finite float, or an integer whose digits fit the word bound,
+    is published as the value it is. An integer with more digits than
     :data:`MAX_DETAIL_WORD_CHARS` is published as its digits, cut and ending in
-    ``…`` (#819 review); an infinite or not-a-number float as ``inf``,
-    ``-inf`` or ``nan``; a boolean as ``true`` or ``false``; a string as
-    written when it is a plain token (:func:`_plain_token`); and any other
-    value as :data:`DETAIL_NOT_SHOWN`. An integer is never converted to a
-    float, so one too large for a float is not an error.
+    ``…`` (#819 review); a string as written when it is a plain token
+    (:func:`_plain_token`); and any other value, an infinite or
+    not-a-number float among them, as :data:`DETAIL_NOT_SHOWN`. No two of
+    these publish alike: a boolean, or such a float, was published as the
+    text a string could spell, so ``true`` → ``"true"`` and ``Infinity`` →
+    ``"inf"`` read as no difference (#819 review, cycle 6). An integer is
+    never converted to a float, so one too large for a float is not an error.
     """
 
-    if timeout is None:
-        return None
-    if isinstance(timeout, bool):
-        return "true" if timeout else "false"
+    if timeout is None or isinstance(timeout, bool):
+        return timeout
     if isinstance(timeout, int):
         # The bit length bounds the digits before any conversion to text:
         # 4 bits per decimal digit is more than enough (log2(10) < 3.33).
         if timeout.bit_length() <= 4 * MAX_DETAIL_WORD_CHARS and len(str(timeout)) <= MAX_DETAIL_WORD_CHARS:
             return timeout
         return _bounded_detail(str(timeout))
-    if isinstance(timeout, float):
-        return timeout if math.isfinite(timeout) else str(timeout)
+    if isinstance(timeout, float) and math.isfinite(timeout):
+        return timeout
     if isinstance(timeout, str):
         return _plain_token(timeout)
     return DETAIL_NOT_SHOWN

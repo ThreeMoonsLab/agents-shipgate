@@ -22,7 +22,6 @@ their direction, the counters and the review question in the comparison's
 from __future__ import annotations
 
 import json
-import math
 import re
 from collections import Counter
 from collections.abc import Sequence
@@ -30,6 +29,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agents_shipgate.core.host_grants import (
+    _PLAIN_TOKEN_RE,
     DETAIL_NOT_SHOWN,
     hook_loading_basis,
     host_grant_expansion_signals,
@@ -780,7 +780,10 @@ _HANDLER_LIMIT = 3
 
 #: Why a hook declaration published no handler: it is not in the shape the
 #: reader establishes (#819).
-_HOOK_SHAPE_REASON = "the declaration is not a list of matcher groups whose hooks are objects"
+_HOOK_SHAPE_REASON = (
+    "the declaration is not a list of matcher groups whose hooks are objects and whose "
+    "commands are strings"
+)
 #: What a hook row says when its declaration is outside that shape.
 _HOOK_SHAPE_NOT_READ = f"matcher, command and timeout not shown: {_HOOK_SHAPE_REASON}"
 
@@ -796,18 +799,14 @@ def _command_text(command: dict[str, Any]) -> str:
     return f"{command.get('executable') or DETAIL_NOT_SHOWN} {_digest_text(command.get('sha256'))}"
 
 
-def _reads_as_number(text: str) -> bool:
-    try:
-        return math.isfinite(float(text))
-    except ValueError:
-        return False
-
-
 def _handler_value(field: str, value: Any) -> str:
     """A published handler field as a row prints it (#819).
 
-    A timeout published as text that reads as a finite number is quoted, so
-    ``5`` → ``"5"`` never reads as the same value twice (#819 review, cycle 5).
+    A timeout is printed as its JSON reads, so one written as text is quoted
+    and ``5`` → ``"5"`` or ``true`` → ``"true"`` never reads as the same value
+    twice (#819 review, cycles 5 and 6). Only the bounded text of an integer
+    too long to publish, and ``<not-shown>``, are printed bare: neither is a
+    plain token, so no string timeout is published as either.
     """
 
     if value is None:
@@ -816,7 +815,7 @@ def _handler_value(field: str, value: Any) -> str:
         return _command_text(value)
     if field == "matcher" and value == "":
         return '""'
-    if field == "timeout" and isinstance(value, str) and _reads_as_number(value):
+    if field == "timeout" and (not isinstance(value, str) or _PLAIN_TOKEN_RE.fullmatch(value)):
         return json.dumps(value, ensure_ascii=False)
     return str(value)
 

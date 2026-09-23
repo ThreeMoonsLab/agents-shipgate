@@ -165,7 +165,7 @@ A hook row names what changed in the hook, and an MCP row a change to the
 server's launch arguments (#819), without publishing any command or argument
 text. A hook grant publishes each handler under its event: the group's
 `matcher`, through the published-label redaction (a matcher longer than 1,024
-characters is `<not-shown>`); its command as the name of its executable — the
+characters, as `config_sha256`'s input holds it, is `<not-shown>`); its command as the name of its executable — the
 last path segment of its first word, only when that is a plain token and the
 word is no URL, otherwise `<not-shown>` — and a SHA-256 digest of the whole
 command; and its `timeout`. So a matcher, command or timeout edit reads
