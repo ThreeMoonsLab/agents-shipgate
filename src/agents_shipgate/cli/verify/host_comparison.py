@@ -175,6 +175,10 @@ def compare_host_refs(
             identities=identities,
             coverage=coverage,
             changed_inputs=changed_inputs() if coverage else None,
+            # A plugin directory a limit is bounded by is left uncompared and
+            # named, and the rest compared (#808). Only where coverage names
+            # it: `check` records none, so it refuses as before.
+            plugin_scopes=(base_snapshot.plugin_scopes, head_snapshot.plugin_scopes),
         )
         if identity() != captured_identity:
             raise ValueError("Host comparison inputs moved during the run")

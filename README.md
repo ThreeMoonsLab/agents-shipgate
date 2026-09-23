@@ -95,7 +95,13 @@ reads — a plugin's `mcp.json`, a plugin manifest's `mcpServers`,
 plugin source — as `added`, `removed` or `changed, not read by this entry`,
 with no row and no claim that a host loads it. Its
 first line says what it lists, so it is never the whole account of the
-change: any other changed file it does not read is absent. When more items are
+change: any other changed file it does not read is absent. This source tree,
+and not the published `1.1.0`, also has a fourth answer, `Partial comparison
+against <base> …: <reason>`, where the only inputs it could not read are
+plugin directories whose references stop inside them: it names each one as
+`Not compared: <directory>`, shows the changes outside it, and says they are
+not the whole change. It is never a pass, and a partial answer with no entry
+is never a no-change answer. When more items are
 computed than it prints,
 it names how many it left out and that they rank below the ones it kept. The
 entries are for a reviewer to act on, not merge authority: each names the rule

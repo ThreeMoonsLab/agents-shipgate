@@ -320,6 +320,26 @@ incomplete, its kind and its side; `--json` lists them in `coverage`. `--json` r
 with the same `incomparable_reasons`. Repair the named side and run it again;
 never read the missing rows as no change.
 
+**Not in `1.1.0`: a partial comparison.** In this source tree, when the only
+inputs that cannot be read are plugin directories — here the PR leaves
+`plugins/demo/.claude-plugin/plugin.json` as `{not json` and also drops the
+`deny` rule from `.claude/settings.json` — `diff` no longer refuses the
+settings change beside it. It opens with `Partial comparison against
+origin/main (<sha>) -> working tree: head_inventory_incomplete` and, before
+any entry, `Not compared: plugins/demo, a plugin directory this entry could
+not read completely, so no change inside it is shown and nothing is claimed
+about it.`, then shows the removed denial, and the block names
+`plugins/demo/.claude-plugin/plugin.json (claude-code): parse_failed in head,
+so nothing in plugins/demo was compared`. `--json` reports
+`comparison_status: "partial"` with the same `incomparable_reasons`, the
+entries and the directory as `scope` on that item. That is only where the
+plugin's references stop inside its directory and nothing outside it depends
+on it; any other unreadable input still gives `Cannot compare`, as above
+([Partial comparisons](host-boundary-support.md#partial-comparisons)). It is
+not a pass either, and a partial answer with no entry says `That is not a
+no-change answer for this change` instead of `No static host-grant changes
+detected.`
+
 Every one of these exits `0`: the exit code says the comparison ran, not that
 the change may merge.
 

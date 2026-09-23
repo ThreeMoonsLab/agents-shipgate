@@ -221,6 +221,57 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="partial-host-comparison-808"></a>
+
+## Migration Note: Unreleased — a plugin directory that cannot be compared no longer hides the rest (verifier `0.21`, capability diff `0.4`, contract v41, #808)
+
+A pull request that broke one plugin manifest — `plugins/demo/.claude-plugin/plugin.json`
+left as `{not json` — and also dropped a `deny` rule from `.claude/settings.json`
+printed `Cannot compare against main: head_inventory_incomplete` on `diff`,
+`verify` and the manifest-free PR comment, with no row at all, where the
+published `1.0.0` showed `⚠ low removed claude-code .claude/settings.json`
+`deny: Bash(curl:*) → gone`. The plugin-reference limit #714 introduced
+refused the whole comparison, including files that plugin cannot reach.
+
+Such a comparison is now `partial`, inside the existing `comparison_status`
+and `coverage` members. No command, reader, row kind, verdict or control state
+is added.
+
+```json
+"comparison_status": "partial",
+"incomparable_reasons": ["head_inventory_incomplete"],
+"rows": [
+  {"subject": "claude-code .claude/settings.json", "before": "Bash(curl:*)", "after": "—",
+   "direction": "removed", "disposition": "deny", "expands": true, "severity": "low",
+   "why": "removes a denial the agent was subject to"}
+],
+"coverage": {
+  "items": [
+    {"source": "plugins/demo/.claude-plugin/plugin.json", "hosts": ["claude-code"], "side": "head",
+     "status": "blocking_limit", "rows": 0, "limit": "parse_failed", "detail": "static parser rejected this json file (JSONDecodeError); the hook files this plugin manifest may select were not read",
+     "candidate": null, "scope": "plugins/demo"},
+    {"source": ".claude/settings.json", "hosts": ["claude-code"], "side": "both",
+     "status": "compared", "rows": 1, "limit": null, "detail": null, "candidate": null, "scope": null}
+  ],
+  "omitted_items": 0,
+  "read_sources_only": true,
+  "unread_candidates": "examined",
+  "unread_candidates_not_examined": 0
+}
+```
+
+- **When.** Only where the reader's own reference graph bounds every blocking limit that refused the comparison, and no compared source depends on what it bounds. A plugin-reference limit — a Claude Code plugin manifest that does not parse or is not an object, a `hooks` member of the wrong type, a reference to a file not named `hooks.json` or `<name>-hooks.json`, or a read limit of a hook file only a plugin selects — is bounded by the plugin directory whose references raised it: a reference is followed only inside its plugin directory (#714), so everything the limit can hide is published under that directory. In this entry's repository scope every other grant is read from its own file. Any blocking limit that is not such a limit must be an unchanged limit of what remains, proven exactly as `unchanged_limits` proves one (#721).
+- **Where independence is not established, nothing changes.** The comparison stays `incomparable`, with no row and no `review`, when a blocking limit is neither bounded nor unchanged — an unreadable settings file, an instruction file whose structure could not be established (the added and edited skill cases #808 recorded), a link #700 does not read through (`docs/proxy -> ../src/pkg`, a dangling `NOTES.md`); when a reference names a path outside its plugin, which no directory bounds; when the plugin is at the repository root; when the directory holds `.claude/settings.json` or `.claude/settings.local.json`, which decide every plugin hook's loading basis; when a marketplace outside the directory declares inline hooks for the plugin inside it, since those grants are published under the marketplace; when the directory does not publish as itself (a redacted or shortened path, or one holding `#`); and when nothing outside the directories was read, which would retain nothing. A different directory alone never establishes independence.
+- **What is left uncompared.** Everything published under the directory, on both sides and compared case-insensitively, as the reader matches references: its artifacts, grants and non-blocking issues. A plugin directory inside another is covered by the outer one. A hook file another plugin also selects is withheld with it, so a shared reference never lends it a result the other side could not read. Nothing is cached: repairing the manifest restores that directory's rows on the next run, and a limit on another dependency is judged by the same rules.
+- **`comparison_status: partial`.** `incomparable_reasons` names which inventory is incomplete, exactly as the refusal would have (`base_inventory_incomplete`, `head_inventory_incomplete`, or both). `rows`, `review` and `unchanged_limits` are those of the comparison outside the withheld directories, built by the comparator a comparable result uses. It is never a complete comparison and never a no-change answer.
+- **`coverage.items[].scope`.** Reserved and always `null` in verifier `0.20`. Now the withheld directory, on each `blocking_limit` item of a partial comparison and on those only: every blocking item of a partial comparison names one, and blocking limits still rank first inside the same cap of ten, so the first is always listed. The other items are what the comparison established outside the directories, in the existing order and wording, and a changed input no reader reads (#821) is still named, inside a withheld directory too. `scope` is `null` on every item of a comparable or incomparable comparison and on every other status, and never names the repository root.
+- **Text.** `diff` opens with `Partial comparison against main (<sha>) -> working tree: head_inventory_incomplete`, then, before any row, `Not compared: plugins/demo, a plugin directory this entry could not read completely, so no change inside it is shown and nothing is claimed about it.` and `The changes below come only from sources outside it, so they are not the whole change; nothing here is a claim that the change is safe.` With no row, that last line reads `No static host-grant change was detected outside it. That is not a no-change answer for this change, and no verdict is implied.`, and `No static host-grant changes detected` is never printed. `verify --format text` and the manifest-free PR comment open with `Host capability comparison partial: head_inventory_incomplete` and the same two lines. The limit's item reads `plugins/demo/.claude-plugin/plugin.json (claude-code): parse_failed in head, so nothing in plugins/demo was compared`. The rows, their summary, the review question and the reproduction lines print as a comparable result prints them.
+- **Authority and routes do not move.** A partial comparison is not comparable, so every consumer that switches on `comparison_status == "comparable"` reads it as it read the refusal. `verify`'s control state, permissions, next action (`audit --host`), merge verdict and exit code are the incomplete comparison's, and only its headline changes, to `Host comparison is partial: N repository-declared host capability change(s) outside what it could not compare; review its input limits before interpreting changes.` The control envelope's `capability_rows` projects a partial comparison as `incomparable`, with its reasons and no rows, exactly as before: that block cannot name a directory. `check` records no coverage, so it cannot name one either and refuses its comparison as `1.1.0` did; its decision and violations come from its own routing, so the #808 fixture still gives `require_review` with `HOST-PERMISSION-DENY-REMOVED` and no rows. The Stop hook still tells the agent to treat the change as unreviewed. `audit --host`, the inventory digests, saved host-grants baselines and drift payloads are unchanged (host-grants stays `0.6`), so a partial comparison never creates or satisfies a baseline. The host-config and cold-start benchmark replays reproduce their run-of-record scores. `minimum_control_contract_version` stays `21`.
+
+**Compatibility.** Verifier `0.21`, capability diff `0.4` and runtime contract v41 are unreleased, so they are extended in place. `comparison_status` is a closed enumeration, so a reader validating against the frozen [`docs/verifier-schema.v0.20.json`](docs/verifier-schema.v0.20.json) rejects `partial`; the current reader refuses a `0.20` artifact that claims a partial comparison or a `scope`. A consumer that treats every status but `comparable` as not comparable is unaffected. One that expected only `comparable` or `incomparable` should read `partial` as `incomparable` for any decision, and may read its rows as what is known outside the directories named.
+
+---
+
 <a id="unread-changed-inputs-821"></a>
 
 ## Migration Note: Unreleased — the changed inputs a host comparison does not read (verifier `0.21`, capability diff `0.4`, contract v41, #821)

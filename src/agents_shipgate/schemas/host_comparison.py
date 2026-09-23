@@ -124,8 +124,11 @@ class HostComparisonCoverageItem(BaseModel):
       differ only as a checkout conversion such as ``eol=crlf`` or
       ``core.autocrlf`` makes them, cannot be proven. Never read as no change,
       and never as a change.
-    - ``blocking_limit``: an incomparable comparison, and this source carries
-      a blocking inventory issue of kind ``limit`` on ``side``.
+    - ``blocking_limit``: an incomparable or partial comparison, and this
+      source carries a blocking inventory issue of kind ``limit`` on ``side``.
+      On a ``partial`` comparison it also names ``scope``, the plugin
+      directory the issue is bounded by, which that comparison did not
+      compare (#808).
     - ``changed_not_read``: a path in the comparison's own changed-file set
       that a documented candidate rule names, and that no reader of this entry
       read (#821). ``candidate`` names the rule. The source is the file, or a
@@ -170,12 +173,19 @@ class HostComparisonCoverageItem(BaseModel):
     detail: str | None = None
     #: The candidate rule that named a ``changed_not_read`` item (#821).
     candidate: UnreadCandidateKind | None = None
-    #: Reserved for naming the scope an item belongs to once a comparison can
-    #: be decided per scope (#808). Always ``None`` in this schema version.
+    #: The directory a ``partial`` comparison left uncompared because of this
+    #: blocking limit (#808): a plugin directory, every hook file of which the
+    #: reader could only reach through a reference this limit stopped. Nothing
+    #: published under it is a row or an item. ``None`` on every other item,
+    #: and on every item of a comparable or incomparable comparison.
     scope: str | None = None
 
     @model_validator(mode="after")
     def item_shape(self):
+        if self.scope is not None and self.status != "blocking_limit":
+            raise ValueError("only a blocking limit names the scope it left uncompared")
+        if self.scope is not None and not self.scope:
+            raise ValueError("a scope names a directory, never the whole repository")
         if self.status == "blocking_limit":
             if self.limit is None or self.rows or self.candidate is not None:
                 raise ValueError("a blocking limit names its kind and publishes no rows")
@@ -325,7 +335,9 @@ class HostComparisonReview(BaseModel):
     ``None`` on :class:`HostComparison` means it was not recorded: a verifier
     from before schema ``0.20``, an incomparable comparison, which presents no
     change and asks no question, or a caller that publishes none (`check`,
-    whose boundary result carries rows alone).
+    whose boundary result carries rows alone). A ``partial`` comparison
+    presents the rows it established outside the scopes it did not compare
+    (#808).
 
     It adds no row and decides nothing. The rows stay exactly what they were;
     this says how they are presented, which until now only the text knew, so a
@@ -362,10 +374,28 @@ class HostComparisonReview(BaseModel):
 
 
 class HostComparison(BaseModel):
+    """One host comparison between two inventories; advisory evidence, never a verdict.
+
+    ``comparison_status``:
+
+    - ``comparable``: every source either side read was compared, or named in
+      ``unchanged_limits``.
+    - ``incomparable``: at least one inventory is incomplete in a way nothing
+      bounds, or the inputs could not be compared; no rows.
+    - ``partial`` (#808): an inventory is incomplete, and every blocking limit
+      that makes it so is bounded by a plugin directory whose contents no
+      compared source depends on. That directory is left uncompared on both
+      sides — each such limit is a ``blocking_limit`` coverage item naming it
+      as ``scope`` — and the ``rows`` are the changes established outside it.
+      ``incomparable_reasons`` still names which inventory is incomplete. It
+      is never a complete comparison: read it as ``incomparable`` for any
+      decision, and its rows as what is known, not as the whole change.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     input_identity: CurrentControlWorkspaceIdentity | None = None
-    comparison_status: Literal["comparable", "incomparable"]
+    comparison_status: Literal["comparable", "partial", "incomparable"]
     incomparable_reasons: list[str] = Field(default_factory=list)
     base_commit: str | None = None
     head_commit: str | None = None
@@ -389,8 +419,29 @@ class HostComparison(BaseModel):
             raise ValueError("incomparable input names no unchanged limits")
         if self.comparison_status == "comparable" and self.incomparable_reasons:
             raise ValueError("comparable input cannot carry incomparable reasons")
+        if self.comparison_status == "partial":
+            if not self.incomparable_reasons:
+                raise ValueError("a partial comparison names which inventory is incomplete")
+            if self.coverage is None or not any(
+                item.status == "blocking_limit" and item.scope is not None
+                for item in self.coverage.items
+            ):
+                # The scope is named nowhere else, so a partial comparison
+                # that did not record it would read as a complete one.
+                raise ValueError("a partial comparison names the scope it did not compare")
         if self.coverage is not None:
             statuses = {item.status for item in self.coverage.items}
+            scoped = [
+                item.scope is not None
+                for item in self.coverage.items
+                if item.status == "blocking_limit"
+            ]
+            if self.comparison_status == "partial" and not all(scoped):
+                # Every other limit was either bounded by a scope or named as
+                # unchanged; one that was neither refuses the comparison.
+                raise ValueError("every blocking limit of a partial comparison names its scope")
+            if self.comparison_status != "partial" and any(scoped):
+                raise ValueError("only a partial comparison leaves a scope uncompared")
             # A changed input this entry does not read is not a compared
             # source, so a refused comparison may name one beside its limits.
             if self.comparison_status == "incomparable" and statuses - {

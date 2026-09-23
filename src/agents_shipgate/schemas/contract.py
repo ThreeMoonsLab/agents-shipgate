@@ -227,6 +227,16 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # ``initialize`` next action (``verify --preview``). A 0.20 verifier reads
 # with the search not recorded. ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at
 # 21.
+# v41 also keeps what a comparison established outside a plugin directory it
+# could not compare (#808), extended in place because v41 is unreleased: where
+# every blocking limit is a plugin-reference limit that its plugin directory
+# bounds, and no compared source depends on that directory, verifier 0.21 and
+# capability diff 0.4 publish ``comparison_status: partial`` with the rows
+# outside it, the same ``incomparable_reasons``, and the directory as the
+# reserved ``coverage.items[].scope`` on those limits. A partial comparison is
+# not comparable: every control state, permission, route and ``check``
+# decision is the refusal's, and the control envelope projects it as
+# ``incomparable`` with no rows. A 0.20 verifier claiming either is refused.
 CONTRACT_VERSION: Literal["41"] = "41"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"

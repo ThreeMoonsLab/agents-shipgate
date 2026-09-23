@@ -887,17 +887,25 @@ def test_diff_names_the_untouched_malformed_manifest_as_a_limit(tmp_path: Path) 
     assert [limit["source"] for limit in payload["unchanged_limits"]] == [MALFORMED_NESTED_MANIFEST]
 
 
-def test_diff_refuses_a_newly_malformed_manifest(tmp_path: Path) -> None:
-    """Not hidden where a limit can be carried: `diff` refuses a manifest the
-    change itself broke."""
+def test_diff_does_not_compare_a_newly_malformed_manifest(tmp_path: Path) -> None:
+    """Not hidden where a limit can be carried: `diff` never compares past a
+    manifest the change itself broke. Since #808 it leaves that plugin's
+    directory uncompared and names it, instead of refusing the settings file
+    beside it too, so the result is `partial`, never `comparable`."""
 
     root = _repository(tmp_path, {"README.md": "# base\n"}, {MALFORMED_NESTED_MANIFEST: "{not json"})
 
     result = runner.invoke(app, ["diff", "--workspace", str(root), "--base", "main", "--json"])
     payload = json.loads(result.output)
 
-    assert payload["comparison_status"] == "incomparable"
-    assert "head_inventory_incomplete" in payload["incomparable_reasons"]
+    assert payload["comparison_status"] == "partial"
+    assert payload["incomparable_reasons"] == ["head_inventory_incomplete"]
+    assert payload["rows"] == []
+    assert [
+        (item["source"], item["status"], item["side"], item["scope"])
+        for item in payload["coverage"]["items"]
+        if item["status"] == "blocking_limit"
+    ] == [(MALFORMED_NESTED_MANIFEST, "blocking_limit", "head", "examples/bad")]
 
 
 # --- review cycle 2, P1: a plugin the repository itself enables is loaded -------

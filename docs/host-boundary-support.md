@@ -225,11 +225,15 @@ No row is proof that a hook ran. What remains unread:
   `<name>-hooks.json` (`_` or `.` also separate). In a plugin manifest, any
   other name, a path outside the plugin directory, a `hooks` member of the
   wrong type, and an unreadable manifest are blocking coverage limits. `diff`
-  and `verify` refuse the comparison when the limit is new, changed or on one
-  side only, and name a parse or shape limit when the manifest is unchanged.
-  A read limit is never named as unchanged: an untouched plugin hook file over
-  the read bound makes `diff` and `verify` incomparable, as an oversize
-  settings file already did in `1.0.0`.
+  and `verify` name a parse or shape limit when the manifest is unchanged. A
+  read limit is never named as unchanged. When the limit is new, changed or on
+  one side only — or is a read limit, such as an untouched plugin hook file
+  over the read bound — `diff` and `verify` never compare that plugin: they
+  leave its directory uncompared on both sides, name it, and compare the rest,
+  as a `partial` comparison, where nothing outside the directory depends on it
+  (#808, see [Partial comparisons](#partial-comparisons)). Otherwise they
+  refuse the whole comparison, as an oversize settings file already did in
+  `1.0.0`.
 - The same problems in a marketplace entry are named without blocking, and so
   is a `metadata.pluginRoot` that is not a `./` path inside the marketplace.
   So are a reference to a file that does not exist, a reference into a
@@ -250,8 +254,10 @@ No row is proof that a hook ran. What remains unread:
   because its result cannot name a limit. A limit only one side carries, or
   one on a source the change touched, makes that comparison incomparable
   (`base_inventory_incomplete` or `head_inventory_incomplete`), so no added or
-  removed row is built from a manifest that could not be read. That refusal is
-  repository-wide, so an unrelated row is withheld too (#808).
+  removed row is built from a manifest that could not be read. In `check` that
+  refusal stays repository-wide, so an unrelated row is withheld too: its
+  boundary result cannot name the directory a `partial` comparison leaves
+  uncompared (#808), and its decision comes from its own routing either way.
 
 Skill and command frontmatter is read the way Claude Code documents it (#730).
 Frontmatter is optional: a skill without it takes its name from the directory
@@ -396,6 +402,38 @@ plugin and marketplace grants, while the boundary rules only record the key.
 The Claude Code settings in [the setting table](#claude-code-setting-ratings)
 are not unknown keys: `check` rates them by that table. A file that could not
 be parsed or resolved is `partial` and never authorizes publication.
+
+### Partial comparisons
+
+A plugin directory `diff` and `verify` could not compare no longer hides the
+changes outside it (#808). They publish `comparison_status: partial` — a
+status of the comparison, not a host's `partial` coverage — with the same
+`incomparable_reasons` the refusal would name, when every blocking limit that
+refused the comparison is one of the plugin-reference limits listed under
+[Known unread surfaces](#known-unread-surfaces), bounded by the plugin
+directory whose references raised it, and every other limit is an unchanged
+one. A reference is followed only inside its plugin
+directory, so that directory holds everything such a limit can hide. It is
+left uncompared on both sides — its artifacts, grants and non-blocking issues,
+matched case-insensitively — and named as `scope` on the limit's coverage
+item; a directory inside another is covered by the outer one, and a hook file
+another plugin also selects is withheld with it. The rows outside it are
+published, led by `Not compared: <directory>, a plugin directory this entry
+could not read completely, …`, and a partial result with no row is never a
+no-change answer.
+
+Independence is read off the reference graph, never off directory names. The
+comparison refuses as before when a limit is neither a bounded plugin
+reference nor unchanged (an unreadable settings file, an instruction file
+whose structure could not be established, a link that is not read through),
+when a reference names a path outside its plugin, when the plugin is at the
+repository root, when its directory holds `.claude/settings.json` or
+`.claude/settings.local.json`, which decide every plugin hook's loading basis,
+when a marketplace outside the directory declares inline hooks for that
+plugin, when the directory does not publish as itself (a redacted or shortened
+path), and when nothing outside it was read. A partial comparison is not
+comparable: `verify`'s control, `check`'s decision, the control envelope, the
+Stop hook, baselines and drift treat it as they treated the refusal.
 
 ### Claude Code setting ratings
 

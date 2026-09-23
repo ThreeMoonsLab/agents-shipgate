@@ -6925,6 +6925,12 @@ def run_preview(
             f"{len(host_comparison.rows)} repository-declared host capability change(s). "
             "Advisory comparison only; no application release policy configured."
             if host_comparison.comparison_status == "comparable"
+            # Partial (#808): the rows are known, the comparison is not whole,
+            # and the route is the incomplete one's.
+            else f"Host comparison is partial: {len(host_comparison.rows)} repository-declared "
+            "host capability change(s) outside what it could not compare; "
+            "review its input limits before interpreting changes."
+            if host_comparison.comparison_status == "partial"
             else "Host comparison is incomplete; review its input limits before interpreting changes."
         )
     elif resolution.contested:
