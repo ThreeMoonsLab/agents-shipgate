@@ -939,6 +939,25 @@ def run_verify(
         )
         return verifier, None, 0
 
+    # Which changed files hold hooks of a plugin the project settings enable
+    # is read from both compared sides, exactly as `check` reads it (#809):
+    # the scanned head alone cannot show that a deleted hook file was one, so
+    # the two would publish different decisions for one change.
+    enabled_plugin_hooks = None
+    enabled_plugin_hook_issues: list = []
+    if base and base_exists:
+        from .host_comparison import enabled_plugin_hook_evidence
+
+        _worktree_snapshot, enabled_plugin_hooks, enabled_plugin_hook_issues = (
+            enabled_plugin_hook_evidence(
+                workspace=git_root,
+                changed_files=changed_files,
+                head_is_worktree=not archive_head,
+                base=base,
+                head=head,
+            )
+        )
+
     report: ReadinessReport | None = None
     head_status = "failed"
     head_exit_code = 4
@@ -1239,6 +1258,8 @@ def run_verify(
                         # (PR #404 review 2).
                         base_comparison_unavailable=base_status
                         in _BASE_COMPARISON_FAILURES,
+                        enabled_plugin_hooks=enabled_plugin_hooks,
+                        enabled_plugin_hook_issues=tuple(enabled_plugin_hook_issues),
                     ),
                     capability_lock_callback=capture_capability_lock,
                     human_context_callback=capture_human_context,

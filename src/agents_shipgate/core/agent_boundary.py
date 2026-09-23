@@ -25,6 +25,7 @@ from agents_shipgate.core.boundary_registry import (
     BOUNDARY_ADAPTERS,
     boundary_hosts_for_path,
     is_agent_boundary_path,
+    is_enabled_plugin_hook_source,
 )
 from agents_shipgate.core.boundary_rules import GENERIC_BOUNDARY_RULES as _GENERIC_RULES
 from agents_shipgate.core.codex_boundary import (
@@ -62,6 +63,7 @@ from agents_shipgate.core.host_boundary import (
     load_host_boundary_policy,
 )
 from agents_shipgate.core.host_grants import (
+    EnabledPluginHookFiles,
     HostBoundarySnapshot,
     build_host_boundary_snapshot,
 )
@@ -149,7 +151,16 @@ def evaluate_agent_boundary(
     head: str | None = None,
     verification_replayable: bool = False,
     base_manifest_absent: bool | None = None,
+    enabled_plugin_hooks: EnabledPluginHookFiles | None = None,
 ) -> AgentBoundaryAssessment:
+    """Assess one change against every registered boundary adapter.
+
+    ``enabled_plugin_hooks`` names, on the sides of the change the caller
+    could read, the files that hold hooks of a plugin the repository's
+    project settings enable (#809). ``None`` reads them from
+    ``host_snapshot``, the workspace tree.
+    """
+
     # The command this assessment authorizes must evaluate the target that was
     # actually checked, not the default manifest in the current directory.
     verify_command = verify_command_for(
@@ -182,27 +193,78 @@ def evaluate_agent_boundary(
             ),
         }
     )
+    plugin_hooks = (
+        EnabledPluginHookFiles.of(host_snapshot)
+        if enabled_plugin_hooks is None
+        else enabled_plugin_hooks
+    )
+    # A changed hook declaration of a plugin the project settings enable is
+    # a hook the host loads, routed like a settings layer (#809).
+    plugin_hook_paths = frozenset(
+        path.replace("\\", "/")
+        for path in changed_files
+        if is_enabled_plugin_hook_source(path, plugin_hooks.sources)
+    )
+    # A changed hook file such a plugin selects under a name the reader does
+    # not follow, or in a directory the walk skips, holds hooks the host
+    # loads and nothing here read (#809). That is input this check could not
+    # read, never a change it may allow.
+    unread_folded = {path.casefold() for path in plugin_hooks.unread}
+    plugin_unread_paths = frozenset(
+        path.replace("\\", "/")
+        for path in changed_files
+        if path.replace("\\", "/").casefold() in unread_folded
+        and path.replace("\\", "/") not in plugin_hook_paths
+    )
+    plugin_unread_folded = {path.casefold() for path in plugin_unread_paths}
+
+    def counted(item: dict[str, Any]) -> bool:
+        source = str(item.get("source") or "").replace("\\", "/")
+        if str(item.get("issue_id")) not in host_snapshot.plugin_reference_issue_ids:
+            return bool(item.get("blocking"))
+        # A plugin manifest, marketplace or plugin-selected hook file is not a
+        # surface this boundary routes, and its result cannot name a limit, so
+        # an unread plugin reference leaves the check decision as 1.0.0 had it
+        # (#714). Its host comparison still refuses when only one side carries
+        # the limit, and `diff` and `verify` keep every limit. A changed hook
+        # declaration of an enabled plugin is routed, and a changed hook file
+        # it selects is one this check could not read (#809), so a limit on
+        # either is this check's own input.
+        if source.casefold() in plugin_unread_folded:
+            return True
+        return bool(item.get("blocking")) and source in plugin_hook_paths
+
+    inventory_issues = [
+        BoundaryInputIssue(
+            code=f"host_inventory_{item.get('kind', 'unresolved')}",
+            path=str(item.get("source") or ""),
+            message=str(
+                item.get("message")
+                or "A repository host-boundary source could not be inventoried."
+            ),
+            recovery=host_snapshot.input_failures.get(str(item.get("issue_id"))),
+        )
+        for item in host_snapshot.inventory.get("issues", [])
+        if counted(item)
+    ]
+    named = {issue.path.replace("\\", "/").casefold() for issue in inventory_issues}
     input_issues = [
         *(input_issues or []),
+        *inventory_issues,
+        # Only the other side of the change shows the plugin selected this
+        # file, for one deleted with its reference: the same limit, from there.
         *[
             BoundaryInputIssue(
-                code=f"host_inventory_{item.get('kind', 'unresolved')}",
-                path=str(item.get("source") or ""),
-                message=str(
-                    item.get("message")
-                    or "A repository host-boundary source could not be inventoried."
+                code="host_inventory_unsupported",
+                path=path,
+                message=(
+                    "A plugin this repository's project settings enable selects this hook "
+                    "file on a compared side, and the static reader does not follow its "
+                    "name or directory, so its hooks were not read."
                 ),
-                recovery=host_snapshot.input_failures.get(str(item.get("issue_id"))),
             )
-            for item in host_snapshot.inventory.get("issues", [])
-            if item.get("blocking")
-            # A plugin manifest, marketplace or plugin-selected hook file is
-            # not a surface this boundary routes, and its result cannot name a
-            # limit, so an unread plugin reference leaves the check decision
-            # as 1.0.0 had it (#714). Its host comparison still refuses when
-            # only one side carries the limit, and `diff` and `verify` keep
-            # every limit.
-            and str(item.get("issue_id")) not in host_snapshot.plugin_reference_issue_ids
+            for path in sorted(plugin_unread_paths)
+            if path.casefold() not in named
         ],
         *_structural_diff_issues(
             workspace=workspace,
@@ -293,6 +355,7 @@ def evaluate_agent_boundary(
         config_path=config_path,
         policy_path=policy_path,
         workspace=workspace,
+        plugin_hook_paths=plugin_hook_paths,
         evaluated_paths={
             *instruction_structure_unchanged,
             *host_settings_narrowed,
@@ -456,6 +519,7 @@ def evaluate_agent_boundary(
                     if invocation_shared_paths
                     else set()
                 ),
+                *({"claude-code"} if plugin_hook_paths or plugin_unread_paths else set()),
             }
         )
     )
@@ -464,6 +528,7 @@ def evaluate_agent_boundary(
         violations=combined,
         issues=issue_codes,
         invocation_shared_paths=invocation_shared_paths,
+        plugin_hook_paths=plugin_hook_paths | plugin_unread_paths,
     )
     input_coverage: Literal["complete", "partial", "unknown"] = (
         "partial"
@@ -578,6 +643,10 @@ def assessment_for_scan_context(context) -> AgentBoundaryAssessment:
         # keeps the cached boundary projection from re-inferring adoption from
         # diff shape alone.
         base_manifest_absent=verification.manifest_introduced,
+        # The same two-sided plugin hook evidence `check` reads (#809), so a
+        # hook file the change deleted is routed here as it is there.
+        input_issues=list(verification.enabled_plugin_hook_issues) or None,
+        enabled_plugin_hooks=verification.enabled_plugin_hooks,
     )
     return context.agent_boundary
 
@@ -991,6 +1060,7 @@ def _coverage_for(
     violations: list[AgentResultViolatedRule],
     issues: list[str],
     invocation_shared_paths: set[str] | None = None,
+    plugin_hook_paths: frozenset[str] = frozenset(),
 ) -> list[BoundaryHostCoverage]:
     # A path is partially covered only when its content was not read. A kind
     # the publication predicate counts as read is never unread here, so a
@@ -1012,6 +1082,9 @@ def _coverage_for(
         paths = sorted(path for path in changed_files if adapter.matches(path))
         if adapter.id == "shared" and invocation_shared_paths:
             paths = sorted({*paths, *invocation_shared_paths})
+        if adapter.id == "claude_code" and plugin_hook_paths:
+            # Routed from loading evidence, not a registry name (#809).
+            paths = sorted({*paths, *plugin_hook_paths})
         if any(path in failure_paths for path in paths) or (paths and issues):
             status = "partial"
         elif paths and adapter.experimental:
@@ -1110,6 +1183,7 @@ def _with_unclassified_protected_changes(
     config_path: Path | None = None,
     policy_path: Path | None = None,
     workspace: Path | None = None,
+    plugin_hook_paths: frozenset[str] = frozenset(),
 ) -> list[AgentResultViolatedRule]:
     covered = {item.path for item in violations if item.path}
     additions: list[AgentResultViolatedRule] = []
@@ -1121,6 +1195,10 @@ def _with_unclassified_protected_changes(
             or not (
                 is_agent_boundary_path(normalized)
                 or trust_root_class_for(normalized) is not None
+                # A hook declaration of a plugin the project settings enable
+                # is a hook the host loads, wherever the plugin keeps it
+                # (#809); `plugin_hook_paths` already holds both facts.
+                or normalized in plugin_hook_paths
                 # The manifest this invocation loaded is a protected surface
                 # whatever it is called: a repository run with
                 # ``--config new-gate.yml`` otherwise got ``allow`` and no
@@ -1162,6 +1240,14 @@ def _with_unclassified_protected_changes(
                 workspace=workspace,
             )
         )
+        # Recorded only where no registry name or trust root explains the
+        # route, as for a configured manifest, so every existing row keeps
+        # its fingerprint and a reviewer can see why the file is protected.
+        enabled_plugin_hook = (
+            normalized in plugin_hook_paths
+            and not is_agent_boundary_path(normalized)
+            and trust_root_class_for(normalized) is None
+        )
         additions.append(
             AgentResultViolatedRule(
                 id=rule.id,
@@ -1187,6 +1273,11 @@ def _with_unclassified_protected_changes(
                         if configured_manifest
                         else {"trust_root_class": "policy"}
                         if configured_policy
+                        else {}
+                    ),
+                    **(
+                        {"hook_loading_basis": "project_enabled_plugin"}
+                        if enabled_plugin_hook
                         else {}
                     ),
                 },

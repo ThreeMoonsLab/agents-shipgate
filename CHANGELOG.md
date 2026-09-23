@@ -47,6 +47,46 @@
   which check id fires for these values, and their decisions, do. See the
   `STABILITY.md` migration note. (#827)
 
+- `check` and `verify` no longer pass a change to a Claude Code plugin's hook
+  that the repository's own project settings enable just because the plugin
+  keeps the hook outside the registry paths. 1.1.0 published such a hook as
+  `execute`/`high` and its change as a `widened`, expanding row, yet `check`
+  gave `allow` with `merge` permitted beside it, and a `verify` with a manifest
+  gave `passed` / `mergeable`, while the same hook at
+  `.claude/hooks/hooks.json` got `require_review` and `review_required`.
+  - **Routed.** A changed hook file an enabled plugin selects, such as
+    `plugins/demo/cfg/hooks.json`, and a plugin manifest or marketplace whose
+    inline hooks an enabled plugin loads, now reach the existing
+    protected-surface review: `SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED`
+    (evidence `hook_loading_basis: project_enabled_plugin`). In `check` that is
+    `require_review` with `merge` withheld. In a `verify` with a manifest it is
+    a finding that moves the release gate to `review_required` and the merge
+    verdict to `human_review_required`, and the PR comment says so. The route
+    needs both the file's name, one the plugin hook reader opens, and the
+    reader's finding, in the base or the head, that an enabled plugin loads
+    hooks from it. `check` and `verify` read both sides the same way, so a hook
+    file deleted with its reference is routed by both, and a hook a plugin only
+    selects stays unrouted, as #714 made it.
+  - **Unread.** A changed hook file an enabled plugin selects under a name the
+    static reader does not follow (`cfg/lifecycle.json`, not `hooks.json` or
+    `<name>-hooks.json`), or inside a directory the walk skips, holds hooks the
+    host loads and nothing read. It is now incomplete input,
+    `SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE`, in both: `human_review_required`,
+    where 1.1.0 gave `allow` with complete input.
+  - **Broken heads.** A head that leaves a routed hook file or plugin manifest
+    unreadable is incomplete input, as at a registry path. A marketplace the
+    head makes unparseable is different, because a marketplace limit never
+    blocks: the route still gives `require_review`, input stays `complete`, and
+    the comparison shows the marketplace's inline hooks as `removed`.
+  - **Unchanged.** Rows, the host inventory, `diff` and the trigger catalog.
+    A change only to a selector, a manifest's `hooks` reference or a
+    marketplace entry, that makes an enabled plugin load an existing,
+    unchanged hook file is still `allow` beside that file's `added` or
+    `widened` row. `check` gives the same when the selected file sits at a
+    registry path, so that is a separate limit. No schema, contract or check
+    id moves; what moves is when two existing check ids fire. See the
+    `STABILITY.md` migration note. (#809)
+
 ## 1.1.0 - 2026-09-22
 
 A legibility and presentation-correctness release on the advisory channel.
