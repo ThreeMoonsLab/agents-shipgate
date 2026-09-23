@@ -220,9 +220,9 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     assert payload["attestation_schema_version"] == "0.5"
     assert payload["registry_schema_version"] == "0.4"
     assert payload["org_evidence_bundle_schema_version"] == ("shipgate.org_evidence_bundle/v2")
-    assert payload["host_grants_inventory_schema_version"] == "0.6"
-    assert payload["host_grants_baseline_schema_version"] == "0.6"
-    assert payload["host_grants_drift_schema_version"] == "0.6"
+    assert payload["host_grants_inventory_schema_version"] == "0.7"
+    assert payload["host_grants_baseline_schema_version"] == "0.7"
+    assert payload["host_grants_drift_schema_version"] == "0.7"
     assert payload["trigger_catalog_schema_version"] == "0.4"
     assert payload["agent_result_control_fields"] == [
         "decision",

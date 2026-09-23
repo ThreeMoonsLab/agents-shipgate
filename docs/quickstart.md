@@ -140,7 +140,12 @@ and publishes the joined change, its direction, the counters printed below and
 this question in `review`, so a script reads what you read. An MCP
 server is named with the command name or redacted URL and the env and header
 key names its declaration publishes; the command's path and arguments are not
-shown, so an edit confined to them says so. A URL is printed only as its scheme
+shown, so an edit confined to them says so. (After `1.1.0`, #819: a package
+specification among the arguments, such as `example-mcp-server@1.2.3`, is
+named, and an edit to any other argument reads `launch arguments changed` with
+before and after digests; no argument text is printed. A hook is named with its
+matcher, its timeout, and its command's executable name and digest, never the
+command's text.) A URL is printed only as its scheme
 and host with the path redacted; one the tool cannot reduce to that form, such
 as `${SLACK_MCP_BASE}/hooks/…`, reads `url not shown`. `⚠` marks an entry that
 widens what the agent may do:
