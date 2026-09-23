@@ -60,6 +60,7 @@ _COMMENT_CAPABILITY_SOURCE_LIMIT = 3
 _COMMENT_CAPABILITY_MAX_CHARS = 1200
 _COMMENT_PROSE_FIELD_MAX_CHARS = 400
 _COMMENT_PROSE_OMISSION = "- … additional human summary detail omitted; see report.md."
+_HOST_COMPARISON_OMISSION = "- … additional human summary detail omitted; see `verifier.json`."
 # Changed declaration exceptions receive their own deterministic block budget.
 # Packet §1 remains exhaustive; only the PR surface names a bounded prefix and
 # states exactly how many rows live in report.json.
@@ -112,7 +113,9 @@ def _render_capability_review_comment(
     human_context: HumanArtifactContext | None,
     human_review_request: HumanReviewRequestV1 | None,
 ) -> str:
-    def prose(coverage_max_chars: int | None = None) -> list[str]:
+    def prose(
+        coverage_max_chars: int | None = None, entry_max_chars: int | None = None
+    ) -> list[str]:
         return [
             STICKY_MARKER,
             "## Agents Shipgate",
@@ -123,6 +126,7 @@ def _render_capability_review_comment(
                 capability_lock_diff=capability_lock_diff,
                 human_context=human_context,
                 coverage_max_chars=coverage_max_chars,
+                entry_max_chars=entry_max_chars,
             ),
         ]
 
@@ -131,17 +135,19 @@ def _render_capability_review_comment(
     if verifier.host_comparison is None:
         prose_lines = prose()
     else:
-        from agents_shipgate.report.host_comparison import with_coverage_in_room
+        from agents_shipgate.report.host_comparison import with_entries_in_room
 
         # The coverage block takes only room the rest of the comment leaves
-        # under the agent block it would get without the block (#812).
+        # under the agent block it would get without the block (#812), and an
+        # entry is shortened only when the comment would otherwise lose a
+        # line after it (#819 review, cycle 4).
         full_room = _COMMENT_MAX_CHARS - len("\n".join(agent_block)) - 1
         room = (
             full_room
             if len("\n".join(prose(0))) <= full_room
             else _COMMENT_MAX_CHARS - len("\n".join(compact_agent_block)) - 1
         )
-        prose_lines = with_coverage_in_room(verifier.host_comparison, prose, room)
+        prose_lines = with_entries_in_room(verifier.host_comparison, prose, room)
     comment = "\n".join([*prose_lines, *agent_block])
     if len(comment) <= _COMMENT_MAX_CHARS:
         return comment
@@ -150,6 +156,8 @@ def _render_capability_review_comment(
         prose_lines,
         compact_agent_block,
         limit=_COMMENT_MAX_CHARS,
+        # Without a report there is no `report.md` to point to (#819 review, cycle 4).
+        omission=_COMMENT_PROSE_OMISSION if report is not None else _HOST_COMPARISON_OMISSION,
     )
 
 
@@ -160,13 +168,17 @@ def _human_summary_lines(
     capability_lock_diff: CapabilityLockDiffV1 | None,
     human_context: HumanArtifactContext | None,
     coverage_max_chars: int | None = None,
+    entry_max_chars: int | None = None,
 ) -> list[str]:
     lines = ["", "### Human summary"]
     if verifier.host_comparison is not None:
         from agents_shipgate.report.host_comparison import host_comparison_lines
         lines.extend(
             host_comparison_lines(
-                verifier.host_comparison, markdown=True, coverage_max_chars=coverage_max_chars
+                verifier.host_comparison,
+                markdown=True,
+                coverage_max_chars=coverage_max_chars,
+                entry_max_chars=entry_max_chars,
             )
         )
         lines.append("Advisory: no application release policy configured. This comparison grants no merge authority.")
@@ -607,6 +619,7 @@ def _join_with_preserved_agent_block(
     agent_block: list[str],
     *,
     limit: int,
+    omission: str = _COMMENT_PROSE_OMISSION,
 ) -> str:
     block = "\n".join(agent_block)
     budget = limit - len(block) - 1
@@ -614,7 +627,7 @@ def _join_with_preserved_agent_block(
         prose = _truncate_markdown_lines(
             prose_lines,
             budget,
-            omission=_COMMENT_PROSE_OMISSION,
+            omission=omission,
         )
     else:
         prose = "\n".join(
@@ -673,16 +686,19 @@ def _render_findings_comment(
     if verifier.host_comparison is not None:
         from agents_shipgate.report.host_comparison import (
             host_comparison_lines,
-            with_coverage_in_room,
+            with_entries_in_room,
         )
 
         comparison = verifier.host_comparison
 
-        def host_lines(coverage_max_chars: int) -> list[str]:
+        def host_lines(coverage_max_chars: int, entry_max_chars: int | None) -> list[str]:
             return [
                 *lines,
                 *host_comparison_lines(
-                    comparison, markdown=True, coverage_max_chars=coverage_max_chars
+                    comparison,
+                    markdown=True,
+                    coverage_max_chars=coverage_max_chars,
+                    entry_max_chars=entry_max_chars,
                 ),
                 "Advisory: no application release policy configured. This comparison grants no merge authority.",
                 *(_next_actor_lines(verifier) if comparison.comparison_status != "comparable" else []),
@@ -690,9 +706,10 @@ def _render_findings_comment(
             ]
 
         return _truncate_markdown_lines(
-            with_coverage_in_room(comparison, host_lines, _COMMENT_MAX_CHARS),
+            with_entries_in_room(comparison, host_lines, _COMMENT_MAX_CHARS),
             _COMMENT_MAX_CHARS,
-            omission=_COMMENT_PROSE_OMISSION,
+            # Without a report there is no `report.md` to point to (#819 review, cycle 4).
+            omission=_COMMENT_PROSE_OMISSION if report is not None else _HOST_COMPARISON_OMISSION,
         )
     if human_review_request is not None:
         lines.extend(human_review_lines(human_review_request))

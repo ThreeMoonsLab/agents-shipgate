@@ -365,35 +365,21 @@
     },
     "HostHookCommandV7": {
       "additionalProperties": false,
-      "description": "A hook command's summary: its first word and a bounded list of the words after it.\n\nRead from the declared command string, split into words at whitespace\noutside quotes, with the quotes removed and a backslash kept as written.\nThat is display, not a claim about how a host runs the command.\n``env_keys`` names each leading ``NAME=value`` assignment; its value is\nnever published, as an ``env`` value never is. Every word passes through\nthe published-label redaction, a value after a credential-named flag or in\nan ``env``-style assignment is ``<redacted>``, a long generated-looking\nword is ``<redacted>``, a word longer than the bound ends in ``\u2026``, and\n``omitted_args`` counts the words past the bound.",
+      "description": "A hook command as its grant publishes it: the executable's name and a digest of the whole command.\n\n``executable`` is the last path segment of the command's first\nwhitespace-separated word, when it is a plain token\n(``[A-Za-z0-9._+-]``, at most 80 characters) no redaction rule rewrites\nand the word is no shell reserved word, and ``<not-shown>`` otherwise. It\nis a label, not a claim about what a host runs. ``sha256`` is the digest of the whole command as\n``config_sha256``'s input holds it, so it moves only when that digest\ndoes; a value that input redacts moves neither. The command's text is\nnever published.",
       "properties": {
-        "args": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Args",
-          "type": "array"
-        },
-        "argv0": {
-          "title": "Argv0",
+        "executable": {
+          "title": "Executable",
           "type": "string"
         },
-        "env_keys": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Env Keys",
-          "type": "array"
-        },
-        "omitted_args": {
-          "default": 0,
-          "minimum": 0,
-          "title": "Omitted Args",
-          "type": "integer"
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
         }
       },
       "required": [
-        "argv0"
+        "executable",
+        "sha256"
       ],
       "title": "HostHookCommandV7",
       "type": "object"
@@ -504,7 +490,7 @@
     },
     "HostHookHandlerV7": {
       "additionalProperties": false,
-      "description": "One hook handler under an event: its group's matcher, its type, command and timeout.\n\n``matcher`` is ``None`` when its group declares none, which the host reads\nas every tool or source. ``command`` is ``None`` for a handler with no\ncommand string, such as a ``prompt`` handler, whose prompt is not\npublished. ``timeout`` is the declared number, or the value's bounded text\nwhen it is not a finite number or has more digits than a word's bound.\nOther handler settings are not published; a change confined to them is a\nrow whose text says it is not shown.",
+      "description": "One hook handler under an event: its group's matcher, its command and its timeout.\n\n``matcher`` is ``None`` when its group declares none, which the host reads\nas every tool or source, and ``<not-shown>`` when it is not a string; it\npasses through the published-label redaction and is cut at 120\ncharacters. ``command`` is ``None`` for a handler with\nno command string, such as a ``prompt`` handler, whose prompt is not\npublished. ``timeout`` is the declared number; an integer of more than 80\ndigits, a non-finite float or a boolean is published as its bounded text,\na string as written when it is a plain token, and any other value as\n``<not-shown>``. Other handler settings are not published; a change\nconfined to them is a row whose text says it is not shown.",
       "properties": {
         "command": {
           "anyOf": [
@@ -546,18 +532,6 @@
           ],
           "default": null,
           "title": "Timeout"
-        },
-        "type": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Type"
         }
       },
       "title": "HostHookHandlerV7",
@@ -716,19 +690,17 @@
           "title": "Access",
           "type": "string"
         },
-        "args": {
+        "args_sha256": {
           "anyOf": [
             {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
             },
             {
               "type": "null"
             }
           ],
-          "title": "Args"
+          "title": "Args Sha256"
         },
         "config_sha256": {
           "title": "Config Sha256",
@@ -781,11 +753,16 @@
           "title": "Kind",
           "type": "string"
         },
-        "omitted_args": {
-          "default": 0,
-          "minimum": 0,
-          "title": "Omitted Args",
-          "type": "integer"
+        "package": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Package"
         },
         "risk": {
           "enum": [
@@ -830,7 +807,8 @@
         "risk",
         "server",
         "transport",
-        "args"
+        "package",
+        "args_sha256"
       ],
       "title": "HostMcpServerGrantV7",
       "type": "object"

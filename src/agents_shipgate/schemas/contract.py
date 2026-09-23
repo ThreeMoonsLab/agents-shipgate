@@ -237,11 +237,12 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # not comparable: every control state, permission, route and ``check``
 # decision is the refusal's, and the control envelope projects it as
 # ``incomparable`` with no rows. A 0.20 verifier claiming either is refused.
-# v41 also publishes what a hook runs and what an MCP server is launched with
+# v41 also publishes what changed in a hook and in an MCP server's launch
 # (#819). Host-grants inventory, baseline and drift move to 0.7: a hook grant
-# adds ``handlers[]`` (each group's matcher, the handler's type, a redacted
-# and bounded command summary and its timeout) and ``omitted_handlers``, and
-# an MCP server grant adds its redacted, bounded ``args`` and ``omitted_args``.
+# adds ``handlers[]`` (each group's matcher, the handler's command as its
+# executable's name and a digest, and its timeout) and ``omitted_handlers``,
+# and an MCP server grant adds ``package`` and ``args_sha256``. No command or
+# argument text is published.
 # They display what ``config_sha256`` already binds, so grant equality and the
 # inventory digests leave them out: a 0.6 baseline stays comparable with no new
 # row or reason, and ``audit --host --save-baseline`` may replace it. It moves

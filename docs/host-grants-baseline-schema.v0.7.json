@@ -239,7 +239,7 @@
     },
     "HostGrantsBaselineV7": {
       "additionalProperties": false,
-      "description": "A saved ``0.7`` baseline: the grants a ``0.6`` baseline holds, under the ``0.7`` version.\n\nA saved baseline holds no hook ``handlers`` and no MCP ``args`` (#819):\nit is committed, and those members, read from a user, managed or\ngit-ignored file, would carry values that were never in the repository\ninto it. No comparison, row or digest reads a saved copy of them, so its\n``inventory`` is the ``0.6`` snapshot, which forbids them.",
+      "description": "A saved ``0.7`` baseline: the grants a ``0.6`` baseline holds, under the ``0.7`` version.\n\nA saved baseline holds no hook ``handlers`` and no MCP ``package`` or\n``args_sha256`` (#819): it is committed, and those members, read from a\nuser, managed or git-ignored file, would carry facts about files that were\nnever in the repository into it. No comparison, row or digest reads a\nsaved copy of them, so its ``inventory`` is the ``0.6`` snapshot, which\nforbids them.",
       "properties": {
         "host_grants_schema_version": {
           "const": "0.7",

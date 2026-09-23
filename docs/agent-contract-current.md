@@ -44,22 +44,22 @@ directory, still refuses its comparison. A `0.20` verifier claiming a partial
 comparison or a `scope` is refused. See
 [the migration note](../STABILITY.md#partial-host-comparison-808).
 
-The same unreleased runtime contract v41 also publishes what a hook runs and
-what an MCP server is launched with (#819). Host-grants inventory, baseline and drift
-schemas move to `0.7`: a hook grant adds `handlers[]` (each handler's group
-`matcher`, its `type`, a redacted and bounded `command` summary
-`{env_keys, argv0, args, omitted_args}` and its `timeout`) and
-`omitted_handlers`, and an MCP server grant adds its redacted, bounded `args`
-and `omitted_args`. A hook row names the changed field,
-`PostToolUse: matcher Edit → Edit|Write|Bash`, and a version pin moving to
-`@latest` is an `args` difference, in the text and in
-`review.changes[].change`. The members display what `config_sha256` already
-binds, so grant equality and the inventory digests leave them out: they move
-no row value, row count, verifier or capability-diff schema, a `0.6` baseline
-stays comparable with no new row or reason, and
-`minimum_control_contract_version` stays `21`. A saved baseline holds neither
-member, so a command or argument read from a user, managed or git-ignored file
-never reaches the committed file. See
+The same unreleased runtime contract v41 also names what changed in a hook and
+in an MCP server's launch arguments (#819). Host-grants inventory, baseline and
+drift schemas move to `0.7`: a hook grant adds `handlers[]` (each handler's
+group `matcher`, its `command` as `{executable, sha256}` and its `timeout`)
+and `omitted_handlers`, and an MCP server grant adds `package` and
+`args_sha256`. No command or argument text is published: a command is its
+executable's name, when that is a plain token, and a digest; the arguments are
+one package specification of a strict shape and a digest of the rest. A hook
+row names the changed field, `PostToolUse: matcher Edit → Edit|Write|Bash` or
+`command changed` with both digests, and a version pin moving to `@latest` is
+a `package` difference, in the text and in `review.changes[].change`. The
+members display what `config_sha256` already binds, so grant equality and the
+inventory digests leave them out: they move no row value, row count, verifier
+or capability-diff schema, a `0.6` baseline stays comparable with no new row
+or reason, and `minimum_control_contract_version` stays `21`. A saved baseline
+holds none of the members. See
 [the migration note](../STABILITY.md#hook-mcp-detail-fields-819).
 
 Previous runtime contract v40 reads the action reference each workflow step declares

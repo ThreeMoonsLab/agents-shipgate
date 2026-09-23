@@ -505,6 +505,45 @@ def coverage_lines(
     return next((candidate for candidate in candidates if fits(candidate)), [])
 
 
+#: The bounds a bounded Markdown surface tries for each entry line, widest
+#: first (#819 review, cycle 4). A PR comment is cut at the first line that
+#: does not fit, so one long hook entry hid every row after it, the change
+#: count and the review question. ``None`` prints every entry whole.
+MARKDOWN_ENTRY_MAX_CHARS: tuple[int | None, ...] = (None, 480, 240, 120)
+
+#: What follows an entry a bounded surface shortened, naming where it is whole.
+ENTRY_SHORTENED = " (shortened here; `verifier.json` holds the whole entry)"
+
+
+def with_entries_in_room(
+    comparison: HostComparison,
+    lines_for: Callable[[int, int | None], list[str]],
+    room: int,
+) -> list[str]:
+    """A bounded Markdown surface's lines, each entry given the widest bound at which they fit (#819 review, cycle 4).
+
+    ``lines_for(coverage_max_chars, entry_max_chars)`` renders every line of
+    the surface; ``room`` is how many characters they may take joined. Each
+    bound of :data:`MARKDOWN_ENTRY_MAX_CHARS` is tried in turn, the coverage
+    block given only the room left (:func:`with_coverage_in_room`), and the
+    first at which every line fits is used, so every row heading, the review
+    question and the reproduction stay in the surface wherever shortening
+    entries makes them fit. When none does, the narrowest is returned, and
+    the surface's own bound cuts it, as it cut it before.
+    """
+
+    lines: list[str] = []
+    for entry_max_chars in MARKDOWN_ENTRY_MAX_CHARS:
+        lines = with_coverage_in_room(
+            comparison,
+            lambda coverage_max_chars, bound=entry_max_chars: lines_for(coverage_max_chars, bound),
+            room,
+        )
+        if len("\n".join(lines)) <= room:
+            return lines
+    return lines
+
+
 def with_coverage_in_room(
     comparison: HostComparison, lines_for: Callable[[int], list[str]], room: int
 ) -> list[str]:
@@ -539,13 +578,21 @@ def with_coverage_in_room(
 
 
 def host_comparison_lines(
-    comparison: HostComparison, *, markdown: bool = False, coverage_max_chars: int | None = None
+    comparison: HostComparison,
+    *,
+    markdown: bool = False,
+    coverage_max_chars: int | None = None,
+    entry_max_chars: int | None = None,
 ) -> list[str]:
     """The host comparison a reviewer reads, coverage block included.
 
     ``coverage_max_chars`` bounds the block as :func:`coverage_lines` does;
     ``None`` lists every item. A bounded surface passes the room its other
-    lines leave, through :func:`with_coverage_in_room`.
+    lines leave, through :func:`with_coverage_in_room`. ``entry_max_chars``
+    bounds each entry's ``before → after`` or field-level difference: a
+    longer one is cut, ends in ``…`` and says so (:data:`ENTRY_SHORTENED`).
+    ``None`` prints every entry whole; a bounded surface picks the bound
+    through :func:`with_entries_in_room`.
     """
 
     def text(value):
@@ -602,11 +649,13 @@ def host_comparison_lines(
     for change in changes:
         # The same mark `diff` prints: the engine called this change a widening.
         marker = "⚠ " if change.expands else ""
-        transition = (
-            text(change.change)
-            if change.change is not None
-            else f"{text(change.before)} → {text(change.after)}"
-        )
+        whole = change.change if change.change is not None else f"{change.before} → {change.after}"
+        if entry_max_chars is not None and len(whole) > entry_max_chars:
+            transition = text(whole[: entry_max_chars - 1] + "…") + ENTRY_SHORTENED
+        elif change.change is not None:
+            transition = text(change.change)
+        else:
+            transition = f"{text(change.before)} → {text(change.after)}"
         lines.extend(
             [
                 f"- {marker}{text(change.severity)} / {text(change.direction)} — {text(change.subject)}",

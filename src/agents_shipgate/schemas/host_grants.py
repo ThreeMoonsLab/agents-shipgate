@@ -618,52 +618,52 @@ class HostGrantsDriftArtifactV6(RootModel[HostGrantsDriftV6]):
     root: HostGrantsDriftV6
 
 
-# v0.7 publishes what a hook runs and what an MCP server is launched with
-# (#819). A hook row used to read `PostToolUse → PostToolUse` whether its
-# matcher, its command or its timeout changed, and an MCP row could not show a
-# version pin moving to `@latest`: the grants carried none of it, and only
-# `config_sha256` saw the edit. These members display what `config_sha256`
-# already binds. They are bounded and redacted, and no comparison and no
-# inventory digest reads them, so a `0.6` grant and its `0.7` reading of the
-# same configuration compare as the same grant.
+# v0.7 publishes what changed in a hook and in an MCP server's launch (#819).
+# A hook row used to read `PostToolUse → PostToolUse` whether its matcher, its
+# command or its timeout changed, and an MCP row could not show a version pin
+# moving to `@latest`: the grants carried none of it, and only `config_sha256`
+# saw the edit. These members display what `config_sha256` already binds. No
+# command or argument text is published: a command is its executable's name
+# and a digest, and an MCP server's arguments are a package specification and
+# a digest. No comparison and no inventory digest reads them, so a `0.6` grant
+# and its `0.7` reading of the same configuration compare as the same grant.
 class HostHookCommandV7(BaseModel):
-    """A hook command's summary: its first word and a bounded list of the words after it.
+    """A hook command as its grant publishes it: the executable's name and a digest of the whole command.
 
-    Read from the declared command string, split into words at whitespace
-    outside quotes, with the quotes removed and a backslash kept as written.
-    That is display, not a claim about how a host runs the command.
-    ``env_keys`` names each leading ``NAME=value`` assignment; its value is
-    never published, as an ``env`` value never is. Every word passes through
-    the published-label redaction, a value after a credential-named flag or in
-    an ``env``-style assignment is ``<redacted>``, a long generated-looking
-    word is ``<redacted>``, a word longer than the bound ends in ``…``, and
-    ``omitted_args`` counts the words past the bound.
+    ``executable`` is the last path segment of the command's first
+    whitespace-separated word, when it is a plain token
+    (``[A-Za-z0-9._+-]``, at most 80 characters) no redaction rule rewrites
+    and the word is no shell reserved word, and ``<not-shown>`` otherwise. It
+    is a label, not a claim about what a host runs. ``sha256`` is the digest of the whole command as
+    ``config_sha256``'s input holds it, so it moves only when that digest
+    does; a value that input redacts moves neither. The command's text is
+    never published.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    env_keys: list[str] = Field(default_factory=list)
-    argv0: str
-    args: list[str] = Field(default_factory=list)
-    omitted_args: int = Field(default=0, ge=0)
+    executable: str
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class HostHookHandlerV7(BaseModel):
-    """One hook handler under an event: its group's matcher, its type, command and timeout.
+    """One hook handler under an event: its group's matcher, its command and its timeout.
 
     ``matcher`` is ``None`` when its group declares none, which the host reads
-    as every tool or source. ``command`` is ``None`` for a handler with no
-    command string, such as a ``prompt`` handler, whose prompt is not
-    published. ``timeout`` is the declared number, or the value's bounded text
-    when it is not a finite number or has more digits than a word's bound.
-    Other handler settings are not published; a change confined to them is a
-    row whose text says it is not shown.
+    as every tool or source, and ``<not-shown>`` when it is not a string; it
+    passes through the published-label redaction and is cut at 120
+    characters. ``command`` is ``None`` for a handler with
+    no command string, such as a ``prompt`` handler, whose prompt is not
+    published. ``timeout`` is the declared number; an integer of more than 80
+    digits, a non-finite float or a boolean is published as its bounded text,
+    a string as written when it is a plain token, and any other value as
+    ``<not-shown>``. Other handler settings are not published; a change
+    confined to them is a row whose text says it is not shown.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     matcher: str | None = None
-    type: str | None = None
     command: HostHookCommandV7 | None = None
     timeout: int | float | str | None = None
 
@@ -681,14 +681,19 @@ class HostHookGrantV7(HostHookGrantV2):
 
 
 class HostMcpServerGrantV7(HostMcpServerGrantV2):
-    #: The declared ``args``, each redacted as a hook command's words are and
-    #: bounded, at most a bounded number; ``omitted_args`` counts the rest.
-    #: ``[]`` when none are declared, and ``None`` when ``args`` is not a list.
-    #: A version pin such as ``example-mcp-server@1.2.3`` is published as the
-    #: argument it is. Always present in a ``0.7`` inventory grant; a saved
-    #: baseline holds none.
-    args: list[str] | None
-    omitted_args: int = Field(default=0, ge=0)
+    #: The one argument published as written: the first that is a package
+    #: specification of a strict shape (npm ``name@version`` or
+    #: ``@scope/name@version``, PyPI ``name==version``, or an OCI image
+    #: reference with a path and a tag or digest), that no redaction rule
+    #: rewrites and that follows no flag but a package runner's own (``-y``,
+    #: ``--from``, ``--rm`` …). ``None`` when no argument is one.
+    package: str | None
+    #: The digest of the declared ``args`` as ``config_sha256``'s input holds
+    #: them, the package replaced by a marker, so every other argument is
+    #: compared and none is published. ``None`` when no ``args`` is declared.
+    #: Both members are always present in a ``0.7`` inventory grant; a saved
+    #: baseline holds neither.
+    args_sha256: str | None = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 HostGrantV7 = Annotated[
@@ -715,11 +720,12 @@ class HostGrantsInventoryV7(HostGrantsInventoryV6):
 class HostGrantsBaselineV7(HostGrantsBaselineV6):
     """A saved ``0.7`` baseline: the grants a ``0.6`` baseline holds, under the ``0.7`` version.
 
-    A saved baseline holds no hook ``handlers`` and no MCP ``args`` (#819):
-    it is committed, and those members, read from a user, managed or
-    git-ignored file, would carry values that were never in the repository
-    into it. No comparison, row or digest reads a saved copy of them, so its
-    ``inventory`` is the ``0.6`` snapshot, which forbids them.
+    A saved baseline holds no hook ``handlers`` and no MCP ``package`` or
+    ``args_sha256`` (#819): it is committed, and those members, read from a
+    user, managed or git-ignored file, would carry facts about files that were
+    never in the repository into it. No comparison, row or digest reads a
+    saved copy of them, so its ``inventory`` is the ``0.6`` snapshot, which
+    forbids them.
     """
 
     host_grants_schema_version: Literal["0.7"] = "0.7"

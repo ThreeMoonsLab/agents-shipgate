@@ -373,7 +373,14 @@ def test_an_mcp_launch_change_names_its_published_difference(tmp_path: Path) -> 
             "env": {"GH_HOST": "github.example", "GH_TOKEN": GITHUB_TOKEN},
         }}}},
     )
-    change = "gh: command name npx → docker; args -y gh-mcp → run gh; env keys +GH_HOST +GH_TOKEN"
+    from agents_shipgate.core.host_grants import redacted_config_sha256
+
+    # No argument text is published: the arguments are a digest (#819).
+    old, new = (redacted_config_sha256(args)[:12] for args in (["-y", "gh-mcp"], ["run", "gh"]))
+    change = (
+        f"gh: command name npx → docker; launch arguments changed (sha256:{old} → sha256:{new}); "
+        "env keys +GH_HOST +GH_TOKEN"
+    )
 
     text, payload = _diff(repo)
     assert _table_entry(text, "⚠ high widened claude-code .mcp.json")[1] == change
@@ -411,7 +418,7 @@ def test_an_added_remote_mcp_server_shows_its_redacted_endpoint(tmp_path: Path) 
 
 
 def test_an_mcp_change_outside_the_published_fields_says_it_is_not_shown(tmp_path: Path) -> None:
-    """A `cwd` is not published, so the entry names what was compared (#819: arguments too)."""
+    """A `cwd` is not published, so the entry names what was compared (#819: the launch arguments too)."""
 
     repo = _repository(
         tmp_path,
@@ -428,9 +435,9 @@ def test_an_mcp_change_outside_the_published_fields_says_it_is_not_shown(tmp_pat
 
 def _unshown(name: str, command: str) -> str:
     return (
-        f"{name}: no difference in the command name {command}, arguments, env key names or "
-        "header key names; the change is in a detail this output does not show, such as the "
-        "command's path, a redacted or shortened argument, or another setting"
+        f"{name}: no difference in the command name {command}, launch arguments, env key names "
+        "or header key names; the change is in a detail this output does not show, such as the "
+        "command's path or another setting"
     )
 
 

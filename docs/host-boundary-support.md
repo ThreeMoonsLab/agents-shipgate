@@ -161,49 +161,32 @@ beside either. A step label is read for userinfo only in a token holding
 `scheme://`, so a scheme-less `user:password@host` in a step name is not read
 as userinfo.
 
-A hook row names what the hook declares, and an MCP row the server's launch
-arguments (#819). A hook grant publishes each handler under its event: the
-group's `matcher`, the handler's `type`, a summary of its command (its first
-word and at most eight words after it, redacted and bounded) and its
-`timeout`. So a matcher, command or timeout edit reads
-`PostToolUse: matcher Edit → Edit|Write|Bash` rather than
-`PostToolUse → PostToolUse`. An MCP server grant publishes its declared `args`
-the same way, so a version pin moving to `@latest` is an `args` difference.
-The detail is a display of the declaration, never an input to the comparison:
-the command is not resolved or run, the script it names is not read (#702), and
-a credential-shaped word, a generated-looking key even when `.`, `:` or `;` joins
-it to other text (`SG.<redacted>.<redacted>`), a credential header's whole
-value within its word, a quoted credential assignment's value and the value
-after a credential-named flag are published as `<redacted>`. The `-c` script
-of a POSIX shell that is the command itself (`bash -c "…"`, not
-`sudo bash -c "…"`) is read one shell word and one command at a time: a
-credential header's value ends with its word, and the first word after `;`,
-`&&`, `|`, a newline, a parenthesis or a backtick is never read as the value
-of a credential word before it, so `echo token: ok; ./notify.sh` publishes
-`echo token: <redacted>; ./notify.sh`, `echo token:; ./notify.sh` publishes
-`./notify.sh` and `gh auth token | docker login …` publishes `docker`. The
-digest's own string rule runs on the whole script first and still takes what
-it reads across a separator, such as the `X` of `--token |X`, or of `--token`
-followed by a newline and `X`. After `sudo` or `env`, or in another shell's
-script such as `pwsh -c`, the script is one word, and a credential header
-name's value runs to its end (`sudo bash -c "echo token: ok; …"` publishes
-`echo token: <redacted>`). A value the digest's own input already redacts, such
-as the value after `--token`, `--api-key` or `--password`, a `--password=…`
-value or an `X-Api-Key:` header value, is not compared, so a change confined
-to it is no row, as before. A change carried only by any other redacted word —
-a positional token, a generated key, a header value's words after its scheme
-(`Authorization: Bearer …`), the value after a flag the digest's input does
-not name (`--secret-key …`) — by a word past the bound or by an unpublished
-setting is still a row, which says the change is in a detail it does not show
-and, past a bound, that only the first arguments or handlers were compared.
-A saved baseline holds none of this detail, so a command read from a user,
-managed or git-ignored settings file never reaches the committed file. A
-comparison whose head is the working tree does read a git-ignored
-`.claude/settings.local.json` there, as it read that file's events before, so
-its commands can appear in the local `diff` output, `pr-comment.md` and
-`verifier.json`; a CI checkout has no such file.
-A hook declaration outside the documented shape publishes no handlers, and its
-row says the matcher, command and timeout are not shown.
+A hook row names what changed in the hook, and an MCP row a change to the
+server's launch arguments (#819), without publishing any command or argument
+text. A hook grant publishes each handler under its event: the group's
+`matcher`, through the published-label redaction; its command as the name of
+its executable — the last path segment of its first word, only when that is a
+plain token, otherwise `<not-shown>` — and a SHA-256 digest of the whole
+command; and its `timeout`. So a matcher, command or timeout edit reads
+`PostToolUse: matcher Edit → Edit|Write|Bash`,
+`PostToolUse: command changed (lint.sh sha256:… → curl sha256:…)` or
+`PostToolUse: timeout 10 → 600` rather than `PostToolUse → PostToolUse`. An
+MCP server grant publishes, from its arguments, only a package specification
+of a strict shape (npm `name@version`, PyPI `name==version`, an OCI image with
+a tag or digest) and a digest of the rest, so a version pin moving to
+`@latest` reads `package example-mcp-server@1.2.3 → example-mcp-server@latest`
+and any other argument edit `launch arguments changed` with both digests. The
+detail is a display of the declaration, never an input to the comparison: the
+command is not resolved or run, the script it names is not read (#702), and
+the digests are of the configuration as `config_sha256`'s input holds it. A
+value that input already redacts, such as the value after `--token`,
+`--api-key` or `--password`, a `--password=…` value, an `X-Api-Key:` header
+value or a URL's path, moves no digest, so a change confined to it is no row,
+as before. A saved baseline holds none of
+this detail, so nothing read from a user, managed or git-ignored settings file
+reaches the committed file. A hook declaration outside the documented shape
+publishes no handlers, and its row says the matcher, command and timeout are
+not shown.
 
 A hook row states its loading basis (#714). Parsing a hook file proves the
 file exists, not that a host loads it, so hooks are published four ways:

@@ -121,15 +121,12 @@ as data.
 
 ### 3. Read the answer
 
-**The answers below are not yet released:** they are from this repository's
-source tree, which still reports version `1.1.0`, run in a clone outside any
-source checkout of this project. The published `1.1.0` prints the same
-answers, except that its first one does not name the `billing` server's launch
-arguments (`args -y @example/billing-mcp`), which #819 added. The previous
-release, `1.0.0`, names the same changes as four rows, without the
-dispositions, the joined replacement, the MCP launch details, the review
-question and the reference lines, and none of its answers has the `What this
-run established` block. On
+**The answers below are released in `1.1.0`:** they are from the published
+`1.1.0`, installed from PyPI into a clean virtualenv outside any source
+checkout of this project and run in a clone. The previous release, `1.0.0`,
+names the same changes as four rows, without the dispositions, the joined
+replacement, the MCP launch details, the review question and the reference
+lines, and none of its answers has the `What this run established` block. On
 the remote's `main`, `.claude/settings.json` allows `Bash(npm test:*)` and denies `Bash(rm -rf:*)`,
 and `.mcp.json` configures one server, `docs`. The PR branch allows
 `Bash(npm *)`, drops the denial, and adds a `billing` server.
@@ -141,14 +138,14 @@ after, `widened` or `narrowed`, as is the same rule moved from one disposition
 to another (`moved`); `--json` keeps those as their removal and addition rows,
 and publishes the joined change, its direction, the counters printed below and
 this question in `review`, so a script reads what you read. An MCP
-server is named with the command name or redacted URL, its launch arguments
-and the env and header key names its declaration publishes, and a hook with
-its matcher, command and timeout. A value the digest's own input already
-redacts, such as the value after `--token`, `--api-key` or `--password`, or an
-`X-Api-Key:` header value, is not compared, so a change confined to it prints
-no entry, as before. The command's path, any other argument redacted because
-it could carry a credential and anything past the length bound are not shown,
-and an edit confined to them is an entry that says so. A URL is printed only as its scheme
+server is named with the command name or redacted URL and the env and header
+key names its declaration publishes; the command's path and arguments are not
+shown, so an edit confined to them says so. (After `1.1.0`, #819: a package
+specification among the arguments, such as `example-mcp-server@1.2.3`, is
+named, and an edit to any other argument reads `launch arguments changed` with
+before and after digests; no argument text is printed. A hook is named with its
+matcher, its timeout, and its command's executable name and digest, never the
+command's text.) A URL is printed only as its scheme
 and host with the path redacted; one the tool cannot reduce to that form, such
 as `${SLACK_MCP_BASE}/hooks/…`, reads `url not shown`. `⚠` marks an entry that
 widens what the agent may do:
@@ -157,7 +154,7 @@ widens what the agent may do:
 Agent capability diff  origin/main (07c50e1b) -> working tree
 
 ⚠ high    added    claude-code .mcp.json
-                  billing (command name npx; args -y @example/billing-mcp; env keys BILLING_TOKEN)
+                  billing (command name npx; env keys BILLING_TOKEN)
                   an MCP tool surface the agent may call has changed
 
 ⚠ medium  widened  claude-code .claude/settings.json
@@ -183,8 +180,8 @@ Reproduce in that working tree: agents-shipgate diff --base 07c50e1bc59a0b3b2ba6
 
 From this alone a reviewer can name the change (`allow: Bash(npm test:*)`
 replaced by the broader `allow: Bash(npm *)`, a lost `rm -rf` denial, a new
-`billing` server launched by a command named `npx` with the arguments
-`-y @example/billing-mcp` and given a `BILLING_TOKEN`), the evidence
+`billing` server launched by a command named `npx` and given a
+`BILLING_TOKEN`), the evidence
 (the file and entry each change names, and the compared commits), the limit
 (static configuration, not observed behaviour), which sources the rows came
 from, and the question to answer.
