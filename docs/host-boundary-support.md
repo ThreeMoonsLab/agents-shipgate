@@ -77,7 +77,13 @@ the changed inputs the candidate rules at the end of this section name (#821):
   gives no row. The rest give no row and name no limit. A launch this audit
   read that becomes one of these is a row saying the step no longer declares
   an agent launch this audit reads, and that it may still start one this way;
-  it never says the step no longer starts an agent.
+  it never says the step no longer starts an agent. The one exception is a
+  rule that moved between jobs (below): when another job adds the same launch
+  while this job keeps no named unread step of that agent and no launch of it
+  whose input the rule is read from this audit did not read, the row says the
+  launch moved there, as a step reference moved between jobs does, so a
+  launch that became a script or an action outside the table in the same
+  change reads as moved; while the job keeps such a step, it never does.
 
 Review changes to those files and fields as you would a change to the workflow,
 hook or server entry that holds them.
@@ -281,13 +287,16 @@ names the rule and step. Three gains are named in the `why` and not claimed:
   A second job gaining a rule a first job keeps, or a different launch
   gaining it while the first job still exists, is claimed: that job may still
   run its launch in a form this audit does not read (`npx`, quoting), so a
-  launch that only stops being read has not left it, and a launch edited in
-  place into the one that job had gains the rule. A launch has not left a job
-  that still has an unread step of that agent where the launch stood, more
-  unread steps of it than before, or a launch of it holding an expression or
-  an unread argument input the rule is read from — so quoting the prompt of
-  `claude -p --dangerously-skip-permissions Review` in one job while another
-  job adds that plain step is a widening.
+  launch that only becomes a named unread step has not left it, and a launch
+  edited in place into the one that job had gains the rule. A launch has not
+  left a job that still has any named unread step of that agent — wherever it
+  stands and whether or not it was there before, because an unread step
+  carries no text that tells which launch it is — or a launch of it holding
+  an expression or an unread argument input the rule is read from. So quoting
+  the prompt of `claude -p --dangerously-skip-permissions Review` in one job,
+  or merging that job's `npm i -g @anthropic-ai/claude-code` step into it,
+  while another job adds that plain step is a widening, and so is moving that
+  step to another job while the job it left keeps a `claude mcp add` step.
 
 Any other edit — `--allowedTools Read` to `--allowedTools Bash`,
 `acceptEdits`, a new plugin, an argument input this audit does not read, a

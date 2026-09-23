@@ -657,7 +657,11 @@ class HostWorkflowAgentSettingV7(BaseModel):
     name and its URL's scheme and host, each followed by the digest when it
     drops something the digest reads (a command's arguments, a URL's query).
     So an MCP server's arguments and a hook's command publish nothing, as
-    `.mcp.json` and `.claude/settings.json` do not (#823 review). A URL in
+    `.mcp.json` and `.claude/settings.json` do not (#823 review). A
+    ``settings`` or ``mcp_config`` value that neither starts like a JSON
+    object nor is a plain file path (path characters, and a ``${{ }}``
+    expression only as a plain context reference) is ``<withheld:…>``, a
+    digest and none of its text (#823 review cycle 5). A URL in
     other text publishes its scheme and host with ``<redacted-path>`` for its
     path and query (#723). Other text — a prompt, a flag's value — is
     published through the workflow label redaction (#802). A value it

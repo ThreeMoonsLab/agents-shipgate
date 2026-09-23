@@ -230,7 +230,7 @@ for an edit to an argument input the audit does not read, which is compared by
 a digest, named in the row and named as a limit in `audit --host`. A `run:`
 that mentions an agent CLI and that the audit does not read is different: it
 gives no row in `diff` or the PR comment, whatever is edited, and is named only
-as a limit in `audit --host`. One that gains a rule, such as a plain `claude_args`
+as a limit in `audit --host`. An agent launch that gains a rule, such as a plain `claude_args`
 gaining `--dangerously-skip-permissions` on any of its lines, widens, and the
 hook announces it (#823), unless the launch may be a step of that job the audit
 did not read, rewritten, or the job's launch held before a `${{ }}` expression

@@ -2546,7 +2546,10 @@ def _codex_override(text: str) -> tuple[str, Any] | None:
     raw = value.strip()
     try:
         loaded = tomllib.loads(f"value = {raw}").get("value")
-    except (tomllib.TOMLDecodeError, RecursionError):
+    except (ValueError, RecursionError):
+        # ``TOMLDecodeError`` is a ``ValueError``, and so is the error
+        # ``int()`` raises for an integer longer than Python's digit limit
+        # (#823 review cycle 6).
         loaded = raw.strip("\"'")
     return key.strip(), loaded
 
@@ -2757,11 +2760,11 @@ class AgentRuleGains:
       launch in a form this reader does not read, so a launch that only stops
       being read has not left it, and one edited in place into the launch
       that job had gains the rule (#823 review cycle 3). The launch has not
-      left while the job it met the rule in has an unread step of that agent
-      at a step the launch held, more such steps than before, or a read
-      launch of that agent whose input the rule is read from it did not read
-      (#823 review cycle 5). Each names the launch it left, the way a step
-      reference moved between jobs adds no scope (#771).
+      left while the job it met the rule in has any unread step of that
+      agent, wherever it stands, or a read launch of that agent whose input
+      the rule is read from it did not read (#823 review cycles 5 and 6).
+      Each names the launch it left, the way a step reference moved between
+      jobs adds no scope (#771).
     """
 
     claimed: list[AgentWidening]
@@ -2814,17 +2817,14 @@ def agent_rule_gains(before: dict[str, Any] | None, after: dict[str, Any] | None
 
     def may_still_meet(source: _RuleKey) -> bool:
         # The losing job may still run the launch that met the rule, in a
-        # form this reader does not read: an unread step of that agent now
-        # stands at a step the launch held, or the job has more of them than
-        # before, or one of its read launches of that agent holds text in an
+        # form this reader does not read: it has any unread step of that
+        # agent, or one of its read launches of that agent holds text in an
         # input the rule is read from that this reader did not read. Such a
-        # launch has not left the job (#823 review cycle 5).
+        # launch has not left the job. An unread step carries no text to
+        # tell which launch it is, so any one counts, wherever it stands and
+        # whether or not it was there before (#823 review cycles 5 and 6).
         job, family, rule, detail = source
-        still_unread = unread_after.get((job, family), [])
-        held = {str(entry["step"]) for entry in old[source]}
-        if any(str(entry["step"]) in held for entry in still_unread):
-            return True
-        if len(still_unread) > len(unread_before.get((job, family), [])):
+        if unread_after.get((job, family)):
             return True
         return any(_unread_setting(entry, rule, detail) for entry in launched_after.get((job, family), []))
 

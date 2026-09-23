@@ -1035,6 +1035,27 @@ def test_a_codex_exec_sandbox_the_cli_does_not_select_is_changed(run):
     assert (row.direction, row.expands) == ("changed", False)
 
 
+@pytest.mark.parametrize(
+    "run",
+    [
+        "codex exec -c sandbox_mode=" + "1" * 5000 + " Review",
+        "codex exec -c default_permissions=" + "1" * 4400 + " Review",
+        "codex e --config=sandbox_mode=" + "1" * 4301 + " Review",
+    ],
+    ids=["sandbox-mode", "default-permissions", "attached-config"],
+)
+def test_a_codex_config_integer_past_the_digit_limit_is_read_as_text_and_selects_nothing(run):
+    """#823 review cycle 6 (C6-F2): `tomllib` raises a plain `ValueError` for such an integer."""
+
+    before, after = _workflow({"run": "echo hi"}), _workflow({"run": run})
+
+    launch, = _launches(after)
+    assert not launch.get("widening_rules")
+    assert host_grant_expansion_signals(_changes(before, after)) == []
+    row, = _rows(before, after)
+    assert (row.direction, row.expands) == ("changed", False)
+
+
 def test_attached_short_values_publish_under_the_primary_spelling():
     launch, = _launches(_workflow({"run": "codex exec -sdanger-full-access -c=model=o3 -pci review"}))
 
@@ -1097,13 +1118,13 @@ def test_renaming_a_job_that_launches_a_bypassing_agent_is_not_a_widening():
         # a gate the launch opened, moved with it
         (_jobs(review=[{"name": "agent", **_agent(allowed_bots="*")}]),
          _jobs(triage=[{"name": "agent", **_agent(allowed_bots="*")}])),
-        # the job it left keeps an unread step it already had, at another step (#823 review cycle 5)
-        (_jobs(lint=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}, {"name": "mcp", "run": "claude mcp add x"}],
+        # the job it left keeps a step that does not mention the agent
+        (_jobs(lint=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}, {"run": "make"}],
                review=[{"run": "make"}]),
-         _jobs(lint=[{"name": "mcp", "run": "claude mcp add x"}],
+         _jobs(lint=[{"run": "make"}],
                review=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}])),
     ],
-    ids=["step-moved", "renamed-and-edited", "swapped", "gate-moved", "moved-beside-an-unread-step-that-stays"],
+    ids=["step-moved", "renamed-and-edited", "swapped", "gate-moved", "moved-beside-a-step-that-is-no-launch"],
 )
 def test_a_launch_that_left_one_job_for_another_moves_its_rules(before, after):
     assert host_grant_expansion_signals(_changes(before, after)) == []
@@ -1147,6 +1168,24 @@ def test_a_launch_that_left_one_job_for_another_moves_its_rules(before, after):
         (_jobs(lint=[{"run": f"claude -p {BYPASS} Review"}], review=[{"run": "echo hi"}]),
          _jobs(lint=[{"run": "echo hi"}, {"run": f'claude -p {BYPASS} "Review"'}],
                review=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}])),
+        # #823 review cycle 6 (V1): the install step merged into the launch,
+        # so the job it met it in has as many unread steps as before, at a
+        # step the launch did not hold
+        (_jobs(lint=[{"run": "npm i -g @anthropic-ai/claude-code"}, {"run": f"claude -p {BYPASS} Review"}],
+               review=[{"run": "echo hi"}]),
+         _jobs(lint=[{"run": f"npm i -g @anthropic-ai/claude-code && claude -p {BYPASS} Review"}],
+               review=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}])),
+        # (V2) an unread step removed while the launch becomes unread at another step
+        (_jobs(lint=[{"run": f"claude -p {BYPASS} Review"}, {"run": 'echo "claude"'}], review=[{"run": "echo hi"}]),
+         _jobs(lint=[{"run": "echo hi"}, {"run": f'claude -p {BYPASS} "Review"'}],
+               review=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}])),
+        # the job it left keeps an unread step it already had, at another
+        # step: that step carries no text to tell it is not the launch (#823
+        # review cycle 6 flips the cycle 5 guard, in the safe direction)
+        (_jobs(lint=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}, {"name": "mcp", "run": "claude mcp add x"}],
+               review=[{"run": "make"}]),
+         _jobs(lint=[{"name": "mcp", "run": "claude mcp add x"}],
+               review=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}])),
         # the job it met it in still runs the action, with an argument input
         # it no longer reads, or a settings input holding an expression
         (_jobs(lint=[_named(BYPASS)], review=[{"run": "make"}]),
@@ -1158,7 +1197,9 @@ def test_a_launch_that_left_one_job_for_another_moves_its_rules(before, after):
     ],
     ids=["second-job", "narrowed-there-widened-here", "unread-in-the-job-it-met-it", "edited-into-the-same-launch",
          "moved-and-edited", "quoted-in-the-job-it-met-it", "npx-in-the-job-it-met-it",
-         "unread-at-another-step-in-the-job-it-met-it", "arguments-unread-in-the-job-it-met-it",
+         "unread-at-another-step-in-the-job-it-met-it", "install-merged-into-the-launch",
+         "unread-step-removed-while-the-launch-becomes-unread", "beside-an-unread-step-that-stays",
+         "arguments-unread-in-the-job-it-met-it",
          "setting-expression-in-the-job-it-met-it"],
 )
 def test_a_rule_another_job_gains_while_no_launch_left_is_a_widening(before, after):
@@ -1933,6 +1974,54 @@ def test_a_launch_the_job_still_runs_unread_has_not_moved_to_the_job_that_adds_i
     assert "moved between jobs" not in row["why"]
     workflow, = [grant for grant in host_audit_inventory(repo)["grants"] if grant.get("kind") == "workflow"]
     assert workflow["unread_agent_runs"] == [{"job": "a", "step": "steps[0]", "agent": "claude"}]
+
+
+def test_a_launch_merged_into_an_unread_step_it_did_not_hold_has_not_moved(tmp_path):
+    """#823 review cycle 6 (C6-F1, V1) end to end: the job keeps as many unread steps, at another step."""
+
+    from agents_shipgate.cli.host_audit import host_audit_inventory
+
+    permissions = {"contents": "write"}
+    plain = f"claude -p {BYPASS} Review"
+    install = "npm i -g @anthropic-ai/claude-code"
+    base = _workflow(jobs={"a": {"steps": [{"run": install}, {"run": plain}]}, "b": {"steps": [{"run": "echo hi"}]}},
+                     permissions=permissions)
+    head = _workflow(jobs={"a": {"steps": [{"run": f"{install} && {plain}"}]}, "b": {"steps": [{"run": plain}]}},
+                     permissions=permissions)
+    repo = _repo(tmp_path, {SOURCE: _yaml(base)})
+    _git(repo, "checkout", "-qb", "change")
+    _write(repo, {SOURCE: _yaml(head)})
+    _git(repo, "commit", "-qam", "merge the install into the launch, and launch in b")
+
+    payload = _diff(repo)
+    row, = payload["rows"]
+    assert (row["direction"], row["expands"]) == ("widened", True)
+    assert "an agent launch now skips permission checks (bypassPermissions) (b/steps[0])" in row["why"]
+    assert "a step no longer declares an agent launch this audit reads (a/steps[1])" in row["why"]
+    assert "may still start an agent in a way this audit does not read" in row["why"]
+    assert "moved between jobs" not in row["why"]
+    workflow, = [grant for grant in host_audit_inventory(repo)["grants"] if grant.get("kind") == "workflow"]
+    assert workflow["unread_agent_runs"] == [{"job": "a", "step": "steps[0]", "agent": "claude"}]
+
+
+def test_a_codex_config_integer_past_the_digit_limit_crashes_no_route(tmp_path):
+    """#823 review cycle 6 (C6-F2): `diff`, `audit --host` and `check` exit 0, and `verify` is no internal error."""
+
+    repo = _repo(tmp_path, {SOURCE: _yaml(_workflow({"run": "echo hi"}))})
+    _git(repo, "checkout", "-qb", "change")
+    _write(repo, {SOURCE: _yaml(_workflow({"run": "codex exec -c sandbox_mode=" + "1" * 5000 + " Review"}))})
+    _git(repo, "commit", "-qam", "a codex step")
+
+    for args in (
+        ["diff", "--workspace", str(repo), "--base", "main", "--json"],
+        ["audit", "--host", "--workspace", str(repo), "--json"],
+        ["check", "--workspace", str(repo), "--base", "main", "--head", "HEAD", "--format", "agent-boundary-json"],
+        ["verify", "--workspace", str(repo), "--base", "main", "--head", "HEAD", "--format", "text"],
+    ):
+        result = CliRunner().invoke(app, args)
+        assert result.exit_code == 0, (args[0], result.output, result.exception)
+    row, = _diff(repo)["rows"]
+    assert (row["direction"], row["expands"]) == ("changed", False)
 
 
 # --- the same row on every route ---------------------------------------------------
