@@ -27,6 +27,7 @@ from agents_shipgate.core.capability_diff_rows import capability_diff_rows
 from agents_shipgate.core.host_grants import (
     _claude_argument_input,
     _codex_argument_input,
+    _command_substitutions,
     _literal_argument_words,
     _uncompared_workflow_text,
     _workflow_grant,
@@ -236,8 +237,17 @@ def test_literal_assignments_before_the_command_are_skipped_and_never_published(
         'echo "claude -p --dangerously-skip-permissions"',
         "echo claude -p done",
         "npm test",
+        # a substitution the shell never runs, or one that runs another command
+        'echo "\\$(claude -p --dangerously-skip-permissions)"',
+        "echo '$(claude -p --dangerously-skip-permissions)'",
+        "echo '`claude -p --dangerously-skip-permissions`'",
+        'echo "$(date) claude -p --dangerously-skip-permissions"',
+        # a reserved word is read only before a command's assignments
+        "CI=true then claude -p 'go'",
     ],
-    ids=["claude-mcp", "claude-version", "codex-login", "echo-quoted", "echo-bare", "unrelated"],
+    ids=["claude-mcp", "claude-version", "codex-login", "echo-quoted", "echo-bare", "unrelated",
+         "escaped-substitution", "single-quoted-substitution", "single-quoted-backtick",
+         "substitution-of-another-command", "reserved-word-after-assignment"],
 )
 def test_a_command_that_launches_no_headless_agent_is_not_listed(run):
     assert _launches(_workflow({"run": run})) == []
@@ -255,9 +265,25 @@ def test_a_command_that_launches_no_headless_agent_is_not_listed(run):
         ('claude -p "Fix ${{ github.event.issue.title }}"', "expression"),
         ("cat <<EOF > prompt.md\nIt's broken\nEOF\nclaude -p --dangerously-skip-permissions 'go'", "compound_command"),
         ("claude -p --dangerously-skip-permissions \"go", "compound_command"),
+        # an agent CLI inside a double-quoted or backtick substitution (#823 review)
+        ('gh pr comment "$PR" --body "$(claude -p --dangerously-skip-permissions \'go\')"', "shell_expansion"),
+        ('REVIEW="$(claude -p --dangerously-skip-permissions \'go\')"', "shell_expansion"),
+        ("REVIEW=`claude -p --dangerously-skip-permissions 'go'`", "shell_expansion"),
+        ('echo "$(echo "$(claude -p --dangerously-skip-permissions \'go\')")"', "compound_command"),
+        # quoting that does not balance is read a line at a time, substitutions included
+        ("cat <<EOF > prompt.md\nIt's broken\nEOF\nREVIEW=\"$(claude -p --dangerously-skip-permissions 'go')\"",
+         "compound_command"),
+        # an agent CLI after a shell reserved word
+        ("if true; then claude -p --dangerously-skip-permissions 'go'; fi", "compound_command"),
+        ("for f in a b; do claude -p --dangerously-skip-permissions 'go'; done", "compound_command"),
+        ("{ claude -p --dangerously-skip-permissions 'go'; }", "compound_command"),
+        ("! claude -p --dangerously-skip-permissions 'go'", "compound_command"),
+        ("time -p claude -p --dangerously-skip-permissions 'go'", "compound_command"),
     ],
     ids=["and", "lines", "pipe", "heredoc", "variable", "substitution", "expression", "unbalanced-heredoc",
-         "unbalanced"],
+         "unbalanced", "quoted-substitution-argument", "quoted-substitution-assignment", "backtick",
+         "nested-substitution", "unbalanced-substitution", "if-then", "for-do", "brace-group", "negated",
+         "timed"],
 )
 def test_a_shape_this_reader_does_not_read_is_unresolved_and_publishes_no_text(run, reason):
     launch, = _launches(_workflow({"run": run}))
@@ -268,6 +294,17 @@ def test_a_shape_this_reader_does_not_read_is_unresolved_and_publishes_no_text(r
     limit, = uncompared_agent_launch_texts(_grant(_workflow({"run": run})))
     assert limit.startswith("the agent launch at review/steps[0] (claude) is ")
     assert "not reported" in limit
+
+
+def test_deeply_nested_substitutions_are_read_in_one_pass():
+    """#823 review: a substitution is found without recursion, and each character is split once."""
+
+    depth = 20000
+    run = 'REVIEW="' + "$(" * depth + "claude -p --dangerously-skip-permissions 'go'" + ")" * depth + '"'
+    launch, = _launches(_workflow({"run": run}))
+    assert (launch["agent"], launch["form"], launch["unresolved_reason"]) == ("claude", "unresolved", "shell_expansion")
+    # Each nested substitution reads as `_` in the one around it.
+    assert _command_substitutions('echo "$(echo "$(codex exec x)")"') == ["codex exec x", 'echo "_"']
 
 
 def test_a_quoted_word_that_starts_with_a_hash_is_not_a_comment():
@@ -530,6 +567,75 @@ def test_adding_an_unresolved_launch_is_a_row_that_claims_no_effect():
     assert "review/steps[0]: runs claude -p (unresolved: compound command)" in row.after
     assert "a step launches an agent in a form this audit does not read (review/steps[0])" in row.why
     assert "does not say what that agent may do" in row.why
+
+
+SUBSTITUTED = 'gh pr comment "$PR" --body "$(claude -p {flags} \'Review this change\')"'
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        SUBSTITUTED.format(flags="--dangerously-skip-permissions"),
+        "if true; then claude -p --dangerously-skip-permissions 'Review this change'; fi",
+    ],
+    ids=["quoted-substitution", "if-then"],
+)
+def test_an_agent_cli_the_splitter_does_not_head_is_a_row_and_a_named_limit(run):
+    """#823 review: a launch inside a quoted `$(…)`, or after `then`, is named, never missed."""
+
+    row, = _rows(_reproduction(), _reproduction(run=run))
+    assert (row.direction, row.expands) == ("changed", False)
+    assert "a step now launches an agent (review/steps[2])" in row.why
+    assert "a step launches an agent in a form this audit does not read (review/steps[2])" in row.why
+    assert "dangerously" not in row.after
+
+    limit, = uncompared_agent_launch_texts(_grant(_reproduction(run=run)))
+    assert limit.startswith("the agent launch at review/steps[2] (claude) is ")
+
+
+def test_an_edit_inside_a_quoted_substitution_is_quiet_and_named_as_a_limit():
+    before = _workflow({"run": SUBSTITUTED.format(flags="--allowedTools Read")})
+    after = _workflow({"run": SUBSTITUTED.format(flags="--dangerously-skip-permissions")})
+
+    assert _rows(before, after) == []
+    limit, = uncompared_agent_launch_texts(_grant(after))
+    assert "a command holding, or inside, a shell expansion this static audit does not evaluate" in limit
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        ("claude -p --allowedTools Read 'Review'",
+         "npx @anthropic-ai/claude-code -p --dangerously-skip-permissions 'Review'"),
+        ("claude -p --allowedTools Read 'Review'",
+         "./node_modules/.bin/claude -p --dangerously-skip-permissions 'Review'"),
+        ("codex exec -s workspace-write 'review'", "codex -c sandbox_mode=danger-full-access exec 'review'"),
+    ],
+    ids=["npx", "path", "codex-root-options"],
+)
+def test_a_read_launch_that_becomes_a_form_this_audit_does_not_read_is_not_called_gone(before, after):
+    """#823 review: what was established is that no launch this audit reads is declared."""
+
+    row, = _rows(_workflow({"run": before}), _workflow({"run": after}))
+    assert (row.direction, row.expands) == ("changed", False)
+    assert "a step no longer declares an agent launch this audit reads (review/steps[0])" in row.why
+    assert (
+        "a step that no longer declares one may still start an agent in a way this audit does not read, "
+        "such as an action outside its table, `npx`, a script, a path such as `./node_modules/.bin/claude` "
+        "or `codex` options before `exec`, so this row does not say that it no longer starts one"
+    ) in row.why
+    assert "no longer launches an agent" not in row.why
+
+
+def test_a_read_launch_that_moves_into_a_quoted_substitution_is_changed_and_named_unread():
+    row, = _rows(
+        _workflow({"run": "claude -p --allowedTools Read 'Review this change'"}),
+        _workflow({"run": SUBSTITUTED.format(flags="--dangerously-skip-permissions")}),
+    )
+    assert (row.direction, row.expands) == ("changed", False)
+    assert "an agent launch's declared settings changed (review/steps[0])" in row.why
+    assert "a step launches an agent in a form this audit does not read (review/steps[0])" in row.why
+    assert "no longer" not in row.why
 
 
 def test_an_action_ref_bump_is_a_step_reference_change_only():
@@ -1601,6 +1707,34 @@ def test_an_unresolved_launch_is_a_non_blocking_limit_that_leaves_coverage_compl
     issue, = [item for item in inventory["issues"] if item["host"] == "github"]
     assert (issue["kind"], issue["blocking"]) == ("unsupported", False)
     assert "review/steps[0] (claude)" in issue["message"]
+
+
+def test_the_quoted_substitution_of_the_review_is_a_row_in_diff_and_a_coverage_issue(tmp_path):
+    """#823 review: `--body "$(claude -p …)"` gave no row, no launch and no coverage issue."""
+
+    from agents_shipgate.cli.host_audit import host_audit_inventory
+
+    repo = _repo(tmp_path, {SOURCE: _yaml(_reproduction())})
+    _git(repo, "checkout", "-qb", "change")
+    _write(repo, {SOURCE: _yaml(_reproduction(run=SUBSTITUTED.format(flags="--dangerously-skip-permissions")))})
+    _git(repo, "commit", "-qam", "comment with a review")
+
+    row, = _diff(repo)["rows"]
+    assert (row["direction"], row["expands"]) == ("changed", False)
+    assert "a step launches an agent in a form this audit does not read (review/steps[2])" in row["why"]
+    text = CliRunner().invoke(app, ["diff", "--workspace", str(repo), "--base", "main"])
+    assert text.exit_code == 0, text.output
+    assert "No static host-grant changes detected" not in text.output
+    assert "review/steps[2]" in text.output and "dangerously" not in text.output
+
+    inventory = host_audit_inventory(repo)
+    workflow, = [grant for grant in inventory["grants"] if grant.get("kind") == "workflow"]
+    assert [(item["step"], item["form"], item["unresolved_reason"]) for item in workflow["agent_launches"]] == [
+        ("steps[1]", "read", None), ("steps[2]", "unresolved", "shell_expansion"),
+    ]
+    issue, = [item for item in inventory["issues"] if item["host"] == "github"]
+    assert (issue["kind"], issue["blocking"]) == ("unsupported", False)
+    assert "review/steps[2] (claude)" in issue["message"]
 
 
 # --- the same row on every route ---------------------------------------------------

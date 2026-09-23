@@ -383,7 +383,9 @@ def _agent_launch_reasons(
         for verb, wording in (
             ("changed", "an agent launch's declared settings changed"),
             ("added", "a step now launches an agent"),
-            ("removed", "a step no longer launches an agent"),
+            # What was established is that the step declares no launch this
+            # audit reads, not that it starts no agent (#823 review).
+            ("removed", "a step no longer declares an agent launch this audit reads"),
         )
         if verb in groups
     ]
@@ -391,6 +393,13 @@ def _agent_launch_reasons(
         reasons.append(
             f"{_joined_words(phrases)}; agent launch settings are compared as declared text, "
             "and a change that gains no documented widening rule is not counted as a widening"
+        )
+    if "removed" in groups and after is not None:
+        reasons.append(
+            "a step that no longer declares one may still start an agent in a way this audit "
+            "does not read, such as an action outside its table, `npx`, a script, a path such as "
+            "`./node_modules/.bin/claude` or `codex` options before `exec`, so this row does not "
+            "say that it no longer starts one"
         )
     # A rule is read only from literal text a `${{ }}` expression cannot
     # reach, so the row says where that leaves text unread (#823 review).

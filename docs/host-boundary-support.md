@@ -68,9 +68,14 @@ the changed inputs the candidate rules at the end of this section name (#821):
   (#823): an action outside its table, even one that takes `claude_args`; a
   composite action (#701); a script the step runs (`run: ./scripts/review.sh`);
   an agent CLI reached through another command (`npx @anthropic-ai/claude-code`,
-  `timeout 600 claude`, `sudo`, a path such as `./node_modules/.bin/claude`);
-  and a step's `env:`, `shell:` and `if:`. Editing one gives no row and names
-  no limit.
+  `timeout 600 claude`, `sudo`, `bash -c`, a path such as
+  `./node_modules/.bin/claude`); `codex` with an option before `exec`
+  (`codex -c sandbox_mode=danger-full-access exec`, `codex --yolo exec`), which
+  can change how `exec` runs; and a step's `env:`, `shell:` and `if:`.
+  Editing one gives no row and names no limit. A launch this audit read that
+  becomes one of these is a row saying the step no longer declares an agent
+  launch this audit reads, and that it may still start one this way; it never
+  says the step no longer starts an agent.
 
 Review changes to those files and fields as you would a change to the workflow,
 hook or server entry that holds them.
@@ -189,12 +194,19 @@ things are listed on the workflow grant, each naming its `job/step` (the step's
   takes every following word up to the next word starting with `-`, as the CLI
   reads it, so a prompt written after it is compared as one of its values; the
   row shows it. A `run:` holding more than one command (a newline, `&&`, `;`,
-  `|`, a redirection or a here-doc) or quoting that does not balance, a shell
-  expansion (`$VAR`, `$(…)`, a backtick) or a `${{ }}` expression is listed as
-  `unresolved` with that reason, once for each agent CLI it starts at the head
-  of a command (of a line, when its quoting does not balance), and none of its
-  text is published. A command that launches no headless agent — `claude mcp add`,
-  `codex login`, an `echo` that mentions either — is not listed.
+  `|`, a redirection or a here-doc), a shell reserved word before a command
+  (`if … then`, `for … do`, `{ …; }`, `!`, `time`) or quoting that does not
+  balance, a shell expansion (`$VAR`, `$(…)`, a backtick) or a `${{ }}`
+  expression is listed as `unresolved` with that reason, once for each agent
+  CLI it starts at the head of a command (of a line, when its quoting does not
+  balance), and none of its text is published. A command's head is read after
+  any reserved words, and inside each `$(…)` or backtick substitution outside
+  single quotes, so `gh pr comment --body "$(claude -p …)"` and
+  ``REVIEW=`claude -p …` `` are listed (`shell_expansion`), and so is
+  `if …; then claude -p …; fi` (`compound_command`). A command that launches no
+  headless agent — `claude mcp add`, `codex login`, an `echo` that mentions
+  either, a quoted `"claude -p …"` or a single-quoted `'$(claude -p …)'` — is
+  not listed.
 - **Each `actions/checkout` step's `with.ref`**, or the default when it
   declares none or an empty one. Adding `ref:
   ${{ github.event.pull_request.head.sha }}` is a `changed` row naming the

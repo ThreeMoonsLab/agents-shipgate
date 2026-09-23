@@ -719,9 +719,10 @@ class HostWorkflowAgentLaunchV7(BaseModel):
     flags the step declares in ``settings``, and the documented widening
     rules they meet in ``widening_rules``, omitted when none.
     ``form: unresolved`` names why the step's settings were not
-    read — a ``run:`` holding more than one command or quoting that does not
-    balance, a shell expansion, a ``${{ }}`` expression, or ``with:`` that is
-    not a mapping — with no
+    read — a ``run:`` holding more than one command, a shell reserved word or
+    quoting that does not balance, a shell expansion (an agent CLI inside a
+    command substitution included), a ``${{ }}`` expression, or ``with:``
+    that is not a mapping — with no
     settings, and records a non-blocking coverage issue. ``job_secrets`` names
     the secrets the step's job references (``${{ secrets.NAME }}``) and the
     workflow-level ``env`` passes: context for the row that names this step,

@@ -1852,16 +1852,165 @@ def _has_shell_comment(text: str) -> bool:
     return False
 
 
-def _agent_command(words: list[str]) -> tuple[str, list[str]] | None:
-    """The agent CLI one simple command launches headless, and its arguments.
+@dataclass
+class _SubstitutionLevel:
+    """One open level of :func:`_command_substitutions`: the top of the text, or one substitution."""
 
-    ``claude`` with ``-p``/``--print`` anywhere in its arguments, or ``codex``
-    with ``exec`` (or its alias ``e``) as its first argument, after any leading
-    ``NAME=value`` assignments. Any other command — ``claude mcp add``,
-    ``codex login``, an ``echo`` that mentions either — launches none.
+    #: The character that ends it: `)` for `$(`, a backtick for a backtick, none at the top.
+    closer: str
+    #: Where its text starts.
+    start: int
+    #: ``$((…))`` is arithmetic, not a command.
+    arithmetic: bool = False
+    quoted: bool = False
+    #: Parentheses opened inside a `$(…)` and not yet closed.
+    depth: int = 0
+    #: Its text so far, each nested substitution in it replaced by `_`.
+    parts: list[str] = field(default_factory=list)
+    #: Where its text not yet in ``parts`` starts.
+    cursor: int = 0
+
+
+def _command_substitutions(text: str) -> list[str]:
+    """The text of each ``$(…)`` and backtick command substitution the shell would run in ``text``.
+
+    Found outside single quotes, inside double quotes too: the word splitter
+    reads a double-quoted ``"$(claude -p …)"`` as one word and a backtick as
+    no operator, so the command inside either never heads a command it splits
+    (#823 review). A nested substitution is listed on its own and reads as
+    ``_`` in the text around it, so each character is listed once and no
+    nesting depth costs more than the text's length. An escaped ``\\$`` or
+    backtick, a comment and the ``$((…))`` of arithmetic are not
+    substitutions, though one inside arithmetic still is, and one left open
+    runs to the end of the text. Only used to name an agent CLI as
+    unresolved: nothing found here is read or published.
+    """
+
+    bodies: list[str] = []
+    levels = [_SubstitutionLevel(closer="", start=0)]
+
+    def open_level(opener: int, closer: str, start: int, arithmetic: bool = False) -> None:
+        parent = levels[-1]
+        parent.parts += [text[parent.cursor:opener], "_"]
+        levels.append(_SubstitutionLevel(closer=closer, start=start, arithmetic=arithmetic, cursor=start))
+
+    def close_level(end: int) -> None:
+        level = levels.pop()
+        if not level.arithmetic:
+            bodies.append("".join([*level.parts, text[level.cursor:end]]))
+        levels[-1].cursor = min(end + 1, len(text))
+
+    index = 0
+    while index < len(text):
+        level = levels[-1]
+        char = text[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == "`":
+            if level.closer == "`":
+                close_level(index)
+            else:
+                open_level(index, "`", index + 1)
+            index += 1
+            continue
+        if char == "$" and text.startswith("(", index + 1):
+            open_level(index, ")", index + 2, arithmetic=text.startswith("((", index + 1))
+            index += 2
+            continue
+        if level.quoted:
+            level.quoted = char != '"'
+        elif char == '"':
+            level.quoted = True
+        elif char == "'":
+            quote_end = text.find("'", index + 1)
+            index = len(text) if quote_end < 0 else quote_end + 1
+            continue
+        elif char == "#" and (
+            index == level.start or text[index - 1].isspace() or text[index - 1] in _SHELL_OPERATOR_CHARS
+        ):
+            # A comment runs to the end of its line, or inside backticks to
+            # the backtick that closes them.
+            ends = [text.find("\n", index), text.find("`", index) if level.closer == "`" else -1]
+            index = min((end for end in ends if end >= 0), default=len(text))
+            continue
+        elif level.closer == ")" and char == "(":
+            level.depth += 1
+        elif level.closer == ")" and char == ")":
+            if level.depth:
+                level.depth -= 1
+            else:
+                close_level(index)
+        index += 1
+    while len(levels) > 1:
+        close_level(len(text))
+    return bodies
+
+
+def _commands(words: list[str]) -> list[list[str]]:
+    """``words`` grouped into the commands their operator tokens separate, empty ones included."""
+
+    commands: list[list[str]] = [[]]
+    for word in words:
+        if _is_operator(word):
+            commands.append([])
+        else:
+            commands[-1].append(word)
+    return commands
+
+
+def _substituted_agents(run: str) -> set[str]:
+    """The agent CLIs ``run`` starts at the head of a command inside a command substitution."""
+
+    agents: set[str] = set()
+    for body in _command_substitutions(run):
+        words = _shell_words(body)
+        if words is None:
+            agents.update(agent for line in body.splitlines() if (agent := _line_agent(line)))
+            continue
+        agents.update(launch[0] for command in _commands(words) if (launch := _agent_command(command)))
+    return agents
+
+
+#: Shell reserved words that can come before a command's name: a pipeline's
+#: ``!`` and ``time`` (with its ``-p``), and the words that open a list inside
+#: a compound command, as in ``if …; then claude -p …; fi`` (#823 review). A
+#: command after one is not a simple command, so an agent CLI there is named
+#: as unresolved and never read.
+_RESERVED_PREFIXES = frozenset({"!", "time", "{", "if", "then", "elif", "else", "while", "until", "do"})
+
+
+def _reserved_prefix_length(words: list[str]) -> int:
+    """How many leading words of one command are shell reserved words, a ``function NAME`` included.
+
+    Reserved words are read only before a command's assignments and name, so
+    ``FOO=1 then`` runs a command named ``then``.
     """
 
     index = 0
+    while index < len(words):
+        if words[index] in _RESERVED_PREFIXES:
+            index += 2 if words[index] == "time" and words[index + 1:index + 2] == ["-p"] else 1
+        elif words[index] == "function":
+            # `function NAME { …; }`: the name is not a command.
+            index += 2
+        else:
+            break
+    return min(index, len(words))
+
+
+def _agent_command(words: list[str]) -> tuple[str, list[str]] | None:
+    """The agent CLI one command launches headless, and its arguments.
+
+    ``claude`` with ``-p``/``--print`` anywhere in its arguments, or ``codex``
+    with ``exec`` (or its alias ``e``) as its first argument, after any leading
+    shell reserved words (``then``, ``do``, ``{``, ``!``, ``time``, a
+    ``function NAME``) and then any ``NAME=value`` assignments, the order the
+    shell reads them in. Any other command — ``claude mcp add``,
+    ``codex login``, an ``echo`` that mentions either — launches none.
+    """
+
+    index = _reserved_prefix_length(words)
     while index < len(words) and _ASSIGNMENT_RE.match(words[index]):
         index += 1
     if index >= len(words):
@@ -2624,8 +2773,9 @@ def _run_launches(job: str, step_label: str, run: str) -> list[dict[str, Any]]:
     the agent CLI (after literal ``NAME=value`` assignments), holds no shell
     expansion and no ``${{ }}`` expression: then its documented permission
     flags are its settings. Otherwise an agent CLI found at the start of any
-    simple command in it is one ``unresolved`` entry with the reason, and none
-    of its text is published.
+    command in it — after any reserved words, and inside a ``$(…)`` or
+    backtick substitution outside single quotes — is one ``unresolved`` entry
+    with the reason, and none of its text is published.
     """
 
     run = run.strip()
@@ -2633,41 +2783,45 @@ def _run_launches(job: str, step_label: str, run: str) -> list[dict[str, Any]]:
     base = {"job": job, "step": step_label}
     if words is None:
         # Quoting that does not balance cannot be split into commands, so no
-        # word of it is read; a line that starts an agent CLI is still named.
+        # word of it is read; a line that starts an agent CLI, or holds a
+        # substitution that does, is still named.
         agents = sorted({
             agent for line in run.splitlines()
-            if (agent := _line_agent(line)) is not None
+            for agent in ({_line_agent(line)} | _substituted_agents(line))
+            if agent is not None
         })
         return [
             {**base, "agent": agent, "form": "unresolved", "unresolved_reason": "compound_command", "settings": []}
             for agent in agents
         ]
-    commands: list[list[str]] = [[]]
-    for word in words:
-        if _is_operator(word):
-            commands.append([])
-        else:
-            commands[-1].append(word)
+    commands = _commands(words)
     launches = [launch for command in commands if (launch := _agent_command(command))]
-    if not launches:
+    # An agent CLI inside a `$(…)` or backtick substitution heads no command
+    # the splitter sees when the substitution is double-quoted or a backtick
+    # (#823 review), and is named as unresolved.
+    substituted = _substituted_agents(run)
+    if not launches and not substituted:
         return []
     # A comment is an unquoted `#` at the start of a word, read off the raw
     # text: the splitter keeps `#` literal, so a quoted "#123 review" is one word.
+    # A command after a reserved word (`then`, `!`, `time`) is not a simple one.
+    simple = [command for command in commands if command]
     single = (
-        len([command for command in commands if command]) == 1
+        len(simple) == 1
         and not any(_is_operator(word) for word in words)
         and not _has_shell_comment(run)
+        and not _reserved_prefix_length(simple[0])
     )
     if "${{" in run:
         reason: str | None = "expression"
     elif not single:
         reason = "compound_command"
-    elif _has_shell_expansion(run):
+    elif substituted or _has_shell_expansion(run):
         reason = "shell_expansion"
     else:
         reason = None
     if reason is not None:
-        agents = sorted({agent for agent, _arguments in launches})
+        agents = sorted({agent for agent, _arguments in launches} | substituted)
         return [
             {**base, "agent": agent, "form": "unresolved", "unresolved_reason": reason, "settings": []}
             for agent in agents
@@ -3096,8 +3250,11 @@ def gained_agent_widenings(before: dict[str, Any] | None, after: dict[str, Any] 
 
 #: How an unresolved agent launch or checkout reads in the limit that names it.
 _UNRESOLVED_AGENT_PHRASES = {
-    "compound_command": "part of a `run:` that holds more than one command, or quoting this audit cannot split",
-    "shell_expansion": "a command with a shell expansion this static audit does not evaluate",
+    "compound_command": (
+        "part of a `run:` that holds more than one command or a shell reserved word, "
+        "or quoting this audit cannot split"
+    ),
+    "shell_expansion": "a command holding, or inside, a shell expansion this static audit does not evaluate",
     "expression": "a `run:` holding a `${{ }}` expression, which GitHub substitutes before the shell reads it",
     "inputs_not_a_mapping": "a step whose `with:` is not a mapping",
 }
