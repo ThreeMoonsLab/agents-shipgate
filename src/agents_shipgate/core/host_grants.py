@@ -31,6 +31,7 @@ from agents_shipgate.core.boundary_registry import (
     CLAUDE_PLUGIN_MARKETPLACE,
     is_claude_plugin_manifest_path,
     is_claude_plugin_marketplace_path,
+    is_claude_plugin_reference_path,
     is_explicit_boundary_file_path,
     is_hook_declaration_file_name,
 )
@@ -314,9 +315,52 @@ class HostBoundarySnapshot:
     input_failures: dict[str, HostInputFailure] = field(default_factory=dict)
     #: Issues raised while reading a plugin manifest, a marketplace or a hook
     #: file only a plugin selects (#714). Private reader facts, never
-    #: published: `check`, which routes no plugin file and cannot name a
-    #: limit, leaves them out of its completeness.
+    #: published: `check`, which cannot name a limit, leaves them out of its
+    #: completeness, except on a changed file that holds hooks of a plugin
+    #: the project settings enable (#809).
     plugin_reference_issue_ids: frozenset[str] = frozenset()
+    #: The repository paths of the files that declare hooks of a plugin this
+    #: repository's project settings enable (#809): every hook file such a
+    #: plugin selects, and a manifest or marketplace whose inline hooks it
+    #: loads. The same selection publishes those hooks as
+    #: ``project_enabled_plugin``. A private reader fact, never published:
+    #: `check` routes a change to one of these files to protected-surface
+    #: review, as it routes a settings layer.
+    enabled_plugin_hook_sources: frozenset[str] = frozenset()
+    #: The hook files such a plugin selects that the reader does not open
+    #: (#809): a name other than `hooks.json` or `<name>-hooks.json`, or a
+    #: directory the walk skips. The host loads their hooks and the inventory
+    #: names each one as a limit, so a change to one is input `check` could
+    #: not read, never a change it may allow. Private, never published.
+    enabled_plugin_unread_hook_files: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
+class EnabledPluginHookFiles:
+    """The files holding hooks of a plugin the project settings enable (#809).
+
+    The two private snapshot facts, gathered across the sides of a change a
+    caller could read, so `check` and `verify` decide from the same evidence.
+    """
+
+    #: Files the reader opened that declare such hooks
+    #: (``HostBoundarySnapshot.enabled_plugin_hook_sources``).
+    sources: frozenset[str] = frozenset()
+    #: Files such a plugin selects whose hooks the reader did not read
+    #: (``HostBoundarySnapshot.enabled_plugin_unread_hook_files``).
+    unread: frozenset[str] = frozenset()
+
+    @classmethod
+    def of(cls, snapshot: HostBoundarySnapshot) -> EnabledPluginHookFiles:
+        return cls(
+            sources=snapshot.enabled_plugin_hook_sources,
+            unread=snapshot.enabled_plugin_unread_hook_files,
+        )
+
+    def union(self, other: EnabledPluginHookFiles) -> EnabledPluginHookFiles:
+        return EnabledPluginHookFiles(
+            sources=self.sources | other.sources, unread=self.unread | other.unread
+        )
 
 
 def _canonical(value: Any) -> str:
@@ -1017,11 +1061,7 @@ def hook_loading_basis(grant: dict[str, Any]) -> HookLoadingBasis:
 
     source = str(grant.get("source") or "").replace("\\", "/").split("#", 1)[0]
     pair = (grant.get("access"), grant.get("risk"))
-    if grant.get("host") == "claude-code" and (
-        is_hook_declaration_file_name(source)
-        or is_claude_plugin_manifest_path(source)
-        or is_claude_plugin_marketplace_path(source)
-    ):
+    if grant.get("host") == "claude-code" and is_claude_plugin_reference_path(source):
         for basis in ("project_enabled_plugin", "plugin_selected", "declared_only"):
             if pair == _HOOK_ACCESS_BY_BASIS[basis]:
                 return basis  # type: ignore[return-value]
@@ -2050,6 +2090,13 @@ class _PluginHookSelection:
     #: The selected hook files that a plugin this repository's project
     #: settings enable selects, published as ``project_enabled_plugin``.
     enabled: set[str] = field(default_factory=set)
+    #: The manifests and marketplaces whose inline hooks such a plugin loads,
+    #: by file (#809): an inline hook's `source` is the manifest, or
+    #: `<marketplace>#plugins.<name>`.
+    enabled_inline: set[str] = field(default_factory=set)
+    #: The hook files such a plugin selects that the reader refused to open,
+    #: by name or by a skipped directory (#809). Each is a named limit.
+    enabled_unread: set[str] = field(default_factory=set)
     #: Every issue raised while resolving that selection.
     reference_issue_ids: set[str] = field(default_factory=set)
 
@@ -2162,6 +2209,8 @@ def _resolve_claude_plugin_hooks(
     roots_by_file: dict[str, set[str]] = {}
     #: Inline hook objects, kept until the same is known for their root.
     inline: list[tuple[Any, str, str]] = []
+    #: ``{hook file the reader refused: the plugin roots that select it}``.
+    unread_roots_by_file: dict[str, set[str]] = {}
     enabled_roots: set[str] = set()
     folded_links = {link.casefold() for link in unread_links}
 
@@ -2269,6 +2318,7 @@ def _resolve_claude_plugin_hooks(
             (part for part in target.split("/") if part in _WALK_SKIPPED_DIRECTORIES), None
         )
         if skipped is not None:
+            unread_roots_by_file.setdefault(target, set()).add(plugin_root.casefold())
             issue(
                 source=target, blocking=False,
                 message=(
@@ -2278,6 +2328,7 @@ def _resolve_claude_plugin_hooks(
             )
             return
         if not is_hook_declaration_file_name(target):
+            unread_roots_by_file.setdefault(target, set()).add(plugin_root.casefold())
             issue(
                 source=target, blocking=blocking,
                 message=(
@@ -2451,16 +2502,18 @@ def _resolve_claude_plugin_hooks(
     # Every enabled root is known only now: a manifest is read before the
     # marketplace that enables its plugin.
     for declared, plugin_root, selector in inline:
+        enabled_here = plugin_root.casefold() in enabled_roots
+        if enabled_here:
+            result.enabled_inline.add(selector.split("#", 1)[0])
         grants.extend(_hooks_grants(
             {"hooks": declared}, host="claude-code", scope="repository", source=selector,
-            basis=(
-                "project_enabled_plugin"
-                if plugin_root.casefold() in enabled_roots
-                else "plugin_selected"
-            ),
+            basis="project_enabled_plugin" if enabled_here else "plugin_selected",
         ))
     result.enabled = {
         hook_file for hook_file, roots in roots_by_file.items() if roots & enabled_roots
+    }
+    result.enabled_unread = {
+        hook_file for hook_file, roots in unread_roots_by_file.items() if roots & enabled_roots
     }
     return result
 
@@ -2632,11 +2685,7 @@ def _repository_paths(
         # (#714). Taken from the same entries, so links and read-through
         # resolve exactly as above.
         for path, relative, resolved_through in entries:
-            if (
-                is_claude_plugin_manifest_path(relative)
-                or is_claude_plugin_marketplace_path(relative)
-                or is_hook_declaration_file_name(relative)
-            ):
+            if is_claude_plugin_reference_path(relative):
                 plugin_candidates[relative] = (path, resolved_through)
 
     for path, relative, resolved_through in entries:
@@ -3299,6 +3348,16 @@ def build_host_boundary_snapshot(
     return HostBoundarySnapshot(
         inventory=inventory, cache=cache, input_failures=dict(cache.input_failures),
         plugin_reference_issue_ids=frozenset(plugin_reference_issue_ids),
+        # Nothing parsed is trustworthy once the inventory failed, so no
+        # enablement is read from it either; its blocking issues stand.
+        enabled_plugin_hook_sources=(
+            frozenset()
+            if inventory_failures
+            else frozenset(selection.enabled | selection.enabled_inline)
+        ),
+        enabled_plugin_unread_hook_files=(
+            frozenset() if inventory_failures else frozenset(selection.enabled_unread)
+        ),
     )
 
 

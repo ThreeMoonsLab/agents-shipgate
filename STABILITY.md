@@ -30,6 +30,20 @@ the wildcard check to `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` at
 entries become grants. No schema, member or check id moves. See
 [the migration note](#claude-setting-ratings-827).
 
+Also unreleased, and moving no version of its own: `check` and `verify` route
+a changed hook declaration of a plugin the repository's project settings
+enable to protected-surface review, wherever the plugin keeps it (#809). A
+hook file such a plugin selects outside the registry paths, such as
+`plugins/demo/cfg/hooks.json`, and a manifest or marketplace whose inline hooks
+it loads, now fire `SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED`: in
+`check`, `require_review` instead of `allow` beside an expanding row; in a
+`verify` with a manifest, and its PR comment, `review_required` /
+`human_review_required` instead of `passed` / `mergeable`. A changed hook file
+such a plugin selects under a name the reader does not follow fires
+`SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE` in both. A hook a plugin only selects is
+still not routed. No schema, member, row or check id moves. See
+[the migration note](#enabled-plugin-hook-routing-809).
+
 Runtime contract v40 reads the action reference each workflow step declares
 (#771). Host-grants inventory, baseline and drift schemas move to `0.6`, and a
 workflow grant adds `step_actions[]`: the job, the step (`id`, else `name`,
@@ -361,6 +375,81 @@ finding — all read it. The ratings and their basis are in
   are unchanged. Every vendored host-config and cold-start case replays to its
   recorded outcome, and the recorded runs score as published: the benchmark's
   row matcher reads both spellings of a setting row.
+
+<a id="enabled-plugin-hook-routing-809"></a>
+
+## Migration Note: Unreleased — an enabled plugin's hook is routed wherever it lives (#809)
+
+No schema, member, check id or `minimum_control_contract_version` moves. This
+change adds no version of its own: host-grants, capability diff, verifier and
+the runtime contract are what the rest of the unreleased tree carries. What
+moves is when two existing checks fire, and so `check`'s decision and control,
+and a manifest-backed `verify`'s release decision, merge verdict and PR
+comment.
+
+1.1.0 published a hook that a plugin selects, where the repository's project
+settings enable that plugin from a marketplace inside the repository, as
+`execute`/`high` with an expansion signal (#714). But `check`, and the boundary
+check a `verify` with a manifest runs, routed only registry paths such as
+`.claude/hooks/hooks.json`. A changed hook file at any other path therefore
+gave a `widened`, `expands: true` row beside `decision: allow` and
+`control.permissions.merge: true`, and `verify` gave `passed` / `mergeable`.
+`1.0.0` allowed the same change with no row.
+
+| A change to | 1.1.0 | now: `check` | now: `verify` with a manifest, and its PR comment |
+| --- | --- | --- | --- |
+| a hook file an enabled plugin selects outside the registry paths, changed, added or deleted | `check` `allow`, `complete`; `verify` `passed`, `mergeable` | `require_review`, `agent_action_required`, `SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED` | `review_required`, `human_review_required`, the same finding |
+| a `.claude-plugin/plugin.json` or `.claude-plugin/marketplace.json` whose inline hooks an enabled plugin loads | the same | the same | the same |
+| a hook file or plugin manifest of those the head leaves unreadable | `check` `allow`, `complete`, comparison `incomparable`; `verify` `passed` | `require_review`, `human_review_required`, `SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE` as well, input `partial`, as at a registry path | `review_required`, `human_review_required` |
+| such a marketplace the head leaves unparseable | `check` `allow`, `complete`; `verify` `passed` | `require_review`, `agent_action_required`, input `complete`; a marketplace limit never blocks, and the comparison shows its inline hooks as `removed` | `review_required`, `human_review_required` |
+| a hook file an enabled plugin selects under a name the reader does not follow, or in a directory the walk skips | `check` `allow`, `complete`; `verify` `passed` | `require_review`, `human_review_required`, `SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE`, input `partial` | `review_required`, `human_review_required`, the same finding |
+| a hook file a plugin selects without that enablement | `allow`; `passed` | unchanged | unchanged |
+| a manifest or marketplace that only references hook files, a registry path, or any other file | as before | as before | as before |
+
+- **The route takes two facts.** The path is one the plugin hook reader opens
+  — a hook-named file, a plugin manifest or a marketplace — which the name
+  decides, and the reader found, in the base or the head, that a plugin the
+  project settings enable loads hooks from it. This is the selection that
+  publishes the hook as `project_enabled_plugin`, read from the reader rather
+  than back from a grant's `access`/`risk` pair. The base tree is read, as the
+  host comparison reads it, only when a changed path is such a file, so a
+  hook file deleted along with its reference is still routed. `check` and
+  `verify` read both sides through one function, so they decide one change
+  alike. For a provided `--diff` only the workspace tree is read. If a
+  compared commit cannot be read, each such path is
+  `SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE` with code `host_inventory_unreadable`
+  rather than a guess.
+- **A file the reader does not open.** An enabled plugin can select its hooks
+  from any `./` path, and the static reader follows only `hooks.json` and
+  `<name>-hooks.json` outside the directories its walk skips. The inventory
+  already names such a file as an `unsupported` limit. `check` left that limit
+  out of its decision; where the change touches the file, it now counts, with
+  code `host_inventory_unsupported`, from the base when the head no longer
+  selects the file. Such a file is not routed to protected-surface review,
+  because nothing in it was read.
+- **Evidence.** The protected-surface violation's evidence adds
+  `hook_loading_basis: project_enabled_plugin` beside
+  `kind: protected_surface_unclassified`, only where no registry name or trust
+  root explains the route, so every existing row keeps its fingerprint.
+  `host_coverage` lists the file under the `claude_code` adapter, and
+  `affected_hosts` names `claude-code`.
+- **Check ids.** None is added, removed or renamed. Per
+  [Check IDs](#check-ids), the conditions under which
+  `SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED` and
+  `SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE` fire broaden to these files, in
+  `check` and `verify` alike, and this note records it. No existing
+  suppression stops matching.
+- **Not changed.** The rows, their `why`, `expands` and severity, every
+  inventory, baseline and drift payload, `diff`, a manifest-free `verify` (its
+  host route is advisory and already withheld merge without a human) and the
+  trigger catalog. The catalog is a path-only relevance screen that cannot
+  read enablement; it already reports such a file as `unclassified` rather
+  than a skip.
+- **Remaining limit.** A change only to a selector, a manifest's `hooks`
+  reference or a marketplace entry, that makes an enabled plugin load an
+  existing, unchanged hook file is still `allow` beside that file's `added` or
+  `widened` row. `check` gives the same when the selected file is
+  `.claude/hooks/hooks.json`, so this limit is not specific to plugin paths.
 
 <a id="host-comparison-coverage-812"></a>
 
