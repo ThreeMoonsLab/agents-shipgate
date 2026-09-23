@@ -2438,6 +2438,25 @@ Uncommitted work is checked according to what the decision actually covered:
   covered, and a stale `human_review_required` must not keep enforcing a
   pre-change stop. Re-running the same archived `--head` verification cannot
   clear that, so the refusal routes to a worktree verification instead.
+- A **preview** (`operation: "preview"`) decided nothing about the inputs a
+  plan names, so its pointer binds no `verification_plan` — also in a
+  repository with a manifest, where the preview still records the plan a
+  `verify` would run and `verify-run.json` embeds it. Its path set is
+  therefore not recorded: the overlay of every path that differs from HEAD is
+  recomputed live and compared with the one it was read from, so any tracked
+  edit, new untracked file or removal refuses it as `workspace_changed`, and
+  restoring the tree it read makes it current again. A configured and a
+  manifest-free preview are read the same way, whether their reports are in
+  the default directory, another directory inside the repository or beside
+  it (#807). Inside a repository such a pointer always declares the worktree
+  snapshot, even when its overlay could not be read, so under Git
+  configuration the worktree readers refuse it is refused with the cause like
+  every other pointer; one published over an overlay it could not read is
+  current, once the tree can be read, only over a tree identical to HEAD.
+  A pointer that does bind a plan is read against that plan's
+  recorded inputs, and one whose plan lacks its input-directory census is
+  refused as `workspace_unverifiable`, as before; see
+  [the census](verification-reproducibility.md).
 
 An overlay row carries content *and* the two metadata axes Git itself tracks:
 entry kind and the executable bit. Content alone is not the capability —
@@ -2492,7 +2511,9 @@ accepts any `--out` name under its artifacts root, so an older canonical receipt
 must not be mistaken for the one a run just closed. A `scan` or `preview`
 pointer is structurally incapable of authorizing completion or merge, and each
 binds only the artifacts it actually wrote: a `scan --format markdown` after a
-verify does not claim that verifier's `report.json`. While a run is in flight the pointer reads
+verify does not claim that verifier's `report.json`. A `preview` binds its
+verifier route and never the `verification-plan.json` a manifest lets it
+record, because it read none of that plan's inputs. While a run is in flight the pointer reads
 `lifecycle_state: "in_progress"` with `control.state: "unavailable"`,
 `must_stop: true`, so an interrupted or crashed run leaves a directory that
 denies cached control rather than one that still authorizes it. Consumers built
@@ -2771,7 +2792,13 @@ emits a `verifier.json` with
 next recommended action: an exact
 `init --workspace <workspace> --write --json`
 command for unconfigured repos, or an exact `verify` command for configured
-repos using the supplied workspace/config/base/head/out arguments. Use it as the
+repos using the supplied workspace/config/base/head/out arguments.
+`verify --preview --format control` prints that same state and command, and an
+`agent control` refresh of the pointer it published returns them until the
+working tree moves. Where the working tree cannot be read, both withhold them
+and lead with the cause instead
+([how a preview is read](#two-read-entry-points)).
+Use it as the
 first touch before a full scan. To evaluate just the run/skip trigger, run
 `agents-shipgate trigger --base origin/main --head HEAD --json`.
 
