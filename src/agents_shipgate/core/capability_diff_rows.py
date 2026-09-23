@@ -28,10 +28,10 @@ from typing import Any
 
 from agents_shipgate.core.host_grants import (
     AGENT_RULE_INPUTS,
-    AGENT_WIDENING_RULES,
     UNTRUSTED_INPUT_TRIGGERS,
     agent_launch_key,
     agent_rule_gains,
+    agent_rule_text,
     checkout_ref_key,
     hook_loading_basis,
     host_grant_expansion_signals,
@@ -337,34 +337,31 @@ def _agent_launch_reasons(
     def where(item: dict[str, Any]) -> str:
         return f"{item['job']}/{item['step']}"
 
-    def meets(rule: str, detail: str) -> str:
-        return AGENT_WIDENING_RULES[rule] + (f" ({detail}: *)" if detail else "")
-
     gains = agent_rule_gains(before, after)
     reasons: list[str] = []
     # Launches a sentence about a rule already names.
     named: set[str] = set()
     for _job, rule, detail, entry in gains.claimed:
         named.add(where(entry))
-        reasons.append(f"an agent launch now {meets(rule, detail)} ({where(entry)})")
+        reasons.append(f"an agent launch now {agent_rule_text(rule, detail)} ({where(entry)})")
     for _job, rule, detail, entry in gains.unread_before:
         named.add(where(entry))
         reasons.append(
-            f"an agent launch now {meets(rule, detail)} ({where(entry)}), which is not counted as a "
+            f"an agent launch now {agent_rule_text(rule, detail)} ({where(entry)}), which is not counted as a "
             "widening: before, this job launched the agent in a form this audit does not read, which "
             "may already have done the same"
         )
     for (_job, rule, detail, entry), setting in gains.expression_before:
         named.add(where(entry))
         reasons.append(
-            f"an agent launch now {meets(rule, detail)} ({where(entry)}), which is not counted as a "
+            f"an agent launch now {agent_rule_text(rule, detail)} ({where(entry)}), which is not counted as a "
             f"widening: before, this job's {setting} held a " + "`${{ }}`" + " expression, whose "
             "substituted text this audit does not read and which may already have done the same"
         )
     for (_job, rule, detail, entry), source in gains.moved:
         named.update({where(entry), where(source)})
         reasons.append(
-            f"an agent launch that {meets(rule, detail)} moved between jobs ({where(source)} → "
+            f"an agent launch that {agent_rule_text(rule, detail)} moved between jobs ({where(source)} → "
             f"{where(entry)}), which is not counted as a widening: the launch already met that "
             "rule in the job it left, and it now runs with the receiving job's token permissions"
         )

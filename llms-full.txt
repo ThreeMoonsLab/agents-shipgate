@@ -1632,11 +1632,16 @@ with a reason), `settings[]` (`name`, `value`, `unresolved_reason`,
 `widening_rules[]` (`rule`, `setting`) and `job_secrets[]`. A checkout ref is
 each `actions/checkout` step's `with.ref`, `null` for the default. Values are
 compared as text and never executed; `claude_args` and `codex-args` are split
-as each action splits them, and a setting publishes what the host readers
-would, a JSON object by its key names and a URL by its scheme and host. Only a
-documented rule a job's launches gain — bypassed permission checks, a bypassed
-or `danger-full-access` sandbox, `safety-strategy: unsafe`, or a user gate
-opened to `*` — raises `workflow_agent_widened_<added|changed>` and makes the
+as each action splits them. A JSON object in a setting publishes its shape and
+none of its free text — key names, with each string a `<withheld:…>` digest
+except those a host reader publishes (a permission rule, a documented
+setting's value, an MCP server's command name and URL host) — so an MCP
+server's arguments and a hook's command are compared but never published; a
+URL publishes its scheme and host. Only a documented rule a job's launches
+gain — bypassed permission checks (a flag, or JSON settings whose
+`defaultMode` is `bypassPermissions`), a bypassed or `danger-full-access`
+sandbox (`permission-profile: :danger-full-access` included),
+`safety-strategy: unsafe`, or a user gate opened to `*` — raises `workflow_agent_widened_<added|changed>` and makes the
 row `widened`. A rule is read only from literal text a `${{ }}` expression
 cannot reach, and one a launch already met in a job it left, or where the job's
 launch before was unread or held an expression the rule is read from, is named

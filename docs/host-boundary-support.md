@@ -137,9 +137,9 @@ things are listed on the workflow grant, each naming its `job/step` (the step's
 
   | Action | Inputs compared as text | Documented widening |
   |---|---|---|
-  | `anthropics/claude-code-action` | `additional_permissions`, `allowed_bots`, `allowed_non_write_users`, `claude_args`, `plugin_marketplaces`, `plugins`, `settings`, and the earlier `allowed_tools`, `disallowed_tools`, `mcp_config` | `claude_args` gains `--dangerously-skip-permissions` or `--permission-mode bypassPermissions`; `allowed_bots` or `allowed_non_write_users` gains a `*` entry |
-  | `anthropics/claude-code-base-action`, also published as `anthropics/claude-code-action/base-action` | `claude_args`, `plugin_marketplaces`, `plugins`, `settings`, `allowed_tools`, `disallowed_tools`, `mcp_config` | `claude_args` as above |
-  | `openai/codex-action` | `allow-bot-users`, `allow-bots`, `allow-users`, `codex-args`, `permission-profile`, `safety-strategy`, `sandbox` | `sandbox` becomes `danger-full-access`; `safety-strategy` becomes `unsafe`; `codex-args` gains `--dangerously-bypass-approvals-and-sandbox` (`--yolo`) or `--sandbox danger-full-access`; `allow-users` gains a `*` entry |
+  | `anthropics/claude-code-action` | `additional_permissions`, `allowed_bots`, `allowed_non_write_users`, `claude_args`, `plugin_marketplaces`, `plugins`, `settings`, and the earlier `allowed_tools`, `disallowed_tools`, `mcp_config` | `claude_args` gains `--dangerously-skip-permissions`, `--permission-mode bypassPermissions` or a JSON `--settings` value whose `defaultMode` is `bypassPermissions`; `settings`, written as JSON, gains `defaultMode: bypassPermissions` (under `permissions`, else at the top, as the settings reader reads `.claude/settings.json`); `allowed_bots` (any bot) or `allowed_non_write_users` (any user) gains a `*` entry |
+  | `anthropics/claude-code-base-action`, also published as `anthropics/claude-code-action/base-action` | `claude_args`, `plugin_marketplaces`, `plugins`, `settings`, `allowed_tools`, `disallowed_tools`, `mcp_config` | `claude_args` and `settings` as above |
+  | `openai/codex-action` | `allow-bot-users`, `allow-bots`, `allow-users`, `codex-args`, `permission-profile`, `safety-strategy`, `sandbox` | `sandbox` becomes `danger-full-access`; `permission-profile` becomes `:danger-full-access`, Codex's reserved name for its built-in full-access profile; `safety-strategy` becomes `unsafe`; `codex-args` gains `--dangerously-bypass-approvals-and-sandbox` (`--yolo`) or `--sandbox danger-full-access`; `allow-users` gains a `*` entry |
 
   No shell reads `claude_args` or `codex-args`: each action splits its own
   input, and a rule is met only by the words the action passes on. The
@@ -164,8 +164,10 @@ things are listed on the workflow grant, each naming its `job/step` (the step's
   `--allow-dangerously-skip-permissions`, `--allowedTools`/`--allowed-tools`,
   `--disallowedTools`/`--disallowed-tools`, `--add-dir`, `--mcp-config`,
   `--settings` and `--permission-prompt-tool`; gaining
-  `--dangerously-skip-permissions` or `--permission-mode bypassPermissions`
-  (one rule, so moving between the two spellings is not a widening) widens.
+  `--dangerously-skip-permissions`, `--permission-mode bypassPermissions` or a
+  JSON `--settings` value whose `defaultMode` is `bypassPermissions` (one
+  rule, so moving between the spellings is not a widening) widens; a
+  `--settings` path names a file this audit does not read.
   For `codex exec`: `--sandbox`/`-s`,
   `--dangerously-bypass-approvals-and-sandbox`/`--yolo`,
   `--approve-for-me`/`--not-so-yolo`, `--dangerously-bypass-hook-trust`,
@@ -202,8 +204,9 @@ an input before the action reads it, and the substituted text may be anything
 `claude_args` or `codex-args` before the first expression, less the word it
 touches and any quoted run still open at it (in a JSON-array `codex-args`, the
 elements before the one holding it), and the entries of a user gate that hold
-no expression, so `"${{ vars.USERS }}, *"` opens the gate. A `sandbox` or
-`safety-strategy` value holding one meets none. Such a setting is published
+no expression, so `"${{ vars.USERS }}, *"` opens the gate. A `sandbox`,
+`permission-profile`, `safety-strategy` or `settings` value holding one meets
+none. Such a setting is published
 with `holds_expression: true`, and a row that changes it says the text the
 expression reaches is not read for a rule, rather than that none was gained.
 
@@ -216,8 +219,10 @@ names the rule and step. Three gains are named in the `why` and not claimed:
   launch may already have met it, as a job whose permissions were not explicit
   may already have held a write scope;
 - where the job's launch of that agent held a `${{ }}` expression before in an
-  input the rule is read from (`claude_args` for bypassed permission checks,
-  the gate for a `*` entry), because the substituted text may already have met
+  input the rule is read from (`claude_args` or `settings` for bypassed
+  permission checks, `sandbox`, `permission-profile` or `codex-args` for a
+  full-access sandbox, the gate for a `*` entry), because the substituted text
+  may already have met
   it — so replacing `--model ${{ vars.M }}` with `--model opus` beside
   `--dangerously-skip-permissions` is not a widening;
 - where the rule moved between jobs: another job met it before and the launch
@@ -243,23 +248,47 @@ code (`github.event.pull_request.head.sha`, `.head.ref` or `.merge_commit_sha`,
 direction, and `if:` conditions and the default checkout of a `pull_request`
 event are not read into it. A removed workflow gets no note.
 
-A setting publishes what the host readers would publish for the same text. A
-JSON object — a `settings` or `mcp_config` value, a `--settings` or
-`--mcp-config` value written as its own word or as `--settings={…}`, or any
-word of `claude_args` or `codex-args` — publishes
-as `.claude/settings.json` and `.mcp.json` do: its key names, with `env` and
-`headers` values, `apiKeyHelper` and every other secret-named value read as
-`<redacted>`, in canonical JSON, so rotating an `env` value or reordering keys
-compares as unchanged and adding a key is a change. A codex `--config`
-override — `-c key=value`, `--config=key=value`, `-ckey=value` or
-`-c=key=value` — under `env`, `headers` or a secret-named key publishes
-`<redacted>` for its value, and a table or array value by the same JSON rule. A
-URL publishes its scheme, host and port, with `<redacted-path>` for any path and
-no query, as an MCP server's URL does (#723), and the rest of the setting is
-compared, so a change only to a URL's path or query — which repository a
-`plugin_marketplaces` URL names, for one — is not reported; a zero-row result
-says redacted values are not compared. A `${{ }}` expression is one word while
-this is decided, so one inside a URL's userinfo is withheld with it.
+A structured value publishes its shape and none of its free text, so a setting
+never publishes what `.claude/settings.json` and `.mcp.json` would withhold
+(#823 review). A JSON object — a `settings` or `mcp_config` value, a
+`--settings` or `--mcp-config` value written as its own word or as
+`--settings={…}`, or any word of `claude_args` or `codex-args` — and a codex
+`--config` table or array publish, in canonical JSON:
+
+- their key names, numbers, booleans and `null`, so reordering keys compares
+  as unchanged and adding a key is a change;
+- `<redacted>` for `env` and `headers` values (and codex's `http_headers` and
+  `env_http_headers`), `apiKeyHelper`, every other secret-named value and the
+  word after a secret-named argument such as `--token`, as the host readers
+  redact them, so rotating one compares as unchanged;
+- each other string as `<withheld:…>`, a short digest of what the host
+  readers digest for it: the sanitized text, and a URL's query. Editing it is
+  a `changed` row, and none of its text is published. So an MCP server's
+  `args` — an `mcp-remote --header "Authorization: Bearer …"` included — and a
+  hook's command, matcher and type publish only digests;
+- except the strings a host reader publishes: a `permissions.allow`, `ask` or
+  `deny` rule, and the value of a documented Claude Code setting
+  (`defaultMode`, the switches in [the ratings table](#claude-code-setting-ratings),
+  `enabledMcpjsonServers` entries), as the settings reader publishes them; and,
+  under `mcpServers` (or `mcp_servers`), a server's command name and its URL's
+  scheme and host, as the MCP reader publishes them. Each is followed by the
+  digest when it drops something the digest reads: `"command":"npx <withheld:…>"`
+  for `npx -y some-server`, a URL's digest for its query. A URL's path is
+  neither published nor compared, as an MCP server's is not (#723).
+
+A codex `--config` override — `-c key=value`, `--config=key=value`,
+`-ckey=value` or `-c=key=value` — under `env`, `headers` or a secret-named key
+publishes `<redacted>` for its value; a table or array value is read under its
+key path, so `mcp_servers.gh={command="gh", …}` is a server whose command name
+is kept. Other argument text — a prompt, a flag's value, a codex `--config`
+override's scalar value such as `model="o3"` — is published as written through
+the label redaction below, except that a URL in it publishes its scheme, host
+and port, with `<redacted-path>` for any path and no query, as an MCP server's
+URL does (#723); the rest of the setting is compared, so a change only to such
+a URL's path or query — which repository a `plugin_marketplaces` URL names, for
+one — is not reported, and a zero-row result says redacted values are not
+compared. A `${{ }}` expression is one word while this is decided, so one
+inside a URL's userinfo is withheld with it.
 
 Any other text the #802 label redaction rewrites is credential-shaped: a token
 shape, a credential assignment such as `token=…`, a bearer or header value, a

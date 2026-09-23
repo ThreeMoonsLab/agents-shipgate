@@ -557,8 +557,9 @@ def test_renaming_or_moving_an_agent_step_within_its_job_is_quiet():
          "skips permission checks"),
         (_workflow(_agent(allowed_non_write_users="octocat")), _workflow(_agent(allowed_non_write_users="octocat, *")),
          "accepts runs triggered by any user (allowed_non_write_users: *)"),
-        (_workflow(_agent()), _workflow(_agent(allowed_bots="*")),
-         "accepts runs triggered by any user (allowed_bots: *)"),
+        # The bot gate admits any bot, not any user (#823 review cycle 2).
+        (_workflow(_agent()), _workflow(_agent(allowed_bots="dependabot,*")),
+         "accepts runs triggered by any bot (allowed_bots: *)"),
         (_workflow({"uses": "openai/codex-action@v1", "with": {"sandbox": "read-only"}}),
          _workflow({"uses": "openai/codex-action@v1", "with": {"sandbox": "danger-full-access"}}),
          "runs without a sandbox (danger-full-access)"),
@@ -578,9 +579,25 @@ def test_renaming_or_moving_an_agent_step_within_its_job_is_quiet():
          "skips permission checks"),
         (_workflow(_agent()), _workflow(_agent(allowed_non_write_users="${{ vars.USERS }}, *")),
          "accepts runs triggered by any user (allowed_non_write_users: *)"),
+        # #823 review C2-F2: the documented bypasses written through inputs the reader lists.
+        (_workflow(_agent(settings=json.dumps({"permissions": {"defaultMode": "default"}}))),
+         _workflow(_agent(settings=json.dumps({"permissions": {"defaultMode": "bypassPermissions"}}))),
+         "skips permission checks (bypassPermissions)"),
+        (_workflow(_agent()), _workflow(_agent(settings=json.dumps({"defaultMode": "bypassPermissions"}))),
+         "skips permission checks (bypassPermissions)"),
+        (_workflow(_agent()),
+         _workflow(_agent("--settings '{\"permissions\":{\"defaultMode\":\"bypassPermissions\"}}'")),
+         "skips permission checks (bypassPermissions)"),
+        (_workflow({"run": "claude -p 'x'"}),
+         _workflow({"run": "claude -p --settings '{\"permissions\":{\"defaultMode\":\"bypassPermissions\"}}' 'x'"}),
+         "skips permission checks (bypassPermissions)"),
+        (_workflow({"uses": "openai/codex-action@v1", "with": {"permission-profile": ":workspace"}}),
+         _workflow({"uses": "openai/codex-action@v1", "with": {"permission-profile": ":danger-full-access"}}),
+         "runs without a sandbox (danger-full-access)"),
     ],
     ids=["skip-flag", "mode-flag", "gate", "bots", "codex-sandbox", "codex-unsafe", "codex-args", "codex-users",
-         "codex-cli", "words-before-an-expression", "gate-entry-beside-an-expression"],
+         "codex-cli", "words-before-an-expression", "gate-entry-beside-an-expression", "settings-default-mode",
+         "settings-top-level-default-mode", "args-settings", "cli-settings", "codex-permission-profile"],
 )
 def test_a_documented_rule_gained_is_a_widening(before, after, rule):
     changes = _changes(before, after)
@@ -614,10 +631,22 @@ def test_a_documented_rule_gained_is_a_widening(before, after, rule):
         (_workflow(_agent('--allowedTools "Read"')), _workflow(_agent('--allowedTools "Bash(*)"'))),
         (_workflow({"run": "claude -p --permission-mode default 'x'"}),
          _workflow({"run": "claude -p --permission-mode acceptEdits 'x'"})),
+        # one rule, written as a flag and as the settings it passes
+        (_workflow(_agent("--dangerously-skip-permissions")),
+         _workflow(_agent(settings=json.dumps({"permissions": {"defaultMode": "bypassPermissions"}})))),
+        # settings holding an expression, or naming a file, meet no rule
+        (_workflow(_agent()),
+         _workflow(_agent(settings='{"permissions":{"defaultMode":"${{ vars.MODE }}"}}'))),
+        (_workflow(_agent()), _workflow(_agent(settings=".github/claude-settings.json"))),
+        (_workflow(_agent(settings=json.dumps({"permissions": {"defaultMode": "default"}}))),
+         _workflow(_agent(settings=json.dumps({"permissions": {"defaultMode": "acceptEdits"}})))),
+        (_workflow({"uses": "openai/codex-action@v1", "with": {"permission-profile": ":read-only"}}),
+         _workflow({"uses": "openai/codex-action@v1", "with": {"permission-profile": ":workspace"}})),
     ],
     ids=["respelled", "moved-to-action", "narrowed", "gate-closed", "after-an-expression", "touching-an-expression",
          "quoted-past-an-expression", "gate-entry-holding-an-expression", "mode-expression", "tool-rule",
-         "accept-edits"],
+         "accept-edits", "flag-to-settings", "settings-expression", "settings-path", "settings-accept-edits",
+         "codex-workspace-profile"],
 )
 def test_any_other_edit_is_changed(before, after):
     assert host_grant_expansion_signals(_changes(before, after)) == []
@@ -717,6 +746,21 @@ def test_a_rule_another_job_gains_while_no_launch_left_is_a_widening(before, aft
     assert "an agent launch now skips permission checks (bypassPermissions) (review/agent)" in row.why
 
 
+@pytest.mark.parametrize("renamed_first", [True, False], ids=["renamed-declared-first", "renamed-declared-last"])
+def test_a_renamed_job_takes_the_move_whatever_order_the_jobs_are_declared_in(renamed_first):
+    """#823 review cycle 2 (P3): the rule moved to the job running the same launch, not the first one declared."""
+
+    renamed = ("code-review", [_named(BYPASS)])
+    added = ("triage", [_named(f"{BYPASS} --max-turns 5")])
+    before = _jobs(review=[_named(BYPASS)])
+    after = _jobs(**dict([renamed, added] if renamed_first else [added, renamed]))
+
+    row, = _rows(before, after)
+    assert (row.direction, row.expands) == ("widened", True)
+    assert "moved between jobs (review/agent → code-review/agent)" in row.why
+    assert "an agent launch now skips permission checks (bypassPermissions) (triage/agent)" in row.why
+
+
 @pytest.mark.parametrize(
     ("value", "words"),
     [
@@ -792,8 +836,12 @@ def test_a_setting_holding_an_expression_is_marked_and_the_row_says_what_it_leav
         (_workflow(_agent("--model ${{ vars.M }} --dangerously-skip-permissions")),
          _workflow(_agent("--model opus --dangerously-skip-permissions")),
          "skips permission checks (bypassPermissions)", "claude_args"),
+        # the settings input is read for the rule only when it holds no expression (#823 review C2-F2)
+        (_workflow(_agent(settings='{"permissions":{"defaultMode":"${{ vars.MODE }}"}}')),
+         _workflow(_agent(settings='{"permissions":{"defaultMode":"bypassPermissions"}}')),
+         "skips permission checks (bypassPermissions)", "settings"),
     ],
-    ids=["gate", "claude-args", "expression-replaced"],
+    ids=["gate", "claude-args", "expression-replaced", "settings"],
 )
 def test_a_rule_gained_where_the_setting_held_an_expression_before_is_named_and_not_claimed(
     before, after, rule, setting
@@ -903,6 +951,105 @@ MCP_PUBLISHED = (
     '"headers":{"X-API-Key":"<redacted>"}}}}'
 )
 JSON_CANARIES = ("hunter2-canary", "canary-9f8e7d", "canary-helper-value", "canary-tok-123", "canary-hdr-456")
+
+#: #823 review C2-F1: text the host readers never publish, in no secret-named
+#: key: an `mcp-remote` bearer header among a server's `args`, and a hook's command.
+REMOTE_MCP_JSON = json.dumps({"mcpServers": {"remote": {"command": "npx", "args": [
+    "mcp-remote", "https://mcp.example.com/sse", "--header", "Authorization: Bearer tokCANARY0123456789abcdef",
+]}}}, separators=(",", ":"))
+HOOK_JSON = json.dumps({"hooks": {"Stop": [{"hooks": [{
+    "type": "command", "command": 'curl -H "X-Auth-Token: hookCANARY77" https://hooks.example.com/notify',
+}]}]}}, separators=(",", ":"))
+REMOTE_CODEX_CONFIG = (
+    'mcp_servers.remote={command="npx", args=["mcp-remote", "https://mcp.example.com/sse", '
+    '"--header", "Authorization: Bearer tokCANARY-codex-0123456789"]}'
+)
+SHAPE_CANARIES = (
+    "tokCANARY0123456789abcdef", "tokCANARY-codex-0123456789", "hookCANARY77", "hooks.example.com",
+    "mcp.example.com", "mcp-remote", "X-Auth-Token",
+)
+
+
+def _digest(text):
+    """What one withheld string publishes: a digest of what the host readers digest for it."""
+
+    from agents_shipgate.core.host_grants import redacted_config_sha256
+
+    return f"<withheld:{redacted_config_sha256(text)[:12]}>"
+
+
+def test_a_json_value_publishes_its_shape_and_none_of_its_free_text():
+    """#823 review C2-F1: every string a host reader does not publish is withheld, and still compared.
+
+    The same server in `.mcp.json` publishes `remote (command name npx)`, and
+    the same hook in `.claude/settings.json` publishes `Stop`; neither
+    publishes an argument or a command.
+    """
+
+    grant = _grant(_workflow(
+        _agent(f"--allowedTools Read --mcp-config '{REMOTE_MCP_JSON}'", settings=HOOK_JSON),
+        {"run": f"codex exec -c '{REMOTE_CODEX_CONFIG}' 'go'"},
+    ))
+    action, cli = grant["agent_launches"]
+    args = ["mcp-remote", "https://mcp.example.com/sse", "--header", "Authorization: Bearer tokCANARY0123456789abcdef"]
+    server = json.dumps(
+        {"mcpServers": {"remote": {"args": [_digest(arg) for arg in args], "command": "npx"}}},
+        separators=(",", ":"),
+    )
+    hook = (
+        '{"hooks":{"Stop":[{"hooks":[{"command":"'
+        + _digest('curl -H "X-Auth-Token: hookCANARY77" https://hooks.example.com/notify')
+        + '","type":"' + _digest("command") + '"}]}]}}'
+    )
+    assert {item["name"]: item["value"] for item in action["settings"]} == {
+        "claude_args": f"--allowedTools Read --mcp-config '{server}'",
+        "settings": hook,
+    }
+    codex_args = ["mcp-remote", "https://mcp.example.com/sse", "--header", "Authorization: Bearer tokCANARY-codex-0123456789"]
+    assert cli["settings"] == [{
+        "name": "--config",
+        "value": 'mcp_servers.remote={"args":[' + ",".join(f'"{_digest(arg)}"' for arg in codex_args)
+                 + '],"command":"npx"}',
+        "unresolved_reason": None,
+    }]
+    text = json.dumps(grant)
+    for canary in SHAPE_CANARIES:
+        assert canary not in text
+    # Nothing was redacted, so no limit is named: nothing of the text is published to redact.
+    assert uncompared_agent_launch_texts(grant) == []
+
+    # A withheld string is still compared: a new argument or command is a row.
+    edited = HOOK_JSON.replace("curl -H", "wget --header")
+    row, = _rows(_workflow(_agent(settings=HOOK_JSON)), _workflow(_agent(settings=edited)))
+    assert (row.direction, row.expands) == ("changed", False)
+    assert row.before != row.after and "wget" not in row.after
+    # A documented setting's value, a permission rule and an enabled server are
+    # published as the settings reader publishes them; other strings are not.
+    launch, = _launches(_workflow(_agent(settings=json.dumps({
+        "permissions": {"defaultMode": "acceptEdits", "allow": ["Bash(npm test)"], "additionalDirectories": ["../x"]},
+        "enabledMcpjsonServers": ["github"], "model": "claude-opus",
+    }))))
+    setting = next(item for item in launch["settings"] if item["name"] == "settings")
+    assert setting["value"] == (
+        '{"enabledMcpjsonServers":["github"],"model":"' + _digest("claude-opus") + '",'
+        '"permissions":{"additionalDirectories":["' + _digest("../x") + '"],"allow":["Bash(npm test)"],'
+        '"defaultMode":"acceptEdits"}}'
+    )
+
+
+def test_an_mcp_server_url_publishes_its_scheme_and_host_and_compares_its_query_as_the_mcp_reader_does():
+    def config(url):
+        return _workflow(_agent(mcp_config=json.dumps({"mcpServers": {"db": {"url": url}}})))
+
+    launch, = _launches(config("https://mcp.example.com/v1/sse"))
+    assert {
+        "name": "mcp_config", "value": '{"mcpServers":{"db":{"url":"https://mcp.example.com/<redacted-path>"}}}',
+        "unresolved_reason": None,
+    } in launch["settings"]
+    # A query decides which tools a server exposes, so it is compared (#723); a path is not.
+    row, = _rows(config("https://mcp.example.com/sse?read_only=true"), config("https://mcp.example.com/sse"))
+    assert "read_only" not in row.before + row.after
+    assert _rows(config("https://mcp.example.com/a"), config("https://mcp.example.com/b")) == []
 
 
 def test_a_json_value_publishes_only_what_the_host_readers_publish():
@@ -1467,6 +1614,11 @@ def test_no_canary_reaches_any_published_output(tmp_path):
         _agent(f"--allowedTools Read --settings='{equals}' --mcp-config='{equals_mcp}'"),
         {"run": f"ANTHROPIC_API_KEY={canary} claude -p --allowedTools Read --mcp-config '{mcp}' 'go'"},
         {"uses": "openai/codex-action@v1", "with": {"codex-args": codex_args}},
+        # #823 review C2-F1: an MCP server's arguments and a hook's command,
+        # which the host readers never publish, in every spelling.
+        _agent(f"--allowedTools Read\n--mcp-config '{REMOTE_MCP_JSON}'", settings=HOOK_JSON),
+        {"run": f"claude -p --settings '{HOOK_JSON}' --mcp-config '{REMOTE_MCP_JSON}' 'go'"},
+        {"run": f"codex exec -c '{REMOTE_CODEX_CONFIG}' 'go'"},
     ]}})
     repo = _repo(tmp_path, {SOURCE: _yaml(base)})
     _git(repo, "checkout", "-qb", "change")
@@ -1484,9 +1636,11 @@ def test_no_canary_reaches_any_published_output(tmp_path):
     _assert_absent(joined, (
         canary, "p4ssCANARY", job, "canary-org", "canary-repo", "canary-cfg-789", *JSON_CANARIES,
         "hunter2-eqcanary", "helper-eqcanary", "tok-eqcanary", "hdr-eqcanary", "canary-short-c", "canary-eq-c",
+        *SHAPE_CANARIES,
     ))
     assert "runs claude -p with --allowedTools Read" in joined
     assert "mcp_servers.db.env.TOKEN=<redacted>" in joined
+    assert '"command":"npx"' in joined and '"Stop":[{"hooks":[{"command":"<withheld:' in joined
 
 
 def test_a_credential_shaped_ref_refuses_a_changed_workflow_and_publishes_no_canary(tmp_path):

@@ -628,18 +628,31 @@ class HostWorkflowAgentSettingV7(BaseModel):
     flag's primary spelling (``--allowedTools`` for ``--allowed-tools`` too).
     ``value`` is the declared text, stripped, as it may be published; a flag
     that takes no value has ``null``. ``claude_args`` is the text the Claude
-    actions parse, without the full-line ``#`` comments they drop. What the
-    host readers withhold stays withheld: a JSON object (a ``settings`` or
-    ``mcp_config`` value, a ``--settings`` or ``--mcp-config`` value, any
-    argument word) publishes its key names with ``env`` and ``headers``
-    values, ``apiKeyHelper`` and every secret-named value ``<redacted>``, a
-    codex ``--config`` override under such a key publishes ``<redacted>``, and
-    a URL publishes its scheme and host with ``<redacted-path>`` for its path
-    and query (#723). Each is withheld however it is attached to its flag:
-    ``--settings={…}`` and ``-c<override>`` as well as a separate word. The
-    rest is published through the workflow label redaction (#802). A value it
-    rewrites beyond that is credential-shaped — a token, but also prose such
-    as "never print bearer tokens" — and is published redacted with
+    actions parse, without the full-line ``#`` comments they drop. A
+    structured value — a JSON object (a ``settings`` or ``mcp_config`` value,
+    a ``--settings`` or ``--mcp-config`` value, any argument word), or a codex
+    ``--config`` table or array — publishes its shape and none of its free
+    text: key names, numbers, booleans and ``null``, with each string
+    replaced by ``<withheld:…>``, a short digest of what the host readers
+    digest for it, so an edit to it is still a change. ``env`` and
+    ``headers`` values, ``apiKeyHelper`` and every secret-named value are
+    ``<redacted>``, as the host readers redact them. The strings a host reader
+    publishes are kept: a ``permissions.allow``/``ask``/``deny`` rule and a
+    documented Claude Code setting's value such as ``defaultMode``, and an
+    MCP server's command name and its URL's scheme and host, each followed by
+    the digest when it drops something the digest reads (a command's
+    arguments, a URL's query). So an MCP server's arguments and a hook's
+    command publish nothing, as `.mcp.json` and `.claude/settings.json` do
+    not (#823 review). A codex ``--config`` override under ``env``,
+    ``headers`` or a secret-named key publishes ``<redacted>`` for its value,
+    and a URL elsewhere publishes its scheme and host with
+    ``<redacted-path>`` for its path and query (#723). Each is withheld
+    however it is attached to its flag: ``--settings={…}`` and
+    ``-c<override>`` as well as a separate word. Other argument text — a
+    prompt, a flag's value, a codex ``--config`` override's scalar value — is
+    published through the workflow label redaction (#802). A value it
+    rewrites is credential-shaped — a token, but also prose such as "never
+    print bearer tokens" — and is published redacted with
     ``unresolved_reason: redacted``: it is compared as published, beside the
     rules read from its declared text, and records a non-blocking coverage
     issue naming its ``job/step``, because an edit inside what is redacted is
@@ -672,10 +685,15 @@ class HostWorkflowAgentRuleV7(BaseModel):
     literal text meets one: in a value holding ``${{ }}``, the words of
     ``claude_args`` or ``codex-args`` before the first expression, less the
     word it touches and a quoted run still open at it, and the entries of a
-    user gate that hold none; a mode input holding one meets none.
-    ``setting`` is the input (``claude_args``, ``allowed_bots``, ``sandbox``,
-    …) or the CLI flag's primary spelling. One rule compares as one whatever
-    setting meets it, except ``open_gate``, which is one rule per gate input.
+    user gate that hold none; a mode or ``settings`` input holding one meets
+    none. Claude Code settings written as JSON — the ``settings`` input, or a
+    ``--settings`` value in ``claude_args`` or on the CLI — meet
+    ``bypass_permissions`` when their ``defaultMode`` is ``bypassPermissions``,
+    read as the settings reader reads it; a path to a settings file is not
+    read. ``setting`` is the input (``claude_args``, ``allowed_bots``,
+    ``sandbox``, ``permission-profile``, …) or the CLI flag's primary
+    spelling. One rule compares as one whatever setting meets it, except
+    ``open_gate``, which is one rule per gate input.
     """
 
     model_config = ConfigDict(extra="forbid")

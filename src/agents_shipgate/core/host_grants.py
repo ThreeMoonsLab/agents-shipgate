@@ -54,6 +54,7 @@ from agents_shipgate.core.host_input_failure import (
 )
 from agents_shipgate.core.host_settings import (
     CLAUDE_LIST_SETTINGS,
+    CLAUDE_SCALAR_SETTINGS,
     claude_setting_values,
     rate_claude_setting,
 )
@@ -1620,17 +1621,21 @@ class _AgentAction:
     """What one documented agent action's inputs mean to this reader (#823).
 
     ``inputs`` are compared as text. ``gates`` are comma-separated user lists
-    where a ``*`` entry opens the gate to every user. ``args`` names the input
+    where a ``*`` entry opens the gate to every user (to every bot, for
+    ``allowed_bots``). ``args`` names the input
     that carries agent CLI arguments, read with the family's flag table for
-    the documented widening rules. ``modes`` are inputs whose value is itself
-    a documented widening.
+    the documented widening rules. ``modes`` are ``(input, value, rule)``: an
+    input whose value is itself a documented widening. ``settings`` names the
+    input that holds Claude Code settings, JSON or a path; written as JSON, its
+    ``defaultMode`` is read as the settings reader reads it (#823 review).
     """
 
     family: Literal["claude", "codex"]
     inputs: tuple[str, ...]
     gates: tuple[str, ...] = ()
     args: str | None = None
-    modes: tuple[tuple[str, str], ...] = ()
+    modes: tuple[tuple[str, str, str], ...] = ()
+    settings: str | None = None
 
 
 _CLAUDE_BASE_ACTION = _AgentAction(
@@ -1640,6 +1645,7 @@ _CLAUDE_BASE_ACTION = _AgentAction(
         "plugin_marketplaces", "plugins", "settings",
     ),
     args="claude_args",
+    settings="settings",
 )
 
 #: The documented agent actions, by ``owner/repo`` (matched case-insensitively,
@@ -1658,6 +1664,7 @@ _AGENT_ACTIONS: dict[str, _AgentAction] = {
         ),
         gates=("allowed_bots", "allowed_non_write_users"),
         args="claude_args",
+        settings="settings",
     ),
     "anthropics/claude-code-base-action": _CLAUDE_BASE_ACTION,
     "anthropics/claude-code-action/base-action": _CLAUDE_BASE_ACTION,
@@ -1669,7 +1676,14 @@ _AGENT_ACTIONS: dict[str, _AgentAction] = {
         ),
         gates=("allow-users",),
         args="codex-args",
-        modes=(("sandbox", "danger-full-access"), ("safety-strategy", "unsafe")),
+        # `:danger-full-access` is Codex's reserved name for its built-in
+        # full-access permission profile, the profile form of the
+        # `danger-full-access` sandbox (#823 review).
+        modes=(
+            ("sandbox", "danger-full-access", "danger_full_access"),
+            ("permission-profile", ":danger-full-access", "danger_full_access"),
+            ("safety-strategy", "unsafe", "unsafe_safety_strategy"),
+        ),
     ),
 }
 
@@ -1712,7 +1726,11 @@ _AGENT_FLAG_TABLES = {"claude": _CLAUDE_FLAGS, "codex": _CODEX_FLAGS}
 AGENT_RULE_INPUTS: frozenset[str] = frozenset(
     name
     for spec in _AGENT_ACTIONS.values()
-    for name in (*spec.gates, *(mode for mode, _value in spec.modes), *((spec.args,) if spec.args else ()))
+    for name in (
+        *spec.gates,
+        *(mode for mode, _value, _rule in spec.modes),
+        *(item for item in (spec.args, spec.settings) if item),
+    )
 )
 
 #: The widening each documented rule names, as a row's ``why`` says it.
@@ -1723,6 +1741,18 @@ AGENT_WIDENING_RULES: dict[str, str] = {
     "unsafe_safety_strategy": "runs without privilege restrictions (safety-strategy: unsafe)",
     "open_gate": "accepts runs triggered by any user",
 }
+
+#: A user gate whose ``*`` entry admits any bot rather than any user.
+_BOT_GATES = frozenset({"allowed_bots"})
+
+
+def agent_rule_text(rule: str, detail: str) -> str:
+    """How a row's ``why`` names one documented rule: ``detail`` is the gate an ``open_gate`` opened."""
+
+    if rule == "open_gate" and detail in _BOT_GATES:
+        return f"accepts runs triggered by any bot ({detail}: *)"
+    return AGENT_WIDENING_RULES[rule] + (f" ({detail}: *)" if detail else "")
+
 
 #: A literal checkout ref that names pull request code, not the base branch's:
 #: the documented pull request and workflow-run head expressions, and
@@ -2153,20 +2183,114 @@ def _literal_argument_words(family: str, text: str) -> tuple[str, ...] | None:
 #: codex host reader never publishes, as ``.mcp.json`` ``env``/``headers`` do not.
 _CONFIG_WITHHELD_KEYS = frozenset({"env", "headers", "http_headers", "env_http_headers"})
 
+#: Keys whose value maps MCP server names to servers, anywhere in a structured
+#: value: Claude's ``mcpServers`` and codex's ``mcp_servers``. VS Code's
+#: ``servers`` counts only at the top, where `.vscode/mcp.json` puts it.
+_SERVER_MAP_KEYS = frozenset({"mcpServers", "mcp_servers"})
+_TOP_LEVEL_SERVER_MAP_KEYS = _SERVER_MAP_KEYS | {"servers"}
+#: Where, from the top of a Claude Code settings value, the settings reader
+#: publishes a string as it is: a ``permissions.allow``/``ask``/``deny`` rule,
+#: and the value of a documented setting, under ``permissions`` or at the top.
+_PUBLISHED_STRING_PATHS: frozenset[tuple[str, ...]] = frozenset({
+    *(("permissions", name) for name in ("allow", "ask", "deny", *CLAUDE_SCALAR_SETTINGS)),
+    *((name,) for name in (*CLAUDE_SCALAR_SETTINGS, *CLAUDE_LIST_SETTINGS)),
+})
 
-def _withheld_json(value: Any) -> str | None:
-    """A JSON value as the host readers publish one: key names, secret-bearing values replaced.
 
-    ``env`` and ``headers`` keep their keys with every value ``<redacted>``,
-    ``apiKeyHelper`` and every other secret-named key's value is ``<redacted>``,
-    and strings go through the host sanitizer (URLs, bearer and header
-    values), exactly as `.claude/settings.json` and `.mcp.json` are read.
-    Canonical, so reformatting or reordering keys changes nothing.
+def _withheld_string(value: str, label: str | None = None) -> str:
+    """One string of a structured value as it is published (#823 review C2-F1).
+
+    ``<withheld:…>``: a short digest of what the host readers digest for it —
+    the sanitized text, and a URL's query as an MCP server's is (#723) — so
+    editing it is still a change while none of its text is published. Where a
+    host reader publishes a label for the string (``label``: an MCP server's
+    command name or URL, a permission rule, a documented setting's value), the
+    label is published, followed by the digest only when the label drops
+    something the digest reads, such as a command's arguments or a URL's query.
+    """
+
+    withheld = f"<withheld:{redacted_config_sha256(value)[:12]}>"
+    if label is None:
+        return withheld
+    if label == _sanitize_sensitive_string(value) and not _url_capability_parts(value):
+        return label
+    return f"{label} {withheld}"
+
+
+def _server_command(command: str) -> str:
+    """An MCP server's ``command`` as the MCP reader names it: its first word's file name."""
+
+    first = command.strip().split(maxsplit=1)[0] if command.strip() else ""
+    return _withheld_string(command, _sanitize_sensitive_string(Path(first).name or first) or None)
+
+
+def _json_shape(value: Any, path: tuple[str, ...] = ()) -> Any:
+    """A structured value's shape: what a host reader would publish of it, and no free text.
+
+    Key names, numbers, booleans and ``null`` are kept. Secret-bearing values
+    are ``<redacted>`` exactly as the host readers redact them before any
+    digest: ``env`` and ``headers`` (and codex's ``http_headers`` and
+    ``env_http_headers``) keep their keys, a secret-named key's value
+    (``apiKeyHelper``) and the word after a secret-named argument are
+    replaced, and ``policyHelper`` is excluded. Every other string is
+    :func:`_withheld_string`, keeping only what a host reader publishes: a
+    ``permissions.allow``/``ask``/``deny`` rule and a documented Claude Code
+    setting's value (``defaultMode``, ``enabledMcpjsonServers`` entries) at the
+    top of the value, as the settings reader publishes them; and an MCP
+    server's command name and URL scheme and host, as the MCP reader publishes
+    them. So an MCP server's arguments and a hook's command publish nothing
+    of their text (#823 review C2-F1). ``path`` is the keys above ``value``.
+    """
+
+    parent = path[-1] if path else None
+    if isinstance(value, dict):
+        in_server = len(path) >= 2 and (
+            path[-2] in _SERVER_MAP_KEYS or (len(path) == 2 and path[0] in _TOP_LEVEL_SERVER_MAP_KEYS)
+        )
+        shaped: dict[str, Any] = {}
+        for key, inner in value.items():
+            key_text = str(key)
+            if key_text == "policyHelper":
+                shaped[key_text] = "<excluded-dynamic-helper>"
+            elif _is_secret_key(key_text) or parent in _CREDENTIAL_CONTAINER_KEYS:
+                shaped[key_text] = "<redacted>"
+            elif key_text in _CONFIG_WITHHELD_KEYS and isinstance(inner, dict):
+                shaped[key_text] = {str(name): "<redacted>" for name in inner}
+            elif in_server and key_text == "command" and isinstance(inner, str):
+                shaped[key_text] = _server_command(inner)
+            elif in_server and key_text in {"url", "serverUrl"} and isinstance(inner, str):
+                shaped[key_text] = _withheld_string(inner, _sanitize_url(inner))
+            else:
+                shaped[key_text] = _json_shape(inner, (*path, key_text))
+        return shaped
+    if isinstance(value, list):
+        items: list[Any] = []
+        redact_next = False
+        for item in value:
+            if redact_next:
+                items.append("<redacted>")
+                redact_next = False
+                continue
+            if isinstance(item, str) and not _SECRET_ARG_RE.fullmatch(item):
+                redact_next = item.lower().lstrip("-").replace("-", "_") in _SECRET_KEY_MARKERS
+            items.append(_json_shape(item, path))
+        return items
+    if isinstance(value, str):
+        published = path in _PUBLISHED_STRING_PATHS
+        return _withheld_string(value, _sanitize_sensitive_string(value) if published else None)
+    return value
+
+
+def _withheld_json(value: Any, path: tuple[str, ...] = ()) -> str | None:
+    """A structured value as it may be published: its :func:`_json_shape`, as canonical JSON.
+
+    Canonical, so reformatting or reordering keys changes nothing. ``path`` is
+    the keys above ``value``, for a codex ``--config`` override's value.
     """
 
     try:
         return json.dumps(
-            _redact_secret_values(value), sort_keys=True, separators=(",", ":"),
+            _json_shape(value, path), sort_keys=True, separators=(",", ":"),
             ensure_ascii=False, default=str,
         )
     except (RecursionError, TypeError, ValueError):
@@ -2194,10 +2318,12 @@ def _withheld_config(text: str) -> str | None:
 
     A key path through ``env``, ``headers`` or a secret-named key publishes
     ``<redacted>`` for its value; a table or array value, parsed as TOML as
-    codex parses it, publishes by :func:`_withheld_json`. A value that starts
-    like a table or array and does not parse — string-argv keeps the quotes of
-    ``--config='k={…}'`` — is ``None``: what it holds cannot be told apart from
-    its keys. Anything else is kept.
+    codex parses it, publishes its shape by :func:`_withheld_json`, read under
+    its key path, so ``mcp_servers.gh={command="gh", …}`` is a server whose
+    command name is kept. A value that starts like a table or array and does
+    not parse — string-argv keeps the quotes of ``--config='k={…}'`` — is
+    ``None``: what it holds cannot be told apart from its keys. Anything else,
+    a scalar value such as ``model="o3"``, is argument text and is kept.
     """
 
     key, equals, value = text.partition("=")
@@ -2211,7 +2337,7 @@ def _withheld_config(text: str) -> str | None:
     except (tomllib.TOMLDecodeError, RecursionError):
         return None if value.strip().strip("\"'").startswith(("{", "[")) else text
     if isinstance(loaded, (dict, list)):
-        shown = _withheld_json(loaded)
+        shown = _withheld_json(loaded, tuple(segments))
         return None if shown is None else f"{key}={shown}"
     return text
 
@@ -2257,9 +2383,9 @@ def _withheld_words(words: list[str] | tuple[str, ...], *, family: str) -> list[
 def _withheld_arguments(family: str, value: str) -> str | None:
     """An argument input as it may be published: the text the action parses, JSON words withheld.
 
-    A word the host readers would not publish is replaced, quoted, by what they
-    would; every other character stays as declared. A JSON array
-    ``codex-args`` publishes as its array of withheld words.
+    A JSON word, or a codex ``--config`` override, is replaced, quoted, by its
+    shape (:func:`_withheld_json`); every other character stays as declared.
+    A JSON array ``codex-args`` publishes as its array of withheld words.
     """
 
     parsed = _argument_input(family, value)
@@ -2609,25 +2735,48 @@ def checkout_ref_key(entry: dict[str, Any]) -> tuple[str, str, str]:
     )
 
 
+def _settings_bypass_permissions(text: str) -> bool:
+    """Whether Claude Code settings written as JSON set ``defaultMode: bypassPermissions`` (#823 review).
+
+    Read as the settings reader reads `.claude/settings.json`
+    (:func:`claude_setting_values`): under ``permissions``, else at the top.
+    A path, or text that does not parse, meets nothing: no file is read.
+    """
+
+    if not text.lstrip().startswith("{"):
+        return False
+    try:
+        loaded = json.loads(text)
+    except (ValueError, RecursionError):
+        return False
+    return any(
+        item.setting == "defaultMode" and item.value == "bypassPermissions"
+        for item in claude_setting_values(loaded)
+    )
+
+
 def _claude_action_rules(words: tuple[str, ...]) -> set[str]:
     """The widening rules the words a Claude action passes on meet.
 
     Read as ``parse-sdk-options.ts`` reads them: a word starting with ``--``
     is always a flag and never another flag's value, so
     ``--dangerously-skip-permissions`` counts wherever it stands, and
-    ``--permission-mode`` takes the next word unless that starts with ``--``.
+    ``--permission-mode`` and ``--settings`` take the next word unless that
+    starts with ``--``. A ``--settings`` value written as JSON meets the rule
+    its ``defaultMode`` sets.
     """
 
     rules: set[str] = set()
     for index, word in enumerate(words):
         name, equals, attached = word.partition("=")
+        following = words[index + 1] if index + 1 < len(words) else ""
+        value = attached if equals else ("" if following.startswith("--") else following)
         if name == "--dangerously-skip-permissions":
             rules.add("bypass_permissions")
-        elif name == "--permission-mode":
-            following = words[index + 1] if index + 1 < len(words) else ""
-            mode = attached if equals else ("" if following.startswith("--") else following)
-            if mode == "bypassPermissions":
-                rules.add("bypass_permissions")
+        elif name == "--permission-mode" and value == "bypassPermissions":
+            rules.add("bypass_permissions")
+        elif name == "--settings" and _settings_bypass_permissions(value):
+            rules.add("bypass_permissions")
     return rules
 
 
@@ -2642,6 +2791,7 @@ def _flag_rules(
         if family == "claude" and (
             name == "--dangerously-skip-permissions"
             or (name == "--permission-mode" and value == "bypassPermissions")
+            or (name == "--settings" and value is not None and _settings_bypass_permissions(value))
         ):
             rules.add(("bypass_permissions", name))
         if family == "codex" and name == "--dangerously-bypass-approvals-and-sandbox":
@@ -2659,8 +2809,8 @@ def _action_rules(spec: _AgentAction, declared: list[tuple[str, Any]]) -> set[tu
     expression into the input before the action reads it, so a rule is read
     only where the substituted text cannot reach — an argument input's words
     before the first expression (:func:`_literal_argument_words`), a user
-    gate's entries that hold none — and a mode input holding one meets none.
-    Each rule names the input it was read from.
+    gate's entries that hold none — and a mode or settings input holding one
+    meets none. Each rule names the input it was read from.
     """
 
     rules: set[tuple[str, str]] = set()
@@ -2673,9 +2823,11 @@ def _action_rules(spec: _AgentAction, declared: list[tuple[str, Any]]) -> set[tu
             entries = _EXPRESSION_SPAN_RE.sub(_EXPRESSION_MARK, text).split(",")
             if "*" in {entry.strip() for entry in entries}:
                 rules.add(("open_gate", name))
-        for mode, widening in spec.modes:
+        for mode, widening, rule in spec.modes:
             if name == mode and text == widening:
-                rules.add(("danger_full_access" if mode == "sandbox" else "unsafe_safety_strategy", name))
+                rules.add((rule, name))
+        if name == spec.settings and not holds_expression(text) and _settings_bypass_permissions(text):
+            rules.add(("bypass_permissions", name))
         if name == spec.args:
             words = _literal_argument_words(spec.family, text)
             if words is None:
@@ -2727,9 +2879,9 @@ _RuleKey = tuple[str, str, str, str]
 #: The agent action inputs each documented rule is read from; a user gate's
 #: rule is read from the gate it names.
 _RULE_SETTINGS: dict[str, frozenset[str]] = {
-    "bypass_permissions": frozenset({"claude_args"}),
+    "bypass_permissions": frozenset({"claude_args", "settings"}),
     "bypass_approvals_and_sandbox": frozenset({"codex-args"}),
-    "danger_full_access": frozenset({"sandbox", "codex-args"}),
+    "danger_full_access": frozenset({"sandbox", "permission-profile", "codex-args"}),
     "unsafe_safety_strategy": frozenset({"safety-strategy"}),
 }
 
@@ -2801,27 +2953,41 @@ def agent_rule_gains(before: dict[str, Any] | None, after: dict[str, Any] | None
     old, new = met(before), met(after)
     launched_before, launched_after = launches(before), launches(after)
     lost = [key for key in old if key not in new]
+    gained = [key for key in new if key not in old]
 
-    def left(key: _RuleKey, arriving: list[dict[str, Any]]) -> bool:
-        # The launch that met the rule in the losing job left it: the job no
-        # longer launches that agent, or the same launch now runs elsewhere.
-        if (key[0], key[1]) not in launched_after:
-            return True
+    def same_launch(key: _RuleKey, arriving: list[dict[str, Any]]) -> bool:
+        # The launch that met the rule in the losing job now runs here.
         return any(
             agent_launch_key(entry)[1:] == agent_launch_key(other)[1:]
             for entry in old[key] for other in arriving
         )
 
+    def job_left(key: _RuleKey, _arriving: list[dict[str, Any]]) -> bool:
+        # The losing job no longer launches that agent at all.
+        return (key[0], key[1]) not in launched_after
+
+    # A rule moved when the launch that met it left the losing job. The same
+    # launch arriving is matched first, so which of two gaining jobs a rule
+    # moved to does not depend on the order the jobs are declared in (#823 review).
+    sources: dict[_RuleKey, _RuleKey] = {}
+    for left in (same_launch, job_left):
+        for key in gained:
+            if key in sources:
+                continue
+            source = next(
+                (other for other in lost if other[1:] == key[1:] and left(other, new[key])), None
+            )
+            if source is not None:
+                lost.remove(source)
+                sources[key] = source
+
     gains = AgentRuleGains(claimed=[], unread_before=[], expression_before=[], moved=[])
-    for key, entries in new.items():
-        if key in old:
-            continue
+    for key in gained:
+        entries = new[key]
         job, family, rule, detail = key
         widening: AgentWidening = (job, rule, detail, entries[0])
-        source = next((other for other in lost if other[1:] == key[1:] and left(other, entries)), None)
-        if source is not None:
-            lost.remove(source)
-            gains.moved.append((widening, old[source][0]))
+        if key in sources:
+            gains.moved.append((widening, old[sources[key]][0]))
             continue
         before_launches = launched_before.get((job, family), [])
         if before_launches and not any(entry.get("form") == "read" for entry in before_launches):
