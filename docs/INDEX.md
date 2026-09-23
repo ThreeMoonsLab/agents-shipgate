@@ -70,7 +70,8 @@ repository [`README.md`](../README.md) is the landing page that routes to both.
 - [`report-schema.v0.27.json`](report-schema.v0.27.json) — frozen v0.27 reference schema; pre-v0.28 reports validate against this
 - [`report-schema.v0.26.json`](report-schema.v0.26.json) — frozen v0.26 reference schema; pre-v0.27 reports validate against this
 - [`report-schema.v0.25.json`](report-schema.v0.25.json) — frozen v0.25 reference schema; pre-v0.26 reports validate against this
-- [`verifier-schema.v0.20.json`](verifier-schema.v0.20.json) — current JSON Schema for `verifier.json`, including declaration review in the embedded release decision, the unchanged limits a host comparison names and what each host comparison established
+- [`verifier-schema.v0.21.json`](verifier-schema.v0.21.json) — current JSON Schema for `verifier.json`, including declaration review in the embedded release decision, the unchanged limits a host comparison names, what each host comparison established and the changed inputs it does not read
+- [`verifier-schema.v0.20.json`](verifier-schema.v0.20.json) — frozen prior reference; what each host comparison established, without the changed inputs it does not read
 - [`verifier-schema.v0.19.json`](verifier-schema.v0.19.json) — frozen prior reference; published by `1.0.0`, without host comparison coverage
 - [`verifier-schema.v0.16.json`](verifier-schema.v0.16.json) — frozen prior reference; no inferred structural comparison
 - [`verifier-schema.v0.15.json`](verifier-schema.v0.15.json) — frozen verifier reference

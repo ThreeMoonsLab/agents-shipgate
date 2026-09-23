@@ -19,6 +19,7 @@ from agents_shipgate.core.capability_diff_rows import (
 from agents_shipgate.core.host_grants import (
     _CLAUDE_PROJECT_SETTINGS_SOURCES,
     _PATH_REDACTION_MARKER,
+    _issue_source_label,
     build_host_comparison_payload,
     build_host_drift_payload,
     build_host_grants_baseline,
@@ -26,6 +27,12 @@ from agents_shipgate.core.host_grants import (
     host_grants_sha256,
     inventory_is_complete,
     normalized_host_grants,
+    public_host_path,
+)
+from agents_shipgate.core.unread_inputs import (
+    ChangedInputs,
+    UnreadDiscovery,
+    discover_unread_inputs,
 )
 from agents_shipgate.schemas.host_comparison import (
     COVERAGE_LIMIT_ORDER,
@@ -116,7 +123,8 @@ def unchanged_limits(
     return limits
 
 
-#: Coverage order (#812): what refused the comparison, then changes no row
+#: Coverage order (#812): what refused the comparison, then a changed input no
+#: reader of this entry read (#821), then changes no row
 #: describes, then sources only one side published, then sources not proven
 #: unchanged, then sources both sides read that gave rows, then sources compared
 #: with no change. What the entries above the block cannot show comes before
@@ -136,16 +144,22 @@ def _coverage_rank(item: dict[str, Any]) -> tuple[int, int, str, str, str, str]:
     limit = item.get("limit")
     if item["status"] == "blocking_limit":
         rank = 0
-    elif item["status"] in {"changed_without_grant_change", "changed_without_rows"}:
+    elif item["status"] == "changed_not_read":
+        # A changed input no reader read (#821) is the one change nothing
+        # else in the output shows at all: not a row, not a limit, not a file
+        # this entry compared. A refused comparison publishes only its limits
+        # beside it, which stay first.
         rank = 1
-    elif item["side"] != "both":
+    elif item["status"] in {"changed_without_grant_change", "changed_without_rows"}:
         rank = 2
-    elif item["status"] == "unchanged_not_proven":
+    elif item["side"] != "both":
         rank = 3
-    elif item["rows"]:
+    elif item["status"] == "unchanged_not_proven":
         rank = 4
-    else:
+    elif item["rows"]:
         rank = 5
+    else:
+        rank = 6
     # These are raw facts, not model instances yet, so the key stays total for
     # a kind the tuple does not list: it sorts after every registered one
     # rather than ahead of them. That is not a safety net — `limit` is a closed
@@ -160,19 +174,42 @@ def _coverage_rank(item: dict[str, Any]) -> tuple[int, int, str, str, str, str]:
         else len(COVERAGE_LIMIT_ORDER)
     )
     # `status` is last because the rank does not separate every status: the two
-    # statuses for a changed source with no row share rank 1, and
+    # statuses for a changed source with no row share rank 2, and
     # `_group_coverage`'s key keeps them apart, so two hosts reading one source
     # on one side can hold both at once. Without it the key ties there and only
     # `sorted`'s stability decides, which is weaker than the order this docstring
     # claims. Last, so no existing pair changes places.
-    return (rank, kind, item["source"], item["side"], str(limit), item["status"])
+    #
+    # A `changed_not_read` item keys on its candidate rule where another keys
+    # on its limit (#821), so that field keeps the key total for both.
+    return (
+        rank,
+        kind,
+        item["source"],
+        item["side"],
+        str(limit if limit is not None else item.get("candidate")),
+        item["status"],
+    )
 
 
 def _group_coverage(
     facts: dict[tuple[str, str, str, str | None], dict[str, Any]],
+    unread: UnreadDiscovery | None = None,
 ) -> HostComparisonCoverage:
-    """One item per source, status, side and limit, its hosts merged and capped."""
+    """One item per source, status, side and limit, its hosts merged and capped.
 
+    ``unread`` adds the changed inputs no reader of this entry read (#821),
+    one item per source, side and candidate rule, and records whether they
+    were looked for; ``None`` records nothing about them.
+    """
+
+    facts = dict(facts)
+    for fact in unread.facts if unread is not None else []:
+        item = facts.setdefault(
+            (fact["source"], fact["status"], fact["side"], fact["candidate"]),
+            {**fact, "hosts": set()},
+        )
+        item["hosts"] |= fact["hosts"]
     items = sorted(facts.values(), key=_coverage_rank)
     return HostComparisonCoverage(
         items=[
@@ -180,15 +217,54 @@ def _group_coverage(
             for item in items[:MAX_COVERAGE_ITEMS]
         ],
         omitted_items=max(0, len(items) - MAX_COVERAGE_ITEMS),
+        read_sources_only=not any(item["status"] == "changed_not_read" for item in items),
+        unread_candidates=(
+            None if unread is None else "examined" if unread.examined else "not_examined"
+        ),
+        unread_candidates_not_examined=unread.not_examined if unread is not None else 0,
     )
 
 
-def _blocking_coverage(before: dict[str, Any], after: dict[str, Any]) -> HostComparisonCoverage:
+def _read_by_entry(before: dict[str, Any], after: dict[str, Any]) -> Callable[[str], bool]:
+    """Whether either inventory published a file, so it is already an item of its own (#821).
+
+    As an artifact, the file of a grant, or the source of a blocking issue:
+    exactly the facts coverage names a source from. A non-blocking issue is
+    not an item, so a file only one of those names is still named as unread.
+    """
+
+    names: set[str] = set()
+    for inventory in (before, after):
+        names.update(str(artifact["path"]) for artifact in inventory.get("artifacts", []))
+        names.update(str(grant["source"]) for grant in inventory.get("grants", []))
+        names.update(
+            str(issue["source"]) for issue in inventory.get("issues", []) if issue.get("blocking")
+        )
+    names |= {name.split("#", 1)[0] for name in names}
+
+    def read(path: str) -> bool:
+        return public_host_path(path) in names or _issue_source_label(path) in names
+
+    return read
+
+
+def _unread(
+    before: dict[str, Any], after: dict[str, Any], changed_inputs: ChangedInputs | None
+) -> UnreadDiscovery | None:
+    if changed_inputs is None:
+        return None
+    return discover_unread_inputs(changed_inputs, read_by_entry=_read_by_entry(before, after))
+
+
+def _blocking_coverage(
+    before: dict[str, Any], after: dict[str, Any], unread: UnreadDiscovery | None = None
+) -> HostComparisonCoverage:
     """The sources behind a refused comparison, each with its limit and side (#812).
 
     Only what the inventories already published: every blocking issue, keyed
     by its published source and kind. The refusal itself is decided elsewhere
-    and is not changed by naming them.
+    and is not changed by naming them. A changed input this entry does not
+    read (#821) is named beside them: it is not a source either side compared.
     """
 
     def blocking(inventory: dict[str, Any]) -> dict[tuple[str, str, str], str]:
@@ -218,7 +294,7 @@ def _blocking_coverage(before: dict[str, Any], after: dict[str, Any]) -> HostCom
             },
         )
         item["hosts"].add(host)
-    return _group_coverage(facts)
+    return _group_coverage(facts, unread)
 
 
 #: The digest `public_host_path` stamps after a redacted component. A source
@@ -313,6 +389,7 @@ def _compared_coverage(
     payload: dict[str, Any],
     limits: list[dict[str, str]],
     identities: IdentityAnswers | None,
+    unread: UnreadDiscovery | None = None,
 ) -> HostComparisonCoverage:
     """What a comparable comparison established about each source it read (#812).
 
@@ -451,7 +528,7 @@ def _compared_coverage(
         )
         item["hosts"].add(host)
         item["rows"] += count
-    return _group_coverage(facts)
+    return _group_coverage(facts, unread)
 
 
 def compare_host_inventories(
@@ -465,6 +542,7 @@ def compare_host_inventories(
     unchanged: Callable[[str], bool] | None = None,
     identities: IdentityAnswers | None = None,
     coverage: bool = True,
+    changed_inputs: ChangedInputs | None = None,
 ) -> HostComparison:
     """Compare two inventories, refusing unless every limit is proven unchanged.
 
@@ -480,6 +558,13 @@ def compare_host_inventories(
     Without it, coverage calls no zero-row file unchanged or changed. A caller
     that publishes no coverage (`check`, a provided diff) passes
     ``coverage=False``: none is recorded and nothing is asked for it.
+
+    ``changed_inputs`` is the comparison's own changed-file set and a bounded
+    way to look at it (#821). With it, coverage also names each changed input
+    a documented candidate rule recognises and no reader of this entry read,
+    and records whether the set could be listed. Without it, coverage records
+    nothing about such inputs. It never touches the rows, the reasons, the
+    limits or the digests.
     """
 
     reasons: list[str] = []
@@ -510,12 +595,13 @@ def compare_host_inventories(
     # What the run established, from the facts above and nothing else (#812).
     # It stays on the comparison: it is not an input to the inventory digests,
     # a saved baseline or the rows.
+    unread = _unread(before, after, changed_inputs) if coverage else None
     established = (
         None
         if not coverage
-        else _blocking_coverage(before, after)
+        else _blocking_coverage(before, after, unread)
         if reasons
-        else _compared_coverage(before, after, payload, limits, identities)
+        else _compared_coverage(before, after, payload, limits, identities, unread)
     )
     rows = (
         []

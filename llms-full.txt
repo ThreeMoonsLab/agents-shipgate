@@ -35,7 +35,7 @@ Authoritative instructions for AI coding agents (Claude Code, Codex, Cursor, Aid
 
 The deterministic merge gate for AI-generated agent capability changes. Reads `shipgate.yaml` plus tool sources (MCP exports, MCP server source (TypeScript/Go registration idioms), OpenAPI specs, OpenAI Agents SDK Python files, Anthropic Messages API tool/prompt artifacts, Google ADK Python/config files, LangChain/LangGraph Python files, CrewAI Python files, OpenAI API artifacts, Codex repo config, Codex plugin packages and marketplaces, n8n workflow JSON/stubs, Conductor OSS workflow JSON) and produces deterministic findings. Local-first and static by default — no agent execution, tool calls, LLM calls, or network access.
 
-- **Host-configuration review:** `agents-shipgate diff` shows what a change does to declared coding-agent configuration — `.claude/settings.json`, `.mcp.json`, hooks, Codex, Cursor and VS Code MCP config, GitHub workflow permissions — with no `shipgate.yaml`, saved baseline or skill. It compares against the base already in Git history, names recognized sources it could not read, and implies no verdict. A no-change answer covers only what both sides read and says nothing about the [surfaces `diff` does not read](docs/host-boundary-support.md#known-unread-surfaces), such as hook scripts, composite actions and subagent hooks; see **Run (canonical)** and [`docs/host-boundary-support.md`](docs/host-boundary-support.md) for what it reads.
+- **Host-configuration review:** `agents-shipgate diff` shows what a change does to declared coding-agent configuration — `.claude/settings.json`, `.mcp.json`, hooks, Codex, Cursor and VS Code MCP config, GitHub workflow permissions — with no `shipgate.yaml`, saved baseline or skill. It compares against the base already in Git history, names recognized sources it could not read, and implies no verdict. A no-change answer covers only what both sides read. It names a changed input a bounded candidate list recognises but no reader reads — a plugin's `mcp.json`, `.cursor/hooks.json`, a nested `.claude/settings.json`, an external marketplace source — as `added`, `removed` or `changed, not read by this entry`, and says nothing about the other [surfaces `diff` does not read](docs/host-boundary-support.md#known-unread-surfaces), such as hook scripts, composite actions and subagent hooks; see **Run (canonical)** and [`docs/host-boundary-support.md`](docs/host-boundary-support.md) for what it reads.
 - **Inputs:** MCP · MCP server source · OpenAPI · OpenAI Agents SDK · Anthropic Messages API · Google ADK · LangChain/LangGraph · CrewAI · OpenAI API · Codex config · Codex plugin · n8n · Conductor OSS workflow JSON
 - **Outputs:** Markdown · JSON · SARIF
 - **Trust:** Static-by-default. No agent execution, tool calls, LLM calls, or network access.
@@ -854,7 +854,7 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Report schema (v0.6 frozen reference) | [`docs/report-schema.v0.6.json`](docs/report-schema.v0.6.json) | `0.6` |
 | Packet schema (Release Evidence Packet, latest) | [`docs/packet-schema.v0.18.json`](docs/packet-schema.v0.18.json) | `0.18` |
 | Agent result schema (current) | [`docs/agent-result-schema.v3.json`](docs/agent-result-schema.v3.json) | `agent_result_v3` |
-| Verifier schema (current) | [`docs/verifier-schema.v0.20.json`](docs/verifier-schema.v0.20.json) | `0.20` |
+| Verifier schema (current) | [`docs/verifier-schema.v0.21.json`](docs/verifier-schema.v0.21.json) | `0.21` |
 | Agent handoff schema (current) | [`docs/agent-handoff-schema.v9.json`](docs/agent-handoff-schema.v9.json) | `shipgate.agent_handoff/v9` |
 | Preflight schema (current) | [`docs/preflight-schema.v0.5.json`](docs/preflight-schema.v0.5.json) | `0.5` |
 | Host-grants inventory schema | [`docs/host-grants-inventory-schema.v0.6.json`](docs/host-grants-inventory-schema.v0.6.json) | `0.6` |
@@ -1574,7 +1574,35 @@ up with an explicit edit.
 
 # Current Agent Contract
 
-Runtime contract v40 reads the action reference each workflow step declares
+Runtime contract v41, unreleased, names the changed inputs a host comparison
+does not read (#821). A zero-row comparison used to print "No static
+host-grant changes detected" for a pull request that added a Cursor plugin's
+`mcp.json` or moved a marketplace plugin's pinned `sha`, exactly as for a
+docs-only one. Verifier `0.21` and `shipgate diff --json` (capability diff
+`0.4`) now add, inside the existing `coverage` block, a `changed_not_read`
+item for each path in the comparison's own changed-file set that a bounded,
+documented candidate rule names and no reader of this entry read, with its
+`candidate` rule (`plugin_mcp_config`, `plugin_manifest_mcp_servers`,
+`plugin_manifest_hooks`, `plugin_hook_file`, `unparsed_plugin_manifest`,
+`cursor_project_hooks`, `nested_host_settings`, `external_plugin_source`) and,
+for an external plugin source, the source it names as `detail`, never fetched.
+`read_sources_only` is `false` while such an item is named, and
+`unread_candidates` (`examined`, `not_examined`, or `null` for not recorded)
+with `unread_candidates_not_examined` say whether the change set was examined
+and how many candidates were not, past the bound or because a file their rule
+needed was not read or did not parse. An item is never a row, a widening, a
+loading claim or a `check` violation. The one route it moves: a manifest-free
+`verify` whose only host-relevant change is such an input, or a changed
+candidate it counts as not examined, publishes that comparison instead of the
+setup route, and on `verify --preview` the next
+action for that change is `discover` (`audit --host`) with the comparison
+published, where it was `initialize` (`init --write`) with none, in an
+agent-related workspace too, as it already was when the change edited a host
+file this entry reads. `minimum_control_contract_version`
+stays `21`, and a `0.20` verifier reads with the search not recorded. See
+[the migration note](../STABILITY.md#unread-changed-inputs-821).
+
+Previous runtime contract v40 reads the action reference each workflow step declares
 (#771). Host-grants inventory, baseline and drift schemas move to `0.6`, and a
 workflow grant adds `step_actions[]`: the job, the step (`id`, else `name`,
 else `steps[N]`), the declared `uses`, and its `form` — `remote`, `docker`, or
@@ -2242,11 +2270,11 @@ Downstream repos generated with
 
 - Latest release: `v1.1.0`
 - In-tree runtime: `1.1.0` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `40` (minimum control contract: `21`)
+- Runtime contract: `41` (minimum control contract: `21`)
 - Current report schema: `1.0`, frozen, superseding `0.43` — [`docs/report-schema.v1.0.json`](report-schema.v1.0.json); the `1.x` rules are in [`docs/report-1-0-contract.md`](report-1-0-contract.md)
 - Current packet schema: `0.18` — [`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
-- Current verifier schema: `0.20` — [`docs/verifier-schema.v0.20.json`](verifier-schema.v0.20.json) (`0.19` and earlier stay frozen; `0.20` says what each host comparison established, source by source)
+- Current verifier schema: `0.21` — [`docs/verifier-schema.v0.21.json`](verifier-schema.v0.21.json) (`0.20` and earlier stay frozen; `0.20` says what each host comparison established, source by source, and `0.21` also names the changed inputs it does not read)
 - Current verify-run schema: `shipgate.verify_run/v5` — [`docs/verify-run-schema.v5.json`](verify-run-schema.v5.json)
 - Current verification identity schemas: [`plan v1`](verification-plan-schema.v1.json), [`unit result v1`](verification-unit-result-schema.v1.json), [`artifact manifest v1`](verification-artifact-manifest-schema.v1.json), and [`terminal receipt v1`](verification-receipt-schema.v1.json)
 - Current control pointer schema: `shipgate.current_control/v1` — [`docs/current-control-schema.v1.json`](current-control-schema.v1.json)
@@ -2777,7 +2805,7 @@ agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --jso
 ```
 
 In `agents-shipgate-reports/verifier.json`, read the fields below (full
-schema [`docs/verifier-schema.v0.20.json`](verifier-schema.v0.20.json)). **Lead
+schema [`docs/verifier-schema.v0.21.json`](verifier-schema.v0.21.json)). **Lead
 with `control.state`.** Every release and merge field below is a mirror or
 deterministic projection of `report.json`; the authorization evaluation is an
 operational overlay and cannot change those fields.

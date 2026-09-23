@@ -211,10 +211,12 @@ Reproduce in that working tree: agents-shipgate diff --base 07c50e1bc59a0b3b2ba6
 
 That answer covers the sources both sides read, within the
 [support matrix](host-boundary-support.md), and `What this run established`
-names them. Its first line is the block's own boundary: it lists only sources
-this entry read or tried to read, so a changed file it does not read is absent
-and the list is never the whole account of the change. It says nothing about
-the [surfaces `diff` does not read](host-boundary-support.md#known-unread-surfaces).
+names them. Its first line is the block's own boundary: here it lists only
+sources this entry read or tried to read, so a changed file it does not read is
+absent and the list is never the whole account of the change. It says nothing
+about the [surfaces `diff` does not read](host-boundary-support.md#known-unread-surfaces);
+this source tree, and not the published `1.1.0`, names the changed ones a
+bounded candidate list recognises (see below).
 
 A zero-row answer is not always "no change". A file is listed as compared
 with no change only when its bytes are proven identical on both sides. When a
@@ -246,10 +248,26 @@ A source only one side read is named with its side, `read in base only` for a
 deleted file and `read in head only` for a new or untracked one such as
 `.claude/settings.local.json`, or for a hook file only the head's plugin
 configuration selects. A plugin manifest or marketplace is published only
-while it declares hooks, so it reads `published by head only` instead. The
-block lists only sources the comparison read or tried to read. A file this
-entry does not recognize is not in it, so its absence says nothing about that
-file. Where more items were computed than the block prints, its last line reads
+while it declares hooks, so it reads `published by head only` instead.
+
+**Not in `1.1.0`.** In this source tree, a changed file this entry does not
+read is named when a
+[bounded candidate rule](host-boundary-support.md#changed-inputs-named-but-not-read)
+recognises it as plausibly agent configuration: a pull request that adds
+`plugins/demo/mcp.json` beside `plugins/demo/.cursor-plugin/plugin.json`
+prints `plugins/demo/mcp.json (cursor): added, not read by this entry: MCP
+configuration in a plugin directory; no row, and loading is not established`,
+and one that moves a marketplace plugin's pinned `sha` names the source it now
+points at, never fetched. The block's first line then reads `sources this
+entry read or tried to read are listed, and changed inputs a bounded candidate
+list names that it does not read, so this is not the whole change: any other
+changed file it does not read is absent`. The candidates come from the change
+itself, so an unchanged one is never named, and ordinary documentation never
+is. Such an item ranks right after the blocking limits below. A file neither
+read nor recognised is not in the block, so its absence says nothing about that
+file.
+
+Where more items were computed than the block prints, its last line reads
 `N more items not listed, each ranked below those above`: blocking limits come
 first, by kind — `unreadable`, `parse_failed`, `unresolved_precedence`, then
 `unsupported`, `dynamic_source_excluded`, `remote_source_excluded` — then

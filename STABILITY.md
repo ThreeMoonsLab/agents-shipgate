@@ -2,10 +2,26 @@
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
-Unreleased, after 1.1.0, still contract v40 and host-grants `0.6`: a Claude Code
-setting that disables prompts or approves project MCP servers carries one
-rating on every surface (#827). The `audit --host` grant, the `diff`, `verify`
-and `check` rows, `check`'s violation and `verify`'s finding read one table.
+Unreleased, runtime contract v41: a host comparison names the changed inputs it
+does not read (#821). Verifier `0.21` and capability diff `0.4` add a
+`changed_not_read` coverage item, with the `candidate` rule that named it, for
+each path in the comparison's own changed-file set that a bounded, documented
+rule recognises as plausibly agent configuration and no reader of this entry
+read. It is never a row, a widening or a `check` violation, and never a claim
+that a host loads the file. `read_sources_only` becomes `false` while one is
+named, and `unread_candidates` says whether the change set was examined. A
+manifest-free `verify` whose only host-relevant change is such an input, or a
+changed candidate it counts as not examined, now publishes that comparison
+instead of the setup route, and `verify --preview` then names `audit --host`
+(`discover`) instead of `init --write` (`initialize`), in an agent-related
+workspace too.
+`minimum_control_contract_version` stays `21`. See
+[the migration note](#unread-changed-inputs-821).
+
+Also unreleased, and moving no version of its own: a Claude Code setting that
+disables prompts or approves project MCP servers carries one rating on every
+surface (#827). The `audit --host` grant, the `diff`, `verify` and `check`
+rows, `check`'s violation and `verify`'s finding read one table.
 `enableAllProjectMcpServers: true` and `skipDangerousModePermissionPrompt: true`
 move from `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` to
 `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW`, and `defaultMode: dontAsk` from
@@ -205,18 +221,72 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="unread-changed-inputs-821"></a>
+
+## Migration Note: Unreleased — the changed inputs a host comparison does not read (verifier `0.21`, capability diff `0.4`, contract v41, #821)
+
+A zero-row comparison could not tell a reviewer that the change touched agent
+configuration this entry does not read. A pull request that added a Cursor
+plugin's `mcp.json` launching `pipx run --spec git+https://…`, removed a
+`beforeShellExecution` guard from `.cursor/hooks.json`, gave a dotfiles
+package's `claude/.claude/settings.json` `Bash(*)` and `bypassPermissions`, or
+moved a marketplace plugin's pinned `sha` printed `No static host-grant changes
+detected`, exactly as a docs-only change does, and `audit --host` reported
+every host `complete`. The coverage block could not help, because it named only
+sources an inventory read. On a 23-PR public corpus, 0 of the 9 comparable
+zero-row results that changed such a file named it, and 4 of them named a file
+the pull request did not touch while omitting the one it did.
+
+The comparison now names them, inside the existing `coverage` member. No
+command, verdict, reader, row or control state is added.
+
+```json
+"coverage": {
+  "items": [
+    {"source": "plugins/demo/mcp.json", "hosts": ["cursor"], "side": "head",
+     "status": "changed_not_read", "rows": 0, "limit": null, "detail": null,
+     "candidate": "plugin_mcp_config", "scope": null}
+  ],
+  "omitted_items": 0,
+  "read_sources_only": false,
+  "unread_candidates": "examined",
+  "unread_candidates_not_examined": 0
+}
+```
+
+- **Where.** `host_comparison.coverage` in `verifier.json` (verifier schema `0.21`, [`docs/verifier-schema.v0.21.json`](docs/verifier-schema.v0.21.json)) and top-level `coverage` in `shipgate diff --json` (capability diff `0.4`) — the same object for the same comparison, as since #812. `check`'s boundary result and a provided diff carry no coverage and look for nothing.
+- **What is looked at.** Only the comparison's own changed-file set: the committed `base..head` change, both names of a rename, or for a working-tree head the tracked changes against the base plus untracked files, without `verify`'s output directory. Never a walk of the repository, so an unchanged candidate is never named.
+- **`status: changed_not_read`.** A changed path a documented candidate rule names and no reader of this entry read. `candidate` is the rule: `plugin_mcp_config` (`mcp.json` in a directory holding a Claude Code, Codex, Cursor or Copilot plugin manifest), `plugin_manifest_mcp_servers` (a manifest's `mcpServers` member), `plugin_manifest_hooks` (a Codex, Cursor or Copilot manifest's `hooks` member; a Claude Code manifest's is read), `plugin_hook_file` (a hook-named file such a manifest's `hooks` names), `unparsed_plugin_manifest` (a changed manifest or marketplace whose members could not be compared), `cursor_project_hooks` (`.cursor/hooks.json`), `nested_host_settings` (Claude Code, Cursor or VS Code settings below the repository root, whose scope is not established) and `external_plugin_source` (a marketplace entry's object `source`, compared as text by entry name). The rules, their precedence and their bounds are listed in [`docs/host-boundary-support.md`](docs/host-boundary-support.md#changed-inputs-named-but-not-read). On such an item `hosts` is the host the rule attributes the path to — a manifest's host, which can be `copilot`, `cursor` for `.cursor/hooks.json`, or the settings file's host — and never a host whose reader read it, since none did.
+- **`source`.** The file, through `public_host_path`, or a member inside it: `<manifest>#mcpServers`, `<manifest>#hooks`, `<marketplace>#plugins.<name>`. An entry `<name>` is published as `detail` is — redacted as a whole, on one line, a lone surrogate as its `\uXXXX` escape, at most 100 characters — and followed by `~` and a 12-character digest of the exact name whenever that changed it, so two entries that publish alike stay two items. A member is named when its text differs between the sides — added, removed or edited — whatever else read the file, because no reader reads that member. A whole file is named only when no inventory published it as an artifact, the file of a grant or a blocking issue: a file a reader read is an item of its own.
+- **`side`.** Where the file or member exists: `head` added, `base` removed, `both` changed. Nothing published it, so the text says `added`, `removed` or `changed` rather than `read in`.
+- **`detail`.** For `external_plugin_source`, what the source now names (`was` for a removed one): its kind, `repo`, `url` or `package`, `path`, and `sha`, `ref` or `version`, as `github example/one at <sha>`, redacted as every published string is, a lone surrogate as its `\uXXXX` escape, and at most 200 characters. A URL is published only in the engine's sanitized form. Nothing is fetched. `null` for every other rule. `limit` is always `null` and `rows` always `0`.
+- **Order and cap.** Directly after the blocking limits and before every other item, because it is the one change nothing else in the output shows at all; inside the same cap of ten, counted in `omitted_items` past it and printed as `N more items not listed, each ranked below those above`. It may accompany a refused comparison beside its blocking limits: it is not a compared source.
+- **`read_sources_only`.** `true` exactly when no item, listed or omitted, is `changed_not_read`. Neither value makes the list a complete account: the rules are a bounded list, and any other changed file no reader reads is still absent.
+- **`unread_candidates`.** `examined` when the changed-file set was matched against the rules; `not_examined` when it could not be listed or its sides could not be looked at, so no candidate is named and an absent one says nothing; `null` when not recorded. **`unread_candidates_not_examined`** counts candidate paths that were not examined, for either of two causes the one count does not tell apart: past the bound of 32, or the rule needed a file that was present but not read within its bound, or read but not a JSON object. The second cause is a hook file whose Codex, Cursor or Copilot manifest in an ancestor directory was not read or did not parse while no readable one names it, and a changed manifest or marketplace present on a side but not read as a regular file within the bound, such as a link; a changed manifest or marketplace that was read but does not parse is an `unparsed_plugin_manifest` item instead. Counted, never guessed at, and never counted in `omitted_items`.
+- **Bounds.** At most 32 candidate paths are examined per comparison, in path order. For all of them together, one presence question and one read per side (split across Git invocations only to keep each within its argument bound), reading plugin manifests and marketplaces only; a hook file's manifest is searched in its eight nearest ancestor directories. No link is followed, nothing outside the repository is read, nothing is fetched or run. Paths under a directory the host readers never walk (`node_modules`, `.venv` and the like) are not considered.
+
+**Text.** `diff`, `verify --format text` and the manifest-free PR comment print each item as `<source> (<hosts>): <added|removed|changed>, not read by this entry: <what it is>; no row, and loading is not established`, for example `plugins/demo/mcp.json (cursor): added, not read by this entry: MCP configuration in a plugin directory; no row, and loading is not established`; an external source reads `…: an external plugin source, now github example/one at <sha>; no row, and its content is not fetched`. While such an item is named, the block's first line, which read `only sources this entry read or tried to read are listed, so this is not the whole change: a changed file it does not read is absent` and would then be false, reads instead `sources this entry read or tried to read are listed, and changed inputs a bounded candidate list names that it does not read, so this is not the whole change: any other changed file it does not read is absent`. When nothing is named the first line is unchanged, byte for byte. Under it, `the changed files could not be listed or looked at, so no changed input this entry does not read is named` when the set was not examined, and `N changed candidate inputs not examined: past the discovery bound, or a file the rule needed was not read or did not parse` when `unread_candidates_not_examined` is not `0`, for either cause; like the boundary, neither is dropped to make room for an item. The PR comment bounds the block exactly as before. The no-change, entries and cannot-compare headlines are unchanged.
+
+**One route moves, on `verify` and `verify --preview` alike.** `verify` without a `shipgate.yaml` returned to the setup route (`Shipgate config not found`, exit `2`) whenever neither side of the comparison held a host artifact, and that route says nothing about the change. A comparison that read no artifact but names a changed input this entry does not read, or counts one or more changed candidate inputs as not examined (`unread_candidates_not_examined` above `0`, the one place that change is mentioned), is now published instead, on the existing manifest-free host route: advisory, exit `0`, `control.state` `agent_action_required` with the `audit --host` next action that route already names. `verify --preview` runs the same comparison and moves the same way: where its next action was `initialize` (`init --write`) with `host_comparison: null`, it is now `discover` (`audit --host`) with the comparison published and the host route's headline; `control.state` stays `agent_action_required` and the exit stays `0`. That includes an agent-related workspace, such as one whose change also adds a tool: a published host comparison takes the preview route whenever one exists, exactly as it already did when the change edits a host file this entry reads, such as the root `.claude/settings.json`. A comparison that reads no artifact, names nothing and counts nothing as not examined still takes the setup route on `verify` and `initialize` on `verify --preview`, as before; so does one whose changed files could not be listed (`unread_candidates: not_examined`), which says nothing about whether a candidate changed.
+
+**What does not change.** `comparison_status`, `incomparable_reasons`, `rows` and every row value, `review`, `unchanged_limits`, every other coverage item, the inventory digests, saved host-grants baselines and drift payloads (host-grants stays `0.6`), `audit --host`, `check`'s decision, rows and text, the control envelope's `capability_rows`, and every control state, permission and next action on a comparison that reads a host artifact. The host-config and cold-start benchmark replays reproduce their run-of-record scores. `minimum_control_contract_version` stays `21`.
+
+**Compatibility.** `coverage` and its items are closed objects, so a reader validating against the published [`docs/verifier-schema.v0.20.json`](docs/verifier-schema.v0.20.json) rejects a `0.21` artifact's new members; that schema stays frozen. The current reader reads a `0.20` artifact as `0.21` with `unread_candidates: null`, which is what that build knew, and refuses one that claims a `changed_not_read` item, a `candidate`, `read_sources_only: false` or either `unread_candidates` member. A `diff --json` consumer sees `capability_diff_schema_version: "0.4"`. A consumer switching on `coverage.items[].status` should treat an unknown status as a change it must read, not as no change.
+
 <a id="claude-setting-ratings-827"></a>
 
 ## Migration Note: Unreleased — one rating per Claude Code setting (#827)
 
-No schema, member, check id or `minimum_control_contract_version` moves:
-host-grants stays `0.6`, capability diff `0.3`, verifier `0.20` and the runtime
-contract `40`, all as shipped in 1.1.0. What moves is the value of existing
-fields for the Claude Code settings the host inventory publishes as
-`permission_mode` grants. One table, `core/host_settings.py`, now rates each
-value, and the grant's `access` and `risk`, a row's `severity`, `before`,
-`after` and `why`, and `check`'s violation — and so `verify`'s finding — all
-read it. The ratings and their basis are in
+This change moves no version of its own: no schema, member, check id or
+`minimum_control_contract_version` moves, and host-grants stays `0.6`, as
+shipped in 1.1.0. The capability diff `0.4`, verifier `0.21` and runtime
+contract `41` of the unreleased tree are #821's
+([migration note](#unread-changed-inputs-821)), not this change's. What moves
+is the value of existing fields for the Claude Code settings the host inventory
+publishes as `permission_mode` grants. One table, `core/host_settings.py`, now
+rates each value, and the grant's `access` and `risk`, a row's `severity`,
+`before`, `after` and `why`, and `check`'s violation — and so `verify`'s
+finding — all read it. The ratings and their basis are in
 [`docs/host-boundary-support.md`](docs/host-boundary-support.md#claude-code-setting-ratings).
 
 | Value a change sets | Grant `risk` before → after | `check` before → after |
