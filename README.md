@@ -91,9 +91,9 @@ the comparison was refused, which source left an inventory incomplete. This
 source tree, and not the published `1.1.0`, also names a changed input that a
 bounded, documented candidate list recognises but no reader of this entry
 reads — a plugin's `mcp.json`, a plugin manifest's `mcpServers`,
-`.cursor/hooks.json`, a nested
-`.claude/settings.json`, an external marketplace plugin source — as `changed,
-not read by this entry`, with no row and no claim that a host loads it. Its
+`.cursor/hooks.json`, a nested `.claude/settings.json`, an external marketplace
+plugin source — as `added`, `removed` or `changed, not read by this entry`,
+with no row and no claim that a host loads it. Its
 first line says what it lists, so it is never the whole account of the
 change: any other changed file it does not read is absent. When more items are
 computed than it prints,

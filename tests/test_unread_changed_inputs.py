@@ -620,6 +620,48 @@ def test_an_entry_name_is_published_redacted_bounded_and_distinct(tmp_path: Path
     assert verifier["host_comparison"]["coverage"] == payload["coverage"]
 
 
+def test_a_lone_surrogate_in_an_entry_is_escaped_not_a_crash(tmp_path: Path) -> None:
+    """#821 review cycle 2: JSON's `\\ud800` decodes to a string no UTF-8 sink takes.
+
+    An entry named `a\\ud800`, or whose `repo` held one, made `diff` exit 1
+    with a `UnicodeEncodeError` and `verify --head` exit 4; with a control
+    character beside it, hashing the name failed too, so `diff --json` did as
+    well. A lone surrogate is now published as its `\\uXXXX` escape, and the
+    name then carries the digest of its exact text, so every entry stays its
+    own item.
+    """
+
+    def entry(name: str, repo: str, sha: str) -> dict:
+        return {"name": name, "source": {"source": "github", "repo": repo, "sha": sha}}
+
+    names = ["a\ud800", "a\udfff", "a\u0001\ud800"]
+    base = {"name": "m", "owner": {"name": "x"}, "plugins": [
+        *(entry(name, "example/one", "1" * 40) for name in names),
+        entry("plain", "o/\ud800", "1" * 40)]}
+    head = {**base, "plugins": [
+        *(entry(name, "example/one", "2" * 40) for name in names),
+        entry("plain", "o/\ud800", "2" * 40)]}
+    repo = _two(tmp_path, {".claude-plugin/marketplace.json": base},
+                {".claude-plugin/marketplace.json": head})
+
+    text, payload = _diff(repo)
+    verifier, comment, verify_text = _verify(repo, tmp_path / "out")
+
+    for output in (text, json.dumps(payload), json.dumps(verifier), comment, verify_text):
+        output.encode("utf-8")
+    items = [item for item in payload["coverage"]["items"] if item["status"] == "changed_not_read"]
+    sources = sorted(item["source"] for item in items)
+    prefix = ".claude-plugin/marketplace.json#plugins."
+    assert len(sources) == 4 == len(set(sources))
+    assert f"{prefix}plain" in sources
+    assert sum(source.startswith(f"{prefix}a\\ud800~") for source in sources) == 1
+    assert sum(source.startswith(f"{prefix}a\\udfff~") for source in sources) == 1
+    assert sum(source.startswith(f"{prefix}a \\ud800~") for source in sources) == 1
+    (plain,) = [item for item in items if item["source"] == f"{prefix}plain"]
+    assert plain["detail"] == f"github o/\\ud800 at {'2' * 40}"
+    assert verifier["host_comparison"]["coverage"] == payload["coverage"]
+
+
 # --- bounds, ranking and the not-examined answer ------------------------------
 
 
@@ -702,6 +744,59 @@ def test_a_changed_manifest_that_is_a_link_is_not_said_to_be_past_the_bound(
     assert payload["coverage"]["unread_candidates_not_examined"] == 1
     assert ONE_NOT_EXAMINED in text.splitlines()
     assert "more changed candidate" not in text
+
+
+def _past_the_bound(tmp_path: Path) -> Path:
+    """32 `mcp.json` files no manifest sits beside, then one a Cursor manifest does."""
+
+    head: dict[str, object] = {
+        f"a{index:02d}/mcp.json": {"mcpServers": {}} for index in range(1, MAX_UNREAD_CANDIDATES + 1)
+    }
+    head["zz/mcp.json"] = PIPX
+    return _two(tmp_path, {"zz/.cursor-plugin/plugin.json": {"name": "zz"}}, head)
+
+
+def _unparsed_hook_manifest(tmp_path: Path) -> Path:
+    return _two(
+        tmp_path,
+        {
+            "p/.codex-plugin/plugin.json": '{"name": "p", "hooks": "./hooks/hooks.json",}',
+            "p/hooks/hooks.json": {"hooks": {}},
+        },
+        {"p/hooks/hooks.json": {"hooks": {"Stop": []}}},
+    )
+
+
+@pytest.mark.parametrize("build", [_past_the_bound, _unparsed_hook_manifest],
+                         ids=["past-the-bound", "unparsed-manifest"])
+def test_a_manifest_free_verify_keeps_a_count_that_names_nothing(tmp_path: Path, build) -> None:
+    """#821 review cycle 2: a comparison that names nothing but counts a
+    candidate it did not examine is published, not handed to the setup route.
+
+    Neither repository holds a host artifact, so `verify` took the setup route
+    (exit `2`, `host_comparison: null`) while `diff` printed "1 changed
+    candidate input not examined", and the change was mentioned nowhere in
+    `verify`'s output. The count is now published on the manifest-free host
+    route, as a named input is, and `verify --preview` moves with it.
+    """
+
+    repo = build(tmp_path)
+
+    text, payload = _diff(repo)
+    verifier, comment, verify_text = _verify(repo, tmp_path / "out")
+    comparison = verifier["host_comparison"]
+    preview = _preview(repo)
+
+    assert _unread(payload["coverage"]) == []
+    assert payload["coverage"]["unread_candidates_not_examined"] == 1
+    assert ONE_NOT_EXAMINED in text.splitlines()
+    assert comparison is not None and comparison["rows"] == []
+    assert comparison["coverage"] == payload["coverage"]
+    assert f"- {ONE_NOT_EXAMINED.strip()}" in verify_text.splitlines()
+    assert ONE_NOT_EXAMINED.strip() in comment
+    assert verifier["control"]["state"] == "agent_action_required"
+    assert preview["control"]["next_action"]["kind"] == "discover"
+    assert preview["host_comparison"]["coverage"] == payload["coverage"]
 
 
 def test_a_manifest_nested_past_what_json_writes_is_named_unparsed_not_a_crash(

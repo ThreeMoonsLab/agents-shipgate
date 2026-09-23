@@ -18,8 +18,9 @@ with `unread_candidates_not_examined` say whether the change set was examined
 and how many candidates were not, past the bound or because a file their rule
 needed was not read or did not parse. An item is never a row, a widening, a
 loading claim or a `check` violation. The one route it moves: a manifest-free
-`verify` whose only host-relevant change is such an input publishes that
-comparison instead of the setup route, and on `verify --preview` the next
+`verify` whose only host-relevant change is such an input, or a changed
+candidate it counts as not examined, publishes that comparison instead of the
+setup route, and on `verify --preview` the next
 action for that change is `discover` (`audit --host`) with the comparison
 published, where it was `initialize` (`init --write`) with none, in an
 agent-related workspace too, as it already was when the change edited a host

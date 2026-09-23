@@ -221,7 +221,8 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # comparison's changed files were examined. A name is never a row, a widening
 # or a ``check`` violation. The one route it moves, on ``verify`` and
 # ``verify --preview`` alike: a manifest-free comparison whose only
-# host-relevant change is such an input is now published, on the host route's
+# host-relevant change is such an input, or a changed candidate it counts as
+# not examined, is now published, on the host route's
 # ``audit --host`` next action, instead of the setup route (``verify``) or the
 # ``initialize`` next action (``verify --preview``). A 0.20 verifier reads
 # with the search not recorded. ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at

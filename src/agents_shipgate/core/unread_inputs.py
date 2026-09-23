@@ -124,6 +124,8 @@ MAX_ENTRY_NAME_CHARS = 100
 
 _SIDES = ("base", "head")
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+#: A lone surrogate: JSON's `\ud800` decodes to one, and no UTF-8 sink takes it.
+_SURROGATE = re.compile(r"[\ud800-\udfff]")
 
 
 @dataclass(frozen=True)
@@ -266,9 +268,15 @@ def _side(present_on: Sequence[str]) -> str | None:
 
 
 def _published_text(value: str, limit: int = MAX_SOURCE_DETAIL_CHARS) -> str:
-    """Repository text as a coverage item may publish it: redacted, one line, bounded."""
+    """Repository text as a coverage item may publish it: redacted, one line, bounded.
+
+    A lone surrogate is published as its `\\uXXXX` escape (#821 review cycle
+    2): printed or written as itself, it made `diff` and `verify` fail on
+    output.
+    """
 
     text = _CONTROL.sub(" ", _sanitize_sensitive_string(redact_text(value) or ""))
+    text = _SURROGATE.sub(lambda match: f"\\u{ord(match.group()):04x}", text)
     if len(text) > limit:
         text = text[: limit - 1] + "…"
     return text
@@ -284,12 +292,14 @@ def _published_entry_name(name: str) -> str:
     bounded. Whenever that changed it, a short digest of the exact name
     follows, as `public_host_path` stamps one, so two entries that publish
     alike stay two items. A name that needs none of it is published as written.
+    The digest encodes with ``surrogatepass``, the one error handler that takes
+    every lone surrogate a JSON name can hold (#821 review cycle 2).
     """
 
     text = _published_text(name, MAX_ENTRY_NAME_CHARS)
     if text == name:
         return name
-    digest = hashlib.sha256(name.encode("utf-8", "surrogateescape")).hexdigest()[:12]
+    digest = hashlib.sha256(name.encode("utf-8", "surrogatepass")).hexdigest()[:12]
     return f"{text}~{digest}"
 
 

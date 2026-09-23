@@ -63,7 +63,9 @@ def compare_host_refs(
     A comparison that read no host artifact on either side is ``None`` as
     before, unless its coverage names a changed input this entry does not
     read (#821): that change is the one this result exists to name, so it is
-    not handed to the setup route, which would say nothing about it.
+    not handed to the setup route, which would say nothing about it. A
+    changed candidate input it counts as not examined keeps it too (#821
+    review cycle 2): the count is the only place that change is mentioned.
     """
     from agents_shipgate.cli.verify.orchestrator import (
         _safe_repository_identity,
@@ -177,8 +179,12 @@ def compare_host_refs(
         if identity() != captured_identity:
             raise ValueError("Host comparison inputs moved during the run")
         result.input_identity = captured_identity
-        names_unread = result.coverage is not None and not result.coverage.read_sources_only
-        if not result.paths and result.comparison_status == "comparable" and not names_unread:
+        result_coverage = result.coverage
+        mentions_unread = result_coverage is not None and (
+            not result_coverage.read_sources_only
+            or result_coverage.unread_candidates_not_examined > 0
+        )
+        if not result.paths and result.comparison_status == "comparable" and not mentions_unread:
             return None
         return result
 
