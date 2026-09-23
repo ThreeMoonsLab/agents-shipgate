@@ -236,7 +236,11 @@ SURFACES: tuple[Surface, ...] = (
         # triggers, write scopes, secrets and checkout refs the engine already
         # published on the grant, so it adds no claim;
         # `tests/test_workflow_agent_launches.py` holds diff, verify, the PR
-        # comment, check and the control envelope to the same row.
+        # comment, check and the control envelope to the same row. A
+        # workflow's coverage line naming what its grant does not read, in
+        # place of the redacted-values note, is fixed text chosen by the
+        # source's kind the inventory gives its path, and decides nothing, so
+        # it adds no claim either.
         {},
     ),
     Surface(

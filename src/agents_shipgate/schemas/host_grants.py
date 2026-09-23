@@ -776,7 +776,8 @@ class HostWorkflowUnreadAgentRunV7(BaseModel):
     quote, an expansion, a redirection, a comment, a continuation, a
     ``${{ }}`` expression, another program such as ``npx`` or ``timeout``, a
     subcommand that is not a headless launch, or a declared ``shell:`` other
-    than ``bash`` or ``sh`` — once for each agent CLI it mentions. It is a
+    than ``bash`` or ``sh`` run on the script alone (so ``bash -c '…' {0}``
+    too) — once for each agent CLI it mentions. It is a
     named, non-blocking limit and nothing more: none of the step's text is
     published, it is never compared, so adding, removing or editing it gives
     no row, and it never says that the step starts, or does not start, an

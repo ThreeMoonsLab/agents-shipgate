@@ -409,6 +409,29 @@ def test_job_secrets_read_a_yaml_alias_that_holds_itself_or_fans_out_once():
     assert time.monotonic() - started < 5
 
 
+def test_job_secrets_read_unterminated_expressions_in_linear_time():
+    """#823 review cycle 7 (C7-F2): every unterminated `${{` scanned to the end, 92 s at 300 KB.
+
+    An unterminated expression names no secret, as before; a closed one
+    after it still does.
+    """
+
+    unterminated = "${{ secrets.NEVER " * 20_000  # about 360 KB, no closing `}}`
+    job = {"env": {"X": unterminated, "Y": "${{ secrets.CLOSED }}"}, "steps": [{"run": "claude -p Review"}]}
+    started = time.monotonic()
+    launch, = _launches(_workflow(jobs={"review": job}))
+    assert launch["job_secrets"] == ["CLOSED"]
+    # The same text in an agent action's settings input, which took as long.
+    row, = _rows(_workflow(_agent()), _workflow(_agent(settings="${{" * 100_000)))
+    assert (row.direction, row.expands) == ("changed", False)
+    assert time.monotonic() - started < 5
+    # The body of an expression that closes after an unterminated one is still read.
+    launch, = _launches(_workflow(jobs={"review": {
+        "env": {"X": "${{ vars.A ${{ secrets.INNER }}"}, "steps": [{"run": "claude -p Review"}],
+    }}))
+    assert launch["job_secrets"] == ["INNER"]
+
+
 # --- the only forms read: plain lists of words (#823 review cycle 4) --------------------
 #
 # Four review cycles each found a shell form the `run:` reader mis-read, so no
@@ -581,8 +604,25 @@ def test_a_run_this_reader_does_not_parse_is_a_named_limit_that_gives_no_row_and
         {"step": "${{ matrix.shell }}"},
         {"job": "powershell"},
         {"workflow": "pwsh"},
+        # #823 review cycle 7: a bash or sh template that may run a command of its own
+        {"step": "bash -c 'claude -p --dangerously-skip-permissions Review' {0}"},
+        {"step": "bash -ec true {0}"},
+        {"job": "bash --rcfile .ci/rc {0}"},
+        {"step": "bash --init-file .ci/rc {0}"},
+        {"step": "sh -e {0} extra"},
+        {"step": "bash -e"},
+        {"step": "bash -o {0}"},
+        {"workflow": "bash -O ${{ vars.OPTION }} {0}"},
+        # one that runs no command, or reads its commands from elsewhere
+        {"step": "bash -n {0}"},
+        {"step": "bash -o noexec {0}"},
+        {"step": "sh -s {0}"},
+        {"step": "bash --version {0}"},
     ],
-    ids=["step-pwsh", "step-python", "step-cmd", "step-expression", "job-default", "workflow-default"],
+    ids=["step-pwsh", "step-python", "step-cmd", "step-expression", "job-default", "workflow-default",
+         "bash-c-template", "short-cluster-with-c", "rcfile", "init-file", "words-after-the-script",
+         "no-script-slot", "option-without-its-name", "option-name-from-an-expression",
+         "noexec-flag", "noexec-option", "stdin", "version"],
 )
 def test_a_run_under_a_declared_shell_other_than_bash_or_sh_is_not_read(shell):
     step = {"run": "claude -p --dangerously-skip-permissions go"}
@@ -599,7 +639,11 @@ def test_a_run_under_a_declared_shell_other_than_bash_or_sh_is_not_read(shell):
     assert _unread(workflow) == [{"job": "review", "step": "steps[0]", "agent": "claude"}]
 
 
-@pytest.mark.parametrize("shell", ["bash", "sh", "bash -e {0}", "/bin/bash --noprofile --norc -eo pipefail {0}"])
+@pytest.mark.parametrize(
+    "shell",
+    ["bash", "sh", "bash -e {0}", "/bin/bash --noprofile --norc -eo pipefail {0}", "sh -eu {0}",
+     "bash -l {0}", "bash -O extglob -o pipefail {0}"],
+)
 def test_a_run_under_bash_or_sh_is_read(shell):
     step = {"run": "claude -p --dangerously-skip-permissions go", "shell": shell}
     launch, = _launches(_workflow(step))
@@ -1123,8 +1167,17 @@ def test_renaming_a_job_that_launches_a_bypassing_agent_is_not_a_widening():
                review=[{"run": "make"}]),
          _jobs(lint=[{"run": "make"}],
                review=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}])),
+        # #823 review cycle 7: a job renamed with the install step it had
+        # beside the launch; the unread step is in the job gaining the rule
+        (_jobs(review=[{"run": "npm i -g @anthropic-ai/claude-code"}, {"name": "agent", "run": f"claude -p {BYPASS} Review"}]),
+         _jobs(**{"code-review": [{"run": "npm i -g @anthropic-ai/claude-code"},
+                                  {"name": "agent", "run": f"claude -p {BYPASS} Review"}]})),
+        # a job renamed beside another job that keeps the unread step it had
+        (_jobs(review=[_named(BYPASS)], setup=[{"run": "claude mcp add x"}]),
+         _jobs(**{"code-review": [_named(BYPASS)]}, setup=[{"run": "claude mcp add x"}])),
     ],
-    ids=["step-moved", "renamed-and-edited", "swapped", "gate-moved", "moved-beside-a-step-that-is-no-launch"],
+    ids=["step-moved", "renamed-and-edited", "swapped", "gate-moved", "moved-beside-a-step-that-is-no-launch",
+         "renamed-with-its-install-step", "renamed-beside-an-unread-step-another-job-keeps"],
 )
 def test_a_launch_that_left_one_job_for_another_moves_its_rules(before, after):
     assert host_grant_expansion_signals(_changes(before, after)) == []
@@ -1194,13 +1247,42 @@ def test_a_launch_that_left_one_job_for_another_moves_its_rules(before, after):
                review=[{"run": "make"}]),
          _jobs(lint=[{"name": "agent", **_agent(settings='{"permissions":{"defaultMode":"${{ vars.MODE }}"}}')}],
                review=[{"name": "agent", **_agent(settings='{"permissions":{"defaultMode":"bypassPermissions"}}')}])),
+        # #823 review cycle 7 (R6): the job it met it in is renamed and quotes
+        # the prompt, so under its new name it still runs the launch, unread
+        (_jobs(lint=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}], review=[{"run": "echo hi"}]),
+         _jobs(**{"lint-renamed": [{"name": "agent", "run": f'claude -p {BYPASS} "Review"'}]},
+               review=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}])),
+        # (R7) renamed and run through `npx`, the other job spelling the bypass as a mode
+        (_jobs(lint=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}], review=[{"run": "echo hi"}]),
+         _jobs(**{"lint-renamed": [{"name": "agent", "run": f"npx @anthropic-ai/claude-code -p {BYPASS} Review"}]},
+               review=[{"name": "agent", "run": "claude -p --permission-mode bypassPermissions Review"}])),
+        # (R3) the job it met it in is removed, and an existing job gains the quoted launch
+        (_jobs(lint=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}], review=[{"run": "echo hi"}],
+               docs=[{"run": "make"}]),
+         _jobs(review=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}],
+               docs=[{"run": "make"}, {"name": "agent", "run": f'claude -p {BYPASS} "Review"'}])),
+        # the same while the job it left remains
+        (_jobs(lint=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}, {"run": "make"}],
+               review=[{"run": "echo hi"}], docs=[{"run": "make"}]),
+         _jobs(lint=[{"run": "make"}], review=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}],
+               docs=[{"run": "make"}, {"name": "agent", "run": f'claude -p {BYPASS} "Review"'}])),
+        # renamed into an action whose argument input this audit does not read
+        (_jobs(lint=[_named(BYPASS)], review=[{"run": "echo hi"}]),
+         _jobs(**{"lint-renamed": [_named(f'{BYPASS} --append-system-prompt "Review"')]},
+               review=[_named(BYPASS)])),
+        # Two jobs renamed at once, one holding an unread step: which new job
+        # is which is not told, so the gain is claimed (the safe direction).
+        (_jobs(lint=[_named(BYPASS)], setup=[{"run": "npm i -g @anthropic-ai/claude-code"}]),
+         _jobs(review=[_named(BYPASS)], prepare=[{"run": "npm i -g @anthropic-ai/claude-code"}])),
     ],
     ids=["second-job", "narrowed-there-widened-here", "unread-in-the-job-it-met-it", "edited-into-the-same-launch",
          "moved-and-edited", "quoted-in-the-job-it-met-it", "npx-in-the-job-it-met-it",
          "unread-at-another-step-in-the-job-it-met-it", "install-merged-into-the-launch",
          "unread-step-removed-while-the-launch-becomes-unread", "beside-an-unread-step-that-stays",
          "arguments-unread-in-the-job-it-met-it",
-         "setting-expression-in-the-job-it-met-it"],
+         "setting-expression-in-the-job-it-met-it",
+         "renamed-and-quoted", "renamed-and-npx", "removed-while-another-job-gains-it-quoted",
+         "left-for-another-job-quoted", "renamed-into-unread-arguments", "two-jobs-renamed"],
 )
 def test_a_rule_another_job_gains_while_no_launch_left_is_a_widening(before, after):
     assert host_grant_expansion_signals(_changes(before, after)) == [f"workflow_agent_widened_changed: {SOURCE}"]
@@ -1944,6 +2026,28 @@ def test_the_run_forms_of_review_cycle_4_give_no_row_and_are_a_named_coverage_is
     joined = json.dumps(inventory) + audit.output
     for text in ("dangerously", "yolo", "Review this PR", "review this change"):
         assert text not in joined
+
+
+def test_a_change_that_only_adds_an_unread_step_says_what_the_workflow_does_not_compare(tmp_path):
+    """#823 review cycle 7 (carried P3): the coverage line named env values and apiKeyHelper."""
+
+    base = _workflow({"uses": "actions/checkout@v4"})
+    head = _workflow({"uses": "actions/checkout@v4"}, {"run": f"claude -p {BYPASS} 'Review'"})
+    repo = _repo(tmp_path, {SOURCE: _yaml(base)})
+    _git(repo, "checkout", "-qb", "change")
+    _write(repo, {SOURCE: _yaml(head)})
+    _git(repo, "commit", "-qam", "an unread agent step")
+
+    result = CliRunner().invoke(app, ["diff", "--workspace", str(repo), "--base", "main"])
+    assert result.exit_code == 0, result.output
+    assert "No static host-grant changes detected." in result.output
+    assert (
+        f"{SOURCE} (github): compared; changed, but no grant this entry compares changed, so no row "
+        "(text this entry does not read, such as a step's env or an unread agent step, is not "
+        "compared; audit --host names each unread agent step)"
+    ) in result.output
+    assert "apiKeyHelper" not in result.output
+    assert "dangerously" not in result.output
 
 
 @pytest.mark.parametrize(

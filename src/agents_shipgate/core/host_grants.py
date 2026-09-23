@@ -1773,7 +1773,11 @@ UNTRUSTED_INPUT_TRIGGERS = ("issue_comment", "issues", "pull_request_target", "w
 
 _ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 _SECRET_REFERENCE_RE = re.compile(r"\bsecrets\.([A-Za-z_][A-Za-z0-9_]*)")
-_EXPRESSION_RE = re.compile(r"\$\{\{(.*?)\}\}", re.S)
+#: One ``${{ … }}`` expression's body and its closing ``}}``, or an unterminated
+#: ``${{`` to the end of the text, which names no secret. A lazy match that
+#: must find ``}}`` scanned to the end from every ``${{``, so text holding many
+#: unterminated ones took quadratic time (#823 review cycle 7).
+_EXPRESSION_RE = re.compile(r"\$\{\{(.*?)(\}\}|\Z)", re.S)
 
 
 def pull_request_code_ref(ref: str | None) -> bool:
@@ -1887,14 +1891,54 @@ def _declared_shell(step: dict[Any, Any], job: dict[Any, Any], workflow: dict[An
     return None
 
 
+#: An option word of a declared ``bash``/``sh`` template after which the shell
+#: still runs the script: a cluster of ``set`` flags and ``-l``, ``-i`` or
+#: ``-r``, or one of these long options. Never ``-c``, which runs a command
+#: string of its own, ``-s``, which reads commands from standard input, ``-n``,
+#: which runs none, ``--rcfile`` or anything else. A cluster ending in ``o``
+#: or ``O`` takes an option name next.
+_SHELL_OPTION_RE = re.compile(
+    r"[-+](?:[abefhiklmprtuvxBCEHPT]+[oO]?|[oO])"
+    r"|--(?:noprofile|norc|posix|login|restricted|noediting|verbose)"
+)
+_SHELL_OPTION_NAME_RE = re.compile(r"[a-z_]+")
+#: The option name that runs no command.
+_SHELL_NO_EXEC = "noexec"
+
+
 def _read_shell(shell: Any) -> bool:
-    """Whether a ``run:`` under this declared shell is read: none declared, ``bash`` or ``sh``."""
+    """Whether a ``run:`` under this declared shell is read.
+
+    None declared, ``bash`` or ``sh`` (by any path), or a template that runs
+    one of them on the script alone: option words it still runs the script
+    under, then ``{0}`` last, as in ``bash --noprofile --norc -eo pipefail
+    {0}``. Any other template, such as ``bash -c '…' {0}``, may run a command
+    of its own or none, so the step is not read (#823 review cycle 7).
+    """
 
     if shell is None:
         return True
-    if not isinstance(shell, str) or not shell.split():
+    if not isinstance(shell, str):
         return False
-    return shell.split()[0].rsplit("/", 1)[-1] in _READ_SHELLS
+    words = shell.split()
+    if not words or words[0].rsplit("/", 1)[-1] not in _READ_SHELLS:
+        return False
+    if len(words) == 1:
+        return True
+    if words[-1] != "{0}":
+        return False
+    index = 1
+    while index < len(words) - 1:
+        word = words[index]
+        if not _SHELL_OPTION_RE.fullmatch(word):
+            return False
+        index += 1
+        if not word.startswith("--") and word[-1] in "oO":
+            name = words[index] if index < len(words) - 1 else ""
+            if not _SHELL_OPTION_NAME_RE.fullmatch(name) or name == _SHELL_NO_EXEC:
+                return False
+            index += 1
+    return True
 
 
 def _read_flags(
@@ -2333,8 +2377,9 @@ def _job_secrets(job: dict[Any, Any], workflow_env: Any) -> list[str]:
     while pending:
         value = pending.pop()
         if isinstance(value, str):
-            for expression in _EXPRESSION_RE.findall(value):
-                names.update(_SECRET_REFERENCE_RE.findall(expression))
+            for expression, closed in _EXPRESSION_RE.findall(value):
+                if closed:
+                    names.update(_SECRET_REFERENCE_RE.findall(expression))
         elif isinstance(value, (dict, list)) and id(value) not in seen:
             seen.add(id(value))
             pending.extend(value.values() if isinstance(value, dict) else value)
@@ -2762,9 +2807,14 @@ class AgentRuleGains:
       that job had gains the rule (#823 review cycle 3). The launch has not
       left while the job it met the rule in has any unread step of that
       agent, wherever it stands, or a read launch of that agent whose input
-      the rule is read from it did not read (#823 review cycles 5 and 6).
-      Each names the launch it left, the way a step reference moved between
-      jobs adds no scope (#771).
+      the rule is read from it did not read (#823 review cycles 5 and 6);
+      nor while any other job but this one has more such steps and launches
+      than it had before, as a job new at the head holding one has, because
+      the launch may be one of them: the job it met the rule in may be that
+      job under a new name (#823 review cycle 7). So two jobs renamed at
+      once, one of them holding an unread step, claim the gain, in the safe
+      direction. Each names the launch it left, the way a step reference
+      moved between jobs adds no scope (#771).
     """
 
     claimed: list[AgentWidening]
@@ -2815,18 +2865,38 @@ def agent_rule_gains(before: dict[str, Any] | None, after: dict[str, Any] | None
         # A launch as it is compared, less its job.
         return {agent_launch_key(entry)[1:] for entry in entries}
 
-    def may_still_meet(source: _RuleKey) -> bool:
-        # The losing job may still run the launch that met the rule, in a
-        # form this reader does not read: it has any unread step of that
-        # agent, or one of its read launches of that agent holds text in an
-        # input the rule is read from that this reader did not read. Such a
-        # launch has not left the job. An unread step carries no text to
-        # tell which launch it is, so any one counts, wherever it stands and
-        # whether or not it was there before (#823 review cycles 5 and 6).
+    def unread_forms(grant_unread: dict[tuple[str, str], list[dict[str, Any]]],
+                     grant_launched: dict[tuple[str, str], list[dict[str, Any]]],
+                     job: str, family: str, rule: str, detail: str) -> int:
+        # How many steps of the job may run a launch of that agent that this
+        # reader cannot tell meets the rule: its unread steps of that agent,
+        # and its read launches of it holding text in an input the rule is
+        # read from that this reader did not read.
+        return len(grant_unread.get((job, family), [])) + sum(
+            1 for entry in grant_launched.get((job, family), [])
+            if entry.get("form") == "read" and _unread_setting(entry, rule, detail)
+        )
+
+    def may_still_meet(source: _RuleKey, target: _RuleKey) -> bool:
+        # The launch that met the rule may still run, in a form this reader
+        # does not read, somewhere other than the job gaining the rule. Such a
+        # launch has not left for that job. An unread step carries no text to
+        # tell which launch it is, so:
+        # - in the losing job, any one counts, wherever it stands and whether
+        #   or not it was there before (#823 review cycles 5 and 6);
+        # - in any other job, one counts when that job has more of them than
+        #   it had before, as a job new at the head holding one has — so a
+        #   renamed losing job cannot hide the launch it kept, quoted, under
+        #   its new name (#823 review cycle 7).
         job, family, rule, detail = source
-        if unread_after.get((job, family)):
+        if unread_forms(unread_after, launched_after, job, family, rule, detail):
             return True
-        return any(_unread_setting(entry, rule, detail) for entry in launched_after.get((job, family), []))
+        others = {name for name, agent in (*unread_after, *launched_after) if agent == family} - {job, target[0]}
+        return any(
+            unread_forms(unread_after, launched_after, other, family, rule, detail)
+            > unread_forms(unread_before, launched_before, other, family, rule, detail)
+            for other in others
+        )
 
     def same_launch(source: _RuleKey, target: _RuleKey) -> bool:
         # The launch that met the rule in the losing job now runs here, the
@@ -2838,7 +2908,7 @@ def agent_rule_gains(before: dict[str, Any] | None, after: dict[str, Any] | None
         # review cycle 3).
         if not compared(old[source]) & compared(new[target]):
             return False
-        if may_still_meet(source):
+        if may_still_meet(source, target):
             return False
         family = target[1]
         remaining = compared([
@@ -2848,12 +2918,14 @@ def agent_rule_gains(before: dict[str, Any] | None, after: dict[str, Any] | None
 
     jobs_after = {str(context["job"]) for context in (after or {}).get("permission_contexts", [])}
 
-    def job_left(source: _RuleKey, _target: _RuleKey) -> bool:
-        # The losing job no longer exists, as when it is renamed. A job that
-        # remains may still run its launch in a form this reader does not
-        # read, such as `npx`, so its launch is not taken to have left
-        # (#823 review cycle 3).
-        return source[0] not in jobs_after
+    def job_left(source: _RuleKey, target: _RuleKey) -> bool:
+        # The losing job no longer exists, as when it is renamed, and no
+        # other job may run its launch unread. A job that remains may still
+        # run its launch in a form this reader does not read, such as `npx`,
+        # so its launch is not taken to have left (#823 review cycle 3); a
+        # job renamed while it runs its launch unread is a new job holding
+        # an unread step (#823 review cycle 7).
+        return source[0] not in jobs_after and not may_still_meet(source, target)
 
     # A rule moved when the launch that met it left the losing job. The same
     # launch arriving is matched first, so which of two gaining jobs a rule

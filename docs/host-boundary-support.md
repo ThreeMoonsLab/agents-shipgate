@@ -80,10 +80,12 @@ the changed inputs the candidate rules at the end of this section name (#821):
   it never says the step no longer starts an agent. The one exception is a
   rule that moved between jobs (below): when another job adds the same launch
   while this job keeps no named unread step of that agent and no launch of it
-  whose input the rule is read from this audit did not read, the row says the
-  launch moved there, as a step reference moved between jobs does, so a
-  launch that became a script or an action outside the table in the same
-  change reads as moved; while the job keeps such a step, it never does.
+  whose input the rule is read from this audit did not read, and no job but
+  the one adding it holds more of them than it did, the row says the launch
+  moved there, as a step reference moved between jobs does, so a launch that
+  became a script or an action outside the table in the same change reads as
+  moved; while the job keeps such a step, or any job but the receiving one
+  gains one, it never does.
 
 Review changes to those files and fields as you would a change to the workflow,
 hook or server entry that holds them.
@@ -185,7 +187,14 @@ never guessed at. Four things are listed on the workflow grant, each naming its
   `&`, `|`, `<`, `>`, parenthesis, brace, glob, `~`, `!`, `@` or second line,
   and every POSIX shell runs it as exactly those words. It must run under
   `bash`, `sh` or no declared `shell:` (the step's, else its job's or its
-  workflow's `defaults.run.shell`). After any `NAME=value` assignments, which
+  workflow's `defaults.run.shell`); a template is read only as `bash` or `sh`
+  running the script alone — option words it still runs the script under
+  (`set` flags, `-l`, `-i`, `-r`, `-o`/`-O` with an option name other than
+  `noexec`, `--noprofile`, `--norc`, `--posix`, `--login`, `--restricted`,
+  `--noediting`, `--verbose`), then `{0}` last, as in
+  `bash --noprofile --norc -eo pipefail {0}` — so one such as
+  `bash -c '…' {0}`, which may run a command of its own, or one with `-s`,
+  `-n` or `--rcfile`, is not. After any `NAME=value` assignments, which
   are skipped and never published, the program's file name must be `claude`
   with `-p`/`--print` among its arguments, or `codex` followed by `exec`
   (`codex e`): `claude -p …`, `./node_modules/.bin/claude -p …` and
@@ -225,7 +234,8 @@ never guessed at. Four things are listed on the workflow grant, each naming its
   a line continuation, another program such as `npx`, `timeout`, `sudo` or
   `echo`, a subcommand that is not a headless launch (`claude mcp add`,
   `codex login`), `codex` with an option before `exec`, a script named after
-  an agent, or a declared `shell:` other than `bash` or `sh`. It is listed in
+  an agent, or a declared `shell:` other than `bash` or `sh` running the
+  script alone. It is listed in
   `unread_agent_runs` once for each agent CLI it mentions, with no other
   field, and is a non-blocking limit (below). Nothing more: none of its text
   is published, it is never compared, so adding, removing or editing it gives
@@ -297,6 +307,16 @@ names the rule and step. Three gains are named in the `why` and not claimed:
   or merging that job's `npm i -g @anthropic-ai/claude-code` step into it,
   while another job adds that plain step is a widening, and so is moving that
   step to another job while the job it left keeps a `claude mcp add` step.
+  Nor has it left while any job but the one gaining the rule has more such
+  steps and launches of that agent than it had before — a job new at the
+  head holding any — because the launch may be one of them, and the job it
+  left may be that job under a new name. So renaming the job while quoting
+  that launch or running it through `npx`, or removing the job while another
+  job gains it quoted, as a third job adds the plain step, is a widening;
+  renaming a job with the install step it keeps beside the launch, or beside
+  another job that keeps its unread step, is a move. Two jobs renamed at
+  once, one of them holding an unread step, cannot be told apart from those,
+  so they claim the gain, in the safe direction.
 
 Any other edit — `--allowedTools Read` to `--allowedTools Bash`,
 `acceptEdits`, a new plugin, an argument input this audit does not read, a
@@ -398,7 +418,11 @@ input's edit is a `changed` row by its digest). `diff`, `verify` and `check`
 carry no limit for any of them, as for an unread secret value (#693): a
 `diff` of a change that only adds an unread agent step says
 `No static host-grant changes detected`, and `audit --host` is where the step
-is named.
+is named. The workflow's coverage line says so: `… compared; changed, but no
+grant this entry compares changed, so no row (text this entry does not read,
+such as a step's env or an unread agent step, is not compared; audit --host
+names each unread agent step)`, where another file's line names redacted
+values such as env values and `apiKeyHelper`.
 
 A workflow's labels are published redacted (#802). A job id, a step's `id` or
 `name`, a trigger and a permission scope name go through the same redaction as
