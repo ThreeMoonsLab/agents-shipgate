@@ -1291,7 +1291,8 @@ def test_check_refuses_rows_when_the_head_breaks_a_plugin_manifest(
     tmp_path: Path, fmt: str, edit_hook: bool
 ) -> None:
     """No row is built from a manifest the head cannot be read from. The
-    decision stays what 1.0.0 gave, `allow`: `check` routes no plugin file."""
+    decision stays what 1.0.0 gave, `allow`: `check` routes no file of a
+    plugin the project settings do not enable (#809)."""
 
     head: dict[str, object] = {"plugins/demo/.claude-plugin/plugin.json": "{not json"}
     if edit_hook:

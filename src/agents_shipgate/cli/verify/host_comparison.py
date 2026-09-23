@@ -14,13 +14,21 @@ from agents_shipgate.cli.verify.git import (
     blob_path_unchanged,
     commit_sha,
     detect_default_base,
+    merge_base_sha,
     require_merge_base_sha,
     shallow_merge_base_is_proven,
     tree_sha,
 )
-from agents_shipgate.core.boundary_registry import is_boundary_surface_path
+from agents_shipgate.core.boundary_diff import BoundaryInputIssue
+from agents_shipgate.core.boundary_registry import (
+    is_boundary_surface_path,
+    is_claude_plugin_reference_path,
+    is_enabled_plugin_hook_source,
+)
+from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.host_comparison import compare_host_inventories
 from agents_shipgate.core.host_grants import (
+    EnabledPluginHookFiles,
     HostBoundarySnapshot,
     build_host_boundary_snapshot,
     without_host_issues,
@@ -50,8 +58,9 @@ def compare_host_refs(
 
     ``exclude_plugin_reference_limits`` is for `check` only (#714). Its result
     cannot name a limit, so an unchanged one would refuse the whole
-    comparison, and `check` does not route plugin manifests or plugin hook
-    files. A plugin-reference limit both sides share on an untouched source
+    comparison, and `check` routes a plugin manifest, marketplace or hook file
+    only when the change touches one that declares an enabled plugin's hooks
+    (#809). A plugin-reference limit both sides share on an untouched source
     is dropped there; one only one side has, or one the change touched, still
     refuses the comparison. `diff` and `verify` keep every limit: they name a
     shared parse or shape limit on an unchanged source, and refuse otherwise.
@@ -197,7 +206,8 @@ def _without_shared_plugin_reference_limits(
 ) -> tuple[dict, dict]:
     """Both inventories without the plugin-reference limits `check` may leave out (#714).
 
-    `check` cannot name a limit and routes no plugin file, so a blocking
+    `check` cannot name a limit, and routes a plugin file only where the
+    change touches an enabled plugin's hooks (#809). So a blocking
     plugin-reference limit both sides carry, on a source the change did not
     touch, is dropped: `1.0.0` never read plugin files, and nothing about that
     plugin changed. A blocking one only one side carries, or one on a source
@@ -236,12 +246,91 @@ def _without_shared_plugin_reference_limits(
     )
 
 
+def enabled_plugin_hook_evidence(
+    *,
+    workspace: Path,
+    changed_files: list[str],
+    head_is_worktree: bool,
+    base: str | None,
+    head: str | None = None,
+) -> tuple[HostBoundarySnapshot | None, EnabledPluginHookFiles | None, list[BoundaryInputIssue]]:
+    """Which changed files hold an enabled plugin's hooks, on both sides (#809).
+
+    `check` and `verify` both call this, so the boundary decision each
+    publishes for one change is made from the same evidence. Returns
+    ``(working tree snapshot, enabled plugin hook files, issues)``; ``None``
+    for either leaves the assessment to read the tree it evaluates.
+
+    The route needs the side on which the plugin was enabled. A deleted hook
+    file, or one the head stops selecting, is an enabled plugin's hook only in
+    the base tree, so the merge base's plugin configuration is read exactly
+    as the host comparison reads it: an archive of the boundary surface
+    (:func:`is_boundary_surface_path`) and the same snapshot builder. A head
+    commit is read the same way, since the working tree may hold something
+    else; with ``head_is_worktree`` the working tree is the head. A caller
+    with no commit to compare (a provided diff) passes no ``base``, and only
+    the tree it evaluates is read.
+
+    Nothing is archived unless a changed path is one the plugin hook reader
+    opens, so a change to no plugin file costs nothing here, and the base is
+    not archived once the head already routes every such path. A side that
+    cannot be read is an input issue on each such path rather than a guess:
+    whether an enabled plugin loads hooks from it is not established.
+    """
+
+    candidates = sorted(path for path in changed_files if is_claude_plugin_reference_path(path))
+    if not candidates or not base:
+        return None, None, []
+
+    snapshot: HostBoundarySnapshot | None = None
+    files = EnabledPluginHookFiles()
+
+    def all_routed() -> bool:
+        return all(is_enabled_plugin_hook_source(path, files.sources) for path in candidates)
+
+    try:
+        if head_is_worktree:
+            commits = [
+                commit_sha(workspace, "HEAD")
+                if base == "HEAD"
+                else merge_base_sha(workspace, base, "HEAD")
+            ]
+            snapshot = build_host_boundary_snapshot(workspace, scope="repository")
+            files = files.union(EnabledPluginHookFiles.of(snapshot))
+        else:
+            head_ref = head or "HEAD"
+            # The head first: when it routes every candidate, the base adds nothing.
+            commits = [commit_sha(workspace, head_ref), merge_base_sha(workspace, base, head_ref)]
+        for commit in commits:
+            if all_routed():
+                break
+            if commit is None:
+                raise ValueError("a compared commit is not available locally")
+            with tempfile.TemporaryDirectory(prefix="shipgate-plugin-hooks-") as scratch:
+                tree = Path(scratch) / "tree"
+                archive_tree(workspace, commit, tree, scope=is_boundary_surface_path)
+                files = files.union(EnabledPluginHookFiles.of(build_host_boundary_snapshot(tree)))
+    except (OSError, RuntimeError, ValueError, ConfigError):
+        return snapshot, None, [
+            BoundaryInputIssue(
+                code="host_inventory_unreadable",
+                path=path,
+                message=(
+                    "The plugin configuration of a compared commit could not be read, so "
+                    "whether a plugin this repository's project settings enable loads hooks "
+                    "from this file is not established."
+                ),
+            )
+            for path in candidates
+        ]
+    return snapshot, files, []
+
+
 def host_comparison_failure(
     workspace: Path, head: str | None, error: Exception
 ) -> HostComparison | None:
     """Keep a Git comparison failure out of the setup/init fallback."""
     from agents_shipgate.cli.verify.git import _history_is_truncated, ensure_git_workspace
-    from agents_shipgate.core.errors import ConfigError
 
     try:
         ensure_git_workspace(workspace)

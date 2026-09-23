@@ -7,6 +7,7 @@ the actor passed to ``shipgate check`` never changes the evaluated surface.
 from __future__ import annotations
 
 import re
+from collections.abc import Collection
 from dataclasses import dataclass
 
 from agents_shipgate.core.globbing import glob_match_ci
@@ -202,6 +203,57 @@ def is_hook_declaration_file_name(path: str) -> bool:
     return bool(_HOOK_DECLARATION_NAME.search(name))
 
 
+def is_claude_plugin_reference_path(path: str) -> bool:
+    """A file the Claude Code plugin hook reader may open (#714).
+
+    A plugin manifest or marketplace, read to learn which hooks a plugin
+    selects, or a hook-named file, read when one selects it. Decided from the
+    name alone, so a materialized tree and a change set can both be scoped by
+    it without an inventory.
+    """
+
+    normalized = path.replace("\\", "/").removeprefix("./")
+    return (
+        is_claude_plugin_manifest_path(normalized)
+        or is_claude_plugin_marketplace_path(normalized)
+        or is_hook_declaration_file_name(normalized)
+    )
+
+
+def is_enabled_plugin_hook_source(path: str, enabled_sources: Collection[str]) -> bool:
+    """Whether `check` routes a change to this path as a hook the host loads (#809).
+
+    A Claude Code settings layer, `.codex/hooks.json` and
+    `.claude/hooks/hooks.json` are registry paths, so a change to one reaches
+    protected-surface review from its name. A plugin's hook declaration has no
+    registry path: a plugin selects a hook file anywhere in the repository, or
+    writes hooks inline in its manifest or marketplace entry. The route here
+    takes two facts, and neither is enough alone:
+
+    * the path is one the plugin hook reader opens
+      (:func:`is_claude_plugin_reference_path`), which the name decides; and
+    * the reader found that it declares hooks of a plugin this repository's
+      own project settings enable from an in-repository marketplace, on a
+      side of the change (``enabled_sources``, from
+      ``HostBoundarySnapshot.enabled_plugin_hook_sources``).
+
+    The second is the evidence the host inventory already publishes as the
+    ``project_enabled_plugin`` basis, read from the selection rather than
+    back from a grant's `access`/`risk` pair. The name alone would route every
+    plugin hook file, including one a plugin only selects, whose loading is
+    external state and which #714 made a row rather than an expansion; the
+    evidence alone would route a path the reader does not open. The decision
+    is the existing protected-surface rule's, and the rows stay the host
+    comparison's, so this adds no second decision engine.
+    """
+
+    normalized = path.replace("\\", "/").removeprefix("./")
+    if not is_claude_plugin_reference_path(normalized):
+        return False
+    folded = normalized.casefold()
+    return any(folded == source.casefold() for source in enabled_sources)
+
+
 def is_boundary_surface_path(path: str) -> bool:
     """Whether any reader may open this path.
 
@@ -213,18 +265,16 @@ def is_boundary_surface_path(path: str) -> bool:
     Plugin manifests, marketplaces and hook-named files are included although
     no adapter names them (#714): the reader opens a manifest or marketplace
     to learn which hook file a plugin selects, and opens that file only when
-    one selects it. They are not protected surfaces, so `check` and the
-    triggers do not route them.
+    one selects it. They are not registry surfaces, so the triggers do not
+    route them, and `check` routes one only where a plugin the repository's
+    project settings enable loads hooks from it
+    (:func:`is_enabled_plugin_hook_source`, #809).
     """
 
     normalized = path.replace("\\", "/").removeprefix("./")
     if any(adapter.matches(normalized) for adapter in BOUNDARY_ADAPTERS):
         return True
-    if (
-        is_claude_plugin_manifest_path(normalized)
-        or is_claude_plugin_marketplace_path(normalized)
-        or is_hook_declaration_file_name(normalized)
-    ):
+    if is_claude_plugin_reference_path(normalized):
         return True
     folded = normalized.casefold()
     prefix = f"{folded}/"

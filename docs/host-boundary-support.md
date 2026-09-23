@@ -240,12 +240,41 @@ No row is proof that a hook ran. What remains unread:
   matches, erring toward showing a hook a case-insensitive filesystem would
   load.
 - `check` routes a changed `.claude/hooks/hooks.json` to protected-surface
-  review whatever its basis. It does not route a plugin manifest, a
-  marketplace or a plugin-selected hook file, so a plugin-reference limit
-  never changes a `check` decision from what `1.0.0` gave. A hook an enabled
-  plugin selects outside the registry paths therefore gets an expanding row
-  under an `allow` decision, as `1.0.0` allowed the same change with no row
-  (#809). Its host
+  review whatever its basis. It also routes a changed file that declares
+  hooks of a plugin the project settings enable, wherever the plugin keeps
+  it (#809): a hook file such a plugin selects, such as
+  `plugins/demo/cfg/hooks.json`, and a manifest or marketplace whose inline
+  hooks it loads. The route takes two facts. The path must be one the plugin
+  hook reader opens (a hook-named file, a `.claude-plugin/plugin.json` or a
+  `.claude-plugin/marketplace.json`), and the reader must find, in the base
+  or the head, that an enabled plugin loads hooks from it. So a hook file
+  deleted along with its reference is still routed from the base, and a
+  change to one gets `require_review` through
+  `SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED`, with evidence
+  `hook_loading_basis: project_enabled_plugin`, beside the same expanding row
+  as before. A `verify` with a manifest runs the same check from the same
+  two-sided evidence, so there the finding moves the release gate to
+  `review_required` and the merge verdict to `human_review_required`, and
+  the PR comment shows both. A head that leaves such a hook file or plugin
+  manifest unreadable is also incomplete input, as at a registry path. A
+  marketplace the head makes unparseable is not: a marketplace limit never
+  blocks, so the route still gives `require_review` with input `complete`,
+  and the comparison shows its inline hooks as `removed`. For a provided
+  `--diff`, enablement is read from the workspace tree alone.
+- A hook file an enabled plugin selects under a name the reader does not
+  follow, such as `./cfg/lifecycle.json`, or inside a directory the walk
+  skips, holds hooks the host loads and that nothing read. Its limit, named
+  above, counts as `check` and `verify` input when the change touches the
+  file, including when only the base still selects it, so the change gets
+  `SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE` and `human_review_required`. It is
+  not routed to protected-surface review, since nothing in it was read.
+- A hook a plugin only selects is not routed, and neither is a plugin
+  manifest or marketplace that only references hook files: a change that
+  makes an enabled plugin load an existing, unchanged file has an `added` or
+  `widened` row for that file under an `allow` decision. `check` gives the
+  same when that file is `.claude/hooks/hooks.json`, so this limit is not
+  specific to plugin paths. Otherwise a plugin-reference limit never changes
+  a `check` decision from what `1.0.0` gave. Its host
   comparison leaves out a limit both sides share on an untouched source,
   because its result cannot name a limit. A limit only one side carries, or
   one on a source the change touched, makes that comparison incomparable
