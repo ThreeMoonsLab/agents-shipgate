@@ -1891,14 +1891,22 @@ def _read_flags(
 
     A flag is read by name wherever it is a word of its own; every other word
     — the prompt, ``--model`` and any undocumented flag — is not compared. A
-    flag that takes no value, or is given none, has ``None``.
+    flag that takes no value, or is given none, has ``None``. A long flag's
+    value may be attached as ``--name=value``, and a short one's as
+    ``-s<value>`` or ``-s=<value>``, which clap reads as ``-s <value>``
+    (#823 review cycle 3).
     """
 
     flags: list[tuple[str, int | None, list[str] | None]] = []
     index = 0
     while index < len(words):
         word = words[index]
-        name, equals, attached = word.partition("=") if word.startswith("--") else (word, "", "")
+        if word.startswith("--"):
+            name, equals, attached = word.partition("=")
+        elif len(word) > 2 and table.get(word[:2], ("", 0))[1] == 1:
+            name, equals, attached = word[:2], "=", word[2:].removeprefix("=")
+        else:
+            name, equals, attached = word, "", ""
         spec = table.get(name)
         index += 1
         if spec is None:
@@ -2451,8 +2459,16 @@ def _published_value(text: str) -> tuple[str, bool]:
     if len(expressions) > len(_EXPRESSION_SLOTS) or _EXPRESSION_SLOT_RE.search(text):
         # No free character to stand for each expression: read the text as written.
         expressions = []
+    def url_withheld(match: re.Match[str]) -> str:
+        # A backslash the URL ends at is kept, so the `\"` a JSON-array
+        # `codex-args` element escapes a quote with stays an escape
+        # (#823 review cycle 3).
+        url = match.group(0)
+        bare = url.rstrip("\\")
+        return _url_withheld(bare) + url[len(bare):]
+
     def urls_withheld(value: str) -> str:
-        return _URL_RE.sub(lambda match: _url_withheld(match.group(0)), value)
+        return _URL_RE.sub(url_withheld, value)
 
     slots = iter(_EXPRESSION_SLOTS)
     marked = _EXPRESSION_SPAN_RE.sub(lambda _match: chr(next(slots)), text) if expressions else text
@@ -2780,12 +2796,77 @@ def _claude_action_rules(words: tuple[str, ...]) -> set[str]:
     return rules
 
 
+def _codex_override(text: str) -> tuple[str, Any] | None:
+    """A codex ``--config`` override's key and value, as the CLI's ``parse_overrides`` reads them.
+
+    The key is the text before the first ``=``, trimmed; the value is parsed
+    as TOML, and text that does not parse is a string with its surrounding
+    quotes trimmed, so ``sandbox_mode=danger-full-access`` and
+    ``sandbox_mode="danger-full-access"`` set one value.
+    """
+
+    key, equals, value = text.partition("=")
+    if not equals or not key.strip():
+        return None
+    raw = value.strip()
+    try:
+        loaded = tomllib.loads(f"value = {raw}").get("value")
+    except (tomllib.TOMLDecodeError, RecursionError):
+        loaded = raw.strip("\"'")
+    return key.strip(), loaded
+
+
+def _codex_config_full_access(flags: list[tuple[str, int | None, list[str] | None]]) -> bool:
+    """Whether ``codex exec``'s ``--config`` overrides select its full-access sandbox (#823 review cycle 3).
+
+    ``sandbox_mode = "danger-full-access"`` is the setting ``--sandbox`` sets,
+    and ``default_permissions = ":danger-full-access"`` selects the built-in
+    full-access profile. As the CLI resolves them, the last override of a key
+    counts, a ``default_permissions`` override selects the permission
+    profile over a ``sandbox_mode`` one, and a ``--sandbox`` flag takes
+    precedence over both, so this reads none while one is passed.
+    """
+
+    if any(name == "--sandbox" for name, _arity, _values in flags):
+        return False
+    profile: Any = None
+    mode: Any = None
+    for name, _arity, values in flags:
+        if name != "--config":
+            continue
+        for value in values or []:
+            override = _codex_override(value)
+            if override is None:
+                continue
+            key, loaded = override
+            if key == "default_permissions":
+                profile = loaded
+            elif key == "sandbox_mode":
+                mode = loaded
+    if profile is not None:
+        return profile == ":danger-full-access"
+    return mode == "danger-full-access"
+
+
 def _flag_rules(
-    family: str, flags: list[tuple[str, int | None, list[str] | None]]
+    family: str,
+    flags: list[tuple[str, int | None, list[str] | None]],
+    *,
+    config_selects_sandbox: bool = True,
 ) -> set[tuple[str, str]]:
-    """The widening rules a CLI's documented flags meet, each with the flag that met it."""
+    """The widening rules a CLI's documented flags meet, each with the flag that met it.
+
+    ``config_selects_sandbox`` is false for the words `openai/codex-action`
+    passes on from ``codex-args``: after them the action appends its own
+    ``--sandbox <mode>``, or for a ``permission-profile`` its own
+    ``default_permissions`` override (``runCodexExec.ts``), and either takes
+    precedence over a sandbox ``--config`` override written before it, so
+    one there selects nothing.
+    """
 
     rules: set[tuple[str, str]] = set()
+    if family == "codex" and config_selects_sandbox and _codex_config_full_access(flags):
+        rules.add(("danger_full_access", "--config"))
     for name, _arity, values in flags:
         value = values[0] if values else None
         if family == "claude" and (
@@ -2835,7 +2916,11 @@ def _action_rules(spec: _AgentAction, declared: list[tuple[str, Any]]) -> set[tu
             if spec.family == "claude":
                 found = _claude_action_rules(words)
             else:
-                found = {rule for rule, _flag in _flag_rules("codex", _read_flags(words, _CODEX_FLAGS))}
+                found = {
+                    rule for rule, _flag in _flag_rules(
+                        "codex", _read_flags(words, _CODEX_FLAGS), config_selects_sandbox=False
+                    )
+                }
             rules.update((rule, name) for rule in found)
     return rules
 

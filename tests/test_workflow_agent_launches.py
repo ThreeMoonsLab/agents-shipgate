@@ -654,6 +654,118 @@ def test_any_other_edit_is_changed(before, after):
     assert (row.direction, row.expands) == ("changed", False)
 
 
+# --- codex exec's full-access sandbox, however the CLI reads it (#823 review cycle 3) ---
+
+CODEX_WORKSPACE = _workflow({"run": "codex exec -s workspace-write 'review'"})
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        "codex exec -s danger-full-access 'review'",
+        "codex exec --sandbox=danger-full-access 'review'",
+        # clap reads a short option's attached value, with or without `=`.
+        "codex exec -sdanger-full-access 'review'",
+        "codex exec -s=danger-full-access 'review'",
+        # `sandbox_mode` is the setting --sandbox sets, in each way -c is written.
+        "codex exec -c sandbox_mode=\"danger-full-access\" 'review'",
+        "codex exec -c 'sandbox_mode=\"danger-full-access\"' 'review'",
+        "codex exec --config=sandbox_mode=danger-full-access 'review'",
+        "codex exec -csandbox_mode=danger-full-access 'review'",
+        "codex exec -c=sandbox_mode=danger-full-access 'review'",
+        "codex exec -c ' sandbox_mode = \"danger-full-access\" ' 'review'",
+        # The built-in full-access profile, which is what the action's
+        # `permission-profile: :danger-full-access` passes the CLI.
+        "codex exec -c default_permissions=\":danger-full-access\" 'review'",
+        "codex exec --config 'default_permissions=\":danger-full-access\"' 'review'",
+        # The last override of a key counts; a profile override outranks a sandbox one.
+        "codex exec -c sandbox_mode=read-only -c sandbox_mode=danger-full-access 'review'",
+        "codex exec -c sandbox_mode=read-only -c default_permissions=:danger-full-access 'review'",
+    ],
+    ids=["short", "long-attached", "short-attached", "short-equals", "config", "config-quoted", "config-attached",
+         "c-attached", "c-equals", "config-spaced", "profile", "profile-quoted", "last-override",
+         "profile-over-sandbox-mode"],
+)
+def test_codex_exec_full_access_widens_in_every_spelling_the_cli_reads(run):
+    after = _workflow({"run": run})
+
+    assert host_grant_expansion_signals(_changes(CODEX_WORKSPACE, after)) == [
+        f"workflow_agent_widened_changed: {SOURCE}"
+    ]
+    row, = _rows(CODEX_WORKSPACE, after)
+    assert (row.direction, row.expands) == ("widened", True)
+    assert "an agent launch now runs without a sandbox (danger-full-access) (review/steps[0])" in row.why
+    assert "no permission flags" not in row.after
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        # --sandbox takes precedence over a --config override.
+        "codex exec -s workspace-write -c sandbox_mode=danger-full-access 'review'",
+        "codex exec -sworkspace-write -c default_permissions=:danger-full-access 'review'",
+        # The last override counts, and a profile override outranks sandbox_mode.
+        "codex exec -c sandbox_mode=danger-full-access -c sandbox_mode=read-only 'review'",
+        "codex exec -c sandbox_mode=danger-full-access -c default_permissions=:workspace 'review'",
+        # A key under another table, or another value, is not the setting.
+        "codex exec -c profiles.ci.sandbox_mode=danger-full-access 'review'",
+        "codex exec -c default_permissions=danger-full-access 'review'",
+        "codex exec -sread-only 'review'",
+    ],
+    ids=["sandbox-flag-wins", "attached-sandbox-flag-wins", "last-override", "profile-over-sandbox-mode",
+         "profile-scoped-key", "custom-profile-name", "read-only"],
+)
+def test_a_codex_exec_sandbox_the_cli_does_not_select_is_changed(run):
+    after = _workflow({"run": run})
+
+    assert host_grant_expansion_signals(_changes(CODEX_WORKSPACE, after)) == []
+    row, = _rows(CODEX_WORKSPACE, after)
+    assert (row.direction, row.expands) == ("changed", False)
+
+
+def test_attached_short_values_publish_under_the_primary_spelling():
+    launch, = _launches(_workflow({"run": "codex exec -sdanger-full-access -c=model=o3 -pci 'review'"}))
+
+    assert launch["settings"] == [
+        {"name": "--config", "value": "model=o3", "unresolved_reason": None},
+        {"name": "--profile", "value": "ci", "unresolved_reason": None},
+        {"name": "--sandbox", "value": "danger-full-access", "unresolved_reason": None},
+    ]
+    assert launch["widening_rules"] == [{"rule": "danger_full_access", "setting": "--sandbox"}]
+    # One setting, two spellings: respelling it is quiet.
+    assert _rows(
+        _workflow({"run": "codex exec -s danger-full-access 'review'"}),
+        _workflow({"run": "codex exec -sdanger-full-access 'review'"}),
+    ) == []
+    # One rule, two spellings: moving between the flag and the override is not a widening.
+    before = _workflow({"run": "codex exec -s danger-full-access 'review'"})
+    after = _workflow({"run": "codex exec -c sandbox_mode=danger-full-access 'review'"})
+    assert host_grant_expansion_signals(_changes(before, after)) == []
+    row, = _rows(before, after)
+    assert (row.direction, row.expands) == ("changed", False)
+
+
+@pytest.mark.parametrize(
+    ("codex_args", "direction"),
+    [
+        # The action appends its own --sandbox, or its own default_permissions
+        # override for a permission-profile, after codex-args, and either
+        # takes precedence over a sandbox --config override written before it.
+        ("-c sandbox_mode=danger-full-access", "changed"),
+        ('--config=default_permissions=":danger-full-access"', "changed"),
+        # A --sandbox word is read as the flag it is, attached or not, as before.
+        ("-sdanger-full-access", "widened"),
+    ],
+    ids=["sandbox-mode-override", "profile-override", "attached-short-sandbox"],
+)
+def test_codex_args_sandbox_overrides_are_read_as_the_action_passes_them(codex_args, direction):
+    before = _workflow({"uses": "openai/codex-action@v1", "with": {"codex-args": "--json"}})
+    after = _workflow({"uses": "openai/codex-action@v1", "with": {"codex-args": codex_args}})
+
+    row, = _rows(before, after)
+    assert row.direction == direction
+
+
 def test_a_rule_gained_where_the_job_launched_the_agent_only_unread_before_is_not_claimed():
     before = _workflow({"run": "npm ci && claude -p --dangerously-skip-permissions 'review'"})
     after = _workflow({"run": "claude -p --dangerously-skip-permissions 'review'"})
@@ -1187,6 +1299,20 @@ def test_a_url_path_is_withheld_while_the_rest_of_the_setting_and_a_rule_beside_
     assert "style-guide" not in row.before + row.after
     assert uncompared_agent_launch_texts(_grant(after)) == []
     assert _uncompared_workflow_text(_grant(after)) is None
+
+
+def test_a_quoted_url_in_a_json_array_codex_args_element_keeps_the_array_valid():
+    """#823 review cycle 3: withholding the URL keeps the element's escaped closing quote."""
+
+    codex_args = json.dumps(["-c", 'mcp_servers.x.url="https://h2.example.com/p?token=canary-q"', "--json"])
+    launch, = _launches(_workflow({"uses": "openai/codex-action@v1", "with": {"codex-args": codex_args}}))
+    setting, = launch["settings"]
+
+    assert json.loads(setting["value"]) == [
+        "-c", 'mcp_servers.x.url="https://h2.example.com/<redacted-path>"', "--json",
+    ]
+    assert setting["unresolved_reason"] is None
+    assert "canary-q" not in json.dumps(launch)
 
 
 def test_a_marketplace_url_compares_by_scheme_and_host_as_an_mcp_server_url_does():

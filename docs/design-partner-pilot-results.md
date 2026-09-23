@@ -93,22 +93,27 @@ the `disposition` field, and it publishes no `review` or `coverage` block;
 `1.1.0`'s `review.summary` counts 6 changes from 6 rows, 4 widening. On this
 fixture `1.1.0` changes what a run says about the rows, not which rows it finds.
 
-#821 then moved this tree's runtime contract to 41, and the source-tree column
-was rerun on 2026-09-22 through `./shipgate` on the fixture rebuilt from the
-description below, beside the `v1.1.0` release commit (`e3c6cb0c`, runtime
-contract 40) run the same way. The two returned identical cells except the
-runtime contract, 40 against 41: host-grant inventory schema 0.6, `check`
-blocking with four violations and visible coverage, the host-only `init`
-handoff with no manifest or workflow written, manifest-free `verify` exiting 0
-with the same six advisory rows, drift naming all four expansion signals, and
-`diff` against the fixture base exiting 0 with `comparison_status: comparable`
-and the same six rows, four of them widening. The `diff` text is identical
-apart from the fixture's commit ids. `diff --json` and `verifier.json` differ
-only in their schema versions (capability diff 0.3 against 0.4, verifier 0.20
-against 0.21) and in the members #821 adds to the coverage block: each item's
-`candidate` is `null`, and `unread_candidates` is `examined` with none left
-unexamined. This fixture changes only the two files the entry reads, so #821
-names nothing on it and `read_sources_only` stays `true`.
+#821 then moved this tree's runtime contract to 41, and #823, extending it in
+place, the host-grant inventory schema to 0.7. With both, the source-tree
+column was rerun on 2026-09-23 through this tree's engine on the fixture
+rebuilt from the description below, beside the `v1.1.0` release commit
+(`e3c6cb0c`, runtime contract 40) run the same way. The two returned identical
+cells except the runtime contract, 40 against 41, and the host-grant inventory
+schema, 0.6 against 0.7: `check` blocking with four violations and visible
+coverage, its `agent-boundary-json` identical apart from the workspace path,
+the host-only `init` handoff with no manifest or workflow written,
+manifest-free `verify` exiting 0 with the same six advisory rows, drift naming
+all four expansion signals, and `diff` against the fixture base exiting 0 with
+`comparison_status: comparable` and the same six rows, four of them widening.
+The `diff` text is identical apart from the fixture's commit ids, and the host
+inventory apart from its schema version. `diff --json` and `verifier.json`
+differ only in their schema versions (capability diff 0.3 against 0.4,
+verifier 0.20 against 0.21) and in the members #821 adds to the coverage
+block: each item's `candidate` is `null`, and `unread_candidates` is
+`examined` with none left unexamined. This fixture changes only the two files
+the entry reads and has no workflow, so #821 names nothing on it and
+`read_sources_only` stays `true`, and #823, which reads agent launches and
+checkout refs in workflows, adds nothing to its grants.
 
 An older release, `v0.15.0`, measured on 2026-09-05, did not. It reported
 runtime contract 10 and inventory schema 0.1; `check` returned `warn` / `none`
@@ -128,7 +133,7 @@ expansion signals. It shipped as a qualified release.
 | `diff` against the fixture base (Git-backed Route H) | exit 0, `comparable`, 6 rows, 4 widening | not measured | exit 0, `comparable`, the same 6 rows |
 | Qualification | **none** — advisory channel, no qualification claim | **none** — no adjudicated corpus, nothing signed | not a distributed build |
 
-Every 2026-09-22 rerun reproduced four boundary violations (`block` /
+Every rerun on 2026-09-22 and 2026-09-23 reproduced four boundary violations (`block` /
 `critical`) and visible coverage. `init --write --ci` writes no manifest or
 workflow and routes the host-only fixture to the read-only audit route. Manifest-free `verify` now succeeds as an advisory
 comparison: six rows name three added permissions, two removed narrower rules,

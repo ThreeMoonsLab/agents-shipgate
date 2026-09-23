@@ -139,7 +139,7 @@ things are listed on the workflow grant, each naming its `job/step` (the step's
   |---|---|---|
   | `anthropics/claude-code-action` | `additional_permissions`, `allowed_bots`, `allowed_non_write_users`, `claude_args`, `plugin_marketplaces`, `plugins`, `settings`, and the earlier `allowed_tools`, `disallowed_tools`, `mcp_config` | `claude_args` gains `--dangerously-skip-permissions`, `--permission-mode bypassPermissions` or a JSON `--settings` value whose `defaultMode` is `bypassPermissions`; `settings`, written as JSON, gains `defaultMode: bypassPermissions` (under `permissions`, else at the top, as the settings reader reads `.claude/settings.json`); `allowed_bots` (any bot) or `allowed_non_write_users` (any user) gains a `*` entry |
   | `anthropics/claude-code-base-action`, also published as `anthropics/claude-code-action/base-action` | `claude_args`, `plugin_marketplaces`, `plugins`, `settings`, `allowed_tools`, `disallowed_tools`, `mcp_config` | `claude_args` and `settings` as above |
-  | `openai/codex-action` | `allow-bot-users`, `allow-bots`, `allow-users`, `codex-args`, `permission-profile`, `safety-strategy`, `sandbox` | `sandbox` becomes `danger-full-access`; `permission-profile` becomes `:danger-full-access`, Codex's reserved name for its built-in full-access profile; `safety-strategy` becomes `unsafe`; `codex-args` gains `--dangerously-bypass-approvals-and-sandbox` (`--yolo`) or `--sandbox danger-full-access`; `allow-users` gains a `*` entry |
+  | `openai/codex-action` | `allow-bot-users`, `allow-bots`, `allow-users`, `codex-args`, `permission-profile`, `safety-strategy`, `sandbox` | `sandbox` becomes `danger-full-access`; `permission-profile` becomes `:danger-full-access`, Codex's reserved name for its built-in full-access profile; `safety-strategy` becomes `unsafe`; `codex-args` gains `--dangerously-bypass-approvals-and-sandbox` (`--yolo`) or `--sandbox danger-full-access` (`-s`, attached or not); `allow-users` gains a `*` entry. A sandbox `--config` override in `codex-args` meets none: after `codex-args` the action appends its own `--sandbox`, or its own `default_permissions` override for a `permission-profile`, which takes precedence |
 
   No shell reads `claude_args` or `codex-args`: each action splits its own
   input, and a rule is met only by the words the action passes on. The
@@ -171,9 +171,21 @@ things are listed on the workflow grant, each naming its `job/step` (the step's
   For `codex exec`: `--sandbox`/`-s`,
   `--dangerously-bypass-approvals-and-sandbox`/`--yolo`,
   `--approve-for-me`/`--not-so-yolo`, `--dangerously-bypass-hook-trust`,
-  `--add-dir`, `--config`/`-c` and `--profile`/`-p`; gaining
-  `--dangerously-bypass-approvals-and-sandbox` or `--sandbox danger-full-access`
-  widens. A flag the CLI reads as variadic (`--allowedTools`, `--add-dir`, …)
+  `--add-dir`, `--config`/`-c` and `--profile`/`-p`, a short flag's value
+  read attached as clap reads it (`-sdanger-full-access`, `-s=…`,
+  `-c<override>`, `-c=<override>`); gaining
+  `--dangerously-bypass-approvals-and-sandbox` or the full-access sandbox
+  widens. The full-access sandbox is `--sandbox danger-full-access` or, when
+  the command passes no `--sandbox`, which takes precedence, a `--config`
+  override in any of its four spellings that sets `sandbox_mode` to
+  `danger-full-access` (the setting `--sandbox` sets) or `default_permissions`
+  to `:danger-full-access` (the built-in full-access profile, which the
+  action's `permission-profile` input passes the CLI the same way), its value
+  read as TOML and otherwise as text with its quotes trimmed, as the CLI
+  reads it. The last override of a key counts, and a `default_permissions`
+  override outranks a `sandbox_mode` one. A key under another table, such as
+  `profiles.<name>.sandbox_mode`, and a `--profile`, which names a
+  configuration this audit does not read, meet none. A flag the CLI reads as variadic (`--allowedTools`, `--add-dir`, …)
   takes every following word up to the next word starting with `-`, as the CLI
   reads it, so a prompt written after it is compared as one of its values; the
   row shows it. A `run:` holding more than one command (a newline, `&&`, `;`,

@@ -44,8 +44,8 @@ directory, still refuses its comparison. A `0.20` verifier claiming a partial
 comparison or a `scope` is refused. See
 [the migration note](../STABILITY.md#partial-host-comparison-808).
 
-Runtime contract v41, unreleased, reads how a coding agent is launched inside a
-workflow job (#823). Contract v40 and host-grants `0.6` shipped in 1.1.0, so
+Runtime contract v41, extended in place, also reads how a coding agent is
+launched inside a workflow job (#823). Host-grants `0.6` shipped in 1.1.0, so
 host-grants inventory, baseline and drift schemas move to `0.7`, and a workflow
 grant adds `agent_launches[]` and `checkout_refs[]`, each omitted when empty.
 An agent launch is a step whose `uses:` is a documented agent action
@@ -66,7 +66,9 @@ server's arguments and a hook's command are compared but never published; a
 URL publishes its scheme and host. Only a documented rule a job's launches
 gain — bypassed permission checks (a flag, or JSON settings whose
 `defaultMode` is `bypassPermissions`), a bypassed or `danger-full-access`
-sandbox (`permission-profile: :danger-full-access` included),
+sandbox (`permission-profile: :danger-full-access` included, and in a
+`codex exec` step without `--sandbox` a `--config` override of `sandbox_mode`
+or `default_permissions` that selects it),
 `safety-strategy: unsafe`, or a user gate opened to `*` — raises `workflow_agent_widened_<added|changed>` and makes the
 row `widened`. A rule is read only from literal text a `${{ }}` expression
 cannot reach, and one a launch already met in a job it left, or where the job's
@@ -79,8 +81,8 @@ redacted, compared as published and a named non-blocking limit, and a checkout
 ref holding it is a blocking limit, as a redacted step reference is. A `0.4`–`0.6`
 baseline holding a workflow grant is incomparable
 (`baseline_workflow_agent_launches_unavailable`); one without a workflow stays
-comparable. Verifier `0.20`, capability diff `0.3` and
-`minimum_control_contract_version` `21` are unchanged. See
+comparable. It moves neither #821's verifier `0.21` nor its capability diff
+`0.4`, and `minimum_control_contract_version` stays `21`. See
 [the migration note](../STABILITY.md#workflow-agent-launches-contract-v41-823).
 
 Previous runtime contract v40 reads the action reference each workflow step declares
