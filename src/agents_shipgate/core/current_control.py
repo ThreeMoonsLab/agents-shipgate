@@ -1157,12 +1157,26 @@ def _validate_live_overlay(
         ) from exc
     observed = content_id(rows) if rows else None
     if observed != pointer.workspace_identity.worktree_overlay_sha256:
+        # The pointer records a digest, not the paths behind it, so what can be
+        # named is the tree as it stands. "The paths it was read from no longer
+        # have their content" was false for the commonest drift — a tracked edit
+        # or a new file after a preview of a clean tree — which a configured
+        # preview reaches here too since it stopped binding its plan (#807).
+        # The names come from the repository and may be shaped like
+        # credentials (the class of #802), so they are redacted as a cause is.
+        paths = sorted(live.changed_paths)
+        if paths:
+            shown = redact_text(", ".join(paths[:3])) or ""
+            if len(paths) > 3:
+                shown += f", and {len(paths) - 3} more"
+            now = f"it now differs from HEAD at {len(paths)} path(s) ({shown})"
+        else:
+            now = "nothing differs from HEAD now"
         raise CurrentControlUnavailable(
             "workspace_changed",
             (
-                "The working tree changed since this answer was published: the "
-                "uncommitted paths it was read from no longer have the content "
-                "they had. Re-run it."
+                f"The working tree changed since this answer was published: {now}, "
+                "which is not the uncommitted state it was read from. Re-run it."
             ),
             path=out_dir,
         )

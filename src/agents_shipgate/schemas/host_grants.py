@@ -6,9 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from agents_shipgate.schemas.instruction_structure import InstructionStructureEvidence
 
-HOST_GRANTS_INVENTORY_SCHEMA_VERSION = "0.6"
-HOST_GRANTS_BASELINE_SCHEMA_VERSION = "0.6"
-HOST_GRANTS_DRIFT_SCHEMA_VERSION = "0.6"
+HOST_GRANTS_INVENTORY_SCHEMA_VERSION = "0.7"
+HOST_GRANTS_BASELINE_SCHEMA_VERSION = "0.7"
+HOST_GRANTS_DRIFT_SCHEMA_VERSION = "0.7"
 
 HostName = Literal["codex", "claude-code", "cursor", "vscode", "github"]
 HostGrantScope = Literal["repository", "local_static"]
@@ -616,6 +616,140 @@ class HostGrantsBaselineArtifactV6(RootModel[HostGrantsBaselineV6]):
 
 class HostGrantsDriftArtifactV6(RootModel[HostGrantsDriftV6]):
     root: HostGrantsDriftV6
+
+
+# v0.7 publishes what changed in a hook and in an MCP server's launch (#819).
+# A hook row used to read `PostToolUse → PostToolUse` whether its matcher, its
+# command or its timeout changed, and an MCP row could not show a version pin
+# moving to `@latest`: the grants carried none of it, and only `config_sha256`
+# saw the edit. These members display what `config_sha256` already binds. No
+# command or argument text is published: a command is its executable's name
+# and a digest, and an MCP server's arguments are a package specification and
+# a digest. No comparison and no inventory digest reads them, so a `0.6` grant
+# and its `0.7` reading of the same configuration compare as the same grant.
+class HostHookCommandV7(BaseModel):
+    """A hook command as its grant publishes it: the executable's name and a digest of the whole command.
+
+    ``executable`` is the last path segment of the command's first
+    whitespace-separated word, when it is a plain token
+    (``[A-Za-z0-9._+-]``, at most 80 characters) no redaction rule rewrites
+    and the word is no shell reserved word and holds no ``://``, and
+    ``<not-shown>`` otherwise, so no part of a URL is named. It
+    is a label, not a claim about what a host runs. ``sha256`` is the digest of the whole command as
+    ``config_sha256``'s input holds it, so it moves only when that digest
+    does; a value that input redacts moves neither. The command's text is
+    never published.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    executable: str
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class HostHookHandlerV7(BaseModel):
+    """One hook handler under an event: its group's matcher, its command and its timeout.
+
+    ``matcher`` is ``None`` when its group declares none, which the host reads
+    as every tool or source, and ``<not-shown>`` when it is not a string or is
+    longer than 1,024 characters as ``config_sha256``'s input holds it;
+    otherwise it passes through the published-label redaction and is cut at
+    120 characters. ``command`` is ``None`` for a handler with
+    no command string, such as a ``prompt`` handler, whose prompt is not
+    published. ``timeout`` is the declared number or boolean; an integer of
+    more than 80 digits is published as its digits cut with ``…``, a string
+    as written when it is a plain token, and any other value, a non-finite
+    float among them, as ``<not-shown>``. Other handler settings are not
+    published; a change confined to them is a row whose text says it is not
+    shown.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    matcher: str | None = None
+    command: HostHookCommandV7 | None = None
+    # `bool` first: pydantic's lax `int` would otherwise read `true` as `1`.
+    timeout: bool | int | float | str | None = None
+
+
+class HostHookGrantV7(HostHookGrantV2):
+    #: Every handler the event declares, in file order, at most a bounded
+    #: number; ``omitted_handlers`` counts the rest. ``None`` when the event's
+    #: value is not a list of matcher groups each holding a ``hooks`` list of
+    #: objects whose ``command``, when present, is a string, the shape this
+    #: reader establishes: the detail is then not shown rather than guessed. Always present in a ``0.7`` inventory grant,
+    #: so its absence marks a grant a saved baseline holds or an earlier
+    #: schema read.
+    handlers: list[HostHookHandlerV7] | None
+    omitted_handlers: int = Field(default=0, ge=0)
+
+
+class HostMcpServerGrantV7(HostMcpServerGrantV2):
+    #: The one argument published as written: the first that is a package
+    #: specification of a strict shape (npm ``name@version`` or
+    #: ``@scope/name@version``, PyPI ``name==version``, or an OCI image
+    #: reference with a path and a tag or digest), that no redaction rule
+    #: rewrites and that follows no flag but a package runner's own (``-y``,
+    #: ``--from``, ``--rm`` …). ``None`` when no argument is one.
+    package: str | None
+    #: The digest of the declared ``args`` as ``config_sha256``'s input holds
+    #: them, the package replaced by a marker and its position digested beside
+    #: them, so every other argument is compared and none is published.
+    #: ``None`` when no ``args`` is declared.
+    #: Both members are always present in a ``0.7`` inventory grant; a saved
+    #: baseline holds neither.
+    args_sha256: str | None = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+HostGrantV7 = Annotated[
+    HostMcpServerGrantV7
+    | HostPermissionRuleGrantV2
+    | HostPermissionModeGrantV2
+    | HostHookGrantV7
+    | HostSandboxGrantV2
+    | HostAdditionalPathGrantV2
+    | HostPluginGrantV2
+    | HostProfileGrantV2
+    | HostRequirementGrantV2
+    | HostWorkflowGrantV6
+    | HostInstructionGrantV2,
+    Field(discriminator="kind"),
+]
+
+
+class HostGrantsInventoryV7(HostGrantsInventoryV6):
+    host_grants_inventory_schema_version: Literal["0.7"] = "0.7"
+    grants: list[HostGrantV7] = Field(default_factory=list)
+
+
+class HostGrantsBaselineV7(HostGrantsBaselineV6):
+    """A saved ``0.7`` baseline: the grants a ``0.6`` baseline holds, under the ``0.7`` version.
+
+    A saved baseline holds no hook ``handlers`` and no MCP ``package`` or
+    ``args_sha256`` (#819): it is committed, and those members, read from a
+    user, managed or git-ignored file, would carry facts about files that were
+    never in the repository into it. No comparison, row or digest reads a
+    saved copy of them, so its ``inventory`` is the ``0.6`` snapshot, which
+    forbids them.
+    """
+
+    host_grants_schema_version: Literal["0.7"] = "0.7"
+
+
+class HostGrantsDriftV7(HostGrantsDriftV6):
+    host_grants_schema_version: Literal["0.7"] = "0.7"
+
+
+class HostGrantsInventoryArtifactV7(RootModel[HostGrantsInventoryV7]):
+    root: HostGrantsInventoryV7
+
+
+class HostGrantsBaselineArtifactV7(RootModel[HostGrantsBaselineV7]):
+    root: HostGrantsBaselineV7
+
+
+class HostGrantsDriftArtifactV7(RootModel[HostGrantsDriftV7]):
+    root: HostGrantsDriftV7
 
 
 __all__ = [name for name in globals() if name.startswith("Host") or name.startswith("HOST_")]

@@ -27,9 +27,11 @@ Both now share one answer (``parse_failure_kind_was_read``). These tests pin:
   ``BOUNDARY-INPUT-INCOMPLETE``, stops for a human and takes a new audit id.
 
 Some of these keys are still modelled by the host comparison
-(``enabledPlugins`` and ``extraKnownMarketplaces`` as plugin grants,
-``enableAllProjectMcpServers`` as a permission-mode grant); only the boundary
-rules lack them.
+(``enabledPlugins`` and ``extraKnownMarketplaces`` as plugin grants); only the
+boundary rules lack them. The Claude Code settings the inventory publishes as
+permission-mode grants (``enableAllProjectMcpServers``,
+``enabledMcpjsonServers``, ...) are not unknown keys since #827: ``check``
+rates them by the same table (``tests/test_prompt_disabling_settings.py``).
 """
 
 from __future__ import annotations
@@ -108,19 +110,15 @@ _VARIANTS = {
         "require_review",
         "agent_action_required",
     ),
-    "enable_all_project_mcp_servers": (
+    # `enableAllProjectMcpServers` and `enabledMcpjsonServers` were variants
+    # here until #827 rated them as the settings the host inventory models;
+    # `tests/test_prompt_disabling_settings.py` pins them now. The list's
+    # counterpart is still unread.
+    "disabled_mcpjson_servers": (
         ".claude/settings.json",
         _settings(),
-        _settings(enableAllProjectMcpServers=True),
-        "enableAllProjectMcpServers",
-        "require_review",
-        "agent_action_required",
-    ),
-    "enabled_mcpjson_servers": (
-        ".claude/settings.json",
-        _settings(),
-        _settings(enabledMcpjsonServers=["local"]),
-        "enabledMcpjsonServers",
+        _settings(disabledMcpjsonServers=["local"]),
+        "disabledMcpjsonServers",
         "require_review",
         "agent_action_required",
     ),

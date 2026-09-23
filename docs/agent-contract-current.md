@@ -1,6 +1,68 @@
 # Current Agent Contract
 
-Runtime contract v40 reads the action reference each workflow step declares
+Runtime contract v41, unreleased, names the changed inputs a host comparison
+does not read (#821). A zero-row comparison used to print "No static
+host-grant changes detected" for a pull request that added a Cursor plugin's
+`mcp.json` or moved a marketplace plugin's pinned `sha`, exactly as for a
+docs-only one. Verifier `0.21` and `shipgate diff --json` (capability diff
+`0.4`) now add, inside the existing `coverage` block, a `changed_not_read`
+item for each path in the comparison's own changed-file set that a bounded,
+documented candidate rule names and no reader of this entry read, with its
+`candidate` rule (`plugin_mcp_config`, `plugin_manifest_mcp_servers`,
+`plugin_manifest_hooks`, `plugin_hook_file`, `unparsed_plugin_manifest`,
+`cursor_project_hooks`, `nested_host_settings`, `external_plugin_source`) and,
+for an external plugin source, the source it names as `detail`, never fetched.
+`read_sources_only` is `false` while such an item is named, and
+`unread_candidates` (`examined`, `not_examined`, or `null` for not recorded)
+with `unread_candidates_not_examined` say whether the change set was examined
+and how many candidates were not, past the bound or because a file their rule
+needed was not read or did not parse. An item is never a row, a widening, a
+loading claim or a `check` violation. The one route it moves: a manifest-free
+`verify` whose only host-relevant change is such an input, or a changed
+candidate it counts as not examined, publishes that comparison instead of the
+setup route, and on `verify --preview` the next
+action for that change is `discover` (`audit --host`) with the comparison
+published, where it was `initialize` (`init --write`) with none, in an
+agent-related workspace too, as it already was when the change edited a host
+file this entry reads. `minimum_control_contract_version`
+stays `21`, and a `0.20` verifier reads with the search not recorded. See
+[the migration note](../STABILITY.md#unread-changed-inputs-821).
+
+Still contract v41, unreleased: a plugin directory a host comparison cannot
+compare no longer hides the changes outside it (#808). Where every blocking
+limit that refused the comparison is a plugin-reference limit bounded by its
+plugin directory, and no compared source depends on that directory, verifier
+`0.21` and `shipgate diff --json` (capability diff `0.4`) publish
+`comparison_status: partial`: the same `incomparable_reasons`, the `rows`,
+`review` and `unchanged_limits` established outside the directory, and the
+directory as `scope` on each such `blocking_limit` coverage item, which
+`0.20` reserved as always `null`. Treat `partial` as `incomparable` for any
+decision: every control state, permission, next action and `check` decision
+is the refusal's, the control envelope's `capability_rows` projects it as
+`incomparable` with no rows, and `check`, whose boundary result cannot name a
+directory, still refuses its comparison. A `0.20` verifier claiming a partial
+comparison or a `scope` is refused. See
+[the migration note](../STABILITY.md#partial-host-comparison-808).
+
+The same unreleased runtime contract v41 also names what changed in a hook and
+in an MCP server's launch arguments (#819). Host-grants inventory, baseline and
+drift schemas move to `0.7`: a hook grant adds `handlers[]` (each handler's
+group `matcher`, its `command` as `{executable, sha256}` and its `timeout`)
+and `omitted_handlers`, and an MCP server grant adds `package` and
+`args_sha256`. No command or argument text is published: a command is its
+executable's name, when that is a plain token, and a digest; the arguments are
+one package specification of a strict shape and a digest of the rest. A hook
+row names the changed field, `PostToolUse: matcher Edit → Edit|Write|Bash` or
+`command changed` with both digests, and a version pin moving to `@latest` is
+a `package` difference, in the text and in `review.changes[].change`. The
+members display what `config_sha256` already binds, so grant equality and the
+inventory digests leave them out: they move no row value, row count, verifier
+or capability-diff schema, a `0.6` baseline stays comparable with no new row
+or reason, and `minimum_control_contract_version` stays `21`. A saved baseline
+holds none of the members. See
+[the migration note](../STABILITY.md#hook-mcp-detail-fields-819).
+
+Previous runtime contract v40 reads the action reference each workflow step declares
 (#771). Host-grants inventory, baseline and drift schemas move to `0.6`, and a
 workflow grant adds `step_actions[]`: the job, the step (`id`, else `name`,
 else `steps[N]`), the declared `uses`, and its `form` — `remote`, `docker`, or
@@ -666,13 +728,13 @@ Downstream repos generated with
 `init --agent-instructions=default` get the minimal local copy at
 `.shipgate/agent-contract.json`.
 
-- Latest release: `v1.0.0`
+- Latest release: `v1.1.0`
 - In-tree runtime: `1.1.0` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `40` (minimum control contract: `21`)
+- Runtime contract: `41` (minimum control contract: `21`)
 - Current report schema: `1.0`, frozen, superseding `0.43` — [`docs/report-schema.v1.0.json`](report-schema.v1.0.json); the `1.x` rules are in [`docs/report-1-0-contract.md`](report-1-0-contract.md)
 - Current packet schema: `0.18` — [`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
-- Current verifier schema: `0.20` — [`docs/verifier-schema.v0.20.json`](verifier-schema.v0.20.json) (`0.19` and earlier stay frozen; `0.20` says what each host comparison established, source by source)
+- Current verifier schema: `0.21` — [`docs/verifier-schema.v0.21.json`](verifier-schema.v0.21.json) (`0.20` and earlier stay frozen; `0.20` says what each host comparison established, source by source, and `0.21` also names the changed inputs it does not read)
 - Current verify-run schema: `shipgate.verify_run/v5` — [`docs/verify-run-schema.v5.json`](verify-run-schema.v5.json)
 - Current verification identity schemas: [`plan v1`](verification-plan-schema.v1.json), [`unit result v1`](verification-unit-result-schema.v1.json), [`artifact manifest v1`](verification-artifact-manifest-schema.v1.json), and [`terminal receipt v1`](verification-receipt-schema.v1.json)
 - Current control pointer schema: `shipgate.current_control/v1` — [`docs/current-control-schema.v1.json`](current-control-schema.v1.json)
@@ -691,7 +753,7 @@ Downstream repos generated with
 - Current attestation schema: `0.5` — [`docs/attestation-schema.v0.5.json`](attestation-schema.v0.5.json)
 - Current registry schema: `0.4` — [`docs/registry-schema.v0.4.json`](registry-schema.v0.4.json)
 - Current org evidence bundle schema: `shipgate.org_evidence_bundle/v2` — [`docs/org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json)
-- Current host-grants inventory, baseline, and drift schemas: `0.6` — [`inventory`](host-grants-inventory-schema.v0.6.json), [`baseline`](host-grants-baseline-schema.v0.6.json), [`drift`](host-grants-drift-schema.v0.6.json)
+- Current host-grants inventory, baseline, and drift schemas: `0.7` — [`inventory`](host-grants-inventory-schema.v0.7.json), [`baseline`](host-grants-baseline-schema.v0.7.json), [`drift`](host-grants-drift-schema.v0.7.json)
 - Current trigger catalog schema: `0.4` — [`docs/triggers.json`](triggers.json)
 - Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
 - Current governance benchmark result schema: `0.2` — [`docs/governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json)
@@ -836,6 +898,25 @@ Uncommitted work is checked according to what the decision actually covered:
   covered, and a stale `human_review_required` must not keep enforcing a
   pre-change stop. Re-running the same archived `--head` verification cannot
   clear that, so the refusal routes to a worktree verification instead.
+- A **preview** (`operation: "preview"`) decided nothing about the inputs a
+  plan names, so its pointer binds no `verification_plan` — also in a
+  repository with a manifest, where the preview still records the plan a
+  `verify` would run and `verify-run.json` embeds it. Its path set is
+  therefore not recorded: the overlay of every path that differs from HEAD is
+  recomputed live and compared with the one it was read from, so any tracked
+  edit, new untracked file or removal refuses it as `workspace_changed`, and
+  restoring the tree it read makes it current again. A configured and a
+  manifest-free preview are read the same way, whether their reports are in
+  the default directory, another directory inside the repository or beside
+  it (#807). Inside a repository such a pointer always declares the worktree
+  snapshot, even when its overlay could not be read, so under Git
+  configuration the worktree readers refuse it is refused with the cause like
+  every other pointer; one published over an overlay it could not read is
+  current, once the tree can be read, only over a tree identical to HEAD.
+  A pointer that does bind a plan is read against that plan's
+  recorded inputs, and one whose plan lacks its input-directory census is
+  refused as `workspace_unverifiable`, as before; see
+  [the census](verification-reproducibility.md).
 
 An overlay row carries content *and* the two metadata axes Git itself tracks:
 entry kind and the executable bit. Content alone is not the capability —
@@ -890,7 +971,9 @@ accepts any `--out` name under its artifacts root, so an older canonical receipt
 must not be mistaken for the one a run just closed. A `scan` or `preview`
 pointer is structurally incapable of authorizing completion or merge, and each
 binds only the artifacts it actually wrote: a `scan --format markdown` after a
-verify does not claim that verifier's `report.json`. While a run is in flight the pointer reads
+verify does not claim that verifier's `report.json`. A `preview` binds its
+verifier route and never the `verification-plan.json` a manifest lets it
+record, because it read none of that plan's inputs. While a run is in flight the pointer reads
 `lifecycle_state: "in_progress"` with `control.state: "unavailable"`,
 `must_stop: true`, so an interrupted or crashed run leaves a directory that
 denies cached control rather than one that still authorizes it. Consumers built
@@ -1169,7 +1252,13 @@ emits a `verifier.json` with
 next recommended action: an exact
 `init --workspace <workspace> --write --json`
 command for unconfigured repos, or an exact `verify` command for configured
-repos using the supplied workspace/config/base/head/out arguments. Use it as the
+repos using the supplied workspace/config/base/head/out arguments.
+`verify --preview --format control` prints that same state and command, and an
+`agent control` refresh of the pointer it published returns them until the
+working tree moves. Where the working tree cannot be read, both withhold them
+and lead with the cause instead
+([how a preview is read](#two-read-entry-points)).
+Use it as the
 first touch before a full scan. To evaluate just the run/skip trigger, run
 `agents-shipgate trigger --base origin/main --head HEAD --json`.
 
@@ -1203,7 +1292,7 @@ agents-shipgate agent handoff --from agents-shipgate-reports/verifier.json --jso
 ```
 
 In `agents-shipgate-reports/verifier.json`, read the fields below (full
-schema [`docs/verifier-schema.v0.20.json`](verifier-schema.v0.20.json)). **Lead
+schema [`docs/verifier-schema.v0.21.json`](verifier-schema.v0.21.json)). **Lead
 with `control.state`.** Every release and merge field below is a mirror or
 deterministic projection of `report.json`; the authorization evaluation is an
 operational overlay and cannot change those fields.

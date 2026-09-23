@@ -314,7 +314,7 @@ def test_a_v0_18_verifier_reads_as_current_without_gaining_limits(skill_repo: Pa
         "verify", "--preview", "--workspace", str(skill_repo), "--base", "main", "--head", "HEAD", "--json",
     ])
     payload = json.loads(result.output)
-    assert payload["verifier_schema_version"] == "0.20"
+    assert payload["verifier_schema_version"] == "0.21"
     assert payload["host_comparison"]["unchanged_limits"]
 
     legacy = json.loads(json.dumps(payload))
@@ -331,7 +331,7 @@ def test_a_v0_18_verifier_reads_as_current_without_gaining_limits(skill_repo: Pa
     for row in legacy["host_comparison"]["rows"]:
         row.pop("disposition")
     read = VerifierArtifact.model_validate(legacy)
-    assert read.verifier_schema_version == "0.20"
+    assert read.verifier_schema_version == "0.21"
     assert read.host_comparison is not None and read.host_comparison.unchanged_limits == []
     assert read.host_comparison.coverage is None
     assert read.host_comparison.review is None

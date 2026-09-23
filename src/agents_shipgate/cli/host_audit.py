@@ -21,6 +21,7 @@ from agents_shipgate.core.host_grants import (
     HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
     HOST_GRANTS_SCHEMA_VERSION,
     INCOMPARABLE_BASELINE_REVIEW,
+    OVERWRITABLE_BASELINE_SCHEMA_VERSIONS,
     build_host_drift_payload,
     build_host_grants_baseline,
     diff_host_grants,
@@ -641,8 +642,10 @@ def _refuse_invalid_baseline_overwrite(
             next_action=INCOMPARABLE_BASELINE_REVIEW,
             command=None,
         ) from exc
+    # A v0.6 baseline compares exactly as its v0.7 reading does, so it may be
+    # replaced; every older one is still refused (#819).
     if (
-        baseline.get("host_grants_schema_version") != HOST_GRANTS_SCHEMA_VERSION
+        baseline.get("host_grants_schema_version") not in OVERWRITABLE_BASELINE_SCHEMA_VERSIONS
         or baseline.get("_load_error")
     ):
         reason = str(baseline.get("_load_error") or "unsupported_baseline_schema")
