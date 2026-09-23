@@ -27,10 +27,10 @@
 #   summary instead. pull_request_target would run with a write token on
 #   untrusted PR contents.
 # - shipgate_version pins the agents-shipgate package from PyPI; pip still
-#   resolves its dependencies at run time, and the @v1.0.0 tag is a movable
-#   ref. The README shows the full-commit-SHA form, and why the v1.0.0 Action's
-#   install step can import files from the PR's checkout (its merge-verdict
-#   step can too, but this recipe does not enable it).
+#   resolves its dependencies at run time, and the @v1.1.0 tag is a movable
+#   ref. The README shows the full-commit-SHA form, and why the older v1.0.0
+#   Action's install and merge-verdict steps could import files from the PR's
+#   checkout, which the v1.1.0 Action pinned here no longer does.
 #
 # See examples/github-actions/README.md § Host-only advisory PR review.
 name: Agents Shipgate (host-only advisory)
@@ -55,9 +55,9 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: ThreeMoonsLab/agents-shipgate@v1.0.0
+      - uses: ThreeMoonsLab/agents-shipgate@v1.1.0
         with:
           ci_mode: advisory
           diff_base: target
           pr_comment: 'true'
-          shipgate_version: '1.0.0'
+          shipgate_version: '1.1.0'

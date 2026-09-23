@@ -13,6 +13,7 @@ from agents_shipgate.cli.verify.git import (
     read_file_at_ref,
     removes_a_yaml_file,
 )
+from agents_shipgate.cli.verify.host_comparison import enabled_plugin_hook_evidence
 from agents_shipgate.config.loader import load_manifest_text
 from agents_shipgate.core.agent_boundary import (
     build_agent_boundary_result as project_agent_boundary_result,
@@ -311,6 +312,16 @@ def _assessment_for_diff(
         config_path=config_path,
         changed_files=changed_files,
     )
+    host_snapshot, enabled_plugin_hooks, evidence_issues = enabled_plugin_hook_evidence(
+        workspace=workspace,
+        changed_files=changed_files,
+        head_is_worktree=not (input_mode == "git_range" and head),
+        # A provided diff names no commit: only the tree it was given is read.
+        base=None if input_mode == "provided_diff" else base,
+        head=head,
+    )
+    if evidence_issues:
+        input_issues = [*(input_issues or []), *evidence_issues]
     return evaluate_agent_boundary(
         workspace=workspace,
         diff_text=diff_text,
@@ -333,6 +344,8 @@ def _assessment_for_diff(
         head=head,
         verification_replayable=verification_replayable,
         base_manifest_absent=base_manifest_absent,
+        host_snapshot=host_snapshot,
+        enabled_plugin_hooks=enabled_plugin_hooks,
     )
 
 

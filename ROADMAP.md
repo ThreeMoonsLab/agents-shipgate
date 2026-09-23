@@ -2,10 +2,10 @@
 
 > **Naming.** This project is **Agents Shipgate** (display name) / `agents-shipgate` (package, CLI, repo). See [`AGENTS.md` § Naming (canonical)](AGENTS.md#naming-canonical) for the full convention.
 
-**Latest release: `v1.0.0`**
+**Latest release: `v1.1.0`**
 ([release page](https://github.com/ThreeMoonsLab/agents-shipgate/releases/latest))
-— the first published release since `v0.15.0`, on the **advisory** channel with
-no qualification claim. This line is checked against the
+— a legibility and presentation-correctness release on the **advisory** channel
+with no qualification claim. This line is checked against the
 actual release tag by the `release-tag-consistency` job in
 [`ci.yml`](.github/workflows/ci.yml) on every push to `main`.
 
@@ -43,8 +43,10 @@ follows the [non-goals](#explicit-non-goals) and
 ## Post-1.0 adoption (plan of record, 2026-09-14)
 
 **Adoption > completeness.** `v1.0.0` is published on PyPI and GitHub from
-`bace7c1871834e0b3eb98e6f60c0627725c53a59`, and #777 moves the current pins to it.
-The [advisory statement](https://github.com/ThreeMoonsLab/agents-shipgate/releases/download/v1.0.0/advisory-statement.json)
+`bace7c1871834e0b3eb98e6f60c0627725c53a59`, and #777 moved the pins to it.
+`v1.1.0` followed on 2026-09-22 from
+`e3c6cb0c7657d9c53d4e29b2061d04dcf99a4e9b` on the same channel, and the current
+pins name it. The `v1.0.0` [advisory statement](https://github.com/ThreeMoonsLab/agents-shipgate/releases/download/v1.0.0/advisory-statement.json)
 records advisory defaults, blocking opt-in and no qualification claim. That
 publication supersedes the pre-release sequencing in the historical record
 below; it does not satisfy the separate qualified-gate obligations in #572.

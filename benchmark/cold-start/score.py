@@ -62,8 +62,43 @@ def _tokens(change: dict[str, Any]) -> tuple[str | None, str | None]:
     return (name if direction != "added" else None), (name if direction != "removed" else None)
 
 
+def _literal(value: Any) -> str:
+    """A value as a settings file spells it: `true`, `dontAsk`, `["a"]`."""
+
+    return value if isinstance(value, str) else json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def _setting_tokens(change: dict[str, Any]) -> tuple[str | None, str | None]:
+    """The cells a setting row shows since #827: the setting's name and its value.
+
+    Rows recorded before then show the value alone, which `_tokens` still
+    matches, so a published run scores as it was published.
+    """
+
+    key = change["key"]
+    if ":" in key:  # a list-valued setting entry, e.g. enabledMcpjsonServers:x
+        setting, entry = key.split(":", 1)
+        before = entry if change["direction"] != "added" else None
+        after = entry if change["direction"] != "removed" else None
+    else:
+        setting = key.removeprefix("permissions.")
+        before, after = change["before"], change["after"]
+    return (
+        None if before is None else f"{setting}: {_literal(before)}",
+        None if after is None else f"{setting}: {_literal(after)}",
+    )
+
+
 def _row_matches(row: dict[str, Any], change: dict[str, Any]) -> bool:
-    before, after = _tokens(change)
+    if change["kind"] == "setting" and _cells_match(row, change, _setting_tokens(change)):
+        return True
+    return _cells_match(row, change, _tokens(change))
+
+
+def _cells_match(
+    row: dict[str, Any], change: dict[str, Any], tokens: tuple[str | None, str | None]
+) -> bool:
+    before, after = tokens
     if before is None and after is None:
         return False
     if change["direction"] == "added":

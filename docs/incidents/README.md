@@ -5,9 +5,9 @@ released Agents Shipgate verifier. They do not copy vulnerable vendor code,
 connect to external services, or claim that Agents Shipgate was deployed in
 the original incident.
 
-**All three ship in the newest published release, `v1.0.0`.** The previous
-release, `v0.15.0`, bundled `agent_weakens_gate` and nothing else from this
-suite. From a source checkout:
+**All three ship in the newest published release, `v1.1.0`, as they did in
+`v1.0.0`.** The older `v0.15.0` bundled `agent_weakens_gate` and nothing else
+from this suite. From a source checkout:
 
 ```bash
 ./shipgate fixture run agent_weakens_gate
@@ -16,7 +16,7 @@ suite. From a source checkout:
 ```
 
 With no checkout, pin the published release:
-`uvx agents-shipgate@1.0.0 fixture run <name>`.
+`uvx agents-shipgate@1.1.0 fixture run <name>`.
 
 | Fixture | Public shape | Current real output |
 | --- | --- | --- |
