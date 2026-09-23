@@ -3,12 +3,17 @@
 The workflow grant already read triggers, token permissions, reusable calls and
 step `uses:` references (#771), and nothing that says how an agent is started.
 It now lists each documented agent action's permission inputs, the permission
-flags of a literal `claude -p` / `codex exec` run step, and each
+flags of a `run:` that is one plain `claude -p` / `codex exec` command, and each
 `actions/checkout` step's `with.ref`. Nothing is executed, fetched or
 evaluated. Only a documented rule a job's launches gain widens; every other
-edit is `changed`; a shape this reader does not read is a named limit, never a
-row that claims an effect; and a workflow row that runs an agent names the job
-facts beside it.
+edit is `changed`; and a workflow row that runs an agent names the job facts
+beside it.
+
+Shell is not parsed (#823 review cycle 4). A `run:` is read only as one line of
+plain words whose program is a known agent CLI, and `claude_args` /
+`codex-args` only as a plain list of words; every other form is a named,
+non-blocking limit that publishes none of its text, and an unread `run:` step
+is never compared, so it gives no row.
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -25,10 +31,8 @@ from typer.testing import CliRunner
 from agents_shipgate.cli.main import app
 from agents_shipgate.core.capability_diff_rows import capability_diff_rows
 from agents_shipgate.core.host_grants import (
-    _claude_argument_input,
-    _codex_argument_input,
-    _command_substitutions,
-    _literal_argument_words,
+    _argument_words,
+    _run_command,
     _uncompared_workflow_text,
     _workflow_grant,
     diff_host_grants,
@@ -42,7 +46,7 @@ CLAUDE = "anthropics/claude-code-action@v1"
 HEAD_SHA = "${{ github.event.pull_request.head.sha }}"
 
 
-def _workflow(*steps, trigger="pull_request", permissions=None, jobs=None, env=None):
+def _workflow(*steps, trigger="pull_request", permissions=None, jobs=None, env=None, defaults=None):
     data = {
         "on": trigger,
         "permissions": permissions if permissions is not None else {"contents": "read", "pull-requests": "read"},
@@ -50,15 +54,17 @@ def _workflow(*steps, trigger="pull_request", permissions=None, jobs=None, env=N
     }
     if env is not None:
         data["env"] = env
+    if defaults is not None:
+        data["defaults"] = defaults
     return data
 
 
-def _agent(claude_args='--allowedTools "Read"', **extra):
+def _agent(claude_args="--allowedTools Read", **extra):
     return {"uses": CLAUDE, "with": {"claude_args": claude_args, **extra}}
 
 
-def _reproduction(trigger="pull_request", pr="read", claude_args='--allowedTools "Read"', run="echo done", ref=None):
-    """The workflow of #823's reproduction, as its `wf` shell function writes it."""
+def _reproduction(trigger="pull_request", pr="read", claude_args="--allowedTools Read", run="echo done", ref=None):
+    """The workflow of #823's reproduction, as its `wf` shell function writes it, with plain `claude_args`."""
 
     checkout = {"uses": "actions/checkout@v4", **({"with": {"ref": ref}} if ref else {})}
     return _workflow(
@@ -85,38 +91,74 @@ def _launches(value):
     return _grant(value).get("agent_launches", [])
 
 
+def _unread(value):
+    return _grant(value).get("unread_agent_runs", [])
+
+
+def _digest(text):
+    """What a withheld string publishes: a digest of what the host readers digest for it."""
+
+    from agents_shipgate.core.host_grants import redacted_config_sha256
+
+    return f"<withheld:{redacted_config_sha256(text)[:12]}>"
+
+
 # --- the four cases of the reproduction --------------------------------------------
 
 
 def test_args_gaining_bypass_permissions_is_one_widened_row_naming_job_step_and_both_values():
     row, = _rows(
         _reproduction(),
-        _reproduction(claude_args='--permission-mode bypassPermissions --allowedTools "Bash(*)"'),
+        _reproduction(claude_args="--permission-mode bypassPermissions --allowedTools Bash(git:status)"),
     )
 
     assert row.subject == f"github {SOURCE}"
     assert (row.direction, row.expands) == ("widened", True)
-    assert 'review/steps[1]: runs anthropics/claude-code-action with claude_args: --allowedTools "Read"' in row.before
+    assert "review/steps[1]: runs anthropics/claude-code-action with claude_args: --allowedTools Read" in row.before
     assert (
-        'review/steps[1]: runs anthropics/claude-code-action with claude_args: '
-        '--permission-mode bypassPermissions --allowedTools "Bash(*)"'
+        "review/steps[1]: runs anthropics/claude-code-action with claude_args: "
+        "--permission-mode bypassPermissions --allowedTools Bash(git:status)"
     ) in row.after
     assert "an agent launch now skips permission checks (bypassPermissions) (review/steps[1])" in row.why
+
+
+def test_the_quoted_args_of_the_reproduction_are_a_changed_row_that_publishes_only_digests():
+    """#823 review cycle 4 scope: quoted `claude_args` is not read, only compared by a digest."""
+
+    before, after = '--allowedTools "Read"', '--permission-mode bypassPermissions --allowedTools "Bash(*)"'
+    assert host_grant_expansion_signals(_changes(_reproduction(claude_args=before), _reproduction(claude_args=after))) == []
+    row, = _rows(_reproduction(claude_args=before), _reproduction(claude_args=after))
+
+    assert (row.direction, row.expands) == ("changed", False)
+    assert f"claude_args (not read; digest {_digest(before)})" in row.before
+    assert f"claude_args (not read; digest {_digest(after)})" in row.after
+    assert "an agent launch's declared settings changed (review/steps[1])" in row.why
+    assert (
+        "an agent launch's argument input is not a plain list of words this audit reads (claude_args at "
+        "review/steps[1]); none of its text is published and it is compared by a digest only, so this row "
+        "does not say whether it meets a documented widening rule"
+    ) in row.why
+    for text in ("bypassPermissions", "Bash(*)", '"Read"'):
+        assert text not in row.before + row.after
+    limit, = uncompared_agent_launch_texts(_grant(_reproduction(claude_args=after)))
+    assert limit.startswith(
+        "the claude_args value of the agent launch at review/steps[1] (anthropics/claude-code-action) is not "
+        "a plain list of words this audit reads"
+    )
 
 
 def test_a_literal_claude_run_step_is_one_changed_row_with_its_permission_flags():
     row, = _rows(
         _reproduction(),
-        _reproduction(run='claude -p --permission-mode acceptEdits --allowedTools "Bash(*)" "Summarize this change"'),
+        _reproduction(run="claude -p --permission-mode acceptEdits --allowedTools Edit Summarize"),
     )
 
     assert (row.direction, row.expands) == ("changed", False)
     assert "review/steps[2]" not in row.before
     # A variadic flag reads every following word up to the next flag, as the
-    # CLI reads it, so the trailing quoted word is part of --allowedTools.
+    # CLI reads it, so the trailing prompt word is part of --allowedTools.
     assert (
-        "review/steps[2]: runs claude -p with --allowedTools 'Bash(*)' 'Summarize this change'; "
-        "--permission-mode acceptEdits"
+        "review/steps[2]: runs claude -p with --allowedTools Edit Summarize; --permission-mode acceptEdits"
     ) in row.after
     assert "a step now launches an agent (review/steps[2])" in row.why
     assert "not counted as a widening" in row.why
@@ -213,23 +255,23 @@ def test_a_literal_claude_command_publishes_its_permission_flags_under_their_pri
     launch, = _launches(_workflow({
         "name": "Review",
         "run": (
-            "claude --print --allowed-tools=Read --disallowedTools 'Bash(rm *)' "
-            "--model sonnet --dangerously-skip-permissions --add-dir ../docs \"secret prompt text\""
+            "claude --print --allowed-tools=Read --disallowedTools Bash "
+            "--model sonnet --dangerously-skip-permissions --add-dir ../docs secret-prompt-text"
         ),
     }))
 
     assert (launch["agent"], launch["step"], launch["form"]) == ("claude", "Review", "read")
     assert launch["settings"] == [
-        {"name": "--add-dir", "value": "../docs 'secret prompt text'", "unresolved_reason": None},
+        {"name": "--add-dir", "value": "../docs secret-prompt-text", "unresolved_reason": None},
         {"name": "--allowedTools", "value": "Read", "unresolved_reason": None},
         {"name": "--dangerously-skip-permissions", "value": None, "unresolved_reason": None},
-        {"name": "--disallowedTools", "value": "'Bash(rm *)'", "unresolved_reason": None},
+        {"name": "--disallowedTools", "value": "Bash", "unresolved_reason": None},
     ]
     assert "sonnet" not in json.dumps(launch)
 
 
 def test_a_literal_codex_exec_command_publishes_its_permission_flags():
-    launch, = _launches(_workflow({"run": "codex e -s danger-full-access --yolo -c model=o3 'fix it'"}))
+    launch, = _launches(_workflow({"run": "codex e -s danger-full-access --yolo -c model=o3 fix-it"}))
 
     assert (launch["agent"], launch["form"]) == ("codex", "read")
     assert launch["settings"] == [
@@ -240,100 +282,17 @@ def test_a_literal_codex_exec_command_publishes_its_permission_flags():
 
 
 def test_literal_assignments_before_the_command_are_skipped_and_never_published():
-    launch, = _launches(_workflow({"run": "CI=true claude -p --permission-mode plan 'go'"}))
+    launch, = _launches(_workflow({"run": "CI=true ANTHROPIC_API_KEY=sk-canary claude -p --permission-mode plan go"}))
     assert launch["form"] == "read"
     assert launch["settings"] == [{"name": "--permission-mode", "value": "plan", "unresolved_reason": None}]
+    assert "sk-canary" not in json.dumps(_grant(_workflow({"run": "CI=true ANTHROPIC_API_KEY=sk-canary claude -p go"})))
 
 
-@pytest.mark.parametrize(
-    "run",
-    [
-        "claude mcp add github -- npx server",
-        "claude --version",
-        "codex login --api-key sk-test",
-        'echo "claude -p --dangerously-skip-permissions"',
-        "echo claude -p done",
-        "npm test",
-        # a substitution the shell never runs, or one that runs another command
-        'echo "\\$(claude -p --dangerously-skip-permissions)"',
-        "echo '$(claude -p --dangerously-skip-permissions)'",
-        "echo '`claude -p --dangerously-skip-permissions`'",
-        'echo "$(date) claude -p --dangerously-skip-permissions"',
-        # a reserved word is read only before a command's assignments
-        "CI=true then claude -p 'go'",
-    ],
-    ids=["claude-mcp", "claude-version", "codex-login", "echo-quoted", "echo-bare", "unrelated",
-         "escaped-substitution", "single-quoted-substitution", "single-quoted-backtick",
-         "substitution-of-another-command", "reserved-word-after-assignment"],
-)
-def test_a_command_that_launches_no_headless_agent_is_not_listed(run):
-    assert _launches(_workflow({"run": run})) == []
-
-
-@pytest.mark.parametrize(
-    ("run", "reason"),
-    [
-        ("npm ci && claude -p --dangerously-skip-permissions 'go'", "compound_command"),
-        ("npm ci\nclaude -p 'go'", "compound_command"),
-        ("claude -p 'go' | tee review.md", "compound_command"),
-        ("cat <<EOF | claude -p\nreview\nEOF", "compound_command"),
-        ("claude -p $CLAUDE_FLAGS 'go'", "shell_expansion"),
-        ('claude -p "$(cat prompt.md)"', "shell_expansion"),
-        ('claude -p "Fix ${{ github.event.issue.title }}"', "expression"),
-        ("cat <<EOF > prompt.md\nIt's broken\nEOF\nclaude -p --dangerously-skip-permissions 'go'", "compound_command"),
-        ("claude -p --dangerously-skip-permissions \"go", "compound_command"),
-        # an agent CLI inside a double-quoted or backtick substitution (#823 review)
-        ('gh pr comment "$PR" --body "$(claude -p --dangerously-skip-permissions \'go\')"', "shell_expansion"),
-        ('REVIEW="$(claude -p --dangerously-skip-permissions \'go\')"', "shell_expansion"),
-        ("REVIEW=`claude -p --dangerously-skip-permissions 'go'`", "shell_expansion"),
-        ('echo "$(echo "$(claude -p --dangerously-skip-permissions \'go\')")"', "compound_command"),
-        # a here-document body is not read, so an apostrophe in it no longer unbalances the rest
-        ("cat <<EOF > prompt.md\nIt's broken\nEOF\nREVIEW=\"$(claude -p --dangerously-skip-permissions 'go')\"",
-         "compound_command"),
-        # quoting that does not balance is read a line at a time, substitutions included
-        ("echo 'broken\nclaude -p --dangerously-skip-permissions go", "compound_command"),
-        ("echo 'broken\nREVIEW=\"$(claude -p --dangerously-skip-permissions go)\"", "compound_command"),
-        # an agent CLI after a shell reserved word
-        ("if true; then claude -p --dangerously-skip-permissions 'go'; fi", "compound_command"),
-        ("for f in a b; do claude -p --dangerously-skip-permissions 'go'; done", "compound_command"),
-        ("{ claude -p --dangerously-skip-permissions 'go'; }", "compound_command"),
-        ("! claude -p --dangerously-skip-permissions 'go'", "compound_command"),
-        ("time -p claude -p --dangerously-skip-permissions 'go'", "compound_command"),
-    ],
-    ids=["and", "lines", "pipe", "heredoc", "variable", "substitution", "expression", "after-heredoc",
-         "unbalanced", "quoted-substitution-argument", "quoted-substitution-assignment", "backtick",
-         "nested-substitution", "substitution-after-heredoc", "unbalanced-lines", "unbalanced-substitution",
-         "if-then", "for-do", "brace-group", "negated", "timed"],
-)
-def test_a_shape_this_reader_does_not_read_is_unresolved_and_publishes_no_text(run, reason):
-    launch, = _launches(_workflow({"run": run}))
-
-    assert (launch["agent"], launch["form"], launch["unresolved_reason"]) == ("claude", "unresolved", reason)
-    assert launch["settings"] == []
-    assert "dangerously" not in json.dumps(launch) and "go" not in json.dumps(launch["settings"])
-    limit, = uncompared_agent_launch_texts(_grant(_workflow({"run": run})))
-    assert limit.startswith("the agent launch at review/steps[0] (claude) is ")
-    assert "not reported" in limit
-
-
-def test_deeply_nested_substitutions_are_read_in_one_pass():
-    """#823 review: a substitution is found without recursion, and each character is split once."""
-
-    depth = 20000
-    run = 'REVIEW="' + "$(" * depth + "claude -p --dangerously-skip-permissions 'go'" + ")" * depth + '"'
-    launch, = _launches(_workflow({"run": run}))
-    assert (launch["agent"], launch["form"], launch["unresolved_reason"]) == ("claude", "unresolved", "shell_expansion")
-    # Each nested substitution reads as `_` in the one around it.
-    assert _command_substitutions('echo "$(echo "$(codex exec x)")"') == ["codex exec x", 'echo "_"']
-
-
-def test_a_quoted_word_that_starts_with_a_hash_is_not_a_comment():
-    launch, = _launches(_workflow({"run": 'claude -p --allowedTools Read "#123 review"'}))
-    assert launch["form"] == "read"
-    assert launch["settings"] == [{"name": "--allowedTools", "value": "Read '#123 review'", "unresolved_reason": None}]
-
-    commented, = _launches(_workflow({"run": "claude -p --allowedTools Read # review"}))
-    assert (commented["form"], commented["unresolved_reason"]) == ("unresolved", "compound_command")
+def test_an_agent_cli_named_by_its_path_is_read_by_its_file_name():
+    for run in ("./node_modules/.bin/claude -p --dangerously-skip-permissions go", "/usr/local/bin/codex exec --yolo go"):
+        launch, = _launches(_workflow({"run": run}))
+        assert launch["form"] == "read" and "widening_rules" in launch
+        assert run.split()[0] not in json.dumps(launch)
 
 
 def test_the_base_action_directory_of_the_claude_action_is_read_as_the_base_action():
@@ -350,17 +309,13 @@ def test_the_base_action_directory_of_the_claude_action_is_read_as_the_base_acti
     assert launch["widening_rules"] == [{"rule": "bypass_permissions", "setting": "claude_args"}]
 
 
-def test_single_quoted_dollars_are_literal_and_do_not_stop_the_read():
-    launch, = _launches(_workflow({"run": "claude -p --allowedTools 'Bash(echo $HOME)' 'go'"}))
-    assert launch["form"] == "read"
-    assert launch["settings"][0]["value"] == "'Bash(echo $HOME)' go"
-
-
 def test_inputs_that_are_not_a_mapping_are_unresolved():
     launch, = _launches(_workflow({"uses": CLAUDE, "with": ["claude_args"]}))
     assert (launch["form"], launch["unresolved_reason"], launch["settings"]) == (
         "unresolved", "inputs_not_a_mapping", [],
     )
+    limit, = uncompared_agent_launch_texts(_grant(_workflow({"uses": CLAUDE, "with": ["claude_args"]})))
+    assert "a step whose `with:` is not a mapping" in limit
 
 
 def test_every_checkout_step_records_its_declared_ref():
@@ -405,7 +360,7 @@ def test_pull_request_code_is_the_documented_head_refs_only(ref, pull_request_co
 
 def test_a_workflow_without_agents_or_checkouts_keeps_its_v0_6_shape():
     grant = _grant(_workflow({"run": "make test"}, {"uses": "actions/setup-python@v5"}))
-    assert "agent_launches" not in grant and "checkout_refs" not in grant
+    assert "agent_launches" not in grant and "checkout_refs" not in grant and "unread_agent_runs" not in grant
 
 
 def test_job_secrets_name_what_the_agent_job_and_the_workflow_env_reference():
@@ -423,28 +378,314 @@ def test_job_secrets_name_what_the_agent_job_and_the_workflow_env_reference():
     assert launch["job_secrets"] == ["ANTHROPIC_API_KEY", "DEPLOY_KEY", "REVIEW_TOKEN", "WORKFLOW_ENV"]
 
 
-# --- how an agent action splits its argument input (#823 review cycle 1) -----------------
+# --- the only forms read: plain lists of words (#823 review cycle 4) --------------------
 #
-# `claude_args` and `codex-args` are not shell text. The Claude actions split
-# `claude_args` with shell-quote after dropping full `#` lines and making
-# `()|&;<>` literal (base-action/src/parse-sdk-options.ts); `openai/codex-action`
-# reads `codex-args` as a JSON array of strings or with string-argv. A widening
-# rule is read from the words the action passes on.
+# Four review cycles each found a shell form the `run:` reader mis-read, so no
+# shell is parsed. A `run:` is read only as one line of plain words — letters,
+# digits and `_ . / : = , % + -` — whose program is a known agent CLI;
+# `claude_args` and `codex-args` only as such words (parentheses too) across
+# blanks and newlines, with no `--settings` or `--mcp-config` flag.
+
+
+@pytest.mark.parametrize(
+    ("value", "words"),
+    [
+        ("--max-turns 5\n--allowedTools Read", ["--max-turns", "5", "--allowedTools", "Read"]),
+        ("  --allowedTools\tBash(git:status),Read  ", ["--allowedTools", "Bash(git:status),Read"]),
+        ("--permission-mode=bypassPermissions --add-dir ../docs", ["--permission-mode=bypassPermissions", "--add-dir", "../docs"]),
+        ("-c model=o3 -csandbox_mode=read-only --json", ["-c", "model=o3", "-csandbox_mode=read-only", "--json"]),
+    ],
+    ids=["lines", "blanks-and-parentheses", "attached-values", "codex-config"],
+)
+def test_a_plain_argument_input_is_its_words(value, words):
+    assert _argument_words(value) == words
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        '--allowedTools "Read"',
+        "--allowedTools 'Read'",
+        "--model ${{ vars.CLAUDE_MODEL }}",
+        "--append-system-prompt $PROMPT",
+        "--append-system-prompt `cat prompt.md`",
+        "--append-system-prompt $(cat prompt.md)",
+        "# reviewer: alice\n--max-turns 5",
+        "--max-turns 5 # --dangerously-skip-permissions",
+        "--max-turns 5 notes#x",
+        "a\\ b",
+        "--allowedTools Read;Edit",
+        "--allowedTools Read|Edit",
+        "--allowedTools Read&Edit",
+        "--x <in",
+        "--allowedTools Bash(git:*)",
+        "--allowedTools Bash(git?)",
+        '["--yolo"]',
+        "--mcp-config {}",
+        "--settings ./settings.json",
+        "--settings=./settings.json",
+        "--mcp-config .mcp.json",
+        "--mcp-config=.mcp.json",
+        "--add-dir ~/docs",
+        "--append-system-prompt résumé",
+        "--allowedTools Read",
+        "--x !y",
+        "--x @file",
+        "--x {a,b}",
+    ],
+    ids=["double-quote", "single-quote", "expression", "variable", "backtick", "substitution", "comment-line",
+         "inline-comment", "hash-in-a-word", "backslash", "semicolon", "pipe", "ampersand", "redirection",
+         "glob-star", "glob-question", "json-array", "json-object", "settings", "settings-attached", "mcp-config",
+         "mcp-config-attached", "tilde", "non-ascii", "no-break-space", "bang", "at", "brace"],
+)
+def test_any_other_argument_input_is_not_read(value):
+    assert _argument_words(value) is None
+
+
+@pytest.mark.parametrize(
+    ("run", "command"),
+    [
+        ("claude -p --dangerously-skip-permissions Review", ("claude", ["-p", "--dangerously-skip-permissions", "Review"])),
+        ("claude --print go\n", ("claude", ["--print", "go"])),
+        ("  codex exec --yolo review  ", ("codex", ["--yolo", "review"])),
+        ("codex e -s workspace-write go", ("codex", ["-s", "workspace-write", "go"])),
+        ("CI=1 A_B=x:y claude -p go", ("claude", ["-p", "go"])),
+        ("./node_modules/.bin/claude -p go", ("claude", ["-p", "go"])),
+    ],
+    ids=["claude", "print", "codex", "codex-alias", "assignments", "path"],
+)
+def test_a_plain_one_command_run_is_read(run, command):
+    assert _run_command(run) == command
+
+
+#: `run:` steps that mention an agent CLI and are not read as an agent launch.
+#: The first eight are the forms of #823 review cycle 4.
+UNREAD_RUNS = [
+    "# Don't run this on forks\nnpm ci && claude -p --dangerously-skip-permissions \"Review\"",
+    "# Don't run this on forks\nclaude -p --dangerously-skip-permissions \"Review this PR\" > out.md\n"
+    "# We'll post the result below\ngh pr comment \"$PR\" --body-file out.md",
+    "# it's gated\nif [ -n \"$X\" ]; then claude -p --dangerously-skip-permissions go; fi",
+    "# we don't pipe secrets\ngit diff | claude -p 'Review'",
+    "npm ci && claude -p --dangerously-skip-permissions go # it's fine",
+    "# can't\nset -e; codex exec --yolo 'review'",
+    "# To reproduce locally: npm ci; claude -p \"review this change\"\nnpm test",
+    "cat <<MD\n'$(claude -p x)'",
+    "npm ci && claude -p --dangerously-skip-permissions go",
+    "npm ci\nclaude -p go",
+    "claude -p go | tee review.md",
+    "claude -p go > review.md",
+    "claude -p go 2>&1",
+    "claude -p \\\n  --dangerously-skip-permissions go",
+    "claude -p $CLAUDE_FLAGS go",
+    "claude -p \"$(cat prompt.md)\"",
+    "claude -p 'go'",
+    'claude -p "Fix ${{ github.event.issue.title }}"',
+    'gh pr comment "$PR" --body "$(claude -p --dangerously-skip-permissions \'go\')"',
+    "REVIEW=`claude -p --dangerously-skip-permissions go`",
+    "cat <<'EOF'\nReproduce locally with `claude -p \"review this change\"`.\nEOF",
+    "cat <<EOF | claude -p\nreview\nEOF",
+    "if true; then claude -p --dangerously-skip-permissions go; fi",
+    "{ claude -p --dangerously-skip-permissions go; }",
+    "! claude -p --dangerously-skip-permissions go",
+    "time claude -p --dangerously-skip-permissions go",
+    "exec claude -p go",
+    "npx @anthropic-ai/claude-code -p --dangerously-skip-permissions go",
+    "timeout 600 claude -p --dangerously-skip-permissions go",
+    "sudo claude -p go",
+    "bash -c claude",
+    "codex -c sandbox_mode=danger-full-access exec review",
+    "codex --yolo exec review",
+    "claude mcp add github -- npx server",
+    "claude --version",
+    "codex login --api-key sk-test-canary",
+    "echo claude -p done",
+    'echo "claude -p --dangerously-skip-permissions"',
+    "npm install -g @anthropic-ai/claude-code",
+    "./scripts/claude-review.sh --dangerously-skip-permissions",
+    "claude -p *.md",
+    "claude -p --add-dir ~/docs go",
+    "claude -p --allowedTools {Read,Edit} go",
+    "claude -p --settings ./ci/settings.json go",
+    "claude -p --mcp-config=.mcp.json go",
+    "claude -p go",
+    "claude -p go\r",
+    "CI=true then claude -p go",
+]
+
+
+@pytest.mark.parametrize("run", UNREAD_RUNS)
+def test_a_run_this_reader_does_not_parse_is_a_named_limit_that_gives_no_row_and_publishes_nothing(run):
+    """#823 review cycle 4 scope: never a launch, never a row, never a claim, and none of its text."""
+
+    step = {"run": run}
+    grant = _grant(_workflow(step))
+    agents = sorted({name for name in ("claude", "codex") if name in run})
+
+    assert grant.get("agent_launches", []) == []
+    assert grant["unread_agent_runs"] == [{"job": "review", "step": "steps[0]", "agent": name} for name in agents]
+    published = json.dumps(grant)
+    for text in ("dangerously", "yolo", "sk-test-canary", "Review", "review this change", "danger-full-access"):
+        assert text not in published
+    limits = uncompared_agent_launch_texts(grant)
+    assert limits == [
+        f"the `run:` at review/steps[0] mentions {name} and is not read as an agent launch: only a "
+        "single-line command of plain words run by bash or sh, whose program is `claude -p` or `codex exec`, "
+        "is read, so this step may start an agent that is neither published nor compared, and adding, "
+        "removing or editing it gives no row"
+        for name in agents
+    ]
+    assert _uncompared_workflow_text(grant) is None
+    # Adding, editing or removing it gives no row.
+    assert _rows(_workflow({"run": "echo done"}), _workflow(step)) == []
+    assert _rows(_workflow(step), _workflow({"run": run + "\necho edited"})) == []
+    assert _rows(_workflow(step), _workflow({"run": "echo done"})) == []
+
+
+@pytest.mark.parametrize(
+    "shell",
+    [
+        {"step": "pwsh"},
+        {"step": "python"},
+        {"step": "cmd"},
+        {"step": "${{ matrix.shell }}"},
+        {"job": "powershell"},
+        {"workflow": "pwsh"},
+    ],
+    ids=["step-pwsh", "step-python", "step-cmd", "step-expression", "job-default", "workflow-default"],
+)
+def test_a_run_under_a_declared_shell_other_than_bash_or_sh_is_not_read(shell):
+    step = {"run": "claude -p --dangerously-skip-permissions go"}
+    if "step" in shell:
+        step["shell"] = shell["step"]
+    job = {"runs-on": "ubuntu-latest", "steps": [step]}
+    if "job" in shell:
+        job["defaults"] = {"run": {"shell": shell["job"]}}
+    workflow = _workflow(
+        jobs={"review": job}, defaults={"run": {"shell": shell["workflow"]}} if "workflow" in shell else None,
+    )
+
+    assert _launches(workflow) == []
+    assert _unread(workflow) == [{"job": "review", "step": "steps[0]", "agent": "claude"}]
+
+
+@pytest.mark.parametrize("shell", ["bash", "sh", "bash -e {0}", "/bin/bash --noprofile --norc -eo pipefail {0}"])
+def test_a_run_under_bash_or_sh_is_read(shell):
+    step = {"run": "claude -p --dangerously-skip-permissions go", "shell": shell}
+    launch, = _launches(_workflow(step))
+    assert launch["widening_rules"] == [
+        {"rule": "bypass_permissions", "setting": "--dangerously-skip-permissions"}
+    ]
+    # A step's own `shell:` is read before its job's default.
+    job = {"defaults": {"run": {"shell": "pwsh"}}, "steps": [step]}
+    assert len(_launches(_workflow(jobs={"review": job}))) == 1
+
+
+def test_a_large_run_is_read_in_linear_time():
+    runs = [
+        'REVIEW="' + "$(" * 20000 + "claude -p go" + ")" * 20000 + '"',
+        "cat <<X\n" * 20000 + "claude -p go",
+        "claude -p " + "word " * 50000,
+    ]
+    start = time.perf_counter()
+    for run in runs[:2]:
+        assert _unread(_workflow({"run": run})) == [{"job": "review", "step": "steps[0]", "agent": "claude"}]
+    launch, = _launches(_workflow({"run": runs[2]}))
+    assert launch["settings"] == []
+    assert time.perf_counter() - start < 5
+
+
+def test_beside_an_unread_step_a_new_bypass_launch_is_a_widening():
+    """#823 review cycle 4 (b): a step this audit does not read takes no gain from another launch."""
+
+    for unread in (
+        "# To reproduce locally: npm ci; claude -p \"review this change\"\nnpm test",
+        "cat > comment.md <<'EOF'\nReproduce locally with `claude -p \"review this change\"`.\nEOF\n",
+        "npm install -g @anthropic-ai/claude-code",
+    ):
+        step = {"run": unread}
+        before = _workflow(step, permissions={"contents": "read", "pull-requests": "write"})
+        after = _workflow(
+            step, {"run": "claude -p --dangerously-skip-permissions Review"},
+            permissions={"contents": "read", "pull-requests": "write"},
+        )
+        assert host_grant_expansion_signals(_changes(before, after)) == [f"workflow_agent_widened_changed: {SOURCE}"]
+        row, = _rows(before, after)
+        assert (row.direction, row.expands) == ("widened", True)
+        assert "an agent launch now skips permission checks (bypassPermissions) (review/steps[1])" in row.why
+        assert "not counted as a widening" not in row.why.split("; an agent runs at")[0]
+        assert "review/steps[0]" not in row.why + row.before + row.after
+
+
+def test_an_unread_step_rewritten_as_a_read_launch_does_not_claim_the_rule_it_may_already_have_met():
+    before = _workflow({"run": 'npm ci && claude -p --dangerously-skip-permissions "Review"'})
+    after = _workflow({"run": "npm ci"}, {"run": "claude -p --dangerously-skip-permissions Review"})
+
+    assert host_grant_expansion_signals(_changes(before, after)) == []
+    row, = _rows(before, after)
+    assert (row.direction, row.expands) == ("changed", False)
+    assert (
+        "an agent launch now skips permission checks (bypassPermissions) (review/steps[1]), which is not "
+        "counted as a widening: a step in this job that may launch the agent in a form this audit does not "
+        "read is gone (review/steps[0]), and this launch may be that step rewritten in a form this audit "
+        "reads, which may already have done the same"
+    ) in row.why
+
+
+def test_an_unread_step_that_goes_while_a_read_launch_gains_a_rule_still_widens():
+    """The read launch was read on both sides, so the gain is its own."""
+
+    before = _workflow({"run": "npm ci && claude -p go"}, _agent())
+    after = _workflow(_agent("--dangerously-skip-permissions"))
+
+    assert host_grant_expansion_signals(_changes(before, after)) == [f"workflow_agent_widened_changed: {SOURCE}"]
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        ("claude -p --allowedTools Read Review",
+         "npx @anthropic-ai/claude-code -p --dangerously-skip-permissions Review"),
+        ("claude -p --allowedTools Read Review", 'claude -p --dangerously-skip-permissions "Review"'),
+        ("codex exec -s workspace-write review", "codex -c sandbox_mode=danger-full-access exec review"),
+    ],
+    ids=["npx", "quoted", "codex-root-options"],
+)
+def test_a_read_launch_that_becomes_a_form_this_audit_does_not_read_is_not_called_gone(before, after):
+    """#823 review: what was established is that no launch this audit reads is declared."""
+
+    row, = _rows(_workflow({"run": before}), _workflow({"run": after}))
+    assert (row.direction, row.expands) == ("changed", False)
+    assert "a step no longer declares an agent launch this audit reads (review/steps[0])" in row.why
+    assert (
+        "a step that no longer declares one may still start an agent in a way this audit does not read, "
+        "such as an action outside its table, a script, or a `run:` this audit does not read as a launch "
+        "(more than one command, quoting, an expansion, `npx`, `codex` options before `exec`), so this row "
+        "does not say that it no longer starts one"
+    ) in row.why
+    assert "no longer launches an agent" not in row.why
+    assert "dangerously" not in row.after and "danger-full-access" not in row.after
+
+
+# --- an agent action's argument input (#823 review cycles 1 and 4) ------------------------
+#
+# `claude_args` and `codex-args` are not shell text: each action splits its own
+# input. A plain list of words is split alike by all of them, so only that is
+# read; a widening rule is read from those words.
 
 
 @pytest.mark.parametrize(
     ("before", "after"),
     [
         ("--max-turns 5\n--allowedTools Read", "--max-turns 5\n--dangerously-skip-permissions"),
-        ("--allowedTools Bash(git:*)", "--allowedTools Bash(git:*) --dangerously-skip-permissions"),
-        ("# review agent\n--max-turns 5", "# review agent\n--dangerously-skip-permissions"),
+        ("--allowedTools Bash(git:status)", "--allowedTools Bash(git:status) --dangerously-skip-permissions"),
         ("--max-turns 5", "--max-turns 5\n--permission-mode\nbypassPermissions"),
+        ("--max-turns 5", "--permission-mode=bypassPermissions"),
         # A word starting with `--` is always a flag to the action, never a value.
-        ("--allowedTools Read", "--settings --dangerously-skip-permissions"),
+        ("--allowedTools Read", "--model --dangerously-skip-permissions"),
     ],
-    ids=["several-lines", "unquoted-parentheses", "comment-line", "mode-over-lines", "never-a-value"],
+    ids=["several-lines", "parentheses", "mode-over-lines", "mode-attached", "never-a-value"],
 )
-def test_claude_args_are_split_as_the_claude_actions_split_them(before, after):
+def test_plain_claude_args_gaining_a_bypass_is_a_widening(before, after):
     changes = _changes(_workflow(_agent(before)), _workflow(_agent(after)))
     assert host_grant_expansion_signals(changes) == [f"workflow_agent_widened_changed: {SOURCE}"]
     row, = _rows(_workflow(_agent(before)), _workflow(_agent(after)))
@@ -458,45 +699,30 @@ def test_claude_args_are_split_as_the_claude_actions_split_them(before, after):
     "after",
     [
         "# --dangerously-skip-permissions\n--max-turns 5",
-        "  # an indented comment line is dropped too\n--max-turns 5",
-        # An unquoted `#` later in the input ends it, as shell-quote reads it.
         "--max-turns 5 # --dangerously-skip-permissions",
-        "--max-turns 5 notes#--dangerously-skip-permissions",
+        '--dangerously-skip-permissions --append-system-prompt "Review"',
+        "--dangerously-skip-permissions --model ${{ vars.CLAUDE_MODEL }}",
+        "--dangerously-skip-permissions --settings ./ci/settings.json",
+        "--dangerously-skip-permissions --mcp-config '{\"mcpServers\":{}}'",
+        "--dangerously-skip-permissions --allowedTools Bash(*)",
     ],
-    ids=["comment-line", "indented-comment", "inline-comment", "hash-in-a-word"],
+    ids=["comment-line", "inline-comment", "quoted-prompt", "expression", "settings", "mcp-config", "glob"],
 )
-def test_a_flag_the_action_drops_as_a_comment_meets_no_rule(after):
-    launch, = _launches(_workflow(_agent(after)))
+def test_argument_input_this_audit_does_not_read_meets_no_rule_and_is_a_changed_row(after):
+    before = _workflow(_agent("--max-turns 5"))
+    changed = _workflow(_agent(after))
+    launch, = _launches(changed)
+
+    assert launch["settings"] == [{"name": "claude_args", "value": _digest(after), "unresolved_reason": "unread_arguments"}]
     assert "widening_rules" not in launch
-    assert host_grant_expansion_signals(_changes(_workflow(_agent("--max-turns 5")), _workflow(_agent(after)))) == []
-
-
-def test_editing_only_a_comment_line_the_action_drops_is_quiet():
-    before = _workflow(_agent("# reviewer: alice\n--max-turns 5"))
-    after = _workflow(_agent("# reviewer: bob\n# --dangerously-skip-permissions\n--max-turns 5"))
-
-    assert _launches(after)[0]["settings"] == [
-        {"name": "claude_args", "value": "--max-turns 5", "unresolved_reason": None},
-    ]
-    assert _rows(before, after) == []
-
-
-@pytest.mark.parametrize(
-    ("value", "words"),
-    [
-        ('--allowedTools "Bash(git status)" \'Read\'', ["--allowedTools", "Bash(git status)", "Read"]),
-        ("--allowedTools Bash(gh:*)|Read;x", ["--allowedTools", "Bash(gh:*)|Read;x"]),
-        ('cost$5 "$HOME/x" $', ["cost", "/x", "$"]),
-        ('--append-system-prompt "unbalanced --dangerously-skip-permissions',
-         ["--append-system-prompt", "unbalanced", "--dangerously-skip-permissions"]),
-        ('a\\ b "c\\"d"', ["a b", 'c"d']),
-        ("--x a#b --y", ["--x", "a"]),
-        ("--x ${}", None),
-    ],
-    ids=["quotes", "metacharacters", "variables", "unbalanced-quote", "escapes", "hash", "bad-substitution"],
-)
-def test_the_claude_args_splitter_reads_as_shell_quote_does(value, words):
-    assert _claude_argument_input(value).words == (None if words is None else tuple(words))
+    assert host_grant_expansion_signals(_changes(before, changed)) == []
+    row, = _rows(before, changed)
+    assert (row.direction, row.expands) == ("changed", False)
+    assert "dangerously" not in row.after and "an agent launch now" not in row.why
+    # Editing it is still a change, compared by its digest.
+    edited, = _rows(changed, _workflow(_agent(after + "\n--max-turns 9")))
+    assert (edited.direction, edited.expands) == ("changed", False)
+    assert f"claude_args (not read; digest {_digest(after)})" in edited.before
 
 
 @pytest.mark.parametrize(
@@ -504,13 +730,13 @@ def test_the_claude_args_splitter_reads_as_shell_quote_does(value, words):
     [
         ("--json\n--dangerously-bypass-approvals-and-sandbox", "bypasses approvals and the sandbox"),
         ("--full-auto --yolo", "bypasses approvals and the sandbox"),
-        ('["--json", "--yolo"]', "bypasses approvals and the sandbox"),
-        ("-s 'danger-full-access'", "runs without a sandbox (danger-full-access)"),
         ("--json\n--sandbox=danger-full-access", "runs without a sandbox (danger-full-access)"),
+        ("-s danger-full-access", "runs without a sandbox (danger-full-access)"),
+        ("-sdanger-full-access", "runs without a sandbox (danger-full-access)"),
     ],
-    ids=["several-lines", "yolo", "json-array", "quoted-short-sandbox", "attached-sandbox"],
+    ids=["several-lines", "yolo", "attached-sandbox", "short-sandbox", "attached-short-sandbox"],
 )
-def test_codex_args_are_read_as_the_codex_action_reads_them(codex_args, rule):
+def test_plain_codex_args_gaining_a_rule_is_a_widening(codex_args, rule):
     before = _workflow({"uses": "openai/codex-action@v1", "with": {"codex-args": "--json"}})
     after = _workflow({"uses": "openai/codex-action@v1", "with": {"codex-args": codex_args}})
 
@@ -520,18 +746,26 @@ def test_codex_args_are_read_as_the_codex_action_reads_them(codex_args, rule):
 
 
 @pytest.mark.parametrize(
-    ("value", "words"),
+    "codex_args",
     [
-        ("--json\n--full-auto", ["--json", "--full-auto"]),
-        ("--flag=\"a b\" 'c d' e", ['--flag="a b"', "c d", "e"]),
-        ('["-c", "x=1"]', ["-c", "x=1"]),
-        ("[1, 2]", None),
-        ("[not json", None),
+        '["--json", "--yolo"]',
+        "-s 'danger-full-access'",
+        "--yolo ${{ vars.EXTRA }}",
+        # The action appends its own --sandbox, or its own default_permissions
+        # override for a permission-profile, after codex-args, and either
+        # takes precedence over a sandbox --config override written before it.
+        "-c sandbox_mode=danger-full-access",
+        "--config=default_permissions=:danger-full-access",
     ],
-    ids=["lines", "string-argv-quotes", "json-array", "not-strings", "invalid-json"],
+    ids=["json-array", "quoted-sandbox", "expression", "sandbox-mode-override", "profile-override"],
 )
-def test_the_codex_args_reader_reads_as_the_codex_action_does(value, words):
-    assert _codex_argument_input(value).words == (None if words is None else tuple(words))
+def test_codex_args_this_audit_does_not_read_or_that_selects_nothing_is_changed(codex_args):
+    before = _workflow({"uses": "openai/codex-action@v1", "with": {"codex-args": "--json"}})
+    after = _workflow({"uses": "openai/codex-action@v1", "with": {"codex-args": codex_args}})
+
+    assert host_grant_expansion_signals(_changes(before, after)) == []
+    row, = _rows(before, after)
+    assert (row.direction, row.expands) == ("changed", False)
 
 
 def test_the_multi_line_widening_reaches_diff_and_the_review_summary(tmp_path):
@@ -553,252 +787,32 @@ def test_the_multi_line_widening_reaches_diff_and_the_review_summary(tmp_path):
     "after",
     [
         # the prompt and an undocumented flag are not compared
-        _workflow({"run": "claude -p 'a different prompt' --model opus --allowedTools Read"}),
+        _workflow({"run": "claude -p a-different-prompt --model opus --allowedTools Read"}),
         # renamed, respelled and reordered flags
-        _workflow({"name": "Renamed", "run": "claude --allowed-tools=Read --print 'review'"}),
+        _workflow({"name": "Renamed", "run": "claude --allowed-tools=Read --print review"}),
     ],
     ids=["prompt-and-model", "rename-and-reorder"],
 )
 def test_an_edit_outside_the_compared_flags_is_quiet(after):
-    before = _workflow({"run": "claude -p 'review' --allowedTools Read"})
+    before = _workflow({"run": "claude -p review --allowedTools Read"})
     assert _rows(before, after) == []
 
 
 def test_a_word_after_a_variadic_flag_is_read_as_its_value_as_the_cli_reads_it():
-    before = _workflow({"run": "claude -p 'review' --allowedTools Read"})
-    after = _workflow({"run": "claude -p --allowedTools Read 'review'"})
+    before = _workflow({"run": "claude -p review --allowedTools Read"})
+    after = _workflow({"run": "claude -p --allowedTools Read review"})
 
     row, = _rows(before, after)
     assert "--allowedTools Read review" in row.after and "--allowedTools Read," in row.before + ","
 
 
-def test_an_edit_inside_an_unresolved_command_is_quiet_and_named_as_a_limit():
-    before = _workflow({"run": "npm ci && claude -p --allowedTools Read 'go'"})
-    after = _workflow({"run": "npm ci && claude -p --dangerously-skip-permissions 'go'"})
+def test_plain_claude_args_are_compared_by_their_words():
+    """Reformatting the list is quiet; a new word is a change."""
 
-    assert _rows(before, after) == []
-    assert uncompared_agent_launch_texts(_grant(after))
-
-
-def test_adding_an_unresolved_launch_is_a_row_that_claims_no_effect():
-    row, = _rows(_workflow({"run": "npm test"}), _workflow({"run": "npm ci && claude -p --yolo 'go'"}))
-
+    assert _rows(_workflow(_agent("--max-turns 5 --allowedTools Read")), _workflow(_agent("--max-turns 5\n  --allowedTools   Read"))) == []
+    row, = _rows(_workflow(_agent("--allowedTools Read")), _workflow(_agent("--allowedTools Read,Edit")))
     assert (row.direction, row.expands) == ("changed", False)
-    assert "review/steps[0]: runs claude -p (unresolved: compound command)" in row.after
-    assert "a step launches an agent in a form this audit does not read (review/steps[0])" in row.why
-    assert "does not say what that agent may do" in row.why
-
-
-SUBSTITUTED = 'gh pr comment "$PR" --body "$(claude -p {flags} \'Review this change\')"'
-
-
-@pytest.mark.parametrize(
-    "run",
-    [
-        SUBSTITUTED.format(flags="--dangerously-skip-permissions"),
-        "if true; then claude -p --dangerously-skip-permissions 'Review this change'; fi",
-    ],
-    ids=["quoted-substitution", "if-then"],
-)
-def test_an_agent_cli_the_splitter_does_not_head_is_a_row_and_a_named_limit(run):
-    """#823 review: a launch inside a quoted `$(…)`, or after `then`, is named, never missed."""
-
-    row, = _rows(_reproduction(), _reproduction(run=run))
-    assert (row.direction, row.expands) == ("changed", False)
-    assert "a step now launches an agent (review/steps[2])" in row.why
-    assert "a step launches an agent in a form this audit does not read (review/steps[2])" in row.why
-    assert "dangerously" not in row.after
-
-    limit, = uncompared_agent_launch_texts(_grant(_reproduction(run=run)))
-    assert limit.startswith("the agent launch at review/steps[2] (claude) is ")
-
-
-def test_an_edit_inside_a_quoted_substitution_is_quiet_and_named_as_a_limit():
-    before = _workflow({"run": SUBSTITUTED.format(flags="--allowedTools Read")})
-    after = _workflow({"run": SUBSTITUTED.format(flags="--dangerously-skip-permissions")})
-
-    assert _rows(before, after) == []
-    limit, = uncompared_agent_launch_texts(_grant(after))
-    assert "a command holding, or inside, a shell expansion this static audit does not evaluate" in limit
-
-
-# --- here-documents (#823 review cycle 3, C3-F1) -------------------------------------
-
-#: The step of the review: a PR comment drafted in a quoted here-document.
-HERE_DOC_COMMENT = "cat > comment.md <<'EOF'\nReproduce locally with `claude -p \"review this change\"`.\nEOF\n"
-COMMENT_PERMISSIONS = {"contents": "read", "pull-requests": "write"}
-
-
-@pytest.mark.parametrize(
-    ("opener", "closer"),
-    [("<<'EOF'", "EOF"), ('<<"EOF"', "EOF"), ("<<\\EOF", "EOF"), ("<<-'EOF'", "\t\tEOF"), ("<< 'EOF'", "EOF"),
-     ("<<E'O'F", "EOF")],
-    ids=["single-quoted", "double-quoted", "escaped", "tab-stripped", "spaced", "partly-quoted"],
-)
-@pytest.mark.parametrize(
-    "body",
-    [
-        'Reproduce locally with `claude -p "review this change"`.',
-        "Or run `codex exec --yolo 'review'` yourself.",
-        "claude -p --dangerously-skip-permissions 'review'",
-        "$(claude -p --dangerously-skip-permissions 'review')",
-        "don't run `claude -p x` here",
-    ],
-    ids=["backticked-claude", "backticked-codex", "line-head", "substitution", "apostrophe"],
-)
-def test_a_quoted_here_doc_that_mentions_an_agent_cli_launches_none(opener, closer, body):
-    """The shell passes a quoted here-document's body as written, so nothing in it runs."""
-
-    step = {"run": f"cat > comment.md {opener}\n{body}\n{closer}\n"}
-    assert _launches(_workflow(step, permissions=COMMENT_PERMISSIONS)) == []
-    assert _rows(
-        _workflow({"run": "echo done"}, permissions=COMMENT_PERMISSIONS),
-        _workflow({"run": "echo done"}, step, permissions=COMMENT_PERMISSIONS),
-    ) == []
-
-
-def test_beside_a_quoted_here_doc_a_new_bypass_step_is_a_widening():
-    """The here-document is no launch the job had before, so the gain is claimed."""
-
-    here_doc = {"run": HERE_DOC_COMMENT}
-    before = _workflow(here_doc, permissions=COMMENT_PERMISSIONS)
-    after = _workflow(
-        here_doc, {"run": 'claude -p --dangerously-skip-permissions "Review"'}, permissions=COMMENT_PERMISSIONS,
-    )
-
-    assert host_grant_expansion_signals(_changes(before, after)) == [f"workflow_agent_widened_changed: {SOURCE}"]
-    row, = _rows(before, after)
-    assert (row.direction, row.expands) == ("widened", True)
-    assert "an agent launch now skips permission checks (bypassPermissions) (review/steps[1])" in row.why
-    assert "a form this audit does not read" not in row.why
-    assert "review/steps[0]" not in row.why + row.before + row.after
-
-
-@pytest.mark.parametrize(
-    ("body", "agent"),
-    [
-        ("claude -p --dangerously-skip-permissions 'review'", None),
-        ("Summary: $(claude -p 'review')", "claude"),
-        ("Summary: `codex exec 'review'`", "codex"),
-        # quotes and `#` are ordinary characters in the body
-        ("'$(claude -p review)'", "claude"),
-        ("# $(claude -p review)", "claude"),
-        ("\\$(claude -p review)", None),
-    ],
-    ids=["line-head", "substitution", "backtick", "single-quoted", "hash", "escaped"],
-)
-def test_an_unquoted_here_doc_runs_its_substitutions_and_none_of_its_lines(body, agent):
-    launches = _launches(_workflow({"run": f"cat > comment.md <<EOF\n{body}\nEOF"}))
-
-    assert [(item["agent"], item["form"], item["unresolved_reason"]) for item in launches] == (
-        [(agent, "unresolved", "compound_command")] if agent else []
-    )
-
-
-@pytest.mark.parametrize(
-    "run",
-    [
-        # the line that opens it, and what follows its closing line
-        "cat <<'EOF' | claude -p --dangerously-skip-permissions\nreview\nEOF",
-        "cat > prompt.md <<'EOF'\nreview\nEOF\nclaude -p --dangerously-skip-permissions 'go'",
-        # two on one line, their bodies in order
-        "cat <<'A' <<B\n`codex exec a`\nA\n$(claude -p b)\nB",
-        # opened inside a quoted substitution
-        'REVIEW="$(cat <<EOF\n$(claude -p go)\nEOF\n)"',
-        # `<<` that opens none
-        "echo $((1 << 2))\nclaude -p 'go'",
-        "echo '<<EOF'\nclaude -p 'go'",
-        "echo done # <<EOF\nclaude -p 'go'",
-        "cat <<< 'x'\nclaude -p 'go'",
-        # one with no closing line is read as ordinary lines
-        "cat <<'EOF'\nclaude -p 'go'",
-    ],
-    ids=["opening-line", "after-closing-line", "two-bodies", "in-quoted-substitution", "arithmetic",
-         "quoted", "comment", "here-string", "unclosed"],
-)
-def test_an_agent_cli_outside_a_here_doc_body_is_still_named(run):
-    launch, = _launches(_workflow({"run": run}))
-    assert (launch["agent"], launch["form"]) == ("claude", "unresolved")
-
-
-@pytest.mark.parametrize(
-    "run",
-    [
-        "cat <<X\n" * 20000 + "claude -p go",
-        "".join(f"cat <<E{index}\nbody\nE{index}\n" for index in range(20000)) + "claude -p go",
-    ],
-    ids=["unclosed", "closed"],
-)
-def test_many_here_docs_are_read_in_one_pass(run):
-    """A closing line is looked up, not searched for from each opening line."""
-
-    launch, = _launches(_workflow({"run": run}))
-    assert (launch["agent"], launch["form"], launch["unresolved_reason"]) == ("claude", "unresolved", "compound_command")
-
-
-def test_the_here_doc_of_the_review_adds_no_row_or_coverage_issue_and_the_bypass_widens(tmp_path):
-    """C3-F1 end to end: a quoted here-document is no launch in `audit --host`, and `diff` claims the bypass."""
-
-    from agents_shipgate.cli.host_audit import host_audit_inventory
-
-    here_doc = {"run": HERE_DOC_COMMENT}
-    repo = _repo(tmp_path, {SOURCE: _yaml(_workflow({"run": "echo done"}, permissions=COMMENT_PERMISSIONS))})
-    _git(repo, "checkout", "-qb", "change")
-    _write(repo, {SOURCE: _yaml(_workflow({"run": "echo done"}, here_doc, permissions=COMMENT_PERMISSIONS))})
-    _git(repo, "commit", "-qam", "draft the comment")
-
-    assert _diff(repo)["rows"] == []
-    inventory = host_audit_inventory(repo)
-    workflow, = [grant for grant in inventory["grants"] if grant.get("kind") == "workflow"]
-    assert "agent_launches" not in workflow
-    assert [item for item in inventory["issues"] if item["host"] == "github"] == []
-
-    _write(repo, {SOURCE: _yaml(_workflow(
-        {"run": "echo done"}, here_doc, {"run": 'claude -p --dangerously-skip-permissions "Review"'},
-        permissions=COMMENT_PERMISSIONS,
-    ))})
-    _git(repo, "commit", "-qam", "review without permission checks")
-    row, = _diff(repo)["rows"]
-    assert (row["direction"], row["expands"]) == ("widened", True)
-    text = CliRunner().invoke(app, ["diff", "--workspace", str(repo), "--base", "main"])
-    assert text.exit_code == 0, text.output
-    assert "⚠" in text.output and "1 widening what the agent may do" in text.output
-
-
-@pytest.mark.parametrize(
-    ("before", "after"),
-    [
-        ("claude -p --allowedTools Read 'Review'",
-         "npx @anthropic-ai/claude-code -p --dangerously-skip-permissions 'Review'"),
-        ("claude -p --allowedTools Read 'Review'",
-         "./node_modules/.bin/claude -p --dangerously-skip-permissions 'Review'"),
-        ("codex exec -s workspace-write 'review'", "codex -c sandbox_mode=danger-full-access exec 'review'"),
-    ],
-    ids=["npx", "path", "codex-root-options"],
-)
-def test_a_read_launch_that_becomes_a_form_this_audit_does_not_read_is_not_called_gone(before, after):
-    """#823 review: what was established is that no launch this audit reads is declared."""
-
-    row, = _rows(_workflow({"run": before}), _workflow({"run": after}))
-    assert (row.direction, row.expands) == ("changed", False)
-    assert "a step no longer declares an agent launch this audit reads (review/steps[0])" in row.why
-    assert (
-        "a step that no longer declares one may still start an agent in a way this audit does not read, "
-        "such as an action outside its table, `npx`, a script, a path such as `./node_modules/.bin/claude` "
-        "or `codex` options before `exec`, so this row does not say that it no longer starts one"
-    ) in row.why
-    assert "no longer launches an agent" not in row.why
-
-
-def test_a_read_launch_that_moves_into_a_quoted_substitution_is_changed_and_named_unread():
-    row, = _rows(
-        _workflow({"run": "claude -p --allowedTools Read 'Review this change'"}),
-        _workflow({"run": SUBSTITUTED.format(flags="--dangerously-skip-permissions")}),
-    )
-    assert (row.direction, row.expands) == ("changed", False)
-    assert "an agent launch's declared settings changed (review/steps[0])" in row.why
-    assert "a step launches an agent in a form this audit does not read (review/steps[0])" in row.why
-    assert "no longer" not in row.why
+    assert "claude_args: --allowedTools Read,Edit" in row.after
 
 
 def test_an_action_ref_bump_is_a_step_reference_change_only():
@@ -822,7 +836,7 @@ def test_renaming_or_moving_an_agent_step_within_its_job_is_quiet():
     ("before", "after", "rule"),
     [
         (_workflow(_agent()), _workflow(_agent("--dangerously-skip-permissions")), "skips permission checks"),
-        (_workflow({"run": "claude -p 'x'"}), _workflow({"run": "claude -p --permission-mode=bypassPermissions 'x'"}),
+        (_workflow({"run": "claude -p x"}), _workflow({"run": "claude -p --permission-mode=bypassPermissions x"}),
          "skips permission checks"),
         (_workflow(_agent(allowed_non_write_users="octocat")), _workflow(_agent(allowed_non_write_users="octocat, *")),
          "accepts runs triggered by any user (allowed_non_write_users: *)"),
@@ -836,16 +850,14 @@ def test_renaming_or_moving_an_agent_step_within_its_job_is_quiet():
          _workflow({"uses": "openai/codex-action@v1", "with": {"safety-strategy": "unsafe"}}),
          "runs without privilege restrictions"),
         (_workflow({"uses": "openai/codex-action@v1"}),
-         _workflow({"uses": "openai/codex-action@v1", "with": {"codex-args": '["--yolo"]'}}),
+         _workflow({"uses": "openai/codex-action@v1", "with": {"codex-args": "--yolo"}}),
          "bypasses approvals and the sandbox"),
         (_workflow({"uses": "openai/codex-action@v1", "with": {"allow-users": "a"}}),
          _workflow({"uses": "openai/codex-action@v1", "with": {"allow-users": "*"}}),
          "accepts runs triggered by any user (allow-users: *)"),
-        (_workflow({"run": "codex exec 'x'"}), _workflow({"run": "codex exec --sandbox danger-full-access 'x'"}),
+        (_workflow({"run": "codex exec x"}), _workflow({"run": "codex exec --sandbox danger-full-access x"}),
          "runs without a sandbox"),
-        # Literal text an expression cannot reach still meets a rule (#823 review F4).
-        (_workflow(_agent()), _workflow(_agent("--dangerously-skip-permissions ${{ inputs.extra }}")),
-         "skips permission checks"),
+        # A gate entry an expression cannot remove still opens it (#823 review F4).
         (_workflow(_agent()), _workflow(_agent(allowed_non_write_users="${{ vars.USERS }}, *")),
          "accepts runs triggered by any user (allowed_non_write_users: *)"),
         # #823 review C2-F2: the documented bypasses written through inputs the reader lists.
@@ -854,19 +866,13 @@ def test_renaming_or_moving_an_agent_step_within_its_job_is_quiet():
          "skips permission checks (bypassPermissions)"),
         (_workflow(_agent()), _workflow(_agent(settings=json.dumps({"defaultMode": "bypassPermissions"}))),
          "skips permission checks (bypassPermissions)"),
-        (_workflow(_agent()),
-         _workflow(_agent("--settings '{\"permissions\":{\"defaultMode\":\"bypassPermissions\"}}'")),
-         "skips permission checks (bypassPermissions)"),
-        (_workflow({"run": "claude -p 'x'"}),
-         _workflow({"run": "claude -p --settings '{\"permissions\":{\"defaultMode\":\"bypassPermissions\"}}' 'x'"}),
-         "skips permission checks (bypassPermissions)"),
         (_workflow({"uses": "openai/codex-action@v1", "with": {"permission-profile": ":workspace"}}),
          _workflow({"uses": "openai/codex-action@v1", "with": {"permission-profile": ":danger-full-access"}}),
          "runs without a sandbox (danger-full-access)"),
     ],
     ids=["skip-flag", "mode-flag", "gate", "bots", "codex-sandbox", "codex-unsafe", "codex-args", "codex-users",
-         "codex-cli", "words-before-an-expression", "gate-entry-beside-an-expression", "settings-default-mode",
-         "settings-top-level-default-mode", "args-settings", "cli-settings", "codex-permission-profile"],
+         "codex-cli", "gate-entry-beside-an-expression", "settings-default-mode",
+         "settings-top-level-default-mode", "codex-permission-profile"],
 )
 def test_a_documented_rule_gained_is_a_widening(before, after, rule):
     changes = _changes(before, after)
@@ -882,24 +888,21 @@ def test_a_documented_rule_gained_is_a_widening(before, after, rule):
         # one rule, two spellings
         (_workflow(_agent("--dangerously-skip-permissions")), _workflow(_agent("--permission-mode bypassPermissions"))),
         # the same rule moved from the CLI to the action
-        (_workflow({"run": "claude -p --dangerously-skip-permissions 'x'"}),
+        (_workflow({"run": "claude -p --dangerously-skip-permissions x"}),
          _workflow(_agent("--dangerously-skip-permissions"))),
         # narrowed
-        (_workflow(_agent("--dangerously-skip-permissions")), _workflow(_agent('--allowedTools "Read"'))),
+        (_workflow(_agent("--dangerously-skip-permissions")), _workflow(_agent("--allowedTools Read"))),
         (_workflow(_agent(allowed_non_write_users="*")), _workflow(_agent(allowed_non_write_users="octocat"))),
         # text an expression can reach is never read for a rule
         (_workflow(_agent()), _workflow(_agent("${{ inputs.extra }} --dangerously-skip-permissions"))),
-        (_workflow(_agent()), _workflow(_agent("--dangerously-skip-permissions${{ inputs.extra }}"))),
-        # a quote still open at the expression, which its substituted text may close
-        (_workflow(_agent()),
-         _workflow(_agent('--append-system-prompt "never pass --dangerously-skip-permissions ${{ inputs.p }}'))),
+        (_workflow(_agent()), _workflow(_agent("--dangerously-skip-permissions ${{ inputs.extra }}"))),
         (_workflow(_agent()), _workflow(_agent(allowed_non_write_users="*${{ vars.USERS }}"))),
         (_workflow({"uses": "openai/codex-action@v1"}),
          _workflow({"uses": "openai/codex-action@v1", "with": {"sandbox": "${{ vars.SANDBOX }}"}})),
         # widened by a tool rule, which is #824's to rate
-        (_workflow(_agent('--allowedTools "Read"')), _workflow(_agent('--allowedTools "Bash(*)"'))),
-        (_workflow({"run": "claude -p --permission-mode default 'x'"}),
-         _workflow({"run": "claude -p --permission-mode acceptEdits 'x'"})),
+        (_workflow(_agent("--allowedTools Read")), _workflow(_agent("--allowedTools Bash"))),
+        (_workflow({"run": "claude -p --permission-mode default x"}),
+         _workflow({"run": "claude -p --permission-mode acceptEdits x"})),
         # one rule, written as a flag and as the settings it passes
         (_workflow(_agent("--dangerously-skip-permissions")),
          _workflow(_agent(settings=json.dumps({"permissions": {"defaultMode": "bypassPermissions"}})))),
@@ -912,10 +915,9 @@ def test_a_documented_rule_gained_is_a_widening(before, after, rule):
         (_workflow({"uses": "openai/codex-action@v1", "with": {"permission-profile": ":read-only"}}),
          _workflow({"uses": "openai/codex-action@v1", "with": {"permission-profile": ":workspace"}})),
     ],
-    ids=["respelled", "moved-to-action", "narrowed", "gate-closed", "after-an-expression", "touching-an-expression",
-         "quoted-past-an-expression", "gate-entry-holding-an-expression", "mode-expression", "tool-rule",
-         "accept-edits", "flag-to-settings", "settings-expression", "settings-path", "settings-accept-edits",
-         "codex-workspace-profile"],
+    ids=["respelled", "moved-to-action", "narrowed", "gate-closed", "after-an-expression", "before-an-expression",
+         "gate-entry-holding-an-expression", "mode-expression", "tool-rule", "accept-edits", "flag-to-settings",
+         "settings-expression", "settings-path", "settings-accept-edits", "codex-workspace-profile"],
 )
 def test_any_other_edit_is_changed(before, after):
     assert host_grant_expansion_signals(_changes(before, after)) == []
@@ -925,35 +927,32 @@ def test_any_other_edit_is_changed(before, after):
 
 # --- codex exec's full-access sandbox, however the CLI reads it (#823 review cycle 3) ---
 
-CODEX_WORKSPACE = _workflow({"run": "codex exec -s workspace-write 'review'"})
+CODEX_WORKSPACE = _workflow({"run": "codex exec -s workspace-write review"})
 
 
 @pytest.mark.parametrize(
     "run",
     [
-        "codex exec -s danger-full-access 'review'",
-        "codex exec --sandbox=danger-full-access 'review'",
+        "codex exec -s danger-full-access review",
+        "codex exec --sandbox=danger-full-access review",
         # clap reads a short option's attached value, with or without `=`.
-        "codex exec -sdanger-full-access 'review'",
-        "codex exec -s=danger-full-access 'review'",
+        "codex exec -sdanger-full-access review",
+        "codex exec -s=danger-full-access review",
         # `sandbox_mode` is the setting --sandbox sets, in each way -c is written.
-        "codex exec -c sandbox_mode=\"danger-full-access\" 'review'",
-        "codex exec -c 'sandbox_mode=\"danger-full-access\"' 'review'",
-        "codex exec --config=sandbox_mode=danger-full-access 'review'",
-        "codex exec -csandbox_mode=danger-full-access 'review'",
-        "codex exec -c=sandbox_mode=danger-full-access 'review'",
-        "codex exec -c ' sandbox_mode = \"danger-full-access\" ' 'review'",
+        "codex exec -c sandbox_mode=danger-full-access review",
+        "codex exec --config=sandbox_mode=danger-full-access review",
+        "codex exec -csandbox_mode=danger-full-access review",
+        "codex exec -c=sandbox_mode=danger-full-access review",
         # The built-in full-access profile, which is what the action's
         # `permission-profile: :danger-full-access` passes the CLI.
-        "codex exec -c default_permissions=\":danger-full-access\" 'review'",
-        "codex exec --config 'default_permissions=\":danger-full-access\"' 'review'",
+        "codex exec -c default_permissions=:danger-full-access review",
+        "codex exec --config default_permissions=:danger-full-access review",
         # The last override of a key counts; a profile override outranks a sandbox one.
-        "codex exec -c sandbox_mode=read-only -c sandbox_mode=danger-full-access 'review'",
-        "codex exec -c sandbox_mode=read-only -c default_permissions=:danger-full-access 'review'",
+        "codex exec -c sandbox_mode=read-only -c sandbox_mode=danger-full-access review",
+        "codex exec -c sandbox_mode=read-only -c default_permissions=:danger-full-access review",
     ],
-    ids=["short", "long-attached", "short-attached", "short-equals", "config", "config-quoted", "config-attached",
-         "c-attached", "c-equals", "config-spaced", "profile", "profile-quoted", "last-override",
-         "profile-over-sandbox-mode"],
+    ids=["short", "long-attached", "short-attached", "short-equals", "config", "config-attached",
+         "c-attached", "c-equals", "profile", "profile-long", "last-override", "profile-over-sandbox-mode"],
 )
 def test_codex_exec_full_access_widens_in_every_spelling_the_cli_reads(run):
     after = _workflow({"run": run})
@@ -971,15 +970,15 @@ def test_codex_exec_full_access_widens_in_every_spelling_the_cli_reads(run):
     "run",
     [
         # --sandbox takes precedence over a --config override.
-        "codex exec -s workspace-write -c sandbox_mode=danger-full-access 'review'",
-        "codex exec -sworkspace-write -c default_permissions=:danger-full-access 'review'",
+        "codex exec -s workspace-write -c sandbox_mode=danger-full-access review",
+        "codex exec -sworkspace-write -c default_permissions=:danger-full-access review",
         # The last override counts, and a profile override outranks sandbox_mode.
-        "codex exec -c sandbox_mode=danger-full-access -c sandbox_mode=read-only 'review'",
-        "codex exec -c sandbox_mode=danger-full-access -c default_permissions=:workspace 'review'",
+        "codex exec -c sandbox_mode=danger-full-access -c sandbox_mode=read-only review",
+        "codex exec -c sandbox_mode=danger-full-access -c default_permissions=:workspace review",
         # A key under another table, or another value, is not the setting.
-        "codex exec -c profiles.ci.sandbox_mode=danger-full-access 'review'",
-        "codex exec -c default_permissions=danger-full-access 'review'",
-        "codex exec -sread-only 'review'",
+        "codex exec -c profiles.ci.sandbox_mode=danger-full-access review",
+        "codex exec -c default_permissions=danger-full-access review",
+        "codex exec -sread-only review",
     ],
     ids=["sandbox-flag-wins", "attached-sandbox-flag-wins", "last-override", "profile-over-sandbox-mode",
          "profile-scoped-key", "custom-profile-name", "read-only"],
@@ -993,7 +992,7 @@ def test_a_codex_exec_sandbox_the_cli_does_not_select_is_changed(run):
 
 
 def test_attached_short_values_publish_under_the_primary_spelling():
-    launch, = _launches(_workflow({"run": "codex exec -sdanger-full-access -c=model=o3 -pci 'review'"}))
+    launch, = _launches(_workflow({"run": "codex exec -sdanger-full-access -c=model=o3 -pci review"}))
 
     assert launch["settings"] == [
         {"name": "--config", "value": "model=o3", "unresolved_reason": None},
@@ -1003,59 +1002,15 @@ def test_attached_short_values_publish_under_the_primary_spelling():
     assert launch["widening_rules"] == [{"rule": "danger_full_access", "setting": "--sandbox"}]
     # One setting, two spellings: respelling it is quiet.
     assert _rows(
-        _workflow({"run": "codex exec -s danger-full-access 'review'"}),
-        _workflow({"run": "codex exec -sdanger-full-access 'review'"}),
+        _workflow({"run": "codex exec -s danger-full-access review"}),
+        _workflow({"run": "codex exec -sdanger-full-access review"}),
     ) == []
     # One rule, two spellings: moving between the flag and the override is not a widening.
-    before = _workflow({"run": "codex exec -s danger-full-access 'review'"})
-    after = _workflow({"run": "codex exec -c sandbox_mode=danger-full-access 'review'"})
+    before = _workflow({"run": "codex exec -s danger-full-access review"})
+    after = _workflow({"run": "codex exec -c sandbox_mode=danger-full-access review"})
     assert host_grant_expansion_signals(_changes(before, after)) == []
     row, = _rows(before, after)
     assert (row.direction, row.expands) == ("changed", False)
-
-
-@pytest.mark.parametrize(
-    ("codex_args", "direction"),
-    [
-        # The action appends its own --sandbox, or its own default_permissions
-        # override for a permission-profile, after codex-args, and either
-        # takes precedence over a sandbox --config override written before it.
-        ("-c sandbox_mode=danger-full-access", "changed"),
-        ('--config=default_permissions=":danger-full-access"', "changed"),
-        # A --sandbox word is read as the flag it is, attached or not, as before.
-        ("-sdanger-full-access", "widened"),
-    ],
-    ids=["sandbox-mode-override", "profile-override", "attached-short-sandbox"],
-)
-def test_codex_args_sandbox_overrides_are_read_as_the_action_passes_them(codex_args, direction):
-    before = _workflow({"uses": "openai/codex-action@v1", "with": {"codex-args": "--json"}})
-    after = _workflow({"uses": "openai/codex-action@v1", "with": {"codex-args": codex_args}})
-
-    row, = _rows(before, after)
-    assert row.direction == direction
-
-
-def test_a_rule_gained_where_the_job_launched_the_agent_only_unread_before_is_not_claimed():
-    before = _workflow({"run": "npm ci && claude -p --dangerously-skip-permissions 'review'"})
-    after = _workflow({"run": "claude -p --dangerously-skip-permissions 'review'"})
-
-    assert host_grant_expansion_signals(_changes(before, after)) == []
-    row, = _rows(before, after)
-    assert (row.direction, row.expands) == ("changed", False)
-    assert (
-        "an agent launch now skips permission checks (bypassPermissions) (review/steps[0]), which is not "
-        "counted as a widening: before, this job launched the agent in a form this audit does not read"
-    ) in row.why
-
-
-def test_a_rule_gained_by_a_launch_read_on_both_sides_widens_beside_an_unread_one():
-    unread = {"run": "npm ci && claude -p 'x'"}
-    before = _workflow(unread, _agent())
-    after = _workflow(unread, _agent("--dangerously-skip-permissions"))
-
-    assert host_grant_expansion_signals(_changes(before, after)) == [f"workflow_agent_widened_changed: {SOURCE}"]
-    row, = _rows(before, after)
-    assert (row.direction, row.expands) == ("widened", True)
 
 
 def _jobs(**steps):
@@ -1119,14 +1074,14 @@ def test_a_launch_that_left_one_job_for_another_moves_its_rules(before, after):
          _jobs(lint=[_named("--allowedTools Read")], review=[_named(f"{BYPASS} --max-turns 5")])),
         # the job that met it remains, running its launch in a form this audit
         # does not read (#823 review cycle 3), so that launch has not left it
-        (_jobs(lint=[{"name": "agent", "run": f"claude -p {BYPASS} 'Review'"}], review=[_named("--allowedTools Read")]),
-         _jobs(lint=[{"name": "agent", "run": f"npx @anthropic-ai/claude-code -p {BYPASS} 'Review'"}],
+        (_jobs(lint=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}], review=[_named("--allowedTools Read")]),
+         _jobs(lint=[{"name": "agent", "run": f"npx @anthropic-ai/claude-code -p {BYPASS} Review"}],
                review=[_named(BYPASS)])),
         # the same, with the other job's launch edited in place into the one this job had
-        (_jobs(lint=[{"name": "agent", "run": f"claude -p {BYPASS} 'Review'"}],
-               review=[{"name": "agent", "run": "claude -p --allowedTools Read 'Review'"}]),
-         _jobs(lint=[{"name": "agent", "run": f"npx @anthropic-ai/claude-code -p {BYPASS} 'Review'"}],
-               review=[{"name": "agent", "run": f"claude -p {BYPASS} 'Review'"}])),
+        (_jobs(lint=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}],
+               review=[{"name": "agent", "run": "claude -p --allowedTools Read Review"}]),
+         _jobs(lint=[{"name": "agent", "run": f"npx @anthropic-ai/claude-code -p {BYPASS} Review"}],
+               review=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}])),
         # a step moved and edited while the job it left remains
         (_jobs(lint=[_named(BYPASS)], review=[{"run": "make"}]),
          _jobs(lint=[{"run": "make"}], review=[_named(f"{BYPASS} --max-turns 5")])),
@@ -1157,108 +1112,66 @@ def test_a_renamed_job_takes_the_move_whatever_order_the_jobs_are_declared_in(re
     assert "an agent launch now skips permission checks (bypassPermissions) (triage/agent)" in row.why
 
 
-@pytest.mark.parametrize(
-    ("value", "words"),
-    [
-        ("--dangerously-skip-permissions --model ${{ vars.M }}", ("--dangerously-skip-permissions", "--model")),
-        ("--model ${{ vars.M }} --dangerously-skip-permissions", ("--model",)),
-        # the word the expression touches
-        ("--dangerously-skip-permissions${{ vars.X }}", ()),
-        ("--permission-mode=${{ vars.MODE }}", ()),
-        # a quoted run open at the expression, balanced or not in the literal text
-        ('--append-system-prompt "--dangerously-skip-permissions ${{ vars.X }}"', ("--append-system-prompt",)),
-        ('--append-system-prompt "a --dangerously-skip-permissions ${{ vars.X }}', ("--append-system-prompt",)),
-        # a whole line before it, and a comment line the action drops whatever it holds
-        ("--dangerously-skip-permissions\n# model: ${{ vars.M }}", ("--dangerously-skip-permissions",)),
-        ("# don't\n--dangerously-skip-permissions ${{ vars.X }}", ("--dangerously-skip-permissions",)),
-        # an unquoted `#` ends the input, so what follows it reaches nothing
-        ("--dangerously-skip-permissions # ${{ vars.X }}", ("--dangerously-skip-permissions",)),
-    ],
-)
-def test_claude_args_rules_are_read_only_from_words_an_expression_cannot_reach(value, words):
-    """#823 review F4: GitHub substitutes the expression before the action splits the input."""
-
-    assert _literal_argument_words("claude", value) == words
-
-
-@pytest.mark.parametrize(
-    ("value", "words"),
-    [
-        ("--yolo ${{ vars.X }}", ("--yolo",)),
-        ("${{ vars.X }} --yolo", ()),
-        ('--yolo "a ${{ vars.X }}', ("--yolo",)),
-        ('["--yolo", "${{ vars.X }}"]', ("--yolo",)),
-        ('["${{ vars.X }}", "--yolo"]', ()),
-        # outside a JSON string, the substituted text decides whether the array parses
-        ('["--yolo", ${{ vars.X }}]', None),
-    ],
-)
-def test_codex_args_rules_are_read_only_from_words_an_expression_cannot_reach(value, words):
-    assert _literal_argument_words("codex", value) == words
-
-
 def test_a_setting_holding_an_expression_is_marked_and_the_row_says_what_it_leaves_unread():
     """#823 review F4: the row no longer reads as though no documented rule was gained."""
 
-    before = _workflow(_agent("--model ${{ vars.CLAUDE_MODEL }}\n--allowedTools Read"))
-    after = _workflow(_agent("--model ${{ vars.CLAUDE_MODEL }}\n--dangerously-skip-permissions"))
+    before = _workflow(_agent(allowed_non_write_users="${{ vars.USERS }}"))
+    after = _workflow(_agent(allowed_non_write_users="${{ vars.OTHER_USERS }}"))
 
     launch, = _launches(after)
-    setting, = launch["settings"]
-    assert setting["holds_expression"] is True
+    gate = next(item for item in launch["settings"] if item["name"] == "allowed_non_write_users")
+    assert gate["holds_expression"] is True
     assert "widening_rules" not in launch
-    assert host_grant_expansion_signals(_changes(before, after)) == []
     row, = _rows(before, after)
     assert (row.direction, row.expands) == ("changed", False)
     assert (
-        "an agent launch setting holds a `${{ }}` expression (claude_args at review/steps[0]), which GitHub "
-        "substitutes before the action reads it; documented widening rules are read only from the literal "
-        "text the expression cannot reach, so this row does not say whether the text it reaches meets one"
+        "an agent launch setting holds a `${{ }}` expression (allowed_non_write_users at review/steps[0]), "
+        "which GitHub substitutes before the action reads it; documented widening rules are read only from "
+        "the literal text the expression cannot reach, so this row does not say whether the text it reaches "
+        "meets one"
     ) in row.why
-    # A setting without one says nothing of the kind, and the key is omitted.
+    # A setting without one says nothing of the kind, and the key is omitted;
+    # an argument input holding one is not read at all.
     plain, = _launches(_workflow(_agent()))
     assert "holds_expression" not in plain["settings"][0]
+    args, = _launches(_workflow(_agent("--model ${{ vars.M }}")))
+    assert args["settings"] == [
+        {"name": "claude_args", "value": _digest("--model ${{ vars.M }}"), "unresolved_reason": "unread_arguments"},
+    ]
 
 
 @pytest.mark.parametrize(
-    ("before", "after", "rule", "setting"),
+    ("before", "after", "rule", "held"),
     [
         (_workflow(_agent(allowed_non_write_users="${{ vars.EXTRA_USERS }}")),
          _workflow(_agent(allowed_non_write_users="${{ vars.EXTRA_USERS }}, *")),
-         "accepts runs triggered by any user (allowed_non_write_users: *)", "allowed_non_write_users"),
-        (_workflow(_agent("--allowedTools Read --model ${{ vars.CLAUDE_MODEL }}")),
-         _workflow(_agent("--dangerously-skip-permissions --model ${{ vars.CLAUDE_MODEL }}")),
-         "skips permission checks (bypassPermissions)", "claude_args"),
-        (_workflow(_agent("--model ${{ vars.M }} --dangerously-skip-permissions")),
-         _workflow(_agent("--model opus --dangerously-skip-permissions")),
-         "skips permission checks (bypassPermissions)", "claude_args"),
+         "accepts runs triggered by any user (allowed_non_write_users: *)",
+         "allowed_non_write_users held a `${{ }}` expression, whose substituted text this audit does not read"),
         # the settings input is read for the rule only when it holds no expression (#823 review C2-F2)
         (_workflow(_agent(settings='{"permissions":{"defaultMode":"${{ vars.MODE }}"}}')),
          _workflow(_agent(settings='{"permissions":{"defaultMode":"bypassPermissions"}}')),
-         "skips permission checks (bypassPermissions)", "settings"),
+         "skips permission checks (bypassPermissions)",
+         "settings held a `${{ }}` expression, whose substituted text this audit does not read"),
+        # an argument input this audit did not read may have met it (#823 review cycle 4)
+        (_workflow(_agent("--allowedTools Read --model ${{ vars.CLAUDE_MODEL }}")),
+         _workflow(_agent("--dangerously-skip-permissions --model opus")),
+         "skips permission checks (bypassPermissions)",
+         "claude_args was not a plain list of words this audit reads, so no rule was read from it"),
+        (_workflow(_agent('--dangerously-skip-permissions --append-system-prompt "Review"')),
+         _workflow(_agent("--dangerously-skip-permissions")),
+         "skips permission checks (bypassPermissions)",
+         "claude_args was not a plain list of words this audit reads, so no rule was read from it"),
     ],
-    ids=["gate", "claude-args", "expression-replaced", "settings"],
+    ids=["gate", "settings", "claude-args-expression", "claude-args-quoted"],
 )
-def test_a_rule_gained_where_the_setting_held_an_expression_before_is_named_and_not_claimed(
-    before, after, rule, setting
-):
+def test_a_rule_gained_where_the_setting_was_not_read_before_is_named_and_not_claimed(before, after, rule, held):
     assert host_grant_expansion_signals(_changes(before, after)) == []
     row, = _rows(before, after)
     assert (row.direction, row.expands) == ("changed", False)
     assert (
         f"an agent launch now {rule} (review/steps[0]), which is not counted as a widening: before, this "
-        f"job's {setting} held a `${{{{ }}}}` expression, whose substituted text this audit does not read"
+        f"job's {held}, and it may already have done the same"
     ) in row.why
-
-
-def test_replacing_an_expression_beside_a_rule_the_launch_already_met_gains_nothing():
-    before = _workflow(_agent("--dangerously-skip-permissions --model ${{ vars.CLAUDE_MODEL }}"))
-    after = _workflow(_agent("--dangerously-skip-permissions --model opus"))
-
-    assert host_grant_expansion_signals(_changes(before, after)) == []
-    row, = _rows(before, after)
-    assert (row.direction, row.expands) == ("changed", False)
-    assert "an agent launch now" not in row.why
 
 
 def test_a_new_workflow_that_bypasses_permissions_is_an_added_widening():
@@ -1287,10 +1200,11 @@ def test_a_non_agent_actions_inputs_are_not_read():
     assert _rows(before, after) == []
 
 
-def test_a_run_that_mentions_claude_in_an_echo_is_no_row():
-    before = _workflow({"run": "echo done"})
-    after = _workflow({"run": 'echo "claude -p --dangerously-skip-permissions"'})
-    assert _rows(before, after) == []
+def test_a_run_that_does_not_mention_an_agent_cli_is_nothing():
+    for run in ("npm test", "echo claudette", "CLAUDE_MODEL=opus make", "echo my_codex_notes"):
+        grant = _grant(_workflow({"run": run}))
+        assert "agent_launches" not in grant and "unread_agent_runs" not in grant
+        assert uncompared_agent_launch_texts(grant) == []
 
 
 def test_a_pull_request_workflow_with_a_default_checkout_claims_no_pull_request_code():
@@ -1303,18 +1217,10 @@ def test_a_pull_request_workflow_with_a_default_checkout_claims_no_pull_request_
     )
 
 
-@pytest.mark.parametrize(
-    "step",
-    [
-        {"run": "./scripts/claude-review.sh --dangerously-skip-permissions"},
-        {"uses": "./.github/actions/claude-review", "with": {"claude_args": "--dangerously-skip-permissions"}},
-        {"run": "npx @anthropic-ai/claude-code -p --dangerously-skip-permissions 'go'"},
-        {"run": "timeout 600 claude -p --dangerously-skip-permissions 'go'"},
-    ],
-    ids=["script", "composite", "npx", "wrapped"],
-)
-def test_an_unread_surface_is_neither_a_launch_nor_a_row(step):
-    assert _launches(_workflow(step)) == []
+def test_a_composite_action_is_neither_a_launch_nor_a_limit():
+    step = {"uses": "./.github/actions/claude-review", "with": {"claude_args": "--dangerously-skip-permissions"}}
+    grant = _grant(_workflow(step))
+    assert "agent_launches" not in grant and "unread_agent_runs" not in grant
     assert _rows(_workflow({"run": "echo"}), _workflow(step)) == []
 
 
@@ -1366,30 +1272,24 @@ SHAPE_CANARIES = (
 )
 
 
-def _digest(text):
-    """What one withheld string publishes: a digest of what the host readers digest for it."""
-
-    from agents_shipgate.core.host_grants import redacted_config_sha256
-
-    return f"<withheld:{redacted_config_sha256(text)[:12]}>"
-
-
 def test_a_json_value_publishes_its_shape_and_none_of_its_free_text():
     """#823 review C2-F1: every string a host reader does not publish is withheld, and still compared.
 
     The same server in `.mcp.json` publishes `remote (command name npx)`, and
     the same hook in `.claude/settings.json` publishes `Stop`; neither
-    publishes an argument or a command.
+    publishes an argument or a command. The same JSON passed through
+    `claude_args` or a `run:` is not read at all (#823 review cycle 4).
     """
 
+    args = f"--allowedTools Read --mcp-config '{REMOTE_MCP_JSON}'"
     grant = _grant(_workflow(
-        _agent(f"--allowedTools Read --mcp-config '{REMOTE_MCP_JSON}'", settings=HOOK_JSON),
+        _agent(args, settings=HOOK_JSON, mcp_config=REMOTE_MCP_JSON),
         {"run": f"codex exec -c '{REMOTE_CODEX_CONFIG}' 'go'"},
     ))
-    action, cli = grant["agent_launches"]
-    args = ["mcp-remote", "https://mcp.example.com/sse", "--header", "Authorization: Bearer tokCANARY0123456789abcdef"]
+    action, = grant["agent_launches"]
+    server_args = ["mcp-remote", "https://mcp.example.com/sse", "--header", "Authorization: Bearer tokCANARY0123456789abcdef"]
     server = json.dumps(
-        {"mcpServers": {"remote": {"args": [_digest(arg) for arg in args], "command": "npx"}}},
+        {"mcpServers": {"remote": {"args": [_digest(arg) for arg in server_args], "command": "npx"}}},
         separators=(",", ":"),
     )
     hook = (
@@ -1398,21 +1298,25 @@ def test_a_json_value_publishes_its_shape_and_none_of_its_free_text():
         + '","type":"' + _digest("command") + '"}]}]}}'
     )
     assert {item["name"]: item["value"] for item in action["settings"]} == {
-        "claude_args": f"--allowedTools Read --mcp-config '{server}'",
+        "claude_args": _digest(args),
+        "mcp_config": server,
         "settings": hook,
     }
-    codex_args = ["mcp-remote", "https://mcp.example.com/sse", "--header", "Authorization: Bearer tokCANARY-codex-0123456789"]
-    assert cli["settings"] == [{
-        "name": "--config",
-        "value": 'mcp_servers.remote={"args":[' + ",".join(f'"{_digest(arg)}"' for arg in codex_args)
-                 + '],"command":"npx"}',
-        "unresolved_reason": None,
-    }]
+    assert grant["unread_agent_runs"] == [{"job": "review", "step": "steps[1]", "agent": "codex"}]
     text = json.dumps(grant)
     for canary in SHAPE_CANARIES:
         assert canary not in text
-    # Nothing was redacted, so no limit is named: nothing of the text is published to redact.
-    assert uncompared_agent_launch_texts(grant) == []
+    limits = uncompared_agent_launch_texts(grant)
+    assert [limit.split(";")[0] for limit in limits] == [
+        "the claude_args value of the agent launch at review/steps[0] (anthropics/claude-code-action) is not a "
+        "plain list of words this audit reads: it holds a quote, a `${{ }}` expression, `$`, a backtick, a "
+        "comment, a shell operator, JSON, `--settings` or `--mcp-config`, or another character outside the "
+        "plain set",
+        "the `run:` at review/steps[1] mentions codex and is not read as an agent launch: only a "
+        "single-line command of plain words run by bash or sh, whose program is `claude -p` or `codex exec`, "
+        "is read, so this step may start an agent that is neither published nor compared, and adding, "
+        "removing or editing it gives no row",
+    ]
 
     # A withheld string is still compared: a new argument or command is a row.
     edited = HOOK_JSON.replace("curl -H", "wget --header")
@@ -1453,53 +1357,62 @@ def test_a_json_value_publishes_only_what_the_host_readers_publish():
         _agent(f"--mcp-config '{MCP_JSON}' --allowedTools Read", settings=SETTINGS_JSON, mcp_config=MCP_JSON),
         {"run": f"claude -p --mcp-config '{MCP_JSON}' --settings '{SETTINGS_JSON}' 'go'"},
     ))
-    action, cli = grant["agent_launches"]
+    action, = grant["agent_launches"]
 
     assert {item["name"]: item["value"] for item in action["settings"]} == {
-        "claude_args": f"--mcp-config '{MCP_PUBLISHED}' --allowedTools Read",
+        "claude_args": _digest(f"--mcp-config '{MCP_JSON}' --allowedTools Read"),
         "mcp_config": MCP_PUBLISHED,
         "settings": SETTINGS_PUBLISHED,
     }
-    assert {item["name"]: item["value"] for item in cli["settings"]} == {
-        "--mcp-config": f"'{MCP_PUBLISHED}'",
-        "--settings": SETTINGS_PUBLISHED,
-    }
+    assert grant["unread_agent_runs"] == [{"job": "review", "step": "steps[1]", "agent": "claude"}]
     text = json.dumps(grant)
     for canary in JSON_CANARIES:
         assert canary not in text
         assert hashlib.sha256(canary.encode()).hexdigest() not in text
-    assert uncompared_agent_launch_texts(grant) == [] and _uncompared_workflow_text(grant) is None
+    assert _uncompared_workflow_text(grant) is None
 
 
-def test_a_value_attached_to_its_flag_is_withheld_as_a_separate_word_is():
-    """#823 review F1: `--settings=…`, `--mcp-config=…` and codex's `-c<value>` published verbatim."""
+@pytest.mark.parametrize(
+    "value",
+    [
+        f"--allowedTools Read --settings='{SETTINGS_JSON}'",
+        f"--allowedTools Read --mcp-config='{MCP_JSON}'",
+        "--allowedTools Read --settings=./ci/settings.json",
+        "--allowedTools Read --mcp-config .mcp.json",
+    ],
+    ids=["settings-attached-json", "mcp-config-attached-json", "settings-path", "mcp-config-path"],
+)
+def test_a_settings_or_mcp_config_flag_leaves_claude_args_unread(value):
+    """#823 review cycle 4 scope: such a value is never published, however it is attached."""
+
+    launch, = _launches(_workflow(_agent(value)))
+    assert launch["settings"] == [{"name": "claude_args", "value": _digest(value), "unresolved_reason": "unread_arguments"}]
+    for canary in JSON_CANARIES:
+        assert canary not in json.dumps(launch)
+
+
+def test_the_word_after_a_secret_named_argument_is_withheld():
+    """As the host readers withhold it among an MCP server's arguments."""
 
     grant = _grant(_workflow(
-        _agent(f"--allowedTools Read --settings='{SETTINGS_JSON}' --mcp-config='{MCP_JSON}'"),
-        {"uses": "openai/codex-action@v1", "with": {
-            "codex-args": '-cmcp_servers.db.env.REGION="canary-short" -c=mcp_servers.x.env.T=canary-eq --json',
-        }},
+        _agent("--allowedTools Read --token canary-arg-1 --max-turns 5"),
+        {"run": "claude -p --allowedTools Read password canary-arg-2 go"},
     ))
-    claude, codex = grant["agent_launches"]
-
-    assert claude["settings"] == [{
-        "name": "claude_args",
-        "value": f"--allowedTools Read '--settings={SETTINGS_PUBLISHED}' '--mcp-config={MCP_PUBLISHED}'",
-        "unresolved_reason": None,
+    action, run = grant["agent_launches"]
+    assert action["settings"] == [{
+        "name": "claude_args", "value": "--allowedTools Read --token <redacted> --max-turns 5",
+        "unresolved_reason": "redacted",
     }]
-    assert codex["settings"] == [{
-        "name": "codex-args",
-        "value": "'-cmcp_servers.db.env.REGION=<redacted>' '-c=mcp_servers.x.env.T=<redacted>' --json",
-        "unresolved_reason": None,
-    }]
-    text = json.dumps(grant)
-    for canary in (*JSON_CANARIES, "canary-short", "canary-eq"):
-        assert canary not in text
-    # Each spelling compares as the host readers compare it: rotating an env value is quiet.
-    rotated = SETTINGS_JSON.replace("hunter2-canary", "rotated")
-    assert _rows(
-        _workflow(_agent(f"--settings='{SETTINGS_JSON}'")), _workflow(_agent(f"--settings='{rotated}'"))
-    ) == []
+    assert run["settings"] == [
+        {"name": "--allowedTools", "value": "Read password <redacted> go", "unresolved_reason": "redacted"},
+    ]
+    assert "canary-arg" not in json.dumps(grant)
+    # An edit inside what is redacted is not reported, so it is named as a limit.
+    assert [limit.split(";")[0] for limit in uncompared_agent_launch_texts(grant)] == [
+        "the claude_args value of the agent launch at review/steps[0] (anthropics/claude-code-action) contains "
+        "credential-shaped text",
+        "the --allowedTools value of the agent launch at review/steps[1] (claude) contains credential-shaped text",
+    ]
 
 
 def test_a_withheld_json_value_compares_as_the_host_readers_compare_it():
@@ -1513,12 +1426,14 @@ def test_a_withheld_json_value_compares_as_the_host_readers_compare_it():
     assert "three" not in row.after
 
 
-def test_a_codex_config_override_withholds_env_header_and_secret_values():
+def test_a_codex_config_override_publishes_its_key_and_withholds_its_value():
+    """#823 review cycle 4: only a rule-bearing key's value, the approval policy and the model are published."""
+
     run = (
-        "codex exec -c 'mcp_servers.db.env.TOKEN=\"canary-cfg\"' "
-        "-c 'mcp_servers.gh={command=\"gh\", env={GH_TOKEN=\"canary-inline\"}}' -c model=o3 'go'"
+        "codex exec -c mcp_servers.db.env.TOKEN=canary-cfg -c mcp_servers.gh.command=/opt/canary-bin/gh "
+        "-c shell_environment_policy.set.LEVEL=canary-env -c model=o3 go"
     )
-    action_args = '["-c", "mcp_servers.db.env.TOKEN=\\"canary-array\\"", "--yolo"]'
+    action_args = "-cmcp_servers.db.env.REGION=canary-short -c=mcp_servers.x.url=https://canary.example/p --yolo"
     grant = _grant(_workflow(
         {"run": run}, {"uses": "openai/codex-action@v1", "with": {"codex-args": action_args}},
     ))
@@ -1526,77 +1441,55 @@ def test_a_codex_config_override_withholds_env_header_and_secret_values():
 
     assert cli["settings"] == [
         {"name": "--config", "value": "mcp_servers.db.env.TOKEN=<redacted>", "unresolved_reason": None},
-        {"name": "--config", "value": 'mcp_servers.gh={"command":"gh","env":{"GH_TOKEN":"<redacted>"}}',
+        {"name": "--config", "value": f"mcp_servers.gh.command={_digest('/opt/canary-bin/gh')}",
          "unresolved_reason": None},
         {"name": "--config", "value": "model=o3", "unresolved_reason": None},
+        {"name": "--config", "value": f"shell_environment_policy.set.LEVEL={_digest('canary-env')}",
+         "unresolved_reason": None},
     ]
     assert action["settings"] == [{
-        "name": "codex-args", "value": '["-c","mcp_servers.db.env.TOKEN=<redacted>","--yolo"]',
+        "name": "codex-args",
+        "value": (
+            "-cmcp_servers.db.env.REGION=<redacted> "
+            f"-c=mcp_servers.x.url={_digest('https://canary.example/p')} --yolo"
+        ),
         "unresolved_reason": None,
     }]
     assert action["widening_rules"] == [{"rule": "bypass_approvals_and_sandbox", "setting": "codex-args"}]
     assert "canary" not in json.dumps(grant)
-
-
-def test_a_codex_config_table_that_does_not_parse_is_withheld_and_named():
-    """#823 review (P3): string-argv keeps the quotes of `--config='k={…}'`, so it does not parse as TOML."""
-
-    codex_args = "--config='mcp_servers.db={command=\"x\", env={T=\"canary-quoted\"}}' --json"
-    grant = _grant(_workflow({"uses": "openai/codex-action@v1", "with": {"codex-args": codex_args}}))
-    launch, = grant["agent_launches"]
-
-    assert launch["settings"] == [{"name": "codex-args", "value": None, "unresolved_reason": "unparsed_json"}]
-    assert "canary-quoted" not in json.dumps(grant)
-    limit, = uncompared_agent_launch_texts(grant)
-    assert "a codex `--config` table or array, and does not parse" in limit
+    # Rotating a redacted value is quiet; editing a withheld one is a change.
+    assert _rows(_workflow({"run": run}), _workflow({"run": run.replace("canary-cfg", "rotated")})) == []
+    row, = _rows(_workflow({"run": run}), _workflow({"run": run.replace("canary-env", "edited")}))
+    assert row.direction == "changed"
 
 
 def test_text_that_starts_like_json_and_does_not_parse_is_withheld_and_named():
-    # shell-quote strips the double quotes of an unquoted JSON word, so the
-    # action reads it as a path; its values cannot be told from its keys.
-    value = '--mcp-config {"mcpServers":{"db":{"env":{"T":"canary-unquoted"}}}} --dangerously-skip-permissions'
-    grant = _grant(_workflow(_agent(value)))
+    value = '{"env": {"T": "canary-unparsed"}'
+    grant = _grant(_workflow(_agent(settings=value)))
     launch, = grant["agent_launches"]
 
-    assert launch["settings"] == [{"name": "claude_args", "value": None, "unresolved_reason": "unparsed_json"}]
-    # The rule is read from the declared text, so withholding it hides no rule.
-    assert launch["widening_rules"] == [{"rule": "bypass_permissions", "setting": "claude_args"}]
-    assert "canary-unquoted" not in json.dumps(grant)
+    setting = next(item for item in launch["settings"] if item["name"] == "settings")
+    assert setting == {"name": "settings", "value": None, "unresolved_reason": "unparsed_json"}
+    assert "canary-unparsed" not in json.dumps(grant)
     limit, = uncompared_agent_launch_texts(grant)
-    assert limit.startswith("the claude_args value of the agent launch at review/steps[0] (anthropics/claude-code-action)")
-    assert "starts like JSON, or a codex `--config` table or array, and does not parse" in limit
+    assert limit.startswith("the settings value of the agent launch at review/steps[0] (anthropics/claude-code-action)")
+    assert "holds text that starts like JSON and does not parse" in limit
     assert _uncompared_workflow_text(grant) is None
 
 
 def test_a_url_path_is_withheld_while_the_rest_of_the_setting_and_a_rule_beside_it_are_read():
-    before = _workflow(_agent("--append-system-prompt 'Follow https://example.com/style-guide' --allowedTools Read"))
-    after = _workflow(_agent(
-        "--append-system-prompt 'Follow https://example.com/style-guide' --dangerously-skip-permissions"
-    ))
+    before = _workflow(_agent("--append-system-prompt Follow https://example.com/style-guide --allowedTools Read"))
+    after = _workflow(_agent("--append-system-prompt Follow https://example.com/style-guide --dangerously-skip-permissions"))
 
     row, = _rows(before, after)
     assert (row.direction, row.expands) == ("widened", True)
     assert (
-        "claude_args: --append-system-prompt 'Follow https://example.com/<redacted-path>' "
+        "claude_args: --append-system-prompt Follow https://example.com/<redacted-path> "
         "--dangerously-skip-permissions"
     ) in row.after
     assert "style-guide" not in row.before + row.after
     assert uncompared_agent_launch_texts(_grant(after)) == []
     assert _uncompared_workflow_text(_grant(after)) is None
-
-
-def test_a_quoted_url_in_a_json_array_codex_args_element_keeps_the_array_valid():
-    """#823 review cycle 3: withholding the URL keeps the element's escaped closing quote."""
-
-    codex_args = json.dumps(["-c", 'mcp_servers.x.url="https://h2.example.com/p?token=canary-q"', "--json"])
-    launch, = _launches(_workflow({"uses": "openai/codex-action@v1", "with": {"codex-args": codex_args}}))
-    setting, = launch["settings"]
-
-    assert json.loads(setting["value"]) == [
-        "-c", 'mcp_servers.x.url="https://h2.example.com/<redacted-path>"', "--json",
-    ]
-    assert setting["unresolved_reason"] is None
-    assert "canary-q" not in json.dumps(launch)
 
 
 def test_a_marketplace_url_compares_by_scheme_and_host_as_an_mcp_server_url_does():
@@ -1622,23 +1515,23 @@ def test_credential_shaped_text_in_a_setting_is_published_redacted_and_named_whi
     """
 
     grant = _grant(_workflow(
-        _agent("--append-system-prompt 'use token=ARGCANARY' --dangerously-skip-permissions",
+        _agent("--append-system-prompt use token=ARGCANARY --dangerously-skip-permissions",
                plugin_marketplaces="https://robot:PWCANARY@github.com/org/repo.git"),
         {"uses": "actions/checkout@v4", "with": {"ref": "token=REFCANARY"}},
-        {"run": "claude -p --settings ghp_" + "A" * 36 + " 'review token=SECRETCANARY'"},
+        {"run": "claude -p --permission-prompt-tool ghp_" + "A" * 36 + " review token=SECRETCANARY"},
     ))
     action, cli = grant["agent_launches"]
 
     assert action["settings"] == [
         {"name": "claude_args",
-         "value": "--append-system-prompt 'use token=<redacted>' --dangerously-skip-permissions",
+         "value": "--append-system-prompt use token=<redacted> --dangerously-skip-permissions",
          "unresolved_reason": "redacted"},
         {"name": "plugin_marketplaces", "value": "https://github.com/<redacted-path>", "unresolved_reason": "redacted"},
     ]
     # The rule is read from the declared text, so redaction does not hide it.
     assert action["widening_rules"] == [{"rule": "bypass_permissions", "setting": "claude_args"}]
     assert cli["settings"] == [
-        {"name": "--settings", "value": "[REDACTED:github_token]", "unresolved_reason": "redacted"},
+        {"name": "--permission-prompt-tool", "value": "[REDACTED:github_token]", "unresolved_reason": "redacted"},
     ]
     assert grant["checkout_refs"] == [
         {"job": "review", "step": "steps[1]", "ref": "token=<redacted>", "unresolved_reason": "redacted"},
@@ -1653,7 +1546,7 @@ def test_credential_shaped_text_in_a_setting_is_published_redacted_and_named_whi
         for name, where in (
             ("claude_args", "review/steps[0] (anthropics/claude-code-action)"),
             ("plugin_marketplaces", "review/steps[0] (anthropics/claude-code-action)"),
-            ("--settings", "review/steps[2] (claude)"),
+            ("--permission-prompt-tool", "review/steps[2] (claude)"),
         )
     ]
     assert _uncompared_workflow_text(grant) == (
@@ -1664,18 +1557,16 @@ def test_credential_shaped_text_in_a_setting_is_published_redacted_and_named_whi
 #: Prose the #802 label redaction rewrites, as security-review prompts write it:
 #: ``claude_args``, and a ``run:`` whose prompt is a variadic flag's value.
 PROSE = [
-    ('--append-system-prompt "Never print bearer tokens in review comments" --allowedTools Read',
-     "claude -p --allowedTools Read 'Never print bearer tokens in review comments'"),
-    ('--append-system-prompt "Flag Authorization: headers logged in plain text" --allowedTools Read',
-     "claude -p --allowedTools Read 'Flag Authorization: headers logged in plain text'"),
-    ('--allowedTools "Bash(curl -H Authorization:*)"',
-     "claude -p --allowedTools 'Bash(curl -H Authorization:*)' -- 'go'"),
-    ('--append-system-prompt "check the secret=... assignment" --allowedTools Read',
-     "claude -p --allowedTools Read 'check the secret=... assignment'"),
+    ("--append-system-prompt Never print bearer tokens in review comments --allowedTools Read",
+     "claude -p --allowedTools Read Never print bearer tokens in review comments"),
+    ("--append-system-prompt Flag Authorization: headers logged in plain text --allowedTools Read",
+     "claude -p --allowedTools Read Flag Authorization: headers logged in plain text"),
+    ("--append-system-prompt check the secret=... assignment --allowedTools Read",
+     "claude -p --allowedTools Read check the secret=... assignment"),
 ]
 
 
-@pytest.mark.parametrize(("prose", "run"), PROSE, ids=["bearer", "authorization", "tool-rule", "assignment"])
+@pytest.mark.parametrize(("prose", "run"), PROSE, ids=["bearer", "authorization", "assignment"])
 def test_prose_the_label_redaction_rewrites_is_a_named_limit_that_refuses_nothing(prose, run):
     """#823 review F2: such prose used to make the whole workflow a blocking limit."""
 
@@ -1716,13 +1607,16 @@ def test_token_shaped_job_and_step_labels_are_redacted_in_every_entry():
     job = "ghp_" + "B" * 36
     grant = _grant(_workflow(jobs={job: {"steps": [
         {"name": "Pull docker://ci:hunter2@gcr.io/x", "uses": "actions/checkout@v4"},
-        {"name": "Run ghp_" + "C" * 36, "run": "claude -p 'go'"},
+        {"name": "Run ghp_" + "C" * 36, "run": "claude -p go"},
+        {"name": "Unread ghp_" + "E" * 36, "run": "npm ci && claude -p go"},
     ]}}))
 
-    text = json.dumps({key: grant[key] for key in ("agent_launches", "checkout_refs")})
+    text = json.dumps({key: grant[key] for key in ("agent_launches", "checkout_refs", "unread_agent_runs")})
     assert "ghp_" not in text and "hunter2" not in text
     assert grant["checkout_refs"][0]["step"] == "Pull docker://<redacted>@gcr.io/x"
     assert grant["agent_launches"][0]["job"] == "[REDACTED:github_token]"
+    assert grant["unread_agent_runs"][0]["job"] == "[REDACTED:github_token]"
+    assert "ghp_" not in " ".join(uncompared_agent_launch_texts(grant))
 
 
 # --- saved baselines ---------------------------------------------------------------
@@ -1766,6 +1660,7 @@ def _v06_baseline(workspace: Path):
     legacy["host_grants_schema_version"] = "0.6"
     for grant in legacy["inventory"]["grants"]:
         grant.pop("agent_launches", None)
+        grant.pop("unread_agent_runs", None)
         grant.pop("checkout_refs", None)
     legacy["inventory_sha256"] = host_grants_sha256(legacy["inventory"])
     return current, legacy
@@ -1862,6 +1757,8 @@ def test_a_current_baseline_compares_agent_launches_and_validates_against_the_sc
     inventory = host_audit_inventory(tmp_path)
     baseline = build_host_grants_baseline(inventory)
     assert baseline["host_grants_schema_version"] == "0.7"
+    workflow, = [grant for grant in baseline["inventory"]["grants"] if grant["kind"] == "workflow"]
+    assert workflow["unread_agent_runs"] == [{"job": "review", "step": "steps[2]", "agent": "claude"}]
     for name, payload in (("inventory", inventory), ("baseline", baseline)):
         schema = json.loads((ROOT / f"docs/host-grants-{name}-schema.v0.7.json").read_text())
         Draft202012Validator(schema).validate(payload)
@@ -1874,7 +1771,7 @@ def test_a_current_baseline_compares_agent_launches_and_validates_against_the_sc
     Draft202012Validator(schema).validate(drift)
 
 
-def test_an_unresolved_launch_is_a_non_blocking_limit_that_leaves_coverage_complete(tmp_path):
+def test_an_unread_run_is_a_non_blocking_limit_that_leaves_coverage_complete(tmp_path):
     from agents_shipgate.cli.host_audit import host_audit_inventory
 
     _write(tmp_path, {SOURCE: _yaml(_workflow({"run": "npm ci && claude -p 'go'"}))})
@@ -1884,35 +1781,37 @@ def test_an_unresolved_launch_is_a_non_blocking_limit_that_leaves_coverage_compl
     assert github["status"] == "complete"
     issue, = [item for item in inventory["issues"] if item["host"] == "github"]
     assert (issue["kind"], issue["blocking"]) == ("unsupported", False)
-    assert "review/steps[0] (claude)" in issue["message"]
+    assert issue["message"].startswith(
+        "the `run:` at review/steps[0] mentions claude and is not read as an agent launch"
+    )
 
 
-def test_the_quoted_substitution_of_the_review_is_a_row_in_diff_and_a_coverage_issue(tmp_path):
-    """#823 review: `--body "$(claude -p …)"` gave no row, no launch and no coverage issue."""
+@pytest.mark.parametrize("run", UNREAD_RUNS[:8], ids=[f"review-cycle-4-{index}" for index in range(8)])
+def test_the_run_forms_of_review_cycle_4_give_no_row_and_are_a_named_coverage_issue(tmp_path, run):
+    """#823 review cycle 4 (a) end to end: named in `audit --host`, never a row, none of the text published."""
 
     from agents_shipgate.cli.host_audit import host_audit_inventory
 
-    repo = _repo(tmp_path, {SOURCE: _yaml(_reproduction())})
+    permissions = {"contents": "write", "pull-requests": "write"}
+    base = _workflow({"uses": "actions/checkout@v4"}, trigger="issue_comment", permissions=permissions)
+    head = _workflow({"uses": "actions/checkout@v4"}, {"run": run}, trigger="issue_comment", permissions=permissions)
+    repo = _repo(tmp_path, {SOURCE: _yaml(base)})
     _git(repo, "checkout", "-qb", "change")
-    _write(repo, {SOURCE: _yaml(_reproduction(run=SUBSTITUTED.format(flags="--dangerously-skip-permissions")))})
-    _git(repo, "commit", "-qam", "comment with a review")
+    _write(repo, {SOURCE: _yaml(head)})
+    _git(repo, "commit", "-qam", "an agent step")
 
-    row, = _diff(repo)["rows"]
-    assert (row["direction"], row["expands"]) == ("changed", False)
-    assert "a step launches an agent in a form this audit does not read (review/steps[2])" in row["why"]
-    text = CliRunner().invoke(app, ["diff", "--workspace", str(repo), "--base", "main"])
-    assert text.exit_code == 0, text.output
-    assert "No static host-grant changes detected" not in text.output
-    assert "review/steps[2]" in text.output and "dangerously" not in text.output
-
+    assert _diff(repo)["rows"] == []
     inventory = host_audit_inventory(repo)
     workflow, = [grant for grant in inventory["grants"] if grant.get("kind") == "workflow"]
-    assert [(item["step"], item["form"], item["unresolved_reason"]) for item in workflow["agent_launches"]] == [
-        ("steps[1]", "read", None), ("steps[2]", "unresolved", "shell_expansion"),
-    ]
-    issue, = [item for item in inventory["issues"] if item["host"] == "github"]
-    assert (issue["kind"], issue["blocking"]) == ("unsupported", False)
-    assert "review/steps[2] (claude)" in issue["message"]
+    assert "agent_launches" not in workflow
+    issues = [item for item in inventory["issues"] if item["host"] == "github"]
+    assert issues and all(not item["blocking"] for item in issues)
+    assert all("review/steps[1] mentions" in item["message"] for item in issues)
+    audit = CliRunner().invoke(app, ["audit", "--host", "--workspace", str(repo)])
+    assert "review/steps[1] mentions" in audit.output
+    joined = json.dumps(inventory) + audit.output
+    for text in ("dangerously", "yolo", "Review this PR", "review this change"):
+        assert text not in joined
 
 
 # --- the same row on every route ---------------------------------------------------
@@ -1922,7 +1821,7 @@ def test_the_quoted_substitution_of_the_review_is_a_row_in_diff_and_a_coverage_i
 def pr(tmp_path):
     repo = _repo(tmp_path, {SOURCE: _yaml(_reproduction())})
     _git(repo, "checkout", "-qb", "change")
-    _write(repo, {SOURCE: _yaml(_reproduction(claude_args='--permission-mode bypassPermissions --allowedTools "Bash(*)"'))})
+    _write(repo, {SOURCE: _yaml(_reproduction(claude_args="--permission-mode bypassPermissions --allowedTools Bash"))})
     _git(repo, "add", ".")
     _git(repo, "commit", "-qm", "bypass permissions")
     return repo
@@ -1930,7 +1829,7 @@ def pr(tmp_path):
 
 def _assert_the_row(row: dict) -> None:
     assert row["subject"] == f"github {SOURCE}"
-    assert 'review/steps[1]: runs anthropics/claude-code-action with claude_args: --allowedTools "Read"' in row["before"]
+    assert "review/steps[1]: runs anthropics/claude-code-action with claude_args: --allowedTools Read" in row["before"]
     assert "--permission-mode bypassPermissions" in row["after"]
     assert (row["direction"], row["expands"]) == ("widened", True)
     assert "skips permission checks" in row["why"]
@@ -2024,7 +1923,7 @@ def _assert_absent(joined: str, canaries) -> None:
 
 
 def test_no_canary_reaches_any_published_output(tmp_path):
-    """The #802 sweep for agent launches, JSON-shaped canaries included (#823 review F3)."""
+    """The #802 sweep for agent launches, JSON-shaped canaries included (#823 review F3, cycle 4)."""
 
     canary = "sk-ant-api03-" + "Z" * 40
     job = "ghp_" + "D" * 36
@@ -2033,8 +1932,8 @@ def test_no_canary_reaches_any_published_output(tmp_path):
         "headers": {"X-API-Key": "canary-hdr-456", "Authorization": f"Bearer {canary}"},
     }}})
     codex_args = (
-        "-c 'mcp_servers.db.env.TOKEN=\"canary-cfg-789\"' -cmcp_servers.db.env.REGION=canary-short-c "
-        "-c=mcp_servers.db.env.ZONE=canary-eq-c --full-auto"
+        "-c mcp_servers.db.env.TOKEN=canary-cfg-789 -cmcp_servers.db.env.REGION=canary-short-c "
+        "-c=mcp_servers.db.env.ZONE=canary-eq-c -c mcp_servers.db.command=/opt/canary-cmd-c --full-auto"
     )
     # The `=` spellings of #823 review F1, beside the separate-word ones.
     equals = json.dumps({"env": {"DB_PASSWORD": "hunter2-eqcanary"}, "apiKeyHelper": "echo helper-eqcanary"})
@@ -2045,16 +1944,21 @@ def test_no_canary_reaches_any_published_output(tmp_path):
     head = _workflow(jobs={job: {"steps": [
         {"name": "Pull docker://ci:" + "p4ssCANARY" + "@gcr.io/x", "uses": "actions/checkout@v4"},
         _agent(
-            f"--mcp-config '{mcp}' --dangerously-skip-permissions",
+            "--allowedTools Read --dangerously-skip-permissions",
             settings=SETTINGS_JSON, mcp_config=mcp,
             plugin_marketplaces="https://github.com/canary-org/canary-repo.git",
         ),
+        # #823 review cycle 4: `claude_args` or a `run:` holding JSON, `--settings`
+        # or `--mcp-config` is not read, and publishes only a digest or nothing.
+        _agent(f"--mcp-config '{mcp}' --dangerously-skip-permissions"),
         _agent(f"--allowedTools Read --settings='{equals}' --mcp-config='{equals_mcp}'"),
         {"run": f"ANTHROPIC_API_KEY={canary} claude -p --allowedTools Read --mcp-config '{mcp}' 'go'"},
+        {"run": f"ANTHROPIC_API_KEY={canary} claude -p --allowedTools Read go"},
         {"uses": "openai/codex-action@v1", "with": {"codex-args": codex_args}},
         # #823 review C2-F1: an MCP server's arguments and a hook's command,
         # which the host readers never publish, in every spelling.
-        _agent(f"--allowedTools Read\n--mcp-config '{REMOTE_MCP_JSON}'", settings=HOOK_JSON),
+        _agent("--allowedTools Read", mcp_config=REMOTE_MCP_JSON, settings=HOOK_JSON),
+        _agent(f"--allowedTools Read\n--mcp-config '{REMOTE_MCP_JSON}'"),
         {"run": f"claude -p --settings '{HOOK_JSON}' --mcp-config '{REMOTE_MCP_JSON}' 'go'"},
         {"run": f"codex exec -c '{REMOTE_CODEX_CONFIG}' 'go'"},
     ]}})
@@ -2074,11 +1978,12 @@ def test_no_canary_reaches_any_published_output(tmp_path):
     _assert_absent(joined, (
         canary, "p4ssCANARY", job, "canary-org", "canary-repo", "canary-cfg-789", *JSON_CANARIES,
         "hunter2-eqcanary", "helper-eqcanary", "tok-eqcanary", "hdr-eqcanary", "canary-short-c", "canary-eq-c",
-        *SHAPE_CANARIES,
+        "canary-cmd-c", *SHAPE_CANARIES,
     ))
     assert "runs claude -p with --allowedTools Read" in joined
     assert "mcp_servers.db.env.TOKEN=<redacted>" in joined
     assert '"command":"npx"' in joined and '"Stop":[{"hooks":[{"command":"<withheld:' in joined
+    assert "not read; digest <withheld:" in joined
 
 
 def test_a_credential_shaped_ref_refuses_a_changed_workflow_and_publishes_no_canary(tmp_path):
@@ -2101,7 +2006,7 @@ def test_a_credential_shaped_ref_refuses_a_changed_workflow_and_publishes_no_can
 
 def test_a_credential_shaped_setting_compares_on_every_route_and_publishes_no_canary(tmp_path):
     base = _workflow(_agent())
-    head = _workflow(_agent("--append-system-prompt 'use token=ARGCANARY' --dangerously-skip-permissions"))
+    head = _workflow(_agent("--append-system-prompt use token=ARGCANARY --dangerously-skip-permissions"))
     repo = _repo(tmp_path, {SOURCE: _yaml(base)})
     _git(repo, "checkout", "-qb", "change")
     _write(repo, {SOURCE: _yaml(head)})
@@ -2111,7 +2016,7 @@ def test_a_credential_shaped_setting_compares_on_every_route_and_publishes_no_ca
     assert payload["comparison_status"] == "comparable"
     row, = payload["rows"]
     assert (row["direction"], row["expands"]) == ("widened", True)
-    assert "--append-system-prompt 'use token=<redacted>' --dangerously-skip-permissions" in row["after"]
+    assert "--append-system-prompt use token=<redacted> --dangerously-skip-permissions" in row["after"]
     audit = json.loads(CliRunner().invoke(app, ["audit", "--host", "--workspace", str(repo), "--json"]).stdout)
     issue, = [item for item in audit["issues"] if item["host"] == "github"]
     assert (issue["kind"], issue["blocking"]) == ("unsupported", False)

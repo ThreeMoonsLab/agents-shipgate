@@ -1284,7 +1284,7 @@
     },
     "HostWorkflowAgentLaunchV7": {
       "additionalProperties": false,
-      "description": "A step that launches a known coding agent, read as text and never run (#823).\n\n``agent`` is a documented action reference's ``owner/repo`` (the step's\n``uses:`` at any ref; the Claude base action also as the ``base-action``\ndirectory of ``anthropics/claude-code-action``) or a known agent CLI a\nliteral ``run:`` starts with: ``claude`` with ``-p``/``--print``, or\n``codex exec``. ``form: read`` lists the documented permission inputs or\nflags the step declares in ``settings``, and the documented widening\nrules they meet in ``widening_rules``, omitted when none.\n``form: unresolved`` names why the step's settings were not\nread \u2014 a ``run:`` holding more than one command, a shell reserved word or\nquoting that does not balance, a shell expansion (an agent CLI inside a\ncommand substitution included), a ``${{ }}`` expression, or ``with:``\nthat is not a mapping \u2014 with no\nsettings, and records a non-blocking coverage issue. ``job_secrets`` names\nthe secrets the step's job references (``${{ secrets.NAME }}``) and the\nworkflow-level ``env`` passes: context for the row that names this step,\nnever compared. ``job`` and ``step`` are published labels (#802).",
+      "description": "A step that launches a known coding agent, read as text and never run (#823).\n\n``agent`` is a documented action reference's ``owner/repo`` (the step's\n``uses:`` at any ref; the Claude base action also as the ``base-action``\ndirectory of ``anthropics/claude-code-action``), or a known agent CLI a\n``run:`` launches when the whole ``run:`` is one line of plain words\n(letters, digits and ``_ . / : = , % + -``, separated by spaces or tabs),\nrun by ``bash``, ``sh`` or the runner's default shell, whose program,\nafter any ``NAME=value`` assignments, has the file name ``claude`` and\npasses ``-p``/``--print``, or ``codex`` followed by ``exec`` (``e``).\n``form: read`` lists the documented permission inputs or flags the step\ndeclares in ``settings``, and the documented widening rules they meet in\n``widening_rules``, omitted when none. ``form: unresolved`` is an agent\naction whose ``with:`` is not a mapping (``inputs_not_a_mapping``), with\nno settings, and records a non-blocking coverage issue. Any other\n``run:`` that mentions an agent CLI is not a launch: it is listed in\n``unread_agent_runs``. ``job_secrets`` names the secrets the step's job\nreferences (``${{ secrets.NAME }}``) and the workflow-level ``env``\npasses: context for the row that names this step, never compared.\n``job`` and ``step`` are published labels (#802).",
       "properties": {
         "agent": {
           "enum": [
@@ -1331,12 +1331,7 @@
         "unresolved_reason": {
           "anyOf": [
             {
-              "enum": [
-                "compound_command",
-                "shell_expansion",
-                "expression",
-                "inputs_not_a_mapping"
-              ],
+              "const": "inputs_not_a_mapping",
               "type": "string"
             },
             {
@@ -1365,7 +1360,7 @@
     },
     "HostWorkflowAgentRuleV7": {
       "additionalProperties": false,
-      "description": "One documented widening rule an agent launch meets, and the setting it was read from (#823).\n\nDecided when the workflow is read, from the declared text, before any of\nit is withheld for publication, so redaction never hides a rule. Only\nliteral text meets one: in a value holding ``${{ }}``, the words of\n``claude_args`` or ``codex-args`` before the first expression, less the\nword it touches and a quoted run still open at it, and the entries of a\nuser gate that hold none; a mode or ``settings`` input holding one meets\nnone. Claude Code settings written as JSON \u2014 the ``settings`` input, or a\n``--settings`` value in ``claude_args`` or on the CLI \u2014 meet\n``bypass_permissions`` when their ``defaultMode`` is ``bypassPermissions``,\nread as the settings reader reads it; a path to a settings file is not\nread. ``setting`` is the input (``claude_args``, ``allowed_bots``,\n``sandbox``, ``permission-profile``, \u2026) or the CLI flag's primary\nspelling. One rule compares as one whatever setting meets it, except\n``open_gate``, which is one rule per gate input.",
+      "description": "One documented widening rule an agent launch meets, and the setting it was read from (#823).\n\nDecided when the workflow is read, from the declared text, before any of\nit is withheld for publication, so redaction never hides a rule. Only\ntext this reader reads exactly meets one: ``claude_args`` or\n``codex-args`` only when it is a plain list of words (never when it holds\na ``${{ }}`` expression), the entries of a user gate that hold no\nexpression, and a mode or ``settings`` input that holds none. Claude Code\nsettings written as JSON in the ``settings`` input meet\n``bypass_permissions`` when their ``defaultMode`` is\n``bypassPermissions``, read as the settings reader reads it; a path to a\nsettings file is not read. ``setting`` is the input (``claude_args``,\n``allowed_bots``, ``sandbox``, ``permission-profile``, \u2026) or the CLI\nflag's primary spelling. One rule compares as one whatever setting meets\nit, except ``open_gate``, which is one rule per gate input.",
       "properties": {
         "rule": {
           "enum": [
@@ -1392,7 +1387,7 @@
     },
     "HostWorkflowAgentSettingV7": {
       "additionalProperties": false,
-      "description": "One permission input or flag an agent launch declares, compared as text (#823).\n\n``name`` is the documented input (``claude_args``, ``sandbox``, \u2026) or the\nflag's primary spelling (``--allowedTools`` for ``--allowed-tools`` too).\n``value`` is the declared text, stripped, as it may be published; a flag\nthat takes no value has ``null``. ``claude_args`` is the text the Claude\nactions parse, without the full-line ``#`` comments they drop. A\nstructured value \u2014 a JSON object (a ``settings`` or ``mcp_config`` value,\na ``--settings`` or ``--mcp-config`` value, any argument word), or a codex\n``--config`` table or array \u2014 publishes its shape and none of its free\ntext: key names, numbers, booleans and ``null``, with each string\nreplaced by ``<withheld:\u2026>``, a short digest of what the host readers\ndigest for it, so an edit to it is still a change. ``env`` and\n``headers`` values, ``apiKeyHelper`` and every secret-named value are\n``<redacted>``, as the host readers redact them. The strings a host reader\npublishes are kept: a ``permissions.allow``/``ask``/``deny`` rule and a\ndocumented Claude Code setting's value such as ``defaultMode``, and an\nMCP server's command name and its URL's scheme and host, each followed by\nthe digest when it drops something the digest reads (a command's\narguments, a URL's query). So an MCP server's arguments and a hook's\ncommand publish nothing, as `.mcp.json` and `.claude/settings.json` do\nnot (#823 review). A codex ``--config`` override under ``env``,\n``headers`` or a secret-named key publishes ``<redacted>`` for its value,\nand a URL elsewhere publishes its scheme and host with\n``<redacted-path>`` for its path and query (#723). Each is withheld\nhowever it is attached to its flag: ``--settings={\u2026}`` and\n``-c<override>`` as well as a separate word. Other argument text \u2014 a\nprompt, a flag's value, a codex ``--config`` override's scalar value \u2014 is\npublished through the workflow label redaction (#802). A value it\nrewrites is credential-shaped \u2014 a token, but also prose such as \"never\nprint bearer tokens\" \u2014 and is published redacted with\n``unresolved_reason: redacted``: it is compared as published, beside the\nrules read from its declared text, and records a non-blocking coverage\nissue naming its ``job/step``, because an edit inside what is redacted is\nnot reported. A value that is not a string (``not_a_string``), or one\nholding text that starts like JSON and does not parse (``unparsed_json``),\nis ``null`` and records a non-blocking coverage issue naming its\n``job/step``: it is neither published nor compared.\n\n``holds_expression`` is ``true`` when the declared text holds a ``${{ }}``\nexpression, which GitHub substitutes before the action reads the input,\nand is omitted otherwise. A documented widening rule is then read only\nfrom the literal text the expression cannot reach, and a rule the launch\ngains in the same job afterwards is not claimed, because the substituted\ntext may already have met it.",
+      "description": "One permission input or flag an agent launch declares, compared as text (#823).\n\n``name`` is the documented input (``claude_args``, ``sandbox``, \u2026) or the\nflag's primary spelling (``--allowedTools`` for ``--allowed-tools`` too).\n``value`` is the declared text, stripped, as it may be published; a flag\nthat takes no value has ``null``.\n\n``claude_args`` and ``codex-args`` are read only when they are a plain\nlist of words: letters, digits and ``_ . / : = , % + - ( )``, separated by\nblanks or newlines, with no ``--settings`` or ``--mcp-config`` flag. Every\nparser involved splits such text the same way, so it is published as\nthose words, one space apart. Any other value \u2014 holding a quote, a\n``${{ }}`` expression, ``$``, a backtick, a comment, a shell operator,\nJSON or another character \u2014 is ``unread_arguments``: ``value`` is\n``<withheld:\u2026>``, a short digest, so an edit to it is still a change\nwhile none of its text is published; no documented widening rule is read\nfrom it; and it records a non-blocking coverage issue naming its\n``job/step`` (#823 review cycle 4). A codex ``--config`` override keeps\nits key; its value is ``<redacted>`` under ``env``, ``headers`` or a\nsecret-named key, as the host readers redact such values, published as\nwritten for ``sandbox_mode``, ``default_permissions``,\n``approval_policy`` and ``model``, and ``<withheld:\u2026>`` otherwise.\n\nEvery other input is one value. A JSON object (a ``settings`` or\n``mcp_config`` value) publishes its shape and none of its free text: key\nnames, numbers, booleans and ``null``, with each string replaced by\n``<withheld:\u2026>``, a short digest of what the host readers digest for it,\nso an edit to it is still a change. ``env`` and ``headers`` values,\n``apiKeyHelper`` and every secret-named value are ``<redacted>``, as the\nhost readers redact them. The strings a host reader publishes are kept:\na ``permissions.allow``/``ask``/``deny`` rule and a documented Claude\nCode setting's value such as ``defaultMode``, and an MCP server's command\nname and its URL's scheme and host, each followed by the digest when it\ndrops something the digest reads (a command's arguments, a URL's query).\nSo an MCP server's arguments and a hook's command publish nothing, as\n`.mcp.json` and `.claude/settings.json` do not (#823 review). A URL in\nother text publishes its scheme and host with ``<redacted-path>`` for its\npath and query (#723). Other text \u2014 a prompt, a flag's value \u2014 is\npublished through the workflow label redaction (#802). A value it\nrewrites is credential-shaped \u2014 a token, but also prose such as \"never\nprint bearer tokens\" \u2014 and is published redacted with\n``unresolved_reason: redacted``: it is compared as published, beside the\nrules read from its declared text, and records a non-blocking coverage\nissue naming its ``job/step``, because an edit inside what is redacted is\nnot reported. A value that is not a string (``not_a_string``), or one\nholding text that starts like JSON and does not parse (``unparsed_json``),\nis ``null`` and records a non-blocking coverage issue naming its\n``job/step``: it is neither published nor compared.\n\n``holds_expression`` is ``true`` when an input other than an argument\ninput holds a ``${{ }}`` expression, which GitHub substitutes before the\naction reads the input, and is omitted otherwise. A documented widening\nrule is then read only from the entries of a user gate that hold none,\nand from no mode or settings input, and a rule the launch gains in the\nsame job afterwards is not claimed, because the substituted text may\nalready have met it.",
       "properties": {
         "holds_expression": {
           "default": false,
@@ -1409,7 +1404,8 @@
               "enum": [
                 "not_a_string",
                 "redacted",
-                "unparsed_json"
+                "unparsed_json",
+                "unread_arguments"
               ],
               "type": "string"
             },
@@ -1490,7 +1486,7 @@
     },
     "HostWorkflowGrantV7": {
       "additionalProperties": false,
-      "description": "A v0.6 workflow grant plus the agent launches and checkout refs its steps declare.\n\nBoth lists are present only when a step declares one. In a v0.7 grant an\nabsent list means the steps were read and declare none; the schema\nversion, not the key, separates that from a legacy grant that never read\nthem. ``access`` and ``risk`` still describe the workflow's token and\ntriggers alone.",
+      "description": "A v0.6 workflow grant plus the agent launches, unread agent steps and checkout refs its steps declare.\n\nEach list is present only when a step declares one. In a v0.7 grant an\nabsent list means the steps were read and declare none; the schema\nversion, not the key, separates that from a legacy grant that never read\nthem. ``unread_agent_runs`` is a named limit and is never compared.\n``access`` and ``risk`` still describe the workflow's token and triggers\nalone.",
       "properties": {
         "access": {
           "enum": [
@@ -1606,6 +1602,13 @@
             "type": "string"
           },
           "title": "Triggers",
+          "type": "array"
+        },
+        "unread_agent_runs": {
+          "items": {
+            "$ref": "#/$defs/HostWorkflowUnreadAgentRunV7"
+          },
+          "title": "Unread Agent Runs",
           "type": "array"
         },
         "write_all": {
@@ -1732,6 +1735,35 @@
         "form"
       ],
       "title": "HostWorkflowStepActionV6",
+      "type": "object"
+    },
+    "HostWorkflowUnreadAgentRunV7": {
+      "additionalProperties": false,
+      "description": "A ``run:`` step that mentions a known agent CLI and is not read as an agent launch (#823 review cycle 4).\n\nAny ``run:`` holding ``claude`` or ``codex`` as a word of its own that is\nnot an agent launch this reader reads \u2014 more than one line or command, a\nquote, an expansion, a redirection, a comment, a continuation, a\n``${{ }}`` expression, another program such as ``npx`` or ``timeout``, a\nsubcommand that is not a headless launch, or a declared ``shell:`` other\nthan ``bash`` or ``sh`` \u2014 once for each agent CLI it mentions. It is a\nnamed, non-blocking limit and nothing more: none of the step's text is\npublished, it is never compared, so adding, removing or editing it gives\nno row, and it never says that the step starts, or does not start, an\nagent. ``job`` and ``step`` are published labels (#802).",
+      "properties": {
+        "agent": {
+          "enum": [
+            "claude",
+            "codex"
+          ],
+          "title": "Agent",
+          "type": "string"
+        },
+        "job": {
+          "title": "Job",
+          "type": "string"
+        },
+        "step": {
+          "title": "Step",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job",
+        "step",
+        "agent"
+      ],
+      "title": "HostWorkflowUnreadAgentRunV7",
       "type": "object"
     },
     "InstructionStructureEvidence": {

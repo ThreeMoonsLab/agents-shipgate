@@ -292,8 +292,11 @@ def _agent_launch_value(item: dict[str, Any]) -> str:
     for setting in item.get("settings") or []:
         unread = setting.get("unresolved_reason")
         name = str(setting["name"])
+        if unread == "unread_arguments":
+            # Compared by its digest alone, so the cell shows the digest (#823 review cycle 4).
+            parts.append(f"{name} (not read; digest {setting['value']})")
         # A redacted value is compared as published, so the cell shows it (#823 review F2).
-        if unread and not (unread == "redacted" and setting.get("value") is not None):
+        elif unread and not (unread == "redacted" and setting.get("value") is not None):
             parts.append(f"{name} (unresolved: {str(unread).replace('_', ' ')})")
         elif setting.get("value") is None:
             parts.append(name)
@@ -326,10 +329,11 @@ def _agent_launch_reasons(
 
     Only a documented rule the engine claims — ``agent_rule_gains(...).claimed``,
     the rule behind ``workflow_agent_widened_*`` — is called a widening, and
-    the sentence says which rule and where. A rule gained where the job's
-    launch was unread before, or held a ``${{ }}`` expression the rule is read
-    from, or that moved in from another job, is named and not called a
-    widening, as the engine claims no expansion for it. Every other
+    the sentence says which rule and where. A rule gained where a step of the
+    job this audit does not read is gone, or whose launch held, in an
+    input the rule is read from, a ``${{ }}`` expression or an argument list
+    this audit does not read, or that moved in from another job, is named and
+    not called a widening, as the engine claims no expansion for it. Every other
     agent-launch or checkout edit is a change: its settings are compared as
     published text, and nothing here ranks one value against another.
     """
@@ -344,19 +348,24 @@ def _agent_launch_reasons(
     for _job, rule, detail, entry in gains.claimed:
         named.add(where(entry))
         reasons.append(f"an agent launch now {agent_rule_text(rule, detail)} ({where(entry)})")
-    for _job, rule, detail, entry in gains.unread_before:
+    for (_job, rule, detail, entry), source in gains.unread_before:
         named.add(where(entry))
         reasons.append(
             f"an agent launch now {agent_rule_text(rule, detail)} ({where(entry)}), which is not counted as a "
-            "widening: before, this job launched the agent in a form this audit does not read, which "
-            "may already have done the same"
+            f"widening: a step in this job that may launch the agent in a form this audit does not read "
+            f"is gone ({where(source)}), and this launch may be that step rewritten in a form this audit "
+            "reads, which may already have done the same"
         )
-    for (_job, rule, detail, entry), setting in gains.expression_before:
+    for (_job, rule, detail, entry), setting, how in gains.setting_before:
         named.add(where(entry))
+        held = (
+            "held a `${{ }}` expression, whose substituted text this audit does not read"
+            if how == "expression"
+            else "was not a plain list of words this audit reads, so no rule was read from it"
+        )
         reasons.append(
             f"an agent launch now {agent_rule_text(rule, detail)} ({where(entry)}), which is not counted as a "
-            f"widening: before, this job's {setting} held a " + "`${{ }}`" + " expression, whose "
-            "substituted text this audit does not read and which may already have done the same"
+            f"widening: before, this job's {setting} {held}, and it may already have done the same"
         )
     for (_job, rule, detail, entry), source in gains.moved:
         named.update({where(entry), where(source)})
@@ -397,9 +406,9 @@ def _agent_launch_reasons(
     if "removed" in groups and after is not None:
         reasons.append(
             "a step that no longer declares one may still start an agent in a way this audit "
-            "does not read, such as an action outside its table, `npx`, a script, a path such as "
-            "`./node_modules/.bin/claude` or `codex` options before `exec`, so this row does not "
-            "say that it no longer starts one"
+            "does not read, such as an action outside its table, a script, or a `run:` this "
+            "audit does not read as a launch (more than one command, quoting, an expansion, `npx`, "
+            "`codex` options before `exec`), so this row does not say that it no longer starts one"
         )
     # A rule is read only from literal text a `${{ }}` expression cannot
     # reach, so the row says where that leaves text unread (#823 review).
@@ -415,6 +424,20 @@ def _agent_launch_reasons(
             "which GitHub substitutes before the action reads it; documented widening rules are "
             "read only from the literal text the expression cannot reach, so this row does not "
             "say whether the text it reaches meets one"
+        )
+    # An argument input that is not a plain list of words is compared by its
+    # digest and read for no rule (#823 review cycle 4).
+    unread_arguments = list(dict.fromkeys(
+        f"{setting['name']} at {where(item)}"
+        for item in new
+        for setting in item.get("settings") or []
+        if setting.get("unresolved_reason") == "unread_arguments"
+    ))
+    if unread_arguments:
+        reasons.append(
+            "an agent launch's argument input is not a plain list of words this audit reads ("
+            + ", ".join(unread_arguments) + "); none of its text is published and it is compared by "
+            "a digest only, so this row does not say whether it meets a documented widening rule"
         )
     unread = list(dict.fromkeys(where(item) for item in new if item.get("form") != "read"))
     if unread:

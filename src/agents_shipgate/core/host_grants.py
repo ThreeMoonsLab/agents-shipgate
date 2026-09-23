@@ -8,14 +8,12 @@ uses the network. ``repository`` scope is portable and deterministic;
 
 from __future__ import annotations
 
-import bisect
 import errno
 import hashlib
 import json
 import os
 import posixpath
 import re
-import shlex
 import stat
 import sys
 import tomllib
@@ -1610,11 +1608,16 @@ def step_action_key(entry: dict[str, Any]) -> tuple[str, str, str, str]:
 # How a coding agent is launched inside a job: a known agent action's permission
 # inputs, a literal agent CLI command in a `run:` step, and the ref each
 # `actions/checkout` step declares. Every value is compared as declared text; no
-# action is fetched, no command is run and no expression is evaluated. A shape
-# this reader does not read — a compound shell command, an expansion, a script,
-# a composite or unknown action — is never guessed at: where it can be told
-# apart it is listed as unresolved and named as a non-blocking limit, and
-# otherwise it is one of the unread surfaces the support page names.
+# action is fetched, no command is run and no expression is evaluated.
+#
+# Shell is not parsed (#823 review cycle 4). A `run:` is read only when it is one
+# line of plain words — no quote, expansion, operator, redirection, comment or
+# continuation, so every POSIX shell splits it at its blanks and nowhere else —
+# whose program is a known agent CLI; `claude_args` and `codex-args` are read
+# only when they are such a list of words, which each action's own splitter reads
+# the same way. Every other form is never guessed at: a `run:` that mentions an
+# agent CLI is named as an unread step, and an argument input as an unread
+# setting, each a non-blocking limit that publishes none of its text.
 
 
 @dataclass(frozen=True)
@@ -1624,8 +1627,8 @@ class _AgentAction:
     ``inputs`` are compared as text. ``gates`` are comma-separated user lists
     where a ``*`` entry opens the gate to every user (to every bot, for
     ``allowed_bots``). ``args`` names the input
-    that carries agent CLI arguments, read with the family's flag table for
-    the documented widening rules. ``modes`` are ``(input, value, rule)``: an
+    that carries agent CLI arguments, read, when it is a plain list of words,
+    for the documented widening rules. ``modes`` are ``(input, value, rule)``: an
     input whose value is itself a documented widening. ``settings`` names the
     input that holds Claude Code settings, JSON or a path; written as JSON, its
     ``defaultMode`` is read as the settings reader reads it (#823 review).
@@ -1691,6 +1694,8 @@ _AGENT_ACTIONS: dict[str, _AgentAction] = {
 #: Flag spelling -> (primary spelling, arity): ``0`` takes no value, ``1`` one,
 #: ``None`` every following word up to the next one starting with ``-``, as the
 #: CLI's variadic options read them. From Claude Code's CLI reference.
+#: ``--settings`` and ``--mcp-config`` are not listed: a value passing one is
+#: not read at all (:data:`_UNREAD_ARGUMENT_FLAGS`).
 _CLAUDE_FLAGS: dict[str, tuple[str, int | None]] = {
     "--permission-mode": ("--permission-mode", 1),
     "--dangerously-skip-permissions": ("--dangerously-skip-permissions", 0),
@@ -1700,8 +1705,6 @@ _CLAUDE_FLAGS: dict[str, tuple[str, int | None]] = {
     "--disallowedTools": ("--disallowedTools", None),
     "--disallowed-tools": ("--disallowedTools", None),
     "--add-dir": ("--add-dir", None),
-    "--mcp-config": ("--mcp-config", None),
-    "--settings": ("--settings", 1),
     "--permission-prompt-tool": ("--permission-prompt-tool", 1),
 }
 
@@ -1769,7 +1772,6 @@ _PULL_REQUEST_CODE_REF_RE = re.compile(
 UNTRUSTED_INPUT_TRIGGERS = ("issue_comment", "issues", "pull_request_target", "workflow_run")
 
 _ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
-_SHELL_OPERATOR_CHARS = ";&|()<>\n"
 _SECRET_REFERENCE_RE = re.compile(r"\bsecrets\.([A-Za-z_][A-Za-z0-9_]*)")
 _EXPRESSION_RE = re.compile(r"\$\{\{(.*?)\}\}", re.S)
 
@@ -1780,437 +1782,119 @@ def pull_request_code_ref(ref: str | None) -> bool:
     return ref is not None and _PULL_REQUEST_CODE_REF_RE.fullmatch(ref.strip()) is not None
 
 
-def _shell_words(text: str) -> list[str] | None:
-    """``text`` split into shell words and operator tokens, or ``None`` when unbalanced.
+# --- the only forms read: plain lists of words (#823 review cycle 4) --------------------
+#
+# Four review cycles each found a shell form a parser mis-read, so none is
+# parsed. A word made only of these characters means the same to a POSIX shell,
+# to shell-quote (which the Claude actions split `claude_args` with, after making
+# `()|&;<>` literal) and to string-argv (which `openai/codex-action` splits
+# `codex-args` with): no quote, `$`, backtick, backslash, `#`, `~`, glob,
+# brace, bracket, `!`, `@`, `;`, `&`, `|`, `<`, `>` or non-ASCII character is
+# among them, so the words are exactly the text split at its blanks.
 
-    Newlines, ``;``, ``&``, ``|``, parentheses and redirections outside quotes
-    are operator tokens of their own; a backslash-newline joins two lines, as
-    the shell reads it.
-    """
+#: A word of a plain `run:` command.
+_PLAIN_RUN_WORD_RE = re.compile(r"[A-Za-z0-9_./:=,%+-]+")
+#: A word of a plain argument input: parentheses too, which neither action's
+#: splitter reads as anything but a character (`Bash(git:status)`), while a
+#: shell would.
+_PLAIN_ARGUMENT_WORD_RE = re.compile(r"[A-Za-z0-9_./:=,%+()-]+")
+#: Flags whose value the host readers withhold or read from a file: a value
+#: passing one, in any spelling, is not read (#823 review cycle 4).
+_UNREAD_ARGUMENT_FLAGS = frozenset({"--settings", "--mcp-config"})
+#: A known agent CLI's name as a word of its own: a `run:` that holds one
+#: mentions that agent.
+_AGENT_CLI_MENTION_RE = re.compile(r"(?<![A-Za-z0-9_])(claude|codex)(?![A-Za-z0-9_])")
+#: The shells a plain `run:` is read for, by the program a declared `shell:` names.
+_READ_SHELLS = frozenset({"bash", "sh"})
 
-    lexer = shlex.shlex(
-        re.sub(r"\\\r?\n", "", text), posix=True, punctuation_chars=_SHELL_OPERATOR_CHARS
-    )
-    lexer.whitespace = " \t\r"
-    lexer.whitespace_split = True
-    lexer.commenters = ""
-    try:
-        return list(lexer)
-    except ValueError:
+
+def _plain_words(words: list[str], pattern: re.Pattern[str]) -> list[str] | None:
+    """``words``, when each is made of plain characters and none is an unread flag, else ``None``."""
+
+    words = [word for word in words if word]
+    if not words or not all(pattern.fullmatch(word) for word in words):
         return None
+    if any(word.split("=", 1)[0] in _UNREAD_ARGUMENT_FLAGS for word in words):
+        return None
+    return words
 
 
-def _is_operator(token: str) -> bool:
-    return bool(token) and all(char in _SHELL_OPERATOR_CHARS for char in token)
+def _argument_words(text: str) -> list[str] | None:
+    """An agent action's argument input as its words, when it is a plain list of them.
 
-
-def _has_shell_expansion(text: str) -> bool:
-    """A ``$`` or backtick the shell would expand: anywhere outside single quotes."""
-
-    quote: str | None = None
-    escaped = False
-    for char in text:
-        if escaped:
-            escaped = False
-        elif char == "\\" and quote != "'":
-            escaped = True
-        elif quote == "'":
-            quote = None if char == "'" else quote
-        elif char in {"$", "`"}:
-            return True
-        elif char == quote:
-            quote = None
-        elif quote is None and char in {"'", '"'}:
-            quote = char
-    return False
-
-
-def _has_shell_comment(text: str) -> bool:
-    """An unquoted ``#`` that starts a word: the shell reads the rest of the line as a comment.
-
-    Read off the raw text because the word splitter keeps ``#`` as an
-    ordinary character, so a quoted ``"#123 review"`` is one word, not a comment.
+    Blanks and newlines separate words, as both actions' splitters read
+    them. ``None`` — the input is not read — for anything else: a quote, a
+    ``${{ }}`` expression, ``$``, a backtick, a comment, a shell separator,
+    JSON, a ``--settings`` or ``--mcp-config`` flag, or any other character
+    outside the plain set.
     """
 
-    quote: str | None = None
-    escaped = False
-    previous = " "
-    for char in text:
-        if escaped:
-            # An escaped character, a space included, is part of the word.
-            escaped = False
-            previous = "\\"
-            continue
-        if char == "\\" and quote != "'":
-            escaped = True
-        elif quote is not None:
-            quote = None if char == quote else quote
-        elif char in {"'", '"'}:
-            quote = char
-        elif char == "#" and (previous.isspace() or previous in _SHELL_OPERATOR_CHARS):
-            return True
-        previous = char
-    return False
+    return _plain_words(re.split(r"[ \t\r\n]+", text), _PLAIN_ARGUMENT_WORD_RE)
 
 
-@dataclass
-class _SubstitutionLevel:
-    """One open level of :func:`_command_substitutions`: the top of the text, or one substitution."""
+def _run_words(run: str) -> list[str] | None:
+    """A ``run:`` as the words of its one command, when it is one line of plain words.
 
-    #: The character that ends it: `)` for `$(`, a backtick for a backtick, none at the top.
-    closer: str
-    #: Where its text starts.
-    start: int
-    #: ``$((…))`` is arithmetic, not a command.
-    arithmetic: bool = False
-    quoted: bool = False
-    #: Parentheses opened inside a `$(…)` and not yet closed.
-    depth: int = 0
-    #: Its text so far, each nested substitution in it replaced by `_`.
-    parts: list[str] = field(default_factory=list)
-    #: Where its text not yet in ``parts`` starts.
-    cursor: int = 0
-
-
-def _command_substitutions(text: str, *, here_doc_body: bool = False) -> list[str]:
-    """The text of each ``$(…)`` and backtick command substitution the shell would run in ``text``.
-
-    Found outside single quotes, inside double quotes too: the word splitter
-    reads a double-quoted ``"$(claude -p …)"`` as one word and a backtick as
-    no operator, so the command inside either never heads a command it splits
-    (#823 review). A nested substitution is listed on its own and reads as
-    ``_`` in the text around it, so each character is listed once and no
-    nesting depth costs more than the text's length. An escaped ``\\$`` or
-    backtick, a comment and the ``$((…))`` of arithmetic are not
-    substitutions, though one inside arithmetic still is, and one left open
-    runs to the end of the text. Only used to name an agent CLI as
-    unresolved: nothing found here is read or published.
-
-    ``here_doc_body`` reads ``text`` as the body of a here-document whose
-    delimiter is unquoted (:func:`_here_documents`): the shell runs its
-    substitutions, but quotes and ``#`` in it are ordinary characters, so
-    ``'$(claude -p …)'`` there is a substitution. Inside a substitution the
-    usual quoting applies again.
+    Only spaces and tabs separate words, as the shell reads them; a second
+    line, and every character outside the plain set, is ``None``.
     """
 
-    bodies: list[str] = []
-    levels = [_SubstitutionLevel(closer="", start=0)]
+    text = run.strip(" \t\n")
+    if "\n" in text:
+        return None
+    return _plain_words(re.split(r"[ \t]+", text), _PLAIN_RUN_WORD_RE)
 
-    def open_level(opener: int, closer: str, start: int, arithmetic: bool = False) -> None:
-        parent = levels[-1]
-        parent.parts += [text[parent.cursor:opener], "_"]
-        levels.append(_SubstitutionLevel(closer=closer, start=start, arithmetic=arithmetic, cursor=start))
 
-    def close_level(end: int) -> None:
-        level = levels.pop()
-        if not level.arithmetic:
-            bodies.append("".join([*level.parts, text[level.cursor:end]]))
-        levels[-1].cursor = min(end + 1, len(text))
+def _run_command(run: str) -> tuple[str, list[str]] | None:
+    """The agent CLI a plain one-command ``run:`` launches headless, and its arguments.
 
+    After any ``NAME=value`` assignments, the program's file name must be
+    ``claude`` with ``-p``/``--print`` among its arguments, or ``codex`` with
+    ``exec`` (or its alias ``e``) as its first argument. Any other command —
+    ``claude mcp add``, ``codex login``, ``npx …``, ``timeout 600 claude`` —
+    launches none this reader reads.
+    """
+
+    words = _run_words(run)
+    if words is None:
+        return None
     index = 0
-    while index < len(text):
-        level = levels[-1]
-        char = text[index]
-        if char == "\\":
-            index += 2
-            continue
-        if char == "`":
-            if level.closer == "`":
-                close_level(index)
-            else:
-                open_level(index, "`", index + 1)
-            index += 1
-            continue
-        if char == "$" and text.startswith("(", index + 1):
-            open_level(index, ")", index + 2, arithmetic=text.startswith("((", index + 1))
-            index += 2
-            continue
-        if here_doc_body and len(levels) == 1:
-            # Outside a substitution, a here-document body quotes nothing.
-            pass
-        elif level.quoted:
-            level.quoted = char != '"'
-        elif char == '"':
-            level.quoted = True
-        elif char == "'":
-            quote_end = text.find("'", index + 1)
-            index = len(text) if quote_end < 0 else quote_end + 1
-            continue
-        elif char == "#" and (
-            index == level.start or text[index - 1].isspace() or text[index - 1] in _SHELL_OPERATOR_CHARS
-        ):
-            # A comment runs to the end of its line, or inside backticks to
-            # the backtick that closes them.
-            ends = [text.find("\n", index), text.find("`", index) if level.closer == "`" else -1]
-            index = min((end for end in ends if end >= 0), default=len(text))
-            continue
-        elif level.closer == ")" and char == "(":
-            level.depth += 1
-        elif level.closer == ")" and char == ")":
-            if level.depth:
-                level.depth -= 1
-            else:
-                close_level(index)
-        index += 1
-    while len(levels) > 1:
-        close_level(len(text))
-    return bodies
-
-
-def _here_doc_delimiter(text: str, index: int) -> tuple[str, bool, int]:
-    """The here-document delimiter word at ``index``: its text after quote removal, whether any of it is quoted, and where it ends.
-
-    An unclosed quote gives an empty delimiter, which is not read as one.
-    """
-
-    word: list[str] = []
-    quoted = False
-    while index < len(text) and not text[index].isspace() and text[index] not in _SHELL_OPERATOR_CHARS:
-        char = text[index]
-        if char == "\\":
-            quoted = True
-            word.append(text[index + 1:index + 2])
-            index += 2
-        elif char in {"'", '"'}:
-            end = text.find(char, index + 1)
-            if end < 0:
-                return "", quoted, len(text)
-            quoted = True
-            word.append(text[index + 1:end])
-            index = end + 1
-        else:
-            word.append(char)
-            index += 1
-    return "".join(word), quoted, index
-
-
-@dataclass
-class _LineStarts:
-    """Where each line of a text starts, by its content and by its content after leading tabs."""
-
-    exact: dict[str, list[int]]
-    tab_stripped: dict[str, list[int]]
-
-    @classmethod
-    def of(cls, text: str) -> _LineStarts:
-        exact: dict[str, list[int]] = {}
-        tab_stripped: dict[str, list[int]] = {}
-        start = 0
-        for line in text.split("\n"):
-            exact.setdefault(line, []).append(start)
-            tab_stripped.setdefault(line.lstrip("\t"), []).append(start)
-            start += len(line) + 1
-        return cls(exact=exact, tab_stripped=tab_stripped)
-
-
-def _here_doc_bodies_end(
-    text: str, lines: _LineStarts, start: int, pending: list[tuple[str, bool, bool]],
-) -> tuple[int, list[str]] | None:
-    """Where the bodies of ``pending`` here-documents, read in order from ``start``, end, and the bodies the shell expands.
-
-    Each body runs to the first line that is exactly its delimiter (after
-    leading tabs, for ``<<-``). ``None`` when one has no such line. The line
-    is looked up rather than searched for, so a text of many here-documents
-    with no closing line costs no more than its length times a logarithm.
-    """
-
-    position = start
-    expanded: list[str] = []
-    for delimiter, quoted, strip_tabs in pending:
-        starts = (lines.tab_stripped if strip_tabs else lines.exact).get(delimiter, [])
-        found = bisect.bisect_left(starts, position)
-        if found == len(starts):
-            return None
-        closing = starts[found]
-        if not quoted:
-            expanded.append(text[position:closing])
-        line_end = text.find("\n", closing)
-        position = len(text) if line_end < 0 else line_end + 1
-    return position, expanded
-
-
-def _here_documents(text: str) -> tuple[str, list[str]]:
-    """``text`` without the body and closing line of each here-document, and the bodies the shell expands.
-
-    The shell never runs a here-document's lines as commands: it passes them
-    to the command as input. When any part of the delimiter is quoted
-    (``<<'EOF'``, ``<<"EOF"``, ``<<\\EOF``) the body is passed as written, so
-    ``claude -p`` in Markdown backticks there starts nothing (#823 review);
-    when it is unquoted (``<<EOF``) the shell still runs the body's ``$(…)``
-    and backtick substitutions, so those bodies are returned for
-    :func:`_command_substitutions` to read. ``<<`` is read outside quotes,
-    comments and ``$((…))`` arithmetic, inside a ``$(…)`` or backtick
-    substitution too, a ``<<<`` here-string is not one, and each body starts
-    after the line that opened it. A here-document with no closing line is
-    left in the text and read as ordinary lines, so a ``<<`` misread there
-    hides no later command. Only used to name an agent CLI as unresolved:
-    nothing found here is read or published.
-    """
-
-    kept: list[str] = []
-    expanded: list[str] = []
-    pending: list[tuple[str, bool, bool]] = []
-    lines: _LineStarts | None = None
-    levels = [_SubstitutionLevel(closer="", start=0)]
-    cursor = 0
-    index = 0
-    while index < len(text):
-        level = levels[-1]
-        char = text[index]
-        if char == "\\":
-            index += 2
-            continue
-        if char == "\n" and not level.quoted and pending:
-            lines = lines or _LineStarts.of(text)
-            found = _here_doc_bodies_end(text, lines, index + 1, pending)
-            pending = []
-            if found is not None:
-                end, bodies = found
-                kept.append(text[cursor:index + 1])
-                expanded.extend(bodies)
-                cursor = index = end
-                continue
-            index += 1
-            continue
-        if char == "`":
-            if level.closer == "`":
-                levels.pop()
-            else:
-                levels.append(_SubstitutionLevel(closer="`", start=index + 1))
-            index += 1
-            continue
-        if char == "$" and text.startswith("(", index + 1):
-            levels.append(_SubstitutionLevel(
-                closer=")", start=index + 2, arithmetic=text.startswith("((", index + 1),
-            ))
-            index += 2
-            continue
-        if level.quoted:
-            level.quoted = char != '"'
-        elif char == '"':
-            level.quoted = True
-        elif char == "'":
-            quote_end = text.find("'", index + 1)
-            index = len(text) if quote_end < 0 else quote_end + 1
-            continue
-        elif char == "#" and (
-            index == level.start or text[index - 1].isspace() or text[index - 1] in _SHELL_OPERATOR_CHARS
-        ):
-            # A comment runs to the end of its line, not past it: a
-            # here-document opened before it starts on the next one.
-            ends = [text.find("\n", index), text.find("`", index) if level.closer == "`" else -1]
-            index = min((end for end in ends if end >= 0), default=len(text))
-            continue
-        elif char == "<" and text.startswith("<<", index) and not level.arithmetic:
-            if text.startswith("<<<", index):
-                index += 3
-                continue
-            index += 2
-            strip_tabs = text.startswith("-", index)
-            if strip_tabs:
-                index += 1
-            while index < len(text) and text[index] in " \t":
-                index += 1
-            delimiter, quoted, index = _here_doc_delimiter(text, index)
-            if delimiter:
-                pending.append((delimiter, quoted, strip_tabs))
-            continue
-        elif level.closer == ")" and char == "(":
-            level.depth += 1
-        elif level.closer == ")" and char == ")":
-            if level.depth:
-                level.depth -= 1
-            else:
-                levels.pop()
-        index += 1
-    kept.append(text[cursor:])
-    return "".join(kept), expanded
-
-
-def _commands(words: list[str]) -> list[list[str]]:
-    """``words`` grouped into the commands their operator tokens separate, empty ones included."""
-
-    commands: list[list[str]] = [[]]
-    for word in words:
-        if _is_operator(word):
-            commands.append([])
-        else:
-            commands[-1].append(word)
-    return commands
-
-
-def _substituted_agents(run: str, *, here_doc_body: bool = False) -> set[str]:
-    """The agent CLIs ``run`` starts at the head of a command inside a command substitution."""
-
-    agents: set[str] = set()
-    for body in _command_substitutions(run, here_doc_body=here_doc_body):
-        words = _shell_words(body)
-        if words is None:
-            agents.update(agent for line in body.splitlines() if (agent := _line_agent(line)))
-            continue
-        agents.update(launch[0] for command in _commands(words) if (launch := _agent_command(command)))
-    return agents
-
-
-#: Shell reserved words that can come before a command's name: a pipeline's
-#: ``!`` and ``time`` (with its ``-p``), and the words that open a list inside
-#: a compound command, as in ``if …; then claude -p …; fi`` (#823 review). A
-#: command after one is not a simple command, so an agent CLI there is named
-#: as unresolved and never read.
-_RESERVED_PREFIXES = frozenset({"!", "time", "{", "if", "then", "elif", "else", "while", "until", "do"})
-
-
-def _reserved_prefix_length(words: list[str]) -> int:
-    """How many leading words of one command are shell reserved words, a ``function NAME`` included.
-
-    Reserved words are read only before a command's assignments and name, so
-    ``FOO=1 then`` runs a command named ``then``.
-    """
-
-    index = 0
-    while index < len(words):
-        if words[index] in _RESERVED_PREFIXES:
-            index += 2 if words[index] == "time" and words[index + 1:index + 2] == ["-p"] else 1
-        elif words[index] == "function":
-            # `function NAME { …; }`: the name is not a command.
-            index += 2
-        else:
-            break
-    return min(index, len(words))
-
-
-def _agent_command(words: list[str]) -> tuple[str, list[str]] | None:
-    """The agent CLI one command launches headless, and its arguments.
-
-    ``claude`` with ``-p``/``--print`` anywhere in its arguments, or ``codex``
-    with ``exec`` (or its alias ``e``) as its first argument, after any leading
-    shell reserved words (``then``, ``do``, ``{``, ``!``, ``time``, a
-    ``function NAME``) and then any ``NAME=value`` assignments, the order the
-    shell reads them in. Any other command — ``claude mcp add``,
-    ``codex login``, an ``echo`` that mentions either — launches none.
-    """
-
-    index = _reserved_prefix_length(words)
     while index < len(words) and _ASSIGNMENT_RE.match(words[index]):
         index += 1
     if index >= len(words):
         return None
-    command, arguments = words[index], words[index + 1:]
-    if command == "claude" and any(word in {"-p", "--print"} for word in arguments):
+    program, arguments = words[index].rsplit("/", 1)[-1], words[index + 1:]
+    if program == "claude" and any(word in {"-p", "--print"} for word in arguments):
         return "claude", arguments
-    if command == "codex" and arguments[:1] in (["exec"], ["e"]):
+    if program == "codex" and arguments[:1] in (["exec"], ["e"]):
         return "codex", arguments[1:]
     return None
 
 
-def _line_agent(line: str) -> str | None:
-    """The agent CLI one line starts headless, read as plain words: a fallback only.
+def _declared_shell(step: dict[Any, Any], job: dict[Any, Any], workflow: dict[Any, Any]) -> Any:
+    """The ``shell:`` a step runs its ``run:`` with: its own, else its job's, else its workflow's default.
 
-    Used when a ``run:``'s quoting cannot be split into commands, to name the
-    launch as unresolved rather than miss it; nothing it reads is published.
+    ``None`` when none is declared, which is the runner's default shell.
     """
 
-    return (_agent_command(line.split()) or (None, None))[0]
+    if step.get("shell") is not None:
+        return step["shell"]
+    for container in (job, workflow):
+        defaults = container.get("defaults")
+        run = defaults.get("run") if isinstance(defaults, dict) else None
+        if isinstance(run, dict) and run.get("shell") is not None:
+            return run["shell"]
+    return None
+
+
+def _read_shell(shell: Any) -> bool:
+    """Whether a ``run:`` under this declared shell is read: none declared, ``bash`` or ``sh``."""
+
+    if shell is None:
+        return True
+    if not isinstance(shell, str) or not shell.split():
+        return False
+    return shell.split()[0].rsplit("/", 1)[-1] in _READ_SHELLS
 
 
 def _read_flags(
@@ -2256,262 +1940,17 @@ def _read_flags(
     return flags
 
 
-# --- how an agent action splits its argument input (#823) -----------------------------
-#
-# `claude_args` and `codex-args` are not shell text: no shell reads them. Each
-# action splits its input itself, and a widening rule is read from the words
-# the action passes on, so these follow the actions' own parsers rather than
-# the `run:` tokenizer above.
-
-#: One word of shell-quote's chunker once the Claude actions have made
-#: ``()|&;<>`` literal: unquoted non-space characters (a backslash escaping a
-#: quote or a blank), a double-quoted run or a single-quoted run, adjacent.
-#: An unbalanced quote matches none of them, so shell-quote skips it.
-_SHELL_QUOTE_CHUNK_RE = re.compile(r"""(?:(?:\\['" \t]|[^\s'"])+|"(?:\\"|[^"])*?"|'[^']*?')+""")
-
-#: string-argv's pattern, which `openai/codex-action` splits a shell-like
-#: `codex-args` with: a word holding quotes keeps them, a quoted string alone
-#: is its content, and whitespace, newlines included, separates the rest.
-_STRING_ARGV_RE = re.compile(
-    r"""([^\s'"]([^\s'"]*(['"])([^\x03]*?)\3)+[^\s'"]*)|[^\s'"]+|(['"])([^\x03]*?)\5"""
-)
-
-
-def _shell_quote_variable(chunk: str, index: int) -> tuple[str, int]:
-    """shell-quote's ``parseEnvVar`` with no environment, at the ``$`` at ``index``.
-
-    Returns the value, empty for any name and ``$`` for none, and the index of
-    the last character the variable took. Raises ``ValueError`` for the "Bad
-    substitution" shell-quote throws, which fails the action.
-    """
-
-    index += 1
-    char = chunk[index:index + 1]
-    if char == "{":
-        index += 1
-        if chunk[index:index + 1] == "}":
-            raise ValueError("bad substitution")
-        depth, end = 1, index
-        while depth > 0 and end < len(chunk):
-            if chunk[end] == "{" and chunk[end - 1] == "$":
-                depth += 1
-            elif chunk[end] == "}":
-                depth -= 1
-            end += 1
-        if depth != 0:
-            raise ValueError("bad substitution")
-        name, index = chunk[index:end - 1], end - 1
-    elif char and char in "*@#?$!_-":
-        # shell-quote steps past the name and then past one more character.
-        name, index = char, index + 1
-    else:
-        match = re.search(r"[^A-Za-z0-9_]", chunk[index:])
-        if match is None:
-            name, index = chunk[index:], len(chunk)
-        else:
-            name, index = chunk[index:index + match.start()], index + match.start() - 1
-    return ("" if name else "$"), index
-
-
-def _shell_quote_word(chunk: str, *, comments: bool) -> tuple[str, bool]:
-    """One chunk as shell-quote reads it: the word, and whether an unquoted ``#`` ended the input.
-
-    Quotes and backslashes work as in a shell and ``$NAME`` reads as empty.
-    With ``comments``, an unquoted ``#`` ends the word and every word after
-    it, as it does for the action; without, ``#`` is an ordinary character.
-    """
-
-    out: list[str] = []
-    quote = ""
-    escaped = False
-    index = 0
-    while index < len(chunk):
-        char = chunk[index]
-        if escaped:
-            out.append(char)
-            escaped = False
-        elif quote:
-            if char == quote:
-                quote = ""
-            elif quote == "'":
-                out.append(char)
-            elif char == "\\":
-                index += 1
-                following = chunk[index:index + 1]
-                out.append(following if following and following in "\"\\$" else "\\" + following)
-            elif char == "$":
-                value, index = _shell_quote_variable(chunk, index)
-                out.append(value)
-            else:
-                out.append(char)
-        elif char in {'"', "'"}:
-            quote = char
-        elif char == "#" and comments:
-            return "".join(out), True
-        elif char == "\\":
-            escaped = True
-        elif char == "$":
-            value, index = _shell_quote_variable(chunk, index)
-            out.append(value)
-        else:
-            out.append(char)
-        index += 1
-    return "".join(out), False
-
-
-@dataclass(frozen=True)
-class _ArgumentInput:
-    """An agent action's argument input as the action splits it (#823).
-
-    ``text`` is what the action parses. ``spans`` is every word with where it
-    sits in ``text``, for publication. ``words`` is what the action passes on,
-    or ``None`` when the action refuses the input and the agent does not run.
-    """
-
-    text: str
-    spans: tuple[tuple[str, int, int], ...]
-    words: tuple[str, ...] | None
-
-
-def _claude_argument_input(value: str) -> _ArgumentInput:
-    """``claude_args`` split as ``base-action/src/parse-sdk-options.ts`` splits it.
-
-    Each line whose first non-blank character is ``#`` is dropped, ``()|&;<>``
-    are literal, and the rest is read by shell-quote with no environment:
-    whitespace, newlines included, separates words; quotes and backslashes work
-    as in a shell; ``$NAME`` reads as empty; and an unquoted ``#`` later in the
-    input ends it.
-    """
-
-    text = "\n".join(
-        line for line in value.split("\n") if not line.strip().startswith("#")
-    ).strip()
-    spans: list[tuple[str, int, int]] = []
-    words: list[str] | None = []
-    ended = False
-    for match in _SHELL_QUOTE_CHUNK_RE.finditer(text):
-        chunk = match.group()
-        if words is not None and not ended:
-            try:
-                word, ended = _shell_quote_word(chunk, comments=True)
-            except ValueError:
-                words = None
-            else:
-                if word or not ended:
-                    words.append(word)
-        try:
-            shown = _shell_quote_word(chunk, comments=False)[0]
-        except ValueError:
-            shown = chunk
-        spans.append((shown, match.start(), match.end()))
-    return _ArgumentInput(text, tuple(spans), None if words is None else tuple(words))
-
-
-def _codex_argument_input(value: str) -> _ArgumentInput:
-    """``codex-args`` read as `openai/codex-action` reads it: a JSON array of strings, or string-argv.
-
-    A value starting with ``[`` that is not a JSON array of strings makes the
-    action refuse it. The array form has no spans: it is published whole.
-    """
-
-    if value.startswith("["):
-        try:
-            loaded = json.loads(value)
-        except (ValueError, RecursionError):
-            return _ArgumentInput(value, (), None)
-        if isinstance(loaded, list) and all(isinstance(item, str) for item in loaded):
-            return _ArgumentInput(value, (), tuple(loaded))
-        return _ArgumentInput(value, (), None)
-    spans = tuple(
-        (
-            next(group for group in (match.group(1), match.group(6), match.group(0)) if group is not None),
-            match.start(),
-            match.end(),
-        )
-        for match in _STRING_ARGV_RE.finditer(value)
-    )
-    return _ArgumentInput(value, spans, tuple(word for word, _start, _end in spans))
-
-
-def _argument_input(family: str, value: str) -> _ArgumentInput:
-    return _claude_argument_input(value) if family == "claude" else _codex_argument_input(value)
-
-
-# --- what an expression in an input leaves readable (#823 review) ---------------------
-#
-# GitHub substitutes a `${{ }}` expression into an input before the action reads
-# it, and the substituted text may be anything: more words, a quote that closes
-# one opened before it, a `#` that ends `claude_args`. So a rule is read only
-# from literal text the expression cannot reach.
-
 #: One ``${{ … }}`` expression, or an unterminated ``${{`` to the end of the text.
 _EXPRESSION_SPAN_RE = re.compile(r"\$\{\{.*?(?:\}\}|\Z)", re.S)
-#: What an expression reads as while literal text around it is split: a
-#: private-use character, which no splitter here reads as a blank, a quote or
-#: an operator, so the word the expression touches holds it and is set aside.
-_EXPRESSION_MARK = "\ue000"
+#: What an expression reads as while a user gate's entries are split: a
+#: private-use character, which is neither a comma nor a blank.
+_EXPRESSION_MARK = ""
 
 
 def holds_expression(text: str) -> bool:
     """Whether declared text holds a ``${{ }}`` expression GitHub substitutes before the action reads it."""
 
     return "${{" in text
-
-
-def _skipped_quote(text: str, pattern: re.Pattern[str]) -> int | None:
-    """The first quote ``pattern`` leaves unmatched in ``text``, else ``None``.
-
-    Both splitters skip a quote no word covers; before an expression, that is a
-    quoted run the substituted text may close, so nothing from it on is read.
-    """
-
-    covered = 0
-    for match in (*pattern.finditer(text), None):
-        gap = text[covered:] if match is None else text[covered:match.start()]
-        quote = next((index for index, char in enumerate(gap) if char in "'\""), None)
-        if quote is not None:
-            return covered + quote
-        if match is not None:
-            covered = match.end()
-    return None
-
-
-def _literal_argument_words(family: str, text: str) -> tuple[str, ...] | None:
-    """The words of an argument input no ``${{ }}`` expression in it can reach, as the action splits them.
-
-    Without an expression, every word the action passes on. With one, the
-    words the action has finished reading before the first expression: the
-    word the expression touches, any quoted run still open at it, and
-    everything after it are not read. A JSON array ``codex-args`` gives the
-    elements before the one holding an expression. ``None`` when the action
-    refuses what is left.
-    """
-
-    start = text.find("${{")
-    if start == -1:
-        return _argument_input(family, text).words
-    if family == "codex" and text.startswith("["):
-        words = _argument_input(family, _EXPRESSION_SPAN_RE.sub(_EXPRESSION_MARK, text)).words
-    else:
-        prefix, pattern = text[:start], _STRING_ARGV_RE
-        if family == "claude":
-            # A line the action drops as a comment is dropped whatever the
-            # expression on it holds, and the lines before it are whole.
-            *whole, last = prefix.split("\n")
-            dropped = last.strip().startswith("#")
-            kept = [line for line in whole if not line.strip().startswith("#")]
-            prefix = "\n".join([*kept, ""] if dropped else [*kept, last])
-            pattern = _SHELL_QUOTE_CHUNK_RE
-        quote = _skipped_quote(prefix, pattern)
-        words = _argument_input(family, prefix[:quote] + _EXPRESSION_MARK).words
-    if words is None:
-        return None
-    literal: list[str] = []
-    for word in words:
-        if _EXPRESSION_MARK in word:
-            break
-        literal.append(word)
-    return tuple(literal)
 
 
 # --- what an agent setting publishes (#823, #802) --------------------------------------
@@ -2618,16 +2057,15 @@ def _json_shape(value: Any, path: tuple[str, ...] = ()) -> Any:
     return value
 
 
-def _withheld_json(value: Any, path: tuple[str, ...] = ()) -> str | None:
+def _withheld_json(value: Any) -> str | None:
     """A structured value as it may be published: its :func:`_json_shape`, as canonical JSON.
 
-    Canonical, so reformatting or reordering keys changes nothing. ``path`` is
-    the keys above ``value``, for a codex ``--config`` override's value.
+    Canonical, so reformatting or reordering keys changes nothing.
     """
 
     try:
         return json.dumps(
-            _json_shape(value, path), sort_keys=True, separators=(",", ":"),
+            _json_shape(value), sort_keys=True, separators=(",", ":"),
             ensure_ascii=False, default=str,
         )
     except (RecursionError, TypeError, ValueError):
@@ -2650,102 +2088,71 @@ def _withheld_word(word: str) -> str | None:
     return _withheld_json(loaded)
 
 
-def _withheld_config(text: str) -> str | None:
-    """A codex ``--config key=value`` override, its secret-bearing value withheld.
+#: The codex ``--config`` keys whose value is published as written: the
+#: settings a documented widening rule reads (``sandbox_mode``,
+#: ``default_permissions``), the approval policy and the model. Any other
+#: key's value — an MCP server's command or URL, a shell environment value, a
+#: provider — publishes only its digest (#823 review cycle 4).
+_PUBLISHED_CONFIG_KEYS = frozenset({"sandbox_mode", "default_permissions", "approval_policy", "model"})
 
-    A key path through ``env``, ``headers`` or a secret-named key publishes
-    ``<redacted>`` for its value; a table or array value, parsed as TOML as
-    codex parses it, publishes its shape by :func:`_withheld_json`, read under
-    its key path, so ``mcp_servers.gh={command="gh", …}`` is a server whose
-    command name is kept. A value that starts like a table or array and does
-    not parse — string-argv keeps the quotes of ``--config='k={…}'`` — is
-    ``None``: what it holds cannot be told apart from its keys. Anything else,
-    a scalar value such as ``model="o3"``, is argument text and is kept.
+
+def _withheld_config(text: str) -> str:
+    """A codex ``--config key=value`` override as it may be published.
+
+    The key is published. Under ``env``, ``headers`` or a secret-named key the
+    value is ``<redacted>``, as the host readers redact such values, so
+    rotating it is quiet; under one of :data:`_PUBLISHED_CONFIG_KEYS` it is
+    published as written; under any other key it is ``<withheld:…>``, a
+    digest, so editing it is still a change while none of its text is
+    published. Only a plain word reaches here, so the value is never a TOML
+    table or array.
     """
 
     key, equals, value = text.partition("=")
     if not equals:
         return text
-    segments = [segment.strip().strip("\"'") for segment in key.split(".")]
+    segments = [segment.strip() for segment in key.split(".")]
     if any(segment in _CONFIG_WITHHELD_KEYS or _is_secret_key(segment) for segment in segments):
         return f"{key}=<redacted>"
-    try:
-        loaded = tomllib.loads(f"value = {value}").get("value")
-    except (tomllib.TOMLDecodeError, RecursionError):
-        return None if value.strip().strip("\"'").startswith(("{", "[")) else text
-    if isinstance(loaded, (dict, list)):
-        shown = _withheld_json(loaded, tuple(segments))
-        return None if shown is None else f"{key}={shown}"
-    return text
+    if key.strip() in _PUBLISHED_CONFIG_KEYS:
+        return text
+    return f"{key}={_withheld_string(value)}"
 
 
-def _withheld_attached(prefix: str, value: str, withhold: Callable[[str], str | None]) -> str | None:
-    """``prefix`` and a value written attached to its flag, the value withheld by ``withhold``."""
+def _withheld_words(words: list[str] | tuple[str, ...], *, family: str) -> tuple[list[str], bool]:
+    """Each plain argument word as it may be published, and whether one was redacted as credential-shaped.
 
-    shown = withhold(value)
-    return None if shown is None else f"{prefix}{shown}"
-
-
-def _withheld_words(words: list[str] | tuple[str, ...], *, family: str) -> list[str] | None:
-    """Each argument word as it may be published, or ``None`` when one cannot be.
-
-    A value is withheld however it is attached to its flag (#823 review): a
-    separate word, ``--name=value`` (``--settings={…}``, ``--mcp-config={…}``,
-    ``--config=…``), and codex's ``-c<value>`` and ``-c=<value>``, which clap
-    reads as ``-c <value>``.
+    A codex ``--config`` override is withheld however it is attached to its
+    flag: a separate word after ``-c`` or ``--config``, ``--config=…``, and
+    ``-c<value>`` or ``-c=<value>``, which clap reads as ``-c <value>``. The
+    word after a secret-named word such as ``--token`` or ``password`` is
+    ``<redacted>``, as the host readers redact it in an MCP server's
+    arguments, and the value is then credential-shaped: an edit to that word
+    is not reported, so the caller names it as a limit. Every other word is
+    published as written, through the label redaction.
     """
 
     shown: list[str] = []
     config = False
+    secret = False
+    redacted = False
     for word in words:
-        if config:
+        if secret:
+            item = "<redacted>"
+            redacted = True
+        elif config:
             item = _withheld_config(word)
         elif family == "codex" and word.startswith("--config="):
-            item = _withheld_attached("--config=", word.removeprefix("--config="), _withheld_config)
+            item = "--config=" + _withheld_config(word.removeprefix("--config="))
         elif family == "codex" and word.startswith("-c") and len(word) > 2:
             prefix = "-c=" if word.startswith("-c=") else "-c"
-            item = _withheld_attached(prefix, word.removeprefix(prefix), _withheld_config)
-        elif word.startswith("--") and "=" in word:
-            name, _, value = word.partition("=")
-            item = _withheld_attached(f"{name}=", value, _withheld_word)
+            item = prefix + _withheld_config(word.removeprefix(prefix))
         else:
-            item = _withheld_word(word)
-        if item is None:
-            return None
+            item = word
         shown.append(item)
         config = family == "codex" and word in {"-c", "--config"}
-    return shown
-
-
-def _withheld_arguments(family: str, value: str) -> str | None:
-    """An argument input as it may be published: the text the action parses, JSON words withheld.
-
-    A JSON word, or a codex ``--config`` override, is replaced, quoted, by its
-    shape (:func:`_withheld_json`); every other character stays as declared.
-    A JSON array ``codex-args`` publishes as its array of withheld words.
-    """
-
-    parsed = _argument_input(family, value)
-    if family == "codex" and value.startswith("["):
-        if parsed.words is None:
-            # The action refuses it; what it holds is still withheld as JSON.
-            try:
-                return _withheld_json(json.loads(value))
-            except (ValueError, RecursionError):
-                return None
-        shown = _withheld_words(parsed.words, family=family)
-        return None if shown is None else json.dumps(shown, separators=(",", ":"), ensure_ascii=False)
-    shown = _withheld_words([word for word, _start, _end in parsed.spans], family=family)
-    if shown is None:
-        return None
-    pieces: list[str] = []
-    cursor = 0
-    for (word, start, end), published in zip(parsed.spans, shown, strict=True):
-        if published != word:
-            pieces.extend((parsed.text[cursor:start], shlex.quote(published)))
-            cursor = end
-    pieces.append(parsed.text[cursor:])
-    return "".join(pieces)
+        secret = not secret and word.lower().lstrip("-").replace("-", "_") in _SECRET_KEY_MARKERS
+    return shown, redacted
 
 
 def _url_withheld(url: str) -> str:
@@ -2789,9 +2196,8 @@ def _published_value(text: str) -> tuple[str, bool]:
         # No free character to stand for each expression: read the text as written.
         expressions = []
     def url_withheld(match: re.Match[str]) -> str:
-        # A backslash the URL ends at is kept, so the `\"` a JSON-array
-        # `codex-args` element escapes a quote with stays an escape
-        # (#823 review cycle 3).
+        # A backslash the URL ends at is kept, so a JSON escape after it, as
+        # in a published permission rule, stays an escape (#823 review cycle 3).
         url = match.group(0)
         bare = url.rstrip("\\")
         return _url_withheld(bare) + url[len(bare):]
@@ -2828,46 +2234,54 @@ def _setting_text(value: Any) -> str | None:
     return None
 
 
-def _published_text(name: str, text: str | None) -> dict[str, Any]:
-    """A setting's withheld text as it may be published; ``None`` text is ``unparsed_json``."""
+def _published_text(name: str, text: str | None, *, redacted: bool = False) -> dict[str, Any]:
+    """A setting's withheld text as it may be published; ``None`` text is ``unparsed_json``.
+
+    ``redacted`` says credential-shaped text was already withheld from it.
+    """
 
     if text is None:
         return {"name": name, "value": None, "unresolved_reason": "unparsed_json"}
-    shown, redacted = _published_value(text)
-    return {"name": name, "value": shown, "unresolved_reason": "redacted" if redacted else None}
+    shown, rewritten = _published_value(text)
+    return {"name": name, "value": shown, "unresolved_reason": "redacted" if redacted or rewritten else None}
 
 
 def _published_setting(name: str, value: Any, *, arguments: str | None = None) -> dict[str, Any]:
     """One action input as it may be published: its text, or why it is not.
 
     ``arguments`` names the family whose action splits this input
-    (``claude_args``, ``codex-args``); every other input is one value, a JSON
+    (``claude_args``, ``codex-args``). Such an input is read only when it is a
+    plain list of words (:func:`_argument_words`), published as those words;
+    otherwise it is ``unread_arguments`` and publishes only ``<withheld:…>``,
+    a digest, so an edit to it is still a change while none of its text is
+    published (#823 review cycle 4). Every other input is one value, a JSON
     object published by :func:`_withheld_json`.
     """
 
     text = _setting_text(value)
     if text is None:
         return {"name": name, "value": None, "unresolved_reason": "not_a_string"}
-    setting = _published_text(
-        name, _withheld_word(text) if arguments is None else _withheld_arguments(arguments, text)
-    )
+    if arguments is not None:
+        words = _argument_words(text)
+        if words is None:
+            return {"name": name, "value": _withheld_string(text), "unresolved_reason": "unread_arguments"}
+        shown, redacted = _withheld_words(words, family=arguments)
+        return _published_text(name, " ".join(shown), redacted=redacted)
+    setting = _published_text(name, _withheld_word(text))
     # Read off the declared text: redaction may rewrite the expression away.
     return {**setting, "holds_expression": True} if holds_expression(text) else setting
 
 
 def _published_flag(family: str, name: str, arity: int | None, values: list[str] | None) -> dict[str, Any]:
-    """One CLI flag as it may be published: its value words, each withheld as an input's are."""
+    """One CLI flag of a plain ``run:`` as it may be published: its value words, a ``--config`` override withheld."""
 
     if values is None:
         return {"name": name, "value": None, "unresolved_reason": None}
     if family == "codex" and name == "--config":
-        overrides = [_withheld_config(value) for value in values]
-        shown = None if None in overrides else [str(value) for value in overrides]
+        shown, redacted = [_withheld_config(value) for value in values], False
     else:
-        shown = _withheld_words(values, family=family)
-    if shown is None:
-        return _published_text(name, None)
-    return _published_text(name, shown[0] if arity == 1 else shlex.join(shown))
+        shown, redacted = _withheld_words(values, family=family)
+    return _published_text(name, shown[0] if arity == 1 else " ".join(shown), redacted=redacted)
 
 
 def _setting_key(setting: dict[str, Any]) -> tuple[str, str, str]:
@@ -2946,97 +2360,52 @@ def _action_launch(job: str, step_label: str, agent: str, step: dict[Any, Any]) 
     )
 
 
-def _run_launches(job: str, step_label: str, run: str) -> list[dict[str, Any]]:
-    """The agent CLIs a ``run:`` step launches: read when literal, else unresolved.
+def _run_launch(job: str, step_label: str, agent: str, arguments: list[str]) -> dict[str, Any]:
+    """A plain ``run:`` agent CLI command's launch: its documented permission flags, and the rules they meet."""
 
-    Read only when the whole ``run:`` is one simple command that starts with
-    the agent CLI (after literal ``NAME=value`` assignments), holds no shell
-    expansion and no ``${{ }}`` expression: then its documented permission
-    flags are its settings. Otherwise an agent CLI found at the start of any
-    command in it — after any reserved words, and inside a ``$(…)`` or
-    backtick substitution outside single quotes — is one ``unresolved`` entry
-    with the reason, and none of its text is published. A here-document's
-    body is never a command, and only an unquoted delimiter's body has
-    substitutions the shell runs (:func:`_here_documents`).
-    """
-
-    run = run.strip()
-    # The commands the shell runs, without the here-document bodies it passes
-    # them as input; a step with one is never a simple command, since `<<`
-    # stays in `script`, so what is published is always read from `run`.
-    script, expanded = _here_documents(run)
-    here_doc_agents = {agent for body in expanded for agent in _substituted_agents(body, here_doc_body=True)}
-    words = _shell_words(script)
-    base = {"job": job, "step": step_label}
-    if words is None:
-        # Quoting that does not balance cannot be split into commands, so no
-        # word of it is read; a line that starts an agent CLI, or holds a
-        # substitution that does, is still named.
-        agents = sorted({
-            agent for line in script.splitlines()
-            for agent in ({_line_agent(line)} | _substituted_agents(line))
-            if agent is not None
-        } | here_doc_agents)
-        return [
-            {**base, "agent": agent, "form": "unresolved", "unresolved_reason": "compound_command", "settings": []}
-            for agent in agents
-        ]
-    commands = _commands(words)
-    launches = [launch for command in commands if (launch := _agent_command(command))]
-    # An agent CLI inside a `$(…)` or backtick substitution heads no command
-    # the splitter sees when the substitution is double-quoted or a backtick
-    # (#823 review), and is named as unresolved.
-    substituted = _substituted_agents(script) | here_doc_agents
-    if not launches and not substituted:
-        return []
-    # A comment is an unquoted `#` at the start of a word, read off the raw
-    # text: the splitter keeps `#` literal, so a quoted "#123 review" is one word.
-    # A command after a reserved word (`then`, `!`, `time`) is not a simple one.
-    simple = [command for command in commands if command]
-    single = (
-        len(simple) == 1
-        and not any(_is_operator(word) for word in words)
-        and not _has_shell_comment(script)
-        and not _reserved_prefix_length(simple[0])
-    )
-    if "${{" in run:
-        reason: str | None = "expression"
-    elif not single:
-        reason = "compound_command"
-    elif substituted or _has_shell_expansion(script):
-        reason = "shell_expansion"
-    else:
-        reason = None
-    if reason is not None:
-        agents = sorted({agent for agent, _arguments in launches} | substituted)
-        return [
-            {**base, "agent": agent, "form": "unresolved", "unresolved_reason": reason, "settings": []}
-            for agent in agents
-        ]
-    (agent, arguments), = launches
     flags = _read_flags(arguments, _AGENT_FLAG_TABLES[agent])
     settings = [_published_flag(agent, name, arity, values) for name, arity, values in flags]
-    return [_with_rules(
+    return _with_rules(
         {
-            **base, "agent": agent, "form": "read", "unresolved_reason": None,
-            "settings": sorted(settings, key=_setting_key),
+            "job": job, "step": step_label, "agent": agent, "form": "read",
+            "unresolved_reason": None, "settings": sorted(settings, key=_setting_key),
         },
         _flag_rules(agent, flags),
-    )]
+    )
 
 
-def _step_agent_launches(job: str, step: dict[Any, Any], index: int) -> list[dict[str, Any]]:
-    """The agent launches one step declares: a known action, or a ``run:`` agent CLI."""
+def _step_agent_launches(
+    job: str, step: dict[Any, Any], index: int, shell: Any
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The agent launches one step declares, and the unread ``run:`` agent steps it is.
+
+    A known agent action is a launch. A ``run:`` is a launch only when it is
+    one line of plain words (:func:`_run_command`) whose program is a known
+    agent CLI, run by ``bash`` or ``sh`` or no declared ``shell:`` (``shell``).
+    Any other ``run:`` that mentions ``claude`` or ``codex`` as a word of its
+    own is one unread step per agent CLI it mentions: a non-blocking limit
+    that publishes none of its text, is never compared and so gives no row,
+    and never says that the step starts or does not start an agent
+    (#823 review cycle 4).
+    """
 
     if "uses" in step:
         agent = _action_identity(step["uses"])
         if agent is not None and agent in _AGENT_ACTIONS:
-            return [_action_launch(job, _step_label(step, index), agent, step)]
-        return []
+            return [_action_launch(job, _step_label(step, index), agent, step)], []
+        return [], []
     run = step.get("run")
-    if isinstance(run, str) and ("claude" in run or "codex" in run):
-        return _run_launches(job, _step_label(step, index), run)
-    return []
+    if not isinstance(run, str):
+        return [], []
+    mentioned = sorted(set(_AGENT_CLI_MENTION_RE.findall(run)))
+    if not mentioned:
+        return [], []
+    label = _step_label(step, index)
+    command = _run_command(run) if _read_shell(shell) else None
+    if command is None:
+        return [], [{"job": job, "step": label, "agent": agent} for agent in mentioned]
+    agent, arguments = command
+    return [_run_launch(job, label, agent, arguments)], []
 
 
 def _checkout_ref(job: str, step: dict[Any, Any], index: int) -> dict[str, Any] | None:
@@ -3112,15 +2481,13 @@ def _settings_bypass_permissions(text: str) -> bool:
     )
 
 
-def _claude_action_rules(words: tuple[str, ...]) -> set[str]:
-    """The widening rules the words a Claude action passes on meet.
+def _claude_action_rules(words: list[str]) -> set[str]:
+    """The widening rules the plain words of a Claude action's ``claude_args`` meet.
 
     Read as ``parse-sdk-options.ts`` reads them: a word starting with ``--``
     is always a flag and never another flag's value, so
     ``--dangerously-skip-permissions`` counts wherever it stands, and
-    ``--permission-mode`` and ``--settings`` take the next word unless that
-    starts with ``--``. A ``--settings`` value written as JSON meets the rule
-    its ``defaultMode`` sets.
+    ``--permission-mode`` takes the next word unless that starts with ``--``.
     """
 
     rules: set[str] = set()
@@ -3131,8 +2498,6 @@ def _claude_action_rules(words: tuple[str, ...]) -> set[str]:
         if name == "--dangerously-skip-permissions":
             rules.add("bypass_permissions")
         elif name == "--permission-mode" and value == "bypassPermissions":
-            rules.add("bypass_permissions")
-        elif name == "--settings" and _settings_bypass_permissions(value):
             rules.add("bypass_permissions")
     return rules
 
@@ -3213,7 +2578,6 @@ def _flag_rules(
         if family == "claude" and (
             name == "--dangerously-skip-permissions"
             or (name == "--permission-mode" and value == "bypassPermissions")
-            or (name == "--settings" and value is not None and _settings_bypass_permissions(value))
         ):
             rules.add(("bypass_permissions", name))
         if family == "codex" and name == "--dangerously-bypass-approvals-and-sandbox":
@@ -3227,12 +2591,13 @@ def _action_rules(spec: _AgentAction, declared: list[tuple[str, Any]]) -> set[tu
     """The documented widening rules an agent action's declared inputs meet, read from the raw text.
 
     Read here, before anything is withheld for publication, so redaction never
-    hides a rule. Only from literal text: GitHub substitutes a ``${{ }}``
-    expression into the input before the action reads it, so a rule is read
-    only where the substituted text cannot reach — an argument input's words
-    before the first expression (:func:`_literal_argument_words`), a user
-    gate's entries that hold none — and a mode or settings input holding one
-    meets none. Each rule names the input it was read from.
+    hides a rule. Only from text this reader reads exactly: an argument input
+    only when it is a plain list of words (:func:`_argument_words`), which a
+    ``${{ }}`` expression never is; a user gate's entries that hold no
+    expression, since GitHub substitutes one before the action reads the
+    input and the substituted text may add entries but cannot remove a
+    literal one; and a mode or settings input only when it holds none. Each
+    rule names the input it was read from.
     """
 
     rules: set[tuple[str, str]] = set()
@@ -3241,7 +2606,6 @@ def _action_rules(spec: _AgentAction, declared: list[tuple[str, Any]]) -> set[tu
         if text is None:
             continue
         if name in spec.gates:
-            # The substituted text may add entries; it cannot remove a literal one.
             entries = _EXPRESSION_SPAN_RE.sub(_EXPRESSION_MARK, text).split(",")
             if "*" in {entry.strip() for entry in entries}:
                 rules.add(("open_gate", name))
@@ -3251,7 +2615,7 @@ def _action_rules(spec: _AgentAction, declared: list[tuple[str, Any]]) -> set[tu
         if name == spec.settings and not holds_expression(text) and _settings_bypass_permissions(text):
             rules.add(("bypass_permissions", name))
         if name == spec.args:
-            words = _literal_argument_words(spec.family, text)
+            words = _argument_words(text)
             if words is None:
                 continue
             if spec.family == "claude":
@@ -3312,17 +2676,23 @@ _RULE_SETTINGS: dict[str, frozenset[str]] = {
 }
 
 
-def _expression_setting(entry: dict[str, Any], rule: str, detail: str) -> str | None:
-    """The input of ``entry`` holding a ``${{ }}`` expression whose substituted text may meet ``rule``."""
+def _unread_setting(entry: dict[str, Any], rule: str, detail: str) -> tuple[str, str] | None:
+    """The input of ``entry`` whose text this reader did not read for ``rule``, and why.
+
+    ``expression``: it holds a ``${{ }}`` expression, whose substituted text
+    may meet the rule. ``unread``: it is an argument input that is not a
+    plain list of words (``unread_arguments``), so no rule was read from it.
+    """
 
     names = frozenset({detail}) if rule == "open_gate" else _RULE_SETTINGS.get(rule, frozenset())
-    return next(
-        (
-            str(setting["name"]) for setting in entry.get("settings", [])
-            if setting.get("holds_expression") and setting["name"] in names
-        ),
-        None,
-    )
+    for setting in entry.get("settings", []):
+        if setting["name"] not in names:
+            continue
+        if setting.get("unresolved_reason") == "unread_arguments":
+            return str(setting["name"]), "unread"
+        if setting.get("holds_expression"):
+            return str(setting["name"]), "expression"
+    return None
 
 
 @dataclass(frozen=True)
@@ -3332,15 +2702,23 @@ class AgentRuleGains:
     Each widening is ``(job, rule, detail, entry)`` for the first launch at
     ``after`` in that job that meets it. Only ``claimed`` is a widening:
 
-    - ``unread_before``: the job launched that agent at ``before`` only in a
-      form this reader does not read, such as a compound ``run:`` that became a
-      literal one. That launch may have met the rule already, as a job whose
+    - ``unread_before``: the job has fewer steps at ``after`` than at
+      ``before`` that may launch that agent in a form this reader does not
+      read — a ``run:`` that mentions the agent CLI and is not one plain
+      command (``unread_agent_runs``), or an agent action whose ``with:`` is
+      not a mapping — and more launches of it this reader reads. The launch
+      that meets the rule may be one of those steps, rewritten in a form this
+      reader reads, and it may have met the rule already, as a job whose
       permissions were not explicit may already have held a write scope
-      (``unknown_before``). A job that also launched the agent in a form that
-      was read claims the gain.
-    - ``expression_before``: at ``before``, the job's launch of that agent held
-      a ``${{ }}`` expression in an input the rule is read from, and GitHub's
-      substituted text may already have met it. Each names that input.
+      (``unknown_before``). Each names a step that is gone. Such a step that
+      remains is a limit and nothing more, and one that goes while no read
+      launch is added takes no gain from a launch that was read before
+      (#823 review cycle 4).
+    - ``setting_before``: at ``before``, the job's launch of that agent held,
+      in an input the rule is read from, text this reader did not read for a
+      rule — a ``${{ }}`` expression (``expression``), whose substituted text
+      may already have met it, or an argument input that is not a plain list
+      of words (``unread``). Each names that input and which.
     - ``moved``: the rule left another job whose launch that met it left that
       job — the job no longer exists, or the same launch now runs here while
       each launch of that agent this job had still runs here or in that job —
@@ -3354,8 +2732,8 @@ class AgentRuleGains:
     """
 
     claimed: list[AgentWidening]
-    unread_before: list[AgentWidening]
-    expression_before: list[tuple[AgentWidening, str]]
+    unread_before: list[tuple[AgentWidening, dict[str, Any]]]
+    setting_before: list[tuple[AgentWidening, str, str]]
     moved: list[tuple[AgentWidening, dict[str, Any]]]
 
 
@@ -3375,14 +2753,25 @@ def agent_rule_gains(before: dict[str, Any] | None, after: dict[str, Any] | None
                 found.setdefault(key, []).append(entry)
         return found
 
-    def launches(grant: dict[str, Any] | None) -> dict[tuple[str, str], list[dict[str, Any]]]:
+    def by_job(entries: list[dict[str, Any]]) -> dict[tuple[str, str], list[dict[str, Any]]]:
         found: dict[tuple[str, str], list[dict[str, Any]]] = {}
-        for entry in (grant or {}).get("agent_launches", []):
+        for entry in entries:
             found.setdefault((str(entry["job"]), agent_family(str(entry["agent"]))), []).append(entry)
         return found
 
+    def launches(grant: dict[str, Any] | None) -> dict[tuple[str, str], list[dict[str, Any]]]:
+        return by_job((grant or {}).get("agent_launches", []))
+
+    def unread_steps(grant: dict[str, Any] | None) -> dict[tuple[str, str], list[dict[str, Any]]]:
+        # The steps that may launch an agent in a form this reader does not read.
+        return by_job([
+            *(entry for entry in (grant or {}).get("agent_launches", []) if entry.get("form") != "read"),
+            *(grant or {}).get("unread_agent_runs", []),
+        ])
+
     old, new = met(before), met(after)
     launched_before, launched_after = launches(before), launches(after)
+    unread_before, unread_after = unread_steps(before), unread_steps(after)
     lost = [key for key in old if key not in new]
     gained = [key for key in new if key not in old]
 
@@ -3429,7 +2818,10 @@ def agent_rule_gains(before: dict[str, Any] | None, after: dict[str, Any] | None
                 lost.remove(source)
                 sources[key] = source
 
-    gains = AgentRuleGains(claimed=[], unread_before=[], expression_before=[], moved=[])
+    def read(entries: list[dict[str, Any]]) -> int:
+        return sum(1 for entry in entries if entry.get("form") == "read")
+
+    gains = AgentRuleGains(claimed=[], unread_before=[], setting_before=[], moved=[])
     for key in gained:
         entries = new[key]
         job, family, rule, detail = key
@@ -3438,14 +2830,20 @@ def agent_rule_gains(before: dict[str, Any] | None, after: dict[str, Any] | None
             gains.moved.append((widening, old[sources[key]][0]))
             continue
         before_launches = launched_before.get((job, family), [])
-        if before_launches and not any(entry.get("form") == "read" for entry in before_launches):
-            gains.unread_before.append(widening)
+        was_unread = unread_before.get((job, family), [])
+        still_unread = unread_after.get((job, family), [])
+        if len(was_unread) > len(still_unread) and read(launched_after.get((job, family), [])) > read(
+            before_launches
+        ):
+            remaining = {str(entry["step"]) for entry in still_unread}
+            gone = next((entry for entry in was_unread if str(entry["step"]) not in remaining), was_unread[0])
+            gains.unread_before.append((widening, gone))
             continue
         setting = next(
-            (name for entry in before_launches if (name := _expression_setting(entry, rule, detail))), None
+            (found for entry in before_launches if (found := _unread_setting(entry, rule, detail))), None
         )
         if setting is not None:
-            gains.expression_before.append((widening, setting))
+            gains.setting_before.append((widening, *setting))
             continue
         gains.claimed.append(widening)
     return gains
@@ -3457,27 +2855,18 @@ def gained_agent_widenings(before: dict[str, Any] | None, after: dict[str, Any] 
     return agent_rule_gains(before, after).claimed
 
 
-#: How an unresolved agent launch or checkout reads in the limit that names it.
-_UNRESOLVED_AGENT_PHRASES = {
-    "compound_command": (
-        "part of a `run:` that holds more than one command or a shell reserved word, "
-        "or quoting this audit cannot split"
-    ),
-    "shell_expansion": "a command holding, or inside, a shell expansion this static audit does not evaluate",
-    "expression": "a `run:` holding a `${{ }}` expression, which GitHub substitutes before the shell reads it",
-    "inputs_not_a_mapping": "a step whose `with:` is not a mapping",
-}
-
-
 def uncompared_agent_launch_texts(grant: dict[str, Any]) -> list[str]:
-    """One message per agent launch setting or checkout ref a workflow does not compare (#823).
+    """One message per agent launch setting, unread agent step or checkout ref a workflow does not compare (#823).
 
-    Not blocking, like an unread secret value (#693): the launch's job, agent,
-    form, reason and widening rules are still compared, so adding, removing or
-    re-forming one, or gaining a documented rule, is a row. Only an edit inside
-    what is named here is not reported. That includes a setting holding
-    credential-shaped text (#823 review): it is compared by its redacted text
-    and its rules, so only an edit inside what is redacted is not reported. A
+    Not blocking, like an unread secret value (#693). A launch's job, agent,
+    form and widening rules are still compared, so adding, removing or
+    re-forming one, or gaining a documented rule, is a row; only an edit
+    inside what is named here is not reported. A setting holding
+    credential-shaped text (#823 review) is compared by its redacted text and
+    its rules, so only an edit inside what is redacted is not reported. An
+    argument input that is not a plain list of words is compared by a digest
+    and read for no rule. An unread ``run:`` agent step is compared not at
+    all: it gives no row, whatever is edited (#823 review cycle 4). A
     redacted checkout ref is not named here: :func:`_uncompared_workflow_text`
     makes it a blocking limit, as a redacted step reference is (#767).
     """
@@ -3485,11 +2874,9 @@ def uncompared_agent_launch_texts(grant: dict[str, Any]) -> list[str]:
     texts: list[str] = []
     for entry in grant.get("agent_launches", []):
         where = f"{entry['job']}/{entry['step']} ({entry['agent']})"
-        reason = entry.get("unresolved_reason")
-        if reason:
+        if entry.get("unresolved_reason") == "inputs_not_a_mapping":
             texts.append(
-                f"the agent launch at {where} is "
-                f"{_UNRESOLVED_AGENT_PHRASES.get(str(reason), 'in an unsupported form')}; its "
+                f"the agent launch at {where} is a step whose `with:` is not a mapping; its "
                 "settings are neither published nor compared, so an edit to them is not reported"
             )
         for setting in entry.get("settings", []):
@@ -3502,12 +2889,21 @@ def uncompared_agent_launch_texts(grant: dict[str, Any]) -> list[str]:
                     "is not reported"
                 )
                 continue
+            if unread == "unread_arguments":
+                texts.append(
+                    f"the {setting['name']} value of the agent launch at {where} is not a plain list "
+                    "of words this audit reads: it holds a quote, a `${{ }}` expression, `$`, a "
+                    "backtick, a comment, a shell operator, JSON, `--settings` or `--mcp-config`, or "
+                    "another character outside the plain set; none of its text is published and no "
+                    "documented widening rule is read from it, and it is compared only by a digest, "
+                    "so an edit to it is a change, never a widening"
+                )
+                continue
             what = {
                 "not_a_string": "is not a string",
                 "unparsed_json": (
-                    "holds text that starts like JSON, or a codex `--config` table or array, "
-                    "and does not parse, so the values it may hold cannot be told apart from "
-                    "its key names"
+                    "holds text that starts like JSON and does not parse, so the values it may "
+                    "hold cannot be told apart from its key names"
                 ),
             }.get(str(unread))
             if what:
@@ -3516,6 +2912,13 @@ def uncompared_agent_launch_texts(grant: dict[str, Any]) -> list[str]:
                     "neither published nor compared, so an edit to it that gains no documented "
                     "widening rule is not reported"
                 )
+    for entry in grant.get("unread_agent_runs", []):
+        texts.append(
+            f"the `run:` at {entry['job']}/{entry['step']} mentions {entry['agent']} and is not read "
+            "as an agent launch: only a single-line command of plain words run by bash or sh, whose "
+            "program is `claude -p` or `codex exec`, is read, so this step may start an agent that is "
+            "neither published nor compared, and adding, removing or editing it gives no row"
+        )
     for entry in grant.get("checkout_refs", []):
         unread = entry.get("unresolved_reason")
         what = {
@@ -3761,8 +3164,9 @@ def _workflow_grant(
 
     Each label is published by :func:`published_workflow_label` before it is
     used anywhere, so the job in ``permission_contexts``, ``reusable_calls``,
-    ``step_actions``, ``agent_launches``, ``checkout_refs``, the
-    ``write_scopes`` and ``effective_write_scopes`` prefixes, every row built
+    ``step_actions``, ``agent_launches``, ``unread_agent_runs``,
+    ``checkout_refs``, the ``write_scopes`` and ``effective_write_scopes``
+    prefixes, every row built
     from them, and ``config_sha256`` all hold the same label, and none holds
     the raw text. ``collided`` receives the kinds of label of which two
     distinct raw values publish alike.
@@ -3783,6 +3187,7 @@ def _workflow_grant(
     reusable_calls: list[dict[str, Any]] = []
     step_actions: list[dict[str, Any]] = []
     agent_launches: list[dict[str, Any]] = []
+    unread_agent_runs: list[dict[str, Any]] = []
     checkout_refs: list[dict[str, Any]] = []
 
     def collect(perms: Any, where: str) -> None:
@@ -3832,7 +3237,11 @@ def _workflow_grant(
                     action = _step_action(label, step, index)
                     if action is not None:
                         step_actions.append(action)
-                    job_launches.extend(_step_agent_launches(label, step, index))
+                    launches, unread = _step_agent_launches(
+                        label, step, index, _declared_shell(step, job, data)
+                    )
+                    job_launches.extend(launches)
+                    unread_agent_runs.extend(unread)
                     checkout = _checkout_ref(label, step, index)
                     if checkout is not None:
                         checkout_refs.append(checkout)
@@ -3866,6 +3275,9 @@ def _workflow_grant(
     # Omitted when empty for the same reason (#823).
     if agent_launches:
         projection["agent_launches"] = agent_launches
+    if unread_agent_runs:
+        # Named as a limit, never compared (#823 review cycle 4).
+        projection["unread_agent_runs"] = unread_agent_runs
     if checkout_refs:
         projection["checkout_refs"] = checkout_refs
     return {
@@ -5758,7 +5170,12 @@ def _same_workflow_grant(before: dict | None, after: dict | None) -> bool:
     # Agent launches and checkout refs compare the same way (#823): as each
     # job's multiset of declared facts, never by step label, and a launch's
     # `job_secrets` is context for the row, never compared.
-    ignored = {"write_scopes", "config_sha256", "step_actions", "agent_launches", "checkout_refs"}
+    # An unread `run:` agent step is a named limit and is never compared, so
+    # adding, removing or editing one gives no row (#823 review cycle 4).
+    ignored = {
+        "write_scopes", "config_sha256", "step_actions", "agent_launches", "checkout_refs",
+        "unread_agent_runs",
+    }
 
     def comparable(grant: dict[str, Any]) -> dict[str, Any]:
         # Both sides are v0.4+ shapes here, and a drift payload refuses a

@@ -229,11 +229,14 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # (#823). Host-grants 0.6 shipped in 1.1.0, so this mints host-grants
 # inventory, baseline and drift 0.7: a workflow grant adds ``agent_launches[]``
 # (a documented agent action's permission inputs, or the permission flags of a
-# literal ``claude -p`` / ``codex exec`` run step, compared as text) and
-# ``checkout_refs[]`` (each ``actions/checkout`` step's ``with.ref``), both
-# omitted when empty. Only a documented rule gained by a job's agent launches
-# widens; every other edit is a ``changed`` row, and a workflow row that runs
-# an agent names the job facts beside it. A 0.4-0.6 baseline holding a
+# ``run:`` that is one plain ``claude -p`` / ``codex exec`` command, compared as
+# text), ``unread_agent_runs[]`` (any other ``run:`` that mentions an agent CLI:
+# a named limit, never compared) and ``checkout_refs[]`` (each
+# ``actions/checkout`` step's ``with.ref``), each omitted when empty. Shell is
+# not parsed; an argument input that is not a plain list of words is compared by
+# a digest and read for no rule. Only a documented rule gained by a job's agent
+# launches widens; every other edit is a ``changed`` row, and a workflow row
+# that runs an agent names the job facts beside it. A 0.4-0.6 baseline holding a
 # workflow grant is incomparable
 # (``baseline_workflow_agent_launches_unavailable``); one without a workflow
 # stays comparable. #823 moves neither verifier 0.21 nor capability diff 0.4:

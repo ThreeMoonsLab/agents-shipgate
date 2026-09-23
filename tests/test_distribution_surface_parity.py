@@ -231,7 +231,7 @@ SURFACES: tuple[Surface, ...] = (
         # comes from the engine's
         # `workflow_agent_widened_*` expansion signal, itself read off the
         # `widening_rules` the engine published on each launch; the `why`'s
-        # moved, unread-before and expression sentences read the same
+        # moved, unread-before and setting-before sentences read the same
         # `agent_rule_gains` the signal is computed from, and the note reads the
         # triggers, write scopes, secrets and checkout refs the engine already
         # published on the grant, so it adds no claim;
