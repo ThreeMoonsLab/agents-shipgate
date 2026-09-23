@@ -334,7 +334,8 @@ so nothing in plugins/demo was compared`. `--json` reports
 `comparison_status: "partial"` with the same `incomparable_reasons`, the
 entries and the directory as `scope` on that item. That is only where the
 plugin's references stop inside its directory and nothing outside it depends
-on it; any other unreadable input still gives `Cannot compare`, as above
+on it; any other input the change leaves unreadable still gives
+`Cannot compare`, as above
 ([Partial comparisons](host-boundary-support.md#partial-comparisons)). It is
 not a pass either, and a partial answer with no entry says `That is not a
 no-change answer for this change` instead of `No static host-grant changes

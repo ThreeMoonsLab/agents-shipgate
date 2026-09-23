@@ -225,7 +225,9 @@ No row is proof that a hook ran. What remains unread:
   `<name>-hooks.json` (`_` or `.` also separate). In a plugin manifest, any
   other name, a path outside the plugin directory, a `hooks` member of the
   wrong type, and an unreadable manifest are blocking coverage limits. `diff`
-  and `verify` name a parse or shape limit when the manifest is unchanged. A
+  and `verify` name a parse or shape limit when the manifest is unchanged; in
+  a `partial` comparison every plugin-reference limit, an unchanged one
+  included, is named instead with the directory it leaves uncompared. A
   read limit is never named as unchanged. When the limit is new, changed or on
   one side only — or is a read limit, such as an untouched plugin hook file
   over the read bound — `diff` and `verify` never compare that plugin: they
@@ -443,8 +445,9 @@ refused the comparison is one of the plugin-reference limits listed under
 directory whose references raised it, and every other limit is an unchanged
 one. A reference is followed only inside its plugin
 directory, so that directory holds everything such a limit can hide. It is
-left uncompared on both sides — its artifacts, grants and non-blocking issues,
-matched case-insensitively — and named as `scope` on the limit's coverage
+left uncompared on both sides — every host's artifacts, grants and
+non-blocking issues under it, not only the plugin's, matched
+case-insensitively — and named as `scope` on the limit's coverage
 item; a directory inside another is covered by the outer one, and a hook file
 another plugin also selects is withheld with it. The rows outside it are
 published, led by `Not compared: <directory>, a plugin directory this entry
