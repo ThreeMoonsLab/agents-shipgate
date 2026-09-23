@@ -10,7 +10,8 @@ The renderer, `--json`, and `check`'s text format share these rows, so the
 three cannot describe one change three ways. The text projections read them
 through :func:`review_changes`, which adds what the published row leaves to
 the reader: a permission rule's disposition, an MCP server's published launch
-facts, and one change for a replacement or move the engine established (#795).
+facts, package and argument digest, a hook's published handlers (#819), and
+one change for a replacement or move the engine established (#795).
 
 Those presentation facts are published too, so a machine consumer reads what a
 human reads: the rule's disposition on the row itself, and the joined changes,
@@ -20,6 +21,7 @@ their direction, the counters and the review question in the comparison's
 
 from __future__ import annotations
 
+import json
 import re
 from collections import Counter
 from collections.abc import Sequence
@@ -27,6 +29,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from agents_shipgate.core.host_grants import (
+    _PLAIN_TOKEN_RE,
+    DETAIL_NOT_SHOWN,
     hook_loading_basis,
     host_grant_expansion_signals,
     permission_rule_replacements,
@@ -481,7 +485,8 @@ class ReviewChange:
     before: str
     after: str
     #: The field-level difference, in place of ``before → after``, when both
-    #: sides name the same grant (an MCP server whose launch changed).
+    #: sides name the same grant (an MCP server whose launch changed, a hook
+    #: whose matcher, command or timeout changed).
     change: str | None
     why: str
     expands: bool
@@ -640,6 +645,16 @@ def _mcp_launch(grant: dict[str, Any]) -> str | None:
     return f"{kind} {endpoint}"
 
 
+def _more(count: int, noun: str) -> str:
+    return f" (+{count} more {noun}{'s' if count != 1 else ''})" if count else ""
+
+
+def _digest_text(digest: Any) -> str:
+    """A published digest as text prints it: its first twelve hex digits (#819)."""
+
+    return f"sha256:{str(digest)[:12]}" if digest else "none"
+
+
 def _mcp_cell(value: str, grant: dict[str, Any] | None) -> str:
     """An added or removed MCP server with the launch facts its grant publishes."""
 
@@ -649,6 +664,7 @@ def _mcp_cell(value: str, grant: dict[str, Any] | None) -> str:
         fact
         for fact in (
             _mcp_launch(grant),
+            f"package {grant['package']}" if grant.get("package") else None,
             "env keys " + _names(_key_names(grant["env_keys"])) if grant.get("env_keys") else None,
             "header keys " + _names(_key_names(grant["header_keys"])) if grant.get("header_keys") else None,
         )
@@ -661,13 +677,34 @@ def _mcp_cell(value: str, grant: dict[str, Any] | None) -> str:
 _MCP_FIELDS = ("transport", "endpoint", "env_keys", "header_keys")
 
 
+def _mcp_args_change(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
+    """The difference in two readings' published package and argument digest (#819).
+
+    Nothing when either reading does not publish them, as a grant from a
+    ``0.6`` snapshot or a saved baseline does not. The digest stands for
+    every argument but the package, so an edit to the package alone names
+    the package alone.
+    """
+
+    if "args_sha256" not in before or "args_sha256" not in after:
+        return []
+    parts: list[str] = []
+    old, new = before.get("package"), after.get("package")
+    if old != new:
+        parts.append(f"package {old or '(none shown)'} → {new or '(none shown)'}")
+    old, new = before.get("args_sha256"), after.get("args_sha256")
+    if old != new:
+        parts.append(f"launch arguments changed ({_digest_text(old)} → {_digest_text(new)})")
+    return parts
+
+
 def _mcp_change(name: str, before: dict[str, Any], after: dict[str, Any]) -> str | None:
     """What differs between two readings of one MCP server, in its published fields.
 
     ``None`` when either side does not publish every field, so a grant read
     from an older snapshot is never described by a difference it cannot show.
-    A command's path, its arguments and other settings are not published, so a
-    change confined to them says what was compared and that the change is
+    A command's path and other settings are not published, so a change
+    confined to them says what was compared and that the change is
     elsewhere, rather than ``name → name`` or a claim that the command is
     unchanged. Two different endpoints that print alike, such as two URLs
     neither of which is printed, read ``url changed (not shown)``.
@@ -691,6 +728,7 @@ def _mcp_change(name: str, before: dict[str, Any], after: dict[str, Any]) -> str
         # Printing the shared text on both sides would read as no change.
         kind = "url" if after.get("transport") == "url" else "command name"
         parts.append(f"{kind} changed ({_URL_NOT_SHOWN})")
+    parts.extend(_mcp_args_change(before, after))
     for field, label in (("env_keys", "env keys"), ("header_keys", "header keys")):
         old, new = set(before[field] or []), set(after[field] or [])
         added, removed = sorted(new - old), sorted(old - new)
@@ -698,32 +736,243 @@ def _mcp_change(name: str, before: dict[str, Any], after: dict[str, Any]) -> str
             tokens = [f"+{key}" for key in _key_names(added)] + [f"-{key}" for key in _key_names(removed)]
             parts.append(f"{label} {_names(tokens)}")
     if not parts:
-        return f"{name}: {_mcp_unshown_change(after)}"
+        compared = all("args_sha256" in grant for grant in (before, after))
+        return f"{name}: {_mcp_unshown_change(after, args_compared=compared)}"
     return f"{name}: " + "; ".join(parts)
 
 
-def _mcp_unshown_change(grant: dict[str, Any]) -> str:
+def _mcp_unshown_change(grant: dict[str, Any], *, args_compared: bool = False) -> str:
     """A change confined to what the grant does not publish, in the words of what was compared.
 
-    Only the command's name, or the URL's recorded value, and the env and
-    header key names are compared. `npx` → `./npx` and
-    `/usr/local/bin/node` → `./scripts/node` change the command while its name
-    stays the same, so the sentence names the command's path beside its
-    arguments as what this output does not show. A URL that is not printed is
-    named `url as recorded`, never by its value.
+    Only the command's name, or the URL's recorded value, the launch
+    arguments (#819: the package and the digest of the rest), and the env and
+    header key names are compared. `npx` → `./npx` and `/usr/local/bin/node`
+    → `./scripts/node` change the command while its name stays the same, so
+    the sentence names the command's path as what this output does not show.
+    The digest binds every argument as ``config_sha256``'s input holds it, so
+    once the arguments are compared no argument is named as unshown. A URL
+    that is not printed is named `url as recorded`, never by its value, and a
+    URL server that declares no arguments is not said to have compared them.
+    A grant read before the arguments were published names them as not
+    shown, as it did.
     """
 
     launch = _mcp_launch(grant)
+    arguments = (
+        "launch arguments, "
+        if args_compared and (grant.get("transport") != "url" or grant.get("args_sha256") is not None)
+        else ""
+    )
     if grant.get("transport") == "url":
         compared = "url as recorded" if _mcp_endpoint(grant) == _URL_NOT_SHOWN else launch or "url"
         unshown = "the URL's query or another setting"
     else:
         compared = launch or "command name"
-        unshown = "the command's path or arguments"
+        unshown = "the command's path or another setting" if arguments else "the command's path or arguments"
     return (
-        f"no difference in the {compared}, env key names or header key names; the change "
-        f"is in a detail this output does not show, such as {unshown}"
+        f"no difference in the {compared}, {arguments}env key names or header key names; the "
+        f"change is in a detail this output does not show, such as {unshown}"
     )
+
+
+#: How many hook handlers an added or removed hook's cell lists before counting.
+_HANDLER_LIMIT = 3
+
+#: Why a hook declaration published no handler: it is not in the shape the
+#: reader establishes (#819).
+_HOOK_SHAPE_REASON = (
+    "the declaration is not a list of matcher groups whose hooks are objects and whose "
+    "commands are strings"
+)
+#: What a hook row says when its declaration is outside that shape.
+_HOOK_SHAPE_NOT_READ = f"matcher, command and timeout not shown: {_HOOK_SHAPE_REASON}"
+
+#: What a hook's published handlers do not show, and so where a change the
+#: rows cannot name may be (#819). The command is digested whole, so no part
+#: of it is among them.
+_HOOK_UNSHOWN = "another hook setting or a redacted or shortened matcher or timeout"
+
+
+def _command_text(command: dict[str, Any]) -> str:
+    """A published hook command as one line: its executable's name and its digest, never its text (#819)."""
+
+    return f"{command.get('executable') or DETAIL_NOT_SHOWN} {_digest_text(command.get('sha256'))}"
+
+
+def _handler_value(field: str, value: Any) -> str:
+    """A published handler field as a row prints it (#819).
+
+    A timeout is printed as its JSON reads, so one written as text is quoted
+    and ``5`` → ``"5"`` or ``true`` → ``"true"`` never reads as the same value
+    twice (#819 review, cycles 5 and 6). Only the bounded text of an integer
+    too long to publish, and ``<not-shown>``, are printed bare: neither is a
+    plain token, so no string timeout is published as either.
+    """
+
+    if value is None:
+        return "(none)"
+    if field == "command":
+        return _command_text(value)
+    if field == "matcher" and value == "":
+        return '""'
+    if field == "timeout" and (not isinstance(value, str) or _PLAIN_TOKEN_RE.fullmatch(value)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
+#: A hook handler's published fields, in the order a row names them.
+_HANDLER_FIELDS = ("matcher", "command", "timeout")
+
+
+def _handler_facts(handler: dict[str, Any]) -> list[str]:
+    """What one published handler declares, in a reviewer's words."""
+
+    return [
+        f"{field} {_handler_value(field, handler.get(field))}"
+        for field in _HANDLER_FIELDS
+        if handler.get(field) is not None
+    ]
+
+
+def _hook_cell(value: str, grant: dict[str, Any] | None) -> str:
+    """An added or removed hook with the handlers its grant publishes (#819).
+
+    A grant read before handlers were published renders its event alone, as it did.
+    """
+
+    if not grant or value == ABSENT or "handlers" not in grant:
+        return value
+    if grant["handlers"] is None:
+        return f"{value} ({_HOOK_SHAPE_NOT_READ})"
+    return f"{value} ({_listed_handlers(grant)})"
+
+
+def _listed_handlers(grant: dict[str, Any]) -> str:
+    """The handlers a grant publishes, as a cell lists them: at most three, then a count (#819)."""
+
+    handlers = grant["handlers"]
+    total = len(handlers) + int(grant.get("omitted_handlers") or 0)
+    if not total:
+        return "no handlers"
+    if total == 1 and handlers:
+        return "; ".join(_handler_facts(handlers[0])) or "a handler with no matcher, command or timeout"
+    listed = [
+        f"handler {index}: {', '.join(_handler_facts(handler)) or 'no matcher, command or timeout'}"
+        for index, handler in enumerate(handlers[:_HANDLER_LIMIT], start=1)
+    ]
+    return "; ".join(listed) + _more(total - len(listed), "handler")
+
+
+def _published_json(value: Any) -> str:
+    """A published value as its JSON reads, so ``5`` and ``5.0`` differ as they do there."""
+
+    return json.dumps(value, sort_keys=True, ensure_ascii=False)
+
+
+def _handler_changes(before: list[dict[str, Any]], after: list[dict[str, Any]]) -> list[str] | None:
+    """Field differences between two readings of one event's handlers (#819).
+
+    ``None`` when the published handlers are the same ones in a different
+    order. With the same number of handlers, handler N is compared with
+    handler N and each differing field is named with its before and after; a
+    command by its executable's name and digest, since its text is never
+    published. Otherwise the handlers only one side declares are listed as
+    removed or added, since nothing establishes which of them another
+    replaced. Values compare as the JSON publishes them: a timeout of ``5``
+    and one of ``5.0`` are two values there, and the row names both.
+    """
+
+    parts: list[str] = []
+    old_json, new_json = list(map(_published_json, before)), list(map(_published_json, after))
+    if len(before) == len(after) and old_json != new_json and sorted(old_json) == sorted(new_json):
+        return None
+    if len(before) == len(after):
+        several = len(after) > 1
+        for index, (old, new) in enumerate(zip(before, after, strict=True), start=1):
+            for field in _HANDLER_FIELDS:
+                old_value, new_value = old.get(field), new.get(field)
+                if _published_json(old_value) == _published_json(new_value):
+                    continue
+                label = f"handler {index} {field}" if several else field
+                if field == "command" and old_value and new_value:
+                    parts.append(f"{label} changed ({_command_text(old_value)} → {_command_text(new_value)})")
+                else:
+                    parts.append(
+                        f"{label} {_handler_value(field, old_value)} → {_handler_value(field, new_value)}"
+                    )
+        return parts
+    remaining = list(zip(new_json, after, strict=True))
+    removed: list[dict[str, Any]] = []
+    for text, handler in zip(old_json, before, strict=True):
+        match = next((pair for pair in remaining if pair[0] == text), None)
+        if match is not None:
+            remaining.remove(match)
+        else:
+            removed.append(handler)
+    added = [handler for _text, handler in remaining]
+    for sign, handlers in (("-", removed), ("+", added)):
+        for handler in handlers:
+            facts = ", ".join(_handler_facts(handler)) or "no matcher, command or timeout"
+            parts.append(f"{sign}handler ({facts})")
+    return parts
+
+
+def _hook_change(event: str, before: dict[str, Any], after: dict[str, Any]) -> str | None:
+    """What differs between two readings of one hook event, in its published handlers (#819).
+
+    ``None`` when either reading does not publish handlers, as a ``0.6``
+    grant or a saved baseline's grant does not, so it renders
+    ``event → event`` as it did. The row exists because ``config_sha256``
+    changed. When no published field differs, the change is in something the
+    handlers do not show, and the text says so rather than print the same
+    handlers twice. When the published handlers are the same ones in a
+    different order, the text says so, and that a detail it does not show may
+    differ too: equal published handlers never establish equal handlers,
+    since a setting such as ``async`` is not published (#819 review, cycle
+    4). When either side lists fewer handlers than it declares, only the
+    first ones were compared, and a handler past them is named among what is
+    not shown (#819 review). When only one side's declaration is outside the
+    documented shape, that side is named and the other side's handlers are
+    listed as an added or removed hook's are, so a change that brings a
+    declaration into the shape never reads as though the new one were outside
+    it (#819 review, cycle 5).
+    """
+
+    if "handlers" not in before or "handlers" not in after:
+        return None
+    old, new = before["handlers"], after["handlers"]
+    if old is None and new is None:
+        return f"{event}: {_HOOK_SHAPE_NOT_READ}"
+    if old is None or new is None:
+        unread, read, grant = ("base", "head", after) if old is None else ("head", "base", before)
+        return (
+            f"{event}: {unread} matcher, command and timeout not shown ({_HOOK_SHAPE_REASON}); "
+            f"{read} ({_listed_handlers(grant)})"
+        )
+    changes = _handler_changes(old, new)
+    parts = changes or []
+    old_more, new_more = int(before.get("omitted_handlers") or 0), int(after.get("omitted_handlers") or 0)
+    # A side that counts handlers past the bound lists exactly the bound, and
+    # the other lists no more, so the longer list is the bound (#819 review).
+    bound = max(len(old), len(new))
+    if old_more != new_more:
+        parts.append(f"handlers past the first {bound}: {old_more} → {new_more}")
+    past = f"a handler past the first {bound}, " if old_more or new_more else ""
+    if changes is None:
+        parts.insert(
+            0,
+            "the published handlers in a different order; a detail this output does not show "
+            f"may also differ, such as {past}{_HOOK_UNSHOWN}",
+        )
+    if not parts:
+        compared = f" of the first {bound} handlers" if past else ""
+        return (
+            f"{event}: no difference in the matcher, command or timeout{compared}; the change is "
+            f"in a detail this output does not show, such as {past}{_HOOK_UNSHOWN}"
+        )
+    shown = parts[:_NAME_LIMIT]
+    rest = len(parts) - len(shown)
+    return f"{event}: " + "; ".join(shown) + (f"; and {rest} more" if rest else "")
 
 
 def _permission_cell(value: str, grant: dict[str, Any] | None) -> str:
@@ -872,6 +1121,17 @@ def capability_diff_rows(
             view = _RowView(
                 before=_mcp_cell(row.before, before_grant),
                 after=_mcp_cell(row.after, after_grant),
+            )
+        elif kind == "hook" and before_grant and after_grant:
+            view = _RowView(
+                before=row.before,
+                after=row.after,
+                change=_hook_change(row.after, before_grant, after_grant),
+            )
+        elif kind == "hook":
+            view = _RowView(
+                before=_hook_cell(row.before, before_grant),
+                after=_hook_cell(row.after, after_grant),
             )
         else:
             view = _RowView(before=row.before, after=row.after)

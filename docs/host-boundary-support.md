@@ -166,6 +166,35 @@ beside either. A step label is read for userinfo only in a token holding
 `scheme://`, so a scheme-less `user:password@host` in a step name is not read
 as userinfo.
 
+A hook row names what changed in the hook, and an MCP row a change to the
+server's launch arguments (#819), without publishing any command or argument
+text. A hook grant publishes each handler under its event: the group's
+`matcher`, through the published-label redaction (a matcher longer than 1,024
+characters, as `config_sha256`'s input holds it, is `<not-shown>`); its command as the name of its executable — the
+last path segment of its first word, only when that is a plain token and the
+word is no URL, otherwise `<not-shown>` — and a SHA-256 digest of the whole
+command; and its `timeout`. So a matcher, command or timeout edit reads
+`PostToolUse: matcher Edit → Edit|Write|Bash`,
+`PostToolUse: command changed (lint.sh sha256:… → curl sha256:…)` or
+`PostToolUse: timeout 10 → 600` rather than `PostToolUse → PostToolUse`. An
+MCP server grant publishes, from its arguments, only a package specification
+of a strict shape (npm `name@version`, PyPI `name==version`, an OCI image with
+a tag or digest) and a digest of the rest, so a version pin moving to
+`@latest` reads `package example-mcp-server@1.2.3 → example-mcp-server@latest`
+and any other argument edit `launch arguments changed` with both digests. The
+detail is a display of the declaration, never an input to the comparison: the
+command is not resolved or run, the script it names is not read (#702), and
+the digests are of the configuration as `config_sha256`'s input holds it. A
+value that input already redacts, such as the value after `--token`,
+`--api-key` or `--password`, a `--password=…` value, an `X-Api-Key:` header
+value or a URL's path, moves no digest, so a change confined to it is no row,
+as before. A saved baseline holds none of
+this detail, so nothing read from a user, managed or git-ignored settings file
+reaches the committed file. A hook declaration outside the documented shape
+publishes no handlers, and its row says the matcher, command and timeout are
+not shown; when only one side is outside it, the row names that side and lists
+the other side's handlers.
+
 A hook row states its loading basis (#714). Parsing a hook file proves the
 file exists, not that a host loads it, so hooks are published four ways:
 

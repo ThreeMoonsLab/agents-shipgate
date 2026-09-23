@@ -233,6 +233,13 @@ SURFACES: tuple[Surface, ...] = (
         # answer and adds no claim; `tests/test_linked_unchanged_limits.py`
         # holds diff, verify, the PR comment and `check` to it, including the
         # shared plugin-reference limits `check` leaves out by the same proof.
+        # Its hook and MCP-argument
+        # text (#819) renders the handlers, package and argument digest the
+        # engine published on the grant, which hold no command or argument
+        # text: a display of what `config_sha256` binds, left out of grant
+        # equality and the inventory digests, so it restates no answer and
+        # moves no row; `tests/test_hook_mcp_detail_fields.py` holds every
+        # route to the same entry.
         {},
     ),
     Surface(
