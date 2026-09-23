@@ -312,10 +312,74 @@ example `outputStyle`) is complete input; its
 `unknown_host_config_key` and the key's name, records the change and still owes
 review. Some keys outside that allow-list are modelled elsewhere: inventory and
 diff rows still describe `enabledPlugins` and `extraKnownMarketplaces` as
-plugin and marketplace grants, and `enableAllProjectMcpServers` as a
-permission-mode grant that approves project MCP servers, while the boundary
-rules only record the key. A file that could not be parsed or resolved is
-`partial` and never authorizes publication.
+plugin and marketplace grants, while the boundary rules only record the key.
+The Claude Code settings in [the setting table](#claude-code-setting-ratings)
+are not unknown keys: `check` rates them by that table. A file that could not
+be parsed or resolved is `partial` and never authorizes publication.
+
+### Claude Code setting ratings
+
+One table in the engine (`core/host_settings.py`) rates every Claude Code
+setting the host inventory publishes as a `permission_mode` grant, and every
+surface reads it (#827). The `audit --host` grant carries the rating as its
+`risk`; a `diff`, `verify` or `check` row carries it as its `severity`, names
+the setting and its value (`enableAllProjectMcpServers: true`,
+`defaultMode: dontAsk`) and states the table's basis as its `why`; and `check`
+raises one violation for each value a change sets, at the same rating, which
+`verify` reports as a finding of that severity. Before, one value could carry
+three answers: `enableAllProjectMcpServers: true` was a `critical` grant and row
+but a `medium` "could not be parsed" violation, and `defaultMode: dontAsk` a
+`medium` row but a blocking `critical` violation.
+
+Each value is rated by what Claude Code documents it to do:
+
+| Value | Rating | `check` raises |
+| --- | --- | --- |
+| `defaultMode: bypassPermissions` — skips every permission prompt | critical | `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` (blocks) |
+| `skipDangerousModePermissionPrompt: true` — skips the confirmation before that mode starts | critical | `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` (blocks) |
+| `enableAllProjectMcpServers: true` — approves every MCP server the project's `.mcp.json` declares | critical | `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` (blocks) |
+| `defaultMode: acceptEdits` — accepts file edits without a prompt | high | `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` |
+| `defaultMode: auto` — lets Claude Code approve tool calls itself | high | `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` |
+| a `defaultMode` Claude Code does not document | high | `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` |
+| an `enabledMcpjsonServers` entry — approves that one project server | high | `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` |
+| `defaultMode: dontAsk` — denies every tool call no allow rule permits, instead of prompting | medium | `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` |
+| `defaultMode: plan` or `default` | medium | `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` |
+| `disableBypassPermissionsMode`, `disableAllHooks`, `allowManagedPermissionRulesOnly`, `allowManagedHooksOnly`, and `false` for the two `critical` switches | medium | `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` |
+
+`dontAsk` removes prompts, but by refusing what no allow rule permits, not by
+running it; this repository's own rater harness sets it to confine a session.
+A value is rated the same whichever settings file sets it: `bypassPermissions`,
+`auto` and `skipDangerousModePermissionPrompt` in a project file are rated as
+though they take effect, as the inventory already lists them, because a static
+audit cannot see whether the installed client predates the release that
+ignores them there (see [Local-static audit scope](#local-static-audit-scope)).
+A `medium` violation stays in the graded review band, so the coding agent is
+routed to `verify` and the pull request still goes to a human. A rating is of
+the value, not of the change: whether one mode is wider than the one it
+replaced is not modelled, so every value a change sets is reviewed, and a
+row's `⚠` still marks every added or changed mode. Moving a value between
+`permissions` and the top level sets it too, in either direction: the
+inventory reads a setting from either place, but Claude Code documents
+`defaultMode` under `permissions` and `enableAllProjectMcpServers` at the top
+level, so moving a top-level `defaultMode: bypassPermissions` into
+`permissions` turns the mode on without changing its value, and `check` blocks
+it. Its grant is the same value on both sides, so `diff`, `verify` and the
+`check` rows show no row for the move; the violation, and `verify`'s finding,
+is its record. Removing a setting raises nothing of its own, as removing
+`defaultMode` never did; the file is still a protected surface and the removal
+is still a row. A host-boundary policy that raises either rule above its
+default raises these violations with it; none can lower them.
+
+`enabledMcpjsonServers` is read as one grant per server name, so approving one
+more server is one `high` row. An entry that names no server — an object, a
+number, a blank string — is kept whole as its own `high` grant, row and
+violation, like a mode Claude Code does not document, rather than dropped. A
+violation's evidence carries the value its grant publishes, with credentials
+redacted, cut to at most 200 characters. `disabledMcpjsonServers` is not read: a change
+to it is still an unknown key. A setting also set under `permissions` is read
+there only, so a top-level copy beside it stays an unknown key, exactly as the
+inventory ignores it. Codex, Cursor and VS Code settings keep their own
+readers' ratings; their rows name the setting and value too.
 
 When host inventory fails, `violations[].evidence.recovery` carries the observed
 read phase, reason and source, plus configured limits when a resource bound is

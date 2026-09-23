@@ -47,8 +47,8 @@ One normalized static boundary assessment feeds two projections:
 |---|---|---|
 | `SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED` | A new MCP server appears in `.mcp.json` / `.cursor/mcp.json` / `.vscode/mcp.json` | human review |
 | `SHIP-HOST-BOUNDARY-MCP-SERVER-CHANGED` | An existing server's `command` / `args` / `url` / `env` keys change | human review |
-| `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` | A wildcard-shaped rule (e.g. `Bash(*)`) is added to `permissions.allow` | **blocked** |
-| `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` | Any new `permissions.allow` entry | human review |
+| `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` | A wildcard-shaped rule (e.g. `Bash(*)`) is added to `permissions.allow`, or a setting removes a prompt wholesale (`defaultMode: bypassPermissions`, `enableAllProjectMcpServers: true`, `skipDangerousModePermissionPrompt: true`) | **blocked** |
+| `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` | Any new `permissions.allow` entry, or another value of a modelled Claude Code setting (`defaultMode: dontAsk`, an `enabledMcpjsonServers` entry, …) at the rating its host-diff row carries | human review |
 | `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED` | A `permissions.deny` entry is removed | human review |
 | `SHIP-HOST-BOUNDARY-HOOK-CHANGED` | Claude Code hooks added or modified | human review |
 | `SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL` | A workflow gains `permissions: write-all` | **blocked** |

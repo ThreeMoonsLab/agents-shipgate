@@ -2,7 +2,37 @@
 
 ## Unreleased
 
+### Changes
+
 - Move the published-release pins, examples and adoption prompts to `v1.1.0` (contract 40) now that it is published, re-capture the README and quickstart `diff` answers from the published `1.1.0`, and re-measure the pilot ledger's Route H dry run on it. No schema or contract change. (#778)
+
+- A Claude Code setting that disables prompts or approves project MCP servers
+  now carries one rating on every surface that names it. One table in the
+  engine rates each value, with its documented basis, and the `audit --host`
+  grant, the `diff`, `verify` and `check` rows, `check`'s violation and
+  `verify`'s finding all read it. `enableAllProjectMcpServers: true` and
+  `skipDangerousModePermissionPrompt: true` are no longer recorded as keys that
+  "could not be parsed" at `medium`: like `defaultMode: bypassPermissions`,
+  whose grant and row now read `critical`, they are `critical` everywhere and
+  `check` blocks with `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW`.
+  `defaultMode: dontAsk`, which Claude Code documents as denying whatever no
+  allow rule permits, is `medium` everywhere and no longer blocks; it is
+  reviewed through `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED`. `acceptEdits`
+  and `auto` grants and rows move from `medium` to the `high` `check` already
+  gave them, and `plan`, `default` and the other modelled settings move in
+  `check` to the `medium` their rows show. Rows name the setting and value
+  (`enableAllProjectMcpServers: true`, `defaultMode: dontAsk`,
+  `approval_policy: never`) instead of `True` or `dontAsk` alone, and a Claude
+  Code setting's row says what the value does. `enabledMcpjsonServers` is read
+  as one `high` grant and row per approved server, and an entry that names no
+  server is kept whole at `high` rather than dropped; `disabledMcpjsonServers`
+  stays unread. `check` evidence carries a setting's value as its grant
+  publishes it, with credentials redacted and at most 200 characters. A value
+  moved between `permissions` and the top level is one the change sets, so a
+  top-level `defaultMode: bypassPermissions` moved into `permissions`, where
+  Claude Code reads it, still blocks. No schema, contract or check id moves;
+  which check id fires for these values, and their decisions, do. See the
+  `STABILITY.md` migration note. (#827)
 
 ## 1.1.0 - 2026-09-22
 

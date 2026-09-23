@@ -47,6 +47,13 @@ from agents_shipgate.core.codex_boundary import (
     _dedupe_violations,
     _display_path,
 )
+from agents_shipgate.core.host_settings import (
+    CLAUDE_SCALAR_SETTINGS,
+    claude_setting_values,
+    rate_claude_setting,
+    read_at_top_level,
+    setting_value_text,
+)
 from agents_shipgate.core.jsonc import is_vscode_mcp_path, loads_jsonc
 from agents_shipgate.core.permission_lattice import (
     names_tools_within_one_mcp_server,
@@ -223,14 +230,20 @@ def evaluate_host_boundary(
             )
         return resolved_text_cache[path]
 
-    def add(rule_id: str, *, path: str | None, evidence: dict[str, Any]) -> None:
+    def add(
+        rule_id: str,
+        *,
+        path: str | None,
+        evidence: dict[str, Any],
+        rating: AgentResultRiskLevel | None = None,
+    ) -> None:
         rule = policy.rules.get(rule_id) or DEFAULT_RULES[rule_id]
         violations.append(
             AgentResultViolatedRule(
                 id=rule.id,
                 check_id=rule.check_id,
                 action=rule.action,  # type: ignore[arg-type]
-                risk_level=rule.risk_level,
+                risk_level=_rated_risk(rule, rating),
                 title=rule.title,
                 path=path,
                 evidence=evidence,
@@ -286,6 +299,25 @@ def evaluate_host_boundary(
             _evaluate_workflow(diff_file, resolved, add)
 
     return _dedupe_violations(violations), diagnostics
+
+
+def _rated_risk(
+    rule: HostBoundaryRule, rating: AgentResultRiskLevel | None
+) -> AgentResultRiskLevel:
+    """A violation's risk: the rule's, or the setting table's rating (#827).
+
+    A modelled Claude Code setting carries the rating its grant and row carry,
+    so `check` and `diff` rate one value alike. A policy may still only raise:
+    where it raised the rule above the engine default, the higher of the two
+    applies.
+    """
+
+    if rating is None:
+        return rule.risk_level
+    default = DEFAULT_RULES[rule.id].risk_level if rule.id in DEFAULT_RULES else rule.risk_level
+    if _RISK_RANK[rule.risk_level] > _RISK_RANK[default]:
+        return max(rating, rule.risk_level, key=_RISK_RANK.__getitem__)
+    return rating
 
 
 def load_host_boundary_policy(
@@ -505,13 +537,21 @@ def _evaluate_claude_settings(diff_file, resolved, add) -> None:
             "plugins",
             "sandbox",
             "statusLine",
+            # A setting the grant reader models is rated, not unknown (#827).
+            # One also set under `permissions` is not read at the top level,
+            # by the reader or here, so it stays an unknown key.
+            *(
+                str(key)
+                for key in (new_data if isinstance(new_data, dict) else {})
+                if read_at_top_level(new_data, str(key))
+            ),
         },
         add=add,
     )
     permissions = _dict_value(new_data, "permissions")
     old_permissions = _dict_value(old_data, "permissions")
     _evaluate_unknown_permission_keys(old_permissions, permissions, path, add)
-    _evaluate_permission_mode(old_permissions, permissions, path, add)
+    _evaluate_claude_setting_values(old_data, new_data, path, add)
     old_allow = set(_string_entries(old_permissions.get("allow")))
     for rule in sorted(set(_string_entries(permissions.get("allow"))) - old_allow):
         if not _widens_allow(rule, old_allow):
@@ -620,27 +660,95 @@ def _evaluate_cursor_settings(diff_file, resolved, add) -> None:
                 )
 
 
-def _evaluate_permission_mode(old_permissions, permissions, path: str, add) -> None:
-    old_mode = old_permissions.get("defaultMode")
-    new_mode = permissions.get("defaultMode")
-    if new_mode == old_mode:
-        return
-    if new_mode in {"bypassPermissions", "dontAsk"}:
+def _evaluate_claude_setting_values(old_data, new_data, path: str, add) -> None:
+    """One violation per modelled setting value the change sets, at its rating (#827).
+
+    The rating is the one the grant and its row carry (``core.host_settings``):
+    a ``critical`` value raises the wildcard rule, and any other value the
+    allowlist rule at its own rating, so ``dontAsk`` is reviewed at
+    ``medium`` rather than blocked, and ``enableAllProjectMcpServers: true``
+    blocks rather than reading as a key that could not be parsed. A value the
+    change leaves as it was raises nothing, and neither does a removal, as a
+    removed ``defaultMode`` never did. ``defaultMode`` keeps the ``mode``
+    evidence it always published, so its findings keep their fingerprints;
+    every other setting names itself and its value. Either value is the one
+    the grant publishes, redacted and bounded (`_setting_evidence_text`).
+
+    Two sides compare by where the value is read as well as by its setting,
+    so a value that moves between ``permissions`` and the top level is a
+    value the change sets, in either direction, and raises at its rating.
+    The reader accepts a scalar setting in either place, but Claude Code
+    documents each in one of them (``defaultMode`` under ``permissions``,
+    ``enableAllProjectMcpServers`` at the top level), so moving a
+    ``bypassPermissions`` copy the base kept at the top level into
+    ``permissions`` turns the mode on without changing its value.
+    """
+
+    old_values = {
+        (item.container, item.key): item.value for item in claude_setting_values(old_data)
+    }
+    for item in claude_setting_values(new_data):
+        compared = (item.container, item.key)
+        if compared in old_values and _canonical_json(old_values[compared]) == _canonical_json(
+            item.value
+        ):
+            continue
+        rating = rate_claude_setting(item.setting, item.value)
+        critical = rating.risk == "critical"
+        evidence: dict[str, Any] = {
+            "kind": "permission_mode_expanded" if critical else "permission_mode_changed"
+        }
+        if item.setting == "defaultMode":
+            evidence["mode"] = _setting_evidence_text(item.setting, item.value)
+        else:
+            evidence["setting"] = item.setting
+            evidence["value"] = _setting_evidence_text(item.setting, item.value)
         add(
-            "HOST-PERMISSION-WILDCARD-ALLOW",
+            "HOST-PERMISSION-WILDCARD-ALLOW" if critical else "HOST-PERMISSION-ALLOW-EXPANDED",
             path=path,
-            evidence={"kind": "permission_mode_expanded", "mode": new_mode},
+            evidence=evidence,
+            rating=rating.risk,  # type: ignore[arg-type]
         )
-    elif new_mode is not None:
-        add(
-            "HOST-PERMISSION-ALLOW-EXPANDED",
-            path=path,
-            evidence={"kind": "permission_mode_changed", "mode": str(new_mode)},
-        )
+
+
+#: The longest setting value a violation's evidence publishes. A documented
+#: value is a word or a server name; a longer one is a shape Claude Code does
+#: not document, and its whole redacted value is its grant's (`audit --host`).
+_MAX_SETTING_EVIDENCE_CHARS = 200
+
+
+def _setting_evidence_text(setting: str, value: Any) -> str:
+    """A setting value as ``check`` evidence publishes it: its grant's, redacted and bounded.
+
+    The grant redacts a value before it renders it (``_setting_grant``).
+    Rendering first put an object's credentials inside one string, where the
+    evidence sanitizer's key-based redaction cannot see them, so an
+    ``enabledMcpjsonServers`` object holding an ``env`` token published the
+    token in ``check`` alone. The same redactor runs here first, with the same
+    parent key, and the text is bounded only after it, so truncation never
+    exposes part of a secret. ``defaultMode`` is rendered as its grant's
+    ``value`` is, the way its ``mode`` evidence always was, so a documented
+    mode keeps its fingerprint; every other setting is spelled as its row
+    spells it.
+    """
+
+    # Imported here: host_grants imports this module.
+    from agents_shipgate.core.host_grants import _redact_secret_values
+
+    redacted = _redact_secret_values(value, parent_key=setting)
+    if setting == "defaultMode" and not isinstance(redacted, (dict, list)):
+        text = str(redacted)
+    else:
+        text = setting_value_text(setting, redacted)
+    if len(text) > _MAX_SETTING_EVIDENCE_CHARS:
+        text = text[: _MAX_SETTING_EVIDENCE_CHARS - 1] + "…"
+    return text
 
 
 def _evaluate_unknown_permission_keys(old_permissions, permissions, path: str, add) -> None:
-    passive = {"allow", "ask", "deny", "defaultMode"}
+    # A modelled setting under `permissions` is rated by
+    # `_evaluate_claude_setting_values`, not reported as a boundary change.
+    passive = {"allow", "ask", "deny", *CLAUDE_SCALAR_SETTINGS}
     for key in sorted(set(permissions) - passive):
         if _canonical_json(permissions.get(key)) == _canonical_json(
             old_permissions.get(key)

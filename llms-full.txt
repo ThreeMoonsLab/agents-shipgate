@@ -3358,8 +3358,8 @@ baseline summary and do not fail CI.
 | `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` | medium | A coding-agent host configuration file could not be parsed. |
 | `SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED` | high | A new MCP server was declared for the coding-agent host. |
 | `SHIP-HOST-BOUNDARY-MCP-SERVER-CHANGED` | high | An existing MCP server declaration changed its command, URL, args, or env keys. |
-| `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` | critical | A Claude Code allow rule grants a wildcard surface over a tool that can execute, reach the network, or write. |
-| `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` | high | The Claude Code permission allowlist expanded, by a scoped rule or a read-only wildcard. |
+| `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` | critical | A Claude Code allow rule grants a wildcard surface over a tool that can execute, reach the network, or write, or a setting removes a prompt wholesale. |
+| `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` | high | The Claude Code permission allowlist expanded, by a scoped rule or a read-only wildcard, or a modelled setting changed, at the setting's rating. |
 | `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED` | high | A Claude Code permission deny rule was removed. |
 | `SHIP-HOST-BOUNDARY-HOOK-CHANGED` | high | Claude Code hooks changed. |
 | `SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL` | critical | A GitHub workflow grants write-all permissions. |
@@ -3891,6 +3891,16 @@ A changed `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`,
 or its content cannot be resolved from the diff. Fix the malformed host config
 or have a human review the change.
 
+A settings file that parses but changes a top-level key outside the
+host-boundary rule allow-list, such as `outputStyle`, also raises this check,
+with evidence kind `unknown_host_config_key` and the key's name: the file was
+read and the key's meaning is not modelled. A Claude Code setting the host
+inventory models is not an unknown key. `enableAllProjectMcpServers`,
+`skipDangerousModePermissionPrompt`, `enabledMcpjsonServers`,
+`disableAllHooks` and the managed-only switches are rated by the setting table
+and raise `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` or
+`SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` instead (#827).
+
 ### SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED
 
 A changed MCP server declaration file adds a server key that did not exist
@@ -3924,6 +3934,21 @@ exfiltration needs a network or write grant, which is its own finding. Before
 v0.17 every wildcard shape reached this check, so the ordinary coding-agent
 configuration blocked the release at `critical` (#657).
 
+A Claude Code setting that removes a prompt wholesale raises this check too,
+at `critical`: `defaultMode: bypassPermissions` skips every permission prompt,
+`skipDangerousModePermissionPrompt: true` skips the confirmation before that
+mode starts, and `enableAllProjectMcpServers: true` approves every MCP server
+the project's `.mcp.json` declares. The rating comes from one table in the
+engine that also rates the setting's `audit --host` grant and its `diff`,
+`verify` and `check` rows, so every surface gives the value one severity
+(#827). `defaultMode` evidence names the `mode`; every other setting's names
+the `setting` and its `value`. Either is the value the setting's
+`audit --host` grant publishes, with credentials redacted, cut to at most 200
+characters. `defaultMode: dontAsk` no longer reaches this
+check: Claude Code documents that it denies whatever no allow rule permits
+rather than running it, so it raises
+`SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` at `medium`.
+
 ### SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED
 
 A changed Claude Code settings file adds a `permissions.allow` entry that is
@@ -3937,6 +3962,33 @@ spellings of one rule, which also allows the bare `npm`, so replacing either
 with `Bash(npm test:*)` or `Bash(npm test)` does not fire (#816). The space
 before the star is part of the rule, so `Bash(npm run test:*)` does not cover
 `npm run test:unit`: adding that command fires.
+
+It also fires when a change sets any other value of a Claude Code setting the
+host inventory models, at the rating the engine's setting table gives that
+value — the rating the setting's grant and host-diff row carry (#827):
+
+| Setting and value | Rating | Why |
+| --- | --- | --- |
+| `defaultMode: acceptEdits` | high | accepts file edits without a prompt |
+| `defaultMode: auto` | high | lets Claude Code approve tool calls itself instead of prompting |
+| a `defaultMode` Claude Code does not document | high | what it permits is not established |
+| an `enabledMcpjsonServers` entry | high | approves that project `.mcp.json` server without a prompt |
+| an `enabledMcpjsonServers` entry that names no server (an object, a number, a blank string) | high | what it permits is not established |
+| `defaultMode: dontAsk` | medium | denies every tool call no allow rule already permits, instead of prompting |
+| `defaultMode: plan`, `defaultMode: default` | medium | lets nothing run without a prompt that an allow rule does not already permit |
+| `disableBypassPermissionsMode`, `disableAllHooks`, `allowManagedPermissionRulesOnly`, `allowManagedHooksOnly`, and `false` for `enableAllProjectMcpServers` or `skipDangerousModePermissionPrompt` | medium | changes which prompts, hooks or rules apply without letting anything run without a prompt that an allow rule does not permit |
+
+A rating is of the value, not of the change: whether a value is wider than the
+one it replaced is not modelled, so every value a change sets is reviewed.
+Moving a value between `permissions` and the top level sets it, in either
+direction, and raises this check or `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW`
+at the value's rating: the host inventory reads a setting from either place,
+but Claude Code documents `defaultMode` under `permissions` and
+`enableAllProjectMcpServers` at the top level, so moving a top-level
+`defaultMode: bypassPermissions` into `permissions` turns the mode on without
+changing its value. Removing a setting raises nothing of its own, as removing
+`defaultMode` never did. A host-boundary policy may raise this rule, and then
+raises these ratings with it; it cannot lower them.
 
 ### SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED
 

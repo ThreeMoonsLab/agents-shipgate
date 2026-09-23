@@ -207,7 +207,12 @@ SURFACES: tuple[Surface, ...] = (
         # its own boundary rather than claiming coverage of the change, so the
         # #812 follow-up adds no claim either;
         # `tests/test_host_comparison_coverage.py` holds diff, verify and the
-        # PR comment to the same object.
+        # PR comment to the same object. A setting row naming its setting and
+        # value, and a Claude Code setting's `why` quoting the engine's one
+        # setting table (#827), restate the grant the engine published and
+        # the rating it gave, the same one `check` raises its violation at,
+        # so they add no claim; `tests/test_prompt_disabling_settings.py`
+        # holds every route to that one rating.
         {},
     ),
     Surface(
