@@ -146,7 +146,7 @@ never guessed at. Four things are listed on the workflow grant, each naming its
 
   | Action | Inputs compared as text | Documented widening |
   |---|---|---|
-  | `anthropics/claude-code-action` | `additional_permissions`, `allowed_bots`, `allowed_non_write_users`, `claude_args`, `plugin_marketplaces`, `plugins`, `settings`, and the earlier `allowed_tools`, `disallowed_tools`, `mcp_config` | a plain `claude_args` gains `--dangerously-skip-permissions` or `--permission-mode bypassPermissions`; `settings`, written as JSON, gains `defaultMode: bypassPermissions` (under `permissions`, else at the top, as the settings reader reads `.claude/settings.json`); `allowed_bots` (any bot) or `allowed_non_write_users` (any user) gains a `*` entry |
+  | `anthropics/claude-code-action` | `additional_permissions`, `allowed_bots`, `allowed_non_write_users`, `claude_args`, `plugin_marketplaces`, `plugins`, `settings`, and the earlier `allowed_tools`, `disallowed_tools`, `mcp_config` | a plain `claude_args` gains `--dangerously-skip-permissions` or `--permission-mode bypassPermissions` (the last `--permission-mode` counting); `settings`, written as JSON, gains `defaultMode: bypassPermissions` (under `permissions`, else at the top, as the settings reader reads `.claude/settings.json`); `allowed_bots` (any bot) or `allowed_non_write_users` (any user) gains a `*` entry |
   | `anthropics/claude-code-base-action`, also published as `anthropics/claude-code-action/base-action` | `claude_args`, `plugin_marketplaces`, `plugins`, `settings`, `allowed_tools`, `disallowed_tools`, `mcp_config` | `claude_args` and `settings` as above |
   | `openai/codex-action` | `allow-bot-users`, `allow-bots`, `allow-users`, `codex-args`, `permission-profile`, `safety-strategy`, `sandbox` | `sandbox` becomes `danger-full-access`; `permission-profile` becomes `:danger-full-access`, Codex's reserved name for its built-in full-access profile; `safety-strategy` becomes `unsafe`; a plain `codex-args` gains `--dangerously-bypass-approvals-and-sandbox` (`--yolo`) or `--sandbox danger-full-access` (`-s`, attached or not); `allow-users` gains a `*` entry. A sandbox `--config` override in `codex-args` meets none: after `codex-args` the action appends its own `--sandbox`, or its own `default_permissions` override for a `permission-profile`, which takes precedence |
 
@@ -190,7 +190,8 @@ never guessed at. Four things are listed on the workflow grant, each naming its
   `--allowedTools`/`--allowed-tools`, `--disallowedTools`/`--disallowed-tools`,
   `--add-dir` and `--permission-prompt-tool`; gaining
   `--dangerously-skip-permissions` or `--permission-mode bypassPermissions`
-  (one rule, so moving between the spellings is not a widening) widens, and a
+  (one rule, so moving between the spellings is not a widening; of a repeated
+  `--permission-mode`, the last counts, as the CLI keeps it) widens, and a
   `--settings` or `--mcp-config` flag makes the step unread. For `codex exec`:
   `--sandbox`/`-s`, `--dangerously-bypass-approvals-and-sandbox`/`--yolo`,
   `--approve-for-me`/`--not-so-yolo`, `--dangerously-bypass-hook-trust`,
@@ -281,7 +282,12 @@ names the rule and step. Three gains are named in the `why` and not claimed:
   gaining it while the first job still exists, is claimed: that job may still
   run its launch in a form this audit does not read (`npx`, quoting), so a
   launch that only stops being read has not left it, and a launch edited in
-  place into the one that job had gains the rule.
+  place into the one that job had gains the rule. A launch has not left a job
+  that still has an unread step of that agent where the launch stood, more
+  unread steps of it than before, or a launch of it holding an expression or
+  an unread argument input the rule is read from — so quoting the prompt of
+  `claude -p --dangerously-skip-permissions Review` in one job while another
+  job adds that plain step is a widening.
 
 Any other edit — `--allowedTools Read` to `--allowedTools Bash`,
 `acceptEdits`, a new plugin, an argument input this audit does not read, a
@@ -325,6 +331,12 @@ in canonical JSON:
   digest when it drops something the digest reads: `"command":"npx <withheld:…>"`
   for `npx -y some-server`, a URL's digest for its query. A URL's path is
   neither published nor compared, as an MCP server's is not (#723).
+
+A `settings` or `mcp_config` value that is not a JSON object is published as
+written only when it is a plain file path: path characters, and any `${{ }}`
+expression in it a plain context reference. Any other value, such as a comment
+line before the JSON, publishes only `<withheld:…>`, a digest, so an edit to it
+is still a `changed` row and none of its text is published.
 
 JSON passed through `claude_args`, `codex-args` or a `run:` is never read, so
 it is never published: the argument input or step is not read at all. A codex

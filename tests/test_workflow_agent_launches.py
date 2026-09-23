@@ -378,6 +378,37 @@ def test_job_secrets_name_what_the_agent_job_and_the_workflow_env_reference():
     assert launch["job_secrets"] == ["ANTHROPIC_API_KEY", "DEPLOY_KEY", "REVIEW_TOKEN", "WORKFLOW_ENV"]
 
 
+def _job_env_workflow(env_lines: list[str]) -> str:
+    return "\n".join([
+        "on: pull_request",
+        "permissions: {contents: read}",
+        "jobs:",
+        "  review:",
+        "    runs-on: ubuntu-latest",
+        "    env:",
+        *(f"      {line}" for line in env_lines),
+        "    steps:",
+        f"      - run: claude -p {BYPASS} Review",
+    ]) + "\n"
+
+
+def test_job_secrets_read_a_yaml_alias_that_holds_itself_or_fans_out_once():
+    """#823 review cycle 5 (P3): a self-referential alias raised RecursionError, a fan-out took minutes."""
+
+    holds_itself = yaml.safe_load(_job_env_workflow(["&env", "A: ${{ secrets.TOKEN }}", "B: *env"]))
+    launch, = _launches(holds_itself)
+    assert launch["job_secrets"] == ["TOKEN"]
+
+    # Ten references at each of eight levels: 10**8 leaves if each is walked.
+    levels = ["l0: &l0 '${{ secrets.DEEP }}'"] + [
+        f"l{level}: &l{level} [{', '.join([f'*l{level - 1}'] * 10)}]" for level in range(1, 9)
+    ]
+    started = time.monotonic()
+    launch, = _launches(yaml.safe_load(_job_env_workflow(levels)))
+    assert launch["job_secrets"] == ["DEEP"]
+    assert time.monotonic() - started < 5
+
+
 # --- the only forms read: plain lists of words (#823 review cycle 4) --------------------
 #
 # Four review cycles each found a shell form the `run:` reader mis-read, so no
@@ -869,10 +900,17 @@ def test_renaming_or_moving_an_agent_step_within_its_job_is_quiet():
         (_workflow({"uses": "openai/codex-action@v1", "with": {"permission-profile": ":workspace"}}),
          _workflow({"uses": "openai/codex-action@v1", "with": {"permission-profile": ":danger-full-access"}}),
          "runs without a sandbox (danger-full-access)"),
+        # the last of a repeated `--permission-mode` counts (#823 review cycle 5)
+        (_workflow(_agent("--permission-mode bypassPermissions --permission-mode default")),
+         _workflow(_agent("--permission-mode default --permission-mode bypassPermissions")),
+         "skips permission checks (bypassPermissions)"),
+        (_workflow({"run": "claude -p --permission-mode bypassPermissions --permission-mode default x"}),
+         _workflow({"run": "claude -p --permission-mode default --permission-mode=bypassPermissions x"}),
+         "skips permission checks (bypassPermissions)"),
     ],
     ids=["skip-flag", "mode-flag", "gate", "bots", "codex-sandbox", "codex-unsafe", "codex-args", "codex-users",
          "codex-cli", "gate-entry-beside-an-expression", "settings-default-mode",
-         "settings-top-level-default-mode", "codex-permission-profile"],
+         "settings-top-level-default-mode", "codex-permission-profile", "last-mode-args", "last-mode-cli"],
 )
 def test_a_documented_rule_gained_is_a_widening(before, after, rule):
     changes = _changes(before, after)
@@ -914,10 +952,16 @@ def test_a_documented_rule_gained_is_a_widening(before, after, rule):
          _workflow(_agent(settings=json.dumps({"permissions": {"defaultMode": "acceptEdits"}})))),
         (_workflow({"uses": "openai/codex-action@v1", "with": {"permission-profile": ":read-only"}}),
          _workflow({"uses": "openai/codex-action@v1", "with": {"permission-profile": ":workspace"}})),
+        # a `--permission-mode` a later one replaces meets no rule (#823 review cycle 5)
+        (_workflow(_agent("--permission-mode default")),
+         _workflow(_agent("--permission-mode bypassPermissions --permission-mode default"))),
+        (_workflow({"run": "claude -p --permission-mode default x"}),
+         _workflow({"run": "claude -p --permission-mode=bypassPermissions --permission-mode default x"})),
     ],
     ids=["respelled", "moved-to-action", "narrowed", "gate-closed", "after-an-expression", "before-an-expression",
          "gate-entry-holding-an-expression", "mode-expression", "tool-rule", "accept-edits", "flag-to-settings",
-         "settings-expression", "settings-path", "settings-accept-edits", "codex-workspace-profile"],
+         "settings-expression", "settings-path", "settings-accept-edits", "codex-workspace-profile",
+         "replaced-mode-args", "replaced-mode-cli"],
 )
 def test_any_other_edit_is_changed(before, after):
     assert host_grant_expansion_signals(_changes(before, after)) == []
@@ -1053,8 +1097,13 @@ def test_renaming_a_job_that_launches_a_bypassing_agent_is_not_a_widening():
         # a gate the launch opened, moved with it
         (_jobs(review=[{"name": "agent", **_agent(allowed_bots="*")}]),
          _jobs(triage=[{"name": "agent", **_agent(allowed_bots="*")}])),
+        # the job it left keeps an unread step it already had, at another step (#823 review cycle 5)
+        (_jobs(lint=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}, {"name": "mcp", "run": "claude mcp add x"}],
+               review=[{"run": "make"}]),
+         _jobs(lint=[{"name": "mcp", "run": "claude mcp add x"}],
+               review=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}])),
     ],
-    ids=["step-moved", "renamed-and-edited", "swapped", "gate-moved"],
+    ids=["step-moved", "renamed-and-edited", "swapped", "gate-moved", "moved-beside-an-unread-step-that-stays"],
 )
 def test_a_launch_that_left_one_job_for_another_moves_its_rules(before, after):
     assert host_grant_expansion_signals(_changes(before, after)) == []
@@ -1085,9 +1134,32 @@ def test_a_launch_that_left_one_job_for_another_moves_its_rules(before, after):
         # a step moved and edited while the job it left remains
         (_jobs(lint=[_named(BYPASS)], review=[{"run": "make"}]),
          _jobs(lint=[{"run": "make"}], review=[_named(f"{BYPASS} --max-turns 5")])),
+        # #823 review cycle 5 (M5): the job it met it in still runs it, now
+        # quoted and so unread, while the other job adds the same plain launch
+        (_jobs(lint=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}], review=[{"run": "echo hi"}]),
+         _jobs(lint=[{"name": "agent", "run": f'claude -p {BYPASS} "Review"'}],
+               review=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}])),
+        # (M6) the same, the job it met it in now running it through `npx`
+        (_jobs(lint=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}], review=[{"run": "echo hi"}]),
+         _jobs(lint=[{"name": "agent", "run": f"npx @anthropic-ai/claude-code -p {BYPASS} Review"}],
+               review=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}])),
+        # the same, the unread step now standing at another step label
+        (_jobs(lint=[{"run": f"claude -p {BYPASS} Review"}], review=[{"run": "echo hi"}]),
+         _jobs(lint=[{"run": "echo hi"}, {"run": f'claude -p {BYPASS} "Review"'}],
+               review=[{"name": "agent", "run": f"claude -p {BYPASS} Review"}])),
+        # the job it met it in still runs the action, with an argument input
+        # it no longer reads, or a settings input holding an expression
+        (_jobs(lint=[_named(BYPASS)], review=[{"run": "make"}]),
+         _jobs(lint=[_named(f'{BYPASS} --append-system-prompt "Review"')], review=[_named(BYPASS)])),
+        (_jobs(lint=[{"name": "agent", **_agent(settings='{"permissions":{"defaultMode":"bypassPermissions"}}')}],
+               review=[{"run": "make"}]),
+         _jobs(lint=[{"name": "agent", **_agent(settings='{"permissions":{"defaultMode":"${{ vars.MODE }}"}}')}],
+               review=[{"name": "agent", **_agent(settings='{"permissions":{"defaultMode":"bypassPermissions"}}')}])),
     ],
     ids=["second-job", "narrowed-there-widened-here", "unread-in-the-job-it-met-it", "edited-into-the-same-launch",
-         "moved-and-edited"],
+         "moved-and-edited", "quoted-in-the-job-it-met-it", "npx-in-the-job-it-met-it",
+         "unread-at-another-step-in-the-job-it-met-it", "arguments-unread-in-the-job-it-met-it",
+         "setting-expression-in-the-job-it-met-it"],
 )
 def test_a_rule_another_job_gains_while_no_launch_left_is_a_widening(before, after):
     assert host_grant_expansion_signals(_changes(before, after)) == [f"workflow_agent_widened_changed: {SOURCE}"]
@@ -1424,6 +1496,25 @@ def test_a_withheld_json_value_compares_as_the_host_readers_compare_it():
     row, = _rows(settings({"DB": "one"}), settings({"DB": "one", "EXTRA": "three"}))
     assert '"EXTRA":"<redacted>"' in row.after
     assert "three" not in row.after
+
+
+@pytest.mark.parametrize("name", ["settings", "mcp_config"])
+def test_a_json_or_path_input_that_is_neither_publishes_only_a_digest(name):
+    """#823 review cycle 5 (P3): text before the JSON, such as a comment line, published the env value it holds."""
+
+    value = '// ci\n{"env": {"DB_PASSWORD_PLAIN": "canary-env-value"}}'
+    launch, = _launches(_workflow(_agent(**{name: value})))
+    setting = next(item for item in launch["settings"] if item["name"] == name)
+    assert setting == {"name": name, "value": _digest(value), "unresolved_reason": None}
+    assert "canary-env-value" not in json.dumps(launch)
+    # Still compared: an edit to it is a row, and one showing neither text.
+    row, = _rows(_workflow(_agent(**{name: value})), _workflow(_agent(**{name: value.replace("canary", "other")})))
+    assert (row.direction, row.expands) == ("changed", False)
+    assert "canary" not in row.before + row.after and "other-env" not in row.after
+    # A plain path, an expression naming one included, is published as written.
+    for path in (".github/claude-settings.json", "${{ github.workspace }}/ci/settings.json"):
+        launch, = _launches(_workflow(_agent(**{name: path})))
+        assert next(item for item in launch["settings"] if item["name"] == name)["value"] == path
 
 
 def test_a_codex_config_override_publishes_its_key_and_withholds_its_value():
@@ -1812,6 +1903,36 @@ def test_the_run_forms_of_review_cycle_4_give_no_row_and_are_a_named_coverage_is
     joined = json.dumps(inventory) + audit.output
     for text in ("dangerously", "yolo", "Review this PR", "review this change"):
         assert text not in joined
+
+
+@pytest.mark.parametrize(
+    "still_there",
+    [f'claude -p {BYPASS} "Review"', f"npx @anthropic-ai/claude-code -p {BYPASS} Review"],
+    ids=["quoted", "npx"],
+)
+def test_a_launch_the_job_still_runs_unread_has_not_moved_to_the_job_that_adds_it(tmp_path, still_there):
+    """#823 review cycle 5 (C5-F1, M5 and M6) end to end: `diff` widens, `audit --host` names the unread step."""
+
+    from agents_shipgate.cli.host_audit import host_audit_inventory
+
+    permissions = {"contents": "write"}
+    plain = f"claude -p {BYPASS} Review"
+    base = _workflow(jobs={"a": {"steps": [{"run": plain}]}, "b": {"steps": [{"run": "echo hi"}]}},
+                     permissions=permissions)
+    head = _workflow(jobs={"a": {"steps": [{"run": still_there}]}, "b": {"steps": [{"run": plain}]}},
+                     permissions=permissions)
+    repo = _repo(tmp_path, {SOURCE: _yaml(base)})
+    _git(repo, "checkout", "-qb", "change")
+    _write(repo, {SOURCE: _yaml(head)})
+    _git(repo, "commit", "-qam", "an agent step in b")
+
+    row, = _diff(repo)["rows"]
+    assert (row["direction"], row["expands"]) == ("widened", True)
+    assert "an agent launch now skips permission checks (bypassPermissions) (b/steps[0])" in row["why"]
+    assert "a step no longer declares an agent launch this audit reads (a/steps[0])" in row["why"]
+    assert "moved between jobs" not in row["why"]
+    workflow, = [grant for grant in host_audit_inventory(repo)["grants"] if grant.get("kind") == "workflow"]
+    assert workflow["unread_agent_runs"] == [{"job": "a", "step": "steps[0]", "agent": "claude"}]
 
 
 # --- the same row on every route ---------------------------------------------------

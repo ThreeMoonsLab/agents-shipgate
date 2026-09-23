@@ -2088,6 +2088,28 @@ def _withheld_word(word: str) -> str | None:
     return _withheld_json(loaded)
 
 
+#: The action inputs that hold JSON or a file path (#823 review).
+_JSON_OR_PATH_INPUTS = frozenset({"mcp_config", "settings"})
+#: A file path as it may be published: plain path characters, and any
+#: ``${{ }}`` expression in it a plain context reference.
+_PLAIN_PATH_RE = re.compile(r"(?:[A-Za-z0-9_./~@+,:=%-]|\$\{\{[ A-Za-z0-9_.\-\[\]*]*\}\})*")
+
+
+def _withheld_json_or_path(text: str) -> str | None:
+    """A ``settings`` or ``mcp_config`` value as it may be published.
+
+    A JSON object by :func:`_withheld_word`, and a plain file path as
+    written. Any other text is neither, so the action rejects it, but it may
+    still hold what a host reader withholds, such as an ``env`` value after a
+    comment line: it publishes only ``<withheld:…>``, a digest, so an edit to
+    it is still a change (#823 review cycle 5).
+    """
+
+    if text.lstrip().startswith("{") or _PLAIN_PATH_RE.fullmatch(text):
+        return _withheld_word(text)
+    return _withheld_string(text)
+
+
 #: The codex ``--config`` keys whose value is published as written: the
 #: settings a documented widening rule reads (``sandbox_mode``,
 #: ``default_permissions``), the approval policy and the model. Any other
@@ -2255,7 +2277,9 @@ def _published_setting(name: str, value: Any, *, arguments: str | None = None) -
     otherwise it is ``unread_arguments`` and publishes only ``<withheld:…>``,
     a digest, so an edit to it is still a change while none of its text is
     published (#823 review cycle 4). Every other input is one value, a JSON
-    object published by :func:`_withheld_json`.
+    object published by :func:`_withheld_json`; a ``settings`` or
+    ``mcp_config`` value that is neither JSON nor a plain path publishes only
+    a digest (:func:`_withheld_json_or_path`).
     """
 
     text = _setting_text(value)
@@ -2267,7 +2291,9 @@ def _published_setting(name: str, value: Any, *, arguments: str | None = None) -
             return {"name": name, "value": _withheld_string(text), "unresolved_reason": "unread_arguments"}
         shown, redacted = _withheld_words(words, family=arguments)
         return _published_text(name, " ".join(shown), redacted=redacted)
-    setting = _published_text(name, _withheld_word(text))
+    setting = _published_text(
+        name, _withheld_json_or_path(text) if name in _JSON_OR_PATH_INPUTS else _withheld_word(text)
+    )
     # Read off the declared text: redaction may rewrite the expression away.
     return {**setting, "holds_expression": True} if holds_expression(text) else setting
 
@@ -2300,20 +2326,18 @@ def _job_secrets(job: dict[Any, Any], workflow_env: Any) -> list[str]:
     """
 
     names: set[str] = set()
-
-    def walk(value: Any) -> None:
+    # Walked once per container, without recursion: a YAML alias can make a
+    # mapping hold itself, or fan one out many times over (#823 review cycle 5).
+    seen: set[int] = set()
+    pending: list[Any] = [job, workflow_env]
+    while pending:
+        value = pending.pop()
         if isinstance(value, str):
             for expression in _EXPRESSION_RE.findall(value):
                 names.update(_SECRET_REFERENCE_RE.findall(expression))
-        elif isinstance(value, dict):
-            for item in value.values():
-                walk(item)
-        elif isinstance(value, list):
-            for item in value:
-                walk(item)
-
-    walk(job)
-    walk(workflow_env)
+        elif isinstance(value, (dict, list)) and id(value) not in seen:
+            seen.add(id(value))
+            pending.extend(value.values() if isinstance(value, dict) else value)
     return sorted({published_workflow_label(name) for name in names})
 
 
@@ -2487,18 +2511,23 @@ def _claude_action_rules(words: list[str]) -> set[str]:
     Read as ``parse-sdk-options.ts`` reads them: a word starting with ``--``
     is always a flag and never another flag's value, so
     ``--dangerously-skip-permissions`` counts wherever it stands, and
-    ``--permission-mode`` takes the next word unless that starts with ``--``.
+    ``--permission-mode`` takes the next word unless that starts with ``--``,
+    the last one counting, as it and the CLI keep the last value of a
+    repeated option (#823 review cycle 5).
     """
 
     rules: set[str] = set()
+    mode: str | None = None
     for index, word in enumerate(words):
         name, equals, attached = word.partition("=")
         following = words[index + 1] if index + 1 < len(words) else ""
         value = attached if equals else ("" if following.startswith("--") else following)
         if name == "--dangerously-skip-permissions":
             rules.add("bypass_permissions")
-        elif name == "--permission-mode" and value == "bypassPermissions":
-            rules.add("bypass_permissions")
+        elif name == "--permission-mode":
+            mode = value
+    if mode == "bypassPermissions":
+        rules.add("bypass_permissions")
     return rules
 
 
@@ -2573,12 +2602,13 @@ def _flag_rules(
     rules: set[tuple[str, str]] = set()
     if family == "codex" and config_selects_sandbox and _codex_config_full_access(flags):
         rules.add(("danger_full_access", "--config"))
+    # The CLI keeps the last value of a repeated `--permission-mode` (#823 review cycle 5).
+    modes = [values[0] if values else None for name, _arity, values in flags if name == "--permission-mode"]
+    if family == "claude" and modes and modes[-1] == "bypassPermissions":
+        rules.add(("bypass_permissions", "--permission-mode"))
     for name, _arity, values in flags:
         value = values[0] if values else None
-        if family == "claude" and (
-            name == "--dangerously-skip-permissions"
-            or (name == "--permission-mode" and value == "bypassPermissions")
-        ):
+        if family == "claude" and name == "--dangerously-skip-permissions":
             rules.add(("bypass_permissions", name))
         if family == "codex" and name == "--dangerously-bypass-approvals-and-sandbox":
             rules.add(("bypass_approvals_and_sandbox", name))
@@ -2726,9 +2756,12 @@ class AgentRuleGains:
       jobs swap launches (#823 review). A job that remains may still run its
       launch in a form this reader does not read, so a launch that only stops
       being read has not left it, and one edited in place into the launch
-      that job had gains the rule (#823 review cycle 3). Each names the
-      launch it left, the way a step reference moved between jobs adds no
-      scope (#771).
+      that job had gains the rule (#823 review cycle 3). The launch has not
+      left while the job it met the rule in has an unread step of that agent
+      at a step the launch held, more such steps than before, or a read
+      launch of that agent whose input the rule is read from it did not read
+      (#823 review cycle 5). Each names the launch it left, the way a step
+      reference moved between jobs adds no scope (#771).
     """
 
     claimed: list[AgentWidening]
@@ -2779,14 +2812,33 @@ def agent_rule_gains(before: dict[str, Any] | None, after: dict[str, Any] | None
         # A launch as it is compared, less its job.
         return {agent_launch_key(entry)[1:] for entry in entries}
 
+    def may_still_meet(source: _RuleKey) -> bool:
+        # The losing job may still run the launch that met the rule, in a
+        # form this reader does not read: an unread step of that agent now
+        # stands at a step the launch held, or the job has more of them than
+        # before, or one of its read launches of that agent holds text in an
+        # input the rule is read from that this reader did not read. Such a
+        # launch has not left the job (#823 review cycle 5).
+        job, family, rule, detail = source
+        still_unread = unread_after.get((job, family), [])
+        held = {str(entry["step"]) for entry in old[source]}
+        if any(str(entry["step"]) in held for entry in still_unread):
+            return True
+        if len(still_unread) > len(unread_before.get((job, family), [])):
+            return True
+        return any(_unread_setting(entry, rule, detail) for entry in launched_after.get((job, family), []))
+
     def same_launch(source: _RuleKey, target: _RuleKey) -> bool:
-        # The launch that met the rule in the losing job now runs here, and
-        # none of this job's own launches of that agent changed in place:
-        # each still runs here or now runs in the losing job, as when two
-        # jobs swap. A job whose launch was edited into the one the losing
-        # job had, while the losing job still exists, gained it (#823
+        # The launch that met the rule in the losing job now runs here, the
+        # losing job does not still run it in a form this reader does not
+        # read, and none of this job's own launches of that agent changed in
+        # place: each still runs here or now runs in the losing job, as when
+        # two jobs swap. A job whose launch was edited into the one the
+        # losing job had, while the losing job still exists, gained it (#823
         # review cycle 3).
         if not compared(old[source]) & compared(new[target]):
+            return False
+        if may_still_meet(source):
             return False
         family = target[1]
         remaining = compared([

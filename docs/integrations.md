@@ -226,8 +226,11 @@ a different action reference, such as a pinned SHA to `@main`, is a
 non-widening row, so the hook stays quiet about it; `diff` and the PR comment
 still show it. The same holds for an agent launch in a workflow whose settings
 change without gaining a documented widening rule, for a checkout's ref, and
-for a `run:` or argument input the audit does not read, which it names as a
-limit in `audit --host`. One that gains a rule, such as a plain `claude_args`
+for an edit to an argument input the audit does not read, which is compared by
+a digest, named in the row and named as a limit in `audit --host`. A `run:`
+that mentions an agent CLI and that the audit does not read is different: it
+gives no row in `diff` or the PR comment, whatever is edited, and is named only
+as a limit in `audit --host`. One that gains a rule, such as a plain `claude_args`
 gaining `--dangerously-skip-permissions` on any of its lines, widens, and the
 hook announces it (#823), unless the launch may be a step of that job the audit
 did not read, rewritten, or the job's launch held before a `${{ }}` expression
