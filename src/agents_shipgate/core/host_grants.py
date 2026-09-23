@@ -1419,6 +1419,37 @@ def _script_words(script: str) -> Iterator[tuple[int, int, str]]:
         yield start, index, "".join(pieces)
 
 
+#: What ends one command of a shell script and starts the next, between two of
+#: its words: ``;``, ``&`` (``&&``), ``|`` (``||``), a newline, a parenthesis
+#: or a backtick (#819 review, cycle 3). A word after one is never a value of
+#: a word before it.
+_SCRIPT_COMMAND_BREAK_RE = re.compile(r"[;&|()`\n]")
+
+
+def _script_command_words(script: str) -> Iterator[tuple[int, int, str, bool]]:
+    """Each word of a shell script as :func:`_script_words` reads it, and whether a command starts at it (#819 review, cycle 3).
+
+    ``(start, end, value, starts_command)``: ``starts_command`` is whether the
+    text between the word before it and this word holds a
+    :data:`_SCRIPT_COMMAND_BREAK_RE` separator. That text is only whitespace
+    and separators, since a word ends at nothing else, so each character of
+    the script is read once.
+    """
+
+    previous_end = 0
+    for start, end, value in _script_words(script):
+        yield start, end, value, _SCRIPT_COMMAND_BREAK_RE.search(script, previous_end, start) is not None
+        previous_end = end
+
+
+def _script_word_value(word: tuple[int, int, str, bool]) -> str:
+    return word[2]
+
+
+def _script_word_starts_command(word: tuple[int, int, str, bool]) -> bool:
+    return word[3]
+
+
 def _requoted(written: str, published: str) -> str:
     """``published`` inside the quotes of ``written``, when ``written`` is quoted at both ends and ``published`` holds no such quote."""
 
@@ -1443,32 +1474,44 @@ def _published_script(script: str, as_written: str) -> str:
     and generated-key rules; and the value after a credential name
     (:func:`_credential_kinds`), in the script as ``script`` holds it and as
     ``as_written`` holds it, since the string rule can take a credential name
-    as another flag's value (``--no-password --token X``). A word a rule
-    rewrites is published without its quotes unless it was one quoted word;
-    every other character is copied as written. The words are read only as
-    far as the published script's bound, so a long script costs its first
-    words.
+    as another flag's value (``--no-password --token X``). Both readings
+    start afresh at each command of the script (:func:`_script_command_words`),
+    so the first word after ``;``, ``&&``, ``|``, a newline, a parenthesis or
+    a backtick is never taken as a value of the word before it
+    (``gh auth token | docker login …``, ``echo token:; ./notify.sh``). That
+    drops none of the digest's redactions: the string rule has already
+    replaced every value it takes in ``script``, across a separator too
+    (``--token |X`` is ``--token <redacted>``). A word a rule rewrites is
+    published without its quotes unless it was one quoted word; every other
+    character is copied as written.
+
+    Every word of ``as_written`` is read before any is published (#819
+    review, cycle 3). The two readings do not keep step: the string rule can
+    take several words into one value, as a URL takes an unquoted
+    ``?a&b&c&d;`` and an assignment an unquoted ``TOKEN=a|b|c|d``, so a word
+    that follows a credential name as written can come many words later in
+    ``as_written`` than it does in ``script``. Both scans are linear; the
+    words of ``script`` are then read only as far as the published script's
+    bound.
     """
 
     assigned = _script_with_assignment_values_redacted(script)
     text = script if assigned is None else assigned
-    written = _credential_kinds(value for _start, _end, value in _script_words(as_written))
-    written_read = 0
     secrets: set[str] = set()
     passwords: set[str] = set()
+    for (_start, _end, written_value, _starts), written_kind in _credential_kinds(
+        _script_command_words(as_written), key=_script_word_value, starts_command=_script_word_starts_command
+    ):
+        if written_kind == _CREDENTIAL_VALUE:
+            secrets.add(written_value)
+        elif written_kind == _CREDENTIAL_USERINFO:
+            passwords.add(written_value)
     shown: list[str] = []
     length = copied = 0
-    words = _credential_kinds(_script_words(text), key=lambda word: word[2])
-    for index, ((start, end, value), kind) in enumerate(words):
-        # The words as written are read in step with these, two ahead, since
-        # a rule that rewrites a word as a whole never adds or removes one.
-        while written_read <= index + 2 and (item := next(written, None)) is not None:
-            written_read += 1
-            written_value, written_kind = item
-            if written_kind == _CREDENTIAL_VALUE:
-                secrets.add(written_value)
-            elif written_kind == _CREDENTIAL_USERINFO:
-                passwords.add(written_value)
+    words = _credential_kinds(
+        _script_command_words(text), key=_script_word_value, starts_command=_script_word_starts_command
+    )
+    for (start, end, value, _starts), kind in words:
         if kind == _CREDENTIAL_VALUE or value in secrets:
             published = _DETAIL_REDACTED
         else:
@@ -1557,7 +1600,11 @@ def _published_word(word: str, *, script: bool = False, as_written: str | None =
 
 
 def _published_words(
-    words: list[str], *, script: int | None = None, script_as_written: str | None = None
+    words: list[str],
+    *,
+    script: int | None = None,
+    script_as_written: str | None = None,
+    shell: bool = False,
 ) -> list[str]:
     """Each word as :func:`_published_word` publishes it, and the value after a credential flag replaced.
 
@@ -1568,7 +1615,8 @@ def _published_words(
     ``script`` is the index of a shell's ``-c`` script among ``words``
     (:func:`_shell_script_index`), and ``script_as_written`` that script as
     the command held it before any rule ran, when ``words`` are not as
-    written.
+    written. ``shell`` is set for a hook's command, whose control-operator
+    words start a new command (:func:`_credential_values`).
 
     Which word is replaced depends only on the word before it, never on
     whether that word was itself replaced (#819 review): in
@@ -1578,7 +1626,7 @@ def _published_words(
     therefore published redacted, whichever word before it was consumed.
     """
 
-    redacted, userinfo = _credential_values(words)
+    redacted, userinfo = _credential_values(words, shell=shell)
     return [
         _DETAIL_REDACTED
         if index in redacted
@@ -1598,7 +1646,10 @@ _CREDENTIAL_USERINFO = "userinfo"
 
 
 def _credential_kinds(
-    items: Iterable[Any], key: Callable[[Any], str] | None = None
+    items: Iterable[Any],
+    key: Callable[[Any], str] | None = None,
+    *,
+    starts_command: Callable[[Any], bool] | None = None,
 ) -> Iterator[tuple[Any, str | None]]:
     """Each item, and whether its word follows a credential name or ``-u`` (#819).
 
@@ -1610,8 +1661,10 @@ def _credential_kinds(
     ``{"token":``) leaves its value to the next word, and when that word is an
     authentication scheme (``Basic``, ``Bearer``), to the word after it too
     (#819 review): the header rule reads one word at a time. ``key`` is an
-    item's word, the item itself when omitted. Read lazily, one word behind,
-    so a caller that stops early reads no further (#819 review).
+    item's word, the item itself when omitted. ``starts_command`` says of an
+    item that a new shell command starts at it, so it follows nothing: no word
+    before it can make it a value (#819 review, cycle 3). Read lazily, one
+    word behind, so a caller that stops early reads no further (#819 review).
     """
 
     previous: str | None = None
@@ -1619,6 +1672,8 @@ def _credential_kinds(
     after_scheme = False
     for item in items:
         word = item if key is None else key(item)
+        if starts_command is not None and starts_command(item):
+            previous, previous_header, after_scheme = None, None, False
         kind: str | None = None
         if previous is not None:
             if after_scheme or previous_header is not None or _redacts_next_word(previous):
@@ -1635,15 +1690,31 @@ def _credential_kinds(
         yield item, kind
 
 
-def _credential_values(words: list[str]) -> tuple[set[int], set[int]]:
+#: A hook command word that is only shell control operators: ``|``, ``||``,
+#: ``&&``, ``;``, ``&``, ``|&``, a parenthesis (#819 review, cycle 3).
+_SHELL_OPERATOR_WORD_RE = re.compile(r"[;&|()]+")
+
+
+def _is_shell_operator_word(word: str) -> bool:
+    return _SHELL_OPERATOR_WORD_RE.fullmatch(word) is not None
+
+
+def _credential_values(words: list[str], *, shell: bool = False) -> tuple[set[int], set[int]]:
     """The indices of the words that follow a credential name, and of those that follow ``-u`` (#819).
 
-    What :func:`_credential_kinds` says of each word.
+    What :func:`_credential_kinds` says of each word. With ``shell`` set, the
+    words are a hook's command, which a shell runs: a word that is only
+    control operators (``gh auth token | docker login …``) starts a new
+    command, so it is neither a value nor followed by one (#819 review, cycle
+    3). An MCP server's ``args`` are not read by a shell, and the digest's
+    list rule replaces whatever item follows a credential name, ``|``
+    included, so they are read without it.
     """
 
     redacted: set[int] = set()
     userinfo: set[int] = set()
-    for index, (_word, kind) in enumerate(_credential_kinds(words)):
+    kinds = _credential_kinds(words, starts_command=_is_shell_operator_word if shell else None)
+    for index, (_word, kind) in enumerate(kinds):
         if kind == _CREDENTIAL_VALUE:
             redacted.add(index)
         elif kind == _CREDENTIAL_USERINFO:
@@ -1946,14 +2017,17 @@ def _hook_command(value: Any) -> dict[str, Any] | None:
     words sees ``--token`` (#819 review). A word that follows a credential name
     in the command as written (:func:`_credential_values`) is therefore
     ``<redacted>`` wherever the redacted words still hold it, and the password
-    of one that follows ``-u`` is dropped.
+    of one that follows ``-u`` is dropped. In both readings a word that is only
+    shell control operators, such as ``|``, ``;`` or ``&&``, starts a new
+    command, so ``gh auth token | docker login …`` publishes the pipe and
+    ``docker`` as written (#819 review, cycle 3).
     """
 
     if not isinstance(value, str) or not value.strip():
         return None
     words = _command_words(_detail_string_rules(value))
     as_written = _command_words(value)
-    redacted, userinfo = _credential_values(as_written)
+    redacted, userinfo = _credential_values(as_written, shell=True)
     secret_values = {as_written[index] for index in redacted}
     userinfo_values = {as_written[index] for index in userinfo}
     env_keys: list[str] = []
@@ -1986,7 +2060,10 @@ def _hook_command(value: Any) -> dict[str, Any] | None:
         for word, published in zip(
             words,
             _published_words(
-                words, script=None if script is None else script + 1, script_as_written=script_as_written
+                words,
+                script=None if script is None else script + 1,
+                script_as_written=script_as_written,
+                shell=True,
             ),
             strict=True,
         )

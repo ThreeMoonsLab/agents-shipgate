@@ -174,9 +174,20 @@ the command is not resolved or run, the script it names is not read (#702), and
 a credential-shaped word, a generated-looking key even when `.`, `:` or `;` joins
 it to other text (`SG.<redacted>.<redacted>`), a credential header's whole
 value within its word, a quoted credential assignment's value and the value
-after a credential-named flag are published as `<redacted>`. A shell's `-c`
-script is read one shell word at a time, so a credential word in it never
-hides the commands after it (`echo token: <redacted>; ./notify.sh`). A value the digest's own input already redacts, such
+after a credential-named flag are published as `<redacted>`. The `-c` script
+of a POSIX shell that is the command itself (`bash -c "…"`, not
+`sudo bash -c "…"`) is read one shell word and one command at a time: a
+credential header's value ends with its word, and the first word after `;`,
+`&&`, `|`, a newline, a parenthesis or a backtick is never read as the value
+of a credential word before it, so `echo token: ok; ./notify.sh` publishes
+`echo token: <redacted>; ./notify.sh`, `echo token:; ./notify.sh` publishes
+`./notify.sh` and `gh auth token | docker login …` publishes `docker`. The
+digest's own string rule runs on the whole script first and still takes what
+it reads across a separator, such as the `X` of `--token |X`, or of `--token`
+followed by a newline and `X`. After `sudo` or `env`, or in another shell's
+script such as `pwsh -c`, the script is one word, and a credential header
+name's value runs to its end (`sudo bash -c "echo token: ok; …"` publishes
+`echo token: <redacted>`). A value the digest's own input already redacts, such
 as the value after `--token`, `--api-key` or `--password`, a `--password=…`
 value or an `X-Api-Key:` header value, is not compared, so a change confined
 to it is no row, as before. A change carried only by any other redacted word —

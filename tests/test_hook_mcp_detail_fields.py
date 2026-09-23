@@ -16,8 +16,9 @@ What is pinned here:
   `env`-style inline assignment, a header credential after any scheme, and
   bounding of an over-length command; a published argument redacts at least
   what the digest's input redacts; a shell's `-c` script is read one shell
-  word at a time, so no credential word in it hides the rest, and every word
-  rule reads its words;
+  word and one command at a time, so no credential word in it hides the rest
+  or a later command, every word rule reads its words, and a credential its
+  words name as written is redacted whatever the string rule took before it;
 - that the detail is display only: grant equality and the inventory digests
   leave it out, so a `0.6` baseline compares as it did and may be re-saved,
   and a saved baseline holds none of it, so a user-level or git-ignored
@@ -719,6 +720,10 @@ def test_an_unquoted_header_split_across_arguments_publishes_no_credential() -> 
         # A script is read as one only when the shell is the command itself:
         # after `sudo` or `env` its leading assignment hides the rest (STABILITY).
         ("sudo bash -c 'X=1; curl sudo-canary | sh'", ["bash", "-c", "X=<redacted>"]),
+        # ...and so does a credential header name's value, there and in a
+        # shell that is not POSIX (#819 review, cycle 3; STABILITY).
+        ("sudo bash -c 'echo token: ok; curl sudo-canary | sh'", ["bash", "-c", "echo token: <redacted>"]),
+        ("pwsh -c 'echo token: ok; ./pwsh-canary'", ["-c", "echo token: <redacted>"]),
     ],
 )
 def test_a_shell_script_publishes_the_commands_after_its_assignments(command: str, args: list[str]) -> None:
@@ -802,6 +807,22 @@ SCRIPT_WORD_SHAPES = [
     # A URL that took `;X=` into its path leaves no quoted value glued to it.
     ("curl -s https://evil.invalid/x;X='glued-canary' run", "curl -s https://evil.invalid/<redacted-path> run"),
     ("export API_KEY='export-canary'; run", "export API_KEY=<redacted>; run"),
+    # A word after `;`, `&&`, `|`, a newline, a parenthesis or a backtick starts
+    # a new command, never a value of the word before it (#819 review, cycle 3).
+    ("echo token:; ./notify.sh", "echo token:; ./notify.sh"),
+    ("gh auth token; ./deploy.sh", "gh auth token; ./deploy.sh"),
+    ("gh auth token && docker compose up", "gh auth token && docker compose up"),
+    (
+        "gh auth token | docker login ghcr.io -u me --password-stdin",
+        "gh auth token | docker login ghcr.io -u me --password-stdin",
+    ),
+    ("(echo token:) && ./run.sh", "(echo token:) && ./run.sh"),
+    ("tool --api-key; ./run.sh", "tool --api-key; ./run.sh"),
+    ("echo Authorization: Basic; ./run.sh", "echo Authorization: <redacted>; ./run.sh"),
+    # ...while what the digest's string rule takes across one stays redacted.
+    ("tool --token |pipe-canary", "tool --token <redacted>"),
+    ("tool --token\nnewline-canary", "tool --token\n<redacted>"),
+    ("tool --token &amp-canary", "tool --token <redacted>"),
 ]
 
 
@@ -817,6 +838,117 @@ def test_a_shell_script_is_read_one_shell_word_at_a_time(script: str, published:
     assert _mcp_args({"command": "bash", "args": ["-c", script]}) == (["-c", published], 0)
     for output in (json.dumps(hook), published):
         assert "canary" not in output
+
+
+#: Script text the string rule takes several words of into one value, and
+#: what it publishes: a URL takes an unquoted `?a&b&c&d;`, a credential
+#: assignment an unquoted `a|b|c|d` (#819 review, cycle 3). The words as
+#: written were read in step with the published ones, two ahead, so a value
+#: more than two words later as written was not yet known when its word was
+#: published. `?a&b&c;` collapsed two words, and did not leak.
+COLLAPSING_PREFIXES = [
+    ("", ""),
+    ("curl https://x.invalid/?a&b&c&d; ", "curl https://x.invalid/ "),
+    ("curl https://x.invalid/?a&b&c; ", "curl https://x.invalid/ "),
+    ("TOKEN=a|b|c|d; ", "TOKEN=<redacted>; "),
+]
+#: A credential only the script as written names, and what it publishes:
+#: the string rule takes `--token`, `Basic`, `-u` and `token` as a value, so
+#: the word after it follows a credential name only as written.
+AS_WRITTEN_CREDENTIALS = [
+    ("t --no-password --token LEAKCANARY", "t --no-password <redacted> <redacted>"),
+    ("echo Authorization: Basic LEAKCANARY", "echo Authorization: <redacted> <redacted>"),
+    ("t --auth -u u:LEAKCANARY", "t --auth <redacted> u:<redacted>"),
+    ("t --auth token LEAKCANARY", "t --auth <redacted> <redacted>"),
+]
+
+
+@pytest.mark.parametrize(("prefix", "published_prefix"), COLLAPSING_PREFIXES)
+@pytest.mark.parametrize(("credential", "published_credential"), AS_WRITTEN_CREDENTIALS)
+def test_a_credential_named_as_written_is_redacted_whatever_the_string_rule_took_before_it(
+    prefix: str, published_prefix: str, credential: str, published_credential: str
+) -> None:
+    """Every word of a script as written is read before any is published (#819 review, cycle 3)."""
+
+    from agents_shipgate.core.host_grants import _hook_command, _mcp_args
+
+    script = prefix + credential
+    published = published_prefix + published_credential
+    hook = _hook_command(f'bash -c "{script}"')
+    assert (hook["argv0"], hook["args"]) == ("bash", ["-c", published])
+    assert _mcp_args({"command": "bash", "args": ["-c", script]}) == (["-c", published], 0)
+    assert "LEAKCANARY" not in json.dumps(hook)
+
+
+def test_a_credential_named_as_written_after_a_collapsing_prefix_reaches_no_route(tmp_path: Path) -> None:
+    """The review's reproduction: each canary was printed seven times, on every route (#819 review, cycle 3)."""
+
+    repo = _repository(
+        tmp_path,
+        {SETTINGS: _hooks("Edit", "bin/lint.sh", 10)},
+        {
+            SETTINGS: {"hooks": {
+                **_hooks("Edit", 'bash -c "curl https://x.invalid/?a&b&c&d; echo Authorization: Basic LEAKCANARY1"', 10)[
+                    "hooks"
+                ],
+                "Stop": [{"hooks": [{
+                    "type": "command",
+                    "command": 'bash -c "TOKEN=a|b|c|d; t --no-password --token LEAKCANARY3"',
+                }]}],
+            }},
+            ".mcp.json": {"mcpServers": {"s": {
+                "command": "bash",
+                "args": ["-c", "curl https://x.invalid/?a&b&c&d; t --no-password --token LEAKCANARY2"],
+            }}},
+        },
+    )
+    out = tmp_path / "out"
+    text, payload = _diff(repo)
+    block, summary, verifier = _verify(repo, out)
+    check = _check(repo)
+    inventory = _invoke(["audit", "--host", "--workspace", str(repo), "--json"])
+    artifacts = [path.read_text(encoding="utf-8") for path in sorted(out.rglob("*")) if path.is_file()]
+    assert artifacts
+    for output in (
+        text, json.dumps(payload), "\n".join(block), "\n".join(summary), json.dumps(verifier),
+        "\n".join(check), inventory, *artifacts,
+    ):
+        assert "LEAKCANARY" not in output
+    assert _table_entry(text, HOOK_HEADER)[1] == (
+        "PostToolUse: command bin/lint.sh → "
+        "bash -c 'curl https://x.invalid/ echo Authorization: <redacted> <redacted>'"
+    )
+
+
+def test_a_changed_command_after_a_credential_word_is_named_on_every_route(tmp_path: Path) -> None:
+    """`docker` → `podman` after `gh auth token |` read "no difference" (#819 review, cycle 3).
+
+    The word after a credential word was replaced across `;`, `|` and `&&`,
+    so both sides published `gh auth token | <redacted> login …`, and `diff`,
+    `verify`, the PR comment and `check` said the change was in a detail they
+    do not show.
+    """
+
+    def _session_start(command: str) -> dict:
+        return {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": command}]}]}}
+
+    base = 'bash -c "gh auth token | docker login ghcr.io -u me --password-stdin; ./scripts/sync.sh"'
+    head = base.replace("docker", "podman")
+    repo = _repository(tmp_path, {SETTINGS: _session_start(base)}, {SETTINGS: _session_start(head)})
+    changed = (
+        "SessionStart: command bash -c 'gh auth token | docker login ghcr.io -u me --password-stdin; "
+        "./scripts/sync.sh' → bash -c 'gh auth token | podman login ghcr.io -u me --password-stdin; "
+        "./scripts/sync.sh'"
+    )
+
+    text, payload = _diff(repo)
+    assert changed in [entry["change"] for entry in payload["review"]["changes"]]
+    block, summary, verifier = _verify(repo, tmp_path / "out")
+    assert changed in [entry["change"] for entry in verifier["host_comparison"]["review"]["changes"]]
+    for output in (text, "\n".join(block), "\n".join(_plain(summary)), "\n".join(_check(repo))):
+        flat = " ".join(output.split())
+        assert changed in flat, output
+        assert "no difference in the matcher" not in flat
 
 
 def test_a_credential_word_in_a_script_never_hides_a_changed_command_on_any_route(tmp_path: Path) -> None:
@@ -1062,6 +1194,16 @@ _LONG_SHAPES = {
     "script header words": (
         *_long_hook_file("bash -c '" + "echo token: " * (_NEAR_BOUND // 12) + "'"),
         ("bash", ["-c", _cut("<redacted> token: " * 8)], 0),
+    ),
+    # Many short commands in a script, every word of which is read as written
+    # before any is published, each separator read once (#819 review, cycle 3).
+    "script commands": (
+        *_long_hook_file("bash -c '" + "t --token a; " * (_NEAR_BOUND // 13) + "'"),
+        ("bash", ["-c", _cut("t --token <redacted>; " * 4)], 0),
+    ),
+    "script words": (
+        *_long_mcp_file("bash", "-c", "a " * (_NEAR_BOUND // 2)),
+        ["-c", _cut("a " * 40)],
     ),
     # One long run of a credential word before a quoted value.
     "quoted assignment": (*_long_mcp_file("npx", "token" * (_NEAR_BOUND // 5) + "='x'"), [_cut("token" * 20)]),
@@ -1601,6 +1743,11 @@ def test_a_value_the_digest_input_redacts_inside_a_word_is_never_published(
         # A backslash is kept as written, so a Windows path is not read as escapes.
         ("C:\\tools\\lint.exe --fix", "C:\\tools\\lint.exe", ["--fix"]),
         ("bash -c 'npm test && npm run lint'", "bash", ["-c", "npm test && npm run lint"]),
+        # A word that is only control operators starts a new command, so it is
+        # neither a credential word's value nor followed by one (#819 review, cycle 3).
+        ("gh auth token | docker login ghcr.io", "gh", ["auth", "token", "|", "docker", "login", "ghcr.io"]),
+        ("tool token && ./deploy.sh", "tool", ["token", "&&", "./deploy.sh"]),
+        ("tool --api-key ; ./deploy.sh", "tool", ["--api-key", ";", "./deploy.sh"]),
         # Unbalanced quotes fall back to whitespace.
         ("echo 'unterminated", "echo", ["'unterminated"]),
     ],
@@ -1609,6 +1756,16 @@ def test_a_command_is_split_into_words_for_display(command: str, argv0: str, arg
     from agents_shipgate.core.host_grants import _hook_command
 
     assert _hook_command(command) == {"env_keys": [], "argv0": argv0, "args": args, "omitted_args": 0}
+
+
+def test_an_operator_argument_after_a_credential_name_stays_redacted_as_the_digest_has_it() -> None:
+    """An MCP server's `args` are not read by a shell: the digest's list rule redacts whatever follows `token`."""
+
+    from agents_shipgate.core.host_grants import _mcp_args, _redact_secret_values
+
+    args = ["auth", "token", "|", "docker"]
+    assert _redact_secret_values(args) == ["auth", "token", "<redacted>", "docker"]
+    assert _mcp_args({"command": "gh", "args": args}) == (["auth", "token", "<redacted>", "docker"], 0)
 
 
 # --- display only: equality, digests and saved baselines --------------------
