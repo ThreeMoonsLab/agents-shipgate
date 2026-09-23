@@ -504,7 +504,7 @@
     },
     "HostHookHandlerV7": {
       "additionalProperties": false,
-      "description": "One hook handler under an event: its group's matcher, its type, command and timeout.\n\n``matcher`` is ``None`` when its group declares none, which the host reads\nas every tool or source. ``command`` is ``None`` for a handler with no\ncommand string, such as a ``prompt`` handler, whose prompt is not\npublished. ``timeout`` is the declared number, or the value's bounded text\nwhen it is not one. Other handler settings are not published; a change\nconfined to them is a row whose text says it is not shown.",
+      "description": "One hook handler under an event: its group's matcher, its type, command and timeout.\n\n``matcher`` is ``None`` when its group declares none, which the host reads\nas every tool or source. ``command`` is ``None`` for a handler with no\ncommand string, such as a ``prompt`` handler, whose prompt is not\npublished. ``timeout`` is the declared number, or the value's bounded text\nwhen it is not a finite number or has more digits than a word's bound.\nOther handler settings are not published; a change confined to them is a\nrow whose text says it is not shown.",
       "properties": {
         "command": {
           "anyOf": [

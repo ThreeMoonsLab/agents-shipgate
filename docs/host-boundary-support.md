@@ -170,14 +170,19 @@ word and at most eight words after it, redacted and bounded) and its
 `PostToolUse → PostToolUse`. An MCP server grant publishes its declared `args`
 the same way, so a version pin moving to `@latest` is an `args` difference.
 The detail is a display of the declaration, never an input to the comparison:
-the command is not resolved or run, the script it names is not read (#702), a
-credential-shaped word, a generated-looking key even when `.`, `:` or `;` joins
+the command is not resolved or run, the script it names is not read (#702), and
+a credential-shaped word, a generated-looking key even when `.`, `:` or `;` joins
 it to other text (`SG.<redacted>.<redacted>`), a credential header's whole
-value and the value after a credential-named flag are published as
-`<redacted>`, and a change that only such a word, a word past the bound or an
-unpublished setting carries is still a row, which says the change is in a
-detail it does not show and, past a bound, that only the first arguments or
-handlers were compared.
+value within its word and the value after a credential-named flag are
+published as `<redacted>`. A value the digest's own input already redacts, such
+as the value after `--token`, `--api-key` or `--password`, a `--password=…`
+value or an `X-Api-Key:` header value, is not compared, so a change confined
+to it is no row, as before. A change carried only by any other redacted word —
+a positional token, a generated key, a header value's words after its scheme
+(`Authorization: Bearer …`), the value after a flag the digest's input does
+not name (`--secret-key …`) — by a word past the bound or by an unpublished
+setting is still a row, which says the change is in a detail it does not show
+and, past a bound, that only the first arguments or handlers were compared.
 A saved baseline holds none of this detail, so a command read from a user,
 managed or git-ignored settings file never reaches the committed file.
 A hook declaration outside the documented shape publishes no handlers, and its

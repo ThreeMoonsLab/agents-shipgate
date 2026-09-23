@@ -767,14 +767,15 @@ def _mcp_unshown_change(
     what is not shown (#819 review). A URL that is not printed is named
     `url as recorded`, never by its value, and a URL server that declares no
     arguments is not said to have compared them. A grant read before arguments
-    were published names them as not shown, as it did.
+    were published, or one whose ``args`` is not a list and so published
+    ``null`` (#819 review), names them as not shown, as it did.
     """
 
     launch = _mcp_launch(grant)
     arguments = (
         "arguments, "
         if args_compared
-        and "args" in grant
+        and grant.get("args") is not None
         and (grant.get("transport") != "url" or grant.get("args") or grant.get("omitted_args"))
         else ""
     )
@@ -939,13 +940,16 @@ def _hook_change(event: str, before: dict[str, Any], after: dict[str, Any]) -> s
         return f"{event}: {_HOOK_SHAPE_NOT_READ}"
     parts = _handler_changes(old, new)
     old_more, new_more = int(before.get("omitted_handlers") or 0), int(after.get("omitted_handlers") or 0)
+    # A side that counts handlers past the bound lists exactly the bound, and
+    # the other lists no more, so the longer list is the bound (#819 review).
+    bound = max(len(old), len(new))
     if old_more != new_more:
-        parts.append(f"handlers past the first {len(new)}: {old_more} → {new_more}")
+        parts.append(f"handlers past the first {bound}: {old_more} → {new_more}")
     if not parts:
         compared, past = "", ""
         if old_more or new_more:
-            compared = f" of the first {len(new)} handlers"
-            past = f"a handler past the first {len(new)}, "
+            compared = f" of the first {bound} handlers"
+            past = f"a handler past the first {bound}, "
         bounded = [
             handler["command"]
             for handler in (*old, *new)

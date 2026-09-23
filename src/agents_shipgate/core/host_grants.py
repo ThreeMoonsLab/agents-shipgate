@@ -124,8 +124,18 @@ _HEADER_SECRET_RE = re.compile(
     r"(\s*:\s*)([^\s'\";,\)]+)"
 )
 _BEARER_SECRET_RE = re.compile(r"(?i)\b(bearer)(\s+)([^\s'\";,\)]+)")
+#: ``NAME=value`` whose name holds a credential word. The lookahead states what
+#: every match needs after the name's whole run of name characters, ``=`` and
+#: a value's first character, so a long run with neither after it is passed
+#: over in one scan instead of being retried at every split of the run, which
+#: took time quadratic in its length (#819 review: 40,000 characters of
+#: ``password`` took 1.6 seconds). It matches exactly what the pattern without
+#: it matches, with the same groups: a name can only end where its run ends,
+#: since what follows it must be whitespace or ``=``, so ``config_sha256`` is
+#: unchanged.
 _ASSIGNMENT_SECRET_RE = re.compile(
-    r"(?i)\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|APIKEY|CREDENTIAL)[A-Z0-9_]*)"
+    r"(?i)\b(?=[A-Z0-9_]*+\s*+=\s*+[^\s'\";,\)])"
+    r"([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|APIKEY|CREDENTIAL)[A-Z0-9_]*)"
     r"(\s*=\s*)([^\s'\";,\)]+)"
 )
 _SPACE_ARG_SECRET_RE = re.compile(
@@ -1055,25 +1065,53 @@ def _home_projected(word: str) -> str:
     return word
 
 
-#: A credential written ``Name: value`` (#819): a header or key whose name is,
-#: or ends in, a word that names credential material (``Authorization``,
-#: ``Proxy-Authorization``, ``Cookie``, ``Set-Cookie``, ``X-Auth-Token``,
-#: ``api-key``, ``X-API-Key``, a JSON ``"token":``), and its whole value, the
-#: scheme included, up to the closing quote or the end of the text. The label
-#: rule replaces only the first word after the colon, which for
-#: ``Authorization: Basic <credential>`` or ``Bot <token>`` is the scheme. A
-#: name starts only where a run of name characters starts, so the scan is
-#: linear in the text.
-_DETAIL_HEADER_RE = re.compile(
-    r"(?i)(?<![A-Za-z0-9_-])"
+#: A header or key name that names credential material (#819): one that is,
+#: or ends in, such a word (``Authorization``, ``Proxy-Authorization``,
+#: ``Cookie``, ``Set-Cookie``, ``X-Auth-Token``, ``api-key``, ``X-API-Key``, a
+#: JSON ``"token"``). A name starts only where a run of name characters starts,
+#: so the scan is linear in the text, and never after ``$``: ``$PWD`` and
+#: ``$API_TOKEN`` are shell variables, whose values the text does not hold
+#: (#819 review).
+_DETAIL_HEADER_NAME = (
+    r"(?i)(?<![A-Za-z0-9_$-])"
     r"([A-Za-z0-9_-]*?(?:authorization|auth|api[-_]?key|bearer|cookie|credentials?"
     r"|passphrase|passw(?:or)?d|private[-_]?key|pwd|secret|signature|token))"
-    r"(['\"]?[ \t]*:[ \t]*['\"]?)([^'\"\r\n]*[^\s'\"])"
+)
+#: A credential written ``Name: value`` inside one word (#819): a credential
+#: header or key name (:data:`_DETAIL_HEADER_NAME`) and its whole value, the
+#: scheme included, up to the closing quote or the end of the word. The label
+#: rule replaces only the first word after the colon, which for
+#: ``Authorization: Basic <credential>`` or ``Bot <token>`` is the scheme. It
+#: is applied to one hook command word or one MCP argument, never to a whole
+#: command, so an unquoted value never runs past its own word (#819 review).
+#: A quote may follow a backslash, as escaped JSON inside a double-quoted
+#: shell word reads once its shell quotes are removed
+#: (``{\password\: \value\}``) (#819 review).
+_DETAIL_HEADER_RE = re.compile(
+    _DETAIL_HEADER_NAME + r"(\\?['\"]?[ \t]*:[ \t]*\\?['\"]?)([^'\"\r\n]*[^\s'\"])"
+)
+#: HTTP authentication schemes: after a bare credential header name, a scheme
+#: word is followed by the credential itself, which is the next word again.
+_DETAIL_AUTH_SCHEMES = frozenset({
+    "apikey", "aws4-hmac-sha256", "basic", "bearer", "bot", "digest", "dpop", "gnap", "hoba",
+    "key", "mutual", "negotiate", "ntlm", "privatetoken", "scram-sha-1", "scram-sha-256",
+    "ssws", "token", "vapid",
+})
+#: A word that ends in a credential header or key name and its colon, its
+#: value left to the next word: an unquoted ``-H Authorization: Basic <key>``
+#: or ``{"token": <value>}``, split at whitespace (#819 review). The second
+#: group is a scheme the word already holds (``Authorization:Basic``), after
+#: which the next word is the credential.
+_DETAIL_HEADER_NAME_WORD_RE = re.compile(
+    _DETAIL_HEADER_NAME
+    + r"\\?['\"]?[ \t]*:[ \t]*\\?['\"]?("
+    + "|".join(re.escape(scheme) for scheme in sorted(_DETAIL_AUTH_SCHEMES))
+    + r")?\\?['\"]?$"
 )
 
 
-def _detail_label(text: str) -> str:
-    """Hook or MCP detail text through the published-label redaction (#802, #819).
+def _detail_string_rules(text: str) -> str:
+    """Hook or MCP detail text through the digest's string rule and the published-label rule (#802, #819).
 
     The digest's own string rule (:func:`_sanitize_sensitive_string`) runs on
     the text as written, before any other pattern can take part of it: a known
@@ -1081,20 +1119,120 @@ def _detail_label(text: str) -> str:
     (``sk-…--password hunter2``), and that rule would then no longer see the
     value it redacts from ``config_sha256``'s input (#819 review). Then the
     label rule: known token shapes, credential assignments, a URL reduced to
-    its scheme and host, and ``scheme://`` userinfo. Then the whole value of a
-    credential header or key (:data:`_DETAIL_HEADER_RE`), so
-    ``Authorization: Basic <credential>``, ``Authorization: Bearer <token>``
-    and ``X-Auth-Token: <token>`` publish ``Authorization: <redacted>`` and
-    ``X-Auth-Token: <redacted>``. Running it after the label rule means a URL's
-    ``token:password@`` userinfo is already gone and never read as a header.
+    its scheme and host, and ``scheme://`` userinfo. Neither replaces more
+    than the one value it names, so a hook command passes through both whole.
     """
 
-    return _DETAIL_HEADER_RE.sub(
-        r"\1\2<redacted>", published_workflow_label(_sanitize_sensitive_string(text))
-    )
+    return published_workflow_label(_sanitize_sensitive_string(text))
 
 
-def _published_word(word: str) -> str:
+def _detail_label(text: str) -> str:
+    """One word of hook or MCP detail through the published-label redaction (#802, #819).
+
+    :func:`_detail_string_rules`, then the whole value of a credential header
+    or key (:data:`_DETAIL_HEADER_RE`), so ``Authorization: Basic <credential>``,
+    ``Authorization: Bearer <token>`` and ``X-Auth-Token: <token>`` publish
+    ``Authorization: <redacted>`` and ``X-Auth-Token: <redacted>``. Running it
+    after the label rule means a URL's ``token:password@`` userinfo is already
+    gone and never read as a header. ``text`` is one word — a hook command
+    word, an MCP argument, a matcher — because a header's value runs to the
+    end of the text it is found in (#819 review).
+    """
+
+    return _DETAIL_HEADER_RE.sub(r"\1\2<redacted>", _detail_string_rules(text))
+
+
+#: POSIX shells, whose ``-c`` operand is a script rather than one argument
+#: (#819 review).
+_DETAIL_SHELLS = frozenset({"ash", "bash", "dash", "ksh", "mksh", "sh", "zsh"})
+#: A short-option cluster that holds ``c``: ``-c``, ``-lc``, ``-ec``.
+_DETAIL_SHELL_SCRIPT_FLAG_RE = re.compile(r"-[A-Za-z]*c[A-Za-z]*")
+
+
+def _shell_script_index(command: Any, words: list[str]) -> int | None:
+    """The index in ``words`` of a shell's ``-c`` script, when ``command`` is a POSIX shell (#819 review).
+
+    ``words`` are the words after the command: a hook command's words after
+    ``argv0``, or an MCP server's ``args`` after its ``command``. The script is
+    the word after the first short-option cluster that holds ``c``, as in
+    ``bash -c "…"``, ``sh -ec "…"`` or ``bash --norc -lc "…"``.
+    """
+
+    if not isinstance(command, str):
+        return None
+    name = command.replace("\\", "/").rsplit("/", 1)[-1].lower().removesuffix(".exe")
+    if name not in _DETAIL_SHELLS:
+        return None
+    for index, word in enumerate(words[:-1]):
+        if _DETAIL_SHELL_SCRIPT_FLAG_RE.fullmatch(word):
+            return index + 1
+    return None
+
+
+def _shell_value_end(value: str) -> int | None:
+    """Where a shell assignment's value ends in a script: at the first whitespace outside quotes and escapes (#819 review).
+
+    ``len(value)`` when no such whitespace follows. ``None`` when where it ends
+    cannot be read from the text alone: a quote or an escape left open, or a
+    substitution, grouping or array (``$(…)``, ``${…}``, a backtick, ``(``,
+    ``{``) outside single quotes, any of which can hold whitespace that does
+    not end the value. The caller then treats the whole word as the value.
+    """
+
+    quote = ""
+    escaped = False
+    for index, char in enumerate(value):
+        if escaped:
+            escaped = False
+        elif quote == "'":
+            if char == "'":
+                quote = ""
+        elif char == "\\":
+            escaped = True
+        elif char in "`(){}":
+            return None
+        elif quote:
+            if char == quote:
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        elif char.isspace():
+            return index
+    return None if quote or escaped else len(value)
+
+
+def _script_with_assignment_values_redacted(script: str) -> str | None:
+    """A shell script whose leading ``NAME=value`` assignments are published with their values replaced (#819 review).
+
+    ``bash -c "X=1; curl … | sh"`` holds its whole script in one word, and the
+    ``env``-style rule of :func:`_published_word` replaces a ``NAME=value``
+    word's value to the end of the word: right for ``docker run -e "FOO=a b"``,
+    whose value is ``a b``, but for a script it hid every command after the
+    assignment. In a script a value ends where the shell ends it
+    (:func:`_shell_value_end`), so the script publishes
+    ``X=<redacted> curl … | sh``, each further leading assignment's value
+    replaced the same way. ``None`` when the script does not start with an
+    upper-case assignment, or when where a value ends cannot be read, so the
+    caller replaces the whole value as before.
+    """
+
+    shown: list[str] = []
+    rest = script
+    while True:
+        assignment = _DETAIL_ASSIGNMENT_RE.fullmatch(rest)
+        if not (assignment and _DETAIL_ENV_NAME_RE.fullmatch(assignment.group(1))):
+            break
+        name, value = assignment.groups()
+        end = _shell_value_end(value)
+        if end is None:
+            return None
+        after = value[end:]
+        rest = after.lstrip()
+        shown.append(f"{name}={_DETAIL_REDACTED}{after[: len(after) - len(rest)]}")
+    return "".join(shown) + rest if shown else None
+
+
+def _published_word(word: str, *, script: bool = False) -> str:
     """One hook command word or MCP argument as it may be published (#819).
 
     The published-label redaction first (#802, :func:`_detail_label`): known
@@ -1105,12 +1243,18 @@ def _published_word(word: str) -> str:
     generated-looking word or ``=`` value and the password of
     ``--user=user:password``, a path under the reading user's home is written
     from ``~``, a generated-looking run inside the word is replaced
-    (:func:`_without_generated_runs`), and the word is bounded.
+    (:func:`_without_generated_runs`), and the word is bounded. When ``script``
+    is set, the word is a shell's ``-c`` script, whose leading assignments'
+    values end where the shell ends them
+    (:func:`_script_with_assignment_values_redacted`).
     """
 
     shown = _detail_label(word)
     assignment = _DETAIL_ASSIGNMENT_RE.fullmatch(shown)
     if assignment and _DETAIL_ENV_NAME_RE.fullmatch(assignment.group(1)):
+        redacted_script = _script_with_assignment_values_redacted(shown) if script else None
+        if redacted_script is not None:
+            return _bounded_detail(_without_generated_runs(redacted_script))
         return _bounded_detail(f"{assignment.group(1)}={_DETAIL_REDACTED}")
     if shown.startswith("-") and "=" in shown:
         flag, _, value = shown.partition("=")
@@ -1124,13 +1268,15 @@ def _published_word(word: str) -> str:
     return _bounded_detail(_without_generated_runs(_home_projected(shown)))
 
 
-def _published_words(words: list[str]) -> list[str]:
+def _published_words(words: list[str], *, script: int | None = None) -> list[str]:
     """Each word as :func:`_published_word` publishes it, and the value after a credential flag replaced.
 
     ``--token VALUE``, ``--api-key VALUE`` and ``token VALUE`` pass the
     credential as the next word, which no pattern over that word alone can
     recognise (:func:`_redacts_next_word`). The word after ``-u`` or
     ``--user`` keeps its user name and loses the password after its ``:``.
+    ``script`` is the index of a shell's ``-c`` script among ``words``
+    (:func:`_shell_script_index`).
 
     Which word is replaced depends only on the word before it, never on
     whether that word was itself replaced (#819 review): in
@@ -1146,7 +1292,7 @@ def _published_words(words: list[str]) -> list[str]:
         if index in redacted
         else _bounded_detail(_without_password(_published_word(word)))
         if index in userinfo
-        else _published_word(word)
+        else _published_word(word, script=index == script)
         for index, word in enumerate(words)
     ]
 
@@ -1156,10 +1302,21 @@ def _credential_values(words: list[str]) -> tuple[set[int], set[int]]:
 
     A word is a credential's value when the word before it names one
     (:func:`_redacts_next_word`), and a ``user:password`` value when the word
-    before it is a :data:`_DETAIL_USERINFO_FLAGS` flag.
+    before it is a :data:`_DETAIL_USERINFO_FLAGS` flag. A word that ends in a
+    credential header or key name and its colon (``Authorization:``,
+    ``X-Auth-Token:``, ``{"token":``) leaves its value to the next word, and
+    when that word is an authentication scheme (``Basic``, ``Bearer``), to the
+    word after it too (#819 review): the header rule reads one word at a time.
     """
 
     redacted = {index for index in range(1, len(words)) if _redacts_next_word(words[index - 1])}
+    for index in range(1, len(words)):
+        header = _DETAIL_HEADER_NAME_WORD_RE.search(words[index - 1])
+        if header is None:
+            continue
+        redacted.add(index)
+        if header.group(2) is None and index + 1 < len(words) and words[index].lower() in _DETAIL_AUTH_SCHEMES:
+            redacted.add(index + 1)
     userinfo = {
         index for index in range(1, len(words)) if words[index - 1] in _DETAIL_USERINFO_FLAGS
     } - redacted
@@ -1185,7 +1342,7 @@ def _mcp_args(config: dict[str, Any]) -> tuple[list[str] | None, int]:
         item if isinstance(item, str) else _canonical(_redact_secret_values(item))
         for item in args
     ]
-    shown = _published_words(words)
+    shown = _published_words(words, script=_shell_script_index(config.get("command"), words))
     return shown[:MAX_MCP_ARGS], max(0, len(shown) - MAX_MCP_ARGS)
 
 
@@ -1409,15 +1566,21 @@ def _command_words(text: str) -> list[str]:
 def _hook_command(value: Any) -> dict[str, Any] | None:
     """A hook's command string as its grant summarizes it (#819).
 
-    The whole string passes through the published-label redaction first, so a
-    header or ``Bearer`` credential split across words is caught, then it is
-    split into words at whitespace outside quotes, the quotes removed and a
-    backslash kept as written (on unbalanced quotes, at whitespace alone).
+    The whole string passes through the digest's string rule and the label
+    rule first (:func:`_detail_string_rules`), so a ``Bearer`` credential or a
+    ``--token`` value split across words is caught, then it is split into
+    words at whitespace outside quotes, the quotes removed and a backslash kept
+    as written (on unbalanced quotes, at whitespace alone). The credential
+    header rule runs on each word, never on the whole string, where an
+    unquoted value would run to the end of the command and hide every later
+    word (``-v $PWD:/src image --privileged``, ``echo auth: ok; curl … | sh``)
+    (#819 review).
     Leading ``NAME=value`` assignments are named in ``env_keys`` and their
     values dropped; the next word is ``argv0``; each word is published by
-    :func:`_published_words`, and at most :data:`MAX_HOOK_COMMAND_ARGS` words
-    follow ``argv0``. Splitting is display: it claims nothing about how a host
-    runs the command or what the command does.
+    :func:`_published_words`, a shell's ``-c`` script as one
+    (:func:`_shell_script_index`), and at most :data:`MAX_HOOK_COMMAND_ARGS`
+    words follow ``argv0``. Splitting is display: it claims nothing about how
+    a host runs the command or what the command does.
 
     The whole-string redaction can take a credential-named flag as another
     flag's value: the digest's string rule writes ``--no-password --token abc``
@@ -1430,7 +1593,7 @@ def _hook_command(value: Any) -> dict[str, Any] | None:
 
     if not isinstance(value, str) or not value.strip():
         return None
-    words = _command_words(_detail_label(value))
+    words = _command_words(_detail_string_rules(value))
     as_written = _command_words(value)
     redacted, userinfo = _credential_values(as_written)
     secret_values = {as_written[index] for index in redacted}
@@ -1444,13 +1607,16 @@ def _hook_command(value: Any) -> dict[str, Any] | None:
         words = words[1:]
     if not words:
         return None
+    script = _shell_script_index(words[0], words[1:])
     shown = [
         _DETAIL_REDACTED
         if word in secret_values
         else _bounded_detail(_without_password(published))
         if word in userinfo_values
         else published
-        for word, published in zip(words, _published_words(words), strict=True)
+        for word, published in zip(
+            words, _published_words(words, script=None if script is None else script + 1), strict=True
+        )
     ]
     args = shown[1:]
     return {
@@ -1483,25 +1649,39 @@ def _hook_handlers(config: Any) -> tuple[list[dict[str, Any]] | None, int]:
                 "command" in handler and not isinstance(handler["command"], str)
             ):
                 return None, 0
-            timeout = handler.get("timeout")
-            numeric = (
-                isinstance(timeout, (int, float))
-                and not isinstance(timeout, bool)
-                and math.isfinite(timeout)
-            )
             handlers.append({
                 "matcher": None if matcher is None else _detail_text(matcher, MAX_DETAIL_MATCHER_CHARS),
                 "type": None if handler.get("type") is None else _detail_text(handler["type"], MAX_DETAIL_WORD_CHARS),
                 "command": _hook_command(handler.get("command")),
-                "timeout": (
-                    None
-                    if timeout is None
-                    else timeout
-                    if numeric
-                    else _detail_text(str(timeout) if isinstance(timeout, float) else timeout, MAX_DETAIL_WORD_CHARS)
-                ),
+                "timeout": _hook_timeout(handler.get("timeout")),
             })
     return handlers[:MAX_HOOK_HANDLERS], max(0, len(handlers) - MAX_HOOK_HANDLERS)
+
+
+def _hook_timeout(timeout: Any) -> int | float | str | None:
+    """A handler's ``timeout`` as its grant publishes it (#819).
+
+    A finite float, or an integer whose digits fit the word bound, is published
+    as the number it is. Any other value is published as its bounded text: an
+    infinite or not-a-number float (``inf``, ``nan``), a boolean, a string, and
+    an integer with more digits than :data:`MAX_DETAIL_WORD_CHARS`, which is cut
+    and ends in ``…`` like any over-length word (#819 review). An integer is
+    never converted to a float, so one too large for a float is not an error.
+    """
+
+    if timeout is None:
+        return None
+    if isinstance(timeout, bool):
+        return _detail_text(timeout, MAX_DETAIL_WORD_CHARS)
+    if isinstance(timeout, int):
+        # The bit length bounds the digits before any conversion to text:
+        # 4 bits per decimal digit is more than enough (log2(10) < 3.33).
+        if timeout.bit_length() <= 4 * MAX_DETAIL_WORD_CHARS and len(str(timeout)) <= MAX_DETAIL_WORD_CHARS:
+            return timeout
+        return _detail_text(timeout, MAX_DETAIL_WORD_CHARS)
+    if isinstance(timeout, float):
+        return timeout if math.isfinite(timeout) else _detail_text(str(timeout), MAX_DETAIL_WORD_CHARS)
+    return _detail_text(timeout, MAX_DETAIL_WORD_CHARS)
 
 
 def _hooks_grants(

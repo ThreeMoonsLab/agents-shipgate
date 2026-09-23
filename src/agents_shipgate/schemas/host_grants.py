@@ -655,8 +655,9 @@ class HostHookHandlerV7(BaseModel):
     as every tool or source. ``command`` is ``None`` for a handler with no
     command string, such as a ``prompt`` handler, whose prompt is not
     published. ``timeout`` is the declared number, or the value's bounded text
-    when it is not one. Other handler settings are not published; a change
-    confined to them is a row whose text says it is not shown.
+    when it is not a finite number or has more digits than a word's bound.
+    Other handler settings are not published; a change confined to them is a
+    row whose text says it is not shown.
     """
 
     model_config = ConfigDict(extra="forbid")
