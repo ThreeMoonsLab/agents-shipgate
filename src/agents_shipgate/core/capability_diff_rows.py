@@ -422,13 +422,33 @@ def _agent_launch_reasons(
             f"a step launches an agent in a form this audit does not read ({', '.join(unread)}); "
             "its settings are not compared, so this row does not say what that agent may do"
         )
-    checkouts = list(dict.fromkeys(
-        f"{item['job']}/{item['step']}" for item in (*gone_checkouts, *new_checkouts)
-    ))
-    if checkouts:
+    # A checkout step on one side only, such as one in an added job, is
+    # worded as added or removed, not as a changed ref (#823 review cycle 3).
+    old_checkouts = {where(item) for item in gone_checkouts}
+    new_checkouts_at = {where(item) for item in new_checkouts}
+    checkout_groups: dict[str, list[str]] = {}
+    for item in (*new_checkouts, *gone_checkouts):
+        label = where(item)
+        verb = (
+            "changed" if label in old_checkouts and label in new_checkouts_at
+            else ("added" if label in new_checkouts_at else "removed")
+        )
+        checkout_groups.setdefault(verb, [])
+        if label not in checkout_groups[verb]:
+            checkout_groups[verb].append(label)
+    checkout_phrases = [
+        f"{wording} ({', '.join(checkout_groups[verb])})"
+        for verb, wording in (
+            ("changed", "a checkout's declared ref changed"),
+            ("added", "a step now declares a checkout"),
+            ("removed", "a step no longer declares a checkout"),
+        )
+        if verb in checkout_groups
+    ]
+    if checkout_phrases:
         reasons.append(
-            f"a checkout's declared ref changed ({', '.join(checkouts)}); a ref names which "
-            "commit's code the job runs and adds no scope"
+            f"{_joined_words(checkout_phrases)}; a ref names which commit's code the job runs "
+            "and adds no scope"
         )
     return reasons
 

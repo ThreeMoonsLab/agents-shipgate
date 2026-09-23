@@ -138,6 +138,23 @@ def test_a_head_ref_checkout_is_one_changed_row_naming_the_default_and_the_new_r
     ) in row.why
 
 
+def test_a_checkout_step_on_one_side_only_is_worded_as_added_or_removed():
+    """#823 review cycle 3 (P3): a default checkout in an added job is not a changed ref."""
+
+    checkout = {"uses": "actions/checkout@v4"}
+    before = _jobs(test=[checkout, {"run": "make test"}])
+    after = _jobs(test=[checkout, {"run": "make test"}], lint=[checkout, {"run": "make lint"}])
+
+    row, = _rows(before, after)
+    assert "lint/steps[0]: checkout of the default ref" in row.after
+    assert "a step now declares a checkout (lint/steps[0]); a ref names which commit's code" in row.why
+    assert "declared ref changed" not in row.why
+
+    removed, = _rows(after, before)
+    assert "a step no longer declares a checkout (lint/steps[0])" in removed.why
+    assert "declared ref changed" not in removed.why
+
+
 def test_an_untrusted_trigger_with_a_write_scope_names_the_agent_step_it_now_reaches():
     row, = _rows(_reproduction(), _reproduction(trigger="issue_comment", pr="write"))
 
@@ -270,9 +287,12 @@ def test_a_command_that_launches_no_headless_agent_is_not_listed(run):
         ('REVIEW="$(claude -p --dangerously-skip-permissions \'go\')"', "shell_expansion"),
         ("REVIEW=`claude -p --dangerously-skip-permissions 'go'`", "shell_expansion"),
         ('echo "$(echo "$(claude -p --dangerously-skip-permissions \'go\')")"', "compound_command"),
-        # quoting that does not balance is read a line at a time, substitutions included
+        # a here-document body is not read, so an apostrophe in it no longer unbalances the rest
         ("cat <<EOF > prompt.md\nIt's broken\nEOF\nREVIEW=\"$(claude -p --dangerously-skip-permissions 'go')\"",
          "compound_command"),
+        # quoting that does not balance is read a line at a time, substitutions included
+        ("echo 'broken\nclaude -p --dangerously-skip-permissions go", "compound_command"),
+        ("echo 'broken\nREVIEW=\"$(claude -p --dangerously-skip-permissions go)\"", "compound_command"),
         # an agent CLI after a shell reserved word
         ("if true; then claude -p --dangerously-skip-permissions 'go'; fi", "compound_command"),
         ("for f in a b; do claude -p --dangerously-skip-permissions 'go'; done", "compound_command"),
@@ -280,10 +300,10 @@ def test_a_command_that_launches_no_headless_agent_is_not_listed(run):
         ("! claude -p --dangerously-skip-permissions 'go'", "compound_command"),
         ("time -p claude -p --dangerously-skip-permissions 'go'", "compound_command"),
     ],
-    ids=["and", "lines", "pipe", "heredoc", "variable", "substitution", "expression", "unbalanced-heredoc",
+    ids=["and", "lines", "pipe", "heredoc", "variable", "substitution", "expression", "after-heredoc",
          "unbalanced", "quoted-substitution-argument", "quoted-substitution-assignment", "backtick",
-         "nested-substitution", "unbalanced-substitution", "if-then", "for-do", "brace-group", "negated",
-         "timed"],
+         "nested-substitution", "substitution-after-heredoc", "unbalanced-lines", "unbalanced-substitution",
+         "if-then", "for-do", "brace-group", "negated", "timed"],
 )
 def test_a_shape_this_reader_does_not_read_is_unresolved_and_publishes_no_text(run, reason):
     launch, = _launches(_workflow({"run": run}))
@@ -600,6 +620,149 @@ def test_an_edit_inside_a_quoted_substitution_is_quiet_and_named_as_a_limit():
     assert _rows(before, after) == []
     limit, = uncompared_agent_launch_texts(_grant(after))
     assert "a command holding, or inside, a shell expansion this static audit does not evaluate" in limit
+
+
+# --- here-documents (#823 review cycle 3, C3-F1) -------------------------------------
+
+#: The step of the review: a PR comment drafted in a quoted here-document.
+HERE_DOC_COMMENT = "cat > comment.md <<'EOF'\nReproduce locally with `claude -p \"review this change\"`.\nEOF\n"
+COMMENT_PERMISSIONS = {"contents": "read", "pull-requests": "write"}
+
+
+@pytest.mark.parametrize(
+    ("opener", "closer"),
+    [("<<'EOF'", "EOF"), ('<<"EOF"', "EOF"), ("<<\\EOF", "EOF"), ("<<-'EOF'", "\t\tEOF"), ("<< 'EOF'", "EOF"),
+     ("<<E'O'F", "EOF")],
+    ids=["single-quoted", "double-quoted", "escaped", "tab-stripped", "spaced", "partly-quoted"],
+)
+@pytest.mark.parametrize(
+    "body",
+    [
+        'Reproduce locally with `claude -p "review this change"`.',
+        "Or run `codex exec --yolo 'review'` yourself.",
+        "claude -p --dangerously-skip-permissions 'review'",
+        "$(claude -p --dangerously-skip-permissions 'review')",
+        "don't run `claude -p x` here",
+    ],
+    ids=["backticked-claude", "backticked-codex", "line-head", "substitution", "apostrophe"],
+)
+def test_a_quoted_here_doc_that_mentions_an_agent_cli_launches_none(opener, closer, body):
+    """The shell passes a quoted here-document's body as written, so nothing in it runs."""
+
+    step = {"run": f"cat > comment.md {opener}\n{body}\n{closer}\n"}
+    assert _launches(_workflow(step, permissions=COMMENT_PERMISSIONS)) == []
+    assert _rows(
+        _workflow({"run": "echo done"}, permissions=COMMENT_PERMISSIONS),
+        _workflow({"run": "echo done"}, step, permissions=COMMENT_PERMISSIONS),
+    ) == []
+
+
+def test_beside_a_quoted_here_doc_a_new_bypass_step_is_a_widening():
+    """The here-document is no launch the job had before, so the gain is claimed."""
+
+    here_doc = {"run": HERE_DOC_COMMENT}
+    before = _workflow(here_doc, permissions=COMMENT_PERMISSIONS)
+    after = _workflow(
+        here_doc, {"run": 'claude -p --dangerously-skip-permissions "Review"'}, permissions=COMMENT_PERMISSIONS,
+    )
+
+    assert host_grant_expansion_signals(_changes(before, after)) == [f"workflow_agent_widened_changed: {SOURCE}"]
+    row, = _rows(before, after)
+    assert (row.direction, row.expands) == ("widened", True)
+    assert "an agent launch now skips permission checks (bypassPermissions) (review/steps[1])" in row.why
+    assert "a form this audit does not read" not in row.why
+    assert "review/steps[0]" not in row.why + row.before + row.after
+
+
+@pytest.mark.parametrize(
+    ("body", "agent"),
+    [
+        ("claude -p --dangerously-skip-permissions 'review'", None),
+        ("Summary: $(claude -p 'review')", "claude"),
+        ("Summary: `codex exec 'review'`", "codex"),
+        # quotes and `#` are ordinary characters in the body
+        ("'$(claude -p review)'", "claude"),
+        ("# $(claude -p review)", "claude"),
+        ("\\$(claude -p review)", None),
+    ],
+    ids=["line-head", "substitution", "backtick", "single-quoted", "hash", "escaped"],
+)
+def test_an_unquoted_here_doc_runs_its_substitutions_and_none_of_its_lines(body, agent):
+    launches = _launches(_workflow({"run": f"cat > comment.md <<EOF\n{body}\nEOF"}))
+
+    assert [(item["agent"], item["form"], item["unresolved_reason"]) for item in launches] == (
+        [(agent, "unresolved", "compound_command")] if agent else []
+    )
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        # the line that opens it, and what follows its closing line
+        "cat <<'EOF' | claude -p --dangerously-skip-permissions\nreview\nEOF",
+        "cat > prompt.md <<'EOF'\nreview\nEOF\nclaude -p --dangerously-skip-permissions 'go'",
+        # two on one line, their bodies in order
+        "cat <<'A' <<B\n`codex exec a`\nA\n$(claude -p b)\nB",
+        # opened inside a quoted substitution
+        'REVIEW="$(cat <<EOF\n$(claude -p go)\nEOF\n)"',
+        # `<<` that opens none
+        "echo $((1 << 2))\nclaude -p 'go'",
+        "echo '<<EOF'\nclaude -p 'go'",
+        "echo done # <<EOF\nclaude -p 'go'",
+        "cat <<< 'x'\nclaude -p 'go'",
+        # one with no closing line is read as ordinary lines
+        "cat <<'EOF'\nclaude -p 'go'",
+    ],
+    ids=["opening-line", "after-closing-line", "two-bodies", "in-quoted-substitution", "arithmetic",
+         "quoted", "comment", "here-string", "unclosed"],
+)
+def test_an_agent_cli_outside_a_here_doc_body_is_still_named(run):
+    launch, = _launches(_workflow({"run": run}))
+    assert (launch["agent"], launch["form"]) == ("claude", "unresolved")
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        "cat <<X\n" * 20000 + "claude -p go",
+        "".join(f"cat <<E{index}\nbody\nE{index}\n" for index in range(20000)) + "claude -p go",
+    ],
+    ids=["unclosed", "closed"],
+)
+def test_many_here_docs_are_read_in_one_pass(run):
+    """A closing line is looked up, not searched for from each opening line."""
+
+    launch, = _launches(_workflow({"run": run}))
+    assert (launch["agent"], launch["form"], launch["unresolved_reason"]) == ("claude", "unresolved", "compound_command")
+
+
+def test_the_here_doc_of_the_review_adds_no_row_or_coverage_issue_and_the_bypass_widens(tmp_path):
+    """C3-F1 end to end: a quoted here-document is no launch in `audit --host`, and `diff` claims the bypass."""
+
+    from agents_shipgate.cli.host_audit import host_audit_inventory
+
+    here_doc = {"run": HERE_DOC_COMMENT}
+    repo = _repo(tmp_path, {SOURCE: _yaml(_workflow({"run": "echo done"}, permissions=COMMENT_PERMISSIONS))})
+    _git(repo, "checkout", "-qb", "change")
+    _write(repo, {SOURCE: _yaml(_workflow({"run": "echo done"}, here_doc, permissions=COMMENT_PERMISSIONS))})
+    _git(repo, "commit", "-qam", "draft the comment")
+
+    assert _diff(repo)["rows"] == []
+    inventory = host_audit_inventory(repo)
+    workflow, = [grant for grant in inventory["grants"] if grant.get("kind") == "workflow"]
+    assert "agent_launches" not in workflow
+    assert [item for item in inventory["issues"] if item["host"] == "github"] == []
+
+    _write(repo, {SOURCE: _yaml(_workflow(
+        {"run": "echo done"}, here_doc, {"run": 'claude -p --dangerously-skip-permissions "Review"'},
+        permissions=COMMENT_PERMISSIONS,
+    ))})
+    _git(repo, "commit", "-qam", "review without permission checks")
+    row, = _diff(repo)["rows"]
+    assert (row["direction"], row["expands"]) == ("widened", True)
+    text = CliRunner().invoke(app, ["diff", "--workspace", str(repo), "--base", "main"])
+    assert text.exit_code == 0, text.output
+    assert "⚠" in text.output and "1 widening what the agent may do" in text.output
 
 
 @pytest.mark.parametrize(
@@ -954,14 +1117,29 @@ def test_a_launch_that_left_one_job_for_another_moves_its_rules(before, after):
         # the job that met the rule still launches the agent, and a different launch meets it elsewhere
         (_jobs(lint=[_named(BYPASS)], review=[_named("--allowedTools Read")]),
          _jobs(lint=[_named("--allowedTools Read")], review=[_named(f"{BYPASS} --max-turns 5")])),
+        # the job that met it remains, running its launch in a form this audit
+        # does not read (#823 review cycle 3), so that launch has not left it
+        (_jobs(lint=[{"name": "agent", "run": f"claude -p {BYPASS} 'Review'"}], review=[_named("--allowedTools Read")]),
+         _jobs(lint=[{"name": "agent", "run": f"npx @anthropic-ai/claude-code -p {BYPASS} 'Review'"}],
+               review=[_named(BYPASS)])),
+        # the same, with the other job's launch edited in place into the one this job had
+        (_jobs(lint=[{"name": "agent", "run": f"claude -p {BYPASS} 'Review'"}],
+               review=[{"name": "agent", "run": "claude -p --allowedTools Read 'Review'"}]),
+         _jobs(lint=[{"name": "agent", "run": f"npx @anthropic-ai/claude-code -p {BYPASS} 'Review'"}],
+               review=[{"name": "agent", "run": f"claude -p {BYPASS} 'Review'"}])),
+        # a step moved and edited while the job it left remains
+        (_jobs(lint=[_named(BYPASS)], review=[{"run": "make"}]),
+         _jobs(lint=[{"run": "make"}], review=[_named(f"{BYPASS} --max-turns 5")])),
     ],
-    ids=["second-job", "narrowed-there-widened-here"],
+    ids=["second-job", "narrowed-there-widened-here", "unread-in-the-job-it-met-it", "edited-into-the-same-launch",
+         "moved-and-edited"],
 )
 def test_a_rule_another_job_gains_while_no_launch_left_is_a_widening(before, after):
     assert host_grant_expansion_signals(_changes(before, after)) == [f"workflow_agent_widened_changed: {SOURCE}"]
     row, = _rows(before, after)
     assert (row.direction, row.expands) == ("widened", True)
     assert "an agent launch now skips permission checks (bypassPermissions) (review/agent)" in row.why
+    assert "the launch already met that rule in the job it left" not in row.why
 
 
 @pytest.mark.parametrize("renamed_first", [True, False], ids=["renamed-declared-first", "renamed-declared-last"])

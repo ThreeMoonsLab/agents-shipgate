@@ -8,6 +8,7 @@ uses the network. ``repository`` scope is portable and deterministic;
 
 from __future__ import annotations
 
+import bisect
 import errno
 import hashlib
 import json
@@ -1871,7 +1872,7 @@ class _SubstitutionLevel:
     cursor: int = 0
 
 
-def _command_substitutions(text: str) -> list[str]:
+def _command_substitutions(text: str, *, here_doc_body: bool = False) -> list[str]:
     """The text of each ``$(…)`` and backtick command substitution the shell would run in ``text``.
 
     Found outside single quotes, inside double quotes too: the word splitter
@@ -1884,6 +1885,12 @@ def _command_substitutions(text: str) -> list[str]:
     substitutions, though one inside arithmetic still is, and one left open
     runs to the end of the text. Only used to name an agent CLI as
     unresolved: nothing found here is read or published.
+
+    ``here_doc_body`` reads ``text`` as the body of a here-document whose
+    delimiter is unquoted (:func:`_here_documents`): the shell runs its
+    substitutions, but quotes and ``#`` in it are ordinary characters, so
+    ``'$(claude -p …)'`` there is a substitution. Inside a substitution the
+    usual quoting applies again.
     """
 
     bodies: list[str] = []
@@ -1918,7 +1925,10 @@ def _command_substitutions(text: str) -> list[str]:
             open_level(index, ")", index + 2, arithmetic=text.startswith("((", index + 1))
             index += 2
             continue
-        if level.quoted:
+        if here_doc_body and len(levels) == 1:
+            # Outside a substitution, a here-document body quotes nothing.
+            pass
+        elif level.quoted:
             level.quoted = char != '"'
         elif char == '"':
             level.quoted = True
@@ -1947,6 +1957,176 @@ def _command_substitutions(text: str) -> list[str]:
     return bodies
 
 
+def _here_doc_delimiter(text: str, index: int) -> tuple[str, bool, int]:
+    """The here-document delimiter word at ``index``: its text after quote removal, whether any of it is quoted, and where it ends.
+
+    An unclosed quote gives an empty delimiter, which is not read as one.
+    """
+
+    word: list[str] = []
+    quoted = False
+    while index < len(text) and not text[index].isspace() and text[index] not in _SHELL_OPERATOR_CHARS:
+        char = text[index]
+        if char == "\\":
+            quoted = True
+            word.append(text[index + 1:index + 2])
+            index += 2
+        elif char in {"'", '"'}:
+            end = text.find(char, index + 1)
+            if end < 0:
+                return "", quoted, len(text)
+            quoted = True
+            word.append(text[index + 1:end])
+            index = end + 1
+        else:
+            word.append(char)
+            index += 1
+    return "".join(word), quoted, index
+
+
+@dataclass
+class _LineStarts:
+    """Where each line of a text starts, by its content and by its content after leading tabs."""
+
+    exact: dict[str, list[int]]
+    tab_stripped: dict[str, list[int]]
+
+    @classmethod
+    def of(cls, text: str) -> _LineStarts:
+        exact: dict[str, list[int]] = {}
+        tab_stripped: dict[str, list[int]] = {}
+        start = 0
+        for line in text.split("\n"):
+            exact.setdefault(line, []).append(start)
+            tab_stripped.setdefault(line.lstrip("\t"), []).append(start)
+            start += len(line) + 1
+        return cls(exact=exact, tab_stripped=tab_stripped)
+
+
+def _here_doc_bodies_end(
+    text: str, lines: _LineStarts, start: int, pending: list[tuple[str, bool, bool]],
+) -> tuple[int, list[str]] | None:
+    """Where the bodies of ``pending`` here-documents, read in order from ``start``, end, and the bodies the shell expands.
+
+    Each body runs to the first line that is exactly its delimiter (after
+    leading tabs, for ``<<-``). ``None`` when one has no such line. The line
+    is looked up rather than searched for, so a text of many here-documents
+    with no closing line costs no more than its length times a logarithm.
+    """
+
+    position = start
+    expanded: list[str] = []
+    for delimiter, quoted, strip_tabs in pending:
+        starts = (lines.tab_stripped if strip_tabs else lines.exact).get(delimiter, [])
+        found = bisect.bisect_left(starts, position)
+        if found == len(starts):
+            return None
+        closing = starts[found]
+        if not quoted:
+            expanded.append(text[position:closing])
+        line_end = text.find("\n", closing)
+        position = len(text) if line_end < 0 else line_end + 1
+    return position, expanded
+
+
+def _here_documents(text: str) -> tuple[str, list[str]]:
+    """``text`` without the body and closing line of each here-document, and the bodies the shell expands.
+
+    The shell never runs a here-document's lines as commands: it passes them
+    to the command as input. When any part of the delimiter is quoted
+    (``<<'EOF'``, ``<<"EOF"``, ``<<\\EOF``) the body is passed as written, so
+    ``claude -p`` in Markdown backticks there starts nothing (#823 review);
+    when it is unquoted (``<<EOF``) the shell still runs the body's ``$(…)``
+    and backtick substitutions, so those bodies are returned for
+    :func:`_command_substitutions` to read. ``<<`` is read outside quotes,
+    comments and ``$((…))`` arithmetic, inside a ``$(…)`` or backtick
+    substitution too, a ``<<<`` here-string is not one, and each body starts
+    after the line that opened it. A here-document with no closing line is
+    left in the text and read as ordinary lines, so a ``<<`` misread there
+    hides no later command. Only used to name an agent CLI as unresolved:
+    nothing found here is read or published.
+    """
+
+    kept: list[str] = []
+    expanded: list[str] = []
+    pending: list[tuple[str, bool, bool]] = []
+    lines: _LineStarts | None = None
+    levels = [_SubstitutionLevel(closer="", start=0)]
+    cursor = 0
+    index = 0
+    while index < len(text):
+        level = levels[-1]
+        char = text[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == "\n" and not level.quoted and pending:
+            lines = lines or _LineStarts.of(text)
+            found = _here_doc_bodies_end(text, lines, index + 1, pending)
+            pending = []
+            if found is not None:
+                end, bodies = found
+                kept.append(text[cursor:index + 1])
+                expanded.extend(bodies)
+                cursor = index = end
+                continue
+            index += 1
+            continue
+        if char == "`":
+            if level.closer == "`":
+                levels.pop()
+            else:
+                levels.append(_SubstitutionLevel(closer="`", start=index + 1))
+            index += 1
+            continue
+        if char == "$" and text.startswith("(", index + 1):
+            levels.append(_SubstitutionLevel(
+                closer=")", start=index + 2, arithmetic=text.startswith("((", index + 1),
+            ))
+            index += 2
+            continue
+        if level.quoted:
+            level.quoted = char != '"'
+        elif char == '"':
+            level.quoted = True
+        elif char == "'":
+            quote_end = text.find("'", index + 1)
+            index = len(text) if quote_end < 0 else quote_end + 1
+            continue
+        elif char == "#" and (
+            index == level.start or text[index - 1].isspace() or text[index - 1] in _SHELL_OPERATOR_CHARS
+        ):
+            # A comment runs to the end of its line, not past it: a
+            # here-document opened before it starts on the next one.
+            ends = [text.find("\n", index), text.find("`", index) if level.closer == "`" else -1]
+            index = min((end for end in ends if end >= 0), default=len(text))
+            continue
+        elif char == "<" and text.startswith("<<", index) and not level.arithmetic:
+            if text.startswith("<<<", index):
+                index += 3
+                continue
+            index += 2
+            strip_tabs = text.startswith("-", index)
+            if strip_tabs:
+                index += 1
+            while index < len(text) and text[index] in " \t":
+                index += 1
+            delimiter, quoted, index = _here_doc_delimiter(text, index)
+            if delimiter:
+                pending.append((delimiter, quoted, strip_tabs))
+            continue
+        elif level.closer == ")" and char == "(":
+            level.depth += 1
+        elif level.closer == ")" and char == ")":
+            if level.depth:
+                level.depth -= 1
+            else:
+                levels.pop()
+        index += 1
+    kept.append(text[cursor:])
+    return "".join(kept), expanded
+
+
 def _commands(words: list[str]) -> list[list[str]]:
     """``words`` grouped into the commands their operator tokens separate, empty ones included."""
 
@@ -1959,11 +2139,11 @@ def _commands(words: list[str]) -> list[list[str]]:
     return commands
 
 
-def _substituted_agents(run: str) -> set[str]:
+def _substituted_agents(run: str, *, here_doc_body: bool = False) -> set[str]:
     """The agent CLIs ``run`` starts at the head of a command inside a command substitution."""
 
     agents: set[str] = set()
-    for body in _command_substitutions(run):
+    for body in _command_substitutions(run, here_doc_body=here_doc_body):
         words = _shell_words(body)
         if words is None:
             agents.update(agent for line in body.splitlines() if (agent := _line_agent(line)))
@@ -2775,21 +2955,28 @@ def _run_launches(job: str, step_label: str, run: str) -> list[dict[str, Any]]:
     flags are its settings. Otherwise an agent CLI found at the start of any
     command in it — after any reserved words, and inside a ``$(…)`` or
     backtick substitution outside single quotes — is one ``unresolved`` entry
-    with the reason, and none of its text is published.
+    with the reason, and none of its text is published. A here-document's
+    body is never a command, and only an unquoted delimiter's body has
+    substitutions the shell runs (:func:`_here_documents`).
     """
 
     run = run.strip()
-    words = _shell_words(run)
+    # The commands the shell runs, without the here-document bodies it passes
+    # them as input; a step with one is never a simple command, since `<<`
+    # stays in `script`, so what is published is always read from `run`.
+    script, expanded = _here_documents(run)
+    here_doc_agents = {agent for body in expanded for agent in _substituted_agents(body, here_doc_body=True)}
+    words = _shell_words(script)
     base = {"job": job, "step": step_label}
     if words is None:
         # Quoting that does not balance cannot be split into commands, so no
         # word of it is read; a line that starts an agent CLI, or holds a
         # substitution that does, is still named.
         agents = sorted({
-            agent for line in run.splitlines()
+            agent for line in script.splitlines()
             for agent in ({_line_agent(line)} | _substituted_agents(line))
             if agent is not None
-        })
+        } | here_doc_agents)
         return [
             {**base, "agent": agent, "form": "unresolved", "unresolved_reason": "compound_command", "settings": []}
             for agent in agents
@@ -2799,7 +2986,7 @@ def _run_launches(job: str, step_label: str, run: str) -> list[dict[str, Any]]:
     # An agent CLI inside a `$(…)` or backtick substitution heads no command
     # the splitter sees when the substitution is double-quoted or a backtick
     # (#823 review), and is named as unresolved.
-    substituted = _substituted_agents(run)
+    substituted = _substituted_agents(script) | here_doc_agents
     if not launches and not substituted:
         return []
     # A comment is an unquoted `#` at the start of a word, read off the raw
@@ -2809,14 +2996,14 @@ def _run_launches(job: str, step_label: str, run: str) -> list[dict[str, Any]]:
     single = (
         len(simple) == 1
         and not any(_is_operator(word) for word in words)
-        and not _has_shell_comment(run)
+        and not _has_shell_comment(script)
         and not _reserved_prefix_length(simple[0])
     )
     if "${{" in run:
         reason: str | None = "expression"
     elif not single:
         reason = "compound_command"
-    elif substituted or _has_shell_expansion(run):
+    elif substituted or _has_shell_expansion(script):
         reason = "shell_expansion"
     else:
         reason = None
@@ -3155,10 +3342,15 @@ class AgentRuleGains:
       a ``${{ }}`` expression in an input the rule is read from, and GitHub's
       substituted text may already have met it. Each names that input.
     - ``moved``: the rule left another job whose launch that met it left that
-      job — the job no longer exists or no longer launches that agent, or the
-      same launch now runs here — as when a job is renamed or an agent step
-      moves to another job (#823 review). Each names the launch it left, the
-      way a step reference moved between jobs adds no scope (#771).
+      job — the job no longer exists, or the same launch now runs here while
+      each launch of that agent this job had still runs here or in that job —
+      as when a job is renamed, an agent step moves to another job or two
+      jobs swap launches (#823 review). A job that remains may still run its
+      launch in a form this reader does not read, so a launch that only stops
+      being read has not left it, and one edited in place into the launch
+      that job had gains the rule (#823 review cycle 3). Each names the
+      launch it left, the way a step reference moved between jobs adds no
+      scope (#771).
     """
 
     claimed: list[AgentWidening]
@@ -3194,16 +3386,33 @@ def agent_rule_gains(before: dict[str, Any] | None, after: dict[str, Any] | None
     lost = [key for key in old if key not in new]
     gained = [key for key in new if key not in old]
 
-    def same_launch(key: _RuleKey, arriving: list[dict[str, Any]]) -> bool:
-        # The launch that met the rule in the losing job now runs here.
-        return any(
-            agent_launch_key(entry)[1:] == agent_launch_key(other)[1:]
-            for entry in old[key] for other in arriving
-        )
+    def compared(entries: list[dict[str, Any]]) -> set[tuple[Any, ...]]:
+        # A launch as it is compared, less its job.
+        return {agent_launch_key(entry)[1:] for entry in entries}
 
-    def job_left(key: _RuleKey, _arriving: list[dict[str, Any]]) -> bool:
-        # The losing job no longer launches that agent at all.
-        return (key[0], key[1]) not in launched_after
+    def same_launch(source: _RuleKey, target: _RuleKey) -> bool:
+        # The launch that met the rule in the losing job now runs here, and
+        # none of this job's own launches of that agent changed in place:
+        # each still runs here or now runs in the losing job, as when two
+        # jobs swap. A job whose launch was edited into the one the losing
+        # job had, while the losing job still exists, gained it (#823
+        # review cycle 3).
+        if not compared(old[source]) & compared(new[target]):
+            return False
+        family = target[1]
+        remaining = compared([
+            entry for job in (target[0], source[0]) for entry in launched_after.get((job, family), [])
+        ])
+        return compared(launched_before.get((target[0], family), [])) <= remaining
+
+    jobs_after = {str(context["job"]) for context in (after or {}).get("permission_contexts", [])}
+
+    def job_left(source: _RuleKey, _target: _RuleKey) -> bool:
+        # The losing job no longer exists, as when it is renamed. A job that
+        # remains may still run its launch in a form this reader does not
+        # read, such as `npx`, so its launch is not taken to have left
+        # (#823 review cycle 3).
+        return source[0] not in jobs_after
 
     # A rule moved when the launch that met it left the losing job. The same
     # launch arriving is matched first, so which of two gaining jobs a rule
@@ -3214,7 +3423,7 @@ def agent_rule_gains(before: dict[str, Any] | None, after: dict[str, Any] | None
             if key in sources:
                 continue
             source = next(
-                (other for other in lost if other[1:] == key[1:] and left(other, new[key])), None
+                (other for other in lost if other[1:] == key[1:] and left(other, key)), None
             )
             if source is not None:
                 lost.remove(source)

@@ -206,7 +206,16 @@ things are listed on the workflow grant, each naming its `job/step` (the step's
   `if …; then claude -p …; fi` (`compound_command`). A command that launches no
   headless agent — `claude mcp add`, `codex login`, an `echo` that mentions
   either, a quoted `"claude -p …"` or a single-quoted `'$(claude -p …)'` — is
-  not listed.
+  not listed. Nor is the body of a here-doc, which the shell passes to its
+  command as input and never runs: a `claude -p` line, or a Markdown
+  `` `claude -p …` `` in a comment drafted with `cat <<'EOF'`, starts no agent.
+  Only when no part of the delimiter is quoted (`<<EOF`, not `<<'EOF'`,
+  `<<"EOF"` or `<<\EOF`) does the shell run the body's `$(…)` and backtick
+  substitutions, quotes and `#` in it included, so an agent CLI heading one
+  there is listed (`compound_command`). A body ends at the first line that is
+  exactly its delimiter (after leading tabs, for `<<-`). A here-doc with no
+  such line, or one opened inside another here-doc's body, is read as
+  ordinary lines, so its body text can still be listed as a launch.
 - **Each `actions/checkout` step's `with.ref`**, or the default when it
   declares none or an empty one. Adding `ref:
   ${{ github.event.pull_request.head.sha }}` is a `changed` row naming the
@@ -250,11 +259,15 @@ names the rule and step. Three gains are named in the `why` and not claimed:
   it — so replacing `--model ${{ vars.M }}` with `--model opus` beside
   `--dangerously-skip-permissions` is not a widening;
 - where the rule moved between jobs: another job met it before and the launch
-  that met it left that job — the job no longer exists or no longer launches
-  that agent, as when a job is renamed or an agent step moves, or the same
-  launch now runs in this job — as a step reference moved between jobs adds no
-  scope. A second job gaining a rule a first job keeps, or a different launch
-  gaining it while the first job still launches that agent, is claimed.
+  that met it left that job — the job no longer exists, as when it is renamed,
+  or the same launch now runs in this job while each launch of that agent this
+  job had still runs here or in that job, as when an agent step moves or two
+  jobs swap launches — as a step reference moved between jobs adds no scope.
+  A second job gaining a rule a first job keeps, or a different launch
+  gaining it while the first job still exists, is claimed: that job may still run its launch
+  in a form this audit does not read (`npx`, a path), so a launch that only
+  stops being read has not left it, and a launch edited in place into the one
+  that job had gains the rule.
 
 Any other edit — `--allowedTools "Read"` to `--allowedTools "Bash(*)"`,
 `acceptEdits`, a new plugin, a flag after a `${{ }}` expression, a head-ref
