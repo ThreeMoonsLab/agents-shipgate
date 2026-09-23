@@ -806,9 +806,9 @@ def test_a_current_baseline_compares_mappings_and_validates_against_the_schemas(
     path.write_text(STAGING)
     inventory = host_audit_inventory(tmp_path)
     baseline = build_host_grants_baseline(inventory)
-    assert baseline["host_grants_schema_version"] == "0.6"
-    Draft202012Validator(json.loads((ROOT / "docs/host-grants-inventory-schema.v0.6.json").read_text())).validate(inventory)
-    Draft202012Validator(json.loads((ROOT / "docs/host-grants-baseline-schema.v0.6.json").read_text())).validate(baseline)
+    assert baseline["host_grants_schema_version"] == "0.7"
+    Draft202012Validator(json.loads((ROOT / "docs/host-grants-inventory-schema.v0.7.json").read_text())).validate(inventory)
+    Draft202012Validator(json.loads((ROOT / "docs/host-grants-baseline-schema.v0.7.json").read_text())).validate(baseline)
 
     unchanged = build_host_drift_payload(baseline=baseline, inventory=inventory, baseline_file="b.json")
     assert (unchanged["comparison_status"], unchanged["has_drift"]) == ("comparable", False)
@@ -817,7 +817,7 @@ def test_a_current_baseline_compares_mappings_and_validates_against_the_schemas(
     drift = build_host_drift_payload(baseline=baseline, inventory=host_audit_inventory(tmp_path), baseline_file="b.json")
     assert drift["comparison_status"] == "comparable" and drift["has_drift"] is True
     assert len(drift["changes"]) == 1 and drift["expansion_signals"] == []
-    Draft202012Validator(json.loads((ROOT / "docs/host-grants-drift-schema.v0.6.json").read_text())).validate(drift)
+    Draft202012Validator(json.loads((ROOT / "docs/host-grants-drift-schema.v0.7.json").read_text())).validate(drift)
 
 
 def test_a_saved_baseline_listing_mappings_out_of_order_still_compares_equal(tmp_path):
