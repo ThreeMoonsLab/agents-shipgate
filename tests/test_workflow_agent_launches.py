@@ -27,6 +27,7 @@ from agents_shipgate.core.capability_diff_rows import capability_diff_rows
 from agents_shipgate.core.host_grants import (
     _claude_argument_input,
     _codex_argument_input,
+    _literal_argument_words,
     _uncompared_workflow_text,
     _workflow_grant,
     diff_host_grants,
@@ -572,9 +573,14 @@ def test_renaming_or_moving_an_agent_step_within_its_job_is_quiet():
          "accepts runs triggered by any user (allow-users: *)"),
         (_workflow({"run": "codex exec 'x'"}), _workflow({"run": "codex exec --sandbox danger-full-access 'x'"}),
          "runs without a sandbox"),
+        # Literal text an expression cannot reach still meets a rule (#823 review F4).
+        (_workflow(_agent()), _workflow(_agent("--dangerously-skip-permissions ${{ inputs.extra }}")),
+         "skips permission checks"),
+        (_workflow(_agent()), _workflow(_agent(allowed_non_write_users="${{ vars.USERS }}, *")),
+         "accepts runs triggered by any user (allowed_non_write_users: *)"),
     ],
     ids=["skip-flag", "mode-flag", "gate", "bots", "codex-sandbox", "codex-unsafe", "codex-args", "codex-users",
-         "codex-cli"],
+         "codex-cli", "words-before-an-expression", "gate-entry-beside-an-expression"],
 )
 def test_a_documented_rule_gained_is_a_widening(before, after, rule):
     changes = _changes(before, after)
@@ -595,15 +601,22 @@ def test_a_documented_rule_gained_is_a_widening(before, after, rule):
         # narrowed
         (_workflow(_agent("--dangerously-skip-permissions")), _workflow(_agent('--allowedTools "Read"'))),
         (_workflow(_agent(allowed_non_write_users="*")), _workflow(_agent(allowed_non_write_users="octocat"))),
-        # an expression is text, never a rule
-        (_workflow(_agent()), _workflow(_agent("--dangerously-skip-permissions ${{ inputs.extra }}"))),
-        (_workflow(_agent()), _workflow(_agent(allowed_non_write_users="${{ vars.USERS }}, *"))),
+        # text an expression can reach is never read for a rule
+        (_workflow(_agent()), _workflow(_agent("${{ inputs.extra }} --dangerously-skip-permissions"))),
+        (_workflow(_agent()), _workflow(_agent("--dangerously-skip-permissions${{ inputs.extra }}"))),
+        # a quote still open at the expression, which its substituted text may close
+        (_workflow(_agent()),
+         _workflow(_agent('--append-system-prompt "never pass --dangerously-skip-permissions ${{ inputs.p }}'))),
+        (_workflow(_agent()), _workflow(_agent(allowed_non_write_users="*${{ vars.USERS }}"))),
+        (_workflow({"uses": "openai/codex-action@v1"}),
+         _workflow({"uses": "openai/codex-action@v1", "with": {"sandbox": "${{ vars.SANDBOX }}"}})),
         # widened by a tool rule, which is #824's to rate
         (_workflow(_agent('--allowedTools "Read"')), _workflow(_agent('--allowedTools "Bash(*)"'))),
         (_workflow({"run": "claude -p --permission-mode default 'x'"}),
          _workflow({"run": "claude -p --permission-mode acceptEdits 'x'"})),
     ],
-    ids=["respelled", "moved-to-action", "narrowed", "gate-closed", "expression", "gate-expression", "tool-rule",
+    ids=["respelled", "moved-to-action", "narrowed", "gate-closed", "after-an-expression", "touching-an-expression",
+         "quoted-past-an-expression", "gate-entry-holding-an-expression", "mode-expression", "tool-rule",
          "accept-edits"],
 )
 def test_any_other_edit_is_changed(before, after):
@@ -633,6 +646,175 @@ def test_a_rule_gained_by_a_launch_read_on_both_sides_widens_beside_an_unread_on
     assert host_grant_expansion_signals(_changes(before, after)) == [f"workflow_agent_widened_changed: {SOURCE}"]
     row, = _rows(before, after)
     assert (row.direction, row.expands) == ("widened", True)
+
+
+def _jobs(**steps):
+    return _workflow(jobs={job: {"runs-on": "ubuntu-latest", "steps": list(items)} for job, items in steps.items()})
+
+
+def _named(args, name="agent"):
+    return {"name": name, **_agent(args)}
+
+
+BYPASS = "--dangerously-skip-permissions"
+
+
+def test_renaming_a_job_that_launches_a_bypassing_agent_is_not_a_widening():
+    """#823 review F3: a rule the launch already met in the job it left is moved, not gained."""
+
+    before, after = _jobs(review=[_named(BYPASS)]), _jobs(**{"code-review": [_named(BYPASS)]})
+
+    assert host_grant_expansion_signals(_changes(before, after)) == []
+    row, = _rows(before, after)
+    assert (row.direction, row.expands) == ("changed", False)
+    assert (
+        "an agent launch that skips permission checks (bypassPermissions) moved between jobs "
+        "(review/agent → code-review/agent), which is not counted as a widening"
+    ) in row.why
+    assert "an agent launch now" not in row.why
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        # the agent step moved to another job, which launched no agent before
+        (_jobs(lint=[_named(BYPASS)], review=[{"run": "make"}]),
+         _jobs(lint=[{"run": "make"}], review=[_named(BYPASS)])),
+        # renamed and edited in the same change
+        (_jobs(review=[_named(BYPASS)]), _jobs(**{"code-review": [_named(f"{BYPASS} --max-turns 5")]})),
+        # the same launch now runs in the other job, and the other job's in this one
+        (_jobs(lint=[_named(BYPASS)], review=[_named("--allowedTools Read")]),
+         _jobs(lint=[_named("--allowedTools Read")], review=[_named(BYPASS)])),
+        # a gate the launch opened, moved with it
+        (_jobs(review=[{"name": "agent", **_agent(allowed_bots="*")}]),
+         _jobs(triage=[{"name": "agent", **_agent(allowed_bots="*")}])),
+    ],
+    ids=["step-moved", "renamed-and-edited", "swapped", "gate-moved"],
+)
+def test_a_launch_that_left_one_job_for_another_moves_its_rules(before, after):
+    assert host_grant_expansion_signals(_changes(before, after)) == []
+    row, = _rows(before, after)
+    assert (row.direction, row.expands) == ("changed", False)
+    assert "moved between jobs" in row.why
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        # a second job now bypasses, beside the one that still does
+        (_jobs(lint=[_named(BYPASS)], review=[_named("--allowedTools Read")]),
+         _jobs(lint=[_named(BYPASS)], review=[_named(BYPASS)])),
+        # the job that met the rule still launches the agent, and a different launch meets it elsewhere
+        (_jobs(lint=[_named(BYPASS)], review=[_named("--allowedTools Read")]),
+         _jobs(lint=[_named("--allowedTools Read")], review=[_named(f"{BYPASS} --max-turns 5")])),
+    ],
+    ids=["second-job", "narrowed-there-widened-here"],
+)
+def test_a_rule_another_job_gains_while_no_launch_left_is_a_widening(before, after):
+    assert host_grant_expansion_signals(_changes(before, after)) == [f"workflow_agent_widened_changed: {SOURCE}"]
+    row, = _rows(before, after)
+    assert (row.direction, row.expands) == ("widened", True)
+    assert "an agent launch now skips permission checks (bypassPermissions) (review/agent)" in row.why
+
+
+@pytest.mark.parametrize(
+    ("value", "words"),
+    [
+        ("--dangerously-skip-permissions --model ${{ vars.M }}", ("--dangerously-skip-permissions", "--model")),
+        ("--model ${{ vars.M }} --dangerously-skip-permissions", ("--model",)),
+        # the word the expression touches
+        ("--dangerously-skip-permissions${{ vars.X }}", ()),
+        ("--permission-mode=${{ vars.MODE }}", ()),
+        # a quoted run open at the expression, balanced or not in the literal text
+        ('--append-system-prompt "--dangerously-skip-permissions ${{ vars.X }}"', ("--append-system-prompt",)),
+        ('--append-system-prompt "a --dangerously-skip-permissions ${{ vars.X }}', ("--append-system-prompt",)),
+        # a whole line before it, and a comment line the action drops whatever it holds
+        ("--dangerously-skip-permissions\n# model: ${{ vars.M }}", ("--dangerously-skip-permissions",)),
+        ("# don't\n--dangerously-skip-permissions ${{ vars.X }}", ("--dangerously-skip-permissions",)),
+        # an unquoted `#` ends the input, so what follows it reaches nothing
+        ("--dangerously-skip-permissions # ${{ vars.X }}", ("--dangerously-skip-permissions",)),
+    ],
+)
+def test_claude_args_rules_are_read_only_from_words_an_expression_cannot_reach(value, words):
+    """#823 review F4: GitHub substitutes the expression before the action splits the input."""
+
+    assert _literal_argument_words("claude", value) == words
+
+
+@pytest.mark.parametrize(
+    ("value", "words"),
+    [
+        ("--yolo ${{ vars.X }}", ("--yolo",)),
+        ("${{ vars.X }} --yolo", ()),
+        ('--yolo "a ${{ vars.X }}', ("--yolo",)),
+        ('["--yolo", "${{ vars.X }}"]', ("--yolo",)),
+        ('["${{ vars.X }}", "--yolo"]', ()),
+        # outside a JSON string, the substituted text decides whether the array parses
+        ('["--yolo", ${{ vars.X }}]', None),
+    ],
+)
+def test_codex_args_rules_are_read_only_from_words_an_expression_cannot_reach(value, words):
+    assert _literal_argument_words("codex", value) == words
+
+
+def test_a_setting_holding_an_expression_is_marked_and_the_row_says_what_it_leaves_unread():
+    """#823 review F4: the row no longer reads as though no documented rule was gained."""
+
+    before = _workflow(_agent("--model ${{ vars.CLAUDE_MODEL }}\n--allowedTools Read"))
+    after = _workflow(_agent("--model ${{ vars.CLAUDE_MODEL }}\n--dangerously-skip-permissions"))
+
+    launch, = _launches(after)
+    setting, = launch["settings"]
+    assert setting["holds_expression"] is True
+    assert "widening_rules" not in launch
+    assert host_grant_expansion_signals(_changes(before, after)) == []
+    row, = _rows(before, after)
+    assert (row.direction, row.expands) == ("changed", False)
+    assert (
+        "an agent launch setting holds a `${{ }}` expression (claude_args at review/steps[0]), which GitHub "
+        "substitutes before the action reads it; documented widening rules are read only from the literal "
+        "text the expression cannot reach, so this row does not say whether the text it reaches meets one"
+    ) in row.why
+    # A setting without one says nothing of the kind, and the key is omitted.
+    plain, = _launches(_workflow(_agent()))
+    assert "holds_expression" not in plain["settings"][0]
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "rule", "setting"),
+    [
+        (_workflow(_agent(allowed_non_write_users="${{ vars.EXTRA_USERS }}")),
+         _workflow(_agent(allowed_non_write_users="${{ vars.EXTRA_USERS }}, *")),
+         "accepts runs triggered by any user (allowed_non_write_users: *)", "allowed_non_write_users"),
+        (_workflow(_agent("--allowedTools Read --model ${{ vars.CLAUDE_MODEL }}")),
+         _workflow(_agent("--dangerously-skip-permissions --model ${{ vars.CLAUDE_MODEL }}")),
+         "skips permission checks (bypassPermissions)", "claude_args"),
+        (_workflow(_agent("--model ${{ vars.M }} --dangerously-skip-permissions")),
+         _workflow(_agent("--model opus --dangerously-skip-permissions")),
+         "skips permission checks (bypassPermissions)", "claude_args"),
+    ],
+    ids=["gate", "claude-args", "expression-replaced"],
+)
+def test_a_rule_gained_where_the_setting_held_an_expression_before_is_named_and_not_claimed(
+    before, after, rule, setting
+):
+    assert host_grant_expansion_signals(_changes(before, after)) == []
+    row, = _rows(before, after)
+    assert (row.direction, row.expands) == ("changed", False)
+    assert (
+        f"an agent launch now {rule} (review/steps[0]), which is not counted as a widening: before, this "
+        f"job's {setting} held a `${{{{ }}}}` expression, whose substituted text this audit does not read"
+    ) in row.why
+
+
+def test_replacing_an_expression_beside_a_rule_the_launch_already_met_gains_nothing():
+    before = _workflow(_agent("--dangerously-skip-permissions --model ${{ vars.CLAUDE_MODEL }}"))
+    after = _workflow(_agent("--dangerously-skip-permissions --model opus"))
+
+    assert host_grant_expansion_signals(_changes(before, after)) == []
+    row, = _rows(before, after)
+    assert (row.direction, row.expands) == ("changed", False)
+    assert "an agent launch now" not in row.why
 
 
 def test_a_new_workflow_that_bypasses_permissions_is_an_added_widening():
@@ -746,6 +928,37 @@ def test_a_json_value_publishes_only_what_the_host_readers_publish():
     assert uncompared_agent_launch_texts(grant) == [] and _uncompared_workflow_text(grant) is None
 
 
+def test_a_value_attached_to_its_flag_is_withheld_as_a_separate_word_is():
+    """#823 review F1: `--settings=…`, `--mcp-config=…` and codex's `-c<value>` published verbatim."""
+
+    grant = _grant(_workflow(
+        _agent(f"--allowedTools Read --settings='{SETTINGS_JSON}' --mcp-config='{MCP_JSON}'"),
+        {"uses": "openai/codex-action@v1", "with": {
+            "codex-args": '-cmcp_servers.db.env.REGION="canary-short" -c=mcp_servers.x.env.T=canary-eq --json',
+        }},
+    ))
+    claude, codex = grant["agent_launches"]
+
+    assert claude["settings"] == [{
+        "name": "claude_args",
+        "value": f"--allowedTools Read '--settings={SETTINGS_PUBLISHED}' '--mcp-config={MCP_PUBLISHED}'",
+        "unresolved_reason": None,
+    }]
+    assert codex["settings"] == [{
+        "name": "codex-args",
+        "value": "'-cmcp_servers.db.env.REGION=<redacted>' '-c=mcp_servers.x.env.T=<redacted>' --json",
+        "unresolved_reason": None,
+    }]
+    text = json.dumps(grant)
+    for canary in (*JSON_CANARIES, "canary-short", "canary-eq"):
+        assert canary not in text
+    # Each spelling compares as the host readers compare it: rotating an env value is quiet.
+    rotated = SETTINGS_JSON.replace("hunter2-canary", "rotated")
+    assert _rows(
+        _workflow(_agent(f"--settings='{SETTINGS_JSON}'")), _workflow(_agent(f"--settings='{rotated}'"))
+    ) == []
+
+
 def test_a_withheld_json_value_compares_as_the_host_readers_compare_it():
     def settings(env):
         return _workflow(_agent(settings=json.dumps({"env": env})))
@@ -782,6 +995,19 @@ def test_a_codex_config_override_withholds_env_header_and_secret_values():
     assert "canary" not in json.dumps(grant)
 
 
+def test_a_codex_config_table_that_does_not_parse_is_withheld_and_named():
+    """#823 review (P3): string-argv keeps the quotes of `--config='k={…}'`, so it does not parse as TOML."""
+
+    codex_args = "--config='mcp_servers.db={command=\"x\", env={T=\"canary-quoted\"}}' --json"
+    grant = _grant(_workflow({"uses": "openai/codex-action@v1", "with": {"codex-args": codex_args}}))
+    launch, = grant["agent_launches"]
+
+    assert launch["settings"] == [{"name": "codex-args", "value": None, "unresolved_reason": "unparsed_json"}]
+    assert "canary-quoted" not in json.dumps(grant)
+    limit, = uncompared_agent_launch_texts(grant)
+    assert "a codex `--config` table or array, and does not parse" in limit
+
+
 def test_text_that_starts_like_json_and_does_not_parse_is_withheld_and_named():
     # shell-quote strips the double quotes of an unquoted JSON word, so the
     # action reads it as a path; its values cannot be told from its keys.
@@ -795,7 +1021,7 @@ def test_text_that_starts_like_json_and_does_not_parse_is_withheld_and_named():
     assert "canary-unquoted" not in json.dumps(grant)
     limit, = uncompared_agent_launch_texts(grant)
     assert limit.startswith("the claude_args value of the agent launch at review/steps[0] (anthropics/claude-code-action)")
-    assert "starts like JSON and does not parse" in limit
+    assert "starts like JSON, or a codex `--config` table or array, and does not parse" in limit
     assert _uncompared_workflow_text(grant) is None
 
 
@@ -831,7 +1057,13 @@ def test_a_marketplace_url_compares_by_scheme_and_host_as_an_mcp_server_url_does
     assert _rows(marketplace("https://github.com/org/a.git"), marketplace("https://github.com/org/b.git")) == []
 
 
-def test_credential_shaped_text_is_published_redacted_and_blocks_the_workflow_as_a_step_reference_does():
+def test_credential_shaped_text_in_a_setting_is_published_redacted_and_named_while_a_ref_blocks():
+    """#823 review F2: a redacted setting compares by its published text and rules, not blocking.
+
+    A checkout ref names the code a job runs, as a step reference does, so a
+    redacted one still refuses (#767).
+    """
+
     grant = _grant(_workflow(
         _agent("--append-system-prompt 'use token=ARGCANARY' --dangerously-skip-permissions",
                plugin_marketplaces="https://robot:PWCANARY@github.com/org/repo.git"),
@@ -857,11 +1089,70 @@ def test_credential_shaped_text_is_published_redacted_and_blocks_the_workflow_as
     text = json.dumps(grant)
     for canary in ("ARGCANARY", "PWCANARY", "REFCANARY", "SECRETCANARY", "ghp_"):
         assert canary not in text
-    assert uncompared_agent_launch_texts(grant) == []
+    assert uncompared_agent_launch_texts(grant) == [
+        f"the {name} value of the agent launch at {where} contains credential-shaped text; it is published "
+        "redacted and compared as published, so an edit inside what is redacted that gains no documented "
+        "widening rule is not reported"
+        for name, where in (
+            ("claude_args", "review/steps[0] (anthropics/claude-code-action)"),
+            ("plugin_marketplaces", "review/steps[0] (anthropics/claude-code-action)"),
+            ("--settings", "review/steps[2] (claude)"),
+        )
+    ]
     assert _uncompared_workflow_text(grant) == (
-        "an agent launch setting and a checkout ref contain credential-shaped text; "
-        "they are published redacted and cannot be compared"
+        "a checkout ref contains credential-shaped text; it is published redacted and cannot be compared"
     )
+
+
+#: Prose the #802 label redaction rewrites, as security-review prompts write it:
+#: ``claude_args``, and a ``run:`` whose prompt is a variadic flag's value.
+PROSE = [
+    ('--append-system-prompt "Never print bearer tokens in review comments" --allowedTools Read',
+     "claude -p --allowedTools Read 'Never print bearer tokens in review comments'"),
+    ('--append-system-prompt "Flag Authorization: headers logged in plain text" --allowedTools Read',
+     "claude -p --allowedTools Read 'Flag Authorization: headers logged in plain text'"),
+    ('--allowedTools "Bash(curl -H Authorization:*)"',
+     "claude -p --allowedTools 'Bash(curl -H Authorization:*)' -- 'go'"),
+    ('--append-system-prompt "check the secret=... assignment" --allowedTools Read',
+     "claude -p --allowedTools Read 'check the secret=... assignment'"),
+]
+
+
+@pytest.mark.parametrize(("prose", "run"), PROSE, ids=["bearer", "authorization", "tool-rule", "assignment"])
+def test_prose_the_label_redaction_rewrites_is_a_named_limit_that_refuses_nothing(prose, run):
+    """#823 review F2: such prose used to make the whole workflow a blocking limit."""
+
+    for step in (_agent(prose), {"run": run}):
+        grant = _grant(_workflow(step))
+        launch, = grant["agent_launches"]
+        assert [setting["unresolved_reason"] for setting in launch["settings"]] == ["redacted"]
+        assert _uncompared_workflow_text(grant) is None
+        limit, = uncompared_agent_launch_texts(grant)
+        assert "contains credential-shaped text" in limit
+
+    # A permission change beside it keeps its row, and a rule gained beside it widens.
+    row, = _rows(_workflow(_agent(prose)), _workflow(_agent(prose), permissions={"pull-requests": "write"}))
+    assert row.direction == "widened" and "grants write permissions to workflow jobs" in row.why
+    row, = _rows(_workflow(_agent(prose)), _workflow(_agent(f"{prose} --dangerously-skip-permissions")))
+    assert (row.direction, row.expands) == ("widened", True)
+    # Each cell shows the redacted text it is compared by, so the two sides differ.
+    assert "<redacted>" in row.before and row.after.endswith("--dangerously-skip-permissions")
+
+
+def test_an_expression_in_a_url_is_read_as_one_word_so_the_url_is_withheld_whole():
+    """#823 review (P3): the expression's spaces used to split the URL, publishing its path."""
+
+    launch, = _launches(_workflow(_agent(
+        plugin_marketplaces="https://x-access-token:${{ secrets.MARKET_TOKEN }}@github.com/acme/market.git",
+    )))
+    setting = next(item for item in launch["settings"] if item["name"] == "plugin_marketplaces")
+    assert setting == {
+        "name": "plugin_marketplaces", "value": "https://github.com/<redacted-path>",
+        "unresolved_reason": "redacted", "holds_expression": True,
+    }
+    # An expression outside a URL is published as written.
+    ref, = _grant(_reproduction(ref=HEAD_SHA))["checkout_refs"]
+    assert ref["ref"] == HEAD_SHA
 
 
 def test_token_shaped_job_and_step_labels_are_redacted_in_every_entry():
@@ -1156,7 +1447,15 @@ def test_no_canary_reaches_any_published_output(tmp_path):
         "command": "db-mcp", "env": {"DB_API_TOKEN": "canary-tok-123"},
         "headers": {"X-API-Key": "canary-hdr-456", "Authorization": f"Bearer {canary}"},
     }}})
-    codex_args = "-c 'mcp_servers.db.env.TOKEN=\"canary-cfg-789\"' --full-auto"
+    codex_args = (
+        "-c 'mcp_servers.db.env.TOKEN=\"canary-cfg-789\"' -cmcp_servers.db.env.REGION=canary-short-c "
+        "-c=mcp_servers.db.env.ZONE=canary-eq-c --full-auto"
+    )
+    # The `=` spellings of #823 review F1, beside the separate-word ones.
+    equals = json.dumps({"env": {"DB_PASSWORD": "hunter2-eqcanary"}, "apiKeyHelper": "echo helper-eqcanary"})
+    equals_mcp = json.dumps({"mcpServers": {"db": {
+        "command": "db-mcp", "env": {"DB_API_TOKEN": "tok-eqcanary"}, "headers": {"X-API-Key": "hdr-eqcanary"},
+    }}})
     base = _workflow(jobs={job: {"steps": [_agent()]}})
     head = _workflow(jobs={job: {"steps": [
         {"name": "Pull docker://ci:" + "p4ssCANARY" + "@gcr.io/x", "uses": "actions/checkout@v4"},
@@ -1165,6 +1464,7 @@ def test_no_canary_reaches_any_published_output(tmp_path):
             settings=SETTINGS_JSON, mcp_config=mcp,
             plugin_marketplaces="https://github.com/canary-org/canary-repo.git",
         ),
+        _agent(f"--allowedTools Read --settings='{equals}' --mcp-config='{equals_mcp}'"),
         {"run": f"ANTHROPIC_API_KEY={canary} claude -p --allowedTools Read --mcp-config '{mcp}' 'go'"},
         {"uses": "openai/codex-action@v1", "with": {"codex-args": codex_args}},
     ]}})
@@ -1183,21 +1483,19 @@ def test_no_canary_reaches_any_published_output(tmp_path):
 
     _assert_absent(joined, (
         canary, "p4ssCANARY", job, "canary-org", "canary-repo", "canary-cfg-789", *JSON_CANARIES,
+        "hunter2-eqcanary", "helper-eqcanary", "tok-eqcanary", "hdr-eqcanary", "canary-short-c", "canary-eq-c",
     ))
     assert "runs claude -p with --allowedTools Read" in joined
     assert "mcp_servers.db.env.TOKEN=<redacted>" in joined
 
 
-def test_a_credential_shaped_setting_or_ref_refuses_a_changed_workflow_and_publishes_no_canary(tmp_path):
+def test_a_credential_shaped_ref_refuses_a_changed_workflow_and_publishes_no_canary(tmp_path):
     base = _workflow(_agent())
-    head = _workflow(
-        {"uses": "actions/checkout@v4", "with": {"ref": "token=REFCANARY"}},
-        _agent("--append-system-prompt 'use token=ARGCANARY' --dangerously-skip-permissions"),
-    )
+    head = _workflow({"uses": "actions/checkout@v4", "with": {"ref": "token=REFCANARY"}}, _agent())
     repo = _repo(tmp_path, {SOURCE: _yaml(base)})
     _git(repo, "checkout", "-qb", "change")
     _write(repo, {SOURCE: _yaml(head)})
-    _git(repo, "commit", "-qam", "credential-shaped values")
+    _git(repo, "commit", "-qam", "credential-shaped ref")
 
     payload = _diff(repo)
     assert payload["comparison_status"] == "incomparable" and payload["rows"] == []
@@ -1205,5 +1503,69 @@ def test_a_credential_shaped_setting_or_ref_refuses_a_changed_workflow_and_publi
     audit = json.loads(CliRunner().invoke(app, ["audit", "--host", "--workspace", str(repo), "--json"]).stdout)
     issue, = [item for item in audit["issues"] if item["host"] == "github"]
     assert (issue["kind"], issue["blocking"]) == ("unsupported", True)
-    assert "an agent launch setting and a checkout ref contain credential-shaped text" in issue["message"]
-    _assert_absent(_published_outputs(repo), ("ARGCANARY", "REFCANARY"))
+    assert "a checkout ref contains credential-shaped text" in issue["message"]
+    _assert_absent(_published_outputs(repo), ("REFCANARY",))
+
+
+def test_a_credential_shaped_setting_compares_on_every_route_and_publishes_no_canary(tmp_path):
+    base = _workflow(_agent())
+    head = _workflow(_agent("--append-system-prompt 'use token=ARGCANARY' --dangerously-skip-permissions"))
+    repo = _repo(tmp_path, {SOURCE: _yaml(base)})
+    _git(repo, "checkout", "-qb", "change")
+    _write(repo, {SOURCE: _yaml(head)})
+    _git(repo, "commit", "-qam", "credential-shaped setting")
+
+    payload = _diff(repo)
+    assert payload["comparison_status"] == "comparable"
+    row, = payload["rows"]
+    assert (row["direction"], row["expands"]) == ("widened", True)
+    assert "--append-system-prompt 'use token=<redacted>' --dangerously-skip-permissions" in row["after"]
+    audit = json.loads(CliRunner().invoke(app, ["audit", "--host", "--workspace", str(repo), "--json"]).stdout)
+    issue, = [item for item in audit["issues"] if item["host"] == "github"]
+    assert (issue["kind"], issue["blocking"]) == ("unsupported", False)
+    github, = [item for item in audit["host_coverage"] if item["host"] == "github"]
+    assert github["status"] == "complete"
+    _assert_absent(_published_outputs(repo), ("ARGCANARY",))
+
+
+def _prose_repo(tmp_path: Path, head: dict, extra: dict[str, str] | None = None) -> Path:
+    base = _workflow(_agent(PROSE[0][0]))
+    repo = _repo(tmp_path, {SOURCE: _yaml(base)})
+    _git(repo, "checkout", "-qb", "change")
+    _write(repo, {SOURCE: _yaml(head), **(extra or {})})
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "change")
+    return repo
+
+
+def test_a_permission_change_beside_redacted_prose_keeps_its_row_on_every_route(tmp_path):
+    """#823 review F2 (a): the prose used to refuse the comparison and hide this row."""
+
+    repo = _prose_repo(tmp_path, _workflow(_agent(PROSE[0][0]), permissions={"contents": "read", "pull-requests": "write"}))
+
+    payload = _diff(repo)
+    assert payload["comparison_status"] == "comparable"
+    row, = payload["rows"]
+    assert row["direction"] == "widened" and "grants write permissions to workflow jobs" in row["why"]
+    result = CliRunner().invoke(app, ["verify", "--workspace", str(repo), "--base", "main", "--head", "HEAD"])
+    assert result.exit_code == 0, result.output
+    verifier = json.loads((repo / "agents-shipgate-reports/verifier.json").read_text())
+    assert verifier["host_comparison"]["comparison_status"] == "comparable"
+    verified, = verifier["host_comparison"]["rows"]
+    assert verified["direction"] == "widened"
+    assert "Host capability comparison unavailable" not in (repo / "agents-shipgate-reports/pr-comment.md").read_text()
+
+
+def test_an_unchanged_workflow_holding_redacted_prose_leaves_check_comparable(tmp_path):
+    """#823 review F2 (b): an unchanged workflow used to make every `check` incomparable (#721)."""
+
+    mcp = json.dumps({"mcpServers": {"docs": {"command": "docs-mcp"}}})
+    repo = _prose_repo(tmp_path, _workflow(_agent(PROSE[0][0])), extra={".mcp.json": mcp})
+
+    args = ["check", "--workspace", str(repo), "--base", "main", "--head", "HEAD", "--format", "agent-boundary-json"]
+    result = CliRunner().invoke(app, args)
+    assert result.exit_code == 0, result.output
+    boundary = json.loads(result.output)
+    assert boundary["comparison_status"] == "comparable", boundary
+    row, = boundary["rows"]
+    assert row["direction"] == "added" and ".mcp.json" in row["subject"]

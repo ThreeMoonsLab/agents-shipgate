@@ -635,14 +635,25 @@ class HostWorkflowAgentSettingV7(BaseModel):
     values, ``apiKeyHelper`` and every secret-named value ``<redacted>``, a
     codex ``--config`` override under such a key publishes ``<redacted>``, and
     a URL publishes its scheme and host with ``<redacted-path>`` for its path
-    and query (#723). The rest is published through the workflow label
-    redaction (#802). A value it rewrites beyond that is credential-shaped: it
-    is published redacted with ``unresolved_reason: redacted`` and makes the
-    workflow a blocking limit, as a redacted step reference does (#767). A
-    value that is not a string (``not_a_string``), or one holding text that
-    starts like JSON and does not parse (``unparsed_json``), is
-    ``null`` and records a non-blocking coverage issue naming its
+    and query (#723). Each is withheld however it is attached to its flag:
+    ``--settings={…}`` and ``-c<override>`` as well as a separate word. The
+    rest is published through the workflow label redaction (#802). A value it
+    rewrites beyond that is credential-shaped — a token, but also prose such
+    as "never print bearer tokens" — and is published redacted with
+    ``unresolved_reason: redacted``: it is compared as published, beside the
+    rules read from its declared text, and records a non-blocking coverage
+    issue naming its ``job/step``, because an edit inside what is redacted is
+    not reported. A value that is not a string (``not_a_string``), or one
+    holding text that starts like JSON and does not parse (``unparsed_json``),
+    is ``null`` and records a non-blocking coverage issue naming its
     ``job/step``: it is neither published nor compared.
+
+    ``holds_expression`` is ``true`` when the declared text holds a ``${{ }}``
+    expression, which GitHub substitutes before the action reads the input,
+    and is omitted otherwise. A documented widening rule is then read only
+    from the literal text the expression cannot reach, and a rule the launch
+    gains in the same job afterwards is not claimed, because the substituted
+    text may already have met it.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -650,14 +661,18 @@ class HostWorkflowAgentSettingV7(BaseModel):
     name: str
     value: str | None
     unresolved_reason: Literal["not_a_string", "redacted", "unparsed_json"] | None = None
+    holds_expression: bool = Field(default=False, exclude_if=lambda value: not value)
 
 
 class HostWorkflowAgentRuleV7(BaseModel):
     """One documented widening rule an agent launch meets, and the setting it was read from (#823).
 
     Decided when the workflow is read, from the declared text, before any of
-    it is withheld for publication, so redaction never hides a rule. Only a
-    literal value meets one: a value holding ``${{ }}`` meets none.
+    it is withheld for publication, so redaction never hides a rule. Only
+    literal text meets one: in a value holding ``${{ }}``, the words of
+    ``claude_args`` or ``codex-args`` before the first expression, less the
+    word it touches and a quoted run still open at it, and the entries of a
+    user gate that hold none; a mode input holding one meets none.
     ``setting`` is the input (``claude_args``, ``allowed_bots``, ``sandbox``,
     …) or the CLI flag's primary spelling. One rule compares as one whatever
     setting meets it, except ``open_gate``, which is one rule per gate input.
@@ -728,7 +743,8 @@ class HostWorkflowCheckoutRefV7(BaseModel):
     checkout's default for the triggering event. A ref the label redaction
     rewrites is published redacted with ``unresolved_reason: redacted`` and
     makes the workflow a blocking limit, as a redacted step reference does
-    (#767). A value that is not a string, or ``with:`` that is not a mapping,
+    (#767): a ref names the code the job runs, as a step reference does. A
+    value that is not a string, or ``with:`` that is not a mapping,
     is ``null`` with ``unresolved_reason`` and records a non-blocking coverage
     issue. The ref is never resolved or fetched.
     """

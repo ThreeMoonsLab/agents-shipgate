@@ -1708,6 +1708,13 @@ _CODEX_FLAGS: dict[str, tuple[str, int | None]] = {
 
 _AGENT_FLAG_TABLES = {"claude": _CLAUDE_FLAGS, "codex": _CODEX_FLAGS}
 
+#: The agent action inputs a documented widening rule is read from.
+AGENT_RULE_INPUTS: frozenset[str] = frozenset(
+    name
+    for spec in _AGENT_ACTIONS.values()
+    for name in (*spec.gates, *(mode for mode, _value in spec.modes), *((spec.args,) if spec.args else ()))
+)
+
 #: The widening each documented rule names, as a row's ``why`` says it.
 AGENT_WIDENING_RULES: dict[str, str] = {
     "bypass_permissions": "skips permission checks (bypassPermissions)",
@@ -2063,6 +2070,83 @@ def _argument_input(family: str, value: str) -> _ArgumentInput:
     return _claude_argument_input(value) if family == "claude" else _codex_argument_input(value)
 
 
+# --- what an expression in an input leaves readable (#823 review) ---------------------
+#
+# GitHub substitutes a `${{ }}` expression into an input before the action reads
+# it, and the substituted text may be anything: more words, a quote that closes
+# one opened before it, a `#` that ends `claude_args`. So a rule is read only
+# from literal text the expression cannot reach.
+
+#: One ``${{ … }}`` expression, or an unterminated ``${{`` to the end of the text.
+_EXPRESSION_SPAN_RE = re.compile(r"\$\{\{.*?(?:\}\}|\Z)", re.S)
+#: What an expression reads as while literal text around it is split: a
+#: private-use character, which no splitter here reads as a blank, a quote or
+#: an operator, so the word the expression touches holds it and is set aside.
+_EXPRESSION_MARK = "\ue000"
+
+
+def holds_expression(text: str) -> bool:
+    """Whether declared text holds a ``${{ }}`` expression GitHub substitutes before the action reads it."""
+
+    return "${{" in text
+
+
+def _skipped_quote(text: str, pattern: re.Pattern[str]) -> int | None:
+    """The first quote ``pattern`` leaves unmatched in ``text``, else ``None``.
+
+    Both splitters skip a quote no word covers; before an expression, that is a
+    quoted run the substituted text may close, so nothing from it on is read.
+    """
+
+    covered = 0
+    for match in (*pattern.finditer(text), None):
+        gap = text[covered:] if match is None else text[covered:match.start()]
+        quote = next((index for index, char in enumerate(gap) if char in "'\""), None)
+        if quote is not None:
+            return covered + quote
+        if match is not None:
+            covered = match.end()
+    return None
+
+
+def _literal_argument_words(family: str, text: str) -> tuple[str, ...] | None:
+    """The words of an argument input no ``${{ }}`` expression in it can reach, as the action splits them.
+
+    Without an expression, every word the action passes on. With one, the
+    words the action has finished reading before the first expression: the
+    word the expression touches, any quoted run still open at it, and
+    everything after it are not read. A JSON array ``codex-args`` gives the
+    elements before the one holding an expression. ``None`` when the action
+    refuses what is left.
+    """
+
+    start = text.find("${{")
+    if start == -1:
+        return _argument_input(family, text).words
+    if family == "codex" and text.startswith("["):
+        words = _argument_input(family, _EXPRESSION_SPAN_RE.sub(_EXPRESSION_MARK, text)).words
+    else:
+        prefix, pattern = text[:start], _STRING_ARGV_RE
+        if family == "claude":
+            # A line the action drops as a comment is dropped whatever the
+            # expression on it holds, and the lines before it are whole.
+            *whole, last = prefix.split("\n")
+            dropped = last.strip().startswith("#")
+            kept = [line for line in whole if not line.strip().startswith("#")]
+            prefix = "\n".join([*kept, ""] if dropped else [*kept, last])
+            pattern = _SHELL_QUOTE_CHUNK_RE
+        quote = _skipped_quote(prefix, pattern)
+        words = _argument_input(family, prefix[:quote] + _EXPRESSION_MARK).words
+    if words is None:
+        return None
+    literal: list[str] = []
+    for word in words:
+        if _EXPRESSION_MARK in word:
+            break
+        literal.append(word)
+    return tuple(literal)
+
+
 # --- what an agent setting publishes (#823, #802) --------------------------------------
 
 #: A codex ``--config`` override under one of these keys carries values the
@@ -2110,7 +2194,10 @@ def _withheld_config(text: str) -> str | None:
 
     A key path through ``env``, ``headers`` or a secret-named key publishes
     ``<redacted>`` for its value; a table or array value, parsed as TOML as
-    codex parses it, publishes by :func:`_withheld_json`. Anything else is kept.
+    codex parses it, publishes by :func:`_withheld_json`. A value that starts
+    like a table or array and does not parse — string-argv keeps the quotes of
+    ``--config='k={…}'`` — is ``None``: what it holds cannot be told apart from
+    its keys. Anything else is kept.
     """
 
     key, equals, value = text.partition("=")
@@ -2122,15 +2209,28 @@ def _withheld_config(text: str) -> str | None:
     try:
         loaded = tomllib.loads(f"value = {value}").get("value")
     except (tomllib.TOMLDecodeError, RecursionError):
-        return text
+        return None if value.strip().strip("\"'").startswith(("{", "[")) else text
     if isinstance(loaded, (dict, list)):
         shown = _withheld_json(loaded)
         return None if shown is None else f"{key}={shown}"
     return text
 
 
+def _withheld_attached(prefix: str, value: str, withhold: Callable[[str], str | None]) -> str | None:
+    """``prefix`` and a value written attached to its flag, the value withheld by ``withhold``."""
+
+    shown = withhold(value)
+    return None if shown is None else f"{prefix}{shown}"
+
+
 def _withheld_words(words: list[str] | tuple[str, ...], *, family: str) -> list[str] | None:
-    """Each argument word as it may be published, or ``None`` when one cannot be."""
+    """Each argument word as it may be published, or ``None`` when one cannot be.
+
+    A value is withheld however it is attached to its flag (#823 review): a
+    separate word, ``--name=value`` (``--settings={…}``, ``--mcp-config={…}``,
+    ``--config=…``), and codex's ``-c<value>`` and ``-c=<value>``, which clap
+    reads as ``-c <value>``.
+    """
 
     shown: list[str] = []
     config = False
@@ -2138,8 +2238,13 @@ def _withheld_words(words: list[str] | tuple[str, ...], *, family: str) -> list[
         if config:
             item = _withheld_config(word)
         elif family == "codex" and word.startswith("--config="):
-            rest = _withheld_config(word.removeprefix("--config="))
-            item = None if rest is None else f"--config={rest}"
+            item = _withheld_attached("--config=", word.removeprefix("--config="), _withheld_config)
+        elif family == "codex" and word.startswith("-c") and len(word) > 2:
+            prefix = "-c=" if word.startswith("-c=") else "-c"
+            item = _withheld_attached(prefix, word.removeprefix(prefix), _withheld_config)
+        elif word.startswith("--") and "=" in word:
+            name, _, value = word.partition("=")
+            item = _withheld_attached(f"{name}=", value, _withheld_word)
         else:
             item = _withheld_word(word)
         if item is None:
@@ -2194,6 +2299,11 @@ def _url_withheld(url: str) -> str:
     return url if "@" in netloc else _sanitize_url(url)
 
 
+#: Private-use characters that stand for one expression each while a value is redacted.
+_EXPRESSION_SLOTS = range(0xE000, 0xF900)
+_EXPRESSION_SLOT_RE = re.compile("[\ue000-\uf8ff]")
+
+
 def _published_value(text: str) -> tuple[str, bool]:
     """``text`` as it may be published, and whether credential-shaped text had to be redacted.
 
@@ -2201,15 +2311,36 @@ def _published_value(text: str) -> tuple[str, bool]:
     them from an MCP server URL (#723), and the rest of the text is published
     and compared: a URL path is not a credential. Anything else the #802 label
     redaction rewrites — a token shape, a credential assignment, a bearer or
-    header value, a URL's userinfo — is credential-shaped text: the value is
-    published redacted, and two values that redact alike cannot be compared
-    apart, so :func:`_uncompared_workflow_text` makes the workflow a blocking limit.
+    header value, a URL's userinfo — is credential-shaped text, and the value
+    is published redacted. The caller decides what that refuses.
+
+    Each ``${{ }}`` expression is read as one word while this is decided, so an
+    expression inside a URL's userinfo is withheld with the userinfo rather
+    than splitting the URL (``https://x:${{ secrets.T }}@host/…`` publishes
+    ``https://host/<redacted-path>``), and every expression left in the value is
+    published through the same label redaction.
     """
 
-    withheld = _URL_RE.sub(lambda match: _url_withheld(match.group(0)), text)
-    if published_workflow_label(withheld) == withheld:
-        return withheld, False
-    return published_workflow_label(text), True
+    expressions = _EXPRESSION_SPAN_RE.findall(text)
+    if len(expressions) > len(_EXPRESSION_SLOTS) or _EXPRESSION_SLOT_RE.search(text):
+        # No free character to stand for each expression: read the text as written.
+        expressions = []
+    def urls_withheld(value: str) -> str:
+        return _URL_RE.sub(lambda match: _url_withheld(match.group(0)), value)
+
+    slots = iter(_EXPRESSION_SLOTS)
+    marked = _EXPRESSION_SPAN_RE.sub(lambda _match: chr(next(slots)), text) if expressions else text
+    withheld = urls_withheld(marked)
+    shown = published_workflow_label(withheld)
+    kept = [urls_withheld(expression) for expression in expressions]
+    labels = [published_workflow_label(expression) for expression in kept]
+    redacted = shown != withheld or labels != kept
+
+    if expressions:
+        shown = _EXPRESSION_SLOT_RE.sub(
+            lambda match: labels[ord(match.group()) - _EXPRESSION_SLOTS.start], shown
+        )
+    return shown, redacted
 
 
 def _setting_text(value: Any) -> str | None:
@@ -2246,9 +2377,11 @@ def _published_setting(name: str, value: Any, *, arguments: str | None = None) -
     text = _setting_text(value)
     if text is None:
         return {"name": name, "value": None, "unresolved_reason": "not_a_string"}
-    return _published_text(
+    setting = _published_text(
         name, _withheld_word(text) if arguments is None else _withheld_arguments(arguments, text)
     )
+    # Read off the declared text: redaction may rewrite the expression away.
+    return {**setting, "holds_expression": True} if holds_expression(text) else setting
 
 
 def _published_flag(family: str, name: str, arity: int | None, values: list[str] | None) -> dict[str, Any]:
@@ -2522,24 +2655,29 @@ def _action_rules(spec: _AgentAction, declared: list[tuple[str, Any]]) -> set[tu
     """The documented widening rules an agent action's declared inputs meet, read from the raw text.
 
     Read here, before anything is withheld for publication, so redaction never
-    hides a rule. Only literal values: GitHub substitutes a ``${{ }}``
-    expression into the input before the action reads it, so what it holds is
-    not known here and it meets no rule. Each rule names the input it was read from.
+    hides a rule. Only from literal text: GitHub substitutes a ``${{ }}``
+    expression into the input before the action reads it, so a rule is read
+    only where the substituted text cannot reach — an argument input's words
+    before the first expression (:func:`_literal_argument_words`), a user
+    gate's entries that hold none — and a mode input holding one meets none.
+    Each rule names the input it was read from.
     """
 
-    literal = [
-        (name, text) for name, value in declared
-        if (text := _setting_text(value)) is not None and "${{" not in text
-    ]
     rules: set[tuple[str, str]] = set()
-    for name, text in literal:
-        if name in spec.gates and "*" in {part.strip() for part in text.split(",")}:
-            rules.add(("open_gate", name))
+    for name, value in declared:
+        text = _setting_text(value)
+        if text is None:
+            continue
+        if name in spec.gates:
+            # The substituted text may add entries; it cannot remove a literal one.
+            entries = _EXPRESSION_SPAN_RE.sub(_EXPRESSION_MARK, text).split(",")
+            if "*" in {entry.strip() for entry in entries}:
+                rules.add(("open_gate", name))
         for mode, widening in spec.modes:
             if name == mode and text == widening:
                 rules.add(("danger_full_access" if mode == "sandbox" else "unsafe_safety_strategy", name))
         if name == spec.args:
-            words = _argument_input(spec.family, text).words
+            words = _literal_argument_words(spec.family, text)
             if words is None:
                 continue
             if spec.family == "claude":
@@ -2583,64 +2721,126 @@ def agent_family(agent: str) -> str:
 
 
 AgentWidening = tuple[str, str, str, dict[str, Any]]
+#: A rule one job's launches of one agent family meet: ``(job, family, rule, detail)``.
+_RuleKey = tuple[str, str, str, str]
+
+#: The agent action inputs each documented rule is read from; a user gate's
+#: rule is read from the gate it names.
+_RULE_SETTINGS: dict[str, frozenset[str]] = {
+    "bypass_permissions": frozenset({"claude_args"}),
+    "bypass_approvals_and_sandbox": frozenset({"codex-args"}),
+    "danger_full_access": frozenset({"sandbox", "codex-args"}),
+    "unsafe_safety_strategy": frozenset({"safety-strategy"}),
+}
 
 
-def _agent_rule_gains(
-    before: dict[str, Any] | None, after: dict[str, Any] | None
-) -> tuple[list[AgentWidening], list[AgentWidening]]:
-    """Rules a job's launches meet at ``after`` and not at ``before``: claimed, and not claimed.
+def _expression_setting(entry: dict[str, Any], rule: str, detail: str) -> str | None:
+    """The input of ``entry`` holding a ``${{ }}`` expression whose substituted text may meet ``rule``."""
 
-    A gain is not claimed where the job launched that agent at ``before`` only
-    in a form this reader does not read, such as a compound ``run:`` that
-    became a literal one: that launch may have met the rule already, as a job
-    whose permissions were not explicit may already have held a write scope
-    (``unknown_before``). A job that also launched the agent in a form that
-    was read claims the gain.
+    names = frozenset({detail}) if rule == "open_gate" else _RULE_SETTINGS.get(rule, frozenset())
+    return next(
+        (
+            str(setting["name"]) for setting in entry.get("settings", [])
+            if setting.get("holds_expression") and setting["name"] in names
+        ),
+        None,
+    )
+
+
+@dataclass(frozen=True)
+class AgentRuleGains:
+    """The documented rules a workflow's agent launches meet at ``after`` and not at ``before`` (#823).
+
+    Each widening is ``(job, rule, detail, entry)`` for the first launch at
+    ``after`` in that job that meets it. Only ``claimed`` is a widening:
+
+    - ``unread_before``: the job launched that agent at ``before`` only in a
+      form this reader does not read, such as a compound ``run:`` that became a
+      literal one. That launch may have met the rule already, as a job whose
+      permissions were not explicit may already have held a write scope
+      (``unknown_before``). A job that also launched the agent in a form that
+      was read claims the gain.
+    - ``expression_before``: at ``before``, the job's launch of that agent held
+      a ``${{ }}`` expression in an input the rule is read from, and GitHub's
+      substituted text may already have met it. Each names that input.
+    - ``moved``: the rule left another job whose launch that met it left that
+      job — the job no longer exists or no longer launches that agent, or the
+      same launch now runs here — as when a job is renamed or an agent step
+      moves to another job (#823 review). Each names the launch it left, the
+      way a step reference moved between jobs adds no scope (#771).
     """
 
-    def met(grant: dict[str, Any] | None) -> dict[tuple[str, str, str, str], dict[str, Any]]:
-        found: dict[tuple[str, str, str, str], dict[str, Any]] = {}
-        for entry in (grant or {}).get("agent_launches", []):
-            for rule, detail in sorted(agent_widening_rules(entry)):
-                key = (str(entry["job"]), agent_family(str(entry["agent"])), rule, detail)
-                found.setdefault(key, entry)
-        return found
-
-    read_before: dict[tuple[str, str], bool] = {}
-    for entry in (before or {}).get("agent_launches", []):
-        key = (str(entry["job"]), agent_family(str(entry["agent"])))
-        read_before[key] = read_before.get(key, False) or entry.get("form") == "read"
-    unread = {key for key, read in read_before.items() if not read}
-    old = met(before)
-    claimed: list[AgentWidening] = []
-    unclaimed: list[AgentWidening] = []
-    for key, entry in met(after).items():
-        if key in old:
-            continue
-        (unclaimed if key[:2] in unread else claimed).append((key[0], key[2], key[3], entry))
-    return claimed, unclaimed
+    claimed: list[AgentWidening]
+    unread_before: list[AgentWidening]
+    expression_before: list[tuple[AgentWidening, str]]
+    moved: list[tuple[AgentWidening, dict[str, Any]]]
 
 
-def gained_agent_widenings(before: dict[str, Any] | None, after: dict[str, Any] | None) -> list[AgentWidening]:
-    """Documented widening rules a job's agent launches meet at ``after`` and not at ``before``.
+def agent_rule_gains(before: dict[str, Any] | None, after: dict[str, Any] | None) -> AgentRuleGains:
+    """Which documented rules the workflow's agent launches gain, and which of them are claimed.
 
     Keyed by job, agent family and rule, so moving a launch between steps or
     spellings (``--dangerously-skip-permissions`` and
-    ``--permission-mode bypassPermissions`` are one rule) gains nothing, and a
-    rule the job's unread launch at ``before`` may already have met is not
-    claimed. Each result is ``(job, rule, detail, entry)`` for the first
-    launch at ``after`` that meets it.
+    ``--permission-mode bypassPermissions`` are one rule) gains nothing.
     """
 
-    return _agent_rule_gains(before, after)[0]
+    def met(grant: dict[str, Any] | None) -> dict[_RuleKey, list[dict[str, Any]]]:
+        found: dict[_RuleKey, list[dict[str, Any]]] = {}
+        for entry in (grant or {}).get("agent_launches", []):
+            for rule, detail in sorted(agent_widening_rules(entry)):
+                key = (str(entry["job"]), agent_family(str(entry["agent"])), rule, detail)
+                found.setdefault(key, []).append(entry)
+        return found
+
+    def launches(grant: dict[str, Any] | None) -> dict[tuple[str, str], list[dict[str, Any]]]:
+        found: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        for entry in (grant or {}).get("agent_launches", []):
+            found.setdefault((str(entry["job"]), agent_family(str(entry["agent"]))), []).append(entry)
+        return found
+
+    old, new = met(before), met(after)
+    launched_before, launched_after = launches(before), launches(after)
+    lost = [key for key in old if key not in new]
+
+    def left(key: _RuleKey, arriving: list[dict[str, Any]]) -> bool:
+        # The launch that met the rule in the losing job left it: the job no
+        # longer launches that agent, or the same launch now runs elsewhere.
+        if (key[0], key[1]) not in launched_after:
+            return True
+        return any(
+            agent_launch_key(entry)[1:] == agent_launch_key(other)[1:]
+            for entry in old[key] for other in arriving
+        )
+
+    gains = AgentRuleGains(claimed=[], unread_before=[], expression_before=[], moved=[])
+    for key, entries in new.items():
+        if key in old:
+            continue
+        job, family, rule, detail = key
+        widening: AgentWidening = (job, rule, detail, entries[0])
+        source = next((other for other in lost if other[1:] == key[1:] and left(other, entries)), None)
+        if source is not None:
+            lost.remove(source)
+            gains.moved.append((widening, old[source][0]))
+            continue
+        before_launches = launched_before.get((job, family), [])
+        if before_launches and not any(entry.get("form") == "read" for entry in before_launches):
+            gains.unread_before.append(widening)
+            continue
+        setting = next(
+            (name for entry in before_launches if (name := _expression_setting(entry, rule, detail))), None
+        )
+        if setting is not None:
+            gains.expression_before.append((widening, setting))
+            continue
+        gains.claimed.append(widening)
+    return gains
 
 
-def agent_widenings_unread_before(
-    before: dict[str, Any] | None, after: dict[str, Any] | None
-) -> list[AgentWidening]:
-    """Rules a job's launches now meet that are not claimed, because its launch before was unread."""
+def gained_agent_widenings(before: dict[str, Any] | None, after: dict[str, Any] | None) -> list[AgentWidening]:
+    """Documented widening rules the workflow's agent launches gain and claim (``AgentRuleGains.claimed``)."""
 
-    return _agent_rule_gains(before, after)[1]
+    return agent_rule_gains(before, after).claimed
 
 
 #: How an unresolved agent launch or checkout reads in the limit that names it.
@@ -2658,9 +2858,11 @@ def uncompared_agent_launch_texts(grant: dict[str, Any]) -> list[str]:
     Not blocking, like an unread secret value (#693): the launch's job, agent,
     form, reason and widening rules are still compared, so adding, removing or
     re-forming one, or gaining a documented rule, is a row. Only an edit inside
-    what is named here is not reported. A redacted value is not named here: it
-    is published redacted, and :func:`_uncompared_workflow_text` makes it a
-    blocking limit, as a redacted step reference is (#767).
+    what is named here is not reported. That includes a setting holding
+    credential-shaped text (#823 review): it is compared by its redacted text
+    and its rules, so only an edit inside what is redacted is not reported. A
+    redacted checkout ref is not named here: :func:`_uncompared_workflow_text`
+    makes it a blocking limit, as a redacted step reference is (#767).
     """
 
     texts: list[str] = []
@@ -2675,11 +2877,20 @@ def uncompared_agent_launch_texts(grant: dict[str, Any]) -> list[str]:
             )
         for setting in entry.get("settings", []):
             unread = setting.get("unresolved_reason")
+            if unread == "redacted":
+                texts.append(
+                    f"the {setting['name']} value of the agent launch at {where} contains "
+                    "credential-shaped text; it is published redacted and compared as published, "
+                    "so an edit inside what is redacted that gains no documented widening rule "
+                    "is not reported"
+                )
+                continue
             what = {
                 "not_a_string": "is not a string",
                 "unparsed_json": (
-                    "holds text that starts like JSON and does not parse, so the "
-                    "values it may hold cannot be told apart from its key names"
+                    "holds text that starts like JSON, or a codex `--config` table or array, "
+                    "and does not parse, so the values it may hold cannot be told apart from "
+                    "its key names"
                 ),
             }.get(str(unread))
             if what:
@@ -2826,13 +3037,20 @@ def _uncompared_workflow_text(
 ) -> str | None:
     """Why part of a workflow grant is published but cannot be compared, or ``None``.
 
-    One rule for every compared workflow text (#767, #693). A redacted step
-    reference, reusable target, secret name, agent launch setting or checkout
-    ref (#823) could publish the same text as a different one, so comparing
-    the display would read a change as equal. That is a blocking limit: a
-    changed workflow refuses, and an unchanged one is named (#721). A URL path
-    an agent setting withholds is not credential-shaped and is not counted
-    here, as an MCP server URL's path is not (#723).
+    One rule for every compared workflow reference (#767, #693). A redacted
+    step reference, reusable target, secret name or checkout ref (#823) could
+    publish the same text as a different one, so comparing the display would
+    read a change to the code a job runs, or to where a secret goes, as equal.
+    That is a blocking limit: a changed workflow refuses, and an unchanged one
+    is named (#721).
+
+    A redacted agent launch setting is not counted here (#823 review). Its
+    documented widening rules are read from the declared text before it is
+    redacted, so comparing its published text and its rules loses no
+    direction, and ordinary prose such as "never print bearer tokens" in a
+    system prompt is as credential-shaped to the label redaction as a token
+    is. :func:`uncompared_agent_launch_texts` names it, not blocking, as a
+    redacted label is compared by what it publishes (#802).
 
     A job id, trigger or permission scope name is compared by its published
     label (#802). One redacted label is still a distinct label, so it refuses
@@ -2852,11 +3070,7 @@ def _uncompared_workflow_text(
             ("a reusable workflow secret name", any(
                 entry["unresolved_reason"] == "redacted" for entry in mappings
             )),
-            # An agent setting and a checkout ref are compared text too (#823).
-            ("an agent launch setting", any(
-                setting.get("unresolved_reason") == "redacted"
-                for launch in grant.get("agent_launches", []) for setting in launch.get("settings", [])
-            )),
+            # A checkout ref names the code a job runs, as a step reference does (#823).
             ("a checkout ref", any(
                 item.get("unresolved_reason") == "redacted" for item in grant.get("checkout_refs", [])
             )),

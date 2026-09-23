@@ -27,12 +27,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from agents_shipgate.core.host_grants import (
+    AGENT_RULE_INPUTS,
     AGENT_WIDENING_RULES,
     UNTRUSTED_INPUT_TRIGGERS,
     agent_launch_key,
-    agent_widenings_unread_before,
+    agent_rule_gains,
     checkout_ref_key,
-    gained_agent_widenings,
     hook_loading_basis,
     host_grant_expansion_signals,
     permission_rule_replacements,
@@ -292,7 +292,8 @@ def _agent_launch_value(item: dict[str, Any]) -> str:
     for setting in item.get("settings") or []:
         unread = setting.get("unresolved_reason")
         name = str(setting["name"])
-        if unread:
+        # A redacted value is compared as published, so the cell shows it (#823 review F2).
+        if unread and not (unread == "redacted" and setting.get("value") is not None):
             parts.append(f"{name} (unresolved: {str(unread).replace('_', ' ')})")
         elif setting.get("value") is None:
             parts.append(name)
@@ -323,30 +324,49 @@ def _agent_launch_reasons(
 ) -> list[str]:
     """What changed in how an agent is launched, and which of it widens (#823).
 
-    Only a documented rule gained by a job's agent launches is called a
-    widening, and the sentence says which rule and where. A rule gained where
-    the job's launch was unread before is named and not called a widening, as
-    the engine claims no expansion for it. Every other agent-launch or
-    checkout edit is a change: its settings are compared as published text,
-    and nothing here ranks one value against another.
+    Only a documented rule the engine claims — ``agent_rule_gains(...).claimed``,
+    the rule behind ``workflow_agent_widened_*`` — is called a widening, and
+    the sentence says which rule and where. A rule gained where the job's
+    launch was unread before, or held a ``${{ }}`` expression the rule is read
+    from, or that moved in from another job, is named and not called a
+    widening, as the engine claims no expansion for it. Every other
+    agent-launch or checkout edit is a change: its settings are compared as
+    published text, and nothing here ranks one value against another.
     """
 
     def where(item: dict[str, Any]) -> str:
         return f"{item['job']}/{item['step']}"
 
+    def meets(rule: str, detail: str) -> str:
+        return AGENT_WIDENING_RULES[rule] + (f" ({detail}: *)" if detail else "")
+
+    gains = agent_rule_gains(before, after)
     reasons: list[str] = []
-    widened_at: set[str] = set()
-    for _job, rule, detail, entry in gained_agent_widenings(before, after):
-        widened_at.add(where(entry))
-        what = AGENT_WIDENING_RULES[rule] + (f" ({detail}: *)" if detail else "")
-        reasons.append(f"an agent launch now {what} ({where(entry)})")
-    for _job, rule, detail, entry in agent_widenings_unread_before(before, after):
-        widened_at.add(where(entry))
-        what = AGENT_WIDENING_RULES[rule] + (f" ({detail}: *)" if detail else "")
+    # Launches a sentence about a rule already names.
+    named: set[str] = set()
+    for _job, rule, detail, entry in gains.claimed:
+        named.add(where(entry))
+        reasons.append(f"an agent launch now {meets(rule, detail)} ({where(entry)})")
+    for _job, rule, detail, entry in gains.unread_before:
+        named.add(where(entry))
         reasons.append(
-            f"an agent launch now {what} ({where(entry)}), which is not counted as a widening: "
-            "before, this job launched the agent in a form this audit does not read, which may "
-            "already have done the same"
+            f"an agent launch now {meets(rule, detail)} ({where(entry)}), which is not counted as a "
+            "widening: before, this job launched the agent in a form this audit does not read, which "
+            "may already have done the same"
+        )
+    for (_job, rule, detail, entry), setting in gains.expression_before:
+        named.add(where(entry))
+        reasons.append(
+            f"an agent launch now {meets(rule, detail)} ({where(entry)}), which is not counted as a "
+            f"widening: before, this job's {setting} held a " + "`${{ }}`" + " expression, whose "
+            "substituted text this audit does not read and which may already have done the same"
+        )
+    for (_job, rule, detail, entry), source in gains.moved:
+        named.update({where(entry), where(source)})
+        reasons.append(
+            f"an agent launch that {meets(rule, detail)} moved between jobs ({where(source)} → "
+            f"{where(entry)}), which is not counted as a widening: the launch already met that "
+            "rule in the job it left, and it now runs with the receiving job's token permissions"
         )
     # The step label only words the sentence; what changed was decided by the
     # comparator's key, which never reads it.
@@ -355,7 +375,7 @@ def _agent_launch_reasons(
     groups: dict[str, list[str]] = {}
     for item in (*new, *gone):
         label = where(item)
-        if label in widened_at:
+        if label in named:
             continue
         verb = "changed" if label in old and label in now else ("added" if label in now else "removed")
         groups.setdefault(verb, [])
@@ -374,6 +394,21 @@ def _agent_launch_reasons(
         reasons.append(
             f"{_joined_words(phrases)}; agent launch settings are compared as declared text, "
             "and a change that gains no documented widening rule is not counted as a widening"
+        )
+    # A rule is read only from literal text a `${{ }}` expression cannot
+    # reach, so the row says where that leaves text unread (#823 review).
+    expressions = list(dict.fromkeys(
+        f"{setting['name']} at {where(item)}"
+        for item in new if item.get("form") == "read"
+        for setting in item.get("settings") or []
+        if setting.get("holds_expression") and setting["name"] in AGENT_RULE_INPUTS
+    ))
+    if expressions:
+        reasons.append(
+            "an agent launch setting holds a `${{ }}` expression (" + ", ".join(expressions) + "), "
+            "which GitHub substitutes before the action reads it; documented widening rules are "
+            "read only from the literal text the expression cannot reach, so this row does not "
+            "say whether the text it reaches meets one"
         )
     unread = list(dict.fromkeys(where(item) for item in new if item.get("form") != "read"))
     if unread:
