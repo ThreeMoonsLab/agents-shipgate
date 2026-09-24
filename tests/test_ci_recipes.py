@@ -43,7 +43,8 @@ def _run_command(step: object) -> str:
 
 
 _PYTHON_MODULE_OR_STDIN = re.compile(
-    r"\bpython(?:3(?:\.\d+)?)?\s+(?P<flags>(?:-[A-Za-z]+\s+)*)"
+    r'(?<![\w.-])(?:[\w${}./"-]*/)?python(?:3(?:\.\d+)?)?'
+    r'(?![\w.-])"?\s+(?P<flags>(?:-[A-Za-z]+\s+)*)'
     r"(?P<entry>-m\s+(?:pip|agents_shipgate)\b|-(?=\s|$))"
 )
 
@@ -75,6 +76,8 @@ def test_ci_installations_use_safe_import_path():
     "python3.12 -m agents_shipgate scan",
     "python - <<'PY'",
     "echo setup && python -m pip install agents-shipgate",
+    '"/usr/bin/python3.12" -m pip install agents-shipgate',
+    '${PYTHON_ROOT}/python -m agents_shipgate scan',
 ])
 def test_install_guard_rejects_unsafe_commands(command):
     assert _unsafe_checkout_invocations(command)
@@ -84,6 +87,7 @@ def test_install_guard_rejects_unsafe_commands(command):
     "python -P -m pip install agents-shipgate",
     "python3.12 -P -m agents_shipgate scan",
     "python -P - <<'PY'",
+    '"/usr/bin/python3.12" -P -m pip install agents-shipgate',
 ])
 def test_install_guard_accepts_safe_commands(command):
     assert not _unsafe_checkout_invocations(command)
@@ -96,11 +100,11 @@ def test_safe_path_prevents_checkout_pip_shadowing(tmp_path):
            if k not in {"PYTHONPATH", "PYTHONSAFEPATH"}}
     unsafe = subprocess.run(
         [sys.executable, "-m", "pip", "--version"], cwd=tmp_path,
-        env=env, capture_output=True, text=True, check=True,
+        env=env, capture_output=True, text=True, check=True, timeout=30,
     )
     safe = subprocess.run(
         [sys.executable, "-P", "-m", "pip", "--version"], cwd=tmp_path,
-        env=env, capture_output=True, text=True, check=True,
+        env=env, capture_output=True, text=True, check=True, timeout=30,
     )
     assert "CHECKOUT_SHADOW_MARKER" in unsafe.stdout
     assert "CHECKOUT_SHADOW_MARKER" not in safe.stdout
