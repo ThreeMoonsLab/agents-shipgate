@@ -174,7 +174,7 @@ For source-only testing in this repository:
 - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
   with:
     python-version: "3.12"
-- run: python -m pip install -e ".[dev]"
+- run: python -P -m pip install -e ".[dev]"
 - run: agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main --head HEAD --ci-mode advisory --format json
 ```
 
@@ -269,6 +269,27 @@ trust boundary and not a replacement for CI. CI should continue to run the
 GitHub Action or an equivalent `agents-shipgate verify` command, and CI's
 `report.json.release_decision.decision` remains authoritative.
 
+## CI installation trust
+
+The following recipes use `python -P` to keep the checkout off Python's implicit
+module search path during installation (Python 3.12 or newer). Use a trusted
+Python executable and installed CLI on `PATH`, and do not supply a checkout
+through `PYTHONPATH`. `-P` does not neutralize an attacker-controlled pipeline,
+explicit imports, environment variables, or an editable package's build backend.
+The source-only editable-install example above is for trusted source testing.
+
+- **GitLab:** use a protected/parent pipeline definition from a trusted source
+  when scanning an untrusted checkout; a merge-request-controlled job can alter
+  its own commands.
+- **CircleCI:** keep the configuration and any setup/continuation configuration
+  trusted when analyzing untrusted changes; checkout isolation alone does not
+  authenticate the job definition.
+- **Jenkins:** use a trusted Jenkinsfile or shared library for the scan stage;
+  do not execute a proposed Jenkinsfile as the authority for its own review.
+
+These examples document the installation boundary; they do not claim a hosted
+security test on GitLab, CircleCI or Jenkins.
+
 ## GitLab CI
 
 First-class GitLab CI recipes live in [`../examples/gitlab-ci/`](../examples/gitlab-ci/):
@@ -284,7 +305,7 @@ agents-shipgate:
   stage: test
   image: python:3.12
   script:
-    - python -m pip install --pre "agents-shipgate==1.1.0"
+    - python -P -m pip install --pre "agents-shipgate==1.1.0"
     - agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
   artifacts:
     when: always
@@ -316,7 +337,7 @@ jobs:
       - image: cimg/python:3.12
     steps:
       - checkout
-      - run: python -m pip install --pre "agents-shipgate==1.1.0"
+      - run: python -P -m pip install --pre "agents-shipgate==1.1.0"
       - run: agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
       - store_artifacts:
           path: agents-shipgate-reports
@@ -328,7 +349,7 @@ jobs:
 ```groovy
 stage('Agents Shipgate') {
   steps {
-    sh 'python -m pip install agents-shipgate'
+    sh 'python -P -m pip install agents-shipgate'
     sh 'agents-shipgate scan --config shipgate.yaml --ci-mode advisory'
     archiveArtifacts artifacts: 'agents-shipgate-reports/**', allowEmptyArchive: true
   }
