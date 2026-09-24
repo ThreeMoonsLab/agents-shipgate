@@ -226,7 +226,14 @@ SURFACES: tuple[Surface, ...] = (
         # reserved coverage `scope`, and is read as incomparable by every
         # control route, so it adds no claim; every route to the same object,
         # and every refusal it must keep, is held by
-        # `tests/test_partial_host_comparison.py`. Its hook and MCP-argument
+        # `tests/test_partial_host_comparison.py`. Naming an unchanged limit
+        # the reader reached through an in-tree link (#822) rests on a Git
+        # identity fact about the link and the file it lands on, the proof
+        # every unchanged limit already rested on, so it restates no engine
+        # answer and adds no claim; `tests/test_linked_unchanged_limits.py`
+        # holds diff, verify, the PR comment and `check` to it, including the
+        # shared plugin-reference limits `check` leaves out by the same proof.
+        # Its hook and MCP-argument
         # text (#819) renders the handlers, package and argument digest the
         # engine published on the grant, which hold no command or argument
         # text: a display of what `config_sha256` binds, left out of grant

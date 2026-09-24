@@ -56,7 +56,10 @@ IdentityAnswers = Callable[[Sequence[str]], Mapping[str, "bool | None"]]
 #: Blocking issue kinds an unchanged source may carry without refusing the
 #: comparison (#721). `unreadable` is deliberately absent: an unchanged symlink
 #: whose in-tree target changed would read as an unchanged limit and hide the
-#: change it points to, and when a link is truly unchanged is #700's to decide.
+#: change it points to, and a link the reader does not read through (#700) is
+#: `unreadable` with no target read on either side. A source reached through
+#: a link the reader does read through qualifies only when ``unchanged`` proves
+#: the link and the file it lands on both unchanged (#822).
 UNCHANGED_LIMIT_ISSUE_KINDS = frozenset({"unsupported", "parse_failed"})
 
 
@@ -753,8 +756,10 @@ def compare_host_inventories(
     """Compare two inventories, refusing unless every limit is proven unchanged.
 
     ``unchanged`` answers whether one repository-relative source is identical
-    on both sides; anything short of proof is ``False``. Without it, an
-    incomplete inventory refuses the comparison as it always has.
+    on both sides, and for a source reached through an in-tree link, that the
+    link and the file it lands on both are (#822); anything short of proof is
+    ``False``. Without it, an incomplete inventory refuses the comparison as it
+    always has.
 
     ``identities`` is coverage's own question, asked once with every path it
     needs (#812): for each, ``True`` when its bytes are proven identical,
