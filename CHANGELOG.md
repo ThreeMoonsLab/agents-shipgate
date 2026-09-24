@@ -144,6 +144,58 @@
   - No schema, contract, member, error kind, refusal code or exit code moves.
     See the `STABILITY.md` migration note. (#807)
 
+- An unchanged instruction file or plugin manifest reached through an in-tree
+  link no longer refuses the whole host comparison. A `SKILL.md` whose
+  `metadata` holds a non-string value, which this entry cannot resolve, is
+  named as an unchanged limit when the change leaves it alone (#721). Read
+  through `.claude/skills -> ../.agents/skills`, a per-skill link or a file
+  link, the same untouched file made `diff`, `verify` and the manifest-free PR
+  comment print `Cannot compare against HEAD~1: base_inventory_incomplete;
+  head_inventory_incomplete` and no row, hiding a removed `deny` rule beside it.
+  - **The cause.** The unchanged proof asked whether the path the link is read
+    under, `.claude/skills/review/SKILL.md`, was one regular file in Git, and a
+    path through a link never is.
+  - **Now.** The proof follows the link as the reader does (#700), from Git
+    tree entries, and holds only when both are unchanged: the link, a link at
+    the same path with the same text at each link on the way, and the file it
+    lands on, the same blob at the same in-tree path. A working-tree head is
+    read without following any link, each link by its own text and the file by
+    its unfiltered hash. The limit is then named and the rest compared, exactly
+    as when the skill sits at its own path: the issue's reproduction shows
+    `⚠ low removed claude-code .claude/settings.json`,
+    `deny: Bash(curl *) → gone` for the directory link and the per-skill link
+    alike.
+  - **Still refused.** A skill added or edited behind the link; the link
+    retargeted, even to an identical copy, or its text rewritten to land on the
+    same file; a link replaced by a directory holding the same bytes, or the
+    reverse; and every link the reader does not read through (dangling,
+    looping, absolute, escaping, past eight links, or inside a linked
+    directory), which stays `unreadable` and is never an unchanged limit. The
+    metadata value is not coerced: `internal: true` stays an `unsupported`
+    structure (#811).
+  - **A plugin manifest behind a link.** The same proof covers a
+    plugin-reference limit, such as a `parse_failed`
+    `plugins/demo/.claude-plugin/plugin.json` that is a file link to
+    `../../../vendor/plugin.json`. Unchanged on both sides, it is now named in
+    `unchanged_limits` like one at its own path, so a comparison that was
+    `partial` only because of it (#808, `Not compared: plugins/demo`) is
+    `comparable` on `diff`, `verify` and the PR comment, with the directory
+    compared; `1.1.0` refused it. Edited behind the link, it stays `partial`.
+  - **`check`.** Its boundary result still cannot name a limit, so it does
+    what it does for the same limit at its own path. An instruction file's
+    limit, which it cannot leave out, now refuses its comparison with
+    `unchanged_limits_not_representable` instead of
+    `base_inventory_incomplete` / `head_inventory_incomplete`, and its rows
+    stay empty. A plugin-reference limit both sides share on an unchanged
+    source it leaves out, as it has since #714, so behind a link it now
+    compares and publishes the rows it finds where it refused with no row: the
+    plugin manifest above gives `comparable` with the removed `deny` row, in
+    the boundary result and in the control envelope's `capability_rows`.
+    Edited behind the link, the limit is kept and `check` refuses as before.
+    Its decision, violations and control state do not move.
+  - No schema, contract, member, reason code or check id is added, and
+    host-grants stays `0.6`. See the `STABILITY.md` migration note. (#822)
+
 ## 1.1.0 - 2026-09-22
 
 A legibility and presentation-correctness release on the advisory channel.

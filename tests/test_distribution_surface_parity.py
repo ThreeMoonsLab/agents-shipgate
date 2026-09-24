@@ -227,6 +227,13 @@ SURFACES: tuple[Surface, ...] = (
         # control route, so it adds no claim; every route to the same object,
         # and every refusal it must keep, is held by
         # `tests/test_partial_host_comparison.py`.
+        # Naming an unchanged limit
+        # the reader reached through an in-tree link (#822) rests on a Git
+        # identity fact about the link and the file it lands on, the proof
+        # every unchanged limit already rested on, so it restates no engine
+        # answer and adds no claim; `tests/test_linked_unchanged_limits.py`
+        # holds diff, verify, the PR comment and `check` to it, including the
+        # shared plugin-reference limits `check` leaves out by the same proof.
         # Its agent-launch cells and note (#823) restate no answer: direction
         # comes from the engine's
         # `workflow_agent_widened_*` expansion signal, itself read off the
