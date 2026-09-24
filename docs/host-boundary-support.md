@@ -19,7 +19,7 @@ and `audit --host`.
 | Claude Code | first-class | `.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json`, `CLAUDE.md`, Claude skills | permission modes/rules, sandbox/network, additional paths, MCP restrictions, plugins and their marketplaces (`extraKnownMarketplaces`), hooks |
 | Cursor | first-class | `.cursor/cli.json`, `.cursor/mcp.json`, `.cursor/rules/**` | Shell/Read/Write rules, MCP declarations, instruction trust roots |
 | VS Code MCP | first-class | `.vscode/mcp.json` | MCP servers; `sandbox` and per-server `sandboxEnabled`; `${input:…}` references by name, never value; `envFile` recorded as a limit; other top-level keys partial |
-| Shared/GitHub | first-class | `AGENTS.md`, Shipgate policies/state, skills, `.github/workflows/*` | instruction/gate weakening, workflow permissions and triggers, remote step action references, named secret sources passed to reusable workflows |
+| Shared/GitHub | first-class | `AGENTS.md`, Shipgate policies/state, skills, `.github/workflows/*` | instruction/gate weakening, workflow permissions and triggers, remote step action references, named secret sources passed to reusable workflows, agent launches (documented agent action inputs, `run:` steps that are one plain `claude -p` / `codex exec` command, `run:` steps that mention an agent CLI in shell this audit does not parse, named as a limit) and `actions/checkout` refs |
 
 A registered adapter reports `complete`, `not_applicable`, `partial`, or
 `experimental` coverage. A relevant malformed, unreadable, binary, oversized,
@@ -69,6 +69,28 @@ the changed inputs the candidate rules at the end of this section name (#821):
   them while that subagent runs; no adapter reads the file. A skill's `hooks`
   frontmatter is type-checked with the skill's instructions, never read as a
   hook grant, so its events get no hook row (#714).
+- **An agent launched any way the workflow reader below does not read**
+  (#823): an action outside its table, even one that takes `claude_args`; a
+  composite action (#701); a script the step runs; a `run:` that is not one
+  line of plain words running `claude -p` or `codex exec` under `bash` or `sh`
+  (more than one line or command, quoting, an expansion, a redirection, a
+  comment, a here-doc, `npx`, `timeout`, `sudo`, `bash -c`, `codex` with an
+  option before `exec`); an agent CLI reached through a variable or a
+  function; and a step's `env:` and `if:`.
+  A `run:` among these that mentions `claude` or `codex` as a word of its own
+  is named as a non-blocking limit (below); editing, adding or removing it
+  gives no row. The rest give no row and name no limit. A launch this audit
+  read that becomes one of these is a row saying the step no longer declares
+  an agent launch this audit reads, and that it may still start one this way;
+  it never says the step no longer starts an agent. The one exception is a
+  rule that moved between jobs (below): when another job adds the same launch
+  while this job keeps no named unread step of that agent and no launch of it
+  whose input the rule is read from this audit did not read, and no job but
+  the one adding it holds more of them than it did, the row says the launch
+  moved there, as a step reference moved between jobs does, so a launch that
+  became a script or an action outside the table in the same change reads as
+  moved; while the job keeps such a step, or any job but the receiving one
+  gains one, it never does.
 
 Review changes to those files and fields as you would a change to the workflow,
 hook or server entry that holds them.
@@ -121,6 +143,291 @@ same unreadable form is not reported. A destination or source name, or a job's
 reusable `uses:` target, containing credential-shaped text is published
 redacted and refuses the same way a step reference does, so two values that
 redact alike never compare as unchanged.
+
+How a coding agent is launched inside a job is read (#823). Every value is
+compared as the text it declares, less what the host readers withhold (below);
+no action is fetched, no command is run and no expression is evaluated. Shell
+is not parsed: a value is read only in a form every parser involved reads the
+same way, a plain list of words, and every other form is named as a limit and
+never guessed at. Four things are listed on the workflow grant, each naming its
+`job/step` (the step's `id`, else its `name`, else `steps[N]`):
+
+- **A documented agent action** — a step whose `uses:` is one of these
+  `owner/repo` references, at any ref and in any letter case — with the inputs
+  it declares from this table. Other inputs, such as `prompt` or an API key,
+  are not listed.
+
+  | Action | Inputs compared as text | Documented widening |
+  |---|---|---|
+  | `anthropics/claude-code-action` | `additional_permissions`, `allowed_bots`, `allowed_non_write_users`, `claude_args`, `plugin_marketplaces`, `plugins`, `settings`, and the earlier `allowed_tools`, `disallowed_tools`, `mcp_config` | a plain `claude_args` gains `--dangerously-skip-permissions` or `--permission-mode bypassPermissions` (the last `--permission-mode` counting); `settings`, written as JSON, gains `defaultMode: bypassPermissions` (under `permissions`, else at the top, as the settings reader reads `.claude/settings.json`); `allowed_bots` (any bot) or `allowed_non_write_users` (any user) gains a `*` entry |
+  | `anthropics/claude-code-base-action`, also published as `anthropics/claude-code-action/base-action` | `claude_args`, `plugin_marketplaces`, `plugins`, `settings`, `allowed_tools`, `disallowed_tools`, `mcp_config` | `claude_args` and `settings` as above |
+  | `openai/codex-action` | `allow-bot-users`, `allow-bots`, `allow-users`, `codex-args`, `permission-profile`, `safety-strategy`, `sandbox` | `sandbox` becomes `danger-full-access`; `permission-profile` becomes `:danger-full-access`, Codex's reserved name for its built-in full-access profile; `safety-strategy` becomes `unsafe`; a plain `codex-args` gains `--dangerously-bypass-approvals-and-sandbox` (`--yolo`) or `--sandbox danger-full-access` (`-s`, attached or not); `allow-users` gains a `*` entry. A sandbox `--config` override in `codex-args` meets none: after `codex-args` the action appends its own `--sandbox`, or its own `default_permissions` override for a `permission-profile`, which takes precedence |
+
+  `claude_args` and `codex-args` are read only when they are a **plain list
+  of words**: words made of letters, digits and `_ . / : = , % + - ( )`,
+  separated by blanks or newlines, with no `--settings` or `--mcp-config` flag
+  in any spelling. The Claude actions (`base-action/src/parse-sdk-options.ts`,
+  shell-quote with `()|&;<>` made literal) and `openai/codex-action`
+  (string-argv) both split such text at its blanks and nowhere else, so it is
+  published as those words, one space apart — `claude_args: |` on several
+  lines reads as it would on one, and reformatting it is quiet — and, as the
+  Claude actions read it, a word starting with `--` is always a flag, never
+  another flag's value. Any other
+  value — holding a quote, a `${{ }}` expression, `$`, a backtick, a
+  backslash, a `#` comment, `;`, `&`, `|`, `<`, `>`, a glob, JSON, a
+  `--settings` or `--mcp-config` flag, or any other character — is **not
+  read** (`unresolved_reason: unread_arguments`): none of its text is
+  published, its `value` is `<withheld:…>`, a short digest, so an edit to it
+  is a `changed` row whose cell shows the digest, no documented widening rule
+  is read from it, and it is a non-blocking limit (below). So the
+  reproduction's `--allowedTools "Read"` →
+  `--permission-mode bypassPermissions --allowedTools "Bash(*)"` is a
+  `changed` row saying the input is not read, while the same change written
+  `--allowedTools Read` → `--permission-mode bypassPermissions --allowedTools Bash`
+  is `widened`.
+
+- **An agent CLI launched by a `run:`** — only when the whole `run:` is **one
+  line of plain words**: letters, digits and `_ . / : = , % + -`, separated by
+  spaces or tabs, so it holds no quote, `$`, backtick, backslash, `#`, `;`,
+  `&`, `|`, `<`, `>`, parenthesis, brace, glob, `~`, `!`, `@` or second line,
+  and every POSIX shell runs it as exactly those words. It must run under
+  `bash`, `sh` or no declared `shell:` (the step's, else its job's or its
+  workflow's `defaults.run.shell`); a template is read only as `bash` or `sh`
+  running the script alone — option words it still runs the script under
+  (`set` flags, `-l`, `-i`, `-r`, `-o`/`-O` with an option name other than
+  `noexec`, `--noprofile`, `--norc`, `--posix`, `--login`, `--restricted`,
+  `--noediting`, `--verbose`), then `{0}` last, as in
+  `bash --noprofile --norc -eo pipefail {0}` — so one such as
+  `bash -c '…' {0}`, which may run a command of its own, or one with `-s`,
+  `-n` or `--rcfile`, is not. After any `NAME=value` assignments, which
+  are skipped and never published, the program's file name must be `claude`
+  with `-p`/`--print` among its arguments, or `codex` followed by `exec`
+  (`codex e`): `claude -p …`, `./node_modules/.bin/claude -p …` and
+  `CI=1 codex exec …` are read. Its documented permission flags are listed
+  under their primary spelling, and every other word — the prompt, `--model`,
+  an undocumented flag — is not compared. For `claude`: `--permission-mode`,
+  `--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`,
+  `--allowedTools`/`--allowed-tools`, `--disallowedTools`/`--disallowed-tools`,
+  `--add-dir` and `--permission-prompt-tool`; gaining
+  `--dangerously-skip-permissions` or `--permission-mode bypassPermissions`
+  (one rule, so moving between the spellings is not a widening; of a repeated
+  `--permission-mode`, the last counts, as the CLI keeps it) widens, and a
+  `--settings` or `--mcp-config` flag makes the step unread. For `codex exec`:
+  `--sandbox`/`-s`, `--dangerously-bypass-approvals-and-sandbox`/`--yolo`,
+  `--approve-for-me`/`--not-so-yolo`, `--dangerously-bypass-hook-trust`,
+  `--add-dir`, `--config`/`-c` and `--profile`/`-p`, a short flag's value
+  read attached as clap reads it (`-sdanger-full-access`, `-s=…`,
+  `-c<override>`, `-c=<override>`); gaining
+  `--dangerously-bypass-approvals-and-sandbox` or the full-access sandbox
+  widens. The full-access sandbox is `--sandbox danger-full-access` or, when
+  the command passes no `--sandbox`, which takes precedence, a `--config`
+  override in any of its four spellings that sets `sandbox_mode` to
+  `danger-full-access` (the setting `--sandbox` sets) or `default_permissions`
+  to `:danger-full-access` (the built-in full-access profile, which the
+  action's `permission-profile` input passes the CLI the same way). The last
+  override of a key counts, and a `default_permissions` override outranks a
+  `sandbox_mode` one. A key under another table, such as
+  `profiles.<name>.sandbox_mode`, and a `--profile`, which names a
+  configuration this audit does not read, meet none. A flag the CLI reads as
+  variadic (`--allowedTools`, `--add-dir`, …) takes every following word up
+  to the next word starting with `-`, as the CLI reads it, so a prompt
+  written after it is compared as one of its values; the row shows it.
+
+- **An unread agent step** — any other `run:` that mentions `claude` or
+  `codex` as a word of its own: more than one line or command, quoting, an
+  expansion or a `${{ }}` expression, a redirection or a here-doc, a comment,
+  a line continuation, another program such as `npx`, `timeout`, `sudo` or
+  `echo`, a subcommand that is not a headless launch (`claude mcp add`,
+  `codex login`), `codex` with an option before `exec`, a script named after
+  an agent, or a declared `shell:` other than `bash` or `sh` running the
+  script alone. It is listed in
+  `unread_agent_runs` once for each agent CLI it mentions, with no other
+  field, and is a non-blocking limit (below). Nothing more: none of its text
+  is published, it is never compared, so adding, removing or editing it gives
+  no row, and it never says that the step starts, or does not start, an agent.
+  `npm ci && claude -p --dangerously-skip-permissions "Review"`, a
+  `# Don't run this on forks` comment above a launch, a PR comment drafted in
+  a here-doc that mentions `claude -p` and `gh pr comment --body "$(claude -p …)"`
+  are all unread steps.
+
+- **Each `actions/checkout` step's `with.ref`**, or the default when it
+  declares none or an empty one. Adding `ref:
+  ${{ github.event.pull_request.head.sha }}` is a `changed` row naming the
+  step on both sides.
+
+Each job's multiset of launches and of checkout refs is compared, so renaming
+or reordering steps is quiet. An added, removed or changed launch or ref is a
+`changed` row on the workflow naming `job/step` and the value on each side.
+Direction is claimed only by the documented rules above. The rules each launch
+meets are decided when the workflow is read, from the declared text before
+anything is withheld for publication, and published on the launch as
+`widening_rules` (each rule and the setting it was read from), so redaction
+never hides one.
+
+Only text this audit reads exactly meets a rule. GitHub substitutes a `${{ }}`
+expression into an input before the action reads it, and the substituted text
+may be anything, so an argument input holding one is not read at all; a user
+gate's entries that hold no expression are read, since the substituted text
+may add entries but cannot remove a literal one, so `"${{ vars.USERS }}, *"`
+opens the gate; and a `sandbox`, `permission-profile`, `safety-strategy` or
+`settings` value holding one meets none. Such a setting is published with
+`holds_expression: true`, and a row that changes it says the text the
+expression reaches is not read for a rule, rather than that none was gained.
+
+When a job's launches gain a rule, the workflow earns
+`workflow_agent_widened_<added|changed>`, the row is `widened` and its `why`
+names the rule and step. Three gains are named in the `why` and not claimed:
+
+- where, in the same job, a step that may launch that agent in a form this
+  audit does not read (an unread agent step, or an action whose `with:` is
+  not a mapping) is gone and a launch this audit reads is added, because the
+  added launch may be that step rewritten, which may already have met the
+  rule — so rewriting `npm ci && claude -p --dangerously-skip-permissions "Review"`
+  as two plain steps is not a widening. An unread step that remains takes no
+  gain from another launch: beside it, a new plain
+  `claude -p --dangerously-skip-permissions Review` step is a widening;
+- where the job's launch of that agent held, before, text this audit did not
+  read for the rule in an input the rule is read from (`claude_args` or
+  `settings` for bypassed permission checks, `sandbox`, `permission-profile`
+  or `codex-args` for a full-access sandbox, the gate for a `*` entry): a
+  `${{ }}` expression, or an argument input that was not a plain list of
+  words, because it may already have met it — so unquoting
+  `--dangerously-skip-permissions --append-system-prompt "Review"` is not a
+  widening;
+- where the rule moved between jobs: another job met it before and the launch
+  that met it left that job — the job no longer exists, as when it is renamed,
+  or the same launch now runs in this job while each launch of that agent this
+  job had still runs here or in that job, as when an agent step moves or two
+  jobs swap launches — as a step reference moved between jobs adds no scope.
+  A second job gaining a rule a first job keeps, or a different launch
+  gaining it while the first job still exists, is claimed: that job may still
+  run its launch in a form this audit does not read (`npx`, quoting), so a
+  launch that only becomes a named unread step has not left it, and a launch
+  edited in place into the one that job had gains the rule. A launch has not
+  left a job that still has any named unread step of that agent — wherever it
+  stands and whether or not it was there before, because an unread step
+  carries no text that tells which launch it is — or a launch of it holding
+  an expression or an unread argument input the rule is read from. So quoting
+  the prompt of `claude -p --dangerously-skip-permissions Review` in one job,
+  or merging that job's `npm i -g @anthropic-ai/claude-code` step into it,
+  while another job adds that plain step is a widening, and so is moving that
+  step to another job while the job it left keeps a `claude mcp add` step.
+  Nor has it left while any job but the one gaining the rule has more such
+  steps and launches of that agent than it had before — a job new at the
+  head holding any — because the launch may be one of them, and the job it
+  left may be that job under a new name. So renaming the job while quoting
+  that launch or running it through `npx`, or removing the job while another
+  job gains it quoted, as a third job adds the plain step, is a widening;
+  renaming a job with the install step it keeps beside the launch, or beside
+  another job that keeps its unread step, is a move. Two jobs renamed at
+  once, one of them holding an unread step, cannot be told apart from those,
+  so they claim the gain, in the safe direction.
+
+Any other edit — `--allowedTools Read` to `--allowedTools Bash`,
+`acceptEdits`, a new plugin, an argument input this audit does not read, a
+head-ref checkout — is `changed`; rating a tool rule's reach is a job for
+issue #824. `access` and `risk` still describe the token and triggers alone.
+
+A workflow row whose workflow runs an agent ends its `why` with the job facts
+beside each agent step, whatever else the row is about: an untrusted-input
+trigger (`issue_comment`, `issues`, `pull_request_target`, `workflow_run`), the
+job's write scopes, the secrets the job references (`${{ secrets.NAME }}` in the
+job, or in the workflow's `env`), and a checkout in the job of pull request
+code (`github.event.pull_request.head.sha`, `.head.ref` or `.merge_commit_sha`,
+`github.head_ref`, `github.event.workflow_run.head_sha` or `.head_branch`, or
+`refs/pull/<n>/head` and `/merge`). It is a note, not a verdict: it moves no
+direction, and `if:` conditions and the default checkout of a `pull_request`
+event are not read into it. An unread agent step is not an agent step here. A
+removed workflow gets no note.
+
+A structured input publishes its shape and none of its free text, so a setting
+never publishes what `.claude/settings.json` and `.mcp.json` would withhold
+(#823 review). A JSON object — a `settings` or `mcp_config` value — publishes,
+in canonical JSON:
+
+- its key names, numbers, booleans and `null`, so reordering keys compares
+  as unchanged and adding a key is a change;
+- `<redacted>` for `env` and `headers` values (and codex's `http_headers` and
+  `env_http_headers`), `apiKeyHelper`, every other secret-named value and the
+  word after a secret-named argument such as `--token`, as the host readers
+  redact them, so rotating one compares as unchanged;
+- each other string as `<withheld:…>`, a short digest of what the host
+  readers digest for it: the sanitized text, and a URL's query. Editing it is
+  a `changed` row, and none of its text is published. So an MCP server's
+  `args` — an `mcp-remote --header "Authorization: Bearer …"` included — and a
+  hook's command, matcher and type publish only digests;
+- except the strings a host reader publishes: a `permissions.allow`, `ask` or
+  `deny` rule, and the value of a documented Claude Code setting
+  (`defaultMode`, the switches in [the ratings table](#claude-code-setting-ratings),
+  `enabledMcpjsonServers` entries), as the settings reader publishes them; and,
+  under `mcpServers` (or `mcp_servers`), a server's command name and its URL's
+  scheme and host, as the MCP reader publishes them. Each is followed by the
+  digest when it drops something the digest reads: `"command":"npx <withheld:…>"`
+  for `npx -y some-server`, a URL's digest for its query. A URL's path is
+  neither published nor compared, as an MCP server's is not (#723).
+
+A `settings` or `mcp_config` value that is not a JSON object is published as
+written only when it is a plain file path: path characters, and any `${{ }}`
+expression in it a plain context reference. Any other value, such as a comment
+line before the JSON, publishes only `<withheld:…>`, a digest, so an edit to it
+is still a `changed` row and none of its text is published.
+
+JSON passed through `claude_args`, `codex-args` or a `run:` is never read, so
+it is never published: the argument input or step is not read at all. A codex
+`--config` override in a plain list of words — `-c key=value`,
+`--config=key=value`, `-ckey=value` or `-c=key=value` — publishes its key;
+its value is `<redacted>` under `env`, `headers` or a secret-named key, so
+rotating it is quiet, published as written for `sandbox_mode`,
+`default_permissions`, `approval_policy` and `model`, and `<withheld:…>`, a
+digest, under any other key, such as an MCP server's `command` or `url` or a
+`shell_environment_policy` value. The word after a secret-named word such
+as `--token` or `password` is `<redacted>`, as the host readers redact it
+among an MCP server's arguments, and the value is then credential-shaped
+(below). Other argument text — a prompt word, a
+flag's value — is published as written through the label redaction below,
+except that a URL in it publishes its scheme, host and port, with
+`<redacted-path>` for any path, as an MCP server's URL does (#723); the rest
+of the setting is compared, so a change only to such a URL's path — which
+repository a `plugin_marketplaces` URL names, for one — is not reported, and
+a zero-row result says redacted values are not compared. A `${{ }}`
+expression is one word while this is decided, so one inside a URL's userinfo
+is withheld with it.
+
+Any other text the #802 label redaction rewrites is credential-shaped: a token
+shape, a credential assignment such as `token=…`, a bearer or header value, a
+URL's userinfo — and ordinary prose too, such as "never print bearer tokens" in
+a system prompt. In a setting, the value is published redacted with
+`unresolved_reason: redacted` and compared as published, beside the rules read
+from its declared text, so a permission change or a rule gained beside it is
+still a row; only an edit inside what is redacted that gains no rule is not
+reported, and that is named as a non-blocking limit below. A checkout ref names
+the code a job runs, as a step reference does, so a redacted ref refuses the
+same way a step reference does (#767), because two refs that redact alike
+cannot be compared apart: GitHub coverage is `partial`, a changed workflow's
+comparison is refused, and an unchanged one is named in `unchanged_limits`.
+
+An unread agent step; an argument input that is not a plain list of words
+(`unread_arguments`); an action whose `with:` is not a mapping; a setting that
+is not a string (`not_a_string`), that holds text starting like JSON that does
+not parse (`unparsed_json`, whose values cannot be told from its keys), or
+that is published redacted (`redacted`); and a checkout ref that is not a
+string or whose `with:` is not a mapping record a **non-blocking**
+`unsupported` coverage issue naming the `job/step`, printed under
+`audit --host` → Coverage issues; none but a redacted setting publishes any of
+the value's text. GitHub coverage stays complete, so `check`, baselines and
+every other row are unaffected. An unread agent step is never compared, so
+adding, removing or editing it gives no row; for the others, adding, removing
+or re-forming the entry, or its gaining a documented rule, is still a row, and
+only an edit inside it that gains no rule is not reported (an unread argument
+input's edit is a `changed` row by its digest). `diff`, `verify` and `check`
+carry no limit for any of them, as for an unread secret value (#693): a
+`diff` of a change that only adds an unread agent step says
+`No static host-grant changes detected`, and `audit --host` is where the step
+is named. The workflow's coverage line says so: `… compared; changed, but no
+grant this entry compares changed, so no row (text this entry does not read,
+such as a step's env or an unread agent step, is not compared; audit --host
+names each unread agent step)`, where another file's line names redacted
+values such as env values and `apiKeyHelper`.
 
 A workflow's labels are published redacted (#802). A job id, a step's `id` or
 `name`, a trigger and a permission scope name go through the same redaction as

@@ -224,7 +224,19 @@ Without a configured manifest, when every changed file is host configuration —
 stays quiet when no row widens what the agent can do. A workflow step moved to
 a different action reference, such as a pinned SHA to `@main`, is a
 non-widening row, so the hook stays quiet about it; `diff` and the PR comment
-still show it. It names each widening
+still show it. The same holds for an agent launch in a workflow whose settings
+change without gaining a documented widening rule, for a checkout's ref, and
+for an edit to an argument input the audit does not read, which is compared by
+a digest, named in the row and named as a limit in `audit --host`. A `run:`
+that mentions an agent CLI and that the audit does not read is different: it
+gives no row in `diff` or the PR comment, whatever is edited, and is named only
+as a limit in `audit --host`. An agent launch that gains a rule, such as a plain `claude_args`
+gaining `--dangerously-skip-permissions` on any of its lines, widens, and the
+hook announces it (#823), unless the launch may be a step of that job the audit
+did not read, rewritten, or the job's launch held before a `${{ }}` expression
+or an unread argument input the rule is read from, or the rule moved in from a
+job the launch left, as a renamed job's does.
+It names each widening
 row once, and repeats the announcement only when the change or its rows change.
 A missing base ref, an incomparable inventory or unparsed output is never
 quiet. When host configuration changes beside other files, the Stop hook

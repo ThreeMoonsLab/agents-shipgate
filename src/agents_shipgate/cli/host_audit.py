@@ -642,10 +642,15 @@ def _refuse_invalid_baseline_overwrite(
             next_action=INCOMPARABLE_BASELINE_REVIEW,
             command=None,
         ) from exc
-    # A v0.6 baseline compares exactly as its v0.7 reading does, so it may be
-    # replaced; every older one is still refused (#819).
+    # Display-only hook/MCP fields preserve v0.6 compatibility (#819), but
+    # workflow grants did not read agent launches until v0.7 (#823).
+    unread_workflow = baseline.get("host_grants_schema_version") == "0.6" and any(
+        grant.get("kind") == "workflow"
+        for grant in (baseline.get("inventory") or {}).get("grants", [])
+    )
     if (
         baseline.get("host_grants_schema_version") not in OVERWRITABLE_BASELINE_SCHEMA_VERSIONS
+        or unread_workflow
         or baseline.get("_load_error")
     ):
         reason = str(baseline.get("_load_error") or "unsupported_baseline_schema")

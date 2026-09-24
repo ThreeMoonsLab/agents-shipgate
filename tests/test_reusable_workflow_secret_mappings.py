@@ -786,6 +786,7 @@ def test_a_legacy_baseline_holding_a_reusable_call_does_not_assert_no_mappings(t
     assert drift["comparison_status"] == "incomparable"
     assert drift["incomparable_reasons"] == [
         "baseline_reusable_workflow_secret_mappings_unavailable",
+        "baseline_workflow_agent_launches_unavailable",
         "baseline_workflow_step_actions_unavailable",
     ]
     assert drift["has_drift"] is None and drift["changes"] == []

@@ -214,20 +214,34 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # ``host_comparison.coverage`` and ``shipgate diff --json`` (capability diff
 # 0.3) the same block. It is evidence beside the rows and moves no state,
 # permission, route or row. A 0.19 verifier reads with coverage not recorded.
-# v41 names the changed inputs a host comparison does not read (#821): verifier
-# 0.21 and ``shipgate diff --json`` (capability diff 0.4) add a
-# ``changed_not_read`` coverage item with its ``candidate`` rule, a
-# ``read_sources_only`` that is ``false`` while one is named, and whether the
-# comparison's changed files were examined. A name is never a row, a widening
-# or a ``check`` violation. The one route it moves, on ``verify`` and
-# ``verify --preview`` alike: a manifest-free comparison whose only
-# host-relevant change is such an input, or a changed candidate it counts as
-# not examined, is now published, on the host route's
-# ``audit --host`` next action, instead of the setup route (``verify``) or the
-# ``initialize`` next action (``verify --preview``). A 0.20 verifier reads
-# with the search not recorded. ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at
-# 21.
-# v41 also keeps what a comparison established outside a plugin directory it
+# v41, unreleased, carries three changes. It names the changed inputs a host
+# comparison does not read (#821): verifier 0.21 and ``shipgate diff --json``
+# (capability diff 0.4) add a ``changed_not_read`` coverage item with its
+# ``candidate`` rule, a ``read_sources_only`` that is ``false`` while one is
+# named, and whether the comparison's changed files were examined. A name is
+# never a row, a widening or a ``check`` violation. The one route it moves, on
+# ``verify`` and ``verify --preview`` alike: a manifest-free comparison whose
+# only host-relevant change is such an input, or a changed candidate it counts
+# as not examined, is now published, on the host route's ``audit --host`` next
+# action, instead of the setup route (``verify``) or the ``initialize`` next
+# action (``verify --preview``). A 0.20 verifier reads with the search not
+# recorded. And it reads how a coding agent is launched inside a workflow job
+# (#823). Host-grants 0.6 shipped in 1.1.0, so this mints host-grants
+# inventory, baseline and drift 0.7: a workflow grant adds ``agent_launches[]``
+# (a documented agent action's permission inputs, or the permission flags of a
+# ``run:`` that is one plain ``claude -p`` / ``codex exec`` command, compared as
+# text), ``unread_agent_runs[]`` (any other ``run:`` that mentions an agent CLI:
+# a named limit, never compared) and ``checkout_refs[]`` (each
+# ``actions/checkout`` step's ``with.ref``), each omitted when empty. Shell is
+# not parsed; an argument input that is not a plain list of words is compared by
+# a digest and read for no rule. Only a documented rule gained by a job's agent
+# launches widens; every other edit is a ``changed`` row, and a workflow row
+# that runs an agent names the job facts beside it. A 0.4-0.6 baseline holding a
+# workflow grant is incomparable
+# (``baseline_workflow_agent_launches_unavailable``); one without a workflow
+# stays comparable. #823 moves neither verifier 0.21 nor capability diff 0.4:
+# its rows keep their shape. ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21.
+# And v41 keeps what a comparison established outside a plugin directory it
 # could not compare (#808), extended in place because v41 is unreleased: where
 # every blocking limit is a plugin-reference limit that its plugin directory
 # bounds, and no compared source depends on that directory, verifier 0.21 and

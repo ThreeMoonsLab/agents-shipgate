@@ -44,6 +44,53 @@ directory, still refuses its comparison. A `0.20` verifier claiming a partial
 comparison or a `scope` is refused. See
 [the migration note](../STABILITY.md#partial-host-comparison-808).
 
+Runtime contract v41, extended in place, also reads how a coding agent is
+launched inside a workflow job (#823). Host-grants `0.6` shipped in 1.1.0, so
+host-grants inventory, baseline and drift schemas move to `0.7`, and a workflow
+grant adds `agent_launches[]`, `unread_agent_runs[]` and `checkout_refs[]`,
+each omitted when empty. An agent launch is a step whose `uses:` is a
+documented agent action (`anthropics/claude-code-action`,
+`anthropics/claude-code-base-action`, `openai/codex-action`) with the
+permission inputs it declares, or a `run:` that is one line of plain words
+running `claude -p` / `codex exec` under `bash` or `sh`, with its documented
+permission flags; its `job`, `step`, `agent`, `form` (`read`, or `unresolved`
+with `inputs_not_a_mapping`), `settings[]` (`name`, `value`,
+`unresolved_reason`, `holds_expression`), `widening_rules[]` (`rule`,
+`setting`) and `job_secrets[]`. Shell is not parsed: any other `run:` that
+mentions `claude` or `codex` is an `unread_agent_runs[]` entry (`job`, `step`,
+`agent`), a named non-blocking limit that publishes none of its text, is never
+compared and gives no row; and `claude_args` / `codex-args` are read only as a
+plain list of words, any other value being `unread_arguments`, compared by a
+digest and read for no rule. A checkout ref is each `actions/checkout` step's
+`with.ref`, `null` for the default. Values are compared as text and never
+executed. A JSON object in a `settings` or `mcp_config` input publishes its
+shape and none of its free text — key names, with each string a
+`<withheld:…>` digest except those a host reader publishes (a permission rule,
+a documented setting's value, an MCP server's command name and URL host) — so
+an MCP server's arguments and a hook's command are compared but never
+published; a URL publishes its scheme and host. Only a documented rule a job's
+launches gain — bypassed permission checks (a flag, or JSON settings whose
+`defaultMode` is `bypassPermissions`), a bypassed or `danger-full-access`
+sandbox (`permission-profile: :danger-full-access` included, and in a
+`codex exec` step without `--sandbox` a `--config` override of `sandbox_mode`
+or `default_permissions` that selects it), `safety-strategy: unsafe`, or a
+user gate opened to `*` — raises `workflow_agent_widened_<added|changed>` and
+makes the row `widened`. A rule is read only from text this audit reads
+exactly, and one a launch already met in a job it left, one where an unread
+step of the job became a read launch, or one where the job's launch before
+held an expression or an unread argument input the rule is read from, is named
+and not claimed. Every other edit is `changed`, and a workflow row that runs an
+agent ends its `why` with the job facts beside each agent step. An action whose
+`with:` is not a mapping is `unresolved` and a named non-blocking limit; a
+setting holding credential-shaped text, prose included, is published redacted,
+compared as published and a named non-blocking limit, and a checkout ref
+holding it is a blocking limit, as a redacted step reference is. A `0.4`–`0.6`
+baseline holding a workflow grant is incomparable
+(`baseline_workflow_agent_launches_unavailable`); one without a workflow stays
+comparable. It moves neither #821's verifier `0.21` nor its capability diff
+`0.4`, and `minimum_control_contract_version` stays `21`. See
+[the migration note](../STABILITY.md#workflow-agent-launches-contract-v41-823).
+
 The same unreleased runtime contract v41 also names what changed in a hook and
 in an MCP server's launch arguments (#819). Host-grants inventory, baseline and
 drift schemas move to `0.7`: a hook grant adds `handlers[]` (each handler's
@@ -57,7 +104,7 @@ row names the changed field, `PostToolUse: matcher Edit → Edit|Write|Bash` or
 a `package` difference, in the text and in `review.changes[].change`. The
 members display what `config_sha256` already binds, so grant equality and the
 inventory digests leave them out: they move no row value, row count, verifier
-or capability-diff schema, a `0.6` baseline stays comparable with no new row
+or capability-diff schema, a `0.6` baseline without workflow grants stays comparable with no new row
 or reason, and `minimum_control_contract_version` stays `21`. A saved baseline
 holds none of the members. See
 [the migration note](../STABILITY.md#hook-mcp-detail-fields-819).

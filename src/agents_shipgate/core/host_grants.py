@@ -54,6 +54,7 @@ from agents_shipgate.core.host_input_failure import (
 )
 from agents_shipgate.core.host_settings import (
     CLAUDE_LIST_SETTINGS,
+    CLAUDE_SCALAR_SETTINGS,
     claude_setting_values,
     rate_claude_setting,
 )
@@ -1873,6 +1874,1466 @@ def step_action_key(entry: dict[str, Any]) -> tuple[str, str, str, str]:
     )
 
 
+# --- agent launches (#823) ----------------------------------------------------------
+#
+# How a coding agent is launched inside a job: a known agent action's permission
+# inputs, a literal agent CLI command in a `run:` step, and the ref each
+# `actions/checkout` step declares. Every value is compared as declared text; no
+# action is fetched, no command is run and no expression is evaluated.
+#
+# Shell is not parsed (#823 review cycle 4). A `run:` is read only when it is one
+# line of plain words — no quote, expansion, operator, redirection, comment or
+# continuation, so every POSIX shell splits it at its blanks and nowhere else —
+# whose program is a known agent CLI; `claude_args` and `codex-args` are read
+# only when they are such a list of words, which each action's own splitter reads
+# the same way. Every other form is never guessed at: a `run:` that mentions an
+# agent CLI is named as an unread step, and an argument input as an unread
+# setting, each a non-blocking limit that publishes none of its text.
+
+
+@dataclass(frozen=True)
+class _AgentAction:
+    """What one documented agent action's inputs mean to this reader (#823).
+
+    ``inputs`` are compared as text. ``gates`` are comma-separated user lists
+    where a ``*`` entry opens the gate to every user (to every bot, for
+    ``allowed_bots``). ``args`` names the input
+    that carries agent CLI arguments, read, when it is a plain list of words,
+    for the documented widening rules. ``modes`` are ``(input, value, rule)``: an
+    input whose value is itself a documented widening. ``settings`` names the
+    input that holds Claude Code settings, JSON or a path; written as JSON, its
+    ``defaultMode`` is read as the settings reader reads it (#823 review).
+    """
+
+    family: Literal["claude", "codex"]
+    inputs: tuple[str, ...]
+    gates: tuple[str, ...] = ()
+    args: str | None = None
+    modes: tuple[tuple[str, str, str], ...] = ()
+    settings: str | None = None
+
+
+_CLAUDE_BASE_ACTION = _AgentAction(
+    family="claude",
+    inputs=(
+        "allowed_tools", "claude_args", "disallowed_tools", "mcp_config",
+        "plugin_marketplaces", "plugins", "settings",
+    ),
+    args="claude_args",
+    settings="settings",
+)
+
+#: The documented agent actions, by ``owner/repo`` (matched case-insensitively,
+#: at any ref). The input names are those the actions' own `action.yml`
+#: declare; `allowed_tools`, `disallowed_tools` and `mcp_config` are the
+#: Claude actions' earlier inputs, still read when a workflow sets them. The
+#: base action is published both as its own repository and as the
+#: `base-action` directory of `anthropics/claude-code-action`.
+_AGENT_ACTIONS: dict[str, _AgentAction] = {
+    "anthropics/claude-code-action": _AgentAction(
+        family="claude",
+        inputs=(
+            "additional_permissions", "allowed_bots", "allowed_non_write_users",
+            "allowed_tools", "claude_args", "disallowed_tools", "mcp_config",
+            "plugin_marketplaces", "plugins", "settings",
+        ),
+        gates=("allowed_bots", "allowed_non_write_users"),
+        args="claude_args",
+        settings="settings",
+    ),
+    "anthropics/claude-code-base-action": _CLAUDE_BASE_ACTION,
+    "anthropics/claude-code-action/base-action": _CLAUDE_BASE_ACTION,
+    "openai/codex-action": _AgentAction(
+        family="codex",
+        inputs=(
+            "allow-bot-users", "allow-bots", "allow-users", "codex-args",
+            "permission-profile", "safety-strategy", "sandbox",
+        ),
+        gates=("allow-users",),
+        args="codex-args",
+        # `:danger-full-access` is Codex's reserved name for its built-in
+        # full-access permission profile, the profile form of the
+        # `danger-full-access` sandbox (#823 review).
+        modes=(
+            ("sandbox", "danger-full-access", "danger_full_access"),
+            ("permission-profile", ":danger-full-access", "danger_full_access"),
+            ("safety-strategy", "unsafe", "unsafe_safety_strategy"),
+        ),
+    ),
+}
+
+#: Flag spelling -> (primary spelling, arity): ``0`` takes no value, ``1`` one,
+#: ``None`` every following word up to the next one starting with ``-``, as the
+#: CLI's variadic options read them. From Claude Code's CLI reference.
+#: ``--settings`` and ``--mcp-config`` are not listed: a value passing one is
+#: not read at all (:data:`_UNREAD_ARGUMENT_FLAGS`).
+_CLAUDE_FLAGS: dict[str, tuple[str, int | None]] = {
+    "--permission-mode": ("--permission-mode", 1),
+    "--dangerously-skip-permissions": ("--dangerously-skip-permissions", 0),
+    "--allow-dangerously-skip-permissions": ("--allow-dangerously-skip-permissions", 0),
+    "--allowedTools": ("--allowedTools", None),
+    "--allowed-tools": ("--allowedTools", None),
+    "--disallowedTools": ("--disallowedTools", None),
+    "--disallowed-tools": ("--disallowedTools", None),
+    "--add-dir": ("--add-dir", None),
+    "--permission-prompt-tool": ("--permission-prompt-tool", 1),
+}
+
+#: The same for ``codex exec``, from the Codex CLI's shared option definitions.
+_CODEX_FLAGS: dict[str, tuple[str, int | None]] = {
+    "--sandbox": ("--sandbox", 1),
+    "-s": ("--sandbox", 1),
+    "--dangerously-bypass-approvals-and-sandbox": ("--dangerously-bypass-approvals-and-sandbox", 0),
+    "--yolo": ("--dangerously-bypass-approvals-and-sandbox", 0),
+    "--approve-for-me": ("--approve-for-me", 0),
+    "--not-so-yolo": ("--approve-for-me", 0),
+    "--dangerously-bypass-hook-trust": ("--dangerously-bypass-hook-trust", 0),
+    "--add-dir": ("--add-dir", 1),
+    "--config": ("--config", 1),
+    "-c": ("--config", 1),
+    "--profile": ("--profile", 1),
+    "-p": ("--profile", 1),
+}
+
+_AGENT_FLAG_TABLES = {"claude": _CLAUDE_FLAGS, "codex": _CODEX_FLAGS}
+
+#: The agent action inputs a documented widening rule is read from.
+AGENT_RULE_INPUTS: frozenset[str] = frozenset(
+    name
+    for spec in _AGENT_ACTIONS.values()
+    for name in (
+        *spec.gates,
+        *(mode for mode, _value, _rule in spec.modes),
+        *(item for item in (spec.args, spec.settings) if item),
+    )
+)
+
+#: The widening each documented rule names, as a row's ``why`` says it.
+AGENT_WIDENING_RULES: dict[str, str] = {
+    "bypass_permissions": "skips permission checks (bypassPermissions)",
+    "bypass_approvals_and_sandbox": "bypasses approvals and the sandbox",
+    "danger_full_access": "runs without a sandbox (danger-full-access)",
+    "unsafe_safety_strategy": "runs without privilege restrictions (safety-strategy: unsafe)",
+    "open_gate": "accepts runs triggered by any user",
+}
+
+#: A user gate whose ``*`` entry admits any bot rather than any user.
+_BOT_GATES = frozenset({"allowed_bots"})
+
+
+def agent_rule_text(rule: str, detail: str) -> str:
+    """How a row's ``why`` names one documented rule: ``detail`` is the gate an ``open_gate`` opened."""
+
+    if rule == "open_gate" and detail in _BOT_GATES:
+        return f"accepts runs triggered by any bot ({detail}: *)"
+    return AGENT_WIDENING_RULES[rule] + (f" ({detail}: *)" if detail else "")
+
+
+#: A literal checkout ref that names pull request code, not the base branch's:
+#: the documented pull request and workflow-run head expressions, and
+#: ``refs/pull/<n>/head`` or ``/merge``.
+_PULL_REQUEST_CODE_REF_RE = re.compile(
+    r"\$\{\{\s*(?:github\.event\.pull_request\.(?:head\.(?:sha|ref)|merge_commit_sha)"
+    r"|github\.head_ref|github\.event\.workflow_run\.head_(?:sha|branch))\s*\}\}"
+    r"|refs/pull/(?:\d+|\$\{\{[^}]*\}\})/(?:head|merge)"
+)
+
+#: Triggers that run with the base repository's context on input from people
+#: who need not hold write access, as the support page lists them.
+UNTRUSTED_INPUT_TRIGGERS = ("issue_comment", "issues", "pull_request_target", "workflow_run")
+
+_ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+_SECRET_REFERENCE_RE = re.compile(r"\bsecrets\.([A-Za-z_][A-Za-z0-9_]*)")
+#: One ``${{ … }}`` expression's body and its closing ``}}``, or an unterminated
+#: ``${{`` to the end of the text, which names no secret. A lazy match that
+#: must find ``}}`` scanned to the end from every ``${{``, so text holding many
+#: unterminated ones took quadratic time (#823 review cycle 7).
+_EXPRESSION_RE = re.compile(r"\$\{\{(.*?)(\}\}|\Z)", re.S)
+
+
+def pull_request_code_ref(ref: str | None) -> bool:
+    """Whether a published checkout ref names pull request code (#823)."""
+
+    return ref is not None and _PULL_REQUEST_CODE_REF_RE.fullmatch(ref.strip()) is not None
+
+
+# --- the only forms read: plain lists of words (#823 review cycle 4) --------------------
+#
+# Four review cycles each found a shell form a parser mis-read, so none is
+# parsed. A word made only of these characters means the same to a POSIX shell,
+# to shell-quote (which the Claude actions split `claude_args` with, after making
+# `()|&;<>` literal) and to string-argv (which `openai/codex-action` splits
+# `codex-args` with): no quote, `$`, backtick, backslash, `#`, `~`, glob,
+# brace, bracket, `!`, `@`, `;`, `&`, `|`, `<`, `>` or non-ASCII character is
+# among them, so the words are exactly the text split at its blanks.
+
+#: A word of a plain `run:` command.
+_PLAIN_RUN_WORD_RE = re.compile(r"[A-Za-z0-9_./:=,%+-]+")
+#: A word of a plain argument input: parentheses too, which neither action's
+#: splitter reads as anything but a character (`Bash(git:status)`), while a
+#: shell would.
+_PLAIN_ARGUMENT_WORD_RE = re.compile(r"[A-Za-z0-9_./:=,%+()-]+")
+#: Flags whose value the host readers withhold or read from a file: a value
+#: passing one, in any spelling, is not read (#823 review cycle 4).
+_UNREAD_ARGUMENT_FLAGS = frozenset({"--settings", "--mcp-config"})
+#: A known agent CLI's name as a word of its own: a `run:` that holds one
+#: mentions that agent.
+_AGENT_CLI_MENTION_RE = re.compile(r"(?<![A-Za-z0-9_])(claude|codex)(?![A-Za-z0-9_])")
+#: The shells a plain `run:` is read for, by the program a declared `shell:` names.
+_READ_SHELLS = frozenset({"bash", "sh"})
+
+
+def _plain_words(words: list[str], pattern: re.Pattern[str]) -> list[str] | None:
+    """``words``, when each is made of plain characters and none is an unread flag, else ``None``."""
+
+    words = [word for word in words if word]
+    if not words or not all(pattern.fullmatch(word) for word in words):
+        return None
+    if any(word.split("=", 1)[0] in _UNREAD_ARGUMENT_FLAGS for word in words):
+        return None
+    return words
+
+
+def _argument_words(text: str) -> list[str] | None:
+    """An agent action's argument input as its words, when it is a plain list of them.
+
+    Blanks and newlines separate words, as both actions' splitters read
+    them. ``None`` — the input is not read — for anything else: a quote, a
+    ``${{ }}`` expression, ``$``, a backtick, a comment, a shell separator,
+    JSON, a ``--settings`` or ``--mcp-config`` flag, or any other character
+    outside the plain set.
+    """
+
+    return _plain_words(re.split(r"[ \t\r\n]+", text), _PLAIN_ARGUMENT_WORD_RE)
+
+
+def _run_words(run: str) -> list[str] | None:
+    """A ``run:`` as the words of its one command, when it is one line of plain words.
+
+    Only spaces and tabs separate words, as the shell reads them; a second
+    line, and every character outside the plain set, is ``None``.
+    """
+
+    text = run.strip(" \t\n")
+    if "\n" in text:
+        return None
+    return _plain_words(re.split(r"[ \t]+", text), _PLAIN_RUN_WORD_RE)
+
+
+def _run_command(run: str) -> tuple[str, list[str]] | None:
+    """The agent CLI a plain one-command ``run:`` launches headless, and its arguments.
+
+    After any ``NAME=value`` assignments, the program's file name must be
+    ``claude`` with ``-p``/``--print`` among its arguments, or ``codex`` with
+    ``exec`` (or its alias ``e``) as its first argument. Any other command —
+    ``claude mcp add``, ``codex login``, ``npx …``, ``timeout 600 claude`` —
+    launches none this reader reads.
+    """
+
+    words = _run_words(run)
+    if words is None:
+        return None
+    index = 0
+    while index < len(words) and _ASSIGNMENT_RE.match(words[index]):
+        index += 1
+    if index >= len(words):
+        return None
+    program, arguments = words[index].rsplit("/", 1)[-1], words[index + 1:]
+    options = arguments[:arguments.index("--")] if "--" in arguments else arguments
+    if program == "claude" and any(word in {"-p", "--print"} for word in options):
+        return "claude", arguments
+    if program == "codex" and arguments[:1] in (["exec"], ["e"]):
+        return "codex", arguments[1:]
+    return None
+
+
+def _declared_shell(step: dict[Any, Any], job: dict[Any, Any], workflow: dict[Any, Any]) -> Any:
+    """The ``shell:`` a step runs its ``run:`` with: its own, else its job's, else its workflow's default.
+
+    ``None`` when none is declared, which is the runner's default shell.
+    """
+
+    if step.get("shell") is not None:
+        return step["shell"]
+    for container in (job, workflow):
+        defaults = container.get("defaults")
+        run = defaults.get("run") if isinstance(defaults, dict) else None
+        if isinstance(run, dict) and run.get("shell") is not None:
+            return run["shell"]
+    return None
+
+
+#: An option word of a declared ``bash``/``sh`` template after which the shell
+#: still runs the script: a cluster of ``set`` flags and ``-l``, ``-i`` or
+#: ``-r``, or one of these long options. Never ``-c``, which runs a command
+#: string of its own, ``-s``, which reads commands from standard input, ``-n``,
+#: which runs none, ``--rcfile`` or anything else. A cluster ending in ``o``
+#: or ``O`` takes an option name next.
+_SHELL_OPTION_RE = re.compile(
+    r"[-+](?:[abefhiklmprtuvxBCEHPT]+[oO]?|[oO])"
+    r"|--(?:noprofile|norc|posix|login|restricted|noediting|verbose)"
+)
+_SHELL_OPTION_NAME_RE = re.compile(r"[a-z_]+")
+#: The option name that runs no command.
+_SHELL_NO_EXEC = "noexec"
+
+
+def _read_shell(shell: Any) -> bool:
+    """Whether a ``run:`` under this declared shell is read.
+
+    None declared, ``bash`` or ``sh`` (by any path), or a template that runs
+    one of them on the script alone: option words it still runs the script
+    under, then ``{0}`` last, as in ``bash --noprofile --norc -eo pipefail
+    {0}``. Any other template, such as ``bash -c '…' {0}``, may run a command
+    of its own or none, so the step is not read (#823 review cycle 7).
+    """
+
+    if shell is None:
+        return True
+    if not isinstance(shell, str):
+        return False
+    words = shell.split()
+    if not words or words[0].rsplit("/", 1)[-1] not in _READ_SHELLS:
+        return False
+    if len(words) == 1:
+        return True
+    if words[-1] != "{0}":
+        return False
+    index = 1
+    while index < len(words) - 1:
+        word = words[index]
+        if not _SHELL_OPTION_RE.fullmatch(word):
+            return False
+        index += 1
+        if not word.startswith("--") and word[-1] in "oO":
+            name = words[index] if index < len(words) - 1 else ""
+            if not _SHELL_OPTION_NAME_RE.fullmatch(name) or name == _SHELL_NO_EXEC:
+                return False
+            index += 1
+    return True
+
+
+def _read_flags(
+    words: list[str] | tuple[str, ...], table: dict[str, tuple[str, int | None]]
+) -> list[tuple[str, int | None, list[str] | None]]:
+    """The documented permission flags among ``words``: primary spelling, arity and value words.
+
+    A flag is read by name wherever it is a word of its own; every other word
+    — the prompt, ``--model`` and any undocumented flag — is not compared. A
+    flag that takes no value, or is given none, has ``None``. A long flag's
+    value may be attached as ``--name=value``, and a short one's as
+    ``-s<value>`` or ``-s=<value>``, which clap reads as ``-s <value>``
+    (#823 review cycle 3).
+    """
+
+    # A standalone terminator makes every following word positional prompt
+    # text, even when it spells a permission flag.
+    flags: list[tuple[str, int | None, list[str] | None]] = []
+    index = 0
+    while index < len(words):
+        word = words[index]
+        if word == "--":
+            break
+        if word.startswith("--"):
+            name, equals, attached = word.partition("=")
+        elif len(word) > 2 and table.get(word[:2], ("", 0))[1] == 1:
+            name, equals, attached = word[:2], "=", word[2:].removeprefix("=")
+        else:
+            name, equals, attached = word, "", ""
+        spec = table.get(name)
+        index += 1
+        if spec is None:
+            continue
+        primary, arity = spec
+        if arity == 0:
+            flags.append((primary, arity, None))
+            continue
+        values = [attached] if equals else []
+        if arity == 1 and not equals and index < len(words):
+            values.append(words[index])
+            index += 1
+        elif arity is None:
+            while index < len(words) and not words[index].startswith("-"):
+                values.append(words[index])
+                index += 1
+        flags.append((primary, arity, values or None))
+    return flags
+
+
+#: One ``${{ … }}`` expression, or an unterminated ``${{`` to the end of the text.
+_EXPRESSION_SPAN_RE = re.compile(r"\$\{\{.*?(?:\}\}|\Z)", re.S)
+#: What an expression reads as while a user gate's entries are split: a
+#: private-use character, which is neither a comma nor a blank.
+_EXPRESSION_MARK = ""
+
+
+def holds_expression(text: str) -> bool:
+    """Whether declared text holds a ``${{ }}`` expression GitHub substitutes before the action reads it."""
+
+    return "${{" in text
+
+
+# --- what an agent setting publishes (#823, #802) --------------------------------------
+
+#: A codex ``--config`` override under one of these keys carries values the
+#: codex host reader never publishes, as ``.mcp.json`` ``env``/``headers`` do not.
+_CONFIG_WITHHELD_KEYS = frozenset({"env", "headers", "http_headers", "env_http_headers"})
+
+#: Keys whose value maps MCP server names to servers, anywhere in a structured
+#: value: Claude's ``mcpServers`` and codex's ``mcp_servers``. VS Code's
+#: ``servers`` counts only at the top, where `.vscode/mcp.json` puts it.
+_SERVER_MAP_KEYS = frozenset({"mcpServers", "mcp_servers"})
+_TOP_LEVEL_SERVER_MAP_KEYS = _SERVER_MAP_KEYS | {"servers"}
+#: Where, from the top of a Claude Code settings value, the settings reader
+#: publishes a string as it is: a ``permissions.allow``/``ask``/``deny`` rule,
+#: and the value of a documented setting, under ``permissions`` or at the top.
+_PUBLISHED_STRING_PATHS: frozenset[tuple[str, ...]] = frozenset({
+    *(("permissions", name) for name in ("allow", "ask", "deny", *CLAUDE_SCALAR_SETTINGS)),
+    *((name,) for name in (*CLAUDE_SCALAR_SETTINGS, *CLAUDE_LIST_SETTINGS)),
+})
+
+
+def _withheld_string(value: str, label: str | None = None) -> str:
+    """One string of a structured value as it is published (#823 review C2-F1).
+
+    ``<withheld:…>``: a short digest of what the host readers digest for it —
+    the sanitized text, and a URL's query as an MCP server's is (#723) — so
+    editing it is still a change while none of its text is published. Where a
+    host reader publishes a label for the string (``label``: an MCP server's
+    command name or URL, a permission rule, a documented setting's value), the
+    label is published, followed by the digest only when the label drops
+    something the digest reads, such as a command's arguments or a URL's query.
+    """
+
+    withheld = f"<withheld:{redacted_config_sha256(value)[:12]}>"
+    if label is None:
+        return withheld
+    if label == _sanitize_sensitive_string(value) and not _url_capability_parts(value):
+        return label
+    return f"{label} {withheld}"
+
+
+def _server_command(command: str) -> str:
+    """An MCP server's ``command`` as the MCP reader names it: its first word's file name."""
+
+    first = command.strip().split(maxsplit=1)[0] if command.strip() else ""
+    return _withheld_string(command, _sanitize_sensitive_string(Path(first).name or first) or None)
+
+
+def _json_shape(value: Any, path: tuple[str, ...] = ()) -> Any:
+    """A structured value's shape: what a host reader would publish of it, and no free text.
+
+    Key names, numbers, booleans and ``null`` are kept. Secret-bearing values
+    are ``<redacted>`` exactly as the host readers redact them before any
+    digest: ``env`` and ``headers`` (and codex's ``http_headers`` and
+    ``env_http_headers``) keep their keys, a secret-named key's value
+    (``apiKeyHelper``) and the word after a secret-named argument are
+    replaced, and ``policyHelper`` is excluded. Every other string is
+    :func:`_withheld_string`, keeping only what a host reader publishes: a
+    ``permissions.allow``/``ask``/``deny`` rule and a documented Claude Code
+    setting's value (``defaultMode``, ``enabledMcpjsonServers`` entries) at the
+    top of the value, as the settings reader publishes them; and an MCP
+    server's command name and URL scheme and host, as the MCP reader publishes
+    them. So an MCP server's arguments and a hook's command publish nothing
+    of their text (#823 review C2-F1). ``path`` is the keys above ``value``.
+    """
+
+    parent = path[-1] if path else None
+    if isinstance(value, dict):
+        in_server = len(path) >= 2 and (
+            path[-2] in _SERVER_MAP_KEYS or (len(path) == 2 and path[0] in _TOP_LEVEL_SERVER_MAP_KEYS)
+        )
+        shaped: dict[str, Any] = {}
+        for key, inner in value.items():
+            key_text = str(key)
+            if key_text == "policyHelper":
+                shaped[key_text] = "<excluded-dynamic-helper>"
+            elif _is_secret_key(key_text) or parent in _CREDENTIAL_CONTAINER_KEYS:
+                shaped[key_text] = "<redacted>"
+            elif key_text in _CONFIG_WITHHELD_KEYS and isinstance(inner, dict):
+                shaped[key_text] = {str(name): "<redacted>" for name in inner}
+            elif in_server and key_text == "command" and isinstance(inner, str):
+                shaped[key_text] = _server_command(inner)
+            elif in_server and key_text in {"url", "serverUrl"} and isinstance(inner, str):
+                shaped[key_text] = _withheld_string(inner, _sanitize_url(inner))
+            else:
+                shaped[key_text] = _json_shape(inner, (*path, key_text))
+        return shaped
+    if isinstance(value, list):
+        items: list[Any] = []
+        redact_next = False
+        for item in value:
+            if redact_next:
+                items.append("<redacted>")
+                redact_next = False
+                continue
+            if isinstance(item, str) and not _SECRET_ARG_RE.fullmatch(item):
+                redact_next = item.lower().lstrip("-").replace("-", "_") in _SECRET_KEY_MARKERS
+            items.append(_json_shape(item, path))
+        return items
+    if isinstance(value, str):
+        published = path in _PUBLISHED_STRING_PATHS
+        return _withheld_string(value, _sanitize_sensitive_string(value) if published else None)
+    return value
+
+
+def _withheld_json(value: Any) -> str | None:
+    """A structured value as it may be published: its :func:`_json_shape`, as canonical JSON.
+
+    Canonical, so reformatting or reordering keys changes nothing.
+    """
+
+    try:
+        return json.dumps(
+            _json_shape(value), sort_keys=True, separators=(",", ":"),
+            ensure_ascii=False, default=str,
+        )
+    except (RecursionError, TypeError, ValueError):
+        return None
+
+
+def _withheld_word(word: str) -> str | None:
+    """One word as it may be published: a JSON object by :func:`_withheld_json`, else as written.
+
+    ``None`` for a word that starts like a JSON object and does not parse: what
+    it holds cannot be told apart, so none of it may be published.
+    """
+
+    if not word.lstrip().startswith("{"):
+        return word
+    try:
+        loaded = json.loads(word)
+    except (ValueError, RecursionError):
+        return None
+    return _withheld_json(loaded)
+
+
+#: The action inputs that hold JSON or a file path (#823 review).
+_JSON_OR_PATH_INPUTS = frozenset({"mcp_config", "settings"})
+#: A file path as it may be published: plain path characters, and any
+#: ``${{ }}`` expression in it a plain context reference.
+_PLAIN_PATH_RE = re.compile(r"(?:[A-Za-z0-9_./~@+,:=%-]|\$\{\{[ A-Za-z0-9_.\-\[\]*]*\}\})*")
+
+
+def _withheld_json_or_path(text: str) -> str | None:
+    """A ``settings`` or ``mcp_config`` value as it may be published.
+
+    A JSON object by :func:`_withheld_word`, and a plain file path as
+    written. Any other text is neither, so the action rejects it, but it may
+    still hold what a host reader withholds, such as an ``env`` value after a
+    comment line: it publishes only ``<withheld:…>``, a digest, so an edit to
+    it is still a change (#823 review cycle 5).
+    """
+
+    if text.lstrip().startswith("{") or _PLAIN_PATH_RE.fullmatch(text):
+        return _withheld_word(text)
+    return _withheld_string(text)
+
+
+#: The codex ``--config`` keys whose value is published as written: the
+#: settings a documented widening rule reads (``sandbox_mode``,
+#: ``default_permissions``), the approval policy and the model. Any other
+#: key's value — an MCP server's command or URL, a shell environment value, a
+#: provider — publishes only its digest (#823 review cycle 4).
+_PUBLISHED_CONFIG_KEYS = frozenset({"sandbox_mode", "default_permissions", "approval_policy", "model"})
+
+
+def _withheld_config(text: str) -> str:
+    """A codex ``--config key=value`` override as it may be published.
+
+    The key is published. Under ``env``, ``headers`` or a secret-named key the
+    value is ``<redacted>``, as the host readers redact such values, so
+    rotating it is quiet; under one of :data:`_PUBLISHED_CONFIG_KEYS` it is
+    published as written; under any other key it is ``<withheld:…>``, a
+    digest, so editing it is still a change while none of its text is
+    published. Only a plain word reaches here, so the value is never a TOML
+    table or array.
+    """
+
+    key, equals, value = text.partition("=")
+    if not equals:
+        return text
+    segments = [segment.strip() for segment in key.split(".")]
+    if any(segment in _CONFIG_WITHHELD_KEYS or _is_secret_key(segment) for segment in segments):
+        return f"{key}=<redacted>"
+    if key.strip() in _PUBLISHED_CONFIG_KEYS:
+        return text
+    return f"{key}={_withheld_string(value)}"
+
+
+def _withheld_words(words: list[str] | tuple[str, ...], *, family: str) -> tuple[list[str], bool]:
+    """Each plain argument word as it may be published, and whether one was redacted as credential-shaped.
+
+    A codex ``--config`` override is withheld however it is attached to its
+    flag: a separate word after ``-c`` or ``--config``, ``--config=…``, and
+    ``-c<value>`` or ``-c=<value>``, which clap reads as ``-c <value>``. The
+    word after a secret-named word such as ``--token`` or ``password`` is
+    ``<redacted>``, as the host readers redact it in an MCP server's
+    arguments, and the value is then credential-shaped: an edit to that word
+    is not reported, so the caller names it as a limit. Every other word is
+    published as written, through the label redaction.
+    """
+
+    shown: list[str] = []
+    config = False
+    secret = False
+    redacted = False
+    for word in words:
+        if secret:
+            item = "<redacted>"
+            redacted = True
+        elif config:
+            item = _withheld_config(word)
+        elif family == "codex" and word.startswith("--config="):
+            item = "--config=" + _withheld_config(word.removeprefix("--config="))
+        elif family == "codex" and word.startswith("-c") and len(word) > 2:
+            prefix = "-c=" if word.startswith("-c=") else "-c"
+            item = prefix + _withheld_config(word.removeprefix(prefix))
+        else:
+            item = word
+        shown.append(item)
+        config = family == "codex" and word in {"-c", "--config"}
+        secret = not secret and word.lower().lstrip("-").replace("-", "_") in _SECRET_KEY_MARKERS
+    return shown, redacted
+
+
+def _url_withheld(url: str) -> str:
+    """A URL with its path and query withheld as the host sanitizer withholds them.
+
+    One holding userinfo is kept as written, so the label redaction still
+    finds the credential in it.
+    """
+
+    try:
+        netloc = urlsplit(url).netloc
+    except ValueError:
+        return url
+    return url if "@" in netloc else _sanitize_url(url)
+
+
+#: Private-use characters that stand for one expression each while a value is redacted.
+_EXPRESSION_SLOTS = range(0xE000, 0xF900)
+_EXPRESSION_SLOT_RE = re.compile("[\ue000-\uf8ff]")
+
+
+def _published_value(text: str) -> tuple[str, bool]:
+    """``text`` as it may be published, and whether credential-shaped text had to be redacted.
+
+    A URL's path and query are withheld the way the host sanitizer withholds
+    them from an MCP server URL (#723), and the rest of the text is published
+    and compared: a URL path is not a credential. Anything else the #802 label
+    redaction rewrites — a token shape, a credential assignment, a bearer or
+    header value, a URL's userinfo — is credential-shaped text, and the value
+    is published redacted. The caller decides what that refuses.
+
+    Each ``${{ }}`` expression is read as one word while this is decided, so an
+    expression inside a URL's userinfo is withheld with the userinfo rather
+    than splitting the URL (``https://x:${{ secrets.T }}@host/…`` publishes
+    ``https://host/<redacted-path>``), and every expression left in the value is
+    published through the same label redaction.
+    """
+
+    expressions = _EXPRESSION_SPAN_RE.findall(text)
+    if len(expressions) > len(_EXPRESSION_SLOTS) or _EXPRESSION_SLOT_RE.search(text):
+        # No free character to stand for each expression: read the text as written.
+        expressions = []
+    def url_withheld(match: re.Match[str]) -> str:
+        # A backslash the URL ends at is kept, so a JSON escape after it, as
+        # in a published permission rule, stays an escape (#823 review cycle 3).
+        url = match.group(0)
+        bare = url.rstrip("\\")
+        return _url_withheld(bare) + url[len(bare):]
+
+    def urls_withheld(value: str) -> str:
+        return _URL_RE.sub(url_withheld, value)
+
+    slots = iter(_EXPRESSION_SLOTS)
+    marked = _EXPRESSION_SPAN_RE.sub(lambda _match: chr(next(slots)), text) if expressions else text
+    withheld = urls_withheld(marked)
+    shown = published_workflow_label(withheld)
+    kept = [urls_withheld(expression) for expression in expressions]
+    labels = [published_workflow_label(expression) for expression in kept]
+    redacted = shown != withheld or labels != kept
+
+    if expressions:
+        shown = _EXPRESSION_SLOT_RE.sub(
+            lambda match: labels[ord(match.group()) - _EXPRESSION_SLOTS.start], shown
+        )
+    return shown, redacted
+
+
+def _setting_text(value: Any) -> str | None:
+    """A ``with:`` value as the text GitHub passes, or ``None`` when it is not a scalar."""
+
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if value is None:
+        return ""
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        return value.strip()
+    return None
+
+
+def _published_text(name: str, text: str | None, *, redacted: bool = False) -> dict[str, Any]:
+    """A setting's withheld text as it may be published; ``None`` text is ``unparsed_json``.
+
+    ``redacted`` says credential-shaped text was already withheld from it.
+    """
+
+    if text is None:
+        return {"name": name, "value": None, "unresolved_reason": "unparsed_json"}
+    shown, rewritten = _published_value(text)
+    return {"name": name, "value": shown, "unresolved_reason": "redacted" if redacted or rewritten else None}
+
+
+def _published_setting(name: str, value: Any, *, arguments: str | None = None) -> dict[str, Any]:
+    """One action input as it may be published: its text, or why it is not.
+
+    ``arguments`` names the family whose action splits this input
+    (``claude_args``, ``codex-args``). Such an input is read only when it is a
+    plain list of words (:func:`_argument_words`), published as those words;
+    otherwise it is ``unread_arguments`` and publishes only ``<withheld:…>``,
+    a digest, so an edit to it is still a change while none of its text is
+    published (#823 review cycle 4). Every other input is one value, a JSON
+    object published by :func:`_withheld_json`; a ``settings`` or
+    ``mcp_config`` value that is neither JSON nor a plain path publishes only
+    a digest (:func:`_withheld_json_or_path`).
+    """
+
+    text = _setting_text(value)
+    if text is None:
+        return {"name": name, "value": None, "unresolved_reason": "not_a_string"}
+    if arguments is not None:
+        words = _argument_words(text)
+        if words is None:
+            return {"name": name, "value": _withheld_string(text), "unresolved_reason": "unread_arguments"}
+        shown, redacted = _withheld_words(words, family=arguments)
+        return _published_text(name, " ".join(shown), redacted=redacted)
+    setting = _published_text(
+        name, _withheld_json_or_path(text) if name in _JSON_OR_PATH_INPUTS else _withheld_word(text)
+    )
+    # Read off the declared text: redaction may rewrite the expression away.
+    return {**setting, "holds_expression": True} if holds_expression(text) else setting
+
+
+def _published_flag(family: str, name: str, arity: int | None, values: list[str] | None) -> dict[str, Any]:
+    """One CLI flag of a plain ``run:`` as it may be published: its value words, a ``--config`` override withheld."""
+
+    if values is None:
+        return {"name": name, "value": None, "unresolved_reason": None}
+    if family == "codex" and name == "--config":
+        shown, redacted = [_withheld_config(value) for value in values], False
+    else:
+        shown, redacted = _withheld_words(values, family=family)
+    return _published_text(name, shown[0] if arity == 1 else " ".join(shown), redacted=redacted)
+
+
+def _setting_key(setting: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(setting["name"]),
+        str(setting.get("unresolved_reason") or ""),
+        "" if setting.get("value") is None else str(setting["value"]),
+    )
+
+
+def _job_secrets(job: dict[Any, Any], workflow_env: Any) -> list[str]:
+    """The secret names a job references in ``${{ }}``, and those the workflow ``env`` passes.
+
+    Context for the row that names an agent step in the job, never compared.
+    Each name is a published label (#802).
+    """
+
+    names: set[str] = set()
+    # Walked once per container, without recursion: a YAML alias can make a
+    # mapping hold itself, or fan one out many times over (#823 review cycle 5).
+    seen: set[int] = set()
+    pending: list[Any] = [job, workflow_env]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, str):
+            for expression, closed in _EXPRESSION_RE.findall(value):
+                if closed:
+                    names.update(_SECRET_REFERENCE_RE.findall(expression))
+        elif isinstance(value, (dict, list)) and id(value) not in seen:
+            seen.add(id(value))
+            pending.extend(value.values() if isinstance(value, dict) else value)
+    return sorted({published_workflow_label(name) for name in names})
+
+
+def _action_identity(uses: Any) -> str | None:
+    """A step's ``owner/repo`` in lower case when ``uses:`` is ``owner/repo@ref``."""
+
+    if not isinstance(uses, str):
+        return None
+    text = uses.strip()
+    if not _REMOTE_STEP_ACTION_RE.fullmatch(text):
+        return None
+    return text.rpartition("@")[0].casefold()
+
+
+def _action_launch(job: str, step_label: str, agent: str, step: dict[Any, Any]) -> dict[str, Any]:
+    """A documented agent action's launch: its documented inputs as published, and the rules they meet.
+
+    The rules are read from each input's declared text before any of it is
+    withheld for publication, so what redaction hides never hides a rule.
+    """
+
+    spec = _AGENT_ACTIONS[agent]
+    entry: dict[str, Any] = {
+        "job": job, "step": step_label, "agent": agent, "form": "read",
+        "unresolved_reason": None, "settings": [],
+    }
+    inputs = step.get("with")
+    if inputs is None:
+        return entry
+    if not isinstance(inputs, dict):
+        return {**entry, "form": "unresolved", "unresolved_reason": "inputs_not_a_mapping"}
+    wanted = {name.casefold(): name for name in spec.inputs}
+    declared = [
+        (wanted[str(key).casefold()], value)
+        for key, value in inputs.items()
+        if str(key).casefold() in wanted
+    ]
+    settings = [
+        _published_setting(name, value, arguments=spec.family if name == spec.args else None)
+        for name, value in declared
+    ]
+    return _with_rules(
+        {**entry, "settings": sorted(settings, key=_setting_key)}, _action_rules(spec, declared)
+    )
+
+
+def _run_launch(job: str, step_label: str, agent: str, arguments: list[str]) -> dict[str, Any]:
+    """A plain ``run:`` agent CLI command's launch: its documented permission flags, and the rules they meet."""
+
+    flags = _read_flags(arguments, _AGENT_FLAG_TABLES[agent])
+    settings = [_published_flag(agent, name, arity, values) for name, arity, values in flags]
+    return _with_rules(
+        {
+            "job": job, "step": step_label, "agent": agent, "form": "read",
+            "unresolved_reason": None, "settings": sorted(settings, key=_setting_key),
+        },
+        _flag_rules(agent, flags),
+    )
+
+
+def _step_agent_launches(
+    job: str, step: dict[Any, Any], index: int, shell: Any
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The agent launches one step declares, and the unread ``run:`` agent steps it is.
+
+    A known agent action is a launch. A ``run:`` is a launch only when it is
+    one line of plain words (:func:`_run_command`) whose program is a known
+    agent CLI, run by ``bash`` or ``sh`` or no declared ``shell:`` (``shell``).
+    Any other ``run:`` that mentions ``claude`` or ``codex`` as a word of its
+    own is one unread step per agent CLI it mentions: a non-blocking limit
+    that publishes none of its text, is never compared and so gives no row,
+    and never says that the step starts or does not start an agent
+    (#823 review cycle 4).
+    """
+
+    if "uses" in step:
+        agent = _action_identity(step["uses"])
+        if agent is not None and agent in _AGENT_ACTIONS:
+            return [_action_launch(job, _step_label(step, index), agent, step)], []
+        return [], []
+    run = step.get("run")
+    if not isinstance(run, str):
+        return [], []
+    mentioned = sorted(set(_AGENT_CLI_MENTION_RE.findall(run)))
+    if not mentioned:
+        return [], []
+    label = _step_label(step, index)
+    command = _run_command(run) if _read_shell(shell) else None
+    if command is None:
+        return [], [{"job": job, "step": label, "agent": agent} for agent in mentioned]
+    agent, arguments = command
+    return [_run_launch(job, label, agent, arguments)], []
+
+
+def _checkout_ref(job: str, step: dict[Any, Any], index: int) -> dict[str, Any] | None:
+    """An ``actions/checkout`` step and the ``with.ref`` it declares, else ``None``."""
+
+    if _action_identity(step.get("uses")) != "actions/checkout":
+        return None
+    entry: dict[str, Any] = {
+        "job": job, "step": _step_label(step, index), "ref": None, "unresolved_reason": None,
+    }
+    inputs = step.get("with")
+    if inputs is None:
+        return entry
+    if not isinstance(inputs, dict):
+        return {**entry, "unresolved_reason": "inputs_not_a_mapping"}
+    if "ref" not in inputs:
+        return entry
+    text = _setting_text(inputs["ref"])
+    if text is None:
+        return {**entry, "unresolved_reason": "not_a_string"}
+    shown, redacted = _published_value(text)
+    # A redacted ref is published redacted, as a step reference is, and makes
+    # the workflow a blocking limit (#767): two refs may redact alike.
+    return {**entry, "ref": shown or None, "unresolved_reason": "redacted" if redacted else None}
+
+
+def agent_launch_key(entry: dict[str, Any]) -> tuple[Any, ...]:
+    """What an agent launch is compared by: its job, agent, form, settings and rules, not its step.
+
+    The widening rules are part of it: they are read from the declared text,
+    so a rule gained where redaction withholds the text is still a change.
+    """
+
+    return (
+        str(entry["job"]),
+        str(entry["agent"]),
+        str(entry["form"]),
+        str(entry.get("unresolved_reason") or ""),
+        tuple(sorted(_setting_key(setting) for setting in entry.get("settings", []))),
+        tuple(sorted(
+            (str(item["rule"]), str(item["setting"])) for item in entry.get("widening_rules", [])
+        )),
+    )
+
+
+def checkout_ref_key(entry: dict[str, Any]) -> tuple[str, str, str]:
+    """What a checkout ref is compared by: its job and the declared ref, not its step."""
+
+    return (
+        str(entry["job"]),
+        str(entry.get("unresolved_reason") or ""),
+        "" if entry.get("ref") is None else str(entry["ref"]),
+    )
+
+
+def _settings_bypass_permissions(text: str) -> bool:
+    """Whether Claude Code settings written as JSON set ``defaultMode: bypassPermissions`` (#823 review).
+
+    Read as the settings reader reads `.claude/settings.json`
+    (:func:`claude_setting_values`): under ``permissions``, else at the top.
+    A path, or text that does not parse, meets nothing: no file is read.
+    """
+
+    if not text.lstrip().startswith("{"):
+        return False
+    try:
+        loaded = json.loads(text)
+    except (ValueError, RecursionError):
+        return False
+    return any(
+        item.setting == "defaultMode" and item.value == "bypassPermissions"
+        for item in claude_setting_values(loaded)
+    )
+
+
+def _claude_action_rules(words: list[str]) -> set[str]:
+    """The widening rules the plain words of a Claude action's ``claude_args`` meet.
+
+    Read as ``parse-sdk-options.ts`` reads them: a word starting with ``--``
+    is always a flag and never another flag's value, so
+    ``--dangerously-skip-permissions`` counts wherever it stands, and
+    ``--permission-mode`` takes the next word unless that starts with ``--``,
+    the last one counting, as it and the CLI keep the last value of a
+    repeated option (#823 review cycle 5).
+    """
+
+    rules: set[str] = set()
+    mode: str | None = None
+    for index, word in enumerate(words):
+        name, equals, attached = word.partition("=")
+        following = words[index + 1] if index + 1 < len(words) else ""
+        value = attached if equals else ("" if following.startswith("--") else following)
+        if name == "--dangerously-skip-permissions":
+            rules.add("bypass_permissions")
+        elif name == "--permission-mode":
+            mode = value
+    if mode == "bypassPermissions":
+        rules.add("bypass_permissions")
+    return rules
+
+
+def _codex_override(text: str) -> tuple[str, Any] | None:
+    """A codex ``--config`` override's key and value, as the CLI's ``parse_overrides`` reads them.
+
+    The key is the text before the first ``=``, trimmed; the value is parsed
+    as TOML, and text that does not parse is a string with its surrounding
+    quotes trimmed, so ``sandbox_mode=danger-full-access`` and
+    ``sandbox_mode="danger-full-access"`` set one value.
+    """
+
+    key, equals, value = text.partition("=")
+    if not equals or not key.strip():
+        return None
+    raw = value.strip()
+    try:
+        loaded = tomllib.loads(f"value = {raw}").get("value")
+    except (ValueError, RecursionError):
+        # ``TOMLDecodeError`` is a ``ValueError``, and so is the error
+        # ``int()`` raises for an integer longer than Python's digit limit
+        # (#823 review cycle 6).
+        loaded = raw.strip("\"'")
+    return key.strip(), loaded
+
+
+def _codex_config_full_access(flags: list[tuple[str, int | None, list[str] | None]]) -> bool:
+    """Whether ``codex exec``'s ``--config`` overrides select its full-access sandbox (#823 review cycle 3).
+
+    ``sandbox_mode = "danger-full-access"`` is the setting ``--sandbox`` sets,
+    and ``default_permissions = ":danger-full-access"`` selects the built-in
+    full-access profile. As the CLI resolves them, the last override of a key
+    counts, a ``default_permissions`` override selects the permission
+    profile over a ``sandbox_mode`` one, and a ``--sandbox`` flag takes
+    precedence over both, so this reads none while one is passed.
+    """
+
+    if any(name == "--sandbox" for name, _arity, _values in flags):
+        return False
+    profile: Any = None
+    mode: Any = None
+    for name, _arity, values in flags:
+        if name != "--config":
+            continue
+        for value in values or []:
+            override = _codex_override(value)
+            if override is None:
+                continue
+            key, loaded = override
+            if key == "default_permissions":
+                profile = loaded
+            elif key == "sandbox_mode":
+                mode = loaded
+    if profile is not None:
+        return profile == ":danger-full-access"
+    return mode == "danger-full-access"
+
+
+def _flag_rules(
+    family: str,
+    flags: list[tuple[str, int | None, list[str] | None]],
+    *,
+    config_selects_sandbox: bool = True,
+) -> set[tuple[str, str]]:
+    """The widening rules a CLI's documented flags meet, each with the flag that met it.
+
+    ``config_selects_sandbox`` is false for the words `openai/codex-action`
+    passes on from ``codex-args``: after them the action appends its own
+    ``--sandbox <mode>``, or for a ``permission-profile`` its own
+    ``default_permissions`` override (``runCodexExec.ts``), and either takes
+    precedence over a sandbox ``--config`` override written before it, so
+    one there selects nothing.
+    """
+
+    rules: set[tuple[str, str]] = set()
+    if family == "codex" and config_selects_sandbox and _codex_config_full_access(flags):
+        rules.add(("danger_full_access", "--config"))
+    # The CLI keeps the last value of a repeated `--permission-mode` (#823 review cycle 5).
+    modes = [values[0] if values else None for name, _arity, values in flags if name == "--permission-mode"]
+    if family == "claude" and modes and modes[-1] == "bypassPermissions":
+        rules.add(("bypass_permissions", "--permission-mode"))
+    for name, _arity, values in flags:
+        value = values[0] if values else None
+        if family == "claude" and name == "--dangerously-skip-permissions":
+            rules.add(("bypass_permissions", name))
+        if family == "codex" and name == "--dangerously-bypass-approvals-and-sandbox":
+            rules.add(("bypass_approvals_and_sandbox", name))
+        if family == "codex" and name == "--sandbox" and value == "danger-full-access":
+            rules.add(("danger_full_access", name))
+    return rules
+
+
+def _action_rules(spec: _AgentAction, declared: list[tuple[str, Any]]) -> set[tuple[str, str]]:
+    """The documented widening rules an agent action's declared inputs meet, read from the raw text.
+
+    Read here, before anything is withheld for publication, so redaction never
+    hides a rule. Only from text this reader reads exactly: an argument input
+    only when it is a plain list of words (:func:`_argument_words`), which a
+    ``${{ }}`` expression never is; a user gate's entries that hold no
+    expression, since GitHub substitutes one before the action reads the
+    input and the substituted text may add entries but cannot remove a
+    literal one; and a mode or settings input only when it holds none. Each
+    rule names the input it was read from.
+    """
+
+    rules: set[tuple[str, str]] = set()
+    for name, value in declared:
+        text = _setting_text(value)
+        if text is None:
+            continue
+        if name in spec.gates:
+            entries = _EXPRESSION_SPAN_RE.sub(_EXPRESSION_MARK, text).split(",")
+            if "*" in {entry.strip() for entry in entries}:
+                rules.add(("open_gate", name))
+        for mode, widening, rule in spec.modes:
+            if name == mode and text == widening:
+                rules.add((rule, name))
+        if name == spec.settings and not holds_expression(text) and _settings_bypass_permissions(text):
+            rules.add(("bypass_permissions", name))
+        if name == spec.args:
+            words = _argument_words(text)
+            if words is None:
+                continue
+            if spec.family == "claude":
+                found = _claude_action_rules(words)
+            else:
+                found = {
+                    rule for rule, _flag in _flag_rules(
+                        "codex", _read_flags(words, _CODEX_FLAGS), config_selects_sandbox=False
+                    )
+                }
+            rules.update((rule, name) for rule in found)
+    return rules
+
+
+def _with_rules(entry: dict[str, Any], rules: set[tuple[str, str]]) -> dict[str, Any]:
+    """``entry`` with the rules it meets, omitted when none, as the schema omits them."""
+
+    if not rules:
+        return entry
+    return {**entry, "widening_rules": [{"rule": rule, "setting": setting} for rule, setting in sorted(rules)]}
+
+
+def agent_widening_rules(entry: dict[str, Any]) -> set[tuple[str, str]]:
+    """The documented widening rules one published agent launch meets (#823).
+
+    Each is ``(rule, detail)``: ``detail`` names the input for an opened gate
+    (``allowed_non_write_users``) and is empty otherwise, so one rule spelled
+    two ways, or moved between the CLI and an action, is one rule. Read from
+    ``widening_rules``, which the reader decided from the declared text before
+    any of it was withheld; an unresolved launch meets none.
+    """
+
+    if entry.get("form") != "read":
+        return set()
+    return {
+        (str(item["rule"]), str(item["setting"]) if item["rule"] == "open_gate" else "")
+        for item in entry.get("widening_rules", [])
+    }
+
+
+def agent_family(agent: str) -> str:
+    """``claude`` or ``codex``: which agent's rules a launch is read by."""
+
+    return _AGENT_ACTIONS[agent].family if agent in _AGENT_ACTIONS else agent
+
+
+AgentWidening = tuple[str, str, str, dict[str, Any]]
+#: A rule one job's launches of one agent family meet: ``(job, family, rule, detail)``.
+_RuleKey = tuple[str, str, str, str]
+
+#: The agent action inputs each documented rule is read from; a user gate's
+#: rule is read from the gate it names.
+_RULE_SETTINGS: dict[str, frozenset[str]] = {
+    "bypass_permissions": frozenset({"claude_args", "settings"}),
+    "bypass_approvals_and_sandbox": frozenset({"codex-args"}),
+    "danger_full_access": frozenset({"sandbox", "permission-profile", "codex-args"}),
+    "unsafe_safety_strategy": frozenset({"safety-strategy"}),
+}
+
+
+def _unread_setting(entry: dict[str, Any], rule: str, detail: str) -> tuple[str, str] | None:
+    """The input of ``entry`` whose text this reader did not read for ``rule``, and why.
+
+    ``expression``: it holds a ``${{ }}`` expression, whose substituted text
+    may meet the rule. ``unread``: it is an argument input that is not a
+    plain list of words (``unread_arguments``), so no rule was read from it.
+    """
+
+    names = frozenset({detail}) if rule == "open_gate" else _RULE_SETTINGS.get(rule, frozenset())
+    for setting in entry.get("settings", []):
+        if setting["name"] not in names:
+            continue
+        if setting.get("unresolved_reason") == "unread_arguments":
+            return str(setting["name"]), "unread"
+        if setting.get("holds_expression"):
+            return str(setting["name"]), "expression"
+    return None
+
+
+@dataclass(frozen=True)
+class AgentRuleGains:
+    """The documented rules a workflow's agent launches meet at ``after`` and not at ``before`` (#823).
+
+    Each widening is ``(job, rule, detail, entry)`` for the first launch at
+    ``after`` in that job that meets it. Only ``claimed`` is a widening:
+
+    - ``unread_before``: the job has fewer steps at ``after`` than at
+      ``before`` that may launch that agent in a form this reader does not
+      read — a ``run:`` that mentions the agent CLI and is not one plain
+      command (``unread_agent_runs``), or an agent action whose ``with:`` is
+      not a mapping — and more launches of it this reader reads. The launch
+      that meets the rule may be one of those steps, rewritten in a form this
+      reader reads, and it may have met the rule already, as a job whose
+      permissions were not explicit may already have held a write scope
+      (``unknown_before``). Each names a step that is gone. Such a step that
+      remains is a limit and nothing more, and one that goes while no read
+      launch is added takes no gain from a launch that was read before
+      (#823 review cycle 4).
+    - ``setting_before``: at ``before``, the job's launch of that agent held,
+      in an input the rule is read from, text this reader did not read for a
+      rule — a ``${{ }}`` expression (``expression``), whose substituted text
+      may already have met it, or an argument input that is not a plain list
+      of words (``unread``). Each names that input and which.
+    - ``moved``: the rule left another job whose launch that met it left that
+      job — the job no longer exists, or the same launch now runs here while
+      each launch of that agent this job had still runs here or in that job —
+      as when a job is renamed, an agent step moves to another job or two
+      jobs swap launches (#823 review). A job that remains may still run its
+      launch in a form this reader does not read, so a launch that only stops
+      being read has not left it, and one edited in place into the launch
+      that job had gains the rule (#823 review cycle 3). The launch has not
+      left while the job it met the rule in has any unread step of that
+      agent, wherever it stands, or a read launch of that agent whose input
+      the rule is read from it did not read (#823 review cycles 5 and 6);
+      nor while any other job but this one has more such steps and launches
+      than it had before, as a job new at the head holding one has, because
+      the launch may be one of them: the job it met the rule in may be that
+      job under a new name (#823 review cycle 7). So two jobs renamed at
+      once, one of them holding an unread step, claim the gain, in the safe
+      direction. Each names the launch it left, the way a step reference
+      moved between jobs adds no scope (#771).
+    """
+
+    claimed: list[AgentWidening]
+    unread_before: list[tuple[AgentWidening, dict[str, Any]]]
+    setting_before: list[tuple[AgentWidening, str, str]]
+    moved: list[tuple[AgentWidening, dict[str, Any]]]
+
+
+def agent_rule_gains(before: dict[str, Any] | None, after: dict[str, Any] | None) -> AgentRuleGains:
+    """Which documented rules the workflow's agent launches gain, and which of them are claimed.
+
+    Keyed by job, agent family and rule, so moving a launch between steps or
+    spellings (``--dangerously-skip-permissions`` and
+    ``--permission-mode bypassPermissions`` are one rule) gains nothing.
+    """
+
+    def met(grant: dict[str, Any] | None) -> dict[_RuleKey, list[dict[str, Any]]]:
+        found: dict[_RuleKey, list[dict[str, Any]]] = {}
+        for entry in (grant or {}).get("agent_launches", []):
+            for rule, detail in sorted(agent_widening_rules(entry)):
+                key = (str(entry["job"]), agent_family(str(entry["agent"])), rule, detail)
+                found.setdefault(key, []).append(entry)
+        return found
+
+    def by_job(entries: list[dict[str, Any]]) -> dict[tuple[str, str], list[dict[str, Any]]]:
+        found: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        for entry in entries:
+            found.setdefault((str(entry["job"]), agent_family(str(entry["agent"]))), []).append(entry)
+        return found
+
+    def launches(grant: dict[str, Any] | None) -> dict[tuple[str, str], list[dict[str, Any]]]:
+        return by_job((grant or {}).get("agent_launches", []))
+
+    def unread_steps(grant: dict[str, Any] | None) -> dict[tuple[str, str], list[dict[str, Any]]]:
+        # The steps that may launch an agent in a form this reader does not read.
+        return by_job([
+            *(entry for entry in (grant or {}).get("agent_launches", []) if entry.get("form") != "read"),
+            *(grant or {}).get("unread_agent_runs", []),
+        ])
+
+    old, new = met(before), met(after)
+    launched_before, launched_after = launches(before), launches(after)
+    unread_before, unread_after = unread_steps(before), unread_steps(after)
+    lost = [key for key in old if key not in new]
+    gained = [key for key in new if key not in old]
+
+    def compared(entries: list[dict[str, Any]]) -> set[tuple[Any, ...]]:
+        # A launch as it is compared, less its job.
+        return {agent_launch_key(entry)[1:] for entry in entries}
+
+    def unread_forms(grant_unread: dict[tuple[str, str], list[dict[str, Any]]],
+                     grant_launched: dict[tuple[str, str], list[dict[str, Any]]],
+                     job: str, family: str, rule: str, detail: str) -> int:
+        # How many steps of the job may run a launch of that agent that this
+        # reader cannot tell meets the rule: its unread steps of that agent,
+        # and its read launches of it holding text in an input the rule is
+        # read from that this reader did not read.
+        return len(grant_unread.get((job, family), [])) + sum(
+            1 for entry in grant_launched.get((job, family), [])
+            if entry.get("form") == "read" and _unread_setting(entry, rule, detail)
+        )
+
+    def may_still_meet(source: _RuleKey, target: _RuleKey) -> bool:
+        # The launch that met the rule may still run, in a form this reader
+        # does not read, somewhere other than the job gaining the rule. Such a
+        # launch has not left for that job. An unread step carries no text to
+        # tell which launch it is, so:
+        # - in the losing job, any one counts, wherever it stands and whether
+        #   or not it was there before (#823 review cycles 5 and 6);
+        # - in any other job, one counts when that job has more of them than
+        #   it had before, as a job new at the head holding one has — so a
+        #   renamed losing job cannot hide the launch it kept, quoted, under
+        #   its new name (#823 review cycle 7).
+        job, family, rule, detail = source
+        if unread_forms(unread_after, launched_after, job, family, rule, detail):
+            return True
+        others = {name for name, agent in (*unread_after, *launched_after) if agent == family} - {job, target[0]}
+        return any(
+            unread_forms(unread_after, launched_after, other, family, rule, detail)
+            > unread_forms(unread_before, launched_before, other, family, rule, detail)
+            for other in others
+        )
+
+    def same_launch(source: _RuleKey, target: _RuleKey) -> bool:
+        # The launch that met the rule in the losing job now runs here, the
+        # losing job does not still run it in a form this reader does not
+        # read, and none of this job's own launches of that agent changed in
+        # place: each still runs here or now runs in the losing job, as when
+        # two jobs swap. A job whose launch was edited into the one the
+        # losing job had, while the losing job still exists, gained it (#823
+        # review cycle 3).
+        if not compared(old[source]) & compared(new[target]):
+            return False
+        if may_still_meet(source, target):
+            return False
+        family = target[1]
+        remaining = compared([
+            entry for job in (target[0], source[0]) for entry in launched_after.get((job, family), [])
+        ])
+        return compared(launched_before.get((target[0], family), [])) <= remaining
+
+    jobs_after = {str(context["job"]) for context in (after or {}).get("permission_contexts", [])}
+
+    def job_left(source: _RuleKey, target: _RuleKey) -> bool:
+        # The losing job no longer exists, as when it is renamed, and no
+        # other job may run its launch unread. A job that remains may still
+        # run its launch in a form this reader does not read, such as `npx`,
+        # so its launch is not taken to have left (#823 review cycle 3); a
+        # job renamed while it runs its launch unread is a new job holding
+        # an unread step (#823 review cycle 7).
+        return source[0] not in jobs_after and not may_still_meet(source, target)
+
+    # A rule moved when the launch that met it left the losing job. The same
+    # launch arriving is matched first, so which of two gaining jobs a rule
+    # moved to does not depend on the order the jobs are declared in (#823 review).
+    sources: dict[_RuleKey, _RuleKey] = {}
+    for left in (same_launch, job_left):
+        for key in gained:
+            if key in sources:
+                continue
+            source = next(
+                (other for other in lost if other[1:] == key[1:] and left(other, key)), None
+            )
+            if source is not None:
+                lost.remove(source)
+                sources[key] = source
+
+    def read(entries: list[dict[str, Any]]) -> int:
+        return sum(1 for entry in entries if entry.get("form") == "read")
+
+    gains = AgentRuleGains(claimed=[], unread_before=[], setting_before=[], moved=[])
+    for key in gained:
+        entries = new[key]
+        job, family, rule, detail = key
+        widening: AgentWidening = (job, rule, detail, entries[0])
+        if key in sources:
+            gains.moved.append((widening, old[sources[key]][0]))
+            continue
+        before_launches = launched_before.get((job, family), [])
+        was_unread = unread_before.get((job, family), [])
+        still_unread = unread_after.get((job, family), [])
+        if len(was_unread) > len(still_unread) and read(launched_after.get((job, family), [])) > read(
+            before_launches
+        ):
+            remaining = {str(entry["step"]) for entry in still_unread}
+            gone = next((entry for entry in was_unread if str(entry["step"]) not in remaining), was_unread[0])
+            gains.unread_before.append((widening, gone))
+            continue
+        setting = next(
+            (found for entry in before_launches if (found := _unread_setting(entry, rule, detail))), None
+        )
+        if setting is not None:
+            gains.setting_before.append((widening, *setting))
+            continue
+        gains.claimed.append(widening)
+    return gains
+
+
+def gained_agent_widenings(before: dict[str, Any] | None, after: dict[str, Any] | None) -> list[AgentWidening]:
+    """Documented widening rules the workflow's agent launches gain and claim (``AgentRuleGains.claimed``)."""
+
+    return agent_rule_gains(before, after).claimed
+
+
+def uncompared_agent_launch_texts(grant: dict[str, Any]) -> list[str]:
+    """One message per agent launch setting, unread agent step or checkout ref a workflow does not compare (#823).
+
+    Not blocking, like an unread secret value (#693). A launch's job, agent,
+    form and widening rules are still compared, so adding, removing or
+    re-forming one, or gaining a documented rule, is a row; only an edit
+    inside what is named here is not reported. A setting holding
+    credential-shaped text (#823 review) is compared by its redacted text and
+    its rules, so only an edit inside what is redacted is not reported. An
+    argument input that is not a plain list of words is compared by a digest
+    and read for no rule. An unread ``run:`` agent step is compared not at
+    all: it gives no row, whatever is edited (#823 review cycle 4). A
+    redacted checkout ref is not named here: :func:`_uncompared_workflow_text`
+    makes it a blocking limit, as a redacted step reference is (#767).
+    """
+
+    texts: list[str] = []
+    for entry in grant.get("agent_launches", []):
+        where = f"{entry['job']}/{entry['step']} ({entry['agent']})"
+        if entry.get("unresolved_reason") == "inputs_not_a_mapping":
+            texts.append(
+                f"the agent launch at {where} is a step whose `with:` is not a mapping; its "
+                "settings are neither published nor compared, so an edit to them is not reported"
+            )
+        for setting in entry.get("settings", []):
+            unread = setting.get("unresolved_reason")
+            if unread == "redacted":
+                texts.append(
+                    f"the {setting['name']} value of the agent launch at {where} contains "
+                    "credential-shaped text; it is published redacted and compared as published, "
+                    "so an edit inside what is redacted that gains no documented widening rule "
+                    "is not reported"
+                )
+                continue
+            if unread == "unread_arguments":
+                texts.append(
+                    f"the {setting['name']} value of the agent launch at {where} is not a plain list "
+                    "of words this audit reads: it holds a quote, a `${{ }}` expression, `$`, a "
+                    "backtick, a comment, a shell operator, JSON, `--settings` or `--mcp-config`, or "
+                    "another character outside the plain set; none of its text is published and no "
+                    "documented widening rule is read from it, and it is compared only by a digest, "
+                    "so an edit to it is a change, never a widening"
+                )
+                continue
+            what = {
+                "not_a_string": "is not a string",
+                "unparsed_json": (
+                    "holds text that starts like JSON and does not parse, so the values it may "
+                    "hold cannot be told apart from its key names"
+                ),
+            }.get(str(unread))
+            if what:
+                texts.append(
+                    f"the {setting['name']} value of the agent launch at {where} {what}; it is "
+                    "neither published nor compared, so an edit to it that gains no documented "
+                    "widening rule is not reported"
+                )
+    for entry in grant.get("unread_agent_runs", []):
+        texts.append(
+            f"the `run:` at {entry['job']}/{entry['step']} mentions {entry['agent']} and is not read "
+            "as an agent launch: only a single-line command of plain words run by bash or sh, whose "
+            "program is `claude -p` or `codex exec`, is read, so this step may start an agent that is "
+            "neither published nor compared, and adding, removing or editing it gives no row"
+        )
+    for entry in grant.get("checkout_refs", []):
+        unread = entry.get("unresolved_reason")
+        what = {
+            "not_a_string": "a ref that is not a string",
+            "inputs_not_a_mapping": "a `with:` that is not a mapping",
+        }.get(str(unread))
+        if what:
+            texts.append(
+                f"the checkout at {entry['job']}/{entry['step']} declares {what}; it is "
+                "neither published nor compared, so an edit to it is not reported"
+            )
+    # Two steps whose labels publish alike name one limit once.
+    return list(dict.fromkeys(texts))
+
+
 #: A whole ``secrets:`` value of this form names its source (#693). Only the
 #: property form is read; ``secrets['NAME']`` and every other expression stay
 #: unresolved rather than guessed. The ``secrets`` context name is matched as
@@ -1996,11 +3457,20 @@ def _uncompared_workflow_text(
 ) -> str | None:
     """Why part of a workflow grant is published but cannot be compared, or ``None``.
 
-    One rule for every compared workflow text (#767, #693). A redacted step
-    reference, reusable target, or secret name could publish the same text as
-    a different one, so comparing the display would read a change as equal.
+    One rule for every compared workflow reference (#767, #693). A redacted
+    step reference, reusable target, secret name or checkout ref (#823) could
+    publish the same text as a different one, so comparing the display would
+    read a change to the code a job runs, or to where a secret goes, as equal.
     That is a blocking limit: a changed workflow refuses, and an unchanged one
     is named (#721).
+
+    A redacted agent launch setting is not counted here (#823 review). Its
+    documented widening rules are read from the declared text before it is
+    redacted, so comparing its published text and its rules loses no
+    direction, and ordinary prose such as "never print bearer tokens" in a
+    system prompt is as credential-shaped to the label redaction as a token
+    is. :func:`uncompared_agent_launch_texts` names it, not blocking, as a
+    redacted label is compared by what it publishes (#802).
 
     A job id, trigger or permission scope name is compared by its published
     label (#802). One redacted label is still a distinct label, so it refuses
@@ -2019,6 +3489,10 @@ def _uncompared_workflow_text(
             ("a reusable workflow reference", any(call.get("uses_redacted") for call in calls)),
             ("a reusable workflow secret name", any(
                 entry["unresolved_reason"] == "redacted" for entry in mappings
+            )),
+            # A checkout ref names the code a job runs, as a step reference does (#823).
+            ("a checkout ref", any(
+                item.get("unresolved_reason") == "redacted" for item in grant.get("checkout_refs", [])
             )),
         ) if present
     ]
@@ -2090,10 +3564,12 @@ def _workflow_grant(
 
     Each label is published by :func:`published_workflow_label` before it is
     used anywhere, so the job in ``permission_contexts``, ``reusable_calls``,
-    ``step_actions``, the ``write_scopes`` and ``effective_write_scopes``
-    prefixes, every row built from them, and ``config_sha256`` all hold the
-    same label, and none holds the raw text. ``collided`` receives the kinds
-    of label of which two distinct raw values publish alike.
+    ``step_actions``, ``agent_launches``, ``unread_agent_runs``,
+    ``checkout_refs``, the ``write_scopes`` and ``effective_write_scopes``
+    prefixes, every row built
+    from them, and ``config_sha256`` all hold the same label, and none holds
+    the raw text. ``collided`` receives the kinds of label of which two
+    distinct raw values publish alike.
     """
 
     if not isinstance(data, dict):
@@ -2110,6 +3586,9 @@ def _workflow_grant(
     permission_contexts: list[dict[str, Any]] = []
     reusable_calls: list[dict[str, Any]] = []
     step_actions: list[dict[str, Any]] = []
+    agent_launches: list[dict[str, Any]] = []
+    unread_agent_runs: list[dict[str, Any]] = []
+    checkout_refs: list[dict[str, Any]] = []
 
     def collect(perms: Any, where: str) -> None:
         if perms == "write-all":
@@ -2148,6 +3627,7 @@ def _workflow_grant(
                 if not isinstance(steps, list):
                     step_actions.append(_unreadable_step(label, "steps", "steps_not_a_list"))
                     steps = []
+                job_launches: list[dict[str, Any]] = []
                 for index, step in enumerate(steps):
                     if not isinstance(step, dict):
                         step_actions.append(
@@ -2157,6 +3637,21 @@ def _workflow_grant(
                     action = _step_action(label, step, index)
                     if action is not None:
                         step_actions.append(action)
+                    launches, unread = _step_agent_launches(
+                        label, step, index, _declared_shell(step, job, data)
+                    )
+                    job_launches.extend(launches)
+                    unread_agent_runs.extend(unread)
+                    checkout = _checkout_ref(label, step, index)
+                    if checkout is not None:
+                        checkout_refs.append(checkout)
+                if job_launches:
+                    # Context for the note on the row, never compared (#823).
+                    secrets = _job_secrets(job, data.get("env"))
+                    agent_launches.extend(
+                        {**launch, "job_secrets": secrets} if secrets else launch
+                        for launch in job_launches
+                    )
     pull_target = "pull_request_target" in triggers
     write_all = any(entry.endswith(": write-all") for entry in effective_write_scopes)
     unknown = not permission_contexts or any(
@@ -2177,6 +3672,14 @@ def _workflow_grant(
         # Omitted when empty, as the schema omits it, so a workflow whose steps
         # declare no listed reference keeps its earlier fingerprint.
         projection["step_actions"] = step_actions
+    # Omitted when empty for the same reason (#823).
+    if agent_launches:
+        projection["agent_launches"] = agent_launches
+    if unread_agent_runs:
+        # Named as a limit, never compared (#823 review cycle 4).
+        projection["unread_agent_runs"] = unread_agent_runs
+    if checkout_refs:
+        projection["checkout_refs"] = checkout_refs
     return {
         **_grant_base(
             host="github", scope="repository", source=source, kind="workflow",
@@ -2335,7 +3838,12 @@ def _collect_file(
                 _inventory_issue(
                     kind="unsupported", host=host, source=source, message=text, blocking=False,
                 )
-                for text in uncompared_secret_mapping_texts(grant)
+                for text in (
+                    *uncompared_secret_mapping_texts(grant),
+                    # An agent launch or checkout ref this reader does not
+                    # compare narrows that entry, not the workflow (#823).
+                    *uncompared_agent_launch_texts(grant),
+                )
             )
     elif host == "codex" and kind == "requirements":
         grants.extend(_codex_requirement_grants(data, scope=scope, source=source))
@@ -4130,14 +5638,28 @@ def _same_workflow_grant(before: dict | None, after: dict | None) -> bool:
     # Step references compare as each job's multiset of declared references:
     # a reordered, renamed or re-id'd step that declares the same reference
     # changes no modeled fact, and no execution-order dependency is evaluated.
-    ignored = {"write_scopes", "config_sha256", "step_actions"}
+    # Agent launches and checkout refs compare the same way (#823): as each
+    # job's multiset of declared facts, never by step label, and a launch's
+    # `job_secrets` is context for the row, never compared.
+    # An unread `run:` agent step is a named limit and is never compared, so
+    # adding, removing or editing one gives no row (#823 review cycle 4).
+    ignored = {
+        "write_scopes", "config_sha256", "step_actions", "agent_launches", "checkout_refs",
+        "unread_agent_runs",
+    }
 
     def comparable(grant: dict[str, Any]) -> dict[str, Any]:
         # Both sides are v0.4+ shapes here, and a drift payload refuses a
-        # v0.4/v0.5 baseline holding a workflow, so a missing key is "none".
+        # v0.4-v0.6 baseline holding a workflow, so a missing key is "none".
         projection = {key: value for key, value in grant.items() if key not in ignored}
         projection["step_actions"] = sorted(
             step_action_key(item) for item in grant.get("step_actions", [])
+        )
+        projection["agent_launches"] = sorted(
+            agent_launch_key(item) for item in grant.get("agent_launches", [])
+        )
+        projection["checkout_refs"] = sorted(
+            checkout_ref_key(item) for item in grant.get("checkout_refs", [])
         )
         # Named secrets compare as each call's set of facts, whatever order a
         # saved snapshot lists them in (#693).
@@ -4303,6 +5825,10 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
                 }
             if inherited_calls(after) - inherited_calls(previous):
                 signals.append(f"workflow_secrets_inherited_{prefix}: {after['source']}")
+            # Only a documented rule gained by a job's agent launches widens
+            # (#823); every other agent-launch or checkout edit is a change.
+            if gained_agent_widenings(before, after):
+                signals.append(f"workflow_agent_widened_{prefix}: {after['source']}")
     return sorted(set(signals))
 
 
@@ -4460,20 +5986,14 @@ def _incomparable_payload(
 #: v0.4 inventory refused such a link as unreadable, and an incomplete
 #: inventory can never be saved, so a v0.4 baseline holds no artifact that v0.5
 #: would describe differently. Accepting it keeps every saved baseline usable.
-#: v0.6 adds workflow step references (#771); the rule below narrows which
-#: v0.4/v0.5 baselines that acceptance still covers. v0.7 adds only the hook
-#: and MCP detail no comparison reads (#819), so a v0.6 baseline compares as
-#: it did.
+#: v0.6 adds workflow step references (#771) and v0.7 agent launches and
+#: checkout refs (#823); the rules below narrow which older baselines that
+#: acceptance still covers.
 _COMPARABLE_BASELINE_SCHEMA_VERSIONS = frozenset(
     {"0.4", "0.5", "0.6", HOST_GRANTS_BASELINE_SCHEMA_VERSION}
 )
 
-#: Baseline versions ``audit --host --save-baseline`` may replace (#819). Every
-#: grant a v0.6 baseline holds compares exactly as its v0.7 reading does: v0.7
-#: adds only the display members :data:`DISPLAY_ONLY_GRANT_FIELDS` names, which
-#: no comparison and no digest reads, so refusing to replace one would make
-#: every v0.6 baseline a move-aside step for no change in what is compared.
-#: Older baselines stay refused, as they were (#771).
+#: Baselines without workflow grants retain the v0.6 replacement route (#819).
 OVERWRITABLE_BASELINE_SCHEMA_VERSIONS = frozenset({"0.6", HOST_GRANTS_BASELINE_SCHEMA_VERSION})
 
 #: Baseline versions whose workflow grants never read step action references
@@ -4483,6 +6003,10 @@ OVERWRITABLE_BASELINE_SCHEMA_VERSIONS = frozenset({"0.6", HOST_GRANTS_BASELINE_S
 #: current inventory holds is then an added grant, whose references no side
 #: claims were compared.
 _STEP_ACTIONS_UNREAD_BASELINE_SCHEMA_VERSIONS = frozenset({"0.4", "0.5"})
+
+#: Baseline versions whose workflow grants never read agent launches or
+#: checkout refs (#823), by the same rule: silence is not evidence of none.
+_AGENT_LAUNCHES_UNREAD_BASELINE_SCHEMA_VERSIONS = frozenset({"0.4", "0.5", "0.6"})
 
 
 def build_host_drift_payload(
@@ -4495,14 +6019,19 @@ def build_host_drift_payload(
         reasons.append(
             str(baseline.get("_load_error") or "unsupported_baseline_schema")
         )
-    elif baseline.get("host_grants_schema_version") in _STEP_ACTIONS_UNREAD_BASELINE_SCHEMA_VERSIONS:
+    elif baseline.get("host_grants_schema_version") in _AGENT_LAUNCHES_UNREAD_BASELINE_SCHEMA_VERSIONS:
+        version = baseline.get("host_grants_schema_version")
         workflows = [
             grant for grant in (baseline.get("inventory") or {}).get("grants", [])
             if grant.get("kind") == "workflow"
         ]
-        if workflows:
+        if workflows and version in _STEP_ACTIONS_UNREAD_BASELINE_SCHEMA_VERSIONS:
             reasons.append("baseline_workflow_step_actions_unavailable")
-        if any(grant.get("reusable_calls") for grant in workflows):
+        if workflows:
+            reasons.append("baseline_workflow_agent_launches_unavailable")
+        if version in _STEP_ACTIONS_UNREAD_BASELINE_SCHEMA_VERSIONS and any(
+            grant.get("reusable_calls") for grant in workflows
+        ):
             # Such a call's missing ``secret_mappings`` is not evidence that it
             # passed no named secret: those snapshots never read them (#693).
             reasons.append("baseline_reusable_workflow_secret_mappings_unavailable")

@@ -30,12 +30,19 @@ from typing import Any
 
 from agents_shipgate.core.host_grants import (
     _PLAIN_TOKEN_RE,
+    AGENT_RULE_INPUTS,
     DETAIL_NOT_SHOWN,
+    UNTRUSTED_INPUT_TRIGGERS,
+    agent_launch_key,
+    agent_rule_gains,
+    agent_rule_text,
+    checkout_ref_key,
     hook_loading_basis,
     host_grant_expansion_signals,
     permission_rule_replacements,
     published_setting_value,
     published_workflow_label,
+    pull_request_code_ref,
     secret_mapping_key,
     step_action_key,
 )
@@ -241,6 +248,304 @@ def _moved_between_jobs(
             moved.append((item, match))
     return moved, [*changed, *arriving]
 
+
+def _job_entry_changes(
+    before: dict[str, Any] | None,
+    after: dict[str, Any] | None,
+    field: str,
+    key: Any,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The entries of ``field`` only one side of a changed workflow declares (#823).
+
+    Compared by ``key``, the way the comparator decides whether the grant
+    changed, so a renamed or reordered step appears on neither side.
+    """
+
+    if not _is_workflow_pair(before, after):
+        return [], []
+
+    def only_in(side: list[dict[str, Any]], other: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        surplus = Counter(key(item) for item in side) - Counter(key(item) for item in other)
+        picked: list[dict[str, Any]] = []
+        for item in side:
+            if surplus[key(item)] > 0:
+                surplus[key(item)] -= 1
+                picked.append(item)
+        return picked
+
+    old, new = (before or {}).get(field, []), (after or {}).get(field, [])
+    return only_in(old, new), only_in(new, old)
+
+
+def _agent_label(agent: str) -> str:
+    """How a reviewer recognises the agent a step launches."""
+
+    return {"claude": "claude -p", "codex": "codex exec"}.get(agent, agent)
+
+
+def _agent_launch_value(item: dict[str, Any]) -> str:
+    """One agent launch as a cell shows it: where, which agent, and its declared settings."""
+
+    where = f"{item['job']}/{item['step']}"
+    label = _agent_label(str(item["agent"]))
+    reason = item.get("unresolved_reason")
+    if reason:
+        return f"{where}: runs {label} (unresolved: {str(reason).replace('_', ' ')})"
+    cli = item["agent"] in {"claude", "codex"}
+    parts = []
+    for setting in item.get("settings") or []:
+        unread = setting.get("unresolved_reason")
+        name = str(setting["name"])
+        if unread == "unread_arguments":
+            # Compared by its digest alone, so the cell shows the digest (#823 review cycle 4).
+            parts.append(f"{name} (not read; digest {setting['value']})")
+        # A redacted value is compared as published, so the cell shows it (#823 review F2).
+        elif unread and not (unread == "redacted" and setting.get("value") is not None):
+            parts.append(f"{name} (unresolved: {str(unread).replace('_', ' ')})")
+        elif setting.get("value") is None:
+            parts.append(name)
+        else:
+            parts.append(f"{name} {setting['value']}" if cli else f"{name}: {setting['value']}")
+    if not parts:
+        return f"{where}: runs {label} with no permission {'flags' if cli else 'inputs'}"
+    return f"{where}: runs {label} with " + "; ".join(parts)
+
+
+def _checkout_ref_value(item: dict[str, Any]) -> str:
+    where = f"{item['job']}/{item['step']}"
+    reason = item.get("unresolved_reason")
+    if reason:
+        return f"{where}: checkout ref (unresolved: {str(reason).replace('_', ' ')})"
+    if item.get("ref") is None:
+        return f"{where}: checkout of the default ref"
+    return f"{where}: checkout of ref {item['ref']}"
+
+
+def _agent_launch_reasons(
+    before: dict[str, Any] | None,
+    after: dict[str, Any] | None,
+    gone: list[dict[str, Any]],
+    new: list[dict[str, Any]],
+    gone_checkouts: list[dict[str, Any]],
+    new_checkouts: list[dict[str, Any]],
+) -> list[str]:
+    """What changed in how an agent is launched, and which of it widens (#823).
+
+    Only a documented rule the engine claims — ``agent_rule_gains(...).claimed``,
+    the rule behind ``workflow_agent_widened_*`` — is called a widening, and
+    the sentence says which rule and where. A rule gained where a step of the
+    job this audit does not read is gone, or whose launch held, in an
+    input the rule is read from, a ``${{ }}`` expression or an argument list
+    this audit does not read, or that moved in from another job, is named and
+    not called a widening, as the engine claims no expansion for it. Every other
+    agent-launch or checkout edit is a change: its settings are compared as
+    published text, and nothing here ranks one value against another.
+    """
+
+    def where(item: dict[str, Any]) -> str:
+        return f"{item['job']}/{item['step']}"
+
+    gains = agent_rule_gains(before, after)
+    reasons: list[str] = []
+    # Launches a sentence about a rule already names.
+    named: set[str] = set()
+    for _job, rule, detail, entry in gains.claimed:
+        named.add(where(entry))
+        reasons.append(f"an agent launch now {agent_rule_text(rule, detail)} ({where(entry)})")
+    for (_job, rule, detail, entry), source in gains.unread_before:
+        named.add(where(entry))
+        reasons.append(
+            f"an agent launch now {agent_rule_text(rule, detail)} ({where(entry)}), which is not counted as a "
+            f"widening: a step in this job that may launch the agent in a form this audit does not read "
+            f"is gone ({where(source)}), and this launch may be that step rewritten in a form this audit "
+            "reads, which may already have done the same"
+        )
+    for (_job, rule, detail, entry), setting, how in gains.setting_before:
+        named.add(where(entry))
+        held = (
+            "held a `${{ }}` expression, whose substituted text this audit does not read"
+            if how == "expression"
+            else "was not a plain list of words this audit reads, so no rule was read from it"
+        )
+        reasons.append(
+            f"an agent launch now {agent_rule_text(rule, detail)} ({where(entry)}), which is not counted as a "
+            f"widening: before, this job's {setting} {held}, and it may already have done the same"
+        )
+    for (_job, rule, detail, entry), source in gains.moved:
+        named.update({where(entry), where(source)})
+        reasons.append(
+            f"an agent launch that {agent_rule_text(rule, detail)} moved between jobs ({where(source)} → "
+            f"{where(entry)}), which is not counted as a widening: the launch already met that "
+            "rule in the job it left, and it now runs with the receiving job's token permissions"
+        )
+    # The step label only words the sentence; what changed was decided by the
+    # comparator's key, which never reads it.
+    old = {where(item) for item in gone}
+    now = {where(item) for item in new}
+    groups: dict[str, list[str]] = {}
+    for item in (*new, *gone):
+        label = where(item)
+        if label in named:
+            continue
+        verb = "changed" if label in old and label in now else ("added" if label in now else "removed")
+        groups.setdefault(verb, [])
+        if label not in groups[verb]:
+            groups[verb].append(label)
+    phrases = [
+        f"{wording} ({', '.join(groups[verb])})"
+        for verb, wording in (
+            ("changed", "an agent launch's declared settings changed"),
+            ("added", "a step now launches an agent"),
+            # What was established is that the step declares no launch this
+            # audit reads, not that it starts no agent (#823 review).
+            ("removed", "a step no longer declares an agent launch this audit reads"),
+        )
+        if verb in groups
+    ]
+    if phrases:
+        reasons.append(
+            f"{_joined_words(phrases)}; agent launch settings are compared as declared text, "
+            "and a change that gains no documented widening rule is not counted as a widening"
+        )
+    if "removed" in groups and after is not None:
+        reasons.append(
+            "a step that no longer declares one may still start an agent in a way this audit "
+            "does not read, such as an action outside its table, a script, or a `run:` this "
+            "audit does not read as a launch (more than one command, quoting, an expansion, `npx`, "
+            "`codex` options before `exec`), so this row does not say that it no longer starts one"
+        )
+    # A rule is read only from literal text a `${{ }}` expression cannot
+    # reach, so the row says where that leaves text unread (#823 review).
+    expressions = list(dict.fromkeys(
+        f"{setting['name']} at {where(item)}"
+        for item in new if item.get("form") == "read"
+        for setting in item.get("settings") or []
+        if setting.get("holds_expression") and setting["name"] in AGENT_RULE_INPUTS
+    ))
+    if expressions:
+        reasons.append(
+            "an agent launch setting holds a `${{ }}` expression (" + ", ".join(expressions) + "), "
+            "which GitHub substitutes before the action reads it; documented widening rules are "
+            "read only from the literal text the expression cannot reach, so this row does not "
+            "say whether the text it reaches meets one"
+        )
+    # An argument input that is not a plain list of words is compared by its
+    # digest and read for no rule (#823 review cycle 4).
+    unread_arguments = list(dict.fromkeys(
+        f"{setting['name']} at {where(item)}"
+        for item in new
+        for setting in item.get("settings") or []
+        if setting.get("unresolved_reason") == "unread_arguments"
+    ))
+    if unread_arguments:
+        reasons.append(
+            "an agent launch's argument input is not a plain list of words this audit reads ("
+            + ", ".join(unread_arguments) + "); none of its text is published and it is compared by "
+            "a digest only, so this row does not say whether it meets a documented widening rule"
+        )
+    unread = list(dict.fromkeys(where(item) for item in new if item.get("form") != "read"))
+    if unread:
+        reasons.append(
+            f"a step launches an agent in a form this audit does not read ({', '.join(unread)}); "
+            "its settings are not compared, so this row does not say what that agent may do"
+        )
+    # A checkout step on one side only, such as one in an added job, is
+    # worded as added or removed, not as a changed ref (#823 review cycle 3).
+    old_checkouts = {where(item) for item in gone_checkouts}
+    new_checkouts_at = {where(item) for item in new_checkouts}
+    checkout_groups: dict[str, list[str]] = {}
+    for item in (*new_checkouts, *gone_checkouts):
+        label = where(item)
+        verb = (
+            "changed" if label in old_checkouts and label in new_checkouts_at
+            else ("added" if label in new_checkouts_at else "removed")
+        )
+        checkout_groups.setdefault(verb, [])
+        if label not in checkout_groups[verb]:
+            checkout_groups[verb].append(label)
+    checkout_phrases = [
+        f"{wording} ({', '.join(checkout_groups[verb])})"
+        for verb, wording in (
+            ("changed", "a checkout's declared ref changed"),
+            ("added", "a step now declares a checkout"),
+            ("removed", "a step no longer declares a checkout"),
+        )
+        if verb in checkout_groups
+    ]
+    if checkout_phrases:
+        reasons.append(
+            f"{_joined_words(checkout_phrases)}; a ref names which commit's code the job runs "
+            "and adds no scope"
+        )
+    return reasons
+
+
+#: How many agent steps one note names before counting the rest.
+_NOTE_STEP_LIMIT = 5
+
+
+def _agent_composition_note(grant: dict[str, Any]) -> str | None:
+    """The job facts beside each agent step, as a note on the workflow's row (#823).
+
+    Named, never scored: an untrusted-input trigger, the job's write scopes,
+    the secrets the job references and a checkout of pull request code in the
+    job. It is not a verdict and moves no direction; it says where on the
+    workflow an agent already runs with those facts.
+    """
+
+    launches = grant.get("agent_launches") or []
+    if not launches:
+        return None
+    triggers = [name for name in grant.get("triggers", []) if name in UNTRUSTED_INPUT_TRIGGERS]
+    contexts = {context["job"]: context for context in grant.get("permission_contexts", [])}
+    by_job: dict[str, list[dict[str, Any]]] = {}
+    for item in launches:
+        by_job.setdefault(str(item["job"]), []).append(item)
+    notes: list[str] = []
+    named = 0
+    for job, items in by_job.items():
+        shown = items[: max(0, _NOTE_STEP_LIMIT - named)]
+        if not shown:
+            break
+        named += len(shown)
+        steps = ", ".join(
+            f"{item['job']}/{item['step']} ({_agent_label(str(item['agent']))})" for item in shown
+        )
+        facts: list[str] = []
+        if triggers:
+            noun = "trigger" if len(triggers) == 1 else "triggers"
+            facts.append(f"the untrusted-input {noun} {_joined_words(triggers)}")
+        context = contexts.get(job) or {}
+        writes = [scope for scope, level in (context.get("permissions") or {}).items() if level == "write"]
+        if "*" in writes:
+            facts.append("write-all token permissions")
+        elif writes:
+            noun = "scope" if len(writes) == 1 else "scopes"
+            facts.append(f"the write {noun} {_joined_words(writes)}")
+        secrets = sorted({name for item in items for name in item.get("job_secrets", [])})
+        if secrets:
+            noun = "secret" if len(secrets) == 1 else "secrets"
+            facts.append(f"the {noun} {_joined_words(secrets)}")
+        pull_request_code = [
+            f"{checkout['job']}/{checkout['step']}"
+            for checkout in grant.get("checkout_refs", [])
+            if checkout["job"] == job and pull_request_code_ref(checkout.get("ref"))
+        ]
+        if pull_request_code:
+            facts.append(f"a checkout of pull request code ({', '.join(pull_request_code)})")
+        note = f"an agent runs at {steps}"
+        if facts:
+            note += " beside " + _joined_words(facts)
+        notes.append(note)
+    rest = len(launches) - named
+    if rest:
+        notes.append(f"{rest} more agent step(s) run in this workflow")
+    return "; ".join(notes)
+
+
+def _joined_words(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} and {items[-1]}"
+
 #: Direction is deliberately coarse here. Presence is certain: a grant is
 #: in one side and not the other. *Width* is not — deciding that
 #: `Bash(npm *)` -> `Bash(npm test:*)` narrows needs the pattern lattice in
@@ -258,14 +563,16 @@ def _grant_value(
     redact_permission_arguments: bool = False,
     step_actions: list[dict[str, Any]] | None = None,
     secret_mappings: list[SecretMapping] | None = None,
+    agent_launches: list[dict[str, Any]] | None = None,
+    checkout_refs: list[dict[str, Any]] | None = None,
 ) -> str:
     """What a reader recognises this grant by.
 
     A workflow has no single name — its authority *is* the combination of
     access and triggers, so both sides render that combination or the row
-    reads "workflow -> workflow" and says nothing. ``step_actions`` and
-    ``secret_mappings`` are the step references and named secrets this side
-    alone declares; unchanged ones are not repeated.
+    reads "workflow -> workflow" and says nothing. ``step_actions``,
+    ``secret_mappings``, ``agent_launches`` and ``checkout_refs`` are the
+    entries this side alone declares; unchanged ones are not repeated.
     """
 
     if not grant:
@@ -302,6 +609,8 @@ def _grant_value(
             parts.append(f"{call['job']}: {forwarding}{call['uses']}")
         parts.extend(_secret_mapping_value(item) for item in secret_mappings or [])
         parts.extend(_step_action_value(item) for item in step_actions or [])
+        parts.extend(_checkout_ref_value(item) for item in checkout_refs or [])
+        parts.extend(_agent_launch_value(item) for item in agent_launches or [])
         return ", ".join(part for part in parts if part) or kind
     if kind in _SETTING_KINDS and grant.get("setting"):
         # A setting row read `True` or `dontAsk` alone, which names no setting
@@ -334,11 +643,14 @@ def _why(
     new_steps: list[dict[str, Any]] | None = None,
     gone_secrets: list[SecretMapping] | None = None,
     new_secrets: list[SecretMapping] | None = None,
+    agent_reasons: list[str] | None = None,
 ) -> str:
     """Why a reviewer should care, in the reviewer's terms.
 
     Stated as what the grant *permits*, never as a prediction about what the
     agent will do with it — the engine reads configuration, not behaviour.
+    A workflow that launches an agent ends with the job facts beside each
+    agent step (#823), read off ``grant``, the side the row describes.
     """
 
     kind = str(grant.get("kind") or "")
@@ -394,7 +706,11 @@ def _why(
                 + "); it names different code to run with that job's existing "
                 "token permissions and adds no scope"
             )
-        return "; ".join(reasons) or "changes the workflow's own authority"
+        reasons.extend(agent_reasons or [])
+        why = "; ".join(reasons) or "changes the workflow's own authority"
+        # A removed workflow runs nothing any more, so it gets no note.
+        note = None if direction == REMOVED else _agent_composition_note(grant)
+        return f"{why}; {note}" if note else why
     if kind == "hook":
         # The basis, stated in the row, because the row is what a reviewer
         # reads: a parsed hook file is not proof a host loads it (#714).
@@ -1072,10 +1388,24 @@ def capability_diff_rows(
             direction = WIDENED
         gone_steps, new_steps = _step_action_changes(before_grant, after_grant)
         gone_secrets, new_secrets = _secret_mapping_changes(before_grant, after_grant)
+        gone_agents, new_agents = _job_entry_changes(
+            before_grant, after_grant, "agent_launches", agent_launch_key
+        )
+        gone_checkouts, new_checkouts = _job_entry_changes(
+            before_grant, after_grant, "checkout_refs", checkout_ref_key
+        )
+        agent_reasons = (
+            _agent_launch_reasons(
+                before_grant, after_grant, gone_agents, new_agents, gone_checkouts, new_checkouts
+            )
+            if grant.get("kind") == "workflow"
+            else []
+        )
         why = _why(
             grant, direction,
             gone_steps=gone_steps, new_steps=new_steps,
             gone_secrets=gone_secrets, new_secrets=new_secrets,
+            agent_reasons=agent_reasons,
         )
         row = CapabilityDiffRow(
             subject=_subject(grant),
@@ -1084,12 +1414,16 @@ def capability_diff_rows(
                 redact_permission_arguments=redact_permission_arguments,
                 step_actions=gone_steps,
                 secret_mappings=gone_secrets,
+                agent_launches=gone_agents,
+                checkout_refs=gone_checkouts,
             ),
             after=_grant_value(
                 after_grant,
                 redact_permission_arguments=redact_permission_arguments,
                 step_actions=new_steps,
                 secret_mappings=new_secrets,
+                agent_launches=new_agents,
+                checkout_refs=new_checkouts,
             ),
             direction=direction,
             why=why,

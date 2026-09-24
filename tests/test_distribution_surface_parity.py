@@ -226,13 +226,28 @@ SURFACES: tuple[Surface, ...] = (
         # reserved coverage `scope`, and is read as incomparable by every
         # control route, so it adds no claim; every route to the same object,
         # and every refusal it must keep, is held by
-        # `tests/test_partial_host_comparison.py`. Naming an unchanged limit
+        # `tests/test_partial_host_comparison.py`.
+        # Naming an unchanged limit
         # the reader reached through an in-tree link (#822) rests on a Git
         # identity fact about the link and the file it lands on, the proof
         # every unchanged limit already rested on, so it restates no engine
         # answer and adds no claim; `tests/test_linked_unchanged_limits.py`
         # holds diff, verify, the PR comment and `check` to it, including the
         # shared plugin-reference limits `check` leaves out by the same proof.
+        # Its agent-launch cells and note (#823) restate no answer: direction
+        # comes from the engine's
+        # `workflow_agent_widened_*` expansion signal, itself read off the
+        # `widening_rules` the engine published on each launch; the `why`'s
+        # moved, unread-before and setting-before sentences read the same
+        # `agent_rule_gains` the signal is computed from, and the note reads the
+        # triggers, write scopes, secrets and checkout refs the engine already
+        # published on the grant, so it adds no claim;
+        # `tests/test_workflow_agent_launches.py` holds diff, verify, the PR
+        # comment, check and the control envelope to the same row. A
+        # workflow's coverage line naming what its grant does not read, in
+        # place of the redacted-values note, is fixed text chosen by the
+        # source's kind the inventory gives its path, and decides nothing, so
+        # it adds no claim either.
         # Its hook and MCP-argument
         # text (#819) renders the handlers, package and argument digest the
         # engine published on the grant, which hold no command or argument

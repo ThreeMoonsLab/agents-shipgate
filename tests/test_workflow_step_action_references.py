@@ -394,6 +394,9 @@ def _legacy_baseline(tmp_path: Path, version: str):
     for grant in legacy["inventory"]["grants"]:
         if grant["kind"] == "workflow":
             del grant["step_actions"]
+            # Nor did they read agent launches or checkout refs (#823).
+            grant.pop("agent_launches", None)
+            grant.pop("checkout_refs", None)
     legacy["inventory_sha256"] = host_grants_sha256(legacy["inventory"])
     return current, legacy
 
@@ -415,7 +418,10 @@ def test_a_legacy_baseline_holding_a_workflow_does_not_assert_no_step_references
     drift = build_host_drift_payload(baseline=loaded, inventory=current, baseline_file=str(baseline_path))
 
     assert drift["comparison_status"] == "incomparable"
-    assert drift["incomparable_reasons"] == ["baseline_workflow_step_actions_unavailable"]
+    assert drift["incomparable_reasons"] == [
+        "baseline_workflow_agent_launches_unavailable",
+        "baseline_workflow_step_actions_unavailable",
+    ]
     assert drift["has_drift"] is None and drift["changes"] == []
     assert baseline_path.read_text() == original
 
@@ -915,6 +921,8 @@ def test_the_documented_migration_from_a_legacy_baseline_holding_a_workflow(tmp_
     for grant in legacy["inventory"]["grants"]:
         if grant["kind"] == "workflow":
             grant.pop("step_actions", None)
+            grant.pop("agent_launches", None)
+            grant.pop("checkout_refs", None)
     legacy["inventory_sha256"] = host_grants_sha256(legacy["inventory"])
     path = root / ".agents-shipgate" / "host-grants.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -925,7 +933,10 @@ def test_the_documented_migration_from_a_legacy_baseline_holding_a_workflow(tmp_
     drift = CliRunner().invoke(app, [*audit, "--drift", "--json"])
     payload = json.loads(drift.stdout)
     assert payload["comparison_status"] == "incomparable"
-    assert payload["incomparable_reasons"] == ["baseline_workflow_step_actions_unavailable"]
+    assert payload["incomparable_reasons"] == [
+        "baseline_workflow_agent_launches_unavailable",
+        "baseline_workflow_step_actions_unavailable",
+    ]
     assert payload["has_drift"] is None and payload["next_action"] is None
     assert CliRunner().invoke(app, [*audit, "--drift", "--fail-on-drift", "--json"]).exit_code == 20
 

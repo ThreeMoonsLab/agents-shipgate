@@ -281,19 +281,32 @@ def _side_text(item: HostComparisonCoverageItem) -> str:
 #: comparison compares them (#812).
 _REDACTED_VALUES = "(redacted values such as env values and apiKeyHelper are not compared)"
 
+#: The same note for a workflow, which holds no `apiKeyHelper`: what its
+#: grant does not compare, and where the unread agent steps are named (#823
+#: review cycle 7). `diff`, `verify` and `check` carry no limit for such a
+#: step, so without this a change that only adds one reads as covered.
+_WORKFLOW_UNREAD_TEXT = (
+    "(text this entry does not read, such as a step's env or an unread agent step, "
+    "is not compared; audit --host names each unread agent step)"
+)
+
 
 def _redacted_values_note(source: str) -> str:
-    """The note on redacted values, only for a file that can hold them (#812 review cycle 5).
+    """The note on what is not compared, only for a file that can hold it (#812 review cycle 5).
 
     Not for a file the inventory reads as instructions (`AGENTS.md`, a
     `CLAUDE.md` link to it, a skill or a rule): it holds no `env` value or
     `apiKeyHelper`, and a docs-only change would print the note on every such
-    file it could not prove unchanged. The kind is the one the inventory gives
-    the file's path when it reads it; a path redacted past recognition keeps
-    the note.
+    file it could not prove unchanged. A workflow's note names what its grant
+    does not read instead (#823). The kind is the one the inventory gives the
+    file's path when it reads it; a path redacted past recognition keeps the
+    note.
     """
 
-    return "" if _source_kind(source) == "instructions" else f" {_REDACTED_VALUES}"
+    kind = _source_kind(source)
+    if kind == "instructions":
+        return ""
+    return f" {_WORKFLOW_UNREAD_TEXT if kind == 'workflow' else _REDACTED_VALUES}"
 
 
 #: What each candidate rule names (#821), as the line says it. None of these

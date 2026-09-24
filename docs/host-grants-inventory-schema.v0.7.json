@@ -268,7 +268,7 @@
                 "profile": "#/$defs/HostProfileGrantV2",
                 "requirement": "#/$defs/HostRequirementGrantV2",
                 "sandbox": "#/$defs/HostSandboxGrantV2",
-                "workflow": "#/$defs/HostWorkflowGrantV6"
+                "workflow": "#/$defs/HostWorkflowGrantV7"
               },
               "propertyName": "kind"
             },
@@ -301,7 +301,7 @@
                 "$ref": "#/$defs/HostRequirementGrantV2"
               },
               {
-                "$ref": "#/$defs/HostWorkflowGrantV6"
+                "$ref": "#/$defs/HostWorkflowGrantV7"
               },
               {
                 "$ref": "#/$defs/HostInstructionGrantV2"
@@ -1459,9 +1459,211 @@
       "title": "HostSandboxGrantV2",
       "type": "object"
     },
-    "HostWorkflowGrantV6": {
+    "HostWorkflowAgentLaunchV7": {
       "additionalProperties": false,
-      "description": "A GitHub workflow's token permissions, triggers, reusable calls and step references.\n\nEvery job id, trigger and permission scope name is a published label\n(#802): credential-shaped text in it is redacted, one way in every field \u2014\n``permission_contexts``, ``reusable_calls``, ``step_actions``, ``triggers``,\nand the job and scope names in the ``write_scopes`` and\n``effective_write_scopes`` entries \u2014 and ``config_sha256`` is computed over\nthose labels. A single redacted label still compares. When two distinct\njob ids or triggers in the workflow, or two scope names in one\n``permissions`` mapping that a job's permissions are read from, publish\nalike, the inventory records a blocking coverage issue instead of comparing\nthem as one. A top-level mapping no job inherits is read only into\n``write_scopes``, which is neither compared nor digested.",
+      "description": "A step that launches a known coding agent, read as text and never run (#823).\n\n``agent`` is a documented action reference's ``owner/repo`` (the step's\n``uses:`` at any ref; the Claude base action also as the ``base-action``\ndirectory of ``anthropics/claude-code-action``), or a known agent CLI a\n``run:`` launches when the whole ``run:`` is one line of plain words\n(letters, digits and ``_ . / : = , % + -``, separated by spaces or tabs),\nrun by ``bash``, ``sh`` or the runner's default shell, whose program,\nafter any ``NAME=value`` assignments, has the file name ``claude`` and\npasses ``-p``/``--print``, or ``codex`` followed by ``exec`` (``e``).\n``form: read`` lists the documented permission inputs or flags the step\ndeclares in ``settings``, and the documented widening rules they meet in\n``widening_rules``, omitted when none. ``form: unresolved`` is an agent\naction whose ``with:`` is not a mapping (``inputs_not_a_mapping``), with\nno settings, and records a non-blocking coverage issue. Any other\n``run:`` that mentions an agent CLI is not a launch: it is listed in\n``unread_agent_runs``. ``job_secrets`` names the secrets the step's job\nreferences (``${{ secrets.NAME }}``) and the workflow-level ``env``\npasses: context for the row that names this step, never compared.\n``job`` and ``step`` are published labels (#802).",
+      "properties": {
+        "agent": {
+          "enum": [
+            "anthropics/claude-code-action",
+            "anthropics/claude-code-base-action",
+            "anthropics/claude-code-action/base-action",
+            "openai/codex-action",
+            "claude",
+            "codex"
+          ],
+          "title": "Agent",
+          "type": "string"
+        },
+        "form": {
+          "enum": [
+            "read",
+            "unresolved"
+          ],
+          "title": "Form",
+          "type": "string"
+        },
+        "job": {
+          "title": "Job",
+          "type": "string"
+        },
+        "job_secrets": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Job Secrets",
+          "type": "array"
+        },
+        "settings": {
+          "items": {
+            "$ref": "#/$defs/HostWorkflowAgentSettingV7"
+          },
+          "title": "Settings",
+          "type": "array"
+        },
+        "step": {
+          "title": "Step",
+          "type": "string"
+        },
+        "unresolved_reason": {
+          "anyOf": [
+            {
+              "const": "inputs_not_a_mapping",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unresolved Reason"
+        },
+        "widening_rules": {
+          "items": {
+            "$ref": "#/$defs/HostWorkflowAgentRuleV7"
+          },
+          "title": "Widening Rules",
+          "type": "array"
+        }
+      },
+      "required": [
+        "job",
+        "step",
+        "agent",
+        "form"
+      ],
+      "title": "HostWorkflowAgentLaunchV7",
+      "type": "object"
+    },
+    "HostWorkflowAgentRuleV7": {
+      "additionalProperties": false,
+      "description": "One documented widening rule an agent launch meets, and the setting it was read from (#823).\n\nDecided when the workflow is read, from the declared text, before any of\nit is withheld for publication, so redaction never hides a rule. Only\ntext this reader reads exactly meets one: ``claude_args`` or\n``codex-args`` only when it is a plain list of words (never when it holds\na ``${{ }}`` expression), the entries of a user gate that hold no\nexpression, and a mode or ``settings`` input that holds none. Claude Code\nsettings written as JSON in the ``settings`` input meet\n``bypass_permissions`` when their ``defaultMode`` is\n``bypassPermissions``, read as the settings reader reads it; a path to a\nsettings file is not read. ``setting`` is the input (``claude_args``,\n``allowed_bots``, ``sandbox``, ``permission-profile``, \u2026) or the CLI\nflag's primary spelling. One rule compares as one whatever setting meets\nit, except ``open_gate``, which is one rule per gate input.",
+      "properties": {
+        "rule": {
+          "enum": [
+            "bypass_permissions",
+            "bypass_approvals_and_sandbox",
+            "danger_full_access",
+            "unsafe_safety_strategy",
+            "open_gate"
+          ],
+          "title": "Rule",
+          "type": "string"
+        },
+        "setting": {
+          "title": "Setting",
+          "type": "string"
+        }
+      },
+      "required": [
+        "rule",
+        "setting"
+      ],
+      "title": "HostWorkflowAgentRuleV7",
+      "type": "object"
+    },
+    "HostWorkflowAgentSettingV7": {
+      "additionalProperties": false,
+      "description": "One permission input or flag an agent launch declares, compared as text (#823).\n\n``name`` is the documented input (``claude_args``, ``sandbox``, \u2026) or the\nflag's primary spelling (``--allowedTools`` for ``--allowed-tools`` too).\n``value`` is the declared text, stripped, as it may be published; a flag\nthat takes no value has ``null``.\n\n``claude_args`` and ``codex-args`` are read only when they are a plain\nlist of words: letters, digits and ``_ . / : = , % + - ( )``, separated by\nblanks or newlines, with no ``--settings`` or ``--mcp-config`` flag. Every\nparser involved splits such text the same way, so it is published as\nthose words, one space apart. Any other value \u2014 holding a quote, a\n``${{ }}`` expression, ``$``, a backtick, a comment, a shell operator,\nJSON or another character \u2014 is ``unread_arguments``: ``value`` is\n``<withheld:\u2026>``, a short digest, so an edit to it is still a change\nwhile none of its text is published; no documented widening rule is read\nfrom it; and it records a non-blocking coverage issue naming its\n``job/step`` (#823 review cycle 4). A codex ``--config`` override keeps\nits key; its value is ``<redacted>`` under ``env``, ``headers`` or a\nsecret-named key, as the host readers redact such values, published as\nwritten for ``sandbox_mode``, ``default_permissions``,\n``approval_policy`` and ``model``, and ``<withheld:\u2026>`` otherwise.\n\nEvery other input is one value. A JSON object (a ``settings`` or\n``mcp_config`` value) publishes its shape and none of its free text: key\nnames, numbers, booleans and ``null``, with each string replaced by\n``<withheld:\u2026>``, a short digest of what the host readers digest for it,\nso an edit to it is still a change. ``env`` and ``headers`` values,\n``apiKeyHelper`` and every secret-named value are ``<redacted>``, as the\nhost readers redact them. The strings a host reader publishes are kept:\na ``permissions.allow``/``ask``/``deny`` rule and a documented Claude\nCode setting's value such as ``defaultMode``, and an MCP server's command\nname and its URL's scheme and host, each followed by the digest when it\ndrops something the digest reads (a command's arguments, a URL's query).\nSo an MCP server's arguments and a hook's command publish nothing, as\n`.mcp.json` and `.claude/settings.json` do not (#823 review). A\n``settings`` or ``mcp_config`` value that neither starts like a JSON\nobject nor is a plain file path (path characters, and a ``${{ }}``\nexpression only as a plain context reference) is ``<withheld:\u2026>``, a\ndigest and none of its text (#823 review cycle 5). A URL in\nother text publishes its scheme and host with ``<redacted-path>`` for its\npath and query (#723). Other text \u2014 a prompt, a flag's value \u2014 is\npublished through the workflow label redaction (#802). A value it\nrewrites is credential-shaped \u2014 a token, but also prose such as \"never\nprint bearer tokens\" \u2014 and is published redacted with\n``unresolved_reason: redacted``: it is compared as published, beside the\nrules read from its declared text, and records a non-blocking coverage\nissue naming its ``job/step``, because an edit inside what is redacted is\nnot reported. A value that is not a string (``not_a_string``), or one\nholding text that starts like JSON and does not parse (``unparsed_json``),\nis ``null`` and records a non-blocking coverage issue naming its\n``job/step``: it is neither published nor compared.\n\n``holds_expression`` is ``true`` when an input other than an argument\ninput holds a ``${{ }}`` expression, which GitHub substitutes before the\naction reads the input, and is omitted otherwise. A documented widening\nrule is then read only from the entries of a user gate that hold none,\nand from no mode or settings input, and a rule the launch gains in the\nsame job afterwards is not claimed, because the substituted text may\nalready have met it.",
+      "properties": {
+        "holds_expression": {
+          "default": false,
+          "title": "Holds Expression",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "unresolved_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "not_a_string",
+                "redacted",
+                "unparsed_json",
+                "unread_arguments"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unresolved Reason"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "title": "HostWorkflowAgentSettingV7",
+      "type": "object"
+    },
+    "HostWorkflowCheckoutRefV7": {
+      "additionalProperties": false,
+      "description": "One ``actions/checkout`` step and the ``with.ref`` it declares, as text (#823).\n\n``ref`` is ``null`` when the step declares none, or an empty one: the\ncheckout's default for the triggering event. A ref the label redaction\nrewrites is published redacted with ``unresolved_reason: redacted`` and\nmakes the workflow a blocking limit, as a redacted step reference does\n(#767): a ref names the code the job runs, as a step reference does. A\nvalue that is not a string, or ``with:`` that is not a mapping,\nis ``null`` with ``unresolved_reason`` and records a non-blocking coverage\nissue. The ref is never resolved or fetched.",
+      "properties": {
+        "job": {
+          "title": "Job",
+          "type": "string"
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ref"
+        },
+        "step": {
+          "title": "Step",
+          "type": "string"
+        },
+        "unresolved_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "not_a_string",
+                "redacted",
+                "inputs_not_a_mapping"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unresolved Reason"
+        }
+      },
+      "required": [
+        "job",
+        "step",
+        "ref"
+      ],
+      "title": "HostWorkflowCheckoutRefV7",
+      "type": "object"
+    },
+    "HostWorkflowGrantV7": {
+      "additionalProperties": false,
+      "description": "A v0.6 workflow grant plus the agent launches, unread agent steps and checkout refs its steps declare.\n\nEach list is present only when a step declares one. In a v0.7 grant an\nabsent list means the steps were read and declare none; the schema\nversion, not the key, separates that from a legacy grant that never read\nthem. ``unread_agent_runs`` is a named limit and is never compared.\n``access`` and ``risk`` still describe the workflow's token and triggers\nalone.",
       "properties": {
         "access": {
           "enum": [
@@ -1475,6 +1677,20 @@
           ],
           "title": "Access",
           "type": "string"
+        },
+        "agent_launches": {
+          "items": {
+            "$ref": "#/$defs/HostWorkflowAgentLaunchV7"
+          },
+          "title": "Agent Launches",
+          "type": "array"
+        },
+        "checkout_refs": {
+          "items": {
+            "$ref": "#/$defs/HostWorkflowCheckoutRefV7"
+          },
+          "title": "Checkout Refs",
+          "type": "array"
         },
         "config_sha256": {
           "title": "Config Sha256",
@@ -1565,6 +1781,13 @@
           "title": "Triggers",
           "type": "array"
         },
+        "unread_agent_runs": {
+          "items": {
+            "$ref": "#/$defs/HostWorkflowUnreadAgentRunV7"
+          },
+          "title": "Unread Agent Runs",
+          "type": "array"
+        },
         "write_all": {
           "default": false,
           "title": "Write All",
@@ -1590,7 +1813,7 @@
         "effective_write_scopes",
         "reusable_calls"
       ],
-      "title": "HostWorkflowGrantV6",
+      "title": "HostWorkflowGrantV7",
       "type": "object"
     },
     "HostWorkflowPermissionsV4": {
@@ -1689,6 +1912,35 @@
         "form"
       ],
       "title": "HostWorkflowStepActionV6",
+      "type": "object"
+    },
+    "HostWorkflowUnreadAgentRunV7": {
+      "additionalProperties": false,
+      "description": "A ``run:`` step that mentions a known agent CLI and is not read as an agent launch (#823 review cycle 4).\n\nAny ``run:`` holding ``claude`` or ``codex`` as a word of its own that is\nnot an agent launch this reader reads \u2014 more than one line or command, a\nquote, an expansion, a redirection, a comment, a continuation, a\n``${{ }}`` expression, another program such as ``npx`` or ``timeout``, a\nsubcommand that is not a headless launch, or a declared ``shell:`` other\nthan ``bash`` or ``sh`` run on the script alone (so ``bash -c '\u2026' {0}``\ntoo) \u2014 once for each agent CLI it mentions. It is a\nnamed, non-blocking limit and nothing more: none of the step's text is\npublished, it is never compared, so adding, removing or editing it gives\nno row, and it never says that the step starts, or does not start, an\nagent. ``job`` and ``step`` are published labels (#802).",
+      "properties": {
+        "agent": {
+          "enum": [
+            "claude",
+            "codex"
+          ],
+          "title": "Agent",
+          "type": "string"
+        },
+        "job": {
+          "title": "Job",
+          "type": "string"
+        },
+        "step": {
+          "title": "Step",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job",
+        "step",
+        "agent"
+      ],
+      "title": "HostWorkflowUnreadAgentRunV7",
       "type": "object"
     },
     "InstructionStructureEvidence": {
