@@ -40,9 +40,11 @@ from agents_shipgate.schemas.manifest import (
     ToolSourceConfig,
 )
 
+SDK_MODULES = frozenset({"agents", "openai_agents"})
 DEFAULT_FUNCTION_TOOL_DECORATORS = frozenset(
     {"function_tool", "agents.function_tool", "openai_agents.function_tool"}
 )
+DEFAULT_AGENT_CONSTRUCTORS = frozenset({"Agent", "agents.Agent", "openai_agents.Agent"})
 
 
 def load_openai_sdk_static_tools(
@@ -186,6 +188,7 @@ def _extract_agent_bindings(
     for path in paths:
         tree = parse_python_file(path, label="OpenAI Agents SDK")
         source_ref = display_path(path, base_dir)
+        sdk_names = _SdkNames(tree)
         list_vars: dict[str, list[str] | None] = {}
         import_aliases: dict[str, str] = {}
         for node in ast.walk(tree):
@@ -202,7 +205,13 @@ def _extract_agent_bindings(
                 continue
             target = _assignment_target(node)
             call = node.value if isinstance(node.value, ast.Call) else None
-            if not target or call is None or _last_name(call.func) != "Agent":
+            if (
+                not target
+                or call is None
+                or not sdk_names.denotes(
+                    dotted_name(call.func), "Agent", DEFAULT_AGENT_CONSTRUCTORS
+                )
+            ):
                 continue
             tools_expr = _keyword(call, "tools")
             names = _resolve_name_list(tools_expr, list_vars, import_aliases)
@@ -291,14 +300,6 @@ def _assignment_target(node: ast.Assign | ast.AnnAssign) -> str | None:
     return targets[0].id if len(targets) == 1 and isinstance(targets[0], ast.Name) else None
 
 
-def _last_name(node: ast.AST) -> str | None:
-    if isinstance(node, ast.Name):
-        return node.id
-    if isinstance(node, ast.Attribute):
-        return node.attr
-    return None
-
-
 def _keyword(call: ast.Call, name: str) -> ast.AST | None:
     return next((item.value for item in call.keywords if item.arg == name), None)
 
@@ -330,18 +331,63 @@ def _resolve_name_list(
     return None
 
 
+class _SdkNames:
+    """Which spellings in one module denote the SDK's own symbols.
+
+    ``livekit.agents`` also exports ``Agent`` and ``function_tool``, so the
+    spelling alone proves nothing. A spelling's head decides: imported from
+    the absolute ``agents``/``openai_agents`` package, it is the SDK's; not
+    imported at all, the default spellings keep their terminal-name reading
+    unless a wildcard from another module could supply them; imported only
+    from anywhere else — ``livekit.agents``, a relative ``.agents`` — it is
+    another library's symbol and never read as the SDK's.
+    """
+
+    def __init__(self, tree: ast.Module) -> None:
+        self.origins: dict[str, set[str]] = {}
+        self.foreign_wildcard = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                module = "." * node.level + (node.module or "")
+                for alias in node.names:
+                    path = f"{module}.{alias.name}" if node.module else module + alias.name
+                    if alias.name == "*":
+                        self.foreign_wildcard |= not _is_sdk_path(module)
+                    else:
+                        self.origins.setdefault(alias.asname or alias.name, set()).add(path)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    head = alias.name.split(".", 1)[0]
+                    bound, path = (alias.asname, alias.name) if alias.asname else (head, head)
+                    self.origins.setdefault(bound, set()).add(path)
+
+    def denotes(self, spelling: str | None, symbol: str, defaults: frozenset[str]) -> bool:
+        if not spelling:
+            return False
+        head, _, rest = spelling.partition(".")
+        origins = self.origins.get(head)
+        if origins is None:
+            return spelling in defaults and not self.foreign_wildcard
+        return any(
+            _is_sdk_path(path) and (f"{path}.{rest}" if rest else path).rsplit(".", 1)[-1] == symbol
+            for path in origins
+        )
+
+
+def _is_sdk_path(path: str) -> bool:
+    return not path.startswith(".") and path.split(".", 1)[0] in SDK_MODULES
+
+
 def _function_tool_decorator_names(tree: ast.Module) -> set[str]:
-    names = set(DEFAULT_FUNCTION_TOOL_DECORATORS)
+    names = _SdkNames(tree)
+    spellings = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module in {"agents", "openai_agents"}:
-            for alias in node.names:
-                if alias.name == "function_tool":
-                    names.add(alias.asname or alias.name)
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name in {"agents", "openai_agents"}:
-                    names.add(f"{alias.asname or alias.name}.function_tool")
-    return names
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for decorator in node.decorator_list:
+                spelling = _decorator_name(decorator)
+                if names.denotes(spelling, "function_tool", DEFAULT_FUNCTION_TOOL_DECORATORS):
+                    spellings.add(spelling)
+    return spellings
 
 
 def _is_function_tool(node: ast.AST, decorator_names: set[str]) -> bool:
