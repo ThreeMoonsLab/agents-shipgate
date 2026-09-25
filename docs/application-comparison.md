@@ -100,16 +100,27 @@ rather than the history.
 ### Links and submodules
 
 A symlink anywhere in the tree is recreated as the link it is, never refused
-and never followed by the comparison. Python discovery does not walk through a
-link, here or in a checkout, so a link that is not a Python input changes
-nothing: `CLAUDE.md -> AGENTS.md`, a linked `.claude/skills/…` directory, or a
-`VERSION` link that leaves the repository reads as it would without the link.
-A Python file that is a link is never read through. When its target is a
-Python input the scope already reads, that file is compared at its own path;
-a link whose target leaves the scope is outside discovery, as in a checkout;
-any other target is a coverage gap over the link's own path
-(`Linked Python input: tools.py`). A selected scope that is itself a link is
-refused (exit 2).
+and never read through. Every link under the scope is censused, including one
+that resolves to nothing, and what it can hide decides what it is:
+
+- A link Python discovery would not read changes nothing, as in a checkout:
+  `CLAUDE.md -> AGENTS.md`, or a linked `.claude/skills/…` directory whose
+  target the scope already reads at its own path.
+- A `*.py` link whose target is a Python input the scope already reads is
+  compared at that target's path. Any other `*.py` link — dangling, leaving
+  the scope or the repository, or landing on something that is not a Python
+  input — is a coverage gap over the link's own path
+  (`Linked Python input: agent.py`), so replacing `agent.py` with a dangling
+  link is `not_established`, never a removal.
+- A link to a directory outside the scope that holds Python is a gap over the
+  link's path (`Linked directory holds Python outside the scope: lib`).
+- A link that resolves to nothing in the repository (dangling, absolute, or
+  leaving the tree) is a gap only where the other side reads source at or
+  beneath its path (`Linked input resolves outside the tree: tools`). An
+  unchanged `agent/VERSION -> ../../VERSION` beside the application changes
+  nothing.
+
+A selected scope that is itself a link is refused (exit 2).
 
 A submodule's content is in another repository. The comparison never fetches
 it and materializes its gitlink as the empty directory a checkout without
@@ -119,7 +130,8 @@ same content, so it is named in both sides' `limits` —
 and nothing more. An added, removed or moved gitlink is a coverage gap over its
 path on each side that has it, so the comparison is `partial`, and a binding
 the other side holds at that path is `not_established` rather than added or
-removed.
+removed. A gitlink at the selected scope itself covers the whole scope
+(`…: the selected scope`).
 
 Partial clones
 with unfetched objects exit 2 with `objects_missing`, name the affected side,

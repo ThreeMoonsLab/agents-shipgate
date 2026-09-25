@@ -69,32 +69,105 @@ def test_python_link_to_an_input_already_read_is_not_read_twice(repo):
     assert result["head"]["sources"] == [{"type": "openai_agents_sdk", "path": "real/helper.py"}]
 
 
-@pytest.mark.parametrize("target", ["leaves_scope", "not_python"])
-def test_python_link_to_anything_else_is_never_read_through(repo, target):
-    # Discovery drops a link whose target leaves the scope, in a checkout as
-    # here. One that stays in scope but lands on something this scope does not
-    # read as Python is a gap over the link's own path, and only that path.
+@pytest.mark.parametrize("target", ["leaves_scope", "not_python", "dangling"])
+def test_python_link_to_anything_else_is_a_gap_over_its_path(repo, target):
+    # Never read through, and never silence: the link's own path is unread,
+    # and only that path. The unrelated addition stays established.
     if target == "leaves_scope":
         commit(repo, {"shared/tools.py": SDK.replace("TOOLS", "[lookup]")})
         link(repo, "app/tools.py", "../shared/tools.py")
-    else:
+    elif target == "not_python":
         commit(repo, {"app/tools_impl": SDK.replace("TOOLS", "[lookup]")})
         link(repo, "app/tools.py", "tools_impl")
+    else:
+        link(repo, "app/tools.py", "missing.py")
     base = commit(repo, {"app/agent.py": SDK.replace("TOOLS", "[lookup]")})
     head = commit(repo, {"app/agent.py": SDK.replace("TOOLS", "[lookup, execute]")})
     result = run(repo, base, head, "--scope", "app")
+    assert result["comparison_status"] == "partial"
     assert [(r["agent_source"], r["tool"], r["change"]) for r in result["rows"]] == [
         ("agent.py", "execute", "added")
     ]
     assert result["head"]["sources"] == [{"type": "openai_agents_sdk", "path": "agent.py"}]
-    if target == "leaves_scope":
-        assert result["comparison_status"] == "compared"
-        assert result["head"]["coverage_gaps"] == []
-    else:
-        assert result["comparison_status"] == "partial"
-        assert [(g["source"], g["reason"]) for g in result["head"]["coverage_gaps"]] == [
+    for side in ("base", "head"):
+        assert [(g["source"], g["reason"]) for g in result[side]["coverage_gaps"]] == [
             ("tools.py", "Linked Python input: tools.py")
         ]
+
+
+@pytest.mark.parametrize("direction", ["file_to_link", "link_to_file"])
+def test_python_file_replaced_by_a_dangling_link_is_not_a_removal(repo, direction):
+    # PR #877 review: discovery drops a dangling link before any census, so
+    # replacing `agent.py` with `agent.py -> missing.py` read as a definite
+    # removal, `compared`, with no gap.
+    source = {"app/agent.py": SDK.replace("TOOLS", "[lookup]")}
+    if direction == "file_to_link":
+        base = commit(repo, source)
+        (repo / "app/agent.py").unlink()
+        link(repo, "app/agent.py", "missing.py")
+        head = commit(repo, {})
+    else:
+        link(repo, "app/agent.py", "missing.py")
+        base = commit(repo, {})
+        (repo / "app/agent.py").unlink()
+        head = commit(repo, source)
+    result = run(repo, base, head, "--scope", "app")
+    assert result["comparison_status"] == "partial"
+    candidate = "removed" if direction == "file_to_link" else "added"
+    assert [(r["tool"], r["change"], r["candidate_change"]) for r in result["rows"]] == [
+        ("lookup", "not_established", candidate)
+    ]
+    side = "head" if direction == "file_to_link" else "base"
+    assert result["rows"][0]["uncertainty"] == {side: ["Linked Python input: agent.py"]}
+
+
+@pytest.mark.parametrize("direction", ["directory_to_link", "link_to_directory"])
+@pytest.mark.parametrize("target", ["/opt/tools", "../../../outside/tools", "missing"])
+def test_source_directory_replaced_by_an_unresolved_link_is_not_a_removal(
+    repo, direction, target
+):
+    source = {"app/tools/agent.py": SDK.replace("TOOLS", "[lookup]"), "app/README.md": "x"}
+    if direction == "directory_to_link":
+        base = commit(repo, source)
+        git(repo, "rm", "-rq", "app/tools")
+        link(repo, "app/tools", target)
+        head = commit(repo, {})
+    else:
+        link(repo, "app/tools", target)
+        base = commit(repo, {"app/README.md": "x"})
+        git(repo, "rm", "-q", "app/tools")
+        head = commit(repo, source)
+    result = run(repo, base, head, "--scope", "app")
+    assert result["comparison_status"] == "partial"
+    assert [(r["tool"], r["change"]) for r in result["rows"]] == [("lookup", "not_established")]
+    side = "head" if direction == "directory_to_link" else "base"
+    assert result["rows"][0]["uncertainty"] == {
+        side: ["Linked input resolves outside the tree: tools"]
+    }
+
+
+def test_unchanged_unresolved_link_beside_the_application_is_not_a_gap(repo):
+    # `agent/VERSION -> ../../VERSION` (CubeSandbox#1508) is the same on both
+    # sides and replaced nothing the other side reads.
+    link(repo, "app/VERSION", "../../VERSION")
+    base = commit(repo, {"app/agent.py": SDK.replace("TOOLS", "[lookup]")})
+    head = commit(repo, {"app/agent.py": SDK.replace("TOOLS", "[lookup, execute]")})
+    result = run(repo, base, head, "--scope", "app")
+    assert result["comparison_status"] == "compared"
+    assert result["base"]["limits"] == result["head"]["limits"] == []
+
+
+def test_directory_link_leaving_the_scope_with_python_is_a_gap(repo):
+    commit(repo, {"lib/helpers.py": SDK.replace("TOOLS", "[lookup]")})
+    link(repo, "app/lib", "../lib")
+    base = commit(repo, {"app/agent.py": SDK.replace("TOOLS", "[lookup]")})
+    head = commit(repo, {"app/agent.py": SDK.replace("TOOLS", "[lookup, execute]")})
+    result = run(repo, base, head, "--scope", "app")
+    assert result["comparison_status"] == "partial"
+    assert [(r["tool"], r["change"]) for r in result["rows"]] == [("execute", "added")]
+    assert [(g["source"], g["reason"]) for g in result["head"]["coverage_gaps"]] == [
+        ("lib", "Linked directory holds Python outside the scope: lib")
+    ]
 
 
 @pytest.mark.parametrize("scope", [".", "app"])
@@ -131,6 +204,32 @@ def test_submodule_behind_a_link_out_of_scope_is_not_the_scopes(repo):
     assert result["comparison_status"] == "compared"
     assert [(r["tool"], r["change"]) for r in result["rows"]] == [("execute", "added")]
     assert result["base"]["limits"] == result["head"]["limits"] == []
+
+
+@pytest.mark.parametrize("direction", ["submodule_to_directory", "directory_to_submodule"])
+def test_submodule_at_the_selected_scope_covers_the_whole_scope(repo, direction):
+    # PR #877 review: a gitlink at the scope itself named source ".", which
+    # covered no relative binding path, so its unread content let `agent.py`
+    # read as a definite addition or removal.
+    vendored = commit(repo, {"README.md": "vendored"})
+    source = {"app/agent.py": SDK.replace("TOOLS", "[lookup]")}
+    if direction == "submodule_to_directory":
+        gitlink(repo, "app", vendored)
+        base = commit(repo, {})
+        git(repo, "rm", "-q", "--cached", "app")
+        head = commit(repo, source)
+    else:
+        base = commit(repo, source)
+        git(repo, "rm", "-rq", "app")
+        gitlink(repo, "app", vendored)
+        head = commit(repo, {})
+    result = run(repo, base, head, "--scope", "app")
+    assert result["comparison_status"] == "partial"
+    assert [(r["tool"], r["change"]) for r in result["rows"]] == [("lookup", "not_established")]
+    side = "base" if direction == "submodule_to_directory" else "head"
+    reason = f"Submodule content is not read (commit {vendored[:12]}): the selected scope"
+    assert result["rows"][0]["uncertainty"] == {side: [reason]}
+    assert [(g["source"], g["reason"]) for g in result[side]["coverage_gaps"]] == [(None, reason)]
 
 
 @pytest.mark.parametrize("move", ["added", "bumped", "removed"])
