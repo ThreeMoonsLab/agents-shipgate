@@ -28,7 +28,7 @@ config, Codex plugin, n8n, and Conductor OSS workflow artifacts, then writes a
 deterministic **Tool-Use Readiness Report** before your agent gets
 production-like permissions.
 
-## Application agent PRs without setup (unreleased)
+## Application agent PRs without setup
 
 The source build can compare OpenAI Agents SDK and Google ADK tool bindings
 without a manifest or baseline:
@@ -39,8 +39,9 @@ agents-shipgate diff --application --workspace /path/to/repo --base BASE_SHA --h
 
 It shows source-observed changes per agent, including before/after signatures
 and source locations. See [application comparison](docs/application-comparison.md)
-for scoped applications, moves, exact refs and coverage limits. This option is
-not yet in the published 1.1.0 package.
+for scoped applications, moves, exact refs and coverage limits. Version availability
+is recorded in the [CHANGELOG entry](CHANGELOG.md#application-comparison-without-prior-setup);
+while it is under Unreleased, use a source build containing the feature.
 
 ## What did this PR change?
 

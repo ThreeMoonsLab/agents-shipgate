@@ -3100,10 +3100,12 @@ def archive_fetched_tree(
 
     A blobless clone fails the object copy with a :class:`ConfigError`, and a
     treeless one fails the tree lookup before it with a
-    :class:`subprocess.CalledProcessError`. Either is re-raised unchanged
-    unless :func:`promised_objects_missing` says the clone was promised
-    objects it does not hold; then :class:`PromisedObjectsMissingError`, so a
-    caller can name the hydration instead of a traceback (#817).
+    :class:`subprocess.CalledProcessError`. Both become
+    :class:`PromisedObjectsMissingError` when :func:`promised_objects_missing`
+    proves the clone lacks promised objects, so a caller can name the
+    hydration instead of a traceback (#817). Other Git
+    process failures are normalized to ConfigError at this subprocess boundary,
+    so CLI callers need no process-execution import just to catch an error.
     """
 
     try:
@@ -3111,6 +3113,8 @@ def archive_fetched_tree(
     except (ConfigError, subprocess.CalledProcessError) as exc:
         if promised_objects_missing(workspace, commit):
             raise PromisedObjectsMissingError(commit) from exc
+        if isinstance(exc, subprocess.CalledProcessError):
+            raise ConfigError(f"Could not materialize Git tree for {commit}: {exc}") from exc
         raise
 
 

@@ -129,7 +129,8 @@ def test_bad_base_cannot_become_empty_base(repo):
     head = commit(repo, {'agent.py': SDK.replace('TOOLS', '[lookup]')})
     result = run(repo, base, head)
     assert result['comparison_status'] == 'partial'
-    assert result['rows'] == []
+    assert result['rows']
+    assert all(row['change'] == 'not_established' for row in result['rows'])
     assert any('parsed' in x for x in result['base']['limits'])
 
 
@@ -138,7 +139,8 @@ def test_bad_head_cannot_become_removed_tools(repo):
     head = commit(repo, {'agent.py': 'from agents import Agent\nAgent(\n'})
     result = run(repo, base, head)
     assert result['comparison_status'] == 'partial'
-    assert result['rows'] == []
+    assert result['rows']
+    assert all(row['change'] == 'not_established' for row in result['rows'])
 
 
 def test_truncation_cannot_become_no_change(repo):
@@ -269,7 +271,8 @@ def test_unresolved_tools_are_not_an_empty_surface(repo):
     head = commit(repo, {'agent.py': SDK.replace('TOOLS', '[lookup]')})
     result = run(repo, base, head)
     assert result['comparison_status'] == 'partial'
-    assert result['rows'] == []
+    assert result['rows']
+    assert all(row['change'] == 'not_established' for row in result['rows'])
 
 
 def test_nonidentical_unpaired_move_does_not_invent_new_capabilities(repo):
@@ -278,7 +281,8 @@ def test_nonidentical_unpaired_move_does_not_invent_new_capabilities(repo):
     head = commit(repo, {'old/agent.py': None, 'new/agent.py': '# changed comment\n' + source})
     result = run(repo, base, head)
     assert result['comparison_status'] == 'partial'
-    assert result['rows'] == []
+    assert result['rows']
+    assert all(row['change'] == 'not_established' for row in result['rows'])
     assert any('unpaired' in x for x in result['head']['limits'])
 
 

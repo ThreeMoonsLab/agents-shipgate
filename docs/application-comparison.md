@@ -1,8 +1,8 @@
 # Application comparison without prior setup
 
-**Unreleased source feature.** The published 1.1.0 package does not yet have
-`diff --application`. Run the source checkout's `./shipgate`, or a build
-containing this feature.
+**Availability:** see the [CHANGELOG entry](../CHANGELOG.md#application-comparison-without-prior-setup).
+While that entry is under Unreleased, run the source checkout's `./shipgate`
+or a build containing the feature.
 
 For an OpenAI Agents SDK or Google ADK application, compare committed PR refs:
 
@@ -48,14 +48,21 @@ claim about deployed agent identity. An absent directory is absence at that
 Git path, not proof that no agent exists anywhere else. Missing manifests do not
 supply an empty base.
 
+An absent side names the missing scope and suggests `--base-scope`/`--scope`
+for relocation. If neither selected directory exists, the command refuses with
+exit 2. A removal describes the selected source path, not the entire repository.
+
 `--json` emits `application_comparison_schema_version: "0.1"`, engine identity,
 requested and compared refs/tree IDs, per-side scope/coverage, rows, source
 correspondence, and a deterministic `comparison_id`. This is a separate advisory
 artifact from the existing host diff JSON and verifier receipt.
 
 - `compared`: the selected supported source observations were compared.
-- `partial`: a parse/discovery/binding gap remains. Proven positive observations
-  may be shown; unread input cannot establish absence or removal.
+- `partial`: a parse/discovery/binding gap remains. Gaps identify their source
+  and agent where known. Only affected candidates become `change: not_established`
+  rows, carrying `candidate_change` and per-side `uncertainty`; independent known
+  additions/removals remain visible. Unknown implementation evidence cannot hide
+  an observed binding addition. Unattributed discovery bounds still cover the scope.
 - `not_established`: neither side established a supported application agent.
 - Exit 2: refs/materialization/input could not be read. This is not no change.
 
@@ -66,3 +73,26 @@ explicit reader limitations. It does not support other application frameworks
 yet. Indirect helper effects, runtime loading, deployed reachability and business
 authority are outside this comparison. It grants no release or merge permission
 and cannot stand in for a reviewed verifier base or qualification evidence.
+
+## Evidence identity and recovery
+
+`coverage_gaps` records each gap's source/agent/tool and whether it affects
+binding presence or only the implementation. Locations are relative to that
+side's selected scope. A partial result with no rows is not a no-change answer.
+Reader gaps are scoped to their input file unless typed agent evidence narrows
+them further; this does not infer cross-module bindings by matching names.
+
+Implementation digests hash the resolved function's AST, including defaults
+and decorators, excluding source positions and its leading docstring. Empty
+AST fields are retained on Python 3.13+ to match 3.12. Digests are qualified by
+the emitted engine/Python identity, not promised across arbitrary future AST
+schema changes. `comparison_id` is SHA-256 over the **sanitized** published
+object with that key removed, encoded as UTF-8 JSON with sorted keys,
+`separators=(",", ":")` and `ensure_ascii=True`; readers can recompute it.
+
+Each side materializes only its selected scope through the existing verified
+Git materializer, which retains symlinks and containment checks. Partial clones
+with unfetched objects exit 2 with `objects_missing`, name the affected side,
+and provide the existing `git fetch --refetch --no-filter <remote>` recovery.
+The comparison never runs that fetch. Other configuration/materialization errors
+use `config_error`; malformed reader inputs use `input_parse_error` in agent mode.

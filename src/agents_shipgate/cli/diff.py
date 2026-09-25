@@ -135,7 +135,7 @@ def _resolve_base(workspace: Path, base: str | None, head: str = "HEAD") -> tupl
     return requested, resolved
 
 
-def _refuse_objects_missing(workspace: Path, base_ref: str, base_commit: str) -> NoReturn:
+def _refuse_objects_missing(workspace: Path, base_ref: str, base_commit: str, *, side: str = "base") -> NoReturn:
     """Name the hydration a partial clone needs instead of a traceback (#817).
 
     In a `--filter=blob:none` clone only what was checked out has blobs, and in
@@ -162,7 +162,7 @@ def _refuse_objects_missing(workspace: Path, base_ref: str, base_commit: str) ->
 
     fetch = ["git", "-C", str(workspace), "fetch", "--refetch", "--no-filter"]
     refused = (
-        f"The base side of this diff, {_one_line(base_ref)} ({base_commit[:8]}), "
+        f"The {side} side of this diff, {_one_line(base_ref)} ({base_commit[:8]}), "
         "could not be read (objects_missing)"
     )
     remotes = promisor_remotes(workspace)
@@ -175,7 +175,7 @@ def _refuse_objects_missing(workspace: Path, base_ref: str, base_commit: str) ->
                 kind="command",
                 command=command,
                 why=(
-                    f"If `{_one_line(remotes[0])}` cannot supply the base's objects, "
+                    f"If `{_one_line(remotes[0])}` cannot supply the {side}'s objects, "
                     f"hydrate from `{_one_line(remote)}`, another remote this "
                     "partial clone was promised objects by, then rerun."
                 ),
@@ -488,7 +488,7 @@ def diff(
     head: str | None = typer.Option(None, "--head", help="Application comparison head ref; defaults to committed HEAD."),
     scope: str = typer.Option(".", "--scope", help="Application directory relative to the repository."),
     base_scope: str | None = typer.Option(None, "--base-scope", help="Old application directory for an explicitly selected scope move."),
-    max_python_files: int = typer.Option(1000, "--max-python-files", min=1, help="Application discovery parse bound."),
+    max_python_files: int | None = typer.Option(None, "--max-python-files", min=1, help="Application discovery parse bound."),
     json_output: bool = typer.Option(False, "--json", help="Emit the rows as JSON."),
 ) -> None:
     """Show what this change does to the agent's authority."""
@@ -499,15 +499,15 @@ def diff(
         try:
             code = run_application_diff(workspace=workspace, base=base, head=head or "HEAD",
                                         scope=scope, base_scope=base_scope,
-                                        max_python_files=max_python_files, json_output=json_output)
+                                        max_python_files=max_python_files if max_python_files is not None else 1000, json_output=json_output)
         except (ConfigError, InputParseError) as exc:
             from agents_shipgate.cli.agent_mode import emit_agent_mode_error
             typer.echo(f"Application comparison could not read its inputs: {exc}", err=True)
-            emit_agent_mode_error("input_parse_error", message=str(exc), exit_code=2)
+            emit_agent_mode_error("input_parse_error" if isinstance(exc, InputParseError) else "config_error", message=str(exc), exit_code=2)
             raise typer.Exit(2) from exc
         raise typer.Exit(code)
-    if head is not None or scope != "." or base_scope is not None:
-        raise typer.BadParameter("--head, --scope and --base-scope require --application.")
+    if head is not None or scope != "." or base_scope is not None or max_python_files is not None:
+        raise typer.BadParameter("--head, --scope, --base-scope and --max-python-files require --application.")
     raise typer.Exit(
         run_capability_diff(workspace=workspace, base=base, json_output=json_output)
     )
