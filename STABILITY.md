@@ -3824,7 +3824,9 @@ tests on every CI run, not by convention:
   - **`cli/verify/git.py`** — one shared `subprocess.run` boundary invokes
     local Git plumbing for exact base/head and working-tree orchestration,
     plus `pack-objects`, `index-pack`, and `fsck` to materialize an isolated,
-    object-ID-validated snapshot. One shared `subprocess.Popen` boundary
+    object-ID-validated snapshot, whose blobs it reads through one
+    `cat-file --batch-check` and byte-bounded `cat-file --batch` reads rather
+    than a process per blob. One shared `subprocess.Popen` boundary
     incrementally drains fixed Git diff, changed-path, attribute, inventory,
     and retained-manifest reads under hard output and wall-clock bounds. The
     bound is fail-closed: timeout, overflow, read/write failure, or an
