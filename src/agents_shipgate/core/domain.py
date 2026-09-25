@@ -689,6 +689,11 @@ class AgentBindingObservation(BaseModel):
     source: str
     source_pointer: str | None = None
     tool_names: list[str] = Field(default_factory=list)
+    #: ``tool_name -> native locator`` of the definition the reader resolved
+    #: the name to (#864). Two definitions may share a tool name in one source
+    #: — ``lookup`` in two modules, bound to two agents — and a name alone
+    #: cannot say which one this agent binds.
+    tool_locators: dict[str, str] = Field(default_factory=dict)
     handoff_names: list[str] = Field(default_factory=list)
     tools_complete: bool = True
     handoffs_complete: bool = True

@@ -21,6 +21,12 @@ from agents_shipgate.inputs.common import (
 from agents_shipgate.inputs.config_trace import trace_config_binding
 from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
+from agents_shipgate.inputs.python_imports import (
+    NOT_BOUND,
+    ImportResolver,
+    PythonModule,
+    reference_spelling,
+)
 from agents_shipgate.inputs.python_static import (
     display_path,
     dotted_name,
@@ -90,9 +96,15 @@ def load_openai_sdk_static_tools(
         raise InputParseError(
             f"OpenAI Agents SDK source must be a Python file or directory: {path}"
         )
-    binding_warnings, binding_observations, recovery_evidence = _extract_agent_bindings(
-        tools, python_files, source, base_dir
-    )
+    (
+        binding_warnings,
+        binding_observations,
+        recovery_evidence,
+        imported_tools,
+        imported_guards,
+    ) = _extract_agent_bindings(tools, python_files, source, base_dir)
+    tools = [*tools, *imported_tools]
+    guard_dependencies = [*guard_dependencies, *imported_guards]
     return LoadedToolSource(
         source_id=source.id,
         source_type="openai_agents_sdk",
@@ -166,12 +178,23 @@ def _extract_agent_bindings(
     paths: list[Path],
     source: ToolSourceConfig,
     base_dir: Path,
-) -> tuple[list[str], list[AgentBindingObservation], list[SourceRecoveryEvidence]]:
+) -> tuple[
+    list[str],
+    list[AgentBindingObservation],
+    list[SourceRecoveryEvidence],
+    list[Tool],
+    list[GuardDependencyEvidence],
+]:
     """Extract exact, local-only ``Agent(..., tools=[...])`` wiring.
 
     This intentionally resolves only literal lists, names bound to literal
-    lists, and local/imported function-tool identifiers. Dynamic expressions
-    are preserved as partial evidence instead of being guessed.
+    lists, local function tools, and names or ``module.function`` references
+    that repository-local imports lead to a ``@function_tool`` definition
+    (#864). Dynamic expressions are preserved as partial evidence instead of
+    being guessed, and an import that does not reach a definition inside the
+    read scope is named with its reason. The last two return values are the
+    function tools those imports reached outside the files this source reads,
+    and their guard evidence.
     """
 
     warnings: list[str] = []
@@ -185,10 +208,13 @@ def _extract_agent_bindings(
             if isinstance((symbol := tool.annotations.get("python_symbol")), str)
         }
     )
+    imports = _ImportedTools(tools, source, base_dir)
     for path in paths:
+        text = load_text_file(path)
         tree = parse_python_file(path, label="OpenAI Agents SDK")
         source_ref = display_path(path, base_dir)
         sdk_names = _SdkNames(tree)
+        module = imports.resolver.entry(path, tree, text)
         list_vars: dict[str, list[str] | None] = {}
         import_aliases: dict[str, str] = {}
         for node in ast.walk(tree):
@@ -199,7 +225,7 @@ def _extract_agent_bindings(
                 target = _assignment_target(node)
                 value = node.value
                 if target and isinstance(value, (ast.List, ast.Tuple)):
-                    list_vars[target] = _literal_names(value, import_aliases)
+                    list_vars[target] = _literal_references(value)
         for node in ast.walk(tree):
             if not isinstance(node, (ast.Assign, ast.AnnAssign)):
                 continue
@@ -214,11 +240,13 @@ def _extract_agent_bindings(
             ):
                 continue
             tools_expr = _keyword(call, "tools")
-            names = _resolve_name_list(tools_expr, list_vars, import_aliases)
+            references = _resolve_reference_list(tools_expr, list_vars)
             pointer = f"{source_ref}:{call.lineno}"
             issues: list[str] = []
             tools_complete = True
-            if names is None:
+            names: list[str] = []
+            locators: dict[str, str] = {}
+            if references is None:
                 reason = (
                     f"OpenAI Agents SDK agent {target!r} at {pointer} uses a "
                     "dynamic tools expression; its binding graph is incomplete."
@@ -238,21 +266,25 @@ def _extract_agent_bindings(
                     ),
                 ))
                 tools_complete = False
-                names = []
             else:
-                for name in names:
-                    if tool_by_name.get(name) is None:
+                for reference in references:
+                    tool, detail = imports.tool_for(
+                        reference, module, source_ref, tool_by_name, import_aliases
+                    )
+                    if tool is None:
                         reason = (
                             f"OpenAI Agents SDK agent {target!r} at {pointer} binds "
-                            f"unresolved tool {name!r}."
+                            f"unresolved tool {reference!r}"
+                            + (f": {detail}." if detail else ".")
                         )
                         warnings.append(reason)
                         issues.append(reason)
                         tools_complete = False
-                names = [
-                    tool_by_name[name].name if name in tool_by_name else name
-                    for name in names
-                ]
+                        names.append(import_aliases.get(reference, reference))
+                        continue
+                    names.append(tool.name)
+                    if tool.source_ref:
+                        locators[tool.name] = f"{tool.source_ref}#{tool.name}"
             handoff_names = _resolve_name_list(
                 _keyword(call, "handoffs"), list_vars, import_aliases
             )
@@ -270,13 +302,101 @@ def _extract_agent_bindings(
                     source=source_ref,
                     source_pointer=pointer,
                     tool_names=names,
+                    tool_locators=locators,
                     handoff_names=handoff_names,
                     tools_complete=tools_complete,
                     handoffs_complete=handoffs_complete,
                     issues=issues,
                 )
             )
-    return list(dict.fromkeys(warnings)), observations, recovery_evidence
+    return (
+        list(dict.fromkeys(warnings)),
+        observations,
+        recovery_evidence,
+        imports.new_tools,
+        imports.new_guards,
+    )
+
+
+class _ImportedTools:
+    """Function tools a source's ``tools=[...]`` lists reach through imports.
+
+    One per source load, so a definition two agent modules import is one tool,
+    and a definition this source already read from its own files is that tool
+    rather than a second observation of it.
+    """
+
+    def __init__(self, tools: list[Tool], source: ToolSourceConfig, base_dir: Path) -> None:
+        self.source = source
+        self.base_dir = base_dir
+        self.resolver = ImportResolver(base_dir)
+        self.by_location = {tool.source_location: tool for tool in tools}
+        self.new_tools: list[Tool] = []
+        self.new_guards: list[GuardDependencyEvidence] = []
+
+    def tool_for(
+        self,
+        reference: str,
+        module: PythonModule | None,
+        source_ref: str,
+        tool_by_name: dict[str, Tool],
+        import_aliases: dict[str, str],
+    ) -> tuple[Tool | None, str | None]:
+        """The tool ``reference`` binds, or None and why not."""
+
+        local = next(
+            (
+                tool
+                for tool in [*self.by_location.values()]
+                if tool.source_ref == source_ref
+                and tool.annotations.get("python_symbol") == reference
+            ),
+            None,
+        )
+        if local is not None:
+            return local, None
+        resolution = (
+            self.resolver.resolve(module, reference) if module is not None else None
+        )
+        if resolution is None or resolution.reason == NOT_BOUND:
+            # Not bound at module scope here — a name local to a function, or
+            # a module outside the read scope. The previous name reading holds.
+            return tool_by_name.get(import_aliases.get(reference, reference)), None
+        if not resolution.resolved:
+            return None, resolution.detail
+        node, defining = resolution.definition, resolution.module
+        assert node is not None and defining is not None
+        location = f"{defining.ref}:{node.lineno}"
+        tool = self.by_location.get(location)
+        if tool is None:
+            sdk_decorators = _function_tool_decorators(defining.tree)
+            if not _is_function_tool(node, sdk_decorators):
+                return None, (
+                    f"it resolves to {node.name!r} at {location}, which is not "
+                    "decorated with the SDK's @function_tool"
+                )
+            tool = _function_to_tool(node, self.source, defining.ref, sdk_decorators)
+            self.by_location[location] = tool
+            self.new_tools.append(tool)
+            source_sha256, within_limits = guard_module_metadata(
+                defining.tree, defining.text
+            )
+            self.new_guards.append(
+                read_guard_dependency(
+                    tree=defining.tree,
+                    source_sha256=source_sha256,
+                    source_within_limits=within_limits,
+                    path=defining.path,
+                    root=self.base_dir,
+                    tool=tool,
+                    definition=node,
+                )
+            )
+        evidence = resolution.evidence()
+        recorded = tool.extraction.setdefault("import_resolutions", [])
+        if evidence not in recorded:
+            recorded.append(evidence)
+        return tool, None
 
 
 def _literal_tool_list_concatenation(value: ast.AST | None) -> bool:
@@ -304,6 +424,32 @@ def _keyword(call: ast.Call, name: str) -> ast.AST | None:
     return next((item.value for item in call.keywords if item.arg == name), None)
 
 
+def _literal_references(value: ast.List | ast.Tuple) -> list[str] | None:
+    """``name`` / ``module.function`` spellings of a literal tool list."""
+
+    references: list[str] = []
+    for item in value.elts:
+        spelling = reference_spelling(item)
+        if spelling is None:
+            return None
+        references.append(spelling)
+    return references
+
+
+def _resolve_reference_list(
+    value: ast.AST | None, list_vars: dict[str, list[str] | None]
+) -> list[str] | None:
+    if value is None:
+        return []
+    if isinstance(value, (ast.List, ast.Tuple)):
+        return _literal_references(value)
+    if isinstance(value, ast.Name):
+        if value.id in list_vars:
+            return list_vars[value.id]
+        return [value.id]
+    return None
+
+
 def _literal_names(
     value: ast.List | ast.Tuple, aliases: dict[str, str]
 ) -> list[str] | None:
@@ -320,13 +466,18 @@ def _resolve_name_list(
     list_vars: dict[str, list[str] | None],
     aliases: dict[str, str],
 ) -> list[str] | None:
+    """Handoff names: plain names only, read through ``from`` import aliases."""
+
     if value is None:
         return []
     if isinstance(value, (ast.List, ast.Tuple)):
         return _literal_names(value, aliases)
     if isinstance(value, ast.Name):
         if value.id in list_vars:
-            return list_vars[value.id]
+            listed = list_vars[value.id]
+            if listed is None or any("." in item for item in listed):
+                return None
+            return [aliases.get(item, item) for item in listed]
         return [aliases.get(value.id, value.id)]
     return None
 
@@ -834,7 +985,9 @@ class OpenAISDKAdapter:
                 status="extracted",
                 reads=(
                     "A module-level function decorated with `@function_tool`, read "
-                    "for its name, docstring, and annotated parameters."
+                    "for its name, docstring, and annotated parameters — including "
+                    "one an agent's `tools=[...]` reaches through a "
+                    "repository-local import inside the read directory."
                 ),
                 emits=("sdk_function",),
                 ceiling="medium",

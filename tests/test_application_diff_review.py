@@ -250,16 +250,21 @@ def test_partial_clone_names_side_and_hydration(repo, filter_spec, missing_side)
 
 
 def test_imported_tool_gap_is_explicit_and_not_counted_as_complete(repo):
+    # A sibling module in the repository is now followed (#864); a module the
+    # repository does not contain is still a named gap, never a complete read.
     source = SDK.replace("TOOLS", "[lookup]")
     tool_source = source[: source.index("agent =")]
-    agent_source = 'from agents import Agent\nfrom tools import lookup, execute\nagent = Agent(name="app", tools=TOOLS)\n'
+    agent_source = 'from agents import Agent\nfrom vendor_tools import lookup, execute\nagent = Agent(name="app", tools=TOOLS)\n'
     base = commit(
         repo, {"tools.py": tool_source, "agent.py": agent_source.replace("TOOLS", "[lookup]")}
     )
     head = commit(repo, {"agent.py": agent_source.replace("TOOLS", "[lookup, execute]")})
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial"
-    assert any("unresolved tool" in reason for reason in result["head"]["limits"])
+    assert any(
+        "unresolved tool 'execute'" in reason and "vendor_tools" in reason
+        for reason in result["head"]["limits"]
+    )
     assert result["rows"] == []
     text = CliRunner().invoke(
         app, ["diff", "--application", "--workspace", str(repo), "--base", base, "--head", head]

@@ -373,9 +373,28 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
         for omission in item.omissions:
             result.gap(f"Omitted source surface: {omission}", source=source.path)
     if artifacts is not None:
+        # A tool reference the reader could not follow to a definition
+        # carries its agent and named reason beside the warning (#864): scope
+        # the gap to that agent and say why, rather than covering the file.
+        unresolved = {
+            record["warning"]: record
+            for record in artifacts.unresolved_references
+            if isinstance(record.get("warning"), str)
+        }
         for warning in artifacts.warnings:
             if warning not in attributed:
-                result.gap(warning, source=source.path)
+                record = unresolved.get(warning)
+                if record is None:
+                    result.gap(warning, source=source.path)
+                else:
+                    detail = record["detail"]
+                    result.gap(
+                        warning
+                        if detail in warning
+                        else f"{warning} Not resolved because {detail}.",
+                        source=source.path,
+                        agent=record["agent_name"],
+                    )
                 attributed.add(warning)
     result.handoff_only |= handoff_targets - constructed
     tools, warnings = _build_canonical_tools(loaded)
@@ -450,6 +469,7 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
             "output_schema": tool.output_schema,
             "signature": tool.function_signature,
             "evidence_basis": edge.provenance_kind,
+            **_import_path(tool, key[0]),
         }
     for edge in graph.handoff_edges:
         source, target = agent_keys[edge.source_agent_id], agent_keys[edge.target_agent_id]
@@ -510,11 +530,31 @@ def _reconcile_unresolved_links(base: Observations, head: Observations) -> None:
                 side.gap(f"Linked input resolves outside the tree: {link}", source=link)
 
 
+def _import_path(tool: Any, agent_source: str) -> dict[str, Any]:
+    """How the agent's module reached a definition in another module (#864).
+
+    Each step names the module read, the line of the binding followed and that
+    module's digest. Evidence, not meaning: moving an import is not a change.
+    """
+    raw = tool.extraction.get("import_resolutions")
+    if not isinstance(raw, list):
+        return {}
+    paths = [
+        item
+        for item in raw
+        if isinstance(item, dict)
+        and item.get("steps")
+        and item["steps"][0].get("path") == agent_source
+    ]
+    return {"import_path": paths} if paths else {}
+
+
 def _meaning(binding: dict[str, Any]) -> dict[str, Any]:
     return {
         k: v
         for k, v in binding.items()
-        if k not in {"binding_location", "definition", "evidence_basis", "agent_source"}
+        if k
+        not in {"binding_location", "definition", "evidence_basis", "agent_source", "import_path"}
     } | {"implementation_sha256": binding.get("definition", {}).get("implementation_sha256")}
 
 
@@ -735,6 +775,25 @@ def _published_binding(binding: dict[str, Any] | None, scope: str) -> dict[str, 
     if "definition" in result:
         result["definition"] = dict(result["definition"])
         result["definition"]["source"] = _location(scope, result["definition"]["source"])
+    if "import_path" in result:
+        result["import_path"] = [
+            {
+                **item,
+                "steps": [
+                    {**step, "path": _location(scope, step["path"])} for step in item["steps"]
+                ],
+                "inputs": [
+                    {**entry, "path": _location(scope, entry["path"])}
+                    for entry in item.get("inputs", [])
+                ],
+                **(
+                    {"definition": _location(scope, item["definition"])}
+                    if "definition" in item
+                    else {}
+                ),
+            }
+            for item in result["import_path"]
+        ]
     return result
 
 
@@ -886,6 +945,13 @@ def run_application_diff(
                         typer.echo(
                             f"    implementation: {_one_line(definition['source'])}:{definition['line']} ({str(definition['implementation_sha256'])[:12]})"
                         )
+                    for path in value.get("import_path", []):
+                        hops = " → ".join(
+                            f"{step['path']}:{step['line']}"
+                            for step in path["steps"]
+                            if step.get("line") is not None
+                        )
+                        typer.echo(f"    imported: {_one_line(hops)}")
             typer.echo(f"  {_one_line(row['why'])}")
             for side, reasons in row["uncertainty"].items():
                 for reason in reasons:
