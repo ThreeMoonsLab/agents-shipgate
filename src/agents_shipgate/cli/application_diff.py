@@ -60,6 +60,8 @@ class Observations:
     scope: str
     status: str = "complete"
     agents: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
+    # Agents known only as a handoff target: their own construction was not read.
+    handoff_only: set[tuple[str, str]] = field(default_factory=set)
     bindings: dict[tuple[str, str, str], dict[str, Any]] = field(default_factory=dict)
     limits: list[str] = field(default_factory=list)
     sources: list[dict[str, str]] = field(default_factory=list)
@@ -350,8 +352,12 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
         if artifacts is not None:
             bag.set("google_adk", artifacts)
     attributed = set()
+    constructed, handoff_targets = set(), set()
     for item in loaded:
         for observation in item.binding_observations:
+            path = _source_path(root, observation.source)
+            constructed.add((path, observation.agent))
+            handoff_targets.update((path, name) for name in observation.handoff_names)
             if not observation.tools_complete or not observation.handoffs_complete:
                 for message in observation.issues or ["Incomplete observed binding list."]:
                     result.gap(
@@ -371,6 +377,7 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
             if warning not in attributed:
                 result.gap(warning, source=source.path)
                 attributed.add(warning)
+    result.handoff_only |= handoff_targets - constructed
     tools, warnings = _build_canonical_tools(loaded)
     for warning in warnings:
         result.gap(warning, source=source.path)
@@ -643,6 +650,74 @@ def _align_exact_moves(
     ]
 
 
+def _still_named_at(root: Path, path: str, name: str) -> int | None:
+    """First line at which ``path`` still binds ``name`` or passes ``name=name``.
+
+    Those are the two agent identities the readers key on: the SDK's bound
+    variable and ADK's ``name=`` literal. An import binds as an assignment
+    does, so ``from factory import agent`` keeps the name here.
+    """
+    file = root / path
+    if not path or not file.is_file() or not file.resolve().is_relative_to(root.resolve()):
+        return None
+    try:
+        tree = ast.parse(file.read_bytes())
+    except (SyntaxError, ValueError, RecursionError, OSError):
+        return None  # observe() already recorded this file as a gap.
+    lines = [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and node.id == name
+    ] + [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for alias in node.names
+        if (alias.asname or alias.name.split(".", 1)[0]) == name
+    ] + [
+        node.value.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.keyword)
+        and node.arg == "name"
+        and isinstance(node.value, ast.Constant)
+        and node.value.value == name
+    ]
+    return min(lines, default=None)
+
+
+def _unobserved_agent_gaps(
+    old: Observations, new: Observations, base_root: Path, head_root: Path, moves: dict[str, str]
+) -> None:
+    """An agent observed on one side is absent from the other only if it is gone.
+
+    Readers see only the constructions they support. An ``Agent`` subclass
+    passing ``tools`` through ``super().__init__``, a factory, ``Agent[Ctx]``
+    or ``.clone()`` keeps the agent while hiding its wiring. When the other
+    side's file still names the agent, its bindings there are unobserved,
+    never removed or newly added. Called after ``_align_exact_moves``, so
+    ``old.bindings`` are keyed by head paths.
+    """
+    unmoves = {head: base for base, head in moves.items()}
+    old_agents = {
+        (moves.get(path, path), name) for path, name in old.agents.keys() - old.handoff_only
+    }
+    for side, root, agents, bindings, to_side in (
+        (new, head_root, new.agents.keys() - new.handoff_only, old.bindings, lambda path: path),
+        (old, base_root, old_agents, new.bindings, lambda path: unmoves.get(path, path)),
+    ):
+        for path, name in sorted({key[:2] for key in bindings} - agents):
+            line = _still_named_at(root, to_side(path), name)
+            if line is not None:
+                side.gap(
+                    f"{to_side(path)}:{line} still names agent {name!r}, but no supported "
+                    "agent construction was observed for it (for example an Agent "
+                    "subclass, factory or clone); its bindings on this side are not "
+                    "established.",
+                    source=to_side(path),
+                    agent=name,
+                )
+
+
 def _location(scope: str, path: str | None) -> str | None:
     if path is None:
         return None
@@ -741,7 +816,11 @@ def run_application_diff(
         _reconcile_submodules(old, new)
         _reconcile_unresolved_links(old, new)
         moves = _align_exact_moves(workspace, base_commit, head_commit, old, new)
-        rows = compare(old, new, target_moves={m["base_source"]: m["head_source"] for m in moves})
+        target_moves = {m["base_source"]: m["head_source"] for m in moves}
+        _unobserved_agent_gaps(
+            old, new, scratch / "base" / old_scope, scratch / "head" / scope, target_moves
+        )
+        rows = compare(old, new, target_moves=target_moves)
         for row in rows:
             row["before"] = _published_binding(row["before"], old_scope)
             row["after"] = _published_binding(row["after"], scope)
