@@ -524,10 +524,11 @@ def _align_exact_moves(
 
 
 def _still_named_at(root: Path, path: str, name: str) -> int | None:
-    """First line at which ``path`` still assigns ``name`` or passes ``name=name``.
+    """First line at which ``path`` still binds ``name`` or passes ``name=name``.
 
-    Those are the two agent identities the readers key on: the SDK's assigned
-    variable and ADK's ``name=`` literal.
+    Those are the two agent identities the readers key on: the SDK's bound
+    variable and ADK's ``name=`` literal. An import binds as an assignment
+    does, so ``from factory import agent`` keeps the name here.
     """
     file = root / path
     if not path or not file.is_file() or not file.resolve().is_relative_to(root.resolve()):
@@ -540,6 +541,12 @@ def _still_named_at(root: Path, path: str, name: str) -> int | None:
         node.lineno
         for node in ast.walk(tree)
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and node.id == name
+    ] + [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for alias in node.names
+        if (alias.asname or alias.name.split(".", 1)[0]) == name
     ] + [
         node.value.lineno
         for node in ast.walk(tree)

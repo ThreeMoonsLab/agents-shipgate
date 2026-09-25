@@ -147,9 +147,9 @@ def _load_python_file(
         )
         raise InputParseError(message) from exc
     ref = display_path(path, base_dir)
-    decorator_names = _function_tool_decorator_names(tree)
-    definitions = [node for node in ast.walk(tree) if _is_function_tool(node, decorator_names)]
-    tools = [_function_to_tool(node, source, ref, decorator_names) for node in definitions]
+    sdk_decorators = _function_tool_decorators(tree)
+    definitions = [node for node in ast.walk(tree) if _is_function_tool(node, sdk_decorators)]
+    tools = [_function_to_tool(node, source, ref, sdk_decorators) for node in definitions]
     source_sha256, source_within_limits = guard_module_metadata(tree, source_text)
     guards = [
         read_guard_dependency(
@@ -209,7 +209,7 @@ def _extract_agent_bindings(
                 not target
                 or call is None
                 or not sdk_names.denotes(
-                    dotted_name(call.func), "Agent", DEFAULT_AGENT_CONSTRUCTORS
+                    dotted_name(call.func), call, "Agent", DEFAULT_AGENT_CONSTRUCTORS
                 )
             ):
                 continue
@@ -331,46 +331,119 @@ def _resolve_name_list(
     return None
 
 
+_SCOPE_NODES = (
+    ast.FunctionDef,
+    ast.AsyncFunctionDef,
+    ast.Lambda,
+    ast.ClassDef,
+    ast.ListComp,
+    ast.SetComp,
+    ast.DictComp,
+    ast.GeneratorExp,
+)
+
+
 class _SdkNames:
-    """Which spellings in one module denote the SDK's own symbols.
+    """Which spellings, where they are used, denote the SDK's own symbols.
 
     ``livekit.agents`` also exports ``Agent`` and ``function_tool``, so the
-    spelling alone proves nothing. A spelling's head decides: imported from
-    the absolute ``agents``/``openai_agents`` package, it is the SDK's; not
-    imported at all, the default spellings keep their terminal-name reading
-    unless a wildcard from another module could supply them; imported only
-    from anywhere else — ``livekit.agents``, a relative ``.agents`` — it is
-    another library's symbol and never read as the SDK's.
+    spelling alone proves nothing. A spelling's head is resolved where Python
+    resolves it: the nearest enclosing scope that binds it, with class bodies
+    skipped from code nested inside them and ``global``/``nonlocal`` obeyed,
+    so an import in a sibling function never decides this use. If that scope
+    imports the head, every import there must come from the absolute
+    ``agents``/``openai_agents`` package; if it binds the head only otherwise
+    (a parameter, an assignment, a local ``def``), it is not the SDK's. A head
+    no scope binds keeps the default spellings' terminal-name reading, unless
+    a wildcard from another module could supply it.
     """
 
     def __init__(self, tree: ast.Module) -> None:
-        self.origins: dict[str, set[str]] = {}
+        self.module = tree
+        self.scope_of: dict[int, ast.AST] = {}
+        self.parent: dict[int, ast.AST | None] = {id(tree): None}
+        self.bindings: dict[int, dict[str, list[str | None]]] = {}
+        self.declared: dict[int, dict[str, str]] = {}
         self.foreign_wildcard = False
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom):
+        # Decorators, defaults, class bases and a comprehension's first
+        # iterable are evaluated in the scope that encloses their owner.
+        enclosing: dict[int, ast.AST] = {}
+        stack: list[tuple[ast.AST, ast.AST]] = [(tree, tree)]
+        while stack:
+            node, scope = stack.pop()
+            scope = enclosing.get(id(node), scope)
+            self.scope_of[id(node)] = scope
+            inner = scope
+            if isinstance(node, _SCOPE_NODES):
+                self.parent[id(node)] = scope
+                inner = node
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    self._bind(scope, node.name)
+                if isinstance(node, ast.ClassDef):
+                    outer = [*node.decorator_list, *node.bases, *node.keywords]
+                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                    outer = [
+                        *getattr(node, "decorator_list", []),
+                        *node.args.defaults,
+                        *(default for default in node.args.kw_defaults if default),
+                    ]
+                else:
+                    outer = [node.generators[0].iter]
+                enclosing.update((id(item), scope) for item in outer)
+            elif isinstance(node, ast.ImportFrom):
                 module = "." * node.level + (node.module or "")
                 for alias in node.names:
-                    path = f"{module}.{alias.name}" if node.module else module + alias.name
                     if alias.name == "*":
                         self.foreign_wildcard |= not _is_sdk_path(module)
                     else:
-                        self.origins.setdefault(alias.asname or alias.name, set()).add(path)
+                        path = f"{module}.{alias.name}" if node.module else module + alias.name
+                        self._bind(scope, alias.asname or alias.name, path)
             elif isinstance(node, ast.Import):
                 for alias in node.names:
                     head = alias.name.split(".", 1)[0]
                     bound, path = (alias.asname, alias.name) if alias.asname else (head, head)
-                    self.origins.setdefault(bound, set()).add(path)
+                    self._bind(scope, bound, path)
+            elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+                self._bind(scope, node.id)
+            elif isinstance(node, ast.arg):
+                self._bind(scope, node.arg)
+            elif isinstance(node, ast.ExceptHandler) and node.name:
+                self._bind(scope, node.name)
+            elif isinstance(node, (ast.Global, ast.Nonlocal)):
+                kind = "global" if isinstance(node, ast.Global) else "nonlocal"
+                self.declared.setdefault(id(scope), {}).update(dict.fromkeys(node.names, kind))
+            stack.extend((child, inner) for child in ast.iter_child_nodes(node))
 
-    def denotes(self, spelling: str | None, symbol: str, defaults: frozenset[str]) -> bool:
+    def _bind(self, scope: ast.AST, name: str, path: str | None = None) -> None:
+        self.bindings.setdefault(id(scope), {}).setdefault(name, []).append(path)
+
+    def _resolve(self, name: str, node: ast.AST) -> list[str | None] | None:
+        scope: ast.AST | None = self.scope_of.get(id(node), self.module)
+        start = scope
+        while scope is not None:
+            declared = self.declared.get(id(scope), {}).get(name)
+            if declared == "global":
+                return self.bindings.get(id(self.module), {}).get(name)
+            if declared is None and (scope is start or not isinstance(scope, ast.ClassDef)):
+                bound = self.bindings.get(id(scope), {}).get(name)
+                if bound is not None:
+                    return bound
+            scope = self.parent.get(id(scope))
+        return None
+
+    def denotes(
+        self, spelling: str | None, node: ast.AST, symbol: str, defaults: frozenset[str]
+    ) -> bool:
         if not spelling:
             return False
         head, _, rest = spelling.partition(".")
-        origins = self.origins.get(head)
-        if origins is None:
+        bound = self._resolve(head, node)
+        if bound is None:
             return spelling in defaults and not self.foreign_wildcard
-        return any(
+        paths = [path for path in bound if path is not None]
+        return bool(paths) and all(
             _is_sdk_path(path) and (f"{path}.{rest}" if rest else path).rsplit(".", 1)[-1] == symbol
-            for path in origins
+            for path in paths
         )
 
 
@@ -378,26 +451,28 @@ def _is_sdk_path(path: str) -> bool:
     return not path.startswith(".") and path.split(".", 1)[0] in SDK_MODULES
 
 
-def _function_tool_decorator_names(tree: ast.Module) -> set[str]:
+def _function_tool_decorators(tree: ast.Module) -> set[int]:
+    """The decorator nodes that are the SDK's ``function_tool``, by identity.
+
+    Decided per node, not per spelling: the same ``@function_tool`` may be the
+    SDK's in one function and LiveKit's in its sibling.
+    """
     names = _SdkNames(tree)
-    spellings = set()
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            for decorator in node.decorator_list:
-                spelling = _decorator_name(decorator)
-                if names.denotes(spelling, "function_tool", DEFAULT_FUNCTION_TOOL_DECORATORS):
-                    spellings.add(spelling)
-    return spellings
+    return {
+        id(decorator)
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        for decorator in node.decorator_list
+        if names.denotes(
+            _decorator_name(decorator), decorator, "function_tool", DEFAULT_FUNCTION_TOOL_DECORATORS
+        )
+    }
 
 
-def _is_function_tool(node: ast.AST, decorator_names: set[str]) -> bool:
+def _is_function_tool(node: ast.AST, sdk_decorators: set[int]) -> bool:
     if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
         return False
-    for decorator in node.decorator_list:
-        name = _decorator_name(decorator)
-        if name in decorator_names:
-            return True
-    return False
+    return any(id(decorator) in sdk_decorators for decorator in node.decorator_list)
 
 
 def _decorator_name(decorator: ast.AST) -> str | None:
@@ -410,11 +485,11 @@ def _function_to_tool(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     source: ToolSourceConfig,
     source_ref: str,
-    decorator_names: set[str],
+    sdk_decorators: set[int],
 ) -> Tool:
-    tool_name = _tool_name(node, decorator_names)
+    tool_name = _tool_name(node, sdk_decorators)
     input_schema, parameters = function_input_schema(node)
-    description = _description(node, decorator_names) or ast.get_docstring(node)
+    description = _description(node, sdk_decorators) or ast.get_docstring(node)
     return Tool(
         id=stable_tool_id(tool_name),
         name=tool_name,
@@ -434,24 +509,24 @@ def _function_to_tool(
     )
 
 
-def _tool_name(node: ast.FunctionDef | ast.AsyncFunctionDef, decorator_names: set[str]) -> str:
-    return _decorator_kwarg_string(node, decorator_names, "name_override") or node.name
+def _tool_name(node: ast.FunctionDef | ast.AsyncFunctionDef, sdk_decorators: set[int]) -> str:
+    return _decorator_kwarg_string(node, sdk_decorators, "name_override") or node.name
 
 
 def _description(
-    node: ast.FunctionDef | ast.AsyncFunctionDef, decorator_names: set[str]
+    node: ast.FunctionDef | ast.AsyncFunctionDef, sdk_decorators: set[int]
 ) -> str | None:
-    return _decorator_kwarg_string(node, decorator_names, "description_override")
+    return _decorator_kwarg_string(node, sdk_decorators, "description_override")
 
 
 def _decorator_kwarg_string(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
-    decorator_names: set[str],
+    sdk_decorators: set[int],
     kwarg_name: str,
 ) -> str | None:
     for decorator in node.decorator_list:
         call = decorator if isinstance(decorator, ast.Call) else None
-        if not call or _decorator_name(call.func) not in decorator_names:
+        if not call or id(call) not in sdk_decorators:
             continue
         for keyword in call.keywords:
             if keyword.arg != kwarg_name or not isinstance(keyword.value, ast.Constant):

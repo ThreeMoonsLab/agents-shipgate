@@ -123,6 +123,67 @@ def test_sdk_tools_beside_a_livekit_agent_keep_their_own_identity(tmp_path):
     assert [(o.agent, o.tool_names) for o in loaded.binding_observations] == [("agent", ["lookup"])]
 
 
+FACTORY = '''def {name}():
+    from {module} import Agent as Builder, function_tool
+
+    @function_tool
+    def {name}_tool(query: str) -> str:
+        return query
+
+    {name}_agent = Builder(name="{name}", tools=[{name}_tool])
+    return {name}_agent
+'''
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        # PR #873 review: an import in a sibling function decided identity.
+        FACTORY.format(name="sdk", module="agents")
+        + "\n\n"
+        + FACTORY.format(name="voice", module="livekit.agents"),
+        # A function's own import shadows the module's SDK import.
+        "from agents import Agent as Builder, function_tool\n\n\n"
+        + FACTORY.format(name="voice", module="livekit.agents")
+        + "\n\n@function_tool\ndef sdk_tool(query: str) -> str:\n    return query\n"
+        + 'sdk_agent = Builder(name="sdk", tools=[sdk_tool])\n',
+    ],
+    ids=["sibling-function-import", "inner-import-shadows-module"],
+)
+def test_import_provenance_is_resolved_in_the_enclosing_scope(tmp_path, source):
+    (tmp_path / "main.py").write_text(source)
+    loaded = load_openai_sdk_static_tools(
+        ToolSourceConfig(id="sdk", type="openai_agents_sdk", path="main.py"), None, tmp_path
+    )
+    assert [t.name for t in loaded.tools] == ["sdk_tool"]
+    assert [(o.agent, o.tool_names) for o in loaded.binding_observations] == [
+        ("sdk_agent", ["sdk_tool"])
+    ]
+    assert loaded.warnings == []
+
+
+@pytest.mark.parametrize("spelling", ["agent", "exported as agent"])
+def test_import_bound_agent_name_is_not_a_removal(repo, spelling):
+    # PR #873 review: the head module still binds `agent`, through an import
+    # of an unsupported factory's result, so absence is not established.
+    exported = spelling.split()[0]
+    base = commit(repo, {"agent.py": SDK.replace("TOOLS", "[lookup]")})
+    factory = SDK.replace(
+        'agent = Agent(name="assistant", tools=TOOLS)',
+        f'def build():\n    return Agent(name="assistant", tools=[lookup])\n{exported} = build()',
+    )
+    head = commit(
+        repo,
+        {"agent_factory.py": factory, "agent.py": f"from agent_factory import {spelling}\n"},
+    )
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert [
+        (r["agent"], r["tool"], r["change"], r["candidate_change"]) for r in result["rows"]
+    ] == [("agent", "lookup", "not_established", "removed")]
+    assert list(result["rows"][0]["uncertainty"]) == ["head"]
+
+
 @pytest.mark.parametrize("construction", sorted(UNREAD_CONSTRUCTIONS))
 def test_unread_head_construction_is_not_a_removal(repo, construction):
     base = commit(repo, {"agent.py": SDK.replace("TOOLS", "[lookup, execute]")})
