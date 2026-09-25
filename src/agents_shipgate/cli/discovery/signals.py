@@ -936,7 +936,9 @@ def _parse_python_facts(path: Path, workspace: Path) -> _PyFacts | None:
                     alias.name if alias.asname else alias.name.split(".")[0]
                 )
         elif isinstance(node, ast.ImportFrom):
-            if node.module:
+            # `from .agents import x` names this project's own package, never
+            # an installed framework, so only absolute imports are signals.
+            if node.module and not node.level:
                 facts.imports.add(node.module)
                 for alias in node.names:
                     facts.imports.add(f"{node.module}.{alias.name}")
@@ -1685,11 +1687,40 @@ def _score_python_signals_inner(
             2.0, "strong", f"{fact.rel_path}: openai-agents import"
         )
         scores["openai_agents_sdk"].add_file(fact.rel_path)
-    if fact.decorators & OPENAI_AGENTS_SDK_DECORATORS:
+    if any(
+        _sdk_spelling(fact, decorator)
+        for decorator in fact.decorators & OPENAI_AGENTS_SDK_DECORATORS
+    ):
         scores["openai_agents_sdk"].add(
             2.0, "strong", f"{fact.rel_path}: @function_tool decorator"
         )
         scores["openai_agents_sdk"].add_file(fact.rel_path)
+
+
+def _sdk_spelling(fact: _PyFacts, spelling: str) -> bool:
+    """Whether an SDK-shaped decorator spelling denotes the SDK's own.
+
+    LiveKit exports ``function_tool`` from ``livekit.agents`` too, so the
+    spelling alone proves nothing. Its head decides: imported from the
+    absolute ``agents``/``openai_agents`` package, or not imported at all
+    (the terminal-name reading, unless a wildcard could supply it), it is the
+    SDK's; imported only from anywhere else — ``livekit.agents``, a relative
+    ``.agents`` — it is not.
+    """
+    head = spelling.split(".", 1)[0]
+    origins = [
+        (module, level)
+        for (_scope, bound), (module, level, _original) in fact.constant_imports.items()
+        if bound == head
+    ]
+    if head in fact.plain_imports:
+        origins.append((fact.plain_imports[head], 0))
+    if not origins:
+        return not fact.star_import
+    return any(
+        not level and module.split(".", 1)[0] in OPENAI_AGENTS_SDK_IMPORT_MODULES
+        for module, level in origins
+    )
 
 
 def _collect_package_tokens(workspace: Path) -> list[str]:

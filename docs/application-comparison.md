@@ -66,6 +66,21 @@ artifact from the existing host diff JSON and verifier receipt.
 - `not_established`: neither side established a supported application agent.
 - Exit 2: refs/materialization/input could not be read. This is not no change.
 
+An agent one side observes is absent from the other only when that side's
+file no longer names it. If the file still assigns or imports the agent's name
+(`from factory import agent`), or passes it as `name=`, through a construction the reader does not support (an `Agent`
+subclass passing `tools` through `super().__init__`, a factory,
+`Agent[Context](...)`, `.clone()`), that side records a gap for the agent and
+its rows are `not_established`, never `removed` or `added`. An agent referenced
+only in another agent's `handoffs` is not an observed construction.
+
+Framework identity follows the import, not the spelling. `Agent` and
+`function_tool` are the OpenAI Agents SDK's only when imported from the absolute
+`agents`/`openai_agents` package or not imported at all, resolved in the scope
+that uses them, so an import in another function does not decide it; LiveKit's
+`livekit.agents` exports the same names and is not read as the SDK, and a
+relative `.agents` import is the project's own package.
+
 Discovery is bounded by `--max-python-files` (default 1000) and a 2 MB per-Python
 file limit. Partial discovery remains visible. The first increment uses existing
 SDK/ADK readers; unresolved imports, dynamic factories and built-ins remain
