@@ -1,6 +1,7 @@
 """Review regressions: scoped uncertainty, definition identity and usable recovery."""
 
 import json
+import re
 
 import pytest
 from test_application_diff import SDK, commit, git, run
@@ -184,10 +185,12 @@ def test_misspelled_scope_is_an_input_error(repo):
 def test_explicit_application_bound_requires_application_mode(repo, bound):
     ref = commit(repo, {"README.md": "x"})
     result = CliRunner().invoke(
-        app, ["diff", "--workspace", str(repo), "--base", ref, "--max-python-files", bound]
+        app, ["diff", "--workspace", str(repo), "--base", ref, "--max-python-files", bound],
+        env={"FORCE_COLOR": "1"},
     )
     assert result.exit_code == 2
-    assert "--application" in result.output and "--max-python-files" in result.output
+    output = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", result.output)
+    assert "--application" in output and "--max-python-files" in output
 
 
 def test_redacted_comparison_identity_is_recomputable(repo, monkeypatch):
