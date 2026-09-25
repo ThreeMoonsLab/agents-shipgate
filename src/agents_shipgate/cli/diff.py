@@ -47,7 +47,7 @@ from agents_shipgate.core.host_grants import (
 DIFF_SCHEMA_VERSION = "0.4"
 
 
-def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
+def _resolve_base(workspace: Path, base: str | None, head: str = "HEAD") -> tuple[str, str]:
     """The base ref and the merge-base commit this diff compares against."""
 
     from agents_shipgate.cli.verify.git import (
@@ -92,7 +92,7 @@ def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
     # remote is the authority it might be stale against, and used only where
     # the repository has no remote at all.
     requested = base or detect_default_base(
-        workspace, "HEAD", allow_local_when_no_remote=True, allow_equal_head=True
+        workspace, head, allow_local_when_no_remote=True, allow_equal_head=True
     )
     if requested is None:
         raise typer.BadParameter(
@@ -110,12 +110,12 @@ def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
             "this command never fetches.",
             param_hint="--base",
         )
-    resolved = merge_base_sha(workspace, requested, "HEAD")
+    resolved = merge_base_sha(workspace, requested, head)
     if resolved is None:
         if truncated:
             refuse_shallow()
         raise typer.BadParameter(
-            f"No merge base between {requested!r} and HEAD, so there is no "
+            f"No merge base between {requested!r} and {head}, so there is no "
             "common point to compare from.",
             param_hint="--base",
         )
@@ -127,7 +127,7 @@ def _resolve_base(workspace: Path, base: str | None) -> tuple[str, str]:
         # remaining root may be a graft hiding a better common ancestor.
         # HEAD/self and fully visible paths to the candidate remain usable.
         base_commit = commit_sha(workspace, requested)
-        head_commit = commit_sha(workspace, "HEAD")
+        head_commit = commit_sha(workspace, head)
         if base_commit is None or head_commit is None:
             refuse_shallow()
         if not shallow_merge_base_is_proven(workspace, base_commit, head_commit, resolved):
@@ -484,10 +484,30 @@ def diff(
             "comparison runs from its merge base with HEAD."
         ),
     ),
+    application: bool = typer.Option(False, "--application", help="Compare source-observed application agent wiring without setup (SDK/ADK)."),
+    head: str | None = typer.Option(None, "--head", help="Application comparison head ref; defaults to committed HEAD."),
+    scope: str = typer.Option(".", "--scope", help="Application directory relative to the repository."),
+    base_scope: str | None = typer.Option(None, "--base-scope", help="Old application directory for an explicitly selected scope move."),
+    max_python_files: int = typer.Option(1000, "--max-python-files", min=1, help="Application discovery parse bound."),
     json_output: bool = typer.Option(False, "--json", help="Emit the rows as JSON."),
 ) -> None:
     """Show what this change does to the agent's authority."""
 
+    if application:
+        from agents_shipgate.cli.application_diff import run_application_diff
+        from agents_shipgate.core.errors import ConfigError, InputParseError
+        try:
+            code = run_application_diff(workspace=workspace, base=base, head=head or "HEAD",
+                                        scope=scope, base_scope=base_scope,
+                                        max_python_files=max_python_files, json_output=json_output)
+        except (ConfigError, InputParseError) as exc:
+            from agents_shipgate.cli.agent_mode import emit_agent_mode_error
+            typer.echo(f"Application comparison could not read its inputs: {exc}", err=True)
+            emit_agent_mode_error("input_parse_error", message=str(exc), exit_code=2)
+            raise typer.Exit(2) from exc
+        raise typer.Exit(code)
+    if head is not None or scope != "." or base_scope is not None:
+        raise typer.BadParameter("--head, --scope and --base-scope require --application.")
     raise typer.Exit(
         run_capability_diff(workspace=workspace, base=base, json_output=json_output)
     )

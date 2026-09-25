@@ -321,13 +321,18 @@ def _attach_remote_bindings(
 
 
 def load_google_adk_artifacts(
-    manifest: AgentsShipgateManifest,
+    manifest: AgentsShipgateManifest | None,
     base_dir: Path,
+    *,
+    sources: list[ToolSourceConfig] | None = None,
 ) -> tuple[list[LoadedToolSource], GoogleAdkArtifacts | None]:
+    # Discovery supplies source locations only; it makes no manifest claims.
     source_refs = [
-        source for source in manifest.tool_sources if source.type == "google_adk"
+        source for source in (sources if sources is not None else
+                              manifest.tool_sources if manifest is not None else [])
+        if source.type == "google_adk"
     ]
-    config = manifest.google_adk
+    config = manifest.google_adk if manifest is not None else None
     if not source_refs and (config is None or not config.has_inputs()):
         return [], None
 

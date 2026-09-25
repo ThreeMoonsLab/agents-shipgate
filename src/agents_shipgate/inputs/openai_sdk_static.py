@@ -46,9 +46,9 @@ DEFAULT_FUNCTION_TOOL_DECORATORS = frozenset(
 
 
 def load_openai_sdk_static_tools(
-    source: ToolSourceConfig, manifest: AgentsShipgateManifest, base_dir: Path
+    source: ToolSourceConfig, manifest: AgentsShipgateManifest | None, base_dir: Path
 ) -> LoadedToolSource:
-    entrypoint = source.path or (manifest.agent.sdk.entrypoint if manifest.agent.sdk else None)
+    entrypoint = source.path or (manifest.agent.sdk.entrypoint if manifest is not None and manifest.agent.sdk else None)
     if not entrypoint:
         return LoadedToolSource(
             source_id=source.id,
