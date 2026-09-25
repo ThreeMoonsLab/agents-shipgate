@@ -57,7 +57,9 @@ requested and compared refs/tree IDs, per-side scope/coverage, rows, source
 correspondence, and a deterministic `comparison_id`. This is a separate advisory
 artifact from the existing host diff JSON and verifier receipt.
 
-- `compared`: the selected supported source observations were compared.
+- `compared`: the selected supported source observations were compared. An
+  unchanged submodule may still be named in `limits` (see below); it cannot
+  carry a change, so it does not make the comparison `partial`.
 - `partial`: a parse/discovery/binding gap remains. Gaps identify their source
   and agent where known. Only affected candidates become `change: not_established`
   rows, carrying `candidate_change` and per-side `uncertainty`; independent known
@@ -91,7 +93,35 @@ object with that key removed, encoded as UTF-8 JSON with sorted keys,
 `separators=(",", ":")` and `ensure_ascii=True`; readers can recompute it.
 
 Each side materializes only its selected scope through the existing verified
-Git materializer, which retains symlinks and containment checks. Partial clones
+Git materializer, which retains symlinks and containment checks. The default
+root scope goes through the same scoped materializer, so it packs the tree
+rather than the history.
+
+### Links and submodules
+
+A symlink anywhere in the tree is recreated as the link it is, never refused
+and never followed by the comparison. Python discovery does not walk through a
+link, here or in a checkout, so a link that is not a Python input changes
+nothing: `CLAUDE.md -> AGENTS.md`, a linked `.claude/skills/…` directory, or a
+`VERSION` link that leaves the repository reads as it would without the link.
+A Python file that is a link is never read through. When its target is a
+Python input the scope already reads, that file is compared at its own path;
+a link whose target leaves the scope is outside discovery, as in a checkout;
+any other target is a coverage gap over the link's own path
+(`Linked Python input: tools.py`). A selected scope that is itself a link is
+refused (exit 2).
+
+A submodule's content is in another repository. The comparison never fetches
+it and materializes its gitlink as the empty directory a checkout without
+`--recurse-submodules` leaves. The same gitlink commit on both sides is the
+same content, so it is named in both sides' `limits` —
+`Submodule content is not read (unchanged commit 85b71d7ecd4f): vendor/core` —
+and nothing more. An added, removed or moved gitlink is a coverage gap over its
+path on each side that has it, so the comparison is `partial`, and a binding
+the other side holds at that path is `not_established` rather than added or
+removed.
+
+Partial clones
 with unfetched objects exit 2 with `objects_missing`, name the affected side,
 and provide the existing `git fetch --refetch --no-filter <remote>` recovery.
 The comparison never runs that fetch. Other configuration/materialization errors

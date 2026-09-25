@@ -63,6 +63,8 @@ class Observations:
     limits: list[str] = field(default_factory=list)
     sources: list[dict[str, str]] = field(default_factory=list)
     coverage_gaps: list[dict[str, Any]] = field(default_factory=list)
+    #: Unpopulated submodules under the scope, by scope-relative path.
+    submodules: dict[str, str] = field(default_factory=dict)
 
     def gap(
         self,
@@ -183,8 +185,21 @@ def _definition(root: Path, tool: Any) -> dict[str, Any]:
     }
 
 
-def observe(tree: Path, scope: str, *, max_python_files: int) -> Observations:
+def observe(
+    tree: Path,
+    scope: str,
+    *,
+    max_python_files: int,
+    gitlinks: dict[str, str] | None = None,
+) -> Observations:
     result = Observations(scope)
+    for path, commit in (gitlinks or {}).items():
+        # A gitlink outside the scope arrived with an in-scope link's target,
+        # which discovery never walks into; it is not this scope's to name.
+        if scope == ".":
+            result.submodules[path] = commit
+        elif PurePosixPath(path).is_relative_to(scope):
+            result.submodules[PurePosixPath(path).relative_to(scope).as_posix()] = commit
     root = tree / scope
     if root.is_symlink():
         raise ConfigError(f"Application scope is not a regular directory: {scope}")
@@ -207,11 +222,20 @@ def observe(tree: Path, scope: str, *, max_python_files: int) -> Observations:
     if result.limits:
         result.status = "partial"
         return result
+    # A Python input that is a link is never read through. When its target is a
+    # Python input this scope already reads, it is compared at its own path, so
+    # the link adds nothing; reading it again made one agent two ambiguous ones
+    # and hid that file's changes. Any other target is named as a gap below.
+    linked = {p.relative_to(root).as_posix(): p for p in python_files if p.is_symlink()}
+    read_directly = {p.resolve() for p in python_files if not p.is_symlink()}
     detected = detect_workspace(root, max_python_files=max_python_files)
     if detected.python_parse_truncated:
         result.gap(f"Python discovery truncated at {max_python_files} files.")
-    for path in detected.host_discovery_incomplete_paths:
-        result.gap(f"Discovery could not read {path}.", source=path)
+    # `detected.host_discovery_incomplete_paths` is deliberately not a gap. It
+    # is the host-configuration census, which counts every link that could
+    # conceal a host path. Python discovery never walks through a link, here
+    # or in a checkout, so `CLAUDE.md -> AGENTS.md` or a linked skill directory
+    # hides no application source; a linked Python input is named below.
     for item in detected.excluded_sources:
         result.gap(f"Excluded candidate: {item}", source=item.get("path"))
     # Discovery omits malformed Python; preserve that gap rather than an empty
@@ -219,11 +243,10 @@ def observe(tree: Path, scope: str, *, max_python_files: int) -> Observations:
     if len(python_files) > max_python_files:
         result.gap(f"Python input census exceeds {max_python_files} files.")
     for file in python_files[:max_python_files]:
-        if file.is_symlink():
-            result.gap(
-                f"Linked Python input: {file.relative_to(root)}",
-                source=file.relative_to(root).as_posix(),
-            )
+        relative = file.relative_to(root).as_posix()
+        if relative in linked:
+            if _resolved(file) not in read_directly:
+                result.gap(f"Linked Python input: {relative}", source=relative)
             continue
         try:
             ast.parse(file.read_bytes())
@@ -240,7 +263,13 @@ def observe(tree: Path, scope: str, *, max_python_files: int) -> Observations:
                     source=path,
                 )
     entries = sorted(
-        {(f.type, p) for f in detected.frameworks if f.type in SUPPORTED for p in f.candidate_files}
+        {
+            (f.type, p)
+            for f in detected.frameworks
+            if f.type in SUPPORTED
+            for p in f.candidate_files
+            if p not in linked
+        }
     )
     sources = [
         ToolSourceConfig(id=f"{kind}:{path}", type=kind, path=path) for kind, path in entries
@@ -249,6 +278,13 @@ def observe(tree: Path, scope: str, *, max_python_files: int) -> Observations:
     for source in sources:
         _observe_source(result, root, source)
     return result
+
+
+def _resolved(path: Path) -> Path | None:
+    try:
+        return path.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return None
 
 
 def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) -> None:
@@ -374,6 +410,31 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
             "binding_location": edge.source_pointer,
             "evidence_basis": edge.provenance_kind,
         }
+
+
+def _reconcile_submodules(base: Observations, head: Observations) -> None:
+    """Name each submodule the comparison did not read, by what it can hide.
+
+    Discovery never reads into a submodule; a checkout without
+    ``--recurse-submodules`` leaves an empty directory, and so does the
+    materializer. The same gitlink commit on both sides is the same content, so
+    it cannot carry a change: it is named as a limit and nothing more. Any
+    other gitlink is a gap over its own path on each side that has it.
+    """
+
+    for path in sorted(base.submodules.keys() | head.submodules.keys()):
+        before, after = base.submodules.get(path), head.submodules.get(path)
+        if before == after:
+            message = f"Submodule content is not read (unchanged commit {before[:12]}): {path}"
+            base.limits.append(message)
+            head.limits.append(message)
+            continue
+        for side, commit in ((base, before), (head, after)):
+            if commit is not None:
+                side.gap(
+                    f"Submodule content is not read (commit {commit[:12]}): {path}",
+                    source=path,
+                )
 
 
 def _meaning(binding: dict[str, Any]) -> dict[str, Any]:
@@ -575,30 +636,43 @@ def run_application_diff(
     engine = build_engine_requirement(plugins_enabled=False).model_dump(mode="json")
     with tempfile.TemporaryDirectory(prefix="shipgate-application-diff-") as raw:
         scratch = Path(raw)
+        gitlinks: dict[str, dict[str, str]] = {}
         for side, ref, commit, selected_scope in (
             ("base", base_ref, base_commit, old_scope),
             ("head", head, head_commit, scope),
         ):
 
             def in_scope(path: str, selected: str = selected_scope) -> bool:
-                return path == selected or path.startswith(selected + "/")
+                return (
+                    selected == "." or path == selected or path.startswith(selected + "/")
+                )
 
+            # Always scoped, the root included: the scoped materializer
+            # recreates links rather than refusing them, so an unrelated
+            # `CLAUDE.md -> AGENTS.md` meets the reader as the link it is, and
+            # the reader decides what it would follow. It also packs the tree
+            # instead of walking history.
             try:
-                archive_fetched_tree(
-                    workspace,
-                    commit,
-                    scratch / side,
-                    scope=None if selected_scope == "." else in_scope,
+                gitlinks[side] = archive_fetched_tree(
+                    workspace, commit, scratch / side, scope=in_scope, record_gitlinks=True
                 )
             except PromisedObjectsMissingError:
                 _refuse_objects_missing(workspace, ref, commit, side=side)
-        old = observe(scratch / "base", old_scope, max_python_files=max_python_files)
-        new = observe(scratch / "head", scope, max_python_files=max_python_files)
+        old = observe(
+            scratch / "base",
+            old_scope,
+            max_python_files=max_python_files,
+            gitlinks=gitlinks["base"],
+        )
+        new = observe(
+            scratch / "head", scope, max_python_files=max_python_files, gitlinks=gitlinks["head"]
+        )
         if old.status == new.status == "absent":
             raise ConfigError(
                 f"Neither comparison tree contains the selected scopes: "
                 f"base={old_scope!r}, head={scope!r}. Check --scope/--base-scope."
             )
+        _reconcile_submodules(old, new)
         moves = _align_exact_moves(workspace, base_commit, head_commit, old, new)
         rows = compare(old, new, target_moves={m["base_source"]: m["head_source"] for m in moves})
         for row in rows:
