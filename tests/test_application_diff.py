@@ -226,15 +226,21 @@ def test_application_code_is_never_executed(repo):
     assert not marker.exists()
 
 
-def test_gitlink_refusal_is_not_a_successful_comparison(repo):
+def test_gitlink_is_not_a_successful_comparison(repo):
+    # The submodule's content is in another repository. It is named as an
+    # unread gap over its own path rather than refusing the comparison, and
+    # never read as an empty directory that proves no change (#871 follow-up).
     base = commit(repo, {'agent.py': SDK.replace('TOOLS', '[]')})
     git(repo, 'update-index', '--add', '--cacheinfo', f'160000,{base},external')
     git(repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
         '-c', 'commit.gpgsign=false', 'commit', '-qm', 'gitlink')
-    result = CliRunner().invoke(app, ['diff', '--application', '--workspace', str(repo),
-                                     '--base', base, '--head', 'HEAD', '--json'])
-    assert result.exit_code == 2
-    assert '160000' in result.output
+    result = run(repo, base, 'HEAD')
+    assert result['comparison_status'] == 'partial'
+    assert [(g['source'], g['reason']) for g in result['head']['coverage_gaps']] == [
+        ('external', f'Submodule content is not read (commit {base[:12]}): external')]
+    text = CliRunner().invoke(app, ['diff', '--application', '--workspace', str(repo),
+                                   '--base', base, '--head', 'HEAD'])
+    assert 'not a no-change result' in text.output
 
 
 def test_python_size_bound_precedes_discovery(repo, monkeypatch):

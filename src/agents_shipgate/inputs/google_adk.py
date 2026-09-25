@@ -46,6 +46,8 @@ from agents_shipgate.schemas.manifest import (
 AGENT_CLASS_NAMES = {
     "Agent",
     "LlmAgent",
+    # The package root re-exports the agent: ``from google.adk import Agent``.
+    "google.adk.Agent",
     "google.adk.agents.Agent",
     "google.adk.agents.LlmAgent",
     "google.adk.agents.llm_agent.Agent",

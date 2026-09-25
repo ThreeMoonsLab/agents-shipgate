@@ -2326,7 +2326,8 @@ def archive_tree(
     destination: Path,
     *,
     scope: Callable[[str], bool] | None = None,
-) -> None:
+    record_gitlinks: bool = False,
+) -> dict[str, str]:
     """Materialize exact Git blobs without export-ignore or substitutions.
 
     ``scope`` narrows the materialized tree to the paths a reader will
@@ -2342,6 +2343,13 @@ def archive_tree(
     Scoping changes what is *materialized*, never what is *verified*: every
     blob written is still checked against its object ID, and the isolated
     store is still fsck'd, on the same terms as an unscoped archive.
+
+    A gitlink (a submodule's commit pointer) in scope is refused unless
+    ``record_gitlinks`` is set. Its content lives in another repository, so
+    no archive of this one can hold it. A caller whose reader treats an
+    unpopulated submodule as the empty directory a checkout leaves may opt in:
+    the gitlink is then materialized as that empty directory and returned
+    as ``{path: commit}``, so the caller can name what it did not read.
     """
 
     destination.mkdir(parents=True, exist_ok=True)
@@ -2362,8 +2370,12 @@ def archive_tree(
             git_dir=git_dir,
             tree=tree if scope is not None else None,
         )
-        _materialize_isolated_tree(
-            git_dir, tree=tree, destination=destination, scope=scope
+        return _materialize_isolated_tree(
+            git_dir,
+            tree=tree,
+            destination=destination,
+            scope=scope,
+            record_gitlinks=record_gitlinks,
         )
 
 
@@ -2451,7 +2463,8 @@ def _materialize_isolated_tree(
     tree: str,
     destination: Path,
     scope: Callable[[str], bool] | None = None,
-) -> None:
+    record_gitlinks: bool = False,
+) -> dict[str, str]:
     listing_args = ["ls-tree", "-r", "-z"]
     if scope is not None:
         listing_args.append("-t")
@@ -2460,6 +2473,7 @@ def _materialize_isolated_tree(
     entries: list[tuple[str, str, str]] = []
     links: list[tuple[str, str]] = []
     portable_paths: dict[str, str] = {}
+    gitlinks: dict[str, str] = {}
     #: Every entry's object type, in or out of scope, so a link's target type
     #: can be read from the tree rather than from what was materialized.
     tree_types: dict[str, str] = {}
@@ -2505,6 +2519,16 @@ def _materialize_isolated_tree(
             if target == root or root not in target.parents:
                 raise ConfigError(f"Git tree path escapes destination: {path_text}")
             target.mkdir(parents=True, exist_ok=True)
+            continue
+        if record_gitlinks and mode == "160000" and object_type == "commit":
+            # An unpopulated submodule: the directory a checkout leaves, with
+            # nothing written into it. What it would hold is not in this
+            # repository's object graph, and the caller names it as unread.
+            target = (root / path_text).resolve()
+            if target == root or root not in target.parents:
+                raise ConfigError(f"Git tree path escapes destination: {path_text}")
+            target.mkdir(parents=True, exist_ok=True)
+            gitlinks[path_text] = oid
             continue
         if object_type != "blob" or mode == "160000" or (
             mode == "120000" and scope is None
@@ -2577,6 +2601,7 @@ def _materialize_isolated_tree(
     }
     if materialized != expected_digests:
         raise ConfigError("Materialized Git tree differs from the verified object graph")
+    return gitlinks
 
 
 #: The most blob bytes one `cat-file --batch` read of an isolated store holds.
@@ -3193,7 +3218,8 @@ def archive_fetched_tree(
     destination: Path,
     *,
     scope: Callable[[str], bool] | None = None,
-) -> None:
+    record_gitlinks: bool = False,
+) -> dict[str, str]:
     """:func:`archive_tree`, naming a partial clone's unfetched objects as such.
 
     A blobless clone fails the object copy with a :class:`ConfigError`, and a
@@ -3207,7 +3233,9 @@ def archive_fetched_tree(
     """
 
     try:
-        archive_tree(workspace, commit, destination, scope=scope)
+        return archive_tree(
+            workspace, commit, destination, scope=scope, record_gitlinks=record_gitlinks
+        )
     except (ConfigError, subprocess.CalledProcessError) as exc:
         if promised_objects_missing(workspace, commit):
             raise PromisedObjectsMissingError(commit) from exc
