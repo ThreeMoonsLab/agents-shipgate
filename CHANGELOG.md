@@ -200,6 +200,8 @@
   - No schema, contract, member, reason code or check id is added, and
     host-grants stays `0.6`. See the `STABILITY.md` migration note. (#822)
 
+- Read a materialized Git tree's blobs through a few `git cat-file --batch` processes instead of one `git cat-file blob` per file. `diff --application --scope .` materializes the whole tree on both sides, so its run time grew with the file count: measured on 2026-09-25 with #877's root-scope reach, it took 412 s on TencentCloud/CubeSandbox (3,896 files) and 203 s on dlt-hub/dlt (2,042 files), and now takes 46 s and 45 s with identical rows; materializing one side of CubeSandbox went from about 180 s to under 5 s. One `cat-file --batch-check` first types and sizes every object, so a missing object or one that is not a blob refuses with a configuration error before any content is read; the content is then read in batches of at most 64 MiB, so a large tree is never held in memory at once. Every blob is still hashed against its tree entry's object ID before it is written, and the path, containment, link-order and final digest checks are unchanged. The link texts read to resolve in-tree link targets are batched the same way. No output, schema or contract changes. (#686 cost class)
+
 ## 1.1.0 - 2026-09-22
 
 A legibility and presentation-correctness release on the advisory channel.

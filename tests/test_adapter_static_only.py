@@ -257,7 +257,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/verify/git.py",
         surface="attr_call:subprocess.Popen",
-        line=2872,
+        line=2970,
         snippet=(
             "subprocess.Popen(cmd, env=env, stderr=subprocess.PIPE, "
             "stdin=subprocess.PIPE if input is not None else "
@@ -280,7 +280,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/verify/git.py",
         surface="attr_call:subprocess.run",
-        line=3276,
+        line=3374,
         snippet=(
             "subprocess.run(cmd, capture_output=capture_output, check=check, "
             "env=env, input=input, stderr=stderr, stdin=stdin, stdout=stdout, "
@@ -289,8 +289,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
         rationale=(
             "Single _run_process boundary for verify: executes Git argv "
             "assembled inside Shipgate (local ref/diff reads plus "
-            "pack-objects, index-pack, and fsck for immutable snapshots). "
-            "No shell, user-code execution, or fetch."
+            "pack-objects, index-pack, fsck, and byte-bounded cat-file "
+            "--batch-check/--batch reads of the isolated store for immutable "
+            "snapshots). No shell, user-code execution, or fetch."
         ),
     ),
     # core/authorization_execution.py — guarded consumer for an externally
