@@ -57,7 +57,9 @@ requested and compared refs/tree IDs, per-side scope/coverage, rows, source
 correspondence, and a deterministic `comparison_id`. This is a separate advisory
 artifact from the existing host diff JSON and verifier receipt.
 
-- `compared`: the selected supported source observations were compared.
+- `compared`: the selected supported source observations were compared. An
+  unchanged submodule may still be named in `limits` (see below); it cannot
+  carry a change, so it does not make the comparison `partial`.
 - `partial`: a parse/discovery/binding gap remains. Gaps identify their source
   and agent where known. Only affected candidates become `change: not_established`
   rows, carrying `candidate_change` and per-side `uncertainty`; independent known
@@ -106,7 +108,47 @@ object with that key removed, encoded as UTF-8 JSON with sorted keys,
 `separators=(",", ":")` and `ensure_ascii=True`; readers can recompute it.
 
 Each side materializes only its selected scope through the existing verified
-Git materializer, which retains symlinks and containment checks. Partial clones
+Git materializer, which retains symlinks and containment checks. The default
+root scope goes through the same scoped materializer, so it packs the tree
+rather than the history.
+
+### Links and submodules
+
+A symlink anywhere in the tree is recreated as the link it is, never refused
+and never read through. Every link under the scope is censused, including one
+that resolves to nothing, and what it can hide decides what it is:
+
+- A link Python discovery would not read changes nothing, as in a checkout:
+  `CLAUDE.md -> AGENTS.md`, or a linked `.claude/skills/…` directory whose
+  target the scope already reads at its own path.
+- A `*.py` link whose target is a Python input the scope already reads is
+  compared at that target's path. Any other `*.py` link — dangling, leaving
+  the scope or the repository, or landing on something that is not a Python
+  input — is a coverage gap over the link's own path
+  (`Linked Python input: agent.py`), so replacing `agent.py` with a dangling
+  link is `not_established`, never a removal.
+- A link to a directory outside the scope that holds Python is a gap over the
+  link's path (`Linked directory holds Python outside the scope: lib`).
+- A link that resolves to nothing in the repository (dangling, absolute, or
+  leaving the tree) is a gap only where the other side reads source at or
+  beneath its path (`Linked input resolves outside the tree: tools`). An
+  unchanged `agent/VERSION -> ../../VERSION` beside the application changes
+  nothing.
+
+A selected scope that is itself a link is refused (exit 2).
+
+A submodule's content is in another repository. The comparison never fetches
+it and materializes its gitlink as the empty directory a checkout without
+`--recurse-submodules` leaves. The same gitlink commit on both sides is the
+same content, so it is named in both sides' `limits` —
+`Submodule content is not read (unchanged commit 85b71d7ecd4f): vendor/core` —
+and nothing more. An added, removed or moved gitlink is a coverage gap over its
+path on each side that has it, so the comparison is `partial`, and a binding
+the other side holds at that path is `not_established` rather than added or
+removed. A gitlink at the selected scope itself covers the whole scope
+(`…: the selected scope`).
+
+Partial clones
 with unfetched objects exit 2 with `objects_missing`, name the affected side,
 and provide the existing `git fetch --refetch --no-filter <remote>` recovery.
 The comparison never runs that fetch. Other configuration/materialization errors
