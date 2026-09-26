@@ -170,6 +170,7 @@ class ImportResolver:
     scope_root: Path
     _modules: dict[Path, PythonModule | _Stop] = field(default_factory=dict)
     _listings: dict[Path, frozenset[str] | None] = field(default_factory=dict)
+    _patches: dict[Path, dict[str, tuple[str, int]]] = field(default_factory=dict)
     _parsed: int = 0
 
     def __post_init__(self) -> None:
@@ -277,13 +278,15 @@ class ImportResolver:
                 )
 
     def _no_package_patch(self, outcome: dict[str, Any], steps: list[dict[str, Any]]) -> None:
-        """Stop when a package that encloses the defining module rebinds the name.
+        """Stop when a package that encloses the defining module may rebind the name.
 
         Importing ``pkg.impl`` runs ``pkg/__init__.py`` first, and
-        ``from . import impl; impl.lookup = other`` there replaces what
-        ``from pkg.impl import lookup`` receives (#879 review). A rebinding in
-        any other module applies only if that module happens to be imported;
-        it is not looked for.
+        ``from . import impl; impl.lookup = other`` there — or in a module that
+        ``__init__`` imports, or spelled through an alias from a package above —
+        replaces what ``from pkg.impl import lookup`` receives (#879 review). Any
+        reassignment of an attribute of that name there is a named stop. A
+        rebinding in any other module applies only if that module happens to be
+        imported; it is not looked for.
         """
 
         defining = outcome.get("module")
@@ -292,24 +295,51 @@ class ImportResolver:
         name = steps[-1].get("name")
         if not isinstance(name, str):
             return
-        relative = [] if defining.package else [defining.path.stem]
         directory = defining.path.parent
         while directory.is_relative_to(self.scope_root):
             init = self._file_entry(directory, "__init__.py")
-            if init is not None and init != defining.path and relative:
-                package = self.module(init)
-                suffix = ".".join([*relative, name])
-                for patched, line in package.attribute_patches.items():
-                    if patched == suffix or patched.endswith("." + suffix):
-                        raise _Stop(
-                            REBOUND_NAME,
-                            f"{suffix!r} is reassigned by attribute in "
-                            f"{package.ref}:{line}, which runs before the module is used",
-                        )
+            if init is not None and init != defining.path:
+                patched = self._patched_names(init).get(name)
+                if patched is not None:
+                    where, line = patched
+                    raise _Stop(
+                        REBOUND_NAME,
+                        f"an attribute named {name!r} is reassigned in {where}:{line}, "
+                        f"which package {self.ref(init)} runs before the module is used",
+                    )
             if directory == self.scope_root:
                 break
-            relative.insert(0, directory.name)
             directory = directory.parent
+
+    def _patched_names(self, init: Path) -> dict[str, tuple[str, int]]:
+        """``attribute name -> (module, line)`` a package ``__init__`` reassigns, directly
+        or through the in-scope modules it imports relatively."""
+
+        cached = self._patches.get(init)
+        if cached is not None:
+            return cached
+        package = self.module(init)
+        modules = [package]
+        for node in ast.walk(package.tree):
+            if not isinstance(node, ast.ImportFrom) or not node.level:
+                continue
+            try:
+                container = self._from_base(package, node)
+                paths = [container.module_path] if container.module_path else []
+                if not node.module:
+                    for alias in node.names:
+                        found = self._locate(container.directory, [alias.name], spelling=alias.name)
+                        if found is not None and found.module_path is not None:
+                            paths.append(found.module_path)
+            except _Stop:
+                continue
+            modules.extend(self.module(path) for path in paths if path is not None and path != init)
+        patched: dict[str, tuple[str, int]] = {}
+        for module in modules:
+            for dotted, line in module.attribute_patches.items():
+                patched.setdefault(dotted.rsplit(".", 1)[-1], (module.ref, line))
+        self._patches[init] = patched
+        return patched
 
     def resolve(self, module: PythonModule, reference: str) -> Resolution:
         """Resolve ``reference`` (``name`` or ``module.attr...``) in ``module``."""

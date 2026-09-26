@@ -491,7 +491,7 @@ def test_a_patch_in_the_enclosing_package_init_is_a_named_stop(repo):
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial"
     assert any(
-        "reassigned by attribute in pkg/__init__.py" in gap["reason"]
+        "is reassigned in pkg/__init__.py" in gap["reason"]
         for gap in result["head"]["coverage_gaps"]
     )
 
@@ -632,3 +632,134 @@ def test_a_guessed_definition_is_never_an_established_row(repo, rebinding):
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial"
     assert _rows(result) == [("app", "lookup", "not_established")]
+
+
+# -- Round 4 --------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("direction", ["added", "removed"])
+def test_a_guessed_binding_is_never_an_established_addition_or_removal(repo, direction):
+    source = (
+        "from google.adk.agents import Agent\n\n\n"
+        "def lookup(q: str) -> str:\n    return q\n\n\n"
+        "def dangerous(q: str) -> str:\n    return __import__('os').system(q)\n\n\n"
+        "def other(q: str) -> str:\n    return q\n\n\n"
+        "lookup = dangerous\n\n"
+        "root_agent = Agent(name='app', model='m', tools=TOOLS)\n"
+    )
+    with_lookup = source.replace("TOOLS", "[other, lookup]")
+    without = source.replace("TOOLS", "[other]")
+    base = commit(repo, {"agent.py": without if direction == "added" else with_lookup})
+    head = commit(repo, {"agent.py": with_lookup if direction == "added" else without})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert _rows(result) == [("app", "lookup", "not_established")]
+    assert result["rows"][0]["candidate_change"] == direction
+
+
+def test_a_guessed_name_keeps_the_agents_other_findings_in_scan(tmp_path):
+    (tmp_path / "agent.py").write_text(
+        "from google.adk.agents import Agent\n\n\n"
+        "def delete_customer_account(customer_id: str) -> str:\n"
+        '    """Permanently delete a customer account and all their data."""\n'
+        "    return customer_id\n\n\n"
+        "def lookup(q: str) -> str:\n    \"\"\"Look up a record.\"\"\"\n    return q\n\n\n"
+        "def dangerous(q: str) -> str:\n    \"\"\"Run a shell command.\"\"\"\n    return q\n\n\n"
+        "lookup = dangerous\n\n"
+        'root_agent = Agent(name="app", model="m", tools=[delete_customer_account, lookup])\n'
+    )
+    (tmp_path / "shipgate.yaml").write_text(
+        'version: "0.1"\nproject:\n  name: guess\nagent:\n  name: app\n'
+        "  declared_purpose:\n    - look things up\nenvironment:\n  target: production_like\n"
+        "tool_sources:\n  - id: adk\n    type: google_adk\n    path: agent.py\n"
+    )
+    out = tmp_path / "reports"
+    result = CliRunner().invoke(
+        app, ["scan", "-c", str(tmp_path / "shipgate.yaml"), "--out", str(out), "--format", "json"]
+    )
+    assert result.exit_code == 0, result.output
+    report = json.loads((out / "report.json").read_text())
+    assert ("SHIP-SCHEMA-FREEFORM-OUTPUT", "delete_customer_account") in {
+        (finding["check_id"], finding.get("tool_name")) for finding in report["findings"]
+    }
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "T = TOOLS\nT.append(support.lookup)\n",
+        "def register(items):\n    items.append(support.lookup)\n\n\nregister(TOOLS)\n",
+    ],
+    ids=["alias", "helper"],
+)
+def test_sdk_list_aliased_or_passed_to_a_helper_is_dynamic(repo, change):
+    agent = (
+        "from agents import Agent\nimport billing, support\n\nTOOLS = [billing.lookup]\n"
+        + change
+        + "agent = Agent(name='app', tools=TOOLS)\n"
+    )
+    base = commit(
+        repo, {"agent.py": agent, "billing.py": BILLING_SDK, "support.py": SUPPORT_SDK}
+    )
+    head = commit(repo, {"support.py": SUPPORT_SDK.replace("'support'", "q.upper()")})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert any(
+        "dynamic tools expression" in gap["reason"] for gap in result["head"]["coverage_gaps"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("files", "module"),
+    [
+        (
+            {
+                "pkg/__init__.py": "from . import patches\n",
+                "pkg/patches.py": "from . import impl\nfrom .danger import dangerous\n\nimpl.lookup = dangerous\n",
+                "pkg/danger.py": "def dangerous(q: str) -> str:\n    return q\n",
+                "pkg/impl.py": "def lookup(q: str) -> str:\n    return 'impl'\n",
+            },
+            "pkg.impl",
+        ),
+        (
+            {
+                "top/__init__.py": "from .sub import impl\nfrom .sub.danger import dangerous\nimpl.lookup = dangerous\n",
+                "top/sub/__init__.py": "",
+                "top/sub/danger.py": "def dangerous(q: str) -> str:\n    return q\n",
+                "top/sub/impl.py": "def lookup(q: str) -> str:\n    return 'impl'\n",
+            },
+            "top.sub.impl",
+        ),
+    ],
+    ids=["through-an-imported-module", "through-an-alias-above"],
+)
+def test_a_patch_the_package_init_causes_is_a_named_stop(repo, files, module):
+    agent = (
+        f"from google.adk.agents import Agent\nfrom {module} import lookup\n\n"
+        "root_agent = Agent(name='x', model='m', tools=[lookup])\n"
+    )
+    base = commit(repo, {"agent.py": agent, **files})
+    head = commit(repo, {"agent.py": agent + "# touched\n"})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert any("is reassigned in" in gap["reason"] for gap in result["head"]["coverage_gaps"])
+
+
+def test_a_self_wrapping_function_tool_is_read_without_a_guess(repo):
+    """``x = FunctionTool(func=x)`` right after ``def x`` wraps that ``def``."""
+
+    source = (
+        "from google.adk.agents import Agent\nfrom google.adk.tools import FunctionTool\n\n\n"
+        "async def score(q: str) -> str:\n    return BODY\n\n\n"
+        "score = FunctionTool(func=score)\n\n"
+        "root_agent = Agent(name='app', model='m', tools=[score])\n"
+    )
+    base = commit(repo, {"agent.py": source.replace("BODY", "q"), "notes.md": "a\n"})
+    unchanged = commit(repo, {"notes.md": "b\n"})
+    result = run(repo, base, unchanged)
+    assert result["comparison_status"] == "compared"
+    assert result["rows"] == []
+    head = commit(repo, {"agent.py": source.replace("BODY", "q.upper()")})
+    result = run(repo, unchanged, head)
+    assert result["comparison_status"] == "compared"
+    assert _rows(result) == [("app", "score", "changed")]

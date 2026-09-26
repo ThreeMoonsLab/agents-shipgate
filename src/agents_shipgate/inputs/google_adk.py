@@ -1714,6 +1714,10 @@ class _PythonAdkExtractor:
 
         assert self.module is not None
         bindings = self.module.bindings.get(name, [])
+        if self._self_wrapper(name) is not None:
+            # ``x = FunctionTool(func=x)`` right after ``def x``: the wrapper,
+            # which wraps the definition bound just before it.
+            return "flat"
         if len(bindings) != 1 or not bindings[0].top_level:
             return None
         node, statement = bindings[0].node, bindings[0].statement
@@ -1777,9 +1781,9 @@ class _PythonAdkExtractor:
 
         What the module binds is not established — rebound, only conditional,
         a value — so the definition found elsewhere in the file is named, never
-        proven: the shadowed gap keeps ``scan`` at medium, and the agent's list
-        is not complete, so a comparison cannot treat it as the binding (#879
-        review).
+        proven: the shadowed gap keeps ``scan`` at medium, and the returned
+        reason, recorded per tool, keeps a comparison from treating it as the
+        binding or the agent's list as complete (#879 review).
         """
 
         why = (
@@ -1787,14 +1791,14 @@ class _PythonAdkExtractor:
             if resolution is not None and resolution.detail
             else f"{name!r} is not bound once at module level"
         )
-        issue = (
+        # Not an agent issue: ``scan`` would then drop every per-tool finding
+        # of the agent for one name (#879 review). The shadowed gap keeps the
+        # module at medium; the comparison reads ``tool_issues``.
+        self._note_surface_gap(SURFACE_GAP_SHADOWED_DEFINITION)
+        return (
             f"Google ADK agent {agent_name!r} lists {name!r}, and {why}; the "
             "same-named definition read for it is not established as the one bound."
         )
-        if issue not in binding.issues:
-            binding.issues.append(issue)
-        self._note_surface_gap(SURFACE_GAP_SHADOWED_DEFINITION)
-        return issue
 
     def _visible_function(self, name: str, node: ast.AST | None) -> bool:
         """Whether ``self.functions[name]`` is the binding of ``name`` visible at ``node``."""
@@ -1807,7 +1811,38 @@ class _PythonAdkExtractor:
         meaning = self._local_meaning(node, name) if isinstance(node, ast.Name) else None
         if meaning == "flat":
             return True
+        wrapper = self._self_wrapper(name) if meaning is None else None
+        if wrapper is not None:
+            # Inside ``x = FunctionTool(func=x)`` the right-hand ``x`` runs
+            # before the rebinding: it is the ``def`` bound just before.
+            current: ast.AST | None = node
+            while current is not None and current is not wrapper:
+                current = self.parents.get(current)
+            return current is wrapper
         return meaning is None and self._module_definition(name) is function
+
+    def _self_wrapper(self, name: str) -> ast.stmt | None:
+        """The ``name = FunctionTool(func=name)`` statement right after ``def name``."""
+
+        if self.module is None:
+            return None
+        bindings = self.module.bindings.get(name, [])
+        if (
+            len(bindings) != 2
+            or not all(item.top_level for item in bindings)
+            or bindings[0].node is not self.functions.get(name)
+            or not isinstance(bindings[1].node, ast.Name)
+        ):
+            return None
+        statement = bindings[1].statement
+        value = getattr(statement, "value", None)
+        if (
+            not isinstance(value, ast.Call)
+            or value is not self.wrappers.get(name, {}).get("call")
+            or _call_func_name(value) != name
+        ):
+            return None
+        return statement
 
     def _module_definition(
         self, name: str

@@ -394,6 +394,11 @@ class _ImportedTools:
         self.base_dir = base_dir
         self.resolver = ImportResolver(base_dir)
         self.by_location = {tool.source_location: tool for tool in tools}
+        #: ``(source_ref, python_symbol) -> tool``, first seen wins: a lookup
+        #: per reference, not a scan of every tool (#879 review).
+        self.by_symbol: dict[tuple[str | None, object], Tool] = {}
+        for tool in tools:
+            self.by_symbol.setdefault((tool.source_ref, tool.annotations.get("python_symbol")), tool)
         self.new_tools: list[Tool] = []
         self.new_guards: list[GuardDependencyEvidence] = []
 
@@ -407,15 +412,7 @@ class _ImportedTools:
     ) -> tuple[Tool | None, str | None]:
         """The tool ``reference`` binds, or None and why not."""
 
-        local = next(
-            (
-                tool
-                for tool in [*self.by_location.values()]
-                if tool.source_ref == source_ref
-                and tool.annotations.get("python_symbol") == reference
-            ),
-            None,
-        )
+        local = self.by_symbol.get((source_ref, reference))
         if module is None:
             if local is not None:
                 return local, None
@@ -459,6 +456,7 @@ class _ImportedTools:
             # observes the same definition, and the catalog keeps one (#879).
             tool.extraction["imported_definition"] = True
             self.by_location[location] = tool
+            self.by_symbol.setdefault((tool.source_ref, tool.annotations.get("python_symbol")), tool)
             self.new_tools.append(tool)
             source_sha256, within_limits = guard_module_metadata(
                 defining.tree, defining.text
@@ -508,6 +506,23 @@ def _keyword(call: ast.Call, name: str) -> ast.AST | None:
 
 #: Methods that change a list in place.
 _LIST_MUTATORS = frozenset({"append", "extend", "insert", "remove", "pop", "clear"})
+#: Calls that read the values they are given and never change them.
+_READ_ONLY_CALLS = frozenset(
+    {
+        "len", "print", "repr", "str", "bool", "id", "hash", "isinstance", "type",
+        "list", "tuple", "set", "frozenset", "sorted", "reversed", "enumerate", "iter",
+        "any", "all", "sum", "min", "max", "zip", "map", "filter",
+        "copy.copy", "copy.deepcopy", "json.dumps",
+    }
+)
+_LOG_METHODS = frozenset({"debug", "info", "warning", "error", "exception", "critical", "log"})
+
+
+def _leaves_arguments_alone(call: ast.Call) -> bool:
+    name = dotted_name(call.func)
+    if name in _READ_ONLY_CALLS:
+        return True
+    return isinstance(call.func, ast.Attribute) and call.func.attr in _LOG_METHODS
 
 
 class _ToolLists:
@@ -542,6 +557,23 @@ class _ToolLists:
             elif isinstance(node, ast.Assign | ast.AugAssign | ast.AnnAssign | ast.Delete):
                 targets = node.targets if isinstance(node, ast.Assign | ast.Delete) else [node.target]
                 roots = [target for target in targets if isinstance(target, ast.Subscript | ast.Attribute)]
+                # ``alias = TOOLS``: a second handle that can change the list
+                # where this index cannot see it (#879 review).
+                if isinstance(node, ast.Assign | ast.AnnAssign) and isinstance(node.value, ast.Name):
+                    roots.append(node.value)
+            elif isinstance(node, ast.NamedExpr) and isinstance(node.value, ast.Name):
+                roots = [node.value]
+            elif isinstance(node, ast.Call) and not _leaves_arguments_alone(node):
+                # ``register(TOOLS)``: a callee may change the list it is given.
+                roots = [
+                    *(arg for arg in node.args if isinstance(arg, ast.Name)),
+                    *(
+                        keyword.value
+                        for keyword in node.keywords
+                        if isinstance(keyword.value, ast.Name)
+                        and keyword.arg not in {"tools", "handoffs", "mcp_servers"}
+                    ),
+                ]
             elif isinstance(node, ast.Global):
                 self.changed.update(("module", name) for name in node.names)
             elif isinstance(node, ast.Nonlocal):

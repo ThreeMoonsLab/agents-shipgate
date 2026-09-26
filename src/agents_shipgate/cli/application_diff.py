@@ -381,14 +381,17 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
                     )
                     attributed.add(message)
             # A binding the reader made on a guess is reported, never as an
-            # established row, even where the tool is bound on both sides.
+            # established row: the tool's own row carries the reason on the
+            # side it is present, and the agent's other absences do too, since
+            # what the name really binds may be one of them (#879 review).
             for tool_name, message in observation.tool_issues.items():
-                result.gap(
-                    message,
-                    source=_source_path(root, observation.source),
-                    agent=observation.agent,
-                    tool=tool_name,
-                )
+                for tool in (tool_name, None):
+                    result.gap(
+                        message,
+                        source=_source_path(root, observation.source),
+                        agent=observation.agent,
+                        tool=tool,
+                    )
                 attributed.add(message)
         for warning in item.warnings:
             if warning not in attributed:
@@ -596,10 +599,16 @@ def compare(
             reasons = base.absence_gaps(key, target_moves)
             if reasons:
                 uncertainty["base"] = reasons
+            present = head.tool_gaps(key)
+            if present:
+                uncertainty["head"] = present
         elif after is None:
             reasons = head.absence_gaps(key)
             if reasons:
                 uncertainty["head"] = reasons
+            present = base.tool_gaps(key)
+            if present:
+                uncertainty["base"] = present
         else:
             before_meaning = _meaning(before)
             if "target_source" in before_meaning:

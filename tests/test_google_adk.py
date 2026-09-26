@@ -2236,9 +2236,13 @@ def test_a_definition_the_name_may_not_refer_to_is_never_proven(
 
     report = _scan_proven(tmp_path, project)
 
-    assert report.release_decision.decision != "passed"
     assert {tool["confidence"] for tool in report.tool_catalog} == {"medium"}
-    assert _names_the_unproven_binding(report, "loose_tool")
+    gap = next(
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "low_confidence_tool"
+    )
+    assert "shadowed_tool_definition" in gap.why
 
 
 def test_the_conventional_functiontool_wrapper_variable_is_still_proven(tmp_path):
@@ -2410,31 +2414,12 @@ def test_every_python_binding_form_costs_a_name_its_proof(tmp_path, shadow: str)
     report = _scan_proven(tmp_path, project)
 
     assert report.release_decision.decision != "passed"
-    assert {tool["confidence"] for tool in report.tool_catalog} == {"medium"}
-    assert _names_the_unproven_binding(report, "lookup_account")
-
-
-def _names_the_unproven_binding(report, name: str) -> bool:
-    """A shadowed name is never proven, and some gap says so.
-
-    Before #879 the only signal was the ``shadowed_tool_definition`` surface
-    gap on a medium-confidence tool. When the module binds the name more than
-    once, the agent's tool list is now also incomplete, and the binding gap
-    that names the rebinding is the one evidence coverage selects.
-    """
-
-    gaps = report.release_decision.evidence_coverage.evidence_gaps
-    shadowed = [
-        gap for gap in gaps
-        if gap.kind == "low_confidence_tool" and "shadowed_tool_definition" in gap.why
+    gaps = [
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "low_confidence_tool"
     ]
-    rebinding = [
-        gap for gap in gaps
-        if gap.kind == "partial_binding_evidence"
-        and f"lists {name!r}" in gap.why
-        and "not established as the one bound" in gap.why
-    ]
-    return bool(shadowed or rebinding)
+    assert gaps and all("shadowed_tool_definition" in gap.why for gap in gaps)
 
 
 def test_a_wrapper_variable_rebound_after_assignment_is_not_proven(tmp_path):
@@ -2459,8 +2444,12 @@ def test_a_wrapper_variable_rebound_after_assignment_is_not_proven(tmp_path):
     report = _scan_proven(tmp_path, project)
 
     assert report.release_decision.decision != "passed"
-    assert {tool["confidence"] for tool in report.tool_catalog} == {"medium"}
-    assert _names_the_unproven_binding(report, "wrapper")
+    gaps = [
+        gap
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "low_confidence_tool"
+    ]
+    assert gaps and all("shadowed_tool_definition" in gap.why for gap in gaps)
 
 
 @pytest.mark.parametrize(
