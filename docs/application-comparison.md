@@ -100,10 +100,15 @@ agents' rows in the file stand:
   list handed out of view counts too: to a call that is not read-only, into a
   container or attribute, returned, unpacked, or bound by `for`, `with` or
   walrus, directly or through a handle; so does one reached through the file's
-  own container of agents (`AGENTS[0].tools`, a loop over `AGENTS`, a class
-  attribute bound to an agent). On any value, a function of the same module, or
-  one it imports, that changes the list it is given (`add_image(x.tools)` with
-  `add_image` appending) changes it, and one that only reads it reads it. On
+  own container of agents (`AGENTS[0].tools`, a loop over `AGENTS` at any level,
+  a class attribute bound to an agent — the container a literal, a list the
+  module appends agents to, a comprehension over one, or a module function's
+  returned list), a limit on the agents it holds, and one imported from the
+  scope (`from app.registry import AGENTS`, `getattr(registry, "a")`). On any
+  value, a function of the same module, or one it imports, that changes the
+  list it is given (`add_image(x.tools)` with `add_image` appending, directly or
+  through the helper's own inner calls) changes it, and one that only reads it
+  reads it. On
   any other value — a request object, another library's model — a handle only
   read or handed on, like `payload["tools"] = request.tools`, is nothing. The
   changed value is read in

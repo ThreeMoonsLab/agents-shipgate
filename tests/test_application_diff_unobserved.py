@@ -1132,3 +1132,64 @@ def test_a_list_of_the_files_agents_handed_out_of_view_is_a_limit(repo, use):
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial"
     assert result["head"]["limits"] != result["base"]["limits"]
+
+
+# ---------------------------------------------------------------------------
+# #876 review, round 9: containers of agents however they are built, a loop at
+# module level, helpers' inner calls read in their own module.
+
+METHOD_HELPER = "class H:\n    def add(self, lst):\n        BODY\n"
+
+
+@pytest.mark.parametrize(
+    "use",
+    [
+        "AGENTS = []\nAGENTS.append(quote_agent)\nH().add(AGENTS[0].tools)\n",
+        "AGENTS = [x for x in (quote_agent,)]\nfor ag in AGENTS:\n    H().add(ag.tools)\n",
+        "def all_agents():\n    return [quote_agent]\nfor ag in all_agents():\n    H().add(ag.tools)\n",
+        "AGENTS = [quote_agent]\nfor ag in AGENTS:\n    H().add(ag.tools)\n",
+    ],
+    ids=["appended", "comprehension", "returned-by-a-function", "module-level-loop"],
+)
+def test_a_container_of_the_files_agents_however_built_is_followed(repo, use):
+    body = 'quote_agent = Agent(name="Quote", tools=[quote])\n' + METHOD_HELPER + use
+    result = _compare(repo, body.replace("BODY", "pass"), body.replace("BODY", "lst.append(send_image)"))
+    assert result["comparison_status"] == "partial"
+    assert any("quote_agent" in limit for limit in result["head"]["limits"]), result["head"]["limits"]
+
+
+@pytest.mark.parametrize(
+    "use",
+    [
+        "from app.registry import AGENTS\nfor ag in AGENTS:\n    H().add(ag.tools)\n",
+        "from app.registry import quote_agent\nH().add(quote_agent.tools)\n",
+        "from app import registry\nH().add(getattr(registry, 'quote_agent').tools)\n",
+    ],
+    ids=["imported-container", "imported-agent", "getattr-on-imported-module"],
+)
+def test_an_agent_imported_from_the_scope_into_an_sdk_file_is_followed(repo, use):
+    registry = TOOLS + "from agents import Agent\nquote_agent = Agent(name='Quote', tools=[quote])\nAGENTS = [quote_agent]\n"
+    wiring = "from agents import Agent\n" + METHOD_HELPER + use
+    base = commit(
+        repo,
+        {"app/__init__.py": "", "app/registry.py": registry, "app/wiring.py": wiring.replace("BODY", "pass")},
+    )
+    head = commit(repo, {"app/wiring.py": wiring.replace("BODY", "lst.append(len)")})
+    result = run(repo, base, head, "--scope", "app")
+    assert result["comparison_status"] == "partial"
+
+
+def test_a_helpers_inner_call_is_read_in_the_helpers_module(repo):
+    """d08b: ``outer`` in ``helpers.py`` hands the list to its own ``inner``;
+    resolved in the caller's module, ``inner`` was not found."""
+
+    helpers = "def inner(lst):\n    BODY\n\n\ndef outer(lst):\n    inner(lst)\n"
+    body = (
+        'quote_agent = Agent(name="Quote", tools=[quote])\n'
+        "from helpers import outer\n\n\ndef setup(agent):\n    outer(agent.tools)\n"
+    )
+    base = commit(repo, {"agent.py": _agents(body), "helpers.py": helpers.replace("BODY", "pass")})
+    head = commit(repo, {"helpers.py": helpers.replace("BODY", "lst.append(len)")})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert any("cannot identify" in limit for limit in result["head"]["limits"])

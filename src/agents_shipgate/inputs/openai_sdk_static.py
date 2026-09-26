@@ -542,30 +542,21 @@ def _extract_agent_bindings(
         # one it can prove is not an agent is nothing (#876 review).
         unattributed = False
         limited: set[str] = set()
-        for receiver, site, strict in _capability_changes(
-            tree,
-            scopes=scopes,
-            resolve=(
-                (
-                    lambda call, module=module, scopes=scopes: imported_function(
-                        imports.resolver, module, scopes, call
-                    )
-                )
-                if module is not None
-                else None
-            ),
-        ):
-            owner = values.owner(receiver, site)
-            if strict and not isinstance(owner, str) and not values.agent_like(receiver, site):
-                # Handed on, not changed in view: only an agent this file
-                # builds is followed that far (#876 review).
-                continue
+
+        def record_change(
+            owner: str | bool | None,
+            site: ast.AST,
+            *,
+            limited: set[str] = limited,
+            source_ref: str = source_ref,
+            list_holders: dict[Any, set[str]] = list_holders,
+            file_observations: list[AgentBindingObservation] = file_observations,
+        ) -> None:
+            nonlocal unattributed
             # One limit per agent, and one for the file: the first site names it.
             if owner is None or (owner is True and unattributed) or owner in limited:
-                continue
-            if isinstance(owner, str):
-                limited.add(owner)
-            pointer = f"{source_ref}:{site.lineno}"
+                return
+            pointer = f"{source_ref}:{site.lineno}"  # type: ignore[attr-defined]
             if owner is True:
                 unattributed = True
                 unread(
@@ -575,7 +566,9 @@ def _extract_agent_bindings(
                     pointer,
                     "sdk_capability_change_unattributed",
                 )
-                continue
+                return
+            assert isinstance(owner, str)
+            limited.add(owner)
             reason = (
                 f"OpenAI Agents SDK agent {owner!r} has its tools, handoffs or MCP "
                 f"servers changed after construction at {pointer}, which this reader "
@@ -595,6 +588,65 @@ def _extract_agent_bindings(
                     observation.handoffs_complete = False
                     if reason not in observation.issues:
                         observation.issues.append(reason)
+
+        def scope_imported(
+            receiver: ast.expr,
+            site: ast.AST,
+            *,
+            module: PythonModule | None = module,
+            scopes: ScopeIndex = scopes,
+            tool_lists: _ToolLists = tool_lists,
+        ) -> bool:
+            """Whether a receiver is reached from a name imported from the scope
+            (``from app.registry import AGENTS``, ``getattr(registry, "a")``)."""
+
+            root: ast.AST = _through_loops(receiver, site, scopes, tool_lists.module_bindings)
+            while isinstance(root, ast.Attribute | ast.Subscript | ast.Call):
+                if isinstance(root, ast.Call):
+                    if dotted_name(root.func) != "getattr" or not root.args:
+                        return False
+                    root = root.args[0]
+                else:
+                    root = root.value
+            if module is None or not isinstance(root, ast.Name):
+                return False
+            if scopes.enclosing_bindings(site, root.id):
+                return False
+            if not any(
+                isinstance(item.node, ast.alias)
+                for item in tool_lists.module_bindings.get(root.id, [])
+            ):
+                return False
+            resolution = imports.resolver.resolve(module, root.id)
+            return bool(resolution.steps) and resolution.reason not in _OUTSIDE_THE_SCOPE
+
+        for receiver, site, strict in _capability_changes(
+            tree,
+            scopes=scopes,
+            callees=ModuleCallees(
+                tree,
+                scopes,
+                tool_lists.module_bindings,
+                resolver=imports.resolver if module is not None else None,
+                module=module,
+                registry=imports.callees,
+            ),
+        ):
+            owner = values.owner(receiver, site)
+            owners: list[str | bool | None] = [owner]
+            if strict and not isinstance(owner, str):
+                # Handed on, not changed in view: followed that far only for
+                # an agent this file builds — named, or held in its containers
+                # — or one imported from the scope (#876 review).
+                held = values.agent_like(receiver, site)
+                if held:
+                    owners = list(sorted(held))
+                elif held is None and not scope_imported(receiver, site):
+                    continue
+                else:
+                    owners = [True]
+            for item in owners:
+                record_change(item, site)
         # One identity constructed twice in a file — ``if premium: return
         # Agent(name="Quote", ...)`` / ``else: return Agent(name="Quote", ...)``
         # — is merged by the binding graph into one agent. Its tools cannot be
@@ -668,6 +720,8 @@ class _ImportedTools:
             self.by_symbol.setdefault((tool.source_ref, tool.annotations.get("python_symbol")), tool)
         self.new_tools: list[Tool] = []
         self.new_guards: list[GuardDependencyEvidence] = []
+        #: The callee resolvers of every module a change analysis reached.
+        self.callees: dict[Path, ModuleCallees] = {}
 
     def tool_for(
         self,
@@ -846,7 +900,7 @@ def _capability_changes(
     capabilities: frozenset[str] = _CAPABILITY_KEYWORDS,
     *,
     scopes: ScopeIndex | None = None,
-    resolve: Callable[[ast.Call], ast.FunctionDef | ast.AsyncFunctionDef | None] | None = None,
+    callees: ModuleCallees | None = None,
 ) -> list[tuple[ast.expr, ast.AST, bool]]:
     """``(receiver, site, strict)`` wherever a module may change an object's capability list.
 
@@ -866,38 +920,36 @@ def _capability_changes(
     """
 
     scopes = scopes or ScopeIndex(tree)
-    module_bindings = _module_bindings(tree)[0]
+    callees = callees or ModuleCallees(tree, scopes, _module_bindings(tree)[0])
 
     def parameter_of(
-        call: ast.Call, position: int | None, keyword: str | None
-    ) -> tuple[ast.FunctionDef | ast.AsyncFunctionDef, str] | None:
-        """The parameter of the function a call argument binds: one this module
-        defines, or — through ``resolve`` — one it imports (#876 review)."""
+        call: ast.Call, position: int | None, keyword: str | None, within: ModuleCallees
+    ) -> tuple[ast.FunctionDef | ast.AsyncFunctionDef, str, ModuleCallees] | None:
+        """The parameter of the function a call argument binds — one the module
+        defines or imports (#876 review) — and the callees of that function's
+        own module."""
 
-        function: ast.FunctionDef | ast.AsyncFunctionDef | None = None
-        found = module_bindings.get(call.func.id, []) if isinstance(call.func, ast.Name) else []
-        if (
-            len(found) == 1
-            and found[0].top_level
-            and isinstance(found[0].node, ast.FunctionDef | ast.AsyncFunctionDef)
-        ):
-            function = found[0].node
-        elif resolve is not None:
-            function = resolve(call)
-        if function is None:
+        target = within(call)
+        if target is None:
             return None
+        function, inner = target
         positional = [*function.args.posonlyargs, *function.args.args]
         if position is not None:
-            return (function, positional[position].arg) if position < len(positional) else None
+            if position >= len(positional):
+                return None
+            return function, positional[position].arg, inner
         names = {arg.arg for arg in [*positional, *function.args.kwonlyargs]}
-        return (function, keyword) if keyword in names else None
+        return (function, str(keyword), inner) if keyword in names else None
 
     def parameter_changed(
-        function: ast.FunctionDef | ast.AsyncFunctionDef, name: str, depth: int = 0
+        function: ast.FunctionDef | ast.AsyncFunctionDef,
+        name: str,
+        within: ModuleCallees,
+        depth: int = 0,
     ) -> bool:
         """Whether a function visibly changes a list it is given: a list method,
         ``+=`` or an item store on the parameter, or handing it to a function
-        of this module that does (#876 review)."""
+        that does — resolved in the function's own module (#876 review)."""
 
         if depth > 3:
             return True
@@ -918,11 +970,13 @@ def _capability_changes(
                     for item in stores
                 ):
                     return True
-            if isinstance(node, ast.Call) and changed_by_call(node, name, depth + 1):
+            if isinstance(node, ast.Call) and changed_by_call(node, name, within, depth + 1):
                 return True
         return False
 
-    def changed_by_call(call: ast.Call, spelling: str, depth: int = 0) -> bool:
+    def changed_by_call(
+        call: ast.Call, spelling: str, within: ModuleCallees | None = None, depth: int = 0
+    ) -> bool:
         """Whether ``call`` hands the list spelled ``spelling`` to a function that changes it."""
 
         arguments: list[tuple[int | None, str | None, ast.expr]] = [
@@ -931,7 +985,7 @@ def _capability_changes(
         for position, keyword, value in arguments:
             if _handle_spelling(value) != spelling:
                 continue
-            target = parameter_of(call, position, keyword)
+            target = parameter_of(call, position, keyword, within or callees)
             if target is not None and parameter_changed(*target, depth=depth):
                 return True
         return False
@@ -939,9 +993,10 @@ def _capability_changes(
     def call_reads(call: ast.Call, position: int | None, keyword: str | None) -> bool:
         if _leaves_arguments_alone(call):
             return True
-        # A function of this module whose every use of that parameter reads it.
-        target = parameter_of(call, position, keyword)
-        return target is not None and _parameter_left_alone(*target)
+        # A function the module defines or imports whose every use of that
+        # parameter reads it.
+        target = parameter_of(call, position, keyword, callees)
+        return target is not None and _parameter_left_alone(target[0], target[1])
 
     def read_only(node: ast.expr) -> bool:
         return _read_only_use(node, scopes.parents, call_reads)
@@ -1120,17 +1175,99 @@ def _capability_changes(
     return changes
 
 
-def imported_function(
-    resolver: ImportResolver, module: PythonModule, scopes: ScopeIndex, call: ast.Call
-) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
-    """The function definition a call's callee names through the module's
-    imports (#864), when the callee is not bound in its own scope."""
+class ModuleCallees:
+    """The function a call in one module names — defined there or imported
+    (#864) — with the callees of that function's own module, so a helper's
+    inner calls are read where the helper is written (#876 review).
 
-    spelling = reference_spelling(call.func)
-    if spelling is None or scopes.enclosing_bindings(call, spelling.split(".", 1)[0]):
-        return None
-    resolution = resolver.resolve(module, spelling)
-    return resolution.definition if resolution.resolved else None
+    One per module, shared through ``registry``; resolutions are cached, so a
+    module with a thousand calls reads each spelling once.
+    """
+
+    def __init__(
+        self,
+        tree: ast.Module,
+        scopes: ScopeIndex,
+        bindings: dict[str, list[Any]],
+        *,
+        resolver: ImportResolver | None = None,
+        module: PythonModule | None = None,
+        registry: dict[Path, ModuleCallees] | None = None,
+    ) -> None:
+        self.scopes = scopes
+        self.bindings = bindings
+        self.resolver = resolver
+        self.module = module
+        self.registry = registry if registry is not None else {}
+        self._cache: dict[str, tuple[ast.FunctionDef | ast.AsyncFunctionDef, ModuleCallees] | None] = {}
+
+    def __call__(
+        self, call: ast.Call
+    ) -> tuple[ast.FunctionDef | ast.AsyncFunctionDef, ModuleCallees] | None:
+        spelling = reference_spelling(call.func)
+        if spelling is None or self.scopes.enclosing_bindings(call, spelling.split(".", 1)[0]):
+            return None
+        if spelling not in self._cache:
+            self._cache[spelling] = self._resolve(spelling)
+        return self._cache[spelling]
+
+    def _resolve(
+        self, spelling: str
+    ) -> tuple[ast.FunctionDef | ast.AsyncFunctionDef, ModuleCallees] | None:
+        found = self.bindings.get(spelling, []) if "." not in spelling else []
+        if (
+            len(found) == 1
+            and found[0].top_level
+            and isinstance(found[0].node, ast.FunctionDef | ast.AsyncFunctionDef)
+        ):
+            return found[0].node, self
+        if self.resolver is None or self.module is None:
+            return None
+        resolution = self.resolver.resolve(self.module, spelling)
+        if not resolution.resolved or resolution.module is None:
+            return None
+        assert resolution.definition is not None
+        return resolution.definition, self.for_module(resolution.module)
+
+    def for_module(self, module: PythonModule) -> ModuleCallees:
+        if module is self.module:
+            return self
+        known = self.registry.get(module.path)
+        if known is None:
+            known = self.registry[module.path] = ModuleCallees(
+                module.tree,
+                ScopeIndex(module.tree),
+                module.bindings,
+                resolver=self.resolver,
+                module=module,
+                registry=self.registry,
+            )
+        return known
+
+
+def _through_loops(
+    receiver: ast.expr, site: ast.AST, scopes: ScopeIndex, bindings: dict[str, list[Any]]
+) -> ast.expr:
+    """What a loop variable receiver iterates over: ``for ag in AGENTS:
+    ag.tools`` is reached from ``AGENTS`` (#876 review)."""
+
+    for _ in range(4):
+        if not isinstance(receiver, ast.Name):
+            return receiver
+        found = scopes.enclosing_bindings(site, receiver.id)
+        statements = (
+            [scopes.statement_of(item) for item in found]
+            if found
+            else [item.statement for item in bindings.get(receiver.id, [])]
+        )
+        if len(statements) != 1 or not isinstance(statements[0], ast.For | ast.AsyncFor):
+            return receiver
+        receiver, site = statements[0].iter, statements[0]
+    return receiver
+
+
+#: Resolution outcomes that mean the name is not the scope's own code.
+_OUTSIDE_THE_SCOPE = frozenset({"module_not_found", "outside_scope"})
 
 
 def _root_name(node: ast.AST) -> str | None:
@@ -1212,6 +1349,7 @@ class _AgentValues:
         self.constructed: dict[int, str] = {}
         self._class_attributes: dict[int, dict[str, list[ast.expr]]] = {}
         self.class_nodes = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
+        self._appended: dict[str, list[ast.expr]] | None = None
         self.classes = set(self.class_nodes)
         self.functions = {
             node.name: node
@@ -1259,58 +1397,123 @@ class _AgentValues:
                 return False
         return None
 
-    def agent_like(self, receiver: ast.expr, site: ast.AST, depth: int = 0) -> bool:
-        """Whether a receiver ``owner`` cannot name is still one of the file's
-        agents: an item of a container that holds one (``AGENTS[0]``), a loop
-        variable over such a container, or a class attribute bound to one
-        (#876 review). Another library's ``request`` is none of these."""
+    def agent_like(self, receiver: ast.expr, site: ast.AST, depth: int = 0) -> set[str] | None:
+        """The file's agents a receiver ``owner`` cannot name may be, or None.
+
+        An item of a container that holds one (``AGENTS[0]``), a loop variable
+        over such a container, or a class attribute bound to one (#876
+        review). The set names the agents it can be, empty when they are not
+        named; another library's ``request`` is none of these (None).
+        """
 
         if depth > 3:
-            return False
+            return None
         if isinstance(receiver, ast.Subscript):
-            return self._holds_agent(receiver.value, site, depth)
+            return self._agents_in(receiver.value, site, depth + 1)
         if isinstance(receiver, ast.Attribute) and isinstance(receiver.value, ast.Name):
             holder = self.value_of(receiver.value.id, site)
             cls = self.class_nodes.get(receiver.value.id)
             if holder is None and cls is not None:
-                return any(
-                    isinstance(item, ast.Assign | ast.AnnAssign)
+                found = [
+                    item.value
+                    for item in cls.body
+                    if isinstance(item, ast.Assign | ast.AnnAssign)
                     and _assignment_target(item) == receiver.attr
                     and item.value is not None
                     and self.is_agent(item.value, item) is True
-                    for item in cls.body
-                )
-            return False
+                ]
+                return {name for item in found if (name := self._identity(item, site))} if found else None
+            return None
         if isinstance(receiver, ast.Name):
-            found = self.scopes.enclosing_bindings(site, receiver.id)
             loops = [
                 self.scopes.statement_of(item)
-                for item in found
+                for item in self.scopes.enclosing_bindings(site, receiver.id)
                 if isinstance(item, ast.Name)
             ]
-            return any(
-                isinstance(loop, ast.For | ast.AsyncFor)
-                and self._holds_agent(loop.iter, loop, depth)
-                for loop in loops
-            )
-        return False
+            if not self.scopes.enclosing_bindings(site, receiver.id):
+                # A loop at module level (#876 review).
+                loops = [item.statement for item in self.module_bindings.get(receiver.id, [])]
+            held: set[str] | None = None
+            for loop in loops:
+                if isinstance(loop, ast.For | ast.AsyncFor):
+                    agents = self._agents_in(loop.iter, loop, depth + 1)
+                    if agents is not None:
+                        held = (held or set()) | agents
+            return held
+        return None
 
-    def _holds_agent(self, container: ast.expr, site: ast.AST, depth: int) -> bool:
+    def _agents_in(self, container: ast.expr, site: ast.AST, depth: int) -> set[str] | None:
+        """The agents a container holds: its literal items, what is appended to
+        it, a comprehension over one, or a module function's returned list."""
+
+        if depth > 4:
+            return None
+        found: set[str] | None = None
+
+        def add(item: ast.expr, where: ast.AST) -> None:
+            nonlocal found
+            if self.is_agent(item, where) is True:
+                found = found or set()
+                identity = self._identity(item, where)
+                if identity is not None:
+                    found.add(identity)
+
         if isinstance(container, ast.Name):
+            for node in self._appends.get(container.id, []):
+                add(node, node)
             value = self.value_of(container.id, site)
             if value is None:
-                return False
+                return found
             container = value
-        items: list[ast.expr] = []
         if isinstance(container, ast.List | ast.Tuple | ast.Set):
-            items = list(container.elts)
+            for item in container.elts:
+                add(item, site)
         elif isinstance(container, ast.Dict):
-            items = list(container.values)
-        elif isinstance(container, ast.Call) and isinstance(container.func, ast.Attribute):
-            # ``REG.values()`` / ``REG.items()`` of a dict of agents.
-            if container.func.attr in {"values", "items"}:
-                return self._holds_agent(container.func.value, site, depth + 1)
-        return any(self.is_agent(item, site) is True for item in items)
+            for item in container.values:
+                add(item, site)
+        elif isinstance(container, ast.ListComp | ast.SetComp | ast.GeneratorExp | ast.DictComp):
+            for generator in container.generators:
+                inner = self._agents_in(generator.iter, site, depth + 1)
+                if inner is not None:
+                    found = (found or set()) | inner
+        elif isinstance(container, ast.Call):
+            if isinstance(container.func, ast.Attribute) and container.func.attr in {"values", "items"}:
+                # ``REG.values()`` / ``REG.items()`` of a dict of agents.
+                inner = self._agents_in(container.func.value, site, depth + 1)
+                if inner is not None:
+                    found = (found or set()) | inner
+            elif isinstance(container.func, ast.Name) and container.func.id in self.functions:
+                for node in ast.walk(self.functions[container.func.id]):
+                    if isinstance(node, ast.Return) and node.value is not None:
+                        inner = self._agents_in(node.value, node, depth + 1)
+                        if inner is not None:
+                            found = (found or set()) | inner
+        return found
+
+    @property
+    def _appends(self) -> dict[str, list[ast.expr]]:
+        """``name -> items`` put into a module list by ``append`` / ``extend`` / ``insert``."""
+
+        if self._appended is None:
+            self._appended = {}
+            for node in self.scopes.parents:
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.attr in {"append", "extend", "insert"}
+                    and node.args
+                ):
+                    item = node.args[-1]
+                    items = list(item.elts) if isinstance(item, ast.List | ast.Tuple) and node.func.attr == "extend" else [item]
+                    self._appended.setdefault(node.func.value.id, []).extend(items)
+        return self._appended
+
+    def _identity(self, item: ast.expr, site: ast.AST) -> str | None:
+        value = self.value_of(item.id, site) if isinstance(item, ast.Name) else item
+        if isinstance(value, ast.Call):
+            return self.constructed.get(id(value)) or self.returned_agent(value)
+        return None
 
     def _not_an_agent(self, call: ast.Call) -> bool:
         if isinstance(call.func, ast.Call):
@@ -1460,7 +1663,9 @@ def census_module(
     *,
     read_as_sdk: bool = False,
     read_as_adk: bool = False,
-    resolve: Callable[[ast.Call], ast.FunctionDef | ast.AsyncFunctionDef | None] | None = None,
+    resolver: ImportResolver | None = None,
+    module: PythonModule | None = None,
+    callee_registry: dict[Path, ModuleCallees] | None = None,
 ) -> ModuleCensus:
     """The capability-changing constructs of one module, for the comparison (#876 review).
 
@@ -1578,12 +1783,26 @@ def census_module(
             {
                 (site.lineno, constructor(receiver, site))  # type: ignore[attr-defined]
                 for receiver, site, strict in _capability_changes(
-                    tree, _CENSUS_CAPABILITIES, scopes=scopes, resolve=resolve
+                    tree,
+                    _CENSUS_CAPABILITIES,
+                    scopes=scopes,
+                    callees=ModuleCallees(
+                        tree,
+                        scopes,
+                        bindings,
+                        resolver=resolver if module is not None else None,
+                        module=module,
+                        registry=callee_registry,
+                    ),
                 )
                 if (owner := values.owner(receiver, site)) is not None
                 # Handed on: counted for an agent the module builds or one it
                 # imports from the scope, never another library's object.
-                and (not strict or isinstance(owner, str) or _root_name(receiver) in scope_names)
+                and (
+                    not strict
+                    or isinstance(owner, str)
+                    or _root_name(_through_loops(receiver, site, scopes, bindings)) in scope_names
+                )
             },
             key=lambda item: item[0],
         )
