@@ -1719,3 +1719,97 @@ def test_a_package_that_can_subvert_what_an_import_returns_is_never_established(
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial"
     assert all(row["change"] == "not_established" for row in result["rows"])
+
+
+# ---------------------------------------------------------------------------
+# Round 12: a regular package is not an import root; a sys.modules store is
+# read by what its key can name.
+
+SUPPORT_TOOLS = (
+    "from agents import function_tool\n\n\n@function_tool\ndef refund(q: str) -> str:\n    return q\n"
+)
+SUPPORT_AGENT = (
+    "import types  # noqa: F401\nfrom agents import Agent\nfrom tools import refund\n\n"
+    "agent = Agent(name='support', tools=TOOLS)\n"
+)
+
+
+def test_sdk_apps_inside_a_regular_agents_package_import_the_sdk(repo):
+    """R12-1: ``app/agents/`` and ``app/types.py`` are imported through
+    ``app``, never from the path, so ``from agents import Agent`` and
+    ``import types`` are the SDK and the standard library."""
+
+    base = commit(
+        repo,
+        {
+            "app/__init__.py": "",
+            "app/types.py": "X = 1\n",
+            "app/agents/__init__.py": "",
+            "app/agents/support/tools.py": SUPPORT_TOOLS,
+            "app/agents/support/agent.py": SUPPORT_AGENT.replace("TOOLS", "[]"),
+        },
+    )
+    head = commit(repo, {"app/agents/support/agent.py": SUPPORT_AGENT.replace("TOOLS", "[refund]")})
+    result = run(repo, base, head, "--scope", "app/agents/support")
+    assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
+    assert _rows(result) == [("agent", "refund", "added")]
+
+
+@pytest.mark.parametrize(
+    ("store", "outcome"),
+    [
+        (
+            "import importlib.util\nimport sys\n\n\ndef load(path):\n"
+            "    spec = importlib.util.spec_from_file_location('plugin', path)\n"
+            "    module = importlib.util.module_from_spec(spec)\n    sys.modules[spec.name] = module\n"
+            "    return module\n",
+            "not_established",
+        ),
+        ("import sys\n\nsys.modules['yaml_compat'] = sys\n", "added"),
+        ("import sys\nfrom . import danger\n\nsys.modules.setdefault(__name__ + '.tools', danger)\n", "stop"),
+        ("import sys\nfrom . import danger\n\nsys.modules.update({'svc.app.tools': danger})\n", "stop"),
+    ],
+    ids=["plugin-loader", "another-module", "setdefault-own-submodule", "update-literal"],
+)
+def test_a_sys_modules_store_is_read_by_what_it_can_name(repo, store, outcome):
+    """R12-2 and R12-3."""
+
+    files = {
+        "svc/__init__.py": "",
+        "svc/app/__init__.py": "from . import loader  # noqa: F401\n",
+        "svc/app/loader.py": store,
+        "svc/app/danger.py": "def lookup(q: str) -> str:\n    return q.upper()\n",
+        "svc/app/tools.py": "def lookup(q: str) -> str:\n    return q\n",
+        "svc/app/agent.py": "from google.adk.agents import Agent\n\nroot_agent = Agent(name='x', model='m')\n",
+    }
+    base = commit(repo, files)
+    head = commit(repo, {"svc/app/agent.py": AGENT_LOOKUP})
+    result = run(repo, base, head, "--scope", "svc/app")
+    if outcome == "added":
+        assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
+        assert _rows(result) == [("x", "lookup", "added")]
+    elif outcome == "not_established":
+        assert _rows(result) == [("x", "lookup", "not_established")]
+        assert any("computed name" in gap["reason"] for gap in result["head"]["coverage_gaps"])
+    else:
+        assert result["comparison_status"] == "partial"
+        assert any("stores into sys.modules" in gap["reason"] for gap in result["head"]["coverage_gaps"])
+
+
+def test_a_hook_replaced_through_globals_update_is_not_trusted(repo):
+    """R12-3: ``globals().update(__getattr__=...)``."""
+
+    hook = (
+        "import importlib\n\n\ndef __getattr__(name):\n    return importlib.import_module(f'.{name}', __name__)\n\n\n"
+        "globals().update(__getattr__=lambda name: None)\n"
+    )
+    files = {
+        "pkg/__init__.py": hook,
+        "pkg/memory.py": "def remember(q: str) -> str:\n    return q\n",
+        "agent.py": "",
+    }
+    base = commit(repo, files)
+    head = commit(repo, {"agent.py": LAZY_AGENT})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert _rows(result) == [("x", "remember", "not_established")]

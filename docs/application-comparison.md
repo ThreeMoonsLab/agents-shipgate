@@ -165,15 +165,20 @@ row `not_established` and that import in the reason. Whether an absolute import
 is the repository's own code is read from the compared commit's tree (for
 `scan`, from the checkout, or from the three directories above the scope when
 there is none): a module or regular package at the repository root, under
-`src/`, or under any directory between the root and the scope (`backend/common`
-for scope `backend/app`), a linked or submodule entry the import spells, or a
+`src/`, or under any directory between the root and the scope that is not itself
+a package (`backend/common` for scope `backend/app`; `app/agents/` with an
+`__init__.py` is imported through `app`, never from the path), a linked or
+submodule entry the import spells, or a
 directory without `__init__.py` that holds the submodule named — `agents/support/`
 holding SDK apps is not the `agents` that `from agents import Agent` imports. The
 scope spelled from one of those roots through a regular package
 (`svc.app.tools` with scope `svc/app`) is read inside the scope. A store into
-`sys.modules` in code that runs first is a named stop, and a package hook is not
-trusted when the package rebinds `__name__`, patches `importlib`, or stores
-into `sys.modules` or `globals()` other than the idiom's own cache. A generated
+`sys.modules` in code that runs first (`[...] =`, `setdefault`, `update`) is a
+named stop when its key names a module on the chain or is built on `__name__`,
+a caveat when the key is computed (a plugin loader's `spec.name`), and nothing
+when it names another module. A package hook is not trusted when the package
+rebinds `__name__`, patches `importlib`, or stores into `sys.modules` or
+`globals()` other than the idiom's own cache. A generated
 `*_pb2` or `_version` module, an optional import, and an absolute import the
 repository does not hold (a third-party package) are the read's boundary, and a
 rebinding in a module none of these import is not looked for.

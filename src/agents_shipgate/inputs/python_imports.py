@@ -447,14 +447,36 @@ class ImportResolver:
             for step in steps
             if step.get("module_getattr") and not step.get("lazy_submodule")
         ]
+        chain_modules = {
+            _module_name(ref) for ref in (*(step["path"] for step in steps), defining.ref)
+        }
         for runner in runners:
             scan = self._patched_names(runner)
-            for where, line, _ in scan.patched.get(MODULE_TABLE_PATCH, []):
-                raise _Stop(
-                    REBOUND_NAME,
-                    f"{where}:{line} stores into sys.modules, which {self.ref(runner)} runs "
-                    "before the name is used, so any module an import names may be replaced",
-                )
+            for key, stores in scan.patched.items():
+                if not key.startswith(MODULE_TABLE_PATCH):
+                    continue
+                for where, line, _ in stores:
+                    literal = key[len(MODULE_TABLE_LITERAL):] if key.startswith(MODULE_TABLE_LITERAL) else None
+                    if literal is not None and not any(
+                        _same_module(literal, module) for module in chain_modules
+                    ):
+                        # ``sys.modules["yaml"] = ...``: another module.
+                        continue
+                    if key == MODULE_TABLE_COMPUTED:
+                        # ``sys.modules[spec.name] = module`` — a plugin loader:
+                        # which module it replaces is not read.
+                        caveat = (
+                            f"{where}:{line} stores into sys.modules under a computed name, "
+                            "which could replace a module an import names"
+                        )
+                        if caveat not in caveats:
+                            caveats.append(caveat)
+                        continue
+                    raise _Stop(
+                        REBOUND_NAME,
+                        f"{where}:{line} stores into sys.modules a module this chain imports, "
+                        f"which {self.ref(runner)} runs before the name is used",
+                    )
             for name in names:
                 for where, line, targets in scan.patched.get(name, []):
                     if where == defining.ref and targets is not None and defining.path not in targets:
@@ -525,8 +547,8 @@ class ImportResolver:
         patched: dict[str, list[tuple[str, int, frozenset[Path] | None]]] = {}
         for module in modules:
             for dotted, line in module.attribute_patches.items():
-                if dotted == MODULE_TABLE_PATCH:
-                    patched.setdefault(MODULE_TABLE_PATCH, []).append((module.ref, line, None))
+                if dotted.startswith(MODULE_TABLE_PATCH):
+                    patched.setdefault(dotted, []).append((module.ref, line, None))
                     continue
                 # Only an attribute of an imported module can be the definition:
                 # ``self.lookup = ...`` in a class, or ``backend.lookup`` on a
@@ -653,7 +675,13 @@ class ImportResolver:
         roots = ["", "src"]
         if self._layout is not None and self._layout.scope:
             parts = self._layout.scope.split("/")
-            roots += ["/".join(parts[:length]) for length in range(1, len(parts))]
+            for length in range(1, len(parts)):
+                directory = "/".join(parts[:length])
+                # A regular package is imported through its parent, never put
+                # on the path itself: ``app/agents/`` holding SDK apps is not
+                # where ``from agents import Agent`` looks (#879 review).
+                if "__init__.py" not in (self._layout.entries(directory) or ()):
+                    roots.append(directory)
         return list(dict.fromkeys(roots))
 
     def _imported_paths(
@@ -1321,12 +1349,22 @@ def _hook_answers_submodule(module: PythonModule, name: str) -> bool:
     # ``importlib``, store into ``sys.modules``, or replace ``__getattr__``
     # through ``globals()`` (#879 review).
     if "__name__" in module.bindings or any(
-        key == MODULE_TABLE_PATCH or key.split(".", 1)[0] in {"importlib", "import_module"}
+        key.startswith(MODULE_TABLE_PATCH) or key.split(".", 1)[0] in {"importlib", "import_module"}
         for key in module.attribute_patches
     ):
         return False
     inside = {id(node) for node in ast.walk(function)}
     for node in ast.walk(module.tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"update", "setdefault", "__setitem__"}
+            and isinstance(node.func.value, ast.Call)
+            and isinstance(node.func.value.func, ast.Name)
+            and node.func.value.func.id in {"globals", "vars"}
+        ):
+            # ``globals().update(__getattr__=...)``.
+            return False
         if not (
             isinstance(node, ast.Subscript)
             and isinstance(node.ctx, ast.Store | ast.Del)
@@ -1556,9 +1594,41 @@ def _module(path: Path, ref: str, tree: ast.Module, text: str) -> PythonModule:
     )
 
 
-#: The ``attribute_patches`` key for a store into ``sys.modules``, which can
-#: replace any module an import names (#879 review).
+#: ``attribute_patches`` keys for a store into ``sys.modules``, which can
+#: replace a module an import names (#879 review): under a literal name
+#: (``*=pkg.memory``), a name built on ``__name__`` (the package's own
+#: submodules), or a computed one (a plugin loader's ``spec.name``).
 MODULE_TABLE_PATCH = "*"
+MODULE_TABLE_LITERAL = "*="
+MODULE_TABLE_OWN = "*self"
+MODULE_TABLE_COMPUTED = "*?"
+
+
+def _module_table_key(key: ast.AST | None) -> str:
+    if isinstance(key, ast.Constant) and isinstance(key.value, str):
+        return MODULE_TABLE_LITERAL + key.value
+    if key is not None and any(
+        isinstance(node, ast.Name) and node.id == "__name__" for node in ast.walk(key)
+    ):
+        return MODULE_TABLE_OWN
+    return MODULE_TABLE_COMPUTED
+
+
+def _module_name(ref: str) -> str:
+    """``pkg/memory.py`` -> ``pkg.memory``; ``pkg/__init__.py`` -> ``pkg``."""
+
+    parts = ref.removesuffix(".py").split("/")
+    if parts[-1] == "__init__":
+        parts = parts[:-1]
+    return ".".join(parts)
+
+
+def _same_module(stored: str, module: str) -> bool:
+    """Whether a ``sys.modules`` key can name a scope-relative module."""
+
+    return bool(module) and (
+        stored == module or stored.endswith("." + module) or module.endswith("." + stored)
+    )
 
 
 def _attribute_patches(tree: ast.Module) -> dict[str, int]:
@@ -1577,7 +1647,28 @@ def _attribute_patches(tree: ast.Module) -> dict[str, int]:
         for alias in node.names
         if alias.name == "modules"
     }
+    def is_table(node: ast.AST) -> bool:
+        spelling = reference_spelling(node)
+        return spelling in {f"{name}.modules" for name in sys_names} or spelling in modules_names
+
     for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"setdefault", "__setitem__", "update"}
+            and is_table(node.func.value)
+        ):
+            # ``sys.modules.setdefault(name, module)`` / ``.update({...})``.
+            if node.func.attr == "update":
+                keys: list[ast.AST | None] = []
+                for arg in node.args:
+                    keys += list(arg.keys) if isinstance(arg, ast.Dict) else [None]
+                keys += [ast.Constant(value=item.arg) if item.arg else None for item in node.keywords]
+            else:
+                keys = [node.args[0] if node.args else None]
+            for key in keys:
+                patches.setdefault(_module_table_key(key), node.lineno)
+            continue
         targets: list[ast.AST] = []
         if isinstance(node, ast.Assign):
             targets = list(node.targets)
@@ -1600,12 +1691,14 @@ def _attribute_patches(tree: ast.Module) -> dict[str, int]:
                 dotted = _dotted(target)
                 if dotted is not None:
                     patches.setdefault(".".join(dotted), node.lineno)
-            elif isinstance(target, ast.Subscript) and (
-                reference_spelling(target.value) in {f"{name}.modules" for name in sys_names}
-                or reference_spelling(target.value) in modules_names
+            elif (
+                isinstance(target, ast.Subscript)
+                and not isinstance(node, ast.Delete)
+                and is_table(target.value)
             ):
                 # ``sys.modules["pkg.memory"] = evil``: what an import returns.
-                patches.setdefault(MODULE_TABLE_PATCH, node.lineno)
+                # Removing an entry only makes the module load again.
+                patches.setdefault(_module_table_key(target.slice), node.lineno)
     return patches
 
 
