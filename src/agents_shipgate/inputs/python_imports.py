@@ -91,6 +91,9 @@ class RepositoryLayout:
     #: The names directly inside one repository directory ("" is the root);
     #: None when it is not a directory or cannot be listed.
     entries: Callable[[str], frozenset[str] | None]
+    #: The names inside one directory that are symbolic links or submodules:
+    #: code an import can reach that is not read (#879 review).
+    links: Callable[[str], frozenset[str]] = lambda path: frozenset()
 
 
 _REPOSITORY: ContextVar[RepositoryLayout | None] = ContextVar("repository_layout", default=None)
@@ -107,13 +110,28 @@ def repository_layout(layout: RepositoryLayout | None) -> Iterator[None]:
         _REPOSITORY.reset(token)
 
 
+#: Directories above the scope read as the project when no checkout encloses
+#: it (an exported tree).
+MAX_UNVERSIONED_LEVELS = 3
+
+
 def _disk_layout(scope_root: Path) -> RepositoryLayout | None:
-    """The checkout that holds ``scope_root``, read from disk; None outside one."""
+    """The checkout that holds ``scope_root``, read from disk.
+
+    Outside a checkout — an exported or extracted tree — the directories a few
+    levels above the scope stand in for it, so an import of the project's own
+    code there is still named (#879 review).
+    """
 
     root = scope_root
     while not (root / ".git").exists():
         if root.parent == root:
-            return None
+            root = scope_root
+            for _ in range(MAX_UNVERSIONED_LEVELS):
+                if root.parent == root:
+                    break
+                root = root.parent
+            break
         root = root.parent
     listings: dict[str, frozenset[str] | None] = {}
 
@@ -130,8 +148,16 @@ def _disk_layout(scope_root: Path) -> RepositoryLayout | None:
                 listings[path] = None
         return listings[path]
 
+    def links(path: str) -> frozenset[str]:
+        directory = root / path if path else root
+        return frozenset(
+            name
+            for name in entries(path) or ()
+            if (directory / name).is_symlink()
+        )
+
     scope = scope_root.relative_to(root).as_posix()
-    return RepositoryLayout("" if scope == "." else scope, entries)
+    return RepositoryLayout("" if scope == "." else scope, entries, links)
 
 _SCOPE_NODES = (
     ast.FunctionDef,
@@ -423,6 +449,12 @@ class ImportResolver:
         ]
         for runner in runners:
             scan = self._patched_names(runner)
+            for where, line, _ in scan.patched.get(MODULE_TABLE_PATCH, []):
+                raise _Stop(
+                    REBOUND_NAME,
+                    f"{where}:{line} stores into sys.modules, which {self.ref(runner)} runs "
+                    "before the name is used, so any module an import names may be replaced",
+                )
             for name in names:
                 for where, line, targets in scan.patched.get(name, []):
                     if where == defining.ref and targets is not None and defining.path not in targets:
@@ -493,6 +525,9 @@ class ImportResolver:
         patched: dict[str, list[tuple[str, int, frozenset[Path] | None]]] = {}
         for module in modules:
             for dotted, line in module.attribute_patches.items():
+                if dotted == MODULE_TABLE_PATCH:
+                    patched.setdefault(MODULE_TABLE_PATCH, []).append((module.ref, line, None))
+                    continue
                 # Only an attribute of an imported module can be the definition:
                 # ``self.lookup = ...`` in a class, or ``backend.lookup`` on a
                 # parameter, reassigns some other object (#879 review).
@@ -577,13 +612,15 @@ class ImportResolver:
         layout = self._layout
         if layout is None or not parts or not parts[0]:
             return False
-        for base in ("", "src"):
+        for base in self._import_roots():
             prefix = f"{base}/" if base else ""
             top = layout.entries(base)
             if not top:
                 continue
             first = parts[0]
-            if f"{first}.py" in top:
+            if f"{first}.py" in top or first in layout.links(base):
+                # A link or a submodule spelled by the import: its code is not
+                # read.
                 return True
             if first not in top:
                 continue
@@ -607,6 +644,17 @@ class ImportResolver:
                     if last:
                         return True
         return False
+
+    def _import_roots(self) -> list[str]:
+        """Where an absolute import may be looked up from: the repository root,
+        ``src/``, and every directory between the root and the scope
+        (``backend/`` of ``backend/app``), innermost last."""
+
+        roots = ["", "src"]
+        if self._layout is not None and self._layout.scope:
+            parts = self._layout.scope.split("/")
+            roots += ["/".join(parts[:length]) for length in range(1, len(parts))]
+        return list(dict.fromkeys(roots))
 
     def _imported_paths(
         self, runner: PythonModule, node: ast.Import | ast.ImportFrom
@@ -956,12 +1004,15 @@ class ImportResolver:
         # The scope spelled from the repository root (``svc.app.tools`` with
         # scope ``svc/app``, or ``app.tools`` under ``src/app``): its own files.
         if self._layout is not None and self._layout.scope:
-            scope_parts = self._layout.scope.split("/")
-            prefixes = [scope_parts]
-            if scope_parts[0] == "src" and len(scope_parts) > 1:
-                prefixes.append(scope_parts[1:])
-            for prefix in prefixes:
-                if parts[: len(prefix)] == prefix:
+            layout = self._layout
+            for base in self._import_roots():
+                if base and not layout.scope.startswith(base + "/"):
+                    continue
+                prefix = layout.scope[len(base) + 1 :].split("/") if base else layout.scope.split("/")
+                top = f"{base}/{prefix[0]}" if base else prefix[0]
+                # Only a regular package: an installed package of the same name
+                # wins over a namespace directory (#879 review).
+                if parts[: len(prefix)] == prefix and "__init__.py" in (layout.entries(top) or ()):
                     roots.append((self.scope_root, parts[len(prefix):]))
         found: dict[Path, _Container] = {}
         for root, remaining in roots:
@@ -1266,6 +1317,30 @@ def _hook_answers_submodule(module: PythonModule, name: str) -> bool:
     ):
         return False
     parameter = function.args.args[0].arg
+    # The package can subvert any hook: rebind ``__name__``, patch
+    # ``importlib``, store into ``sys.modules``, or replace ``__getattr__``
+    # through ``globals()`` (#879 review).
+    if "__name__" in module.bindings or any(
+        key == MODULE_TABLE_PATCH or key.split(".", 1)[0] in {"importlib", "import_module"}
+        for key in module.attribute_patches
+    ):
+        return False
+    inside = {id(node) for node in ast.walk(function)}
+    for node in ast.walk(module.tree):
+        if not (
+            isinstance(node, ast.Subscript)
+            and isinstance(node.ctx, ast.Store | ast.Del)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id in {"globals", "vars"}
+            and not node.value.args
+        ):
+            continue
+        # Only the idiom's own cache, ``globals()[name] = module``, inside it.
+        if id(node) not in inside or not (
+            isinstance(node.slice, ast.Name) and node.slice.id == parameter
+        ):
+            return False
 
     def from_importlib(head: str) -> bool:
         """``importlib`` / ``import_module`` bound in the module only by importing it."""
@@ -1481,8 +1556,27 @@ def _module(path: Path, ref: str, tree: ast.Module, text: str) -> PythonModule:
     )
 
 
+#: The ``attribute_patches`` key for a store into ``sys.modules``, which can
+#: replace any module an import names (#879 review).
+MODULE_TABLE_PATCH = "*"
+
+
 def _attribute_patches(tree: ast.Module) -> dict[str, int]:
     patches: dict[str, int] = {}
+    sys_names = {"sys"} | {
+        alias.asname
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name == "sys" and alias.asname
+    }
+    modules_names = {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "sys" and not node.level
+        for alias in node.names
+        if alias.name == "modules"
+    }
     for node in ast.walk(tree):
         targets: list[ast.AST] = []
         if isinstance(node, ast.Assign):
@@ -1506,6 +1600,12 @@ def _attribute_patches(tree: ast.Module) -> dict[str, int]:
                 dotted = _dotted(target)
                 if dotted is not None:
                     patches.setdefault(".".join(dotted), node.lineno)
+            elif isinstance(target, ast.Subscript) and (
+                reference_spelling(target.value) in {f"{name}.modules" for name in sys_names}
+                or reference_spelling(target.value) in modules_names
+            ):
+                # ``sys.modules["pkg.memory"] = evil``: what an import returns.
+                patches.setdefault(MODULE_TABLE_PATCH, node.lineno)
     return patches
 
 

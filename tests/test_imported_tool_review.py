@@ -1614,3 +1614,108 @@ def test_a_checkout_on_disk_answers_for_scan(tmp_path):
     assert plain.resolved and plain.caveats == ()
     wired = resolver.resolve(resolver.module((root / "agents/support/wired.py").resolve()), "lookup")
     assert wired.resolved and any("'common.patches'" in item for item in wired.caveats)
+
+
+# ---------------------------------------------------------------------------
+# Round 11: every directory between the repository root and the scope is an
+# import root; a linked package and a hook the package can subvert are unread.
+
+def _sibling_app(root: str) -> dict[str, str]:
+    return {
+        f"{root}/common/__init__.py": "",
+        f"{root}/common/patches.py": "applied = True\n",
+        f"{root}/app/__init__.py": "from common.patches import applied  # noqa: F401\n",
+        f"{root}/app/tools.py": "def lookup(q: str) -> str:\n    return q\n",
+        f"{root}/app/agent.py": "from google.adk.agents import Agent\n\nroot_agent = Agent(name='x', model='m')\n",
+    }
+
+
+@pytest.mark.parametrize("root", ["backend", "lib"])
+def test_a_sibling_package_under_an_inner_root_is_a_caveat(repo, root):
+    """R11-1: ``backend/app`` importing ``common`` from ``backend/common``."""
+
+    base = commit(repo, _sibling_app(root))
+    head = commit(repo, {f"{root}/app/agent.py": AGENT_LOOKUP})
+    result = run(repo, base, head, "--scope", f"{root}/app")
+    assert result["comparison_status"] == "partial"
+    assert _rows(result) == [("x", "lookup", "not_established")]
+
+
+def test_a_linked_top_level_package_is_a_caveat(repo):
+    """R11-2: ``common`` at the root is a link to ``libs/common``; its content
+    is reached by the import and not read."""
+
+    files = {
+        "libs/common/__init__.py": "",
+        "libs/common/patches.py": "applied = True\n",
+        "svc/__init__.py": "",
+        "svc/app/__init__.py": "from common.patches import applied  # noqa: F401\n",
+        "svc/app/tools.py": "def lookup(q: str) -> str:\n    return q\n",
+        "svc/app/agent.py": "from google.adk.agents import Agent\n\nroot_agent = Agent(name='x', model='m')\n",
+    }
+    for name, text in files.items():
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_text(text)
+    (repo / "common").symlink_to("libs/common")
+    base = commit(repo, {})
+    head = commit(repo, {"svc/app/agent.py": AGENT_LOOKUP})
+    result = run(repo, base, head, "--scope", "svc/app")
+    assert result["comparison_status"] == "partial"
+    assert _rows(result) == [("x", "lookup", "not_established")]
+
+
+def test_an_exported_tree_outside_a_checkout_still_names_the_import(tmp_path):
+    """R11-3: without ``.git`` the directories above the scope stand in for
+    the repository, as the round-9 rule did."""
+
+    from agents_shipgate.inputs.python_imports import ImportResolver
+
+    root = tmp_path / "export"
+    files = {
+        "svc/__init__.py": "",
+        "svc/patches.py": "applied = True\n",
+        "svc/app/__init__.py": "from svc.patches import applied\n",
+        "svc/app/tools.py": "def lookup(q: str) -> str:\n    return q\n",
+        "svc/app/agent.py": "from tools import lookup\n",
+    }
+    for name, text in files.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(text)
+    resolver = ImportResolver(root / "svc" / "app")
+    resolution = resolver.resolve(resolver.module((root / "svc/app/agent.py").resolve()), "lookup")
+    assert resolution.resolved
+    assert any("'svc.patches'" in item for item in resolution.caveats)
+
+
+@pytest.mark.parametrize(
+    "package",
+    [
+        "import sys\nfrom . import evil\n\nsys.modules[__name__ + '.memory'] = evil\n",
+        "import importlib\n\nimportlib.import_module = lambda *args: None\n\n\ndef __getattr__(name):\n"
+        "    return importlib.import_module(f'.{name}', __name__)\n",
+        "import importlib\n\n__name__ = 'other'\n\n\ndef __getattr__(name):\n"
+        "    return importlib.import_module(f'.{name}', __name__)\n",
+        "import importlib\nimport sys\n\n\ndef __getattr__(name):\n    sys.modules[__name__ + '.' + name] = None\n"
+        "    return importlib.import_module(f'.{name}', __name__)\n",
+        "import importlib\n\n\ndef __getattr__(name):\n    return importlib.import_module(f'.{name}', __name__)\n\n\n"
+        "globals()['__getattr__'] = lambda name: None\n",
+    ],
+    ids=[
+        "sys-modules-store", "importlib-patched", "dunder-name-rebound", "sys-modules-in-hook",
+        "hook-replaced-through-globals",
+    ],
+)
+def test_a_package_that_can_subvert_what_an_import_returns_is_never_established(repo, package):
+    """R11-4."""
+
+    files = {
+        "pkg/__init__.py": package,
+        "pkg/memory.py": "def remember(q: str) -> str:\n    return q\n",
+        "pkg/evil.py": "def remember(q: str) -> str:\n    return q.upper()\n",
+        "agent.py": "",
+    }
+    base = commit(repo, files)
+    head = commit(repo, {"agent.py": LAZY_AGENT})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert all(row["change"] == "not_established" for row in result["rows"])

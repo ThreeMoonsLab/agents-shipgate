@@ -214,29 +214,39 @@ _MAX_LAYOUT_LISTING_BYTES = 4 * 1024 * 1024
 def _git_layout(workspace: Path, commit: str, scope: str) -> RepositoryLayout:
     """The commit's tree outside the scope, listed one directory at a time (#879 review)."""
 
-    listings: dict[str, frozenset[str] | None] = {}
+    listings: dict[str, tuple[frozenset[str], frozenset[str]] | None] = {}
 
-    def entries(path: str) -> frozenset[str] | None:
+    def listing(path: str) -> tuple[frozenset[str], frozenset[str]] | None:
         if path not in listings:
-            args = ["--literal-pathspecs", "ls-tree", "-z", "--name-only", commit]
+            args = ["--literal-pathspecs", "ls-tree", "-z", commit]
             if path:
                 args += ["--", f"{path}/"]
             output = _run_git_bounded_output(
                 workspace, args, max_output_bytes=_MAX_LAYOUT_LISTING_BYTES
             )
-            names = (
-                frozenset(
-                    PurePosixPath(raw.decode("utf-8", errors="replace")).name
-                    for raw in output.split(b"\0")
-                    if raw
-                )
-                if output is not None
-                else frozenset()
-            )
-            listings[path] = names or None
+            names: set[str] = set()
+            links: set[str] = set()
+            for raw in (output or b"").split(b"\0"):
+                if not raw or b"\t" not in raw:
+                    continue
+                meta, _, name_bytes = raw.partition(b"\t")
+                name = PurePosixPath(name_bytes.decode("utf-8", errors="replace")).name
+                names.add(name)
+                if meta.split(b" ", 1)[0] in {b"120000", b"160000"}:
+                    # A symbolic link or a submodule: reachable, not read.
+                    links.add(name)
+            listings[path] = (frozenset(names), frozenset(links)) if names else None
         return listings[path]
 
-    return RepositoryLayout("" if scope in {"", "."} else scope, entries)
+    def entries(path: str) -> frozenset[str] | None:
+        found = listing(path)
+        return found[0] if found is not None else None
+
+    def links(path: str) -> frozenset[str]:
+        found = listing(path)
+        return found[1] if found is not None else frozenset()
+
+    return RepositoryLayout("" if scope in {"", "."} else scope, entries, links)
 
 
 def observe(
