@@ -694,6 +694,10 @@ class AgentBindingObservation(BaseModel):
     #: — ``lookup`` in two modules, bound to two agents — and a name alone
     #: cannot say which one this agent binds.
     tool_locators: dict[str, str] = Field(default_factory=dict)
+    #: ``tool_name -> why`` for a tool bound on a guess: the reader named a
+    #: definition for it but could not establish that it is the one bound
+    #: (#879 review). The binding is reported, never as established.
+    tool_issues: dict[str, str] = Field(default_factory=dict)
     handoff_names: list[str] = Field(default_factory=list)
     tools_complete: bool = True
     handoffs_complete: bool = True

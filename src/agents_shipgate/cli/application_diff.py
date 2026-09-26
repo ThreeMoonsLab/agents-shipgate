@@ -109,6 +109,20 @@ class Observations:
                 reasons.append(gap["reason"])
         return sorted(set(reasons))
 
+    def tool_gaps(self, key: tuple[str, str, str]) -> list[str]:
+        """Gaps naming this one binding, which even a present binding carries."""
+
+        return sorted(
+            {
+                gap["reason"]
+                for gap in self.coverage_gaps
+                if gap["affects"] == "binding_presence"
+                and gap["tool"] == key[2]
+                and gap["agent"] in (None, key[1])
+                and (gap["source"] is None or key[0] == gap["source"])
+            }
+        )
+
     def summary(self) -> dict[str, Any]:
         return {
             "scope": self.scope,
@@ -366,6 +380,16 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
                         agent=observation.agent,
                     )
                     attributed.add(message)
+            # A binding the reader made on a guess is reported, never as an
+            # established row, even where the tool is bound on both sides.
+            for tool_name, message in observation.tool_issues.items():
+                result.gap(
+                    message,
+                    source=_source_path(root, observation.source),
+                    agent=observation.agent,
+                    tool=tool_name,
+                )
+                attributed.add(message)
         for warning in item.warnings:
             if warning not in attributed:
                 result.gap(warning, source=source.path)
@@ -584,6 +608,10 @@ def compare(
             for side, value in (("base", before), ("head", after)):
                 if "definition" in value and value["definition"]["implementation_sha256"] is None:
                     uncertainty[side] = ["The bound callable's implementation could not be read."]
+            for side, observed in (("base", base), ("head", head)):
+                reasons = observed.tool_gaps(key)
+                if reasons:
+                    uncertainty.setdefault(side, []).extend(reasons)
             if before_meaning == _meaning(after) and not uncertainty:
                 continue
         candidate_change = kind

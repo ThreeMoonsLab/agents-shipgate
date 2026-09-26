@@ -884,6 +884,8 @@ class _AdkAgentBinding:
     tool_locations: dict[str, str] = field(default_factory=dict)
     #: Names bound to two different definitions: neither is bound (#879).
     duplicated: set[str] = field(default_factory=set)
+    #: ``tool_name -> why`` for a binding made on a guess (#879 review).
+    tool_issues: dict[str, str] = field(default_factory=dict)
     #: Why this agent's tool list is incomplete, when it is.
     issues: list[str] = field(default_factory=list)
 
@@ -915,6 +917,7 @@ class _AdkAgentBinding:
         """
 
         self.duplicated.add(tool_name)
+        self.tool_issues.pop(tool_name, None)
         self.tool_names = [name for name in self.tool_names if name != tool_name]
         self.tool_locators.pop(tool_name, None)
         self.tool_locations.pop(tool_name, None)
@@ -1416,6 +1419,7 @@ class _PythonAdkExtractor:
                 source_pointer=binding.source_pointer,
                 tool_names=list(binding.tool_names),
                 tool_locators=dict(binding.tool_locators),
+                tool_issues=dict(binding.tool_issues),
                 tools_complete=not binding.issues,
                 issues=list(binding.issues),
             )
@@ -1519,69 +1523,109 @@ class _PythonAdkExtractor:
                 assert spelling is not None
                 self._unresolved_reference(agent_name, spelling, resolution)
             return []
-        if (
-            verdict is None
-            and isinstance(expr, ast.Name)
-            and expr.id in self.functions
-            and expr.id not in self.wrappers
-            and expr.id not in self.toolset_assignments
-        ):
-            # No binding in an enclosing function: the module's own definition
-            # is the one visible here, not a nested one the flat map may hold.
-            visible = self._module_definition(expr.id)
-            if visible is not None and visible is not self.functions[expr.id]:
-                self._bind_function_tool(visible, tools, agent_name, binding, False)
-                return []
-        if isinstance(expr, ast.Name):
-            if expr.id in self.wrappers:
-                # The variable's own name has to hold up too, not just the
-                # function it wraps: a wrapper reassigned later resolves
-                # through a last-write-wins map.
-                self._require_proven_name(expr.id)
-                self._append_wrapper_tool(expr.id, tools, agent_name, binding)
-            elif expr.id in self.toolset_assignments:
-                self._require_proven_name(expr.id)
-                return self._extract_toolset_call(
-                    self.toolset_assignments[expr.id], agent_name, binding
-                )
-            elif expr.id in self.functions:
-                self._bind_function_tool(
-                    self.functions[expr.id], tools, agent_name, binding, False
-                )
-            else:
+        if isinstance(expr, ast.Name) and verdict is None and self.module is not None:
+            # No binding in an enclosing function: the module-level binding is
+            # the one visible here. The flat maps answer only when their entry
+            # *is* that binding; a same-named ``def`` or wrapper nested in some
+            # function says nothing about it (#879 review).
+            visible = self._module_level_flat(expr.id)
+            if visible == "value":
+                statement = self.module.bindings[expr.id][0].statement
+                value = getattr(statement, "value", None)
+                assert isinstance(value, ast.Call)
+                return self._extract_tool_expr(value, tools, agent_name, binding)
+            if visible is None:
                 resolution, long_running = self._resolve_reference(expr.id)
                 if resolution is not None and resolution.resolved:
                     self._bind_resolved(resolution, tools, agent_name, binding, long_running)
-                else:
+                    return []
+                if not (
+                    expr.id in self.wrappers
+                    or expr.id in self.toolset_assignments
+                    or expr.id in self.functions
+                ):
                     self._unresolved_reference(agent_name, expr.id, resolution)
-            return []
+                    return []
+                issue = self._name_unproven_guess(expr.id, resolution, agent_name, binding)
+                before = set(binding.tool_names)
+                loaded = self._extract_flat_name(expr, tools, agent_name, binding)
+                binding.tool_issues.update(
+                    {name: issue for name in binding.tool_names if name not in before}
+                )
+                return loaded
+        if isinstance(expr, ast.Name):
+            return self._extract_flat_name(expr, tools, agent_name, binding)
         if isinstance(expr, ast.Attribute) and self._imported_root(expr):
-            # ``memory_bank.remember_firm_finding`` after ``from . import
-            # memory_bank``: a module-qualified function, not an arbitrary
-            # expression (#864). Resolved, or named as the reference it is.
-            spelling = reference_spelling(expr)
-            assert spelling is not None
-            resolution, long_running = self._resolve_reference(spelling)
+            return self._extract_imported_attribute(expr, tools, agent_name, binding)
+        return self._extract_call_expr(expr, tools, agent_name, binding)
+
+    def _extract_flat_name(
+        self,
+        expr: ast.Name,
+        tools: list[Tool],
+        agent_name: str,
+        binding: _AdkAgentBinding,
+    ) -> list[LoadedToolSource]:
+        """A plain name the flat maps describe, or else the import resolver."""
+
+        if expr.id in self.wrappers:
+            # The variable's own name has to hold up too, not just the
+            # function it wraps: a wrapper reassigned later resolves
+            # through a last-write-wins map.
+            self._require_proven_name(expr.id)
+            self._append_wrapper_tool(expr.id, tools, agent_name, binding)
+        elif expr.id in self.toolset_assignments:
+            self._require_proven_name(expr.id)
+            return self._extract_toolset_call(
+                self.toolset_assignments[expr.id], agent_name, binding
+            )
+        elif expr.id in self.functions:
+            self._bind_function_tool(
+                self.functions[expr.id], tools, agent_name, binding, False
+            )
+        else:
+            resolution, long_running = self._resolve_reference(expr.id)
             if resolution is not None and resolution.resolved:
                 self._bind_resolved(resolution, tools, agent_name, binding, long_running)
             else:
-                self._unresolved_reference(agent_name, spelling, resolution)
-            return []
+                self._unresolved_reference(agent_name, expr.id, resolution)
+        return []
+
+    def _extract_imported_attribute(
+        self,
+        expr: ast.Attribute,
+        tools: list[Tool],
+        agent_name: str,
+        binding: _AdkAgentBinding,
+    ) -> list[LoadedToolSource]:
+        # ``memory_bank.remember_firm_finding`` after ``from . import
+        # memory_bank``: a module-qualified function, not an arbitrary
+        # expression (#864). Resolved, or named as the reference it is.
+        spelling = reference_spelling(expr)
+        assert spelling is not None
+        resolution, long_running = self._resolve_reference(spelling)
+        if resolution is not None and resolution.resolved:
+            self._bind_resolved(resolution, tools, agent_name, binding, long_running)
+        else:
+            self._unresolved_reference(agent_name, spelling, resolution)
+        return []
+
+    def _extract_call_expr(
+        self,
+        expr: ast.AST,
+        tools: list[Tool],
+        agent_name: str,
+        binding: _AdkAgentBinding,
+    ) -> list[LoadedToolSource]:
         if isinstance(expr, ast.Call):
             call_name = _qualified_name(expr.func, self.aliases)
             if call_name in FUNCTION_TOOL_NAMES | LONG_RUNNING_TOOL_NAMES:
                 self._require_proven_framework_symbol(expr)
                 func_name = _call_func_name(expr)
                 long_running = call_name in LONG_RUNNING_TOOL_NAMES
-                if func_name and func_name in self.functions:
-                    self._bind_function_tool(
-                        self.functions[func_name],
-                        tools,
-                        agent_name,
-                        binding,
-                        long_running,
-                    )
-                else:
+                if not self._bind_named_function(
+                    _call_func_expr(expr), tools, agent_name, binding, long_running
+                ):
                     # A recognised wrapper whose ``func`` this module does not
                     # define: an imported function, an attribute, a lambda, or
                     # no ``func`` at all. The wrapper is a real tool the agent
@@ -1659,6 +1703,112 @@ class _PythonAdkExtractor:
             False,
         )
 
+    def _module_level_flat(self, name: str) -> str | None:
+        """Whether the flat maps describe ``name``'s module-level binding.
+
+        ``"flat"``: its single top-level binding is the flat entry. ``"value"``:
+        it is a top-level wrapper or toolset assignment the flat map lost to a
+        same-named one in a function — read that assignment's call instead.
+        None: anything else, which the import resolver answers or names.
+        """
+
+        assert self.module is not None
+        bindings = self.module.bindings.get(name, [])
+        if len(bindings) != 1 or not bindings[0].top_level:
+            return None
+        node, statement = bindings[0].node, bindings[0].statement
+        if node is self.functions.get(name):
+            return "flat"
+        value = getattr(statement, "value", None)
+        recorded = self.wrappers.get(name, {}).get("call") or self.toolset_assignments.get(name)
+        if isinstance(node, ast.Name) and value is not None and value is recorded:
+            return "flat"
+        if (
+            isinstance(node, ast.Name)
+            and isinstance(value, ast.Call)
+            and (name in self.wrappers or name in self.toolset_assignments)
+        ):
+            return "value"
+        return None
+
+    def _bind_named_function(
+        self,
+        func_expr: ast.AST | None,
+        tools: list[Tool],
+        agent_name: str,
+        binding: _AdkAgentBinding,
+        long_running: bool,
+    ) -> bool:
+        """Bind the function a wrapper's plain ``func`` name means where it is written.
+
+        False when the name is not one this module's flat map can speak to —
+        an attribute, a local binding, an imported name — which the caller
+        follows through ``_bind_wrapped_reference``.
+        """
+
+        if not isinstance(func_expr, ast.Name) or func_expr.id not in self.functions:
+            return False
+        name = func_expr.id
+        if self._visible_function(name, func_expr):
+            self._bind_function_tool(self.functions[name], tools, agent_name, binding, long_running)
+            return True
+        if self.module is None or self._local_meaning(func_expr, name) is not None:
+            return False
+        resolution, wrapped = self._resolve_reference(name)
+        if resolution is not None and resolution.resolved:
+            self._bind_resolved(resolution, tools, agent_name, binding, long_running or wrapped)
+            return True
+        issue = self._name_unproven_guess(name, resolution, agent_name, binding)
+        before = set(binding.tool_names)
+        self._bind_function_tool(self.functions[name], tools, agent_name, binding, long_running)
+        binding.tool_issues.update(
+            {bound: issue for bound in binding.tool_names if bound not in before}
+        )
+        return True
+
+    def _name_unproven_guess(
+        self,
+        name: str,
+        resolution: Resolution | None,
+        agent_name: str,
+        binding: _AdkAgentBinding,
+    ) -> str:
+        """The flat map's same-named definition stands in for what the module binds.
+
+        What the module binds is not established — rebound, only conditional,
+        a value — so the definition found elsewhere in the file is named, never
+        proven: the shadowed gap keeps ``scan`` at medium, and the agent's list
+        is not complete, so a comparison cannot treat it as the binding (#879
+        review).
+        """
+
+        why = (
+            resolution.detail
+            if resolution is not None and resolution.detail
+            else f"{name!r} is not bound once at module level"
+        )
+        issue = (
+            f"Google ADK agent {agent_name!r} lists {name!r}, and {why}; the "
+            "same-named definition read for it is not established as the one bound."
+        )
+        if issue not in binding.issues:
+            binding.issues.append(issue)
+        self._note_surface_gap(SURFACE_GAP_SHADOWED_DEFINITION)
+        return issue
+
+    def _visible_function(self, name: str, node: ast.AST | None) -> bool:
+        """Whether ``self.functions[name]`` is the binding of ``name`` visible at ``node``."""
+
+        function = self.functions.get(name)
+        if function is None:
+            return False
+        if self.module is None or node is None:
+            return True
+        meaning = self._local_meaning(node, name) if isinstance(node, ast.Name) else None
+        if meaning == "flat":
+            return True
+        return meaning is None and self._module_definition(name) is function
+
     def _module_definition(
         self, name: str
     ) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
@@ -1684,17 +1834,15 @@ class _PythonAdkExtractor:
         wrapper_call = wrapper.get("call")
         if isinstance(wrapper_call, ast.Call):
             self._require_proven_framework_symbol(wrapper_call)
-        func_name = wrapper.get("func_name")
-        if isinstance(func_name, str) and func_name in self.functions:
-            self._bind_function_tool(
-                self.functions[func_name],
-                tools,
-                agent_name,
-                binding,
-                bool(wrapper.get("long_running")),
-            )
-            return
         func_expr = wrapper.get("func_expr")
+        if self._bind_named_function(
+            func_expr if isinstance(func_expr, ast.AST) else None,
+            tools,
+            agent_name,
+            binding,
+            bool(wrapper.get("long_running")),
+        ):
+            return
         self._bind_wrapped_reference(
             func_expr if isinstance(func_expr, ast.AST) else None,
             tools,

@@ -8,7 +8,7 @@ from typing import Any
 from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.domain import LoadedToolSource, Tool
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.core.tool_identity import build_tool_identity_catalog
+from agents_shipgate.core.tool_identity import build_tool_identity_catalog, source_observation_id
 from agents_shipgate.inputs.protocol import REGISTRY, LoadedAdapterResult, ToolSourceAdapter
 from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
@@ -440,6 +440,7 @@ def _one_observation_per_imported_definition(
     result: list[LoadedToolSource] = []
     for loaded in loaded_sources:
         tools: list[Tool] = []
+        dropped: set[str] = set()
         for tool in loaded.tools:
             key = definition(tool)
             winner = kept.get(key) if key is not None else None
@@ -449,12 +450,28 @@ def _one_observation_per_imported_definition(
             if winner.source_id == tool.source_id or tool.source_id in completed:
                 tools.append(tool)
                 continue
+            dropped.add(source_observation_id(tool, tool.source_id or ""))
             evidence = winner.extraction.setdefault("import_resolutions", [])
             for item in tool.extraction.get("import_resolutions", []):
                 if item not in evidence:
                     evidence.append(item)
+        if len(tools) == len(loaded.tools):
+            result.append(loaded)
+            continue
+        # The dropped copy's guard evidence goes with it: the kept tool's own
+        # source reads the same guard, and a row for an observation no tool
+        # carries any more reads as an ambiguous guard (#879 review).
         result.append(
-            loaded if len(tools) == len(loaded.tools) else loaded.model_copy(update={"tools": tools})
+            loaded.model_copy(
+                update={
+                    "tools": tools,
+                    "guard_dependencies": [
+                        item
+                        for item in loaded.guard_dependencies
+                        if item.observation_id not in dropped
+                    ],
+                }
+            )
         )
     return result
 

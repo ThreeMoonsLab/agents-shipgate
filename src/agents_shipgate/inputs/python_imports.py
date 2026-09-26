@@ -253,6 +253,7 @@ class ImportResolver:
             outcome = self._through_import(
                 module, statement, alias, parts, steps, set()
             )
+            self._no_package_patch(outcome, steps)
         except _Stop as stop:
             return Resolution(
                 reference=reference, reason=stop.reason, detail=stop.detail, steps=tuple(steps)
@@ -275,6 +276,41 @@ class ImportResolver:
                     f"{module.ref}:{line}",
                 )
 
+    def _no_package_patch(self, outcome: dict[str, Any], steps: list[dict[str, Any]]) -> None:
+        """Stop when a package that encloses the defining module rebinds the name.
+
+        Importing ``pkg.impl`` runs ``pkg/__init__.py`` first, and
+        ``from . import impl; impl.lookup = other`` there replaces what
+        ``from pkg.impl import lookup`` receives (#879 review). A rebinding in
+        any other module applies only if that module happens to be imported;
+        it is not looked for.
+        """
+
+        defining = outcome.get("module")
+        if not isinstance(defining, PythonModule) or not steps:
+            return
+        name = steps[-1].get("name")
+        if not isinstance(name, str):
+            return
+        relative = [] if defining.package else [defining.path.stem]
+        directory = defining.path.parent
+        while directory.is_relative_to(self.scope_root):
+            init = self._file_entry(directory, "__init__.py")
+            if init is not None and init != defining.path and relative:
+                package = self.module(init)
+                suffix = ".".join([*relative, name])
+                for patched, line in package.attribute_patches.items():
+                    if patched == suffix or patched.endswith("." + suffix):
+                        raise _Stop(
+                            REBOUND_NAME,
+                            f"{suffix!r} is reassigned by attribute in "
+                            f"{package.ref}:{line}, which runs before the module is used",
+                        )
+            if directory == self.scope_root:
+                break
+            relative.insert(0, directory.name)
+            directory = directory.parent
+
     def resolve(self, module: PythonModule, reference: str) -> Resolution:
         """Resolve ``reference`` (``name`` or ``module.attr...``) in ``module``."""
 
@@ -283,6 +319,7 @@ class ImportResolver:
         try:
             self._no_attribute_patch(module, parts)
             outcome = self._in_module(module, parts, steps, set())
+            self._no_package_patch(outcome, steps)
         except _Stop as stop:
             return Resolution(
                 reference=reference,
@@ -660,12 +697,17 @@ def reference_spelling(node: ast.AST) -> str | None:
 
 
 def _dotted(node: ast.AST) -> list[str] | None:
-    if isinstance(node, ast.Name):
-        return [node.id]
-    if isinstance(node, ast.Attribute):
-        prefix = _dotted(node.value)
-        return [*prefix, node.attr] if prefix is not None else None
-    return None
+    # Iterative: a chain thousands of attributes deep is valid Python, and a
+    # recursive walk turned it into a crash of the whole run (#879 review).
+    parts: list[str] = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return None
+    parts.append(node.id)
+    parts.reverse()
+    return parts
 
 
 def _fallthrough(module: PythonModule, name: str) -> dict[str, Any]:

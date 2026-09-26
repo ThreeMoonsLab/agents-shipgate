@@ -134,12 +134,29 @@ builds the agent and imports the name itself (`from support import lookup`
 inside the builder) is followed through that import, like a module-level one,
 and `nonlocal` follows the outer function's binding. A function defined inside
 the builder, when it is the only definition of its name, is that nested
-definition, and a module-level agent binds the module-level one. A parameter,
-another local assignment, or a name the builder binds more than once is a named
-stop, never the module's binding. A factory's own
-`toolset = McpToolset(...)` or `tool = FunctionTool(...)` is read like a
-module-level one. `tools.lookup = tools.dangerous` or `setattr(tools, ...)` in
-the module that binds `tools.lookup` makes that reference a named stop.
+definition. A module-level agent binds what the module binds at top level (its
+`def`, its import, its wrapper assignment), never a same-named `def` or wrapper
+nested in some function. A parameter, another local assignment, or a name the
+builder binds more than once is a named stop, never the module's binding. A
+factory's own `toolset = McpToolset(...)` or `tool = FunctionTool(...)` is read
+like a module-level one. `tools.lookup = tools.dangerous` or
+`setattr(tools, ...)` in the module that binds `tools.lookup`, or
+`impl.lookup = ...` in the `__init__.py` of a package that encloses the
+defining module (which runs before the module is used), makes that reference a
+named stop. A rebinding in any other module is not looked for.
+When the module binds a name more than once or only inside an `if`, the Google
+ADK reader still names the same-named `def` or wrapper it found, for `scan`,
+but that binding is never established: the agent's list is incomplete and its
+row is `not_established`, even when the tool is bound on both sides.
+
+An OpenAI Agents SDK `tools=NAME` or `handoffs=NAME` is read through the scope
+that binds `NAME` where the agent is constructed: a builder's own list, a class
+body's own list, or the module's. It is read only when that scope binds it
+once, to a literal list, and nothing in the file changes that binding in place:
+`.append` and the other list methods from any function, a `global` or
+`nonlocal` rebinding, a subscript store. Anything else is a dynamic tools
+expression. The names in a module-level list are read at module level, whatever
+the function that builds the agent imports.
 
 A reference that does not reach one definition stays an unresolved tool, named
 with its reason (`Not resolved because …` in the gap) and scoped to each agent
