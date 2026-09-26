@@ -110,7 +110,12 @@ agents' rows in the file stand:
   level or inside the function), or a method of a class it defines or imports
   (`H().add(...)`, `holder.add(...)`), that changes the list it is given
   (`add_image(x.tools)` with `add_image` appending, directly or through the
-  helper's own inner calls) changes it, and one that only reads it reads it. On
+  helper's own inner calls) changes it, and one that only reads it reads it. In
+  a file that builds SDK agents, a parameter's list handed positionally to a call
+  that cannot be resolved — an inherited method, `super()`, a dispatch table, an
+  instance held on `self` — or that hands it on again out of view is a limit on
+  the file: its callers may pass any agent. A capability keyword to an API call
+  (`client.create(tools=request.tools)`) stays a read. On
   any other value — a request object, another library's model — a handle only
   read or handed on, like `payload["tools"] = request.tools`, is nothing. The
   changed value is read in

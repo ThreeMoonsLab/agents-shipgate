@@ -1254,3 +1254,30 @@ def test_a_helper_imported_inside_the_function_is_resolved(repo):
     head = commit(repo, {"helpers.py": helpers.replace("BODY", "lst.append(len)")})
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial"
+
+
+# ---------------------------------------------------------------------------
+# #876 review, round 11: a parameter's list handed to a call nothing resolves
+# — an inherited method, a dispatch table, ``super()`` — limits the file.
+
+
+@pytest.mark.parametrize(
+    "helper",
+    [
+        "class Base:\n    def add(self, lst):\n        BODY\n\n\nclass H(Base):\n    pass\n\n\n"
+        "def setup(agent):\n    H().add(agent.tools)\n",
+        "class Base:\n    def add(self, lst):\n        BODY\n\n\nclass H(Base):\n"
+        "    def add(self, lst):\n        super().add(lst)\n\n\ndef setup(agent):\n    H().add(agent.tools)\n",
+        "def add_image(lst):\n    BODY\n\n\nHANDLERS = {'img': add_image}\n\n\n"
+        "def setup(agent):\n    HANDLERS['img'](agent.tools)\n",
+        "class Toolbox:\n    def install(self, lst):\n        BODY\n\n\nclass Service:\n"
+        "    def __init__(self):\n        self.toolbox = Toolbox()\n\n    def attach(self, agent):\n"
+        "        self.toolbox.install(agent.tools)\n",
+    ],
+    ids=["inherited-method", "super-call", "dispatch-table", "service-held-instance"],
+)
+def test_a_parameters_list_handed_to_an_unresolved_call_limits_the_file(repo, helper):
+    body = 'quote_agent = Agent(name="Quote", tools=[quote])\n' + helper
+    result = _compare(repo, body.replace("BODY", "pass"), body.replace("BODY", "lst.append(send_image)"))
+    assert result["comparison_status"] == "partial"
+    assert any("cannot identify" in limit for limit in result["head"]["limits"])

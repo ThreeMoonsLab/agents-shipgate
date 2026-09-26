@@ -615,7 +615,7 @@ def _extract_agent_bindings(
                     return True
             return False
 
-        for receiver, site, strict in _capability_changes(
+        for receiver, site, strict, via_unresolved in _capability_changes(
             tree,
             scopes=scopes,
             callees=ModuleCallees(
@@ -636,9 +636,16 @@ def _extract_agent_bindings(
                 held = values.agent_like(receiver, site)
                 if held:
                     owners = list(sorted(held))
-                elif strict and held is None and not scope_imported(receiver, site):
+                elif (
+                    strict
+                    and held is None
+                    and not scope_imported(receiver, site)
+                    and not (via_unresolved and _parameter_root(receiver, site, scopes))
+                ):
                     # Handed on, not changed in view: followed that far only
-                    # for the file's agents or one imported from the scope.
+                    # for the file's agents, one imported from the scope, or a
+                    # parameter handed to a call nothing can resolve — its
+                    # callers may pass any agent (#876 review).
                     continue
             for item in owners:
                 record_change(item, site)
@@ -896,7 +903,7 @@ def _capability_changes(
     *,
     scopes: ScopeIndex | None = None,
     callees: ModuleCallees | None = None,
-) -> list[tuple[ast.expr, ast.AST, bool]]:
+) -> list[tuple[ast.expr, ast.AST, bool, bool]]:
     """``(receiver, site, strict)`` wherever a module may change an object's capability list.
 
     ``strict`` False — a change in view, whatever the receiver: assigning,
@@ -1080,16 +1087,42 @@ def _capability_changes(
                     return True
         return False
 
-    def handle_escapes(statement: ast.Assign | ast.AnnAssign, depth: int = 0) -> bool:
+    def unresolved_call(node: ast.expr) -> bool:
+        """Whether ``node`` is handed positionally (or under a keyword that is
+        not a capability) to a call nothing can resolve: a method of an
+        inherited class, a dispatch table, a ``partial`` (#876 review)."""
+
+        parent = scopes.parents.get(node)
+        keyword: str | None = None
+        if isinstance(parent, ast.keyword):
+            if parent.arg in capabilities:
+                # ``client.create(tools=request.tools)``: an API payload.
+                return False
+            keyword = parent.arg
+            parent = scopes.parents.get(parent)
+        if (
+            not isinstance(parent, ast.Call)
+            or parent.func is node
+            or _leaves_arguments_alone(parent)
+        ):
+            return False
+        position = next((index for index, arg in enumerate(parent.args) if arg is node), None)
+        target = parameter_of(parent, position, keyword, callees)
+        # Unresolved, or resolved to a function that hands it on again out of
+        # view (``super().add(lst)``): not established either way.
+        return target is None or not _parameter_left_alone(target[0], target[1])
+
+    def handle_escapes(statement: ast.Assign | ast.AnnAssign, depth: int = 0) -> tuple[bool, bool]:
         """Whether a handle on the list is kept anywhere but a plain name, or used
-        other than to read it; aliases are followed."""
+        other than to read it, and whether that use hands it to a call nothing
+        resolves; aliases are followed."""
 
         if depth > 4:
-            return True
+            return True, False
         targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
         for target in targets:
             if not isinstance(target, ast.Name):
-                return True
+                return True, False
             scope = handle_scope(statement, target)
             for node in ast.walk(scope):
                 if (
@@ -1101,9 +1134,14 @@ def _capability_changes(
                 ):
                     continue
                 alias = alias_statement(node)
-                if alias is None or alias is statement or handle_escapes(alias, depth + 1):
-                    return True
-        return False
+                if alias is None:
+                    return True, unresolved_call(node)
+                if alias is statement:
+                    return True, False
+                escapes, via = handle_escapes(alias, depth + 1)
+                if escapes:
+                    return True, via
+        return False, False
 
     def reflective(call: ast.Call, names: frozenset[str]) -> bool:
         return (
@@ -1114,7 +1152,7 @@ def _capability_changes(
             and call.args[1].value in capabilities
         )
 
-    changes: list[tuple[ast.expr, ast.AST, bool]] = []
+    changes: list[tuple[ast.expr, ast.AST, bool, bool]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign | ast.AugAssign | ast.AnnAssign | ast.Delete):
             targets = node.targets if isinstance(node, ast.Assign | ast.Delete) else [node.target]
@@ -1122,7 +1160,7 @@ def _capability_changes(
                 if isinstance(target, ast.Subscript):
                     target = target.value
                 if isinstance(target, ast.Attribute) and target.attr in capabilities:
-                    changes.append((target.value, node, False))
+                    changes.append((target.value, node, False, False))
             value = node.value if isinstance(node, ast.Assign | ast.AnnAssign) else None
             for item in _aliased(value) if value is not None else []:
                 if isinstance(item, ast.Attribute) and item.attr in capabilities:
@@ -1133,9 +1171,11 @@ def _capability_changes(
                     continue
                 assert isinstance(node, ast.Assign | ast.AnnAssign)
                 if changed_handle(node):
-                    changes.append((receiver, node, False))
-                elif handle_escapes(node):
-                    changes.append((receiver, item, True))
+                    changes.append((receiver, node, False, False))
+                else:
+                    escapes, via_unresolved = handle_escapes(node)
+                    if escapes:
+                        changes.append((receiver, item, True, via_unresolved))
         elif isinstance(node, ast.Call):
             func = node.func
             if (
@@ -1144,9 +1184,9 @@ def _capability_changes(
                 and isinstance(func.value, ast.Attribute)
                 and func.value.attr in capabilities
             ):
-                changes.append((func.value.value, node, False))
+                changes.append((func.value.value, node, False, False))
             elif reflective(node, frozenset({"setattr", "delattr"})):
-                changes.append((node.args[0], node, False))
+                changes.append((node.args[0], node, False, False))
         elif (
             isinstance(node, ast.Attribute)
             and node.attr in capabilities
@@ -1166,7 +1206,7 @@ def _capability_changes(
                 and spelling is not None
                 and changed_by_call(call, spelling)
             )
-            changes.append((node.value, node, not changed))
+            changes.append((node.value, node, not changed, not changed and unresolved_call(node)))
     return changes
 
 
@@ -1358,6 +1398,17 @@ def _roots(expr: ast.AST) -> set[str]:
         if isinstance(expr.func, ast.Attribute) and expr.func.attr in {"values", "items", "keys", "copy"}:
             return _roots(expr.func.value)
     return set()
+
+
+def _parameter_root(receiver: ast.expr, site: ast.AST, scopes: ScopeIndex) -> bool:
+    """Whether a receiver is reached from a function's parameter (``agent.tools``
+    in ``def setup(agent)``), other than a method's own ``self`` / ``cls``."""
+
+    root = _root_name(receiver)
+    if root is None or root in {"self", "cls"}:
+        return False
+    found = scopes.enclosing_bindings(site, root)
+    return len(found) == 1 and isinstance(found[0], ast.arg)
 
 
 def _through_loops(
@@ -1936,7 +1987,7 @@ def census_module(
         changes = sorted(
             {
                 (site.lineno, constructor(receiver, site))  # type: ignore[attr-defined]
-                for receiver, site, strict in _capability_changes(
+                for receiver, site, strict, _ in _capability_changes(
                     tree,
                     _CENSUS_CAPABILITIES,
                     scopes=scopes,
