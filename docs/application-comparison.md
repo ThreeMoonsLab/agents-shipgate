@@ -123,10 +123,12 @@ to the scope, and — when the scope is itself a package — from the scope's
 parent for names starting with the scope's own package name. A name has to be
 bound exactly once, directly in the module body, in every module on the way; a
 package's own `from . import submodule`, even under `if TYPE_CHECKING:`, names
-that submodule, and a module-level `__getattr__` is not evaluated — a tool
-reached past one is named and, for `scan`, not counted as proven; the
-comparison takes the submodule and records the hook in `import_path`
-(`module_getattr`).
+that submodule. A module-level `__getattr__` is not evaluated: a tool reached
+past one is, for `scan`, not counted as proven. The comparison takes the
+submodule only when every `return` the hook can reach for that name (one under
+`if name == "other":` cannot) gives `importlib.import_module(f".{name}",
+__name__)` or the package's own `from . import <name>` — the lazy-loading
+idioms — and otherwise keeps the tool named with its row `not_established`.
 
 `import a.b` followed by `a.b.f` reads the submodule `a/b.py`, which is what
 the import system guarantees after `a/__init__.py` runs, even when the package
@@ -150,12 +152,17 @@ or a reassignment there of an attribute named like a step of the chain on an
 imported module makes that reference a named stop, and so does such a module
 that cannot be read (a link, or a missing relative module not imported under
 `except ImportError`). The defining module's own `registry.lookup = lookup`
-hands the definition on and does not count; an import under `if
-TYPE_CHECKING:` never runs and is skipped. A relative import there that climbs
-above the scope runs code that is not read: the tool is named, and its row is
-`not_established` with that import in the reason. An absolute import that no
-file in the scope provides is the read's boundary, as for every import, and a
-rebinding in a module none of these import is not looked for.
+hands the definition on and does not count (a reassignment through its own
+import still does); an import under `typing`'s `if TYPE_CHECKING:` never runs
+and is skipped; every location an ambiguous import could mean is read. Code
+there that runs but is not read — a relative import above the scope, an
+absolute import spelled through a directory above the scope (`from
+svc.patches import …` with scope `svc/app`), a relative module no file
+provides — keeps the tool named, with its row `not_established` and that
+import in the reason. A generated `*_pb2` module, an optional import, and an
+absolute import of anything else no file in the scope provides (a third-party
+package) are the read's boundary, and a rebinding in a module none of these
+import is not looked for.
 When the module binds a name more than once or only inside an `if`, the Google
 ADK reader still names the same-named `def` or wrapper it found, for `scan`,
 but that binding is never established: its row is `not_established` on

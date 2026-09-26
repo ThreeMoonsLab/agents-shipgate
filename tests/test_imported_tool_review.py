@@ -1225,3 +1225,237 @@ def test_a_list_reached_through_the_module_object_is_dynamic(repo, reach):
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial"
     assert result["rows"] == [] or all(row["change"] != "changed" for row in result["rows"])
+
+
+# ---------------------------------------------------------------------------
+# Round 9: every spelling of unread code keeps the caveat; a package hook is
+# established only when it can answer with nothing but the submodule.
+
+AGENT_LOOKUP = (
+    "from google.adk.agents import Agent\nfrom .tools import lookup\n\n"
+    "root_agent = Agent(name='x', model='m', tools=[lookup])\n"
+)
+
+
+def test_a_caveat_survives_a_wrapper_the_module_builds(repo):
+    """R9-1: ``approval_tool = FunctionTool(func=approve)`` in the imported
+    module dropped the entry file's caveat."""
+
+    files = {
+        **ABOVE_SCOPE_APP,
+        "svc/common.py": "settings = {}\n",
+        "svc/app/__init__.py": "",
+        "svc/app/approvals.py": (
+            "from google.adk.tools import FunctionTool\n\n\ndef approve(q: str) -> str:\n"
+            "    return q\n\n\napproval_tool = FunctionTool(func=approve)\n"
+        ),
+    }
+    base = commit(repo, files)
+    head = commit(
+        repo,
+        {
+            "svc/app/agent.py": (
+                "from google.adk.agents import Agent\nfrom ..common import settings  # noqa: F401\n"
+                "from .approvals import approval_tool\n\n"
+                "root_agent = Agent(name='x', model='m', tools=[approval_tool])\n"
+            )
+        },
+    )
+    result = run(repo, base, head, "--scope", "svc/app")
+    assert result["comparison_status"] == "partial"
+    assert _rows(result) == [("x", "approve", "not_established")]
+
+
+def test_an_absolute_import_of_code_above_the_scope_is_a_caveat(repo):
+    """R9-2: ``from svc.patches import applied`` names a directory above the
+    scope ``svc/app``; it was read as a third-party package and skipped."""
+
+    base = commit(repo, {**ABOVE_SCOPE_APP, "svc/app/__init__.py": "from svc.patches import applied  # noqa: F401\n"})
+    head = commit(repo, {"svc/app/agent.py": AGENT_LOOKUP})
+    result = run(repo, base, head, "--scope", "svc/app")
+    assert result["comparison_status"] == "partial"
+    assert _rows(result) == [("x", "lookup", "not_established")]
+    [gap] = [gap for gap in result["head"]["coverage_gaps"] if gap.get("tool") == "lookup"]
+    assert "'svc.patches' from above the read scope" in gap["reason"]
+
+
+@pytest.mark.parametrize(
+    ("changed", "where"),
+    [
+        (
+            {
+                "tools.py": (
+                    "from danger import dangerous\n\n\ndef lookup(q: str) -> str:\n    return q\n\n\n"
+                    "import tools as _me  # noqa: E402\n\n_me.lookup = dangerous\n"
+                )
+            },
+            "tools.py:10",
+        ),
+        (
+            {
+                "agent.py": (
+                    "from google.adk.agents import Agent\n\nTYPE_CHECKING = True\nif TYPE_CHECKING:\n"
+                    "    import patches  # noqa: F401\nfrom tools import lookup  # noqa: E402\n\n"
+                    "root_agent = Agent(name='x', model='m', tools=[lookup])\n"
+                )
+            },
+            "patches.py:4",
+        ),
+    ],
+    ids=["defining-module-patches-itself", "a-type-checking-flag-that-is-not-typings"],
+)
+def test_holes_in_the_patch_exemptions_are_named_stops(repo, changed, where):
+    """R9-3 and R9-4."""
+
+    base = commit(repo, PATCHED_APP)
+    agent = (
+        "from google.adk.agents import Agent\nfrom tools import lookup\n\n"
+        "root_agent = Agent(name='x', model='m', tools=[lookup])\n"
+    )
+    head = commit(repo, {"agent.py": agent, **changed})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert all(row["change"] == "not_established" for row in result["rows"])
+    assert any(where in gap["reason"] for gap in result["head"]["coverage_gaps"])
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        {"config.py": "DEBUG = False\n", "app/config.py": "DEBUG = True\n", "app/agent.py": "import config  # noqa: F401\n"},
+        {"app/tools.py": "from .service_pb2 import Request  # noqa: F401\n"},
+    ],
+    ids=["an-ambiguous-unrelated-import", "a-generated-protobuf-module"],
+)
+def test_ordinary_imports_do_not_stop_a_resolution(repo, files):
+    """R9-5: each of these stopped every tool of its module."""
+
+    base_files = {
+        "app/__init__.py": "",
+        "app/tools.py": "def lookup(q: str) -> str:\n    return q\n",
+        "app/agent.py": "",
+    }
+    for name, text in files.items():
+        base_files[name] = text + base_files.get(name, "")
+    base = commit(repo, base_files)
+    head = commit(
+        repo,
+        {
+            "app/agent.py": base_files["app/agent.py"]
+            + "from google.adk.agents import Agent\nfrom app.tools import lookup\n"
+            + "\nroot_agent = Agent(name='x', model='m', tools=[lookup])\n"
+        },
+    )
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
+    assert _rows(result) == [("x", "lookup", "added")]
+
+
+def test_many_tool_modules_do_not_exhaust_the_patch_scan(repo):
+    """R9-5: sixty tool modules importing five helpers each read 360 modules
+    for patches; 21 tools stopped at the old 256-module budget."""
+
+    files = {"app/__init__.py": "", "app/agent.py": ""}
+    for index in range(60):
+        files[f"app/tool_{index}.py"] = "".join(
+            f"from . import helper_{index}_{item}  # noqa: F401\n" for item in range(5)
+        ) + f"\n\ndef lookup_{index}(q: str) -> str:\n    return q\n"
+        files.update({f"app/helper_{index}_{item}.py": "VALUE = 1\n" for item in range(5)})
+    base = commit(repo, files)
+    imports = "".join(f"from app.tool_{index} import lookup_{index}\n" for index in range(60))
+    listed = ", ".join(f"lookup_{index}" for index in range(60))
+    head = commit(
+        repo,
+        {
+            "app/agent.py": (
+                f"from google.adk.agents import Agent\n{imports}\n"
+                f"root_agent = Agent(name='x', model='m', tools=[{listed}])\n"
+            )
+        },
+    )
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"][:2]
+    assert len(result["rows"]) == 60
+
+
+def test_a_missing_relative_module_run_first_is_a_caveat(repo):
+    base = commit(
+        repo,
+        {
+            "app/__init__.py": "",
+            "app/tools.py": "from .generated_helpers import helper  # noqa: F401\n\n\ndef lookup(q: str) -> str:\n    return q\n",
+            "app/agent.py": "",
+        },
+    )
+    head = commit(
+        repo,
+        {
+            "app/agent.py": (
+                "from google.adk.agents import Agent\nfrom app.tools import lookup\n\n"
+                "root_agent = Agent(name='x', model='m', tools=[lookup])\n"
+            )
+        },
+    )
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert _rows(result) == [("x", "lookup", "not_established")]
+
+
+LAZY_AGENT = (
+    "from google.adk.agents import Agent\nfrom pkg import memory\n\n"
+    "root_agent = Agent(name='x', model='m', tools=[memory.remember])\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("hook", "established"),
+    [
+        (
+            "import importlib\n\n\ndef __getattr__(name):\n    if name in {'memory'}:\n"
+            "        module = importlib.import_module(f'.{name}', __name__)\n"
+            "        globals()[name] = module\n        return module\n    raise AttributeError(name)\n",
+            True,
+        ),
+        (
+            "def __getattr__(name):\n    if name == 'memory':\n        from . import memory\n\n"
+            "        return memory\n    raise AttributeError(name)\n",
+            True,
+        ),
+        (
+            "def __getattr__(name):\n    if name == 'other':\n        from . import evil\n\n"
+            "        return evil\n    raise AttributeError(name)\n",
+            True,
+        ),
+        (
+            "def __getattr__(name):\n    if name == 'memory':\n        from . import evil\n\n"
+            "        return evil\n    raise AttributeError(name)\n",
+            False,
+        ),
+        (
+            "import importlib\n\n\ndef __getattr__(name):\n"
+            "    return importlib.import_module('.evil', __name__)\n",
+            False,
+        ),
+    ],
+    ids=["import-module-idiom", "own-submodule-idiom", "branch-for-another-name", "redirect", "fixed-module"],
+)
+def test_a_package_hook_is_established_only_when_it_returns_the_submodule(repo, hook, established):
+    """R8-4: attest's lazy loaders are established; a hook that could answer
+    ``memory`` with another module is named."""
+
+    files = {
+        "pkg/__init__.py": hook,
+        "pkg/memory.py": "def remember(q: str) -> str:\n    return q\n",
+        "pkg/evil.py": "def remember(q: str) -> str:\n    return q.upper()\n",
+        "agent.py": "",
+    }
+    base = commit(repo, files)
+    head = commit(repo, {"agent.py": LAZY_AGENT})
+    result = run(repo, base, head)
+    if established:
+        assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
+        assert _rows(result) == [("x", "remember", "added")]
+    else:
+        assert result["comparison_status"] == "partial"
+        assert _rows(result) == [("x", "remember", "not_established")]
+        assert any("__getattr__" in gap["reason"] for gap in result["head"]["coverage_gaps"])

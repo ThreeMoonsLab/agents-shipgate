@@ -1997,6 +1997,9 @@ class _PythonAdkExtractor:
                 inner,
                 reference=resolution.reference,
                 steps=(*resolution.steps, *inner.steps),
+                # What runs before this module's wrapper is used still runs
+                # before its function is (#879 review).
+                caveats=tuple(dict.fromkeys((*resolution.caveats, *inner.caveats))),
             ),
             call_name in LONG_RUNNING_TOOL_NAMES,
         )

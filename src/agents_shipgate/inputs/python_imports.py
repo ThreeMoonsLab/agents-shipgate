@@ -64,8 +64,10 @@ LOCAL_BINDING = "local_binding"
 #: exist so a pathological re-export web ends in a named reason, not a hang.
 MAX_MODULES = 64
 MAX_STEPS = 32
-#: Modules read only to check an enclosing package for patches.
-MAX_PATCH_SCAN_MODULES = 256
+#: Modules read only to check what runs before a name is used for patches.
+MAX_PATCH_SCAN_MODULES = 1024
+#: Directories above the scope whose names an absolute import may spell.
+MAX_ANCESTOR_PACKAGES = 8
 
 _SCOPE_NODES = (
     ast.FunctionDef,
@@ -176,8 +178,10 @@ class _Stop(Exception):
 class _PatchScan:
     """What running one module, and the modules it imports, may reassign."""
 
-    #: ``attribute name -> [(module ref, line)]`` reassigned on an imported module.
-    patched: dict[str, list[tuple[str, int]]]
+    #: ``attribute name -> [(module ref, line, modules the root names)]``
+    #: reassigned on an imported module; the last is None when the import
+    #: the patch is rooted at cannot be located.
+    patched: dict[str, list[tuple[str, int, frozenset[Path] | None]]]
     #: Imports that climb above the read scope, whose code is not read.
     unread: tuple[str, ...]
 
@@ -192,9 +196,23 @@ class ImportResolver:
     _patches: dict[Path, _PatchScan | _Stop] = field(default_factory=dict)
     _scanned: dict[Path, PythonModule | _Stop] = field(default_factory=dict)
     _parsed: int = 0
+    #: Names of the directories above the scope, up to the repository root:
+    #: what an absolute import of application code above the scope spells.
+    _above: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         self.scope_root = self.scope_root.resolve()
+        names: list[str] = []
+        directory = self.scope_root
+        for _ in range(MAX_ANCESTOR_PACKAGES):
+            parent = directory.parent
+            if parent == directory or (directory / ".git").exists():
+                break
+            names.append(directory.name)
+            directory = parent
+        # The scope's own name is looked up inside it (``_absolute``); only the
+        # directories above it are unread.
+        self._above = frozenset(names[1:])
 
     # -- modules ---------------------------------------------------------------
 
@@ -325,11 +343,15 @@ class ImportResolver:
         assignments do not count: ``registry.lookup = lookup`` there hands the
         definition on and cannot replace it.
 
-        A relative import that climbs above the read scope runs code that is
-        not read. It is returned as a caveat, so the caller names the tool but
-        never establishes it. A module that none of these import is not looked
-        for; neither is one an absolute import names that no file in the scope
-        provides, which is the read's boundary for every import.
+        An import of code above the read scope — relative, or absolute through
+        the name of a directory above it — or of a module no file in the scope
+        provides runs code that is not read, and so does a package
+        ``__getattr__`` that is not the lazy-submodule idiom. Each is returned
+        as a caveat, so the caller names the tool but never establishes it. A
+        generated ``*_pb2`` module, an optional import under ``except
+        ImportError``, and an absolute import of anything else no file in the
+        scope provides (a third-party package) are the read's boundary. A
+        module none of these import is not looked for.
         """
 
         defining = outcome.get("module")
@@ -341,12 +363,18 @@ class ImportResolver:
             for item in (path, *self._enclosing_packages(path)):
                 if item not in runners:
                     runners.append(item)
-        caveats: list[str] = []
+        caveats: list[str] = [
+            f"{step['path']} answers {step['name']!r} through a module-level __getattr__, "
+            "which is not evaluated and could return something other than the submodule"
+            for step in steps
+            if step.get("module_getattr") and not step.get("lazy_submodule")
+        ]
         for runner in runners:
             scan = self._patched_names(runner)
             for name in names:
-                for where, line in scan.patched.get(name, []):
-                    if where == defining.ref:
+                for where, line, targets in scan.patched.get(name, []):
+                    if where == defining.ref and targets is not None and defining.path not in targets:
+                        # ``registry.lookup = lookup``: handing the definition on.
                         continue
                     raise _Stop(
                         REBOUND_NAME,
@@ -395,75 +423,138 @@ class ImportResolver:
         modules = [runner]
         unread: list[str] = []
         guarded = _import_guarded(runner.tree)
-        typing_only = _type_checking_only(runner.tree)
+        typing_only = _type_checking_only(runner)
         for node in ast.walk(runner.tree):
             if not isinstance(node, ast.Import | ast.ImportFrom) or id(node) in typing_only:
                 continue
-            try:
-                paths = self._imported_paths(runner, node)
-            except _Stop as stop:
-                if stop.reason == OUTSIDE_SCOPE and isinstance(node, ast.ImportFrom):
-                    # Application code above the scope runs here, unread: the
-                    # binding is named, never established (#879 review).
-                    statement = (
-                        f"from {_from_spelling(node)} import "
-                        + ", ".join(alias.name for alias in node.names)
-                    )
-                    unread.append(
-                        f"{runner.ref}:{node.lineno} runs {statement!r} from above the read "
-                        "scope, which is not read and could reassign it"
-                    )
-                    continue
-                if stop.reason == MODULE_NOT_FOUND and (
-                    id(node) in guarded
-                    or isinstance(node, ast.Import)
-                    or not node.level
-                ):
-                    # No file in the scope provides an absolute import — the
-                    # read's boundary, as for every import — and an optional
-                    # import under ``except ImportError`` may be absent. A
-                    # relative module that is missing could hide a patch.
-                    continue
-                raise
+            paths, missing = self._imported_paths(runner, node)
+            for stop, spelling in missing:
+                caveat = self._unread_import(runner, node, stop, spelling, id(node) in guarded)
+                if caveat is not None and caveat not in unread:
+                    unread.append(caveat)
             for item in paths:
                 for module_path in (item, *self._enclosing_packages(item)):
                     if module_path != path:
                         modules.append(self._patch_scan(module_path))
-        patched: dict[str, list[tuple[str, int]]] = {}
+        patched: dict[str, list[tuple[str, int, frozenset[Path] | None]]] = {}
         for module in modules:
             for dotted, line in module.attribute_patches.items():
                 # Only an attribute of an imported module can be the definition:
                 # ``self.lookup = ...`` in a class, or ``backend.lookup`` on a
                 # parameter, reassigns some other object (#879 review).
                 root = dotted.split(".", 1)[0]
-                if any(isinstance(item.node, ast.alias) for item in module.bindings.get(root, [])):
-                    found = patched.setdefault(dotted.rsplit(".", 1)[-1], [])
-                    if (module.ref, line) not in found:
-                        found.append((module.ref, line))
+                imports = [
+                    item for item in module.bindings.get(root, []) if isinstance(item.node, ast.alias)
+                ]
+                if not imports:
+                    continue
+                found = patched.setdefault(dotted.rsplit(".", 1)[-1], [])
+                if any(entry[:2] == (module.ref, line) for entry in found):
+                    continue
+                found.append((module.ref, line, self._patch_targets(module, imports)))
         return _PatchScan(patched, tuple(unread))
 
-    def _imported_paths(self, runner: PythonModule, node: ast.Import | ast.ImportFrom) -> list[Path]:
-        """The in-scope module files one import statement runs; raise :class:`_Stop`."""
+    def _patch_targets(self, module: PythonModule, imports: list[_Binding]) -> frozenset[Path] | None:
+        """The in-scope modules a patch's root import names; None when it cannot be located."""
+
+        targets: set[Path] = set()
+        for item in imports:
+            statement = item.statement
+            if not isinstance(statement, ast.Import | ast.ImportFrom):
+                return None
+            paths, missing = self._imported_paths(module, statement)
+            if any(stop.reason != MODULE_NOT_FOUND for stop, _ in missing):
+                return None
+            targets.update(paths)
+        return frozenset(targets)
+
+    def _unread_import(
+        self,
+        runner: PythonModule,
+        node: ast.Import | ast.ImportFrom,
+        stop: _Stop,
+        spelling: str,
+        guarded: bool,
+    ) -> str | None:
+        """The caveat for one import target no file in the scope provides; raise
+        :class:`_Stop` for one that could hide a patch and cannot be named."""
+
+        where = f"{runner.ref}:{node.lineno}"
+        relative = isinstance(node, ast.ImportFrom) and bool(node.level)
+        if stop.reason == OUTSIDE_SCOPE or (
+            stop.reason == MODULE_NOT_FOUND
+            and not relative
+            and spelling.split(".", 1)[0] in self._above
+        ):
+            # Application code above the scope runs here, unread: the binding
+            # is named, never established (#879 review).
+            return (
+                f"{where} imports {spelling!r} from above the read scope, which is not "
+                "read and could reassign it"
+            )
+        if stop.reason != MODULE_NOT_FOUND:
+            raise stop
+        if guarded or not relative:
+            # An optional import may be absent; an absolute import no file in
+            # the scope provides is a third-party package — the read's
+            # boundary, as for every import.
+            return None
+        if spelling.rsplit(".", 1)[-1].endswith(("_pb2", "_pb2_grpc")):
+            # Generated from a ``.proto`` at build time; it defines messages.
+            return None
+        return (
+            f"{where} imports {spelling!r}, which no file in the read scope provides and "
+            "which could reassign it"
+        )
+
+    def _imported_paths(
+        self, runner: PythonModule, node: ast.Import | ast.ImportFrom
+    ) -> tuple[list[Path], list[tuple[_Stop, str]]]:
+        """The in-scope module files one import statement runs, and each target
+        it could not locate with why.
+
+        Every location an ambiguous absolute name could mean is read: which one
+        the import system takes depends on the path, and any of them could
+        patch.
+        """
 
         paths: list[Path] = []
+        missing: list[tuple[_Stop, str]] = []
         if isinstance(node, ast.Import):
             for alias in node.names:
-                container = self._absolute(runner, alias.name)
-                if container.module_path is not None:
-                    paths.append(container.module_path)
-            return paths
-        container = self._from_base(runner, node)
-        if container.module_path is not None:
-            paths.append(container.module_path)
-        if container.package or container.module_path is None:
-            # ``from pkg import name`` runs ``pkg/name.py`` when it is a submodule.
-            for alias in node.names:
-                if alias.name == "*":
+                try:
+                    containers = self._absolute_candidates(runner, alias.name)
+                except _Stop as stop:
+                    missing.append((stop, alias.name))
                     continue
-                found = self._locate(container.directory, [alias.name], spelling=alias.name)
-                if found is not None and found.module_path is not None:
-                    paths.append(found.module_path)
-        return paths
+                paths.extend(item.module_path for item in containers if item.module_path)
+            return paths, missing
+        spelling = _from_spelling(node)
+        if not node.module:
+            # ``from .. import patches``: the modules are the names.
+            spelling += ", ".join(alias.name for alias in node.names)
+        try:
+            containers = (
+                [self._from_base(runner, node)]
+                if node.level
+                else self._absolute_candidates(runner, node.module or "")
+            )
+        except _Stop as stop:
+            missing.append((stop, spelling))
+            return paths, missing
+        for container in containers:
+            if container.module_path is not None:
+                paths.append(container.module_path)
+            if container.package or container.module_path is None:
+                # ``from pkg import name`` runs ``pkg/name.py`` when it is a
+                # submodule.
+                for alias in node.names:
+                    if alias.name == "*":
+                        continue
+                    found = self._locate(container.directory, [alias.name], spelling=alias.name)
+                    if found is not None and found.module_path is not None:
+                        paths.append(found.module_path)
+        return paths, missing
 
     def _patch_scan(self, path: Path) -> PythonModule:
         """A module that runs before a name is used, read only for its patches.
@@ -727,6 +818,24 @@ class ImportResolver:
         return container
 
     def _absolute(self, module: PythonModule, dotted: str) -> _Container:
+        candidates = self._absolute_candidates(module, dotted)
+        if len(candidates) > 1:
+            names = ", ".join(
+                sorted(
+                    self.ref(item.module_path)
+                    if item.module_path is not None
+                    else self._display_dir(item.directory)
+                    for item in candidates
+                )
+            )
+            raise _Stop(
+                AMBIGUOUS_MODULE,
+                f"module {dotted!r} imported by {module.ref} matches more than one "
+                f"location in the read scope: {names}",
+            )
+        return candidates[0]
+
+    def _absolute_candidates(self, module: PythonModule, dotted: str) -> list[_Container]:
         parts = dotted.split(".")
         roots: list[tuple[Path, list[str]]] = []
         directory = module.path.parent
@@ -763,22 +872,7 @@ class ImportResolver:
         # A namespace directory is the weakest match; a module file anywhere
         # else wins over it exactly as the import system would prefer it.
         files = [item for item in found.values() if item.module_path is not None]
-        candidates = files or list(found.values())
-        if len(candidates) > 1:
-            names = ", ".join(
-                sorted(
-                    self.ref(item.module_path)
-                    if item.module_path is not None
-                    else self._display_dir(item.directory)
-                    for item in candidates
-                )
-            )
-            raise _Stop(
-                AMBIGUOUS_MODULE,
-                f"module {dotted!r} imported by {module.ref} matches more than one "
-                f"location in the read scope: {names}",
-            )
-        return candidates[0]
+        return files or list(found.values())
 
     def _locate(self, base: Path, parts: list[str], *, spelling: str) -> _Container | None:
         """Find ``parts`` under ``base`` with the import system's precedence.
@@ -901,15 +995,44 @@ def _import_guarded(tree: ast.Module) -> set[int]:
     return guarded
 
 
-def _type_checking_only(tree: ast.Module) -> set[int]:
-    """Nodes under ``if TYPE_CHECKING:``, which never run."""
+_TYPING_MODULES = frozenset({"typing", "typing_extensions"})
+
+
+def _type_checking_only(module: PythonModule) -> set[int]:
+    """Nodes under ``if TYPE_CHECKING:``, which never run.
+
+    Only the flag ``typing`` provides counts: a module's own
+    ``TYPE_CHECKING = True`` runs its block (#879 review).
+    """
+
+    def imported_from_typing(name: str, *, as_module: bool) -> bool:
+        bindings = module.bindings.get(name, [])
+        return bool(bindings) and all(
+            isinstance(item.node, ast.alias)
+            and (
+                isinstance(item.statement, ast.Import)
+                and as_module
+                and item.node.name in _TYPING_MODULES
+                or isinstance(item.statement, ast.ImportFrom)
+                and not as_module
+                and not item.statement.level
+                and item.statement.module in _TYPING_MODULES
+                and item.node.name == "TYPE_CHECKING"
+            )
+            for item in bindings
+        )
 
     skipped: set[int] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.If) and reference_spelling(node.test) in {
-            "TYPE_CHECKING",
-            "typing.TYPE_CHECKING",
-        }:
+    for node in ast.walk(module.tree):
+        if not isinstance(node, ast.If):
+            continue
+        spelling = reference_spelling(node.test)
+        if spelling is None:
+            continue
+        head, _, rest = spelling.partition(".")
+        if (not rest and imported_from_typing(head, as_module=False)) or (
+            rest == "TYPE_CHECKING" and imported_from_typing(head, as_module=True)
+        ):
             for statement in node.body:
                 skipped.update(id(child) for child in ast.walk(statement))
     return skipped
@@ -1001,7 +1124,133 @@ def _fallthrough(module: PythonModule, name: str) -> dict[str, Any]:
     }
     if "__getattr__" in module.bindings:
         step["module_getattr"] = True
+        if _hook_answers_submodule(module, name):
+            # It can only import and return the submodule of that name.
+            step["lazy_submodule"] = True
     return step
+
+
+def _hook_answers_submodule(module: PythonModule, name: str) -> bool:
+    """Whether a package ``__getattr__`` can answer ``name`` only with that
+    submodule, or not at all (#879 review).
+
+    Defined once, at module level, taking one parameter. Every ``return`` it
+    can reach for ``name`` — one guarded by ``if param == "other":`` cannot —
+    gives ``importlib.import_module(f".{param}", __name__)`` (or ``"." +
+    param``, or ``f"{__name__}.{param}"``), directly or through a local
+    assigned once from it, or the package's own ``from . import name``. Those
+    are the lazy-loading idioms; anything else could redirect the name.
+    """
+
+    bindings = module.bindings.get("__getattr__", [])
+    if len(bindings) != 1 or not bindings[0].top_level:
+        return False
+    function = bindings[0].node
+    if not isinstance(function, ast.FunctionDef) or len(function.args.args) != 1:
+        return False
+    parameter = function.args.args[0].arg
+
+    def is_parameter(node: ast.AST) -> bool:
+        return isinstance(node, ast.Name) and node.id == parameter
+
+    def is_import(node: ast.AST | None) -> bool:
+        if not isinstance(node, ast.Call) or reference_spelling(node.func) not in {
+            "importlib.import_module",
+            "import_module",
+        }:
+            return False
+        args = node.args
+        package = len(args) == 2 and isinstance(args[1], ast.Name) and args[1].id == "__name__"
+        target = args[0] if args else None
+        relative = (
+            isinstance(target, ast.JoinedStr)
+            and len(target.values) == 2
+            and isinstance(target.values[0], ast.Constant)
+            and target.values[0].value == "."
+            and isinstance(target.values[1], ast.FormattedValue)
+            and is_parameter(target.values[1].value)
+        ) or (
+            isinstance(target, ast.BinOp)
+            and isinstance(target.op, ast.Add)
+            and isinstance(target.left, ast.Constant)
+            and target.left.value == "."
+            and is_parameter(target.right)
+        )
+        absolute = (
+            isinstance(target, ast.JoinedStr)
+            and len(target.values) == 3
+            and isinstance(target.values[0], ast.FormattedValue)
+            and isinstance(target.values[0].value, ast.Name)
+            and target.values[0].value.id == "__name__"
+            and isinstance(target.values[1], ast.Constant)
+            and target.values[1].value == "."
+            and isinstance(target.values[2], ast.FormattedValue)
+            and is_parameter(target.values[2].value)
+        )
+        return (relative and package) or (absolute and len(args) == 1)
+
+    def guard(test: ast.expr) -> str | None:
+        """``param == "x"`` (either way round): the one name the branch serves."""
+
+        if (
+            isinstance(test, ast.Compare)
+            and len(test.ops) == 1
+            and isinstance(test.ops[0], ast.Eq)
+        ):
+            left, right = test.left, test.comparators[0]
+            for one, other in ((left, right), (right, left)):
+                if is_parameter(one) and isinstance(other, ast.Constant) and isinstance(other.value, str):
+                    return other.value
+        return None
+
+    # One pass: the value(s) each local is bound to, and each return with the
+    # names its enclosing ``if param == ...`` branches restrict it to.
+    assigned: dict[str, list[ast.AST | None]] = {}
+    returns: list[tuple[ast.Return, set[str]]] = []
+    stack: list[tuple[ast.AST, frozenset[str]]] = [(item, frozenset()) for item in function.body]
+    while stack:
+        node, guards = stack.pop()
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda | ast.ClassDef):
+            return False
+        if isinstance(node, ast.Yield | ast.YieldFrom | ast.Global | ast.Nonlocal):
+            return False
+        if isinstance(node, ast.Return):
+            returns.append((node, set(guards)))
+        elif isinstance(node, ast.Assign | ast.AnnAssign | ast.AugAssign | ast.NamedExpr):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    value = None if isinstance(node, ast.AugAssign) else node.value
+                    assigned.setdefault(target.id, []).append(value)
+        elif isinstance(node, ast.ImportFrom | ast.Import):
+            for alias in node.names:
+                assigned.setdefault((alias.asname or alias.name).split(".", 1)[0], []).append(
+                    alias if isinstance(node, ast.ImportFrom) and node.level == 1 and not node.module else None
+                )
+        if isinstance(node, ast.If):
+            served = guard(node.test)
+            inner = guards | {served} if served is not None else guards
+            stack.extend((item, inner) for item in node.body)
+            stack.extend((item, guards) for item in node.orelse)
+            stack.append((node.test, guards))
+            continue
+        stack.extend((child, guards) for child in ast.iter_child_nodes(node))
+    for node, guards in returns:
+        if guards and guards != {name}:
+            # Reached only for another name (or never).
+            continue
+        value = node.value
+        if is_import(value):
+            continue
+        if isinstance(value, ast.Name):
+            values = assigned.get(value.id, [])
+            if len(values) == 1 and (
+                is_import(values[0])
+                or (isinstance(values[0], ast.alias) and value.id == name)
+            ):
+                continue
+        return False
+    return True
 
 
 def _imports_own_submodule(module: PythonModule, name: str) -> bool:
