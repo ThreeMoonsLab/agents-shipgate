@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Callable
-from pathlib import Path
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 from typing import Any, ClassVar, Literal
 
 from agents_shipgate.core.domain import (
@@ -222,10 +223,41 @@ def _extract_agent_bindings(
         scopes = ScopeIndex(tree)
         module = imports.resolver.entry(path, tree, text)
         import_aliases: dict[str, str] = {}
+        # The call an assignment binds to a plain name: that name is the
+        # agent's identity, as it always has been. Any other construction —
+        # ``return Agent(...)``, ``self.agent = Agent(...)``, an agent inline in
+        # a list — is identified by its literal ``name`` (#876). A variable name
+        # assigned in more than one function (two builders' local ``agent``) is
+        # no identity at all, so those agents take their literal ``name`` too;
+        # anywhere else a rename or a move between scopes keeps the identity
+        # it had (#876 review).
+        assigned: dict[int, str] = {}
+        variable_scopes: dict[str, set[int]] = {}
+        function_local: set[int] = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
                 for alias in node.names:
                     import_aliases[alias.asname or alias.name] = alias.name
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                target = _assignment_target(node)
+                if target and isinstance(node.value, ast.Call):
+                    assigned[id(node.value)] = target
+                    enclosing = _enclosing_scope(scopes, node)
+                    variable_scopes.setdefault(target, set()).add(id(enclosing))
+                    if enclosing is not None:
+                        function_local.add(id(node.value))
+        shared = {name for name, found in variable_scopes.items() if len(found) > 1}
+
+        def identity_of(
+            call: ast.Call,
+            assigned: dict[int, str] = assigned,
+            function_local: set[int] = function_local,
+            shared: set[str] = shared,
+        ) -> str | None:
+            target, literal = assigned.get(id(call)), _literal_agent_name(call)
+            if literal is not None and target in shared and id(call) in function_local:
+                return literal
+            return target or literal
         tool_lists = _ToolLists(
             tree,
             scopes,
@@ -237,22 +269,113 @@ def _extract_agent_bindings(
                 else None
             ),
         )
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
-                continue
-            target = _assignment_target(node)
-            call = node.value if isinstance(node.value, ast.Call) else None
-            if (
-                not target
-                or call is None
-                or not sdk_names.denotes(
-                    dotted_name(call.func), call, "Agent", DEFAULT_AGENT_CONSTRUCTORS
+        subclasses = _agent_subclasses(tree, sdk_names)
+        values = _AgentValues(tree, scopes, tool_lists.module_bindings, sdk_names, subclasses)
+        #: ``list binding -> identities`` of agents constructed with that list.
+        list_holders: dict[object, set[str]] = {}
+        copies: list[ast.Call] = []
+
+        def unread(reason: str, pointer: str, kind: str, path: str = source_ref) -> None:
+            # A construction the reader saw but cannot establish is a named
+            # limit on this file, never silence: an unobserved agent must not
+            # let the comparison read as complete (#876).
+            warnings.append(reason)
+            recovery_evidence.append(SourceRecoveryEvidence(
+                warning=reason, source_id=source.id, source_type="openai_agents_sdk",
+                source_ref=pointer, path=path,
+                recovery=CoverageRecovery(kind="unresolved", reason=kind),
+            ))
+
+        def unread_agent(
+            call: ast.Call,
+            reason: str,
+            kind: str,
+            file_observations: list[AgentBindingObservation],
+            source_ref: str = source_ref,
+            identity_of: Callable[[ast.Call], str | None] = identity_of,
+            unread: Callable[..., None] = unread,
+            values: _AgentValues = values,
+        ) -> None:
+            # An agent whose capabilities the reader cannot read is still an
+            # agent: a named limit on *it*, so other agents' rows stand.
+            pointer = f"{source_ref}:{call.lineno}"
+            identity = identity_of(call)
+            if identity is None:
+                unread(reason, pointer, kind)
+                return
+            values.constructed[id(call)] = identity
+            warnings.append(reason)
+            file_observations.append(
+                AgentBindingObservation(
+                    agent=identity,
+                    source_id=source.id,
+                    source=source_ref,
+                    source_pointer=pointer,
+                    tools_complete=False,
+                    handoffs_complete=False,
+                    issues=[reason],
                 )
-            ):
+            )
+
+        file_observations: list[AgentBindingObservation] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            pointer = f"{source_ref}:{node.lineno}"
+            if _copy_shape(node) is not None:
+                # Whether the receiver is an agent is known only once every
+                # construction in the file has been read.
+                copies.append(node)
+                continue
+            func = node.func.value if isinstance(node.func, ast.Subscript) else node.func
+            if isinstance(func, ast.Name) and func.id in subclasses:
+                unread_agent(
+                    node,
+                    f"OpenAI Agents SDK agent at {pointer} is built from the subclass "
+                    f"{func.id!r} (line {subclasses[func.id]}), whose constructor this "
+                    "reader does not read.",
+                    "sdk_agent_subclass_unread",
+                    file_observations,
+                )
+                continue
+            if not _denotes_agent(sdk_names, node):
+                continue
+            call = node
+            target = identity_of(call)
+            if target is None:
+                unread(
+                    f"OpenAI Agents SDK agent constructed at {pointer} has no literal "
+                    "name, so it cannot be identified; its tools are not read.",
+                    pointer,
+                    "sdk_agent_identity_unresolved",
+                )
+                continue
+            values.constructed[id(call)] = target
+            # The list object this agent holds, when ``tools=`` names one: an
+            # in-place change through any agent sharing it reaches this one too.
+            shared_tools = _keyword(call, "tools")
+            if isinstance(shared_tools, ast.Name):
+                found_list = scopes.enclosing_bindings(call, shared_tools.id)
+                list_holders.setdefault(
+                    id(found_list[0]) if found_list else ("module", shared_tools.id), set()
+                ).add(target)
+            opaque = _opaque_arguments(call)
+            if opaque is not None:
+                reason = (
+                    f"OpenAI Agents SDK agent {target!r} at {pointer} is constructed with "
+                    f"{opaque}, so its tools and handoffs are not read."
+                )
+                warnings.append(reason)
+                file_observations.append(
+                    AgentBindingObservation(
+                        agent=target, source_id=source.id, source=source_ref,
+                        source_pointer=pointer, tools_complete=False,
+                        handoffs_complete=False, issues=[reason],
+                    )
+                )
                 continue
             tools_expr = _keyword(call, "tools")
             references = tool_lists.references(tools_expr, call)
-            pointer = f"{source_ref}:{call.lineno}"
             issues: list[str] = []
             tools_complete = True
             names: list[str] = []
@@ -359,7 +482,9 @@ def _extract_agent_bindings(
                     if locator is not None:
                         locators[tool.name] = locator
                         first_location.setdefault(tool.name, tool.source_location or locator)
-            handoff_names = tool_lists.names(_keyword(call, "handoffs"), call, import_aliases)
+            handoff_names = tool_lists.names(
+                _keyword(call, "handoffs"), call, import_aliases, identity_of, sdk_names
+            )
             handoffs_complete = True
             if handoff_names is None:
                 reason = f"OpenAI Agents SDK agent {target!r} has dynamic handoffs at {pointer}."
@@ -367,7 +492,7 @@ def _extract_agent_bindings(
                 issues.append(reason)
                 handoffs_complete = False
                 handoff_names = []
-            observations.append(
+            file_observations.append(
                 AgentBindingObservation(
                     agent=target,
                     source_id=source.id,
@@ -381,6 +506,109 @@ def _extract_agent_bindings(
                     issues=issues,
                 )
             )
+        for node in copies:
+            clone_of = _capability_rebinding_copy(
+                node, lambda receiver, node=node, values=values: values.is_agent(receiver, node)
+            )
+            if clone_of is None:
+                continue
+            pointer = f"{source_ref}:{node.lineno}"
+            unread_agent(
+                node,
+                f"OpenAI Agents SDK agent copy at {pointer} ({clone_of}) is not read: "
+                "it passes its own tools, handoffs or MCP servers.",
+                "sdk_agent_clone_unread",
+                file_observations,
+            )
+        # A change to an agent's tools, handoffs or MCP servers after it is
+        # constructed — ``agent.tools.append(x)``, ``self.agent.tools = [...]``,
+        # ``setattr(agent, "tools", ...)``, a handle ``t = agent.tools`` — is a
+        # limit on the agent the changed value is, read in the scope of the
+        # change. A value the reader cannot identify is a limit on the file;
+        # one it can prove is not an agent is nothing (#876 review).
+        unattributed = False
+        limited: set[str] = set()
+        for receiver, site in _capability_changes(tree, scopes=scopes):
+            owner = values.owner(receiver, site)
+            # One limit per agent, and one for the file: the first site names it.
+            if owner is None or (owner is True and unattributed) or owner in limited:
+                continue
+            if isinstance(owner, str):
+                limited.add(owner)
+            pointer = f"{source_ref}:{site.lineno}"
+            if owner is True:
+                unattributed = True
+                unread(
+                    f"OpenAI Agents SDK tools, handoffs or MCP servers are changed at "
+                    f"{pointer} on a value this reader cannot identify; the agents "
+                    f"constructed in {source_ref} are not established.",
+                    pointer,
+                    "sdk_capability_change_unattributed",
+                )
+                continue
+            reason = (
+                f"OpenAI Agents SDK agent {owner!r} has its tools, handoffs or MCP "
+                f"servers changed after construction at {pointer}, which this reader "
+                "does not follow."
+            )
+            warnings.append(reason)
+            # Changed in place (not re-assigned): every agent built from the same
+            # list object holds the change too (#876 review).
+            reached = {owner}
+            if not _reassigns(site):
+                for holders in list_holders.values():
+                    if owner in holders:
+                        reached |= holders
+            for observation in file_observations:
+                if observation.agent in reached:
+                    observation.tools_complete = False
+                    observation.handoffs_complete = False
+                    if reason not in observation.issues:
+                        observation.issues.append(reason)
+        # One identity constructed twice in a file — ``if premium: return
+        # Agent(name="Quote", ...)`` / ``else: return Agent(name="Quote", ...)``
+        # — is merged by the binding graph into one agent. Its tools cannot be
+        # attributed to either construction, so the agent is incomplete rather
+        # than silently the union of both (#876 review). Constructions that
+        # bind exactly the same tools and handoffs are the same agent either way.
+        sites: dict[str, list[str]] = {}
+        shapes: dict[str, set[tuple[object, ...]]] = {}
+        for observation in file_observations:
+            sites.setdefault(observation.agent, []).append(observation.source_pointer or source_ref)
+            shapes.setdefault(observation.agent, set()).add(
+                (
+                    tuple(observation.tool_names),
+                    tuple(sorted(observation.tool_locators.items())),
+                    tuple(observation.handoff_names),
+                    observation.tools_complete,
+                    observation.handoffs_complete,
+                    tuple(observation.issues),
+                )
+            )
+        for identity, pointers in sites.items():
+            if len(pointers) < 2:
+                continue
+            if len(shapes[identity]) == 1 and not next(iter(shapes[identity]))[-1]:
+                # The same agent either way: one observation, not two that the
+                # comparison would read as an ambiguous identity.
+                first = next(o for o in file_observations if o.agent == identity)
+                file_observations = [
+                    o for o in file_observations if o.agent != identity or o is first
+                ]
+                continue
+            reason = (
+                f"OpenAI Agents SDK agent {identity!r} is constructed more than once in "
+                f"{source_ref} ({', '.join(p.rsplit(':', 1)[-1] for p in pointers)}); "
+                "its tools are not attributed to either construction."
+            )
+            warnings.append(reason)
+            for observation in file_observations:
+                if observation.agent == identity:
+                    observation.tools_complete = False
+                    observation.handoffs_complete = False
+                    if reason not in observation.issues:
+                        observation.issues.append(reason)
+        observations.extend(file_observations)
     return (
         list(dict.fromkeys(warnings)),
         observations,
@@ -504,6 +732,592 @@ def _literal_tool_list_concatenation(value: ast.AST | None) -> bool:
     )
 
 
+def _denotes_agent(sdk_names: _SdkNames, node: ast.AST) -> bool:
+    """Whether ``node`` — a call, or a class base — names the SDK's ``Agent``.
+
+    ``Agent[Context](...)`` parameterizes the class before calling it; the
+    subscript does not change which class is constructed.
+    """
+    func = node.func if isinstance(node, ast.Call) else node
+    if isinstance(func, ast.Subscript):
+        func = func.value
+    return sdk_names.denotes(dotted_name(func), node, "Agent", DEFAULT_AGENT_CONSTRUCTORS)
+
+
+def _literal_agent_name(call: ast.Call) -> str | None:
+    """The ``name`` an unassigned ``Agent(...)`` is constructed with."""
+
+    value = _keyword(call, "name")
+    if value is None and call.args:
+        value = call.args[0]
+    return _const_str(value) if isinstance(value, ast.expr) else None
+
+
+#: Keywords that give an agent copy capabilities of its own.
+_CAPABILITY_KEYWORDS = frozenset({"tools", "handoffs", "mcp_servers"})
+#: Methods that change a list in place.
+_LIST_MUTATORS = frozenset({"append", "extend", "insert", "remove", "pop", "clear"})
+
+
+#: Spellings of ``replace`` that copy a dataclass with changed fields.
+_REPLACE_FUNCTIONS = frozenset({"replace", "dataclasses.replace", "copy.replace"})
+
+
+def _copy_shape(call: ast.Call) -> tuple[ast.expr, str, bool] | None:
+    """``(receiver, kind, explicit)`` for ``x.clone(...)`` / ``replace(x, ...)`` passing capabilities.
+
+    ``explicit``: a ``tools=`` / ``handoffs=`` / ``mcp_servers=`` keyword, as
+    opposed to only ``**`` unpacking, which could carry anything or nothing.
+    """
+
+    keywords = {keyword.arg for keyword in call.keywords}
+    explicit = bool(keywords & _CAPABILITY_KEYWORDS)
+    if not explicit and None not in keywords:
+        return None
+    func = call.func
+    if isinstance(func, ast.Attribute) and func.attr == "clone":
+        return func.value, "clone", explicit
+    name = dotted_name(func)
+    if name in _REPLACE_FUNCTIONS and call.args:
+        return call.args[0], "copy.replace" if name == "copy.replace" else "dataclasses.replace", explicit
+    return None
+
+
+def _capability_rebinding_copy(
+    call: ast.Call, is_agent: Callable[[ast.expr], bool | None] | None = None
+) -> str | None:
+    """``x.clone(tools=...)`` or ``replace(x, tools=...)``: a copy with its own capabilities.
+
+    A copy that passes none of them keeps the original's tools, which the
+    original's own rows already compare, so it is not a limit (#876 review).
+    ``is_agent`` answers for the receiver: a value proven not to be an agent
+    (``Settings()``) is never a copy, and one that passes only ``**`` is a copy
+    only when the receiver is proven to be one.
+    """
+
+    shape = _copy_shape(call)
+    if shape is None:
+        return None
+    receiver, kind, explicit = shape
+    verdict = is_agent(receiver) if is_agent is not None else None
+    if verdict is False or (not explicit and verdict is not True):
+        return None
+    return kind
+
+
+def _capability_changes(
+    tree: ast.Module,
+    capabilities: frozenset[str] = _CAPABILITY_KEYWORDS,
+    *,
+    scopes: ScopeIndex | None = None,
+) -> list[tuple[ast.expr, ast.stmt | ast.Call]]:
+    """``(receiver, site)`` wherever a module changes an object's capability list.
+
+    Assigning, extending or deleting ``x.tools`` (or its items), calling a list
+    method on it, ``setattr`` / ``delattr`` by name, and a handle on it
+    (``t = x.tools``, ``t = getattr(x, "tools")``) that is itself changed
+    later in its scope. A plain read — ``len(request.tools)``,
+    ``tools = request.tools`` that is only read — changes nothing (#876 review).
+    """
+
+    scopes = scopes or ScopeIndex(tree)
+
+    def changed_handle(statement: ast.stmt) -> bool:
+        target = _assignment_target(statement) if isinstance(statement, ast.Assign | ast.AnnAssign) else None
+        if target is None:
+            return True
+        scope = _enclosing_function(scopes, statement) or tree
+        defining = statement.targets[0] if isinstance(statement, ast.Assign) else statement.target
+        # The handle's own assignment aside, every use of it must be a read.
+        for node in ast.walk(scope):
+            if not isinstance(node, ast.Name) or node.id != target or node is defining:
+                continue
+            if not isinstance(node.ctx, ast.Load) or not _read_only_use(
+                node, scopes.parents, lambda call, *_: _leaves_arguments_alone(call)
+            ):
+                return True
+        return False
+
+    def reflective(call: ast.Call, names: frozenset[str]) -> bool:
+        return (
+            isinstance(call.func, ast.Name)
+            and call.func.id in names
+            and len(call.args) >= 2
+            and isinstance(call.args[1], ast.Constant)
+            and call.args[1].value in capabilities
+        )
+
+    changes: list[tuple[ast.expr, ast.stmt | ast.Call]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign | ast.AugAssign | ast.AnnAssign | ast.Delete):
+            targets = node.targets if isinstance(node, ast.Assign | ast.Delete) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Subscript):
+                    target = target.value
+                if isinstance(target, ast.Attribute) and target.attr in capabilities:
+                    changes.append((target.value, node))
+            value = node.value if isinstance(node, ast.Assign | ast.AnnAssign) else None
+            if isinstance(value, ast.Attribute) and value.attr in capabilities:
+                if changed_handle(node):
+                    changes.append((value.value, node))
+            elif isinstance(value, ast.Call) and reflective(value, frozenset({"getattr"})):
+                if changed_handle(node):
+                    changes.append((value.args[0], node))
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if (
+                isinstance(func, ast.Attribute)
+                and func.attr in _LIST_MUTATORS
+                and isinstance(func.value, ast.Attribute)
+                and func.value.attr in capabilities
+            ):
+                changes.append((func.value.value, node))
+            elif reflective(node, frozenset({"setattr", "delattr"})):
+                changes.append((node.args[0], node))
+    return changes
+
+
+#: Constructors whose result is never an agent.
+_NON_AGENT_CONSTRUCTORS = frozenset(
+    {
+        "dict",
+        "list",
+        "set",
+        "tuple",
+        "object",
+        "SimpleNamespace",
+        "types.SimpleNamespace",
+        "defaultdict",
+        "collections.defaultdict",
+        "OrderedDict",
+        "collections.OrderedDict",
+    }
+)
+_NON_AGENT_LITERALS = (
+    ast.Constant,
+    ast.List,
+    ast.Tuple,
+    ast.Set,
+    ast.Dict,
+    ast.JoinedStr,
+    ast.Lambda,
+    ast.ListComp,
+    ast.SetComp,
+    ast.DictComp,
+    ast.GeneratorExp,
+)
+
+
+class _AgentValues:
+    """What a name holds where it is used, as far as agents go (#876 review)."""
+
+    def __init__(
+        self,
+        tree: ast.Module,
+        scopes: ScopeIndex,
+        module_bindings: dict[str, list[Any]],
+        sdk_names: _SdkNames,
+        subclasses: dict[str, int],
+    ) -> None:
+        self.scopes = scopes
+        self.module_bindings = module_bindings
+        self.sdk_names = sdk_names
+        self.subclasses = subclasses
+        #: ``id(call) -> identity`` of every agent construction the reader read.
+        self.constructed: dict[int, str] = {}
+        self._class_attributes: dict[int, dict[str, list[ast.expr]]] = {}
+        self.classes = {node.name for node in tree.body if isinstance(node, ast.ClassDef)}
+        self.functions = {
+            node.name: node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+        }
+
+    def value_of(self, name: str, site: ast.AST) -> ast.expr | None:
+        """The value ``name`` is bound to once, seen from ``site``; else None."""
+
+        found = self.scopes.enclosing_bindings(site, name)
+        if found:
+            if len(found) != 1 or not isinstance(found[0], ast.Name):
+                return None
+            statement = self.scopes.statement_of(found[0])
+        else:
+            bindings = self.module_bindings.get(name, [])
+            if (
+                len(bindings) != 1
+                or not bindings[0].top_level
+                or not isinstance(bindings[0].node, ast.Name)
+            ):
+                return None
+            statement = bindings[0].statement
+        if isinstance(statement, ast.Assign | ast.AnnAssign) and _assignment_target(statement) == name:
+            return statement.value
+        return None
+
+    def is_agent(self, expr: ast.expr, site: ast.AST) -> bool | None:
+        """True: an agent; False: provably not one; None: unknown."""
+
+        if isinstance(expr, ast.Name):
+            value = self.value_of(expr.id, site)
+            if value is None:
+                return None
+            expr = value
+        if isinstance(expr, _NON_AGENT_LITERALS):
+            return False
+        if isinstance(expr, ast.Call):
+            if id(expr) in self.constructed or _denotes_agent(self.sdk_names, expr):
+                return True
+            if self.returned_agent(expr) is not None:
+                return True
+            if self._not_an_agent(expr):
+                return False
+        return None
+
+    def _not_an_agent(self, call: ast.Call) -> bool:
+        if isinstance(call.func, ast.Call):
+            # ``type("P", (), {})()``: a class made on the spot, from no base
+            # that could be an agent. Any other call of a call is unknown.
+            maker = call.func
+            return (
+                dotted_name(maker.func) == "type"
+                and len(maker.args) >= 2
+                and isinstance(maker.args[1], ast.Tuple)
+                and not maker.args[1].elts
+            )
+        name = dotted_name(call.func)
+        if name in _NON_AGENT_CONSTRUCTORS:
+            return True
+        return name in self.classes and name not in self.subclasses
+
+    def returned_agent(self, call: ast.Call) -> str | None:
+        """The one observed agent a module-level function's every ``return`` gives back."""
+
+        name = dotted_name(call.func)
+        function = self.functions.get(name) if name else None
+        if function is None:
+            return None
+        identities: set[str] = set()
+        stack: list[ast.AST] = list(function.body)
+        while stack:
+            node = stack.pop()
+            if isinstance(node, _SCOPE_NODES):
+                continue
+            if isinstance(node, ast.Return):
+                value = node.value
+                if isinstance(value, ast.Name):
+                    value = self.value_of(value.id, node)
+                if not isinstance(value, ast.Call) or id(value) not in self.constructed:
+                    return None
+                identities.add(self.constructed[id(value)])
+            stack.extend(ast.iter_child_nodes(node))
+        return identities.pop() if len(identities) == 1 else None
+
+    def owner(self, receiver: ast.expr, site: ast.AST) -> str | bool | None:
+        """The agent a capability change reaches: its identity, None, or True (unknown)."""
+
+        if isinstance(receiver, ast.Name) and receiver.id in {"self", "cls"}:
+            # The instance's own list: an agent only when the class is an
+            # agent subclass, whose instances are already a named limit.
+            return None
+        if (
+            isinstance(receiver, ast.Attribute)
+            and isinstance(receiver.value, ast.Name)
+            and receiver.value.id in {"self", "cls"}
+        ):
+            assigned = self._self_attribute_values(receiver.attr, site)
+            identities = {self.constructed.get(id(value)) for value in assigned}
+            if assigned and None not in identities and len(identities) == 1:
+                return identities.pop()
+            return True
+        if isinstance(receiver, ast.Name):
+            value = self.value_of(receiver.id, site)
+            if value is None:
+                return True
+            if isinstance(value, ast.Call):
+                if id(value) in self.constructed:
+                    return self.constructed[id(value)]
+                returned = self.returned_agent(value)
+                if returned is not None:
+                    return returned
+            return None if self.is_agent(value, site) is False else True
+        return True
+
+    def _self_attribute_values(self, attr: str, site: ast.AST) -> list[ast.expr]:
+        current = self.scopes.parents.get(site)
+        while current is not None and not isinstance(current, ast.ClassDef):
+            current = self.scopes.parents.get(current)
+        if current is None:
+            return []
+        values = self._class_attributes.get(id(current))
+        if values is None:
+            # One walk per class, not one per change site (#876 review).
+            values = {}
+            for node in ast.walk(current):
+                if isinstance(node, ast.Assign | ast.AnnAssign) and node.value is not None:
+                    targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                    for target in targets:
+                        if (
+                            isinstance(target, ast.Attribute)
+                            and isinstance(target.value, ast.Name)
+                            and target.value.id in {"self", "cls"}
+                        ):
+                            values.setdefault(target.attr, []).append(node.value)
+            self._class_attributes[id(current)] = values
+        return values.get(attr, [])
+
+
+#: Capability attributes of either supported framework's agents.
+_CENSUS_CAPABILITIES = frozenset({"tools", "handoffs", "mcp_servers", "sub_agents"})
+
+
+@dataclass(frozen=True)
+class ModuleCensus:
+    """What a module no reader reads as an SDK source could do to an agent."""
+
+    #: Lines of ``x.clone(tools=...)`` / ``replace(x, tools=...)`` copies.
+    copies: list[int]
+    #: ``(line, constructor)`` where an object this module can reach from the
+    #: scope has its capability lists changed. ``constructor`` is the
+    #: ``(module tail, class)`` a receiver was built from by an import, so the
+    #: comparison can drop one that is plainly not an agent.
+    changes: list[tuple[int, tuple[str, str] | None]]
+    #: SDK ``Agent`` subclasses the module defines, by name, with their line.
+    subclasses: dict[str, int]
+    #: Every identifier the module's code spells (names, attributes, imports),
+    #: so a use of a subclass is found in code, never in a string or comment.
+    identifiers: frozenset[str] = frozenset()
+    #: ``(module tail, name)`` for each ``from … import name``; ``*`` for a
+    #: wildcard. With ``modules``, how a use names another module's class.
+    imported: frozenset[tuple[str, str]] = frozenset()
+    #: Tails of the modules imported whole (``import app.core``, ``from app import core``).
+    modules: frozenset[str] = frozenset()
+    #: Every class the module defines at top level.
+    classes: frozenset[str] = frozenset()
+
+    def uses(self, name: str, defining: str) -> bool:
+        """Whether this module's code uses ``name`` from the module at ``defining``."""
+
+        tail = _module_tail(defining)
+        if (tail, name) in self.imported:
+            return True
+        return name in self.identifiers and (tail in self.modules or (tail, "*") in self.imported)
+
+    def reexports(self, name: str, defining: str) -> bool:
+        """Whether ``name`` from ``defining`` is in this module's namespace for others."""
+
+        tail = _module_tail(defining)
+        return (tail, name) in self.imported or (tail, "*") in self.imported
+
+
+def _module_tail(path: str) -> str:
+    posix = PurePosixPath(path)
+    return posix.parent.name if posix.name == "__init__.py" else posix.stem
+
+
+def census_module(
+    tree: ast.Module,
+    text: str,
+    local_modules: frozenset[str] = frozenset(),
+    *,
+    read_as_sdk: bool = False,
+    read_as_adk: bool = False,
+) -> ModuleCensus:
+    """The capability-changing constructs of one module, for the comparison (#876 review).
+
+    A copy of a value not proven to be something else, a change to the
+    capability list of an object this module imports from the scope
+    (``agent.quote_agent.tools.append(...)``), and SDK ``Agent`` subclasses.
+    A change on a local object or a parameter of a module that never imports
+    the SDK is left out: it is almost always another library's ``.tools``. A
+    module read as an SDK source is read for its copies and changes by the
+    reader itself, so only its subclasses and identifiers are collected here.
+
+    One walk collects what every module needs; the rest runs only where that
+    walk found something to read.
+    """
+
+    names: set[str] = set()
+    imported: set[tuple[str, str]] = set()
+    modules: set[str] = set()
+    imports_scope = False
+    touches_capabilities = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            names.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            names.add(node.attr)
+            touches_capabilities = touches_capabilities or node.attr in _CENSUS_CAPABILITIES
+        elif isinstance(node, ast.ImportFrom):
+            # Only an import from the scope can name the scope's classes: a
+            # vendor module of the same stem is not ``app/core.py``.
+            local = bool(node.level) or (node.module or "").split(".", 1)[0] in local_modules
+            imports_scope = imports_scope or local
+            tail = (node.module or "").rsplit(".", 1)[-1]
+            for alias in node.names:
+                names.update(part for part in (alias.name, alias.asname) if part)
+                if local:
+                    if tail:
+                        imported.add((tail, alias.name))
+                    modules.add(alias.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                names.update(part for part in (alias.name.rsplit(".", 1)[-1], alias.asname) if part)
+                if alias.name.split(".", 1)[0] in local_modules:
+                    imports_scope = True
+                    modules.add(alias.name.rsplit(".", 1)[-1])
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"setattr", "delattr", "getattr"}
+        ):
+            touches_capabilities = True
+    identifiers_of = {
+        "identifiers": frozenset(names),
+        "imported": frozenset(imported),
+        "modules": frozenset(modules),
+        "classes": frozenset(node.name for node in tree.body if isinstance(node, ast.ClassDef)),
+    }
+    subclasses: dict[str, int] = {}
+    sdk_names: _SdkNames | None = None
+    if "Agent" in text:
+        sdk_names = _SdkNames(tree)
+        subclasses = _agent_subclasses(tree, sdk_names)
+    wants_copies = not read_as_sdk and ("clone(" in text or "replace(" in text)
+    # A module that imports nothing from the scope cannot reach its agents; its
+    # ``.tools`` are another library's. One that does can reach them through
+    # any value — an alias, a loop, a parameter, a call's result — so only a
+    # value proven not to be an agent is left out (#876 review).
+    # A Google ADK source constructs its own agents, and its reader does not
+    # follow a change to them after construction, so it is read like one.
+    wants_changes = (
+        not read_as_sdk and touches_capabilities and (imports_scope or read_as_adk)
+    )
+    if not wants_copies and not wants_changes:
+        return ModuleCensus([], [], subclasses, **identifiers_of)
+    scopes = ScopeIndex(tree)
+    bindings = _module_bindings(tree)[0]
+    copies: list[int] = []
+    if wants_copies:
+        values = _AgentValues(tree, scopes, bindings, sdk_names or _SdkNames(tree), subclasses)
+        copies = sorted(
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and _capability_rebinding_copy(
+                node, lambda receiver, node=node: values.is_agent(receiver, node)
+            )
+            is not None
+        )
+
+    changes: list[tuple[int, tuple[str, str] | None]] = []
+    if wants_changes:
+        values = _AgentValues(tree, scopes, bindings, sdk_names or _SdkNames(tree), subclasses)
+
+        def constructor(receiver: ast.expr, site: ast.AST) -> tuple[str, str] | None:
+            value = (
+                values.value_of(receiver.id, site) if isinstance(receiver, ast.Name) else None
+            )
+            if not isinstance(value, ast.Call) or not isinstance(value.func, ast.Name):
+                return None
+            for item in bindings.get(value.func.id, []):
+                statement = item.statement
+                if isinstance(statement, ast.ImportFrom) and isinstance(item.node, ast.alias):
+                    return ((statement.module or "").rsplit(".", 1)[-1], item.node.name)
+            return None
+
+        changes = sorted(
+            {
+                (site.lineno, constructor(receiver, site))
+                for receiver, site in _capability_changes(tree, _CENSUS_CAPABILITIES, scopes=scopes)
+                if values.owner(receiver, site) is not None
+            },
+            key=lambda item: item[0],
+        )
+    return ModuleCensus(copies, changes, subclasses, **identifiers_of)
+
+
+def _reassigns(site: ast.AST) -> bool:
+    """Whether a capability change gives the agent a new list rather than changing its own."""
+
+    if isinstance(site, ast.Assign | ast.AnnAssign):
+        targets = site.targets if isinstance(site, ast.Assign) else [site.target]
+        return all(isinstance(target, ast.Attribute) for target in targets)
+    return isinstance(site, ast.Call) and isinstance(site.func, ast.Name) and site.func.id in {
+        "setattr",
+        "delattr",
+    }
+
+
+def _enclosing_scope(scopes: ScopeIndex, node: ast.AST) -> ast.AST | None:
+    """The function or class body ``node`` is in; None at module level."""
+
+    current = scopes.parents.get(node)
+    while current is not None and not isinstance(current, ast.Module):
+        if isinstance(current, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda | ast.ClassDef):
+            return current
+        current = scopes.parents.get(current)
+    return None
+
+
+def _enclosing_function(scopes: ScopeIndex, node: ast.AST) -> ast.AST | None:
+    current = scopes.parents.get(node)
+    while current is not None and not isinstance(current, ast.Module | ast.ClassDef):
+        if isinstance(current, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+            return current
+        current = scopes.parents.get(current)
+    return None
+
+
+def _agent_subclasses(tree: ast.Module, sdk_names: _SdkNames) -> dict[str, int]:
+    """Classes in this module that subclass the SDK's ``Agent``, transitively.
+
+    ``Dyn = type("Dyn", (Agent,), {})`` makes one too (#876 review).
+    """
+
+    classes: list[tuple[str, list[ast.expr], int]] = [
+        (node.name, list(node.bases), node.lineno)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef)
+    ]
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and isinstance(node.value, ast.Call)
+            and dotted_name(node.value.func) == "type"
+            and len(node.value.args) >= 2
+            and isinstance(node.value.args[1], ast.Tuple)
+        ):
+            classes.append((node.targets[0].id, list(node.value.args[1].elts), node.lineno))
+    found: dict[str, int] = {}
+    changed = True
+    while changed:
+        changed = False
+        for name, bases, line in classes:
+            if name in found:
+                continue
+            for base in bases:
+                inner = base.value if isinstance(base, ast.Subscript) else base
+                if _denotes_agent(sdk_names, base) or (
+                    isinstance(inner, ast.Name) and inner.id in found
+                ):
+                    found[name] = line
+                    changed = True
+                    break
+    return found
+
+
+def _opaque_arguments(call: ast.Call) -> str | None:
+    """Arguments that can carry ``tools`` or ``handoffs`` the reader cannot see."""
+
+    if any(keyword.arg is None for keyword in call.keywords):
+        return "keyword unpacking (**)"
+    if len(call.args) > 1 or any(isinstance(arg, ast.Starred) for arg in call.args):
+        return "positional arguments after its name"
+    return None
+
+
 def _assignment_target(node: ast.Assign | ast.AnnAssign) -> str | None:
     targets = node.targets if isinstance(node, ast.Assign) else [node.target]
     return targets[0].id if len(targets) == 1 and isinstance(targets[0], ast.Name) else None
@@ -513,8 +1327,6 @@ def _keyword(call: ast.Call, name: str) -> ast.AST | None:
     return next((item.value for item in call.keywords if item.arg == name), None)
 
 
-#: Methods that change a list in place.
-_LIST_MUTATORS = frozenset({"append", "extend", "insert", "remove", "pop", "clear"})
 #: Calls that read the values they are given and never change them.
 _READ_ONLY_CALLS = frozenset(
     {
@@ -792,14 +1604,41 @@ class _ToolLists:
         return references
 
     def names(
-        self, value: ast.AST | None, node: ast.AST, aliases: dict[str, str]
+        self,
+        value: ast.AST | None,
+        node: ast.AST,
+        aliases: dict[str, str],
+        identity_of: Callable[[ast.Call], str | None] | None = None,
+        sdk_names: _SdkNames | None = None,
     ) -> list[str] | None:
-        """Handoff names: plain names only, read through ``from`` import aliases."""
+        """Handoff names: plain names only, read through ``from`` import aliases.
+
+        A name a function binds to an agent it constructs is that agent's
+        identity, which is its literal ``name`` (#876 review).
+        """
 
         elements = self._elements(value, node)
         if elements is None or not all(isinstance(item, ast.Name) for item in elements):
             return None
-        return [aliases.get(item.id, item.id) for item in elements if isinstance(item, ast.Name)]
+        names: list[str] = []
+        for item in elements:
+            assert isinstance(item, ast.Name)
+            found = self.scopes.enclosing_bindings(item, item.id)
+            statement = self.scopes.statement_of(found[0]) if len(found) == 1 else None
+            value_node = getattr(statement, "value", None)
+            if (
+                identity_of is not None
+                and sdk_names is not None
+                and isinstance(found[0] if found else None, ast.Name)
+                and isinstance(value_node, ast.Call)
+                and _denotes_agent(sdk_names, value_node)
+            ):
+                identity = identity_of(value_node)
+                if identity is not None:
+                    names.append(identity)
+                    continue
+            names.append(aliases.get(item.id, item.id))
+        return names
 
 
 _SCOPE_NODES = (

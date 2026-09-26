@@ -190,6 +190,9 @@ SURFACE_GAP_CONFLICTING_CONTRACT = "conflicting_tool_contract"
 #: ``lookup`` and an imported ``other.lookup``. The model sees one name for two
 #: callables, so which one runs is not something the source settles (#864).
 SURFACE_GAP_DUPLICATE_TOOL_NAME = "duplicate_tool_name"
+#: One agent name constructed at more than one call site in a module: the
+#: binding graph merges them, so no tool can be attributed to either (#876).
+SURFACE_GAP_DUPLICATE_AGENT_NAME = "duplicate_agent_name"
 SURFACE_GAP_UNRESOLVED_SUB_AGENT = "unresolved_sub_agent"
 #: The module reaches an agent's ``tools`` attribute after construction, or
 #: builds an agent from unpacked keyword arguments. Reading the ``tools=``
@@ -1018,6 +1021,8 @@ class _PythonAdkExtractor:
         # ordinal within one agent's tool list, never a line number.
         self.inline_slot_counts: dict[str, int] = {}
         self.agent_bindings: dict[str, _AdkAgentBinding] = {}
+        #: ``agent name -> {id(call): line}`` for every construction site.
+        self.agent_sites: dict[str, dict[int, int]] = {}
         # Reasons this module's tool surface was not proven complete (#393).
         # Empty at the end of ``extract`` is what earns ``SURFACE_ENUMERATED``.
         self.surface_gaps: list[str] = []
@@ -1403,6 +1408,18 @@ class _PythonAdkExtractor:
                 source_pointer=f"{self.source_ref}:{call.lineno}",
             )
             self.agent_bindings[agent_name] = binding
+        sites = self.agent_sites.setdefault(agent_name, {})
+        if id(call) not in sites:
+            sites[id(call)] = call.lineno
+            if len(sites) == 2:
+                lines = ", ".join(str(line) for line in sorted(sites.values()))
+                reason = (
+                    f"Google ADK agent {agent_name!r} is constructed more than once in "
+                    f"{self.source_ref} (lines {lines}); its tools are not attributed to "
+                    "either construction."
+                )
+                self._surface_warning(reason, SURFACE_GAP_DUPLICATE_AGENT_NAME)
+                binding.issues.append(reason)
         return binding
 
     def _binding_observations(self) -> list[AgentBindingObservation]:
