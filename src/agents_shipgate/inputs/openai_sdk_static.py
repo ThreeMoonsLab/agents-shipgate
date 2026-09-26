@@ -25,6 +25,7 @@ from agents_shipgate.inputs.python_imports import (
     NOT_BOUND,
     ImportResolver,
     PythonModule,
+    Resolution,
     ScopeIndex,
     local_binding_detail,
     reference_spelling,
@@ -228,7 +229,23 @@ def _extract_agent_bindings(
                 target = _assignment_target(node)
                 value = node.value
                 if target and isinstance(value, (ast.List, ast.Tuple)):
-                    list_vars[target] = _literal_references(value)
+                    # Bound twice anywhere in the file (another function's
+                    # local, an ``if``/``else``) is not one literal list.
+                    list_vars[target] = (
+                        None if target in list_vars else _literal_references(value)
+                    )
+            if (
+                isinstance(node, ast.AugAssign)
+                and isinstance(node.target, ast.Name)
+                and node.target.id in list_vars
+            ) or (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in {"append", "extend", "insert", "remove", "pop", "clear"}
+                and isinstance(node.func.value, ast.Name)
+            ):
+                changed = node.target.id if isinstance(node, ast.AugAssign) else node.func.value.id  # type: ignore[union-attr]
+                list_vars[changed] = None
         for node in ast.walk(tree):
             if not isinstance(node, (ast.Assign, ast.AnnAssign)):
                 continue
@@ -273,10 +290,29 @@ def _extract_agent_bindings(
                 # Two different definitions under one tool name: the model
                 # sees one name for both, so neither is bound (#879 review).
                 duplicated: set[str] = set()
+                first_location: dict[str, str] = {}
                 for reference in references:
                     head = reference.split(".", 1)[0]
-                    local = scopes.enclosing_binding(call, head)
-                    if isinstance(local, ast.FunctionDef | ast.AsyncFunctionDef):
+                    found = scopes.enclosing_bindings(call, head)
+                    local = found[0] if found else None
+                    statement = scopes.statement_of(local) if local is not None else None
+                    if len(found) > 1:
+                        tool, detail = None, local_binding_detail(
+                            source_ref, head, local, rebound=True
+                        )
+                    elif (
+                        isinstance(local, ast.alias)
+                        and module is not None
+                        and isinstance(statement, ast.Import | ast.ImportFrom)
+                    ):
+                        # The builder's own import is the binding its agent
+                        # receives: followed like a module-level one.
+                        tool, detail = imports.tool_from_resolution(
+                            imports.resolver.resolve_local_import(
+                                module, statement, local, reference
+                            )
+                        )
+                    elif isinstance(local, ast.FunctionDef | ast.AsyncFunctionDef):
                         # A nested ``@function_tool`` in the building function.
                         tool = imports.by_location.get(f"{source_ref}:{local.lineno}")
                         detail = (
@@ -314,8 +350,9 @@ def _extract_agent_bindings(
                         reason = (
                             f"OpenAI Agents SDK agent {target!r} at {pointer} binds two "
                             f"different functions named {tool.name!r} "
-                            f"({bound.split('#', 1)[0]} and {tool.source_location}); the "
-                            "model sees one tool name for both, so neither is resolved."
+                            f"({first_location.get(tool.name, bound.split('#', 1)[0])} and "
+                            f"{tool.source_location}); the model sees one tool name for "
+                            "both, so neither is resolved."
                         )
                         warnings.append(reason)
                         issues.append(reason)
@@ -327,6 +364,7 @@ def _extract_agent_bindings(
                     names.append(tool.name)
                     if locator is not None:
                         locators[tool.name] = locator
+                        first_location.setdefault(tool.name, tool.source_location or locator)
             handoff_names = _resolve_name_list(
                 _keyword(call, "handoffs"), list_vars, import_aliases
             )
@@ -404,6 +442,11 @@ class _ImportedTools:
             # Not bound at module scope here — a name local to a function, or
             # a module outside the read scope. The previous name reading holds.
             return tool_by_name.get(import_aliases.get(reference, reference)), None
+        return self.tool_from_resolution(resolution)
+
+    def tool_from_resolution(self, resolution: Resolution) -> tuple[Tool | None, str | None]:
+        """The tool one import resolution reached, or None and why not."""
+
         if not resolution.resolved:
             return None, resolution.detail
         node, defining = resolution.definition, resolution.module

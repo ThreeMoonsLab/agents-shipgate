@@ -1509,36 +1509,29 @@ class _PythonAdkExtractor:
         agent_name: str,
         binding: _AdkAgentBinding,
     ) -> list[LoadedToolSource]:
-        head = reference_spelling(expr)
-        local = (
-            self.scopes.enclosing_binding(expr, head.split(".", 1)[0])
-            if head is not None
-            else None
-        )
+        spelling = reference_spelling(expr)
+        verdict = self._local_meaning(expr, spelling) if spelling is not None else None
+        if isinstance(verdict, tuple):
+            resolution, long_running = verdict
+            if resolution.resolved:
+                self._bind_resolved(resolution, tools, agent_name, binding, long_running)
+            else:
+                assert spelling is not None
+                self._unresolved_reference(agent_name, spelling, resolution)
+            return []
         if (
-            isinstance(local, ast.FunctionDef | ast.AsyncFunctionDef)
+            verdict is None
             and isinstance(expr, ast.Name)
-            and self.functions.get(local.name) is local
+            and expr.id in self.functions
+            and expr.id not in self.wrappers
+            and expr.id not in self.toolset_assignments
         ):
-            # A function defined inside the one building the agent, and the
-            # only definition of that name the module's flat map holds: the
-            # usual binding path, whose proof check still weighs the name.
-            self._bind_function_tool(local, tools, agent_name, binding, False)
-            return []
-        if local is not None:
-            assert head is not None
-            self._unresolved_reference(
-                agent_name,
-                head,
-                Resolution(
-                    reference=head,
-                    reason=LOCAL_BINDING,
-                    detail=local_binding_detail(
-                        self.source_ref, head.split(".", 1)[0], local
-                    ),
-                ),
-            )
-            return []
+            # No binding in an enclosing function: the module's own definition
+            # is the one visible here, not a nested one the flat map may hold.
+            visible = self._module_definition(expr.id)
+            if visible is not None and visible is not self.functions[expr.id]:
+                self._bind_function_tool(visible, tools, agent_name, binding, False)
+                return []
         if isinstance(expr, ast.Name):
             if expr.id in self.wrappers:
                 # The variable's own name has to hold up too, not just the
@@ -1614,6 +1607,71 @@ class _PythonAdkExtractor:
             SURFACE_GAP_UNRESOLVED_EXPRESSION,
         )
         return []
+
+    def _local_meaning(
+        self, node: ast.AST, spelling: str
+    ) -> tuple[Resolution, bool] | str | None:  # None | "flat" | resolution
+        """What ``spelling`` means where it is used, when an enclosing function binds it.
+
+        None: no enclosing binding, so the module-level reading applies.
+        ``"flat"``: an enclosing binding the flat maps already describe — a
+        nested ``def`` that is the only one of its name, a factory's own
+        ``toolset = McpToolset(...)`` / ``tool = FunctionTool(...)`` — so the
+        usual path applies. A tuple: a resolution to bind or name (#879
+        review).
+        """
+
+        name = spelling.split(".", 1)[0]
+        found = self.scopes.enclosing_bindings(node, name)
+        if not found:
+            return None
+        if len(found) > 1:
+            return (
+                Resolution(
+                    reference=spelling,
+                    reason=LOCAL_BINDING,
+                    detail=local_binding_detail(self.source_ref, name, found[0], rebound=True),
+                ),
+                False,
+            )
+        local = found[0]
+        if isinstance(local, ast.alias) and self.resolver is not None and self.module is not None:
+            statement = self.scopes.statement_of(local)
+            if isinstance(statement, ast.Import | ast.ImportFrom):
+                return self._through_wrapper(
+                    self.resolver.resolve_local_import(self.module, statement, local, spelling)
+                )
+        if isinstance(local, ast.FunctionDef | ast.AsyncFunctionDef) and spelling == name:
+            if self.functions.get(name) is local:
+                return "flat"
+        if isinstance(local, ast.Name) and spelling == name:
+            statement = self.scopes.statement_of(local)
+            value = getattr(statement, "value", None)
+            recorded = self.wrappers.get(name, {}).get("call") or self.toolset_assignments.get(name)
+            if value is not None and value is recorded:
+                return "flat"
+        return (
+            Resolution(
+                reference=spelling,
+                reason=LOCAL_BINDING,
+                detail=local_binding_detail(self.source_ref, name, local),
+            ),
+            False,
+        )
+
+    def _module_definition(
+        self, name: str
+    ) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+        """The single top-level ``def name`` of this module, if it has one."""
+
+        if self.module is None:
+            return None
+        bindings = self.module.bindings.get(name, [])
+        if len(bindings) == 1 and bindings[0].top_level and isinstance(
+            bindings[0].node, ast.FunctionDef | ast.AsyncFunctionDef
+        ):
+            return bindings[0].node
+        return None
 
     def _append_wrapper_tool(
         self,
@@ -1755,9 +1813,17 @@ class _PythonAdkExtractor:
         """Bind ``FunctionTool(<imported function>)``, or report the wrapper."""
 
         spelling = reference_spelling(func_expr) if func_expr is not None else None
-        resolution, wrapped_long_running = (
-            self._resolve_reference(spelling) if spelling else (None, False)
+        local = (
+            self._local_meaning(func_expr, spelling)
+            if spelling is not None and func_expr is not None
+            else None
         )
+        if isinstance(local, tuple):
+            resolution, wrapped_long_running = local
+        else:
+            resolution, wrapped_long_running = (
+                self._resolve_reference(spelling) if spelling else (None, False)
+            )
         if resolution is not None and resolution.resolved:
             self._bind_resolved(
                 resolution, tools, agent_name, binding, long_running or wrapped_long_running

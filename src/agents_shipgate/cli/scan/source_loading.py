@@ -212,7 +212,7 @@ def _load_sources(
             configured_ids_by_source_id=configured_ids_by_source_id,
         )
 
-    return per_source_loaded + per_scan_loaded, bag
+    return _one_observation_per_imported_definition(per_source_loaded + per_scan_loaded), bag
 
 
 def _tool_source_index(
@@ -385,7 +385,7 @@ def _build_canonical_tools(
     """Build the provider-scoped identity catalog and return identity warnings."""
 
     return build_tool_identity_catalog(
-        _one_observation_per_imported_definition(loaded_sources),
+        loaded_sources,
         identity_config or ToolIdentityConfig(),
         repeated_artifacts,
     )
@@ -395,6 +395,9 @@ def _one_observation_per_imported_definition(
     loaded_sources: list[LoadedToolSource],
 ) -> list[LoadedToolSource]:
     """Drop a second observation of one definition that an import minted (#864).
+
+    Applied once where ``scan`` and ``inspect`` load their sources, so guard
+    association, inventory completion and the catalog all see the same tools.
 
     A reader follows ``tools=[...]`` into a sibling module and mints that
     definition as a tool of its own source. When another source of the run
@@ -407,7 +410,20 @@ def _one_observation_per_imported_definition(
     """
 
     def definition(tool: Tool) -> tuple[str, str] | None:
-        return (tool.source_type, tool.source_location) if tool.source_location else None
+        if not tool.source_location:
+            return None
+        location = tool.source_location.replace("\\", "/")
+        while location.startswith("./"):
+            location = location[2:]
+        return (tool.source_type, location)
+
+    # An inventory that completes a source joins that source's own tools by
+    # name, so its observations stay where the completion expects them.
+    completed = {
+        completes.strip()
+        for loaded in loaded_sources
+        if (completes := (loaded.completes_source_id or "").strip())
+    }
 
     native: dict[tuple[str, str], Tool] = {}
     first_imported: dict[tuple[str, str], Tool] = {}
@@ -430,7 +446,7 @@ def _one_observation_per_imported_definition(
             if winner is None or winner is tool or not tool.extraction.get("imported_definition"):
                 tools.append(tool)
                 continue
-            if winner.source_id == tool.source_id:
+            if winner.source_id == tool.source_id or tool.source_id in completed:
                 tools.append(tool)
                 continue
             evidence = winner.extraction.setdefault("import_resolutions", [])

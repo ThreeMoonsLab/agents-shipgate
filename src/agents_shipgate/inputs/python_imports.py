@@ -103,6 +103,8 @@ class PythonModule:
     package: bool
     bindings: dict[str, list[_Binding]]
     star_import: bool
+    #: ``dotted.path -> line`` for ``a.b = ...`` / ``setattr(a, "b", ...)``.
+    attribute_patches: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -223,12 +225,63 @@ class ImportResolver:
 
     # -- resolution ------------------------------------------------------------
 
+    def resolve_local_import(
+        self,
+        module: PythonModule,
+        statement: ast.Import | ast.ImportFrom,
+        alias: ast.alias,
+        reference: str,
+    ) -> Resolution:
+        """Resolve ``reference`` through an import inside a function (#879 review).
+
+        A builder's own ``from support import lookup`` is the binding its agent
+        receives, so it is followed exactly as a module-level import would be.
+        """
+
+        parts = reference.split(".")
+        steps: list[dict[str, Any]] = [
+            {
+                "path": module.ref,
+                "line": _line(statement),
+                "name": parts[0],
+                "sha256": module.sha256,
+                "binding": "local_import",
+            }
+        ]
+        try:
+            self._no_attribute_patch(module, parts)
+            outcome = self._through_import(
+                module, statement, alias, parts, steps, set()
+            )
+        except _Stop as stop:
+            return Resolution(
+                reference=reference, reason=stop.reason, detail=stop.detail, steps=tuple(steps)
+            )
+        return Resolution(reference=reference, steps=tuple(steps), **outcome)
+
+    def _no_attribute_patch(self, module: PythonModule, parts: list[str]) -> None:
+        """Stop when this module rebinds an imported attribute on the path.
+
+        ``import tools; tools.lookup = tools.dangerous`` (or ``setattr``) makes
+        ``tools.lookup`` mean something the module file does not say.
+        """
+
+        for length in range(2, len(parts) + 1):
+            line = module.attribute_patches.get(".".join(parts[:length]))
+            if line is not None:
+                raise _Stop(
+                    REBOUND_NAME,
+                    f"{'.'.join(parts[:length])!r} is reassigned by attribute in "
+                    f"{module.ref}:{line}",
+                )
+
     def resolve(self, module: PythonModule, reference: str) -> Resolution:
         """Resolve ``reference`` (``name`` or ``module.attr...``) in ``module``."""
 
         parts = reference.split(".")
         steps: list[dict[str, Any]] = []
         try:
+            self._no_attribute_patch(module, parts)
             outcome = self._in_module(module, parts, steps, set())
         except _Stop as stop:
             return Resolution(
@@ -310,29 +363,55 @@ class ImportResolver:
         if isinstance(node, ast.alias):
             statement = binding.statement
             steps.append({**step, "binding": "import"})
-            if isinstance(statement, ast.Import):
-                imported = node.name.split(".")
-                if not node.asname and len(imported) > 1 and parts[: len(imported)] == imported:
-                    # ``import a.b`` then ``a.b.f``: the import system sets
-                    # ``a.b`` to the submodule after ``a/__init__`` runs, so
-                    # a binding of ``b`` in the package cannot answer (#879
-                    # review).
-                    container = self._absolute(module, node.name)
-                    return self._member(
-                        container, parts[len(imported):], steps, seen, spelling=node.name
-                    )
-                dotted = node.name if node.asname else imported[0]
-                container = self._absolute(module, dotted)
-                return self._member(container, rest, steps, seen, spelling=dotted)
-            assert isinstance(statement, ast.ImportFrom)
-            container = self._from_base(module, statement)
-            return self._member(
-                container,
-                [node.name, *rest],
-                steps,
-                seen,
-                spelling=_from_spelling(statement),
-            )
+            assert isinstance(statement, ast.Import | ast.ImportFrom)
+            return self._through_import(module, statement, node, parts, steps, seen)
+        return self._not_an_import(module, binding, node, name, parts, rest, step, steps, seen, line)
+
+    def _through_import(
+        self,
+        module: PythonModule,
+        statement: ast.Import | ast.ImportFrom,
+        node: ast.alias,
+        parts: list[str],
+        steps: list[dict[str, Any]],
+        seen: set[tuple[Path, tuple[str, ...]]],
+    ) -> dict[str, Any]:
+        rest = parts[1:]
+        if isinstance(statement, ast.Import):
+            imported = node.name.split(".")
+            if not node.asname and len(imported) > 1 and parts[: len(imported)] == imported:
+                # ``import a.b`` then ``a.b.f``: the import system sets ``a.b``
+                # to the submodule after ``a/__init__`` runs, so a binding of
+                # ``b`` in the package cannot answer (#879 review).
+                container = self._absolute(module, node.name)
+                return self._member(
+                    container, parts[len(imported):], steps, seen, spelling=node.name
+                )
+            dotted = node.name if node.asname else imported[0]
+            container = self._absolute(module, dotted)
+            return self._member(container, rest, steps, seen, spelling=dotted)
+        container = self._from_base(module, statement)
+        return self._member(
+            container,
+            [node.name, *rest],
+            steps,
+            seen,
+            spelling=_from_spelling(statement),
+        )
+
+    def _not_an_import(
+        self,
+        module: PythonModule,
+        binding: _Binding,
+        node: ast.AST,
+        name: str,
+        parts: list[str],
+        rest: list[str],
+        step: dict[str, Any],
+        steps: list[dict[str, Any]],
+        seen: set[tuple[Path, tuple[str, ...]]],
+        line: int,
+    ) -> dict[str, Any]:
         statement = binding.statement
         if (
             isinstance(statement, ast.Assign | ast.AnnAssign)
@@ -671,7 +750,36 @@ def _module(path: Path, ref: str, tree: ast.Module, text: str) -> PythonModule:
         package=path.name == "__init__.py",
         bindings=bindings,
         star_import=star_import,
+        attribute_patches=_attribute_patches(tree),
     )
+
+
+def _attribute_patches(tree: ast.Module) -> dict[str, int]:
+    patches: dict[str, int] = {}
+    for node in ast.walk(tree):
+        targets: list[ast.AST] = []
+        if isinstance(node, ast.Assign):
+            targets = list(node.targets)
+        elif isinstance(node, ast.AugAssign | ast.AnnAssign | ast.Delete):
+            targets = list(node.targets) if isinstance(node, ast.Delete) else [node.target]
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"setattr", "delattr"}
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and isinstance(node.args[1].value, str)
+        ):
+            owner = _dotted(node.args[0])
+            if owner is not None:
+                patches.setdefault(".".join([*owner, node.args[1].value]), node.lineno)
+            continue
+        for target in targets:
+            if isinstance(target, ast.Attribute):
+                dotted = _dotted(target)
+                if dotted is not None:
+                    patches.setdefault(".".join(dotted), node.lineno)
+    return patches
 
 
 def _module_bindings(tree: ast.Module) -> tuple[dict[str, list[_Binding]], bool]:
@@ -753,8 +861,18 @@ class ScopeIndex:
         """The nearest enclosing non-module binding of ``name`` visible at ``node``.
 
         Class bodies are consulted only for code directly in them, as Python
-        does. A ``global name`` in the binding function hands ``name`` back to
-        the module, so None is returned for it.
+        does. ``global name`` hands the name back to the module (None);
+        ``nonlocal name`` skips the declaring scope and keeps looking outward.
+        """
+
+        found = self.enclosing_bindings(node, name)
+        return found[0] if found else None
+
+    def enclosing_bindings(self, node: ast.AST, name: str) -> list[ast.AST]:
+        """Every binding of ``name`` in the nearest enclosing scope that binds it.
+
+        More than one means the scope rebinds the name, which a reader must
+        not resolve by picking one (#879 review).
         """
 
         current = self.parents.get(node)
@@ -763,25 +881,28 @@ class ScopeIndex:
             if isinstance(current, _SCOPE_NODES) and not (
                 isinstance(current, ast.ClassDef) and passed_function
             ):
-                bound, declared_global = self._scope(current)
+                bound, declared_global, declared_nonlocal = self._scope(current)
                 if name in declared_global:
-                    return None
-                if name in bound:
+                    return []
+                if name not in declared_nonlocal and name in bound:
                     return bound[name]
                 if not isinstance(current, ast.ClassDef):
                     passed_function = True
             current = self.parents.get(current)
-        return None
+        return []
 
-    def _scope(self, scope: ast.AST) -> tuple[dict[str, ast.AST], set[str]]:
+    def _scope(
+        self, scope: ast.AST
+    ) -> tuple[dict[str, list[ast.AST]], set[str], set[str]]:
         cached = self._scopes.get(id(scope))
         if cached is not None:
             return cached
-        bound: dict[str, ast.AST] = {}
+        bound: dict[str, list[ast.AST]] = {}
         declared_global: set[str] = set()
+        declared_nonlocal: set[str] = set()
 
         def bind(name: str, node: ast.AST) -> None:
-            bound.setdefault(name, node)
+            bound.setdefault(name, []).append(node)
 
         arguments = getattr(scope, "args", None)
         if isinstance(arguments, ast.arguments):
@@ -802,8 +923,11 @@ class ScopeIndex:
         stack = list(reversed(roots))
         while stack:
             node = stack.pop()
-            if isinstance(node, ast.Global | ast.Nonlocal):
+            if isinstance(node, ast.Global):
                 declared_global.update(node.names)
+                continue
+            if isinstance(node, ast.Nonlocal):
+                declared_nonlocal.update(node.names)
                 continue
             if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
                 bind(node.name, node)
@@ -819,13 +943,25 @@ class ScopeIndex:
             elif isinstance(node, ast.MatchAs | ast.MatchStar) and node.name:
                 bind(node.name, node)
             stack.extend(reversed(list(ast.iter_child_nodes(node))))
-        self._scopes[id(scope)] = (bound, declared_global)
-        return bound, declared_global
+        result = (bound, declared_global, declared_nonlocal)
+        self._scopes[id(scope)] = result
+        return result
+
+    def statement_of(self, node: ast.AST) -> ast.stmt | None:
+        current: ast.AST | None = node
+        while current is not None and not isinstance(current, ast.stmt):
+            current = self.parents.get(current)
+        return current
 
 
-def local_binding_detail(ref: str, name: str, node: ast.AST) -> str:
-    """The named reason for a reference a function binds for itself."""
+def local_binding_detail(ref: str, name: str, node: ast.AST, *, rebound: bool = False) -> str:
+    """The named reason for a reference its enclosing scope binds for itself."""
 
+    if rebound:
+        return (
+            f"{name!r} is bound more than once in the enclosing scope (first at "
+            f"{ref}:{_line(node)}), which is not followed"
+        )
     kind = (
         "a local import"
         if isinstance(node, ast.alias)
@@ -836,7 +972,7 @@ def local_binding_detail(ref: str, name: str, node: ast.AST) -> str:
         else "a local assignment"
     )
     return (
-        f"{name!r} is bound by {kind} in the enclosing function at "
+        f"{name!r} is bound by {kind} in the enclosing scope at "
         f"{ref}:{_line(node)}, which is not followed"
     )
 

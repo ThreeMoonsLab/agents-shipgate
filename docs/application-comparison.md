@@ -129,22 +129,32 @@ reached past one is named but, for `scan`, not counted as proven.
 `import a.b` followed by `a.b.f` reads the submodule `a/b.py`, which is what
 the import system guarantees after `a/__init__.py` runs, even when the package
 binds a `b` of its own; several `import a.x` statements bind one package and
-are not a rebinding. A name the function building the agent binds for itself —
-a local `from support import lookup`, a parameter, a local assignment — is not
-the module's binding of that name, so it is never resolved at module scope; a
-function defined inside the builder is that nested definition.
+are not a rebinding. A reference is read where it is used: a function that
+builds the agent and imports the name itself (`from support import lookup`
+inside the builder) is followed through that import, like a module-level one,
+and `nonlocal` follows the outer function's binding. A function defined inside
+the builder, when it is the only definition of its name, is that nested
+definition, and a module-level agent binds the module-level one. A parameter,
+another local assignment, or a name the builder binds more than once is a named
+stop, never the module's binding. A factory's own
+`toolset = McpToolset(...)` or `tool = FunctionTool(...)` is read like a
+module-level one. `tools.lookup = tools.dangerous` or `setattr(tools, ...)` in
+the module that binds `tools.lookup` makes that reference a named stop.
 
 A reference that does not reach one definition stays an unresolved tool, named
 with its reason (`Not resolved because …` in the gap) and scoped to each agent
 that lists it: a module the scope does not contain, a relative import above the
 scope, more than one matching module location, a name bound twice or only
 inside an `if`/`try`, a wildcard import, an import cycle, a class or other
-value, a name bound by the enclosing function, a symbolic link, a module that
+value, a parameter or local assignment of the enclosing scope, a symbolic link, a module that
 does not parse, or more than 64 modules read. Two agents binding same-named
 functions from different modules keep two tools. One agent binding two
 different functions under one name binds neither, whatever their order in the
 list; its rows for that name are `not_established`. For `scan`, a definition an
-import reaches and another configured source also reads is one catalog tool.
+import reaches and another configured source also reads is one catalog tool,
+when both spell the module's path the same way; a Google ADK source configured
+as a directory records no file for its tools and is not matched. A source an
+inventory completes keeps its own observation, so the completion joins it.
 
 A row compares a definition's signature and implementation digest, not the
 module it lives in: moving a function is not a change. So retargeting a binding
