@@ -853,9 +853,82 @@ def _capability_changes(
     """
 
     scopes = scopes or ScopeIndex(tree)
+    module_bindings = _module_bindings(tree)[0]
+
+    def parameter_of(
+        call: ast.Call, position: int | None, keyword: str | None
+    ) -> tuple[ast.FunctionDef | ast.AsyncFunctionDef, str] | None:
+        """The parameter of a function this module defines that a call argument binds."""
+
+        if not isinstance(call.func, ast.Name):
+            return None
+        found = module_bindings.get(call.func.id, [])
+        if (
+            len(found) != 1
+            or not found[0].top_level
+            or not isinstance(found[0].node, ast.FunctionDef | ast.AsyncFunctionDef)
+        ):
+            return None
+        function = found[0].node
+        positional = [*function.args.posonlyargs, *function.args.args]
+        if position is not None:
+            return (function, positional[position].arg) if position < len(positional) else None
+        names = {arg.arg for arg in [*positional, *function.args.kwonlyargs]}
+        return (function, keyword) if keyword in names else None
+
+    def parameter_changed(
+        function: ast.FunctionDef | ast.AsyncFunctionDef, name: str, depth: int = 0
+    ) -> bool:
+        """Whether a function visibly changes a list it is given: a list method,
+        ``+=`` or an item store on the parameter, or handing it to a function
+        of this module that does (#876 review)."""
+
+        if depth > 3:
+            return True
+        for node in ast.walk(function):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in _LIST_MUTATORS
+                and _handle_spelling(node.func.value) == name
+            ):
+                return True
+            if isinstance(node, ast.AugAssign) and _handle_spelling(node.target) == name:
+                return True
+            if isinstance(node, ast.Assign | ast.AugAssign | ast.AnnAssign | ast.Delete):
+                stores = node.targets if isinstance(node, ast.Assign | ast.Delete) else [node.target]
+                if any(
+                    isinstance(item, ast.Subscript) and _handle_spelling(item.value) == name
+                    for item in stores
+                ):
+                    return True
+            if isinstance(node, ast.Call) and changed_by_call(node, name, depth + 1):
+                return True
+        return False
+
+    def changed_by_call(call: ast.Call, spelling: str, depth: int = 0) -> bool:
+        """Whether ``call`` hands the list spelled ``spelling`` to a function that changes it."""
+
+        arguments: list[tuple[int | None, str | None, ast.expr]] = [
+            (index, None, arg) for index, arg in enumerate(call.args)
+        ] + [(None, item.arg, item.value) for item in call.keywords if item.arg]
+        for position, keyword, value in arguments:
+            if _handle_spelling(value) != spelling:
+                continue
+            target = parameter_of(call, position, keyword)
+            if target is not None and parameter_changed(*target, depth=depth):
+                return True
+        return False
+
+    def call_reads(call: ast.Call, position: int | None, keyword: str | None) -> bool:
+        if _leaves_arguments_alone(call):
+            return True
+        # A function of this module whose every use of that parameter reads it.
+        target = parameter_of(call, position, keyword)
+        return target is not None and _parameter_left_alone(*target)
 
     def read_only(node: ast.expr) -> bool:
-        return _read_only_use(node, scopes.parents, lambda call, *_: _leaves_arguments_alone(call))
+        return _read_only_use(node, scopes.parents, call_reads)
 
     def alias_statement(node: ast.expr) -> ast.Assign | ast.AnnAssign | None:
         """The assignment ``node`` is (possibly through ``or`` / ``if``) the value of."""
@@ -928,6 +1001,9 @@ def _capability_changes(
                         for item in stores
                     ):
                         return True
+                if isinstance(node, ast.Call) and changed_by_call(node, spelling):
+                    # ``add_image(handle)`` with ``add_image`` appending.
+                    return True
                 if (
                     isinstance(node, ast.Assign | ast.AnnAssign)
                     and node is not statement
@@ -1013,8 +1089,18 @@ def _capability_changes(
             and alias_statement(node) is None
         ):
             # ``helper(agent.tools)``, ``d = {"t": agent.tools}``, ``return
-            # agent.tools``, ``(t := agent.tools)``: out of view from here.
-            changes.append((node.value, node, True))
+            # agent.tools``, ``(t := agent.tools)``: out of view from here —
+            # unless the helper is this module's and changes it in view, which
+            # is a change whatever the receiver (#876 review).
+            parent = scopes.parents.get(node)
+            call = scopes.parents.get(parent) if isinstance(parent, ast.keyword) else parent
+            spelling = _handle_spelling(node)
+            changed = (
+                isinstance(call, ast.Call)
+                and spelling is not None
+                and changed_by_call(call, spelling)
+            )
+            changes.append((node.value, node, not changed))
     return changes
 
 

@@ -99,9 +99,12 @@ agents' rows in the file stand:
   the file builds (or, in another module, one imported from the scope), the
   list handed out of view counts too: to a call that is not read-only, into a
   container or attribute, returned, unpacked, or bound by `for`, `with` or
-  walrus, directly or through a handle. On any other value — a request object,
-  another library's model — a handle only read or handed on, like
-  `payload["tools"] = request.tools`, is nothing. The changed value is read in
+  walrus, directly or through a handle. On any value, a function of the same
+  module that changes the list it is given (`add_image(x.tools)` with
+  `add_image` appending) changes it, and one that only reads it reads it. On
+  any other value — a request object, another library's model — a handle only
+  read or handed on, like `payload["tools"] = request.tools`, is nothing. The
+  changed value is read in
   the scope of the change (a change in place reaches every agent built from the
   same list object): an agent the reader constructed — directly, through
   `self.agent`, or through a module function that returns it — carries the

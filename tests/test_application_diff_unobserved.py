@@ -1038,3 +1038,40 @@ def test_reading_an_agents_list_is_still_not_a_change(repo):
     result = _compare(repo, body, body.replace("[quote]", "[quote, send_image]") + reads)
     assert result["comparison_status"] == "compared"
     assert _pairs(result) == [("quote_agent", "send_image", "added")]
+
+
+# ---------------------------------------------------------------------------
+# #876 review, round 7: a helper of the file that changes a list it is given
+# changes it, whatever the reader can say about whose list it is.
+
+ADD_IMAGE = "def add_image(lst):\n    BODY\n"
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        'AGENTS = [quote_agent]\nadd_image(AGENTS[0].tools)\n',
+        'REG = {"a": quote_agent}\nadd_image(REG["a"].tools)\n',
+        "class Registry:\n    held = Agent(name='Held', tools=[quote])\nadd_image(Registry.held.tools)\n",
+        "class Holder:\n    def __init__(self, agent):\n        self.agent = agent\n"
+        "    def extend(self):\n        add_image(self.agent.tools)\n",
+        "def setup(agent):\n    add_image(agent.tools)\n",
+        "def setup(agent):\n    handle = agent.tools\n    add_image(handle)\n",
+    ],
+    ids=["list-of-agents", "dict-of-agents", "class-attribute", "self-agent-parameter", "parameter", "parameter-handle"],
+)
+def test_a_list_handed_to_a_helper_that_changes_it_is_a_change(repo, call):
+    body = 'quote_agent = Agent(name="Quote", tools=[quote])\n' + call + ADD_IMAGE
+    result = _compare(repo, body.replace("BODY", "pass"), body.replace("BODY", "lst.append(send_image)"))
+    assert result["comparison_status"] == "partial"
+    assert result["head"]["limits"] != result["base"]["limits"], result["head"]["limits"]
+
+
+def test_a_helper_of_the_file_that_only_reads_the_list_is_a_read(repo):
+    body = (
+        'main_agent = Agent(name="Main", tools=TOOLS)\n'
+        "def render(lst):\n    return [tool.name for tool in lst]\nrender(main_agent.tools)\n"
+    )
+    result = _compare(repo, body.replace("TOOLS", "[quote]"), body.replace("TOOLS", "[quote, send_image]"))
+    assert result["comparison_status"] == "compared"
+    assert _pairs(result) == [("main_agent", "send_image", "added")]
