@@ -142,8 +142,11 @@ Test code is not read as the application (1 file(s)): tests/test_turn.py
 ```
 
 A scope selected inside a test directory (`--scope tests/fixtures/app`) is read
-in full: selecting it is the request to read it. With test code excluded, a
-scope whose only agents were test doubles is `not_established`.
+in full: selecting it is the request to read it. When either `--scope` or
+`--base-scope` is inside one, both sides read test code, so an application
+moved out of `tests/` is compared like with like. A `*.py` link onto test code
+is a gap over the link, since the file it lands on is not read. With test code
+excluded, a scope whose only agents were test doubles is `not_established`.
 
 ### Tools defined twice
 

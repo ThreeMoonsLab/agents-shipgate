@@ -221,9 +221,12 @@ def test_compared_requires_every_construction_site_to_be_accounted_for(repo, for
         for agent in side["agents"]
         if agent["location"] and agent["source"] == "agent.py"
     }
+    # Only the census's own gaps account for a site: another gap that merely
+    # shares the line (a parent's dynamic handoffs) proves nothing about it.
     named = {
         int(line)
         for gap in side["coverage_gaps"]
+        if " is not read (" in gap["reason"] or " is constructed at " in gap["reason"]
         for line in re.findall(r"agent\.py:(\d+)", gap["reason"])
     }
     sites = _construction_sites(source)
@@ -318,11 +321,11 @@ def test_new_identity_built_twice_keeps_its_additions(repo, source):
         ("reviewer", "submit", "added"),
         ("reviewer", "submit_orchestrated", "added"),
     ]
-    sites = sorted(
+    sites = [
         f"agent.py:{number}"
         for number, line in enumerate(source.splitlines(), 1)
         if 'LlmAgent(name="reviewer"' in line
-    )
+    ]
     assert len(sites) == 2
     assert [g["reason"] for g in result["head"]["coverage_gaps"] if g["agent"] == "reviewer"] == [
         f"Agent 'reviewer' is constructed at {', '.join(sites)}; which construction "
@@ -445,3 +448,47 @@ def test_scope_selected_inside_a_test_directory_is_read(repo):
     assert result["comparison_status"] == "compared"
     assert rows(result) == [("agent", "execute", "added")]
     assert result["head"]["limits"] == []
+
+
+def test_duplicate_tool_leaves_the_agents_other_tools_compared(repo):
+    # Review of #880: the dropped name stayed in the agent's observation, so
+    # the graph's agent-level gap made the agent's other additions uncertain.
+    source = DUPLICATE.replace(
+        "from agents import Agent, function_tool",
+        "from agents import Agent, function_tool\n"
+        "@function_tool\ndef lookup(q: str) -> str:\n    return q\n"
+        "@function_tool\ndef execute(c: str) -> str:\n    return c",
+    ) + "agent = Agent(name='a', tools=TOOLS)\n"
+    base = commit(repo, {"agent.py": source.replace("TOOLS", "[lookup, _tool]")})
+    head = commit(repo, {"agent.py": source.replace("TOOLS", "[lookup, _tool, execute]")})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert rows(result) == [("agent", "execute", "added")]
+    assert [(g["agent"], g["tool"]) for g in result["head"]["coverage_gaps"]] == [(None, "_tool")]
+
+
+def test_link_onto_test_code_is_a_gap(repo):
+    # Review of #880: the alias's target is test code, which is never read, so
+    # the link hid the application agent with no gap at all.
+    base = commit(repo, {"tests/real.py": SDK.replace("TOOLS", "[lookup]")})
+    (repo / "agent.py").symlink_to("tests/real.py")
+    head = commit(repo, {"tests/real.py": SDK.replace("TOOLS", "[lookup, execute]")})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert "Linked Python input: agent.py" in result["head"]["limits"]
+
+
+def test_test_rule_is_the_same_on_both_sides_of_a_move(repo):
+    # Review of #880: `--base-scope tests/app` read test-named files on the base
+    # only, so the two sides compared different kinds of input.
+    base = commit(repo, {"tests/app/test_agent.py": SDK.replace("TOOLS", "[lookup]")})
+    head = commit(
+        repo,
+        {
+            "tests/app/test_agent.py": None,
+            "app/test_agent.py": SDK.replace("TOOLS", "[lookup, execute]"),
+        },
+    )
+    result = run(repo, base, head, "--base-scope", "tests/app", "--scope", "app")
+    assert rows(result) == [("agent", "execute", "added")]
+    assert result["base"]["limits"] == result["head"]["limits"] == []

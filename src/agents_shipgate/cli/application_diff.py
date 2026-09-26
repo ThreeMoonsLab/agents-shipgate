@@ -201,7 +201,10 @@ def observe(
     *,
     max_python_files: int,
     gitlinks: dict[str, str] | None = None,
+    read_tests: bool = False,
 ) -> Observations:
+    """Observe one side's scope. ``read_tests`` reads test code as well."""
+
     result = Observations(scope)
     for path, commit in (gitlinks or {}).items():
         # A gitlink outside the scope arrived with an in-scope link's target,
@@ -228,19 +231,23 @@ def observe(
     python_files = [p for p in _candidate_files(root) if p.suffix == ".py"]
 
     def is_test(relative: str) -> bool:
-        # A scope selected inside a test directory was chosen to be read.
-        return not in_tests and _is_test_path(relative)
+        return not read_tests and _is_test_path(relative)
 
-    in_tests = scope != "." and _is_test_path(f"{scope}/__init__.py")
-    for file in python_files:
-        if is_test(file.relative_to(root).as_posix()):
-            continue
+    # Test code does not establish the application (#876): a test double with
+    # resolvable tools made a scope whose real agents went unread `compared`,
+    # and a tool name a test defines twice refused the whole comparison. Test
+    # files are named in `limits`, never read and never a gap, so everything
+    # below reads `application_files` or partitions discovery's candidates.
+    application_files = [
+        p for p in python_files if not is_test(p.relative_to(root).as_posix())
+    ]
+    for file in application_files:
         if file.stat().st_size > MAX_PYTHON_BYTES:
             result.gap(f"Python input exceeds {MAX_PYTHON_BYTES} bytes: {file.relative_to(root)}")
     if result.limits:
         result.status = "partial"
         return result
-    linked = _observe_links(result, tree.resolve(), root, python_files, is_test)
+    linked = _observe_links(result, tree.resolve(), root, application_files, is_test)
     detected = detect_workspace(root, max_python_files=max_python_files)
     if detected.python_parse_truncated:
         result.gap(f"Python discovery truncated at {max_python_files} files.")
@@ -255,9 +262,9 @@ def observe(
     # candidate list becoming negative evidence. Bound this second parse too.
     if len(python_files) > max_python_files:
         result.gap(f"Python input census exceeds {max_python_files} files.")
-    for file in python_files[:max_python_files]:
-        relative = file.relative_to(root).as_posix()
-        if relative in linked or is_test(relative):
+    bounded = set(python_files[:max_python_files])
+    for file in application_files:
+        if file not in bounded or file.relative_to(root).as_posix() in linked:
             continue
         try:
             ast.parse(file.read_bytes())
@@ -266,35 +273,30 @@ def observe(
                 f"Python input could not be parsed: {file.relative_to(root)}",
                 source=file.relative_to(root).as_posix(),
             )
+    candidates, tests = set(), set()
     for framework in detected.frameworks:
-        if framework.type not in SUPPORTED and framework.candidate_files:
-            for path in framework.candidate_files:
-                if is_test(path):
-                    continue
+        supported = framework.type in SUPPORTED
+        for path in framework.candidate_files:
+            if supported and path in linked:
+                continue
+            if is_test(path):
+                if supported:
+                    tests.add(path)
+            elif supported:
+                candidates.add((framework.type, path))
+            else:
                 result.gap(
                     f"Application comparison does not yet support {framework.type}: {path}",
                     source=path,
                 )
-    candidates = {
-        (f.type, p)
-        for f in detected.frameworks
-        if f.type in SUPPORTED
-        for p in f.candidate_files
-        if p not in linked
-    }
-    # Test code does not establish the application (#876): a test double
-    # with resolvable tools made a scope whose real agents went unread
-    # `compared`, and a tool name a test defines twice refused the whole
-    # comparison. Tests are named, never read and never a gap.
-    tests = sorted({path for _, path in candidates if is_test(path)})
     if tests:
-        shown = ", ".join(tests[:TEST_PATHS_SHOWN])
+        shown = ", ".join(sorted(tests)[:TEST_PATHS_SHOWN])
         more = len(tests) - TEST_PATHS_SHOWN
         result.limits.append(
             f"Test code is not read as the application ({len(tests)} file(s)): {shown}"
             + (f", and {more} more" if more > 0 else "")
         )
-    entries = sorted((kind, path) for kind, path in candidates if path not in tests)
+    entries = sorted(candidates)
     sources = [
         ToolSourceConfig(id=f"{kind}:{path}", type=kind, path=path) for kind, path in entries
     ]
@@ -302,6 +304,22 @@ def observe(
     for source in sources:
         _observe_source(result, root, source)
     return result
+
+
+def _test_dir_probe(directory: str) -> str:
+    """A module path inside ``directory``: it is test code when the directory is."""
+
+    return f"{directory}/__init__.py"
+
+
+def _reads_tests(*scopes: str) -> bool:
+    """Whether a selected scope is inside a test directory.
+
+    Selecting it is the request to read it, and both sides read alike: a scope
+    moved out of `tests/` must not read test-named files on one side only.
+    """
+
+    return any(scope != "." and _is_test_path(_test_dir_probe(scope)) for scope in scopes)
 
 
 def _resolved(path: Path) -> Path | None:
@@ -327,7 +345,9 @@ def _observe_links(
 
     - A `*.py` link whose target is a Python input this scope already reads is
       compared at that target's own path; reading the alias too made one agent
-      two ambiguous ones. Any other `*.py` link is a gap over its path.
+      two ambiguous ones. Any other `*.py` link is a gap over its path,
+      including one onto test code: ``python_files`` are the application
+      inputs, so the test file it lands on is never read.
     - A link to a directory outside the scope that holds Python is a gap: the
       scope's reader never walks it.
     - A link that resolves to nothing in the tree is a gap only where the other
@@ -346,14 +366,14 @@ def _observe_links(
             if not path.is_symlink():
                 continue
             relative = path.relative_to(root).as_posix()
-            target = _resolved(path)
-            # A directory is test code when a module inside it is.
-            if is_test(relative if name.endswith(".py") else f"{relative}/__init__.py"):
-                if name.endswith(".py"):
-                    linked_python.add(relative)
-                continue
-            if name.endswith(".py"):
+            python = name.endswith(".py")
+            if python:
                 linked_python.add(relative)
+            # Test code is never read, so a link inside it hides nothing.
+            if is_test(relative if python else _test_dir_probe(relative)):
+                continue
+            target = _resolved(path)
+            if python:
                 if target not in read_directly:
                     result.gap(f"Linked Python input: {relative}", source=relative)
             elif target is None or not target.is_relative_to(tree):
@@ -432,8 +452,8 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
         if len(pointers - {None}) > 1:
             result.gap(
                 f"Agent {key[1]!r} is constructed at "
-                f"{', '.join(sorted(p for p in pointers if p is not None))}; which "
-                "construction binds which tool is not established.",
+                f"{', '.join(sorted((p for p in pointers if p is not None), key=_line_order))};"
+                " which construction binds which tool is not established.",
                 source=key[0],
                 agent=key[1],
             )
@@ -529,6 +549,11 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
         }
 
 
+def _line_order(pointer: str) -> tuple[str, int]:
+    path, _, line = pointer.rpartition(":")
+    return (path, int(line)) if line.isdecimal() else (pointer, -1)
+
+
 def _canonical_tools(
     result: Observations, source: ToolSourceConfig, loaded: list[Any]
 ) -> tuple[list[Any], list[str]]:
@@ -537,8 +562,9 @@ def _canonical_tools(
     The catalog refuses a duplicate definition, which is right for a reviewed
     manifest and wrong here: one file defining `_tool` twice refused every
     other agent's comparison (#876). The duplicate name is dropped from this
-    source, so no agent binds either definition, and named as a gap over the
-    rows that bind that name in this file.
+    source's tools and binding observations, so no agent binds either
+    definition, and named as a gap over the rows that bind that name in this
+    file only; the same agent's other tools are still compared.
     """
 
     while True:
@@ -551,6 +577,8 @@ def _canonical_tools(
             before = sum(len(item.tools) for item in loaded)
             for item in loaded:
                 item.tools = [tool for tool in item.tools if tool.name != name]
+                for observation in item.binding_observations:
+                    observation.tool_names = [n for n in observation.tool_names if n != name]
             if sum(len(item.tools) for item in loaded) == before:
                 raise
             result.gap(
@@ -893,14 +921,20 @@ def run_application_diff(
                 )
             except PromisedObjectsMissingError:
                 _refuse_objects_missing(workspace, ref, commit, side=side)
+        read_tests = _reads_tests(old_scope, scope)
         old = observe(
             scratch / "base",
             old_scope,
             max_python_files=max_python_files,
             gitlinks=gitlinks["base"],
+            read_tests=read_tests,
         )
         new = observe(
-            scratch / "head", scope, max_python_files=max_python_files, gitlinks=gitlinks["head"]
+            scratch / "head",
+            scope,
+            max_python_files=max_python_files,
+            gitlinks=gitlinks["head"],
+            read_tests=read_tests,
         )
         if old.status == new.status == "absent":
             raise ConfigError(
