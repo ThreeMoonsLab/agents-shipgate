@@ -95,11 +95,13 @@ agents' rows in the file stand:
   `agent.tools = [...]`, `agent.tools[:] = ...`), `setattr`/`delattr` by name,
   or a handle taken on them (`t = agent.tools`, `payload["tools"] =
   agent.tools`, `self.tools = agent.tools`) that is changed through it later —
-  a list method, `+=` or an item store on it or on an alias of it. A handle only
-  read or handed on (to a call, a return, a container), like
-  `len(request.tools)`, is nothing, as `helper(agent.tools)` is: what a helper
-  does with it is an indirect effect this comparison does not establish. The
-  changed value is read in
+  a list method, `+=` or an item store on it or on an alias of it. For an agent
+  the file builds (or, in another module, one imported from the scope), the
+  list handed out of view counts too: to a call that is not read-only, into a
+  container or attribute, returned, unpacked, or bound by `for`, `with` or
+  walrus, directly or through a handle. On any other value — a request object,
+  another library's model — a handle only read or handed on, like
+  `payload["tools"] = request.tools`, is nothing. The changed value is read in
   the scope of the change (a change in place reaches every agent built from the
   same list object): an agent the reader constructed — directly, through
   `self.agent`, or through a module function that returns it — carries the

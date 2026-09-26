@@ -542,8 +542,12 @@ def _extract_agent_bindings(
         # one it can prove is not an agent is nothing (#876 review).
         unattributed = False
         limited: set[str] = set()
-        for receiver, site in _capability_changes(tree, scopes=scopes):
+        for receiver, site, strict in _capability_changes(tree, scopes=scopes):
             owner = values.owner(receiver, site)
+            if strict and not isinstance(owner, str):
+                # Handed on, not changed in view: only an agent this file
+                # builds is followed that far (#876 review).
+                continue
             # One limit per agent, and one for the file: the first site names it.
             if owner is None or (owner is True and unattributed) or owner in limited:
                 continue
@@ -830,18 +834,41 @@ def _capability_changes(
     capabilities: frozenset[str] = _CAPABILITY_KEYWORDS,
     *,
     scopes: ScopeIndex | None = None,
-) -> list[tuple[ast.expr, ast.stmt | ast.Call]]:
-    """``(receiver, site)`` wherever a module changes an object's capability list.
+) -> list[tuple[ast.expr, ast.AST, bool]]:
+    """``(receiver, site, strict)`` wherever a module may change an object's capability list.
 
-    Assigning, extending or deleting ``x.tools`` (or its items), calling a list
-    method on it, ``setattr`` / ``delattr`` by name, and a handle on it
-    (``t = x.tools``, ``payload["tools"] = x.tools``, ``t = getattr(x,
-    "tools")``) that is itself changed later in its scope. A plain read —
-    ``len(request.tools)``, a handle that is only read or handed on — changes
-    nothing (#876 review).
+    ``strict`` False — a change in view, whatever the receiver: assigning,
+    extending or deleting ``x.tools`` (or its items), a list method on it,
+    ``setattr`` / ``delattr`` by name, and a handle on it (``t = x.tools``,
+    ``payload["tools"] = x.tools``, ``t = getattr(x, "tools")``) changed
+    through it later in its scope.
+
+    ``strict`` True — the list escapes where a change could not be seen: handed
+    to a call that is not read-only, put in a container or an attribute,
+    returned, unpacked, bound by ``for``/``with``/walrus, or a handle used
+    that way. The caller counts it only when the receiver is an agent it can
+    name: ``helper(agent.tools)`` on an agent the file builds may change it,
+    while ``payload["tools"] = request.tools`` on a request object is a read of
+    another library's list (#876 review).
     """
 
     scopes = scopes or ScopeIndex(tree)
+
+    def read_only(node: ast.expr) -> bool:
+        return _read_only_use(node, scopes.parents, lambda call, *_: _leaves_arguments_alone(call))
+
+    def alias_statement(node: ast.expr) -> ast.Assign | ast.AnnAssign | None:
+        """The assignment ``node`` is (possibly through ``or`` / ``if``) the value of."""
+
+        current: ast.AST = node
+        parent = scopes.parents.get(current)
+        while isinstance(parent, ast.BoolOp) or (
+            isinstance(parent, ast.IfExp) and parent.test is not current
+        ):
+            current, parent = parent, scopes.parents.get(parent)
+        if isinstance(parent, ast.Assign | ast.AnnAssign) and parent.value is current:
+            return parent
+        return None
 
     def handle_scope(statement: ast.stmt, target: ast.expr) -> ast.AST:
         # ``self.tools = agent.tools`` is reachable from every method.
@@ -911,6 +938,31 @@ def _capability_changes(
                     return True
         return False
 
+    def handle_escapes(statement: ast.Assign | ast.AnnAssign, depth: int = 0) -> bool:
+        """Whether a handle on the list is kept anywhere but a plain name, or used
+        other than to read it; aliases are followed."""
+
+        if depth > 4:
+            return True
+        targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+        for target in targets:
+            if not isinstance(target, ast.Name):
+                return True
+            scope = handle_scope(statement, target)
+            for node in ast.walk(scope):
+                if (
+                    not isinstance(node, ast.Name)
+                    or node.id != target.id
+                    or node is target
+                    or not isinstance(node.ctx, ast.Load)
+                    or read_only(node)
+                ):
+                    continue
+                alias = alias_statement(node)
+                if alias is None or alias is statement or handle_escapes(alias, depth + 1):
+                    return True
+        return False
+
     def reflective(call: ast.Call, names: frozenset[str]) -> bool:
         return (
             isinstance(call.func, ast.Name)
@@ -920,7 +972,7 @@ def _capability_changes(
             and call.args[1].value in capabilities
         )
 
-    changes: list[tuple[ast.expr, ast.stmt | ast.Call]] = []
+    changes: list[tuple[ast.expr, ast.AST, bool]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign | ast.AugAssign | ast.AnnAssign | ast.Delete):
             targets = node.targets if isinstance(node, ast.Assign | ast.Delete) else [node.target]
@@ -928,14 +980,20 @@ def _capability_changes(
                 if isinstance(target, ast.Subscript):
                     target = target.value
                 if isinstance(target, ast.Attribute) and target.attr in capabilities:
-                    changes.append((target.value, node))
+                    changes.append((target.value, node, False))
             value = node.value if isinstance(node, ast.Assign | ast.AnnAssign) else None
-            if isinstance(value, ast.Attribute) and value.attr in capabilities:
+            for item in _aliased(value) if value is not None else []:
+                if isinstance(item, ast.Attribute) and item.attr in capabilities:
+                    receiver = item.value
+                elif isinstance(item, ast.Call) and reflective(item, frozenset({"getattr"})):
+                    receiver = item.args[0]
+                else:
+                    continue
+                assert isinstance(node, ast.Assign | ast.AnnAssign)
                 if changed_handle(node):
-                    changes.append((value.value, node))
-            elif isinstance(value, ast.Call) and reflective(value, frozenset({"getattr"})):
-                if changed_handle(node):
-                    changes.append((value.args[0], node))
+                    changes.append((receiver, node, False))
+                elif handle_escapes(node):
+                    changes.append((receiver, item, True))
         elif isinstance(node, ast.Call):
             func = node.func
             if (
@@ -944,10 +1002,26 @@ def _capability_changes(
                 and isinstance(func.value, ast.Attribute)
                 and func.value.attr in capabilities
             ):
-                changes.append((func.value.value, node))
+                changes.append((func.value.value, node, False))
             elif reflective(node, frozenset({"setattr", "delattr"})):
-                changes.append((node.args[0], node))
+                changes.append((node.args[0], node, False))
+        elif (
+            isinstance(node, ast.Attribute)
+            and node.attr in capabilities
+            and isinstance(node.ctx, ast.Load)
+            and not read_only(node)
+            and alias_statement(node) is None
+        ):
+            # ``helper(agent.tools)``, ``d = {"t": agent.tools}``, ``return
+            # agent.tools``, ``(t := agent.tools)``: out of view from here.
+            changes.append((node.value, node, True))
     return changes
+
+
+def _root_name(node: ast.AST) -> str | None:
+    while isinstance(node, ast.Attribute | ast.Subscript | ast.Call):
+        node = node.func if isinstance(node, ast.Call) else node.value
+    return node.id if isinstance(node, ast.Name) else None
 
 
 def _handle_spelling(node: ast.AST) -> str | None:
@@ -1237,6 +1311,8 @@ def census_module(
     modules: set[str] = set()
     imports_scope = False
     touches_capabilities = False
+    #: Names this module binds by importing from the scope.
+    scope_names: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Name):
             names.add(node.id)
@@ -1260,12 +1336,14 @@ def census_module(
                     if tail:
                         imported.add((tail, alias.name))
                     modules.add(alias.name)
+                    scope_names.add(alias.asname or alias.name)
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 names.update(part for part in (alias.name.rsplit(".", 1)[-1], alias.asname) if part)
                 if alias.name.split(".", 1)[0] in local_modules:
                     imports_scope = True
                     modules.add(alias.name.rsplit(".", 1)[-1])
+                    scope_names.add(alias.asname or alias.name.split(".", 1)[0])
         elif (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
@@ -1328,9 +1406,14 @@ def census_module(
 
         changes = sorted(
             {
-                (site.lineno, constructor(receiver, site))
-                for receiver, site in _capability_changes(tree, _CENSUS_CAPABILITIES, scopes=scopes)
-                if values.owner(receiver, site) is not None
+                (site.lineno, constructor(receiver, site))  # type: ignore[attr-defined]
+                for receiver, site, strict in _capability_changes(
+                    tree, _CENSUS_CAPABILITIES, scopes=scopes
+                )
+                if (owner := values.owner(receiver, site)) is not None
+                # Handed on: counted for an agent the module builds or one it
+                # imports from the scope, never another library's object.
+                and (not strict or isinstance(owner, str) or _root_name(receiver) in scope_names)
             },
             key=lambda item: item[0],
         )

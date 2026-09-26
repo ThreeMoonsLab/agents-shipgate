@@ -971,3 +971,70 @@ def test_a_list_changed_through_a_handle_is_a_limit_on_its_agent(repo, change):
         "agent 'quote_agent' has its tools, handoffs or MCP servers changed" in limit
         for limit in result["head"]["limits"]
     ), result["head"]["limits"]
+
+
+# ---------------------------------------------------------------------------
+# #876 review, round 6: an agent the file builds is followed further — its
+# list handed on, kept in a container, or returned may be changed out of view.
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        'payload = {}\npayload["tools"] = quote_agent.tools\nk = "tools"\npayload[k].append(send_image)\n',
+        "class Holder:\n    pass\nholder = Holder()\nholder.ref = quote_agent.tools\n"
+        'getattr(holder, "ref").append(send_image)\n',
+        'cache = {}\ncache["t"] = quote_agent.tools\ncache.setdefault("t", []).append(send_image)\n',
+        "def add_image(lst):\n    lst.append(send_image)\nhandle = quote_agent.tools\nadd_image(handle)\n",
+        "def add_image(lst):\n    lst.append(send_image)\nadd_image(quote_agent.tools)\n",
+        "handle = quote_agent.tools\nlist.append(handle, send_image)\n",
+        "class Base:\n    def __init__(self):\n        self.handle = quote_agent.tools\n"
+        "class Child(Base):\n    def extend(self):\n        self.handle.append(send_image)\n",
+        "if (handle := quote_agent.tools):\n    handle.append(send_image)\n",
+        "handle, other = quote_agent.tools, [1]\nhandle.append(send_image)\n",
+        "for handle in (quote_agent.tools,):\n    handle.append(send_image)\n",
+        'box = {"t": quote_agent.tools}\nbox["t"].append(send_image)\n',
+        "def get_tools():\n    return quote_agent.tools\nget_tools().append(send_image)\n",
+        "import contextlib\nwith contextlib.nullcontext(quote_agent.tools) as handle:\n"
+        "    handle.append(send_image)\n",
+    ],
+    ids=[
+        "subscript-key-name", "getattr-on-holder", "setdefault", "handle-to-helper",
+        "attribute-to-helper", "unbound-list-method", "inherited-self-handle", "walrus",
+        "tuple-unpack", "for-target", "dict-literal", "getter-function", "with-as",
+    ],
+)
+def test_an_agents_list_handed_out_of_view_is_a_limit_on_it(repo, change):
+    body = 'quote_agent = Agent(name="Quote", tools=[quote])\n'
+    result = _compare(repo, body, body + change)
+    assert result["comparison_status"] == "partial"
+    assert any(
+        "agent 'quote_agent' has its tools, handoffs or MCP servers changed" in limit
+        for limit in result["head"]["limits"]
+    ), result["head"]["limits"]
+
+
+def test_an_imported_agents_list_handed_to_a_helper_is_a_limit(repo):
+    base = commit(repo, {"app/__init__.py": "", "app/agents_def.py": WIRING_AGENTS, "app/wiring.py": "x = 1\n"})
+    head = commit(
+        repo,
+        {
+            "app/wiring.py": "from app.agents_def import quote_agent, send_image\n"
+            "def add_image(lst):\n    lst.append(send_image)\nadd_image(quote_agent.tools)\n"
+        },
+    )
+    result = run(repo, base, head, "--scope", "app")
+    assert result["comparison_status"] == "partial"
+    assert any("wiring.py" in limit for limit in result["head"]["limits"])
+
+
+def test_reading_an_agents_list_is_still_not_a_change(repo):
+    body = 'quote_agent = Agent(name="Quote", tools=[quote])\n'
+    reads = (
+        "print(len(quote_agent.tools), [tool.name for tool in quote_agent.tools])\n"
+        "names = sorted(tool.name for tool in quote_agent.tools)\nhandle = quote_agent.tools\n"
+        "count = len(handle)\n"
+    )
+    result = _compare(repo, body, body.replace("[quote]", "[quote, send_image]") + reads)
+    assert result["comparison_status"] == "compared"
+    assert _pairs(result) == [("quote_agent", "send_image", "added")]
