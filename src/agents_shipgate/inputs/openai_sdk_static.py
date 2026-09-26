@@ -835,27 +835,80 @@ def _capability_changes(
 
     Assigning, extending or deleting ``x.tools`` (or its items), calling a list
     method on it, ``setattr`` / ``delattr`` by name, and a handle on it
-    (``t = x.tools``, ``t = getattr(x, "tools")``) that is itself changed
-    later in its scope. A plain read — ``len(request.tools)``,
-    ``tools = request.tools`` that is only read — changes nothing (#876 review).
+    (``t = x.tools``, ``payload["tools"] = x.tools``, ``t = getattr(x,
+    "tools")``) that is itself changed later in its scope. A plain read —
+    ``len(request.tools)``, a handle that is only read or handed on — changes
+    nothing (#876 review).
     """
 
     scopes = scopes or ScopeIndex(tree)
 
-    def changed_handle(statement: ast.stmt) -> bool:
-        target = _assignment_target(statement) if isinstance(statement, ast.Assign | ast.AnnAssign) else None
-        if target is None:
+    def handle_scope(statement: ast.stmt, target: ast.expr) -> ast.AST:
+        # ``self.tools = agent.tools`` is reachable from every method.
+        root = target
+        while isinstance(root, ast.Attribute | ast.Subscript):
+            root = root.value
+        current = scopes.parents.get(statement)
+        function: ast.AST | None = None
+        while current is not None:
+            if isinstance(current, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+                function = function or current
+            elif isinstance(current, ast.ClassDef):
+                if isinstance(root, ast.Name) and root.id in {"self", "cls"} and root is not target:
+                    return current
+                break
+            current = scopes.parents.get(current)
+        return function or tree
+
+    def changed_handle(statement: ast.Assign | ast.AnnAssign, depth: int = 0) -> bool:
+        """Whether the list ``statement`` gives a second name is changed through it.
+
+        Only a change in view counts: a list method, ``+=``, or an item store
+        through the handle, or a ``global``/``nonlocal`` declaration of it; an
+        alias of it (``other = t``, ``other = t or []``) is followed. Handing it
+        on — to a call, a return, a container — is an indirect helper effect,
+        which the comparison does not establish, exactly as
+        ``helper(agent.tools)`` hands the list itself on (#876 review).
+        """
+
+        if depth > 4:
             return True
-        scope = _enclosing_function(scopes, statement) or tree
-        defining = statement.targets[0] if isinstance(statement, ast.Assign) else statement.target
-        # The handle's own assignment aside, every use of it must be a read.
-        for node in ast.walk(scope):
-            if not isinstance(node, ast.Name) or node.id != target or node is defining:
+        targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+        for target in targets:
+            if isinstance(target, ast.Tuple | ast.List):
+                # Unpacking takes the members, never the list.
                 continue
-            if not isinstance(node.ctx, ast.Load) or not _read_only_use(
-                node, scopes.parents, lambda call, *_: _leaves_arguments_alone(call)
-            ):
+            spelling = _handle_spelling(target)
+            if spelling is None:
                 return True
+            scope = handle_scope(statement, target)
+            for node in ast.walk(scope):
+                if isinstance(node, ast.Global | ast.Nonlocal) and spelling in node.names:
+                    return True
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in _LIST_MUTATORS
+                    and _handle_spelling(node.func.value) == spelling
+                ):
+                    return True
+                if isinstance(node, ast.AugAssign) and _handle_spelling(node.target) == spelling:
+                    return True
+                if isinstance(node, ast.Assign | ast.AugAssign | ast.AnnAssign | ast.Delete):
+                    stores = node.targets if isinstance(node, ast.Assign | ast.Delete) else [node.target]
+                    if any(
+                        isinstance(item, ast.Subscript) and _handle_spelling(item.value) == spelling
+                        for item in stores
+                    ):
+                        return True
+                if (
+                    isinstance(node, ast.Assign | ast.AnnAssign)
+                    and node is not statement
+                    and node.value is not None
+                    and any(_handle_spelling(item) == spelling for item in _aliased(node.value))
+                    and changed_handle(node, depth + 1)
+                ):
+                    return True
         return False
 
     def reflective(call: ast.Call, names: frozenset[str]) -> bool:
@@ -895,6 +948,29 @@ def _capability_changes(
             elif reflective(node, frozenset({"setattr", "delattr"})):
                 changes.append((node.args[0], node))
     return changes
+
+
+def _handle_spelling(node: ast.AST) -> str | None:
+    """``t``, ``payload['tools']``, ``self.tools``: a place a list can be kept."""
+
+    if not isinstance(node, ast.Name | ast.Attribute | ast.Subscript):
+        return None
+    try:
+        return ast.unparse(node)
+    except (ValueError, AttributeError, RecursionError):
+        return None
+
+
+def _aliased(value: ast.expr) -> list[ast.expr]:
+    """The expressions an assigned value may be, itself: ``t``, ``t or []``, ``t if c else u``."""
+
+    if isinstance(value, ast.BoolOp):
+        return [item for operand in value.values for item in _aliased(operand)]
+    if isinstance(value, ast.IfExp):
+        return [*_aliased(value.body), *_aliased(value.orelse)]
+    if isinstance(value, ast.NamedExpr):
+        return [value.target, *_aliased(value.value)]
+    return [value]
 
 
 #: Constructors whose result is never an agent.
@@ -1166,7 +1242,12 @@ def census_module(
             names.add(node.id)
         elif isinstance(node, ast.Attribute):
             names.add(node.attr)
-            touches_capabilities = touches_capabilities or node.attr in _CENSUS_CAPABILITIES
+            # ``self.tools`` is the object's own list, which the census never
+            # attributes to an agent: it need not wake the heavy passes.
+            touches_capabilities = touches_capabilities or (
+                node.attr in _CENSUS_CAPABILITIES
+                and not (isinstance(node.value, ast.Name) and node.value.id in {"self", "cls"})
+            )
         elif isinstance(node, ast.ImportFrom):
             # Only an import from the scope can name the scope's classes: a
             # vendor module of the same stem is not ``app/core.py``.

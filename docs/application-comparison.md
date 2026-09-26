@@ -93,8 +93,13 @@ agents' rows in the file stand:
 - an agent whose `tools`, `handoffs` or `mcp_servers` are changed after
   construction: assigned, extended or sliced (`agent.tools.append(...)`,
   `agent.tools = [...]`, `agent.tools[:] = ...`), `setattr`/`delattr` by name,
-  or a handle taken on them (`t = agent.tools`) that is itself changed later —
-  a handle only read, like `len(request.tools)`, is nothing. The changed value is read in
+  or a handle taken on them (`t = agent.tools`, `payload["tools"] =
+  agent.tools`, `self.tools = agent.tools`) that is changed through it later —
+  a list method, `+=` or an item store on it or on an alias of it. A handle only
+  read or handed on (to a call, a return, a container), like
+  `len(request.tools)`, is nothing, as `helper(agent.tools)` is: what a helper
+  does with it is an indirect effect this comparison does not establish. The
+  changed value is read in
   the scope of the change (a change in place reaches every agent built from the
   same list object): an agent the reader constructed — directly, through
   `self.agent`, or through a module function that returns it — carries the

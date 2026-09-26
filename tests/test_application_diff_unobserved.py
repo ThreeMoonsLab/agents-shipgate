@@ -925,3 +925,49 @@ def test_an_adk_agent_changed_after_construction_is_a_limit(repo):
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial"
     assert any("changed at agent.py" in limit for limit in result["head"]["limits"])
+
+
+# ---------------------------------------------------------------------------
+# #876 review, round 5: a handle counts only when the list is changed through
+# it in view; handing it on is an indirect helper effect, as `helper(x.tools)`.
+
+
+@pytest.mark.parametrize(
+    "helper",
+    [
+        'def to_payload(request):\n    payload = {"model": "gpt"}\n'
+        '    payload["tools"] = request.tools\n    return payload\n',
+        "class Client:\n    def __init__(self, request):\n        self.tools = request.tools\n"
+        "    def count(self):\n        return len(self.tools)\n",
+        "def forward(request, client):\n    tools = request.tools\n    return client.create(tools=tools)\n",
+        "def swap(request):\n    tools = request.tools\n    tools = []\n    return tools\n",
+    ],
+    ids=["dict-payload", "attribute-copy", "handed-to-a-call", "handle-rebound"],
+)
+def test_a_handle_that_is_only_handed_on_is_not_a_change(repo, helper):
+    before = 'main_agent = Agent(name="Main", tools=[quote])\n' + helper
+    after = 'main_agent = Agent(name="Main", tools=[quote, send_image])\n' + helper
+    result = _compare(repo, before, after)
+    assert result["comparison_status"] == "compared"
+    assert _pairs(result) == [("main_agent", "send_image", "added")]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        'payload = {}\npayload["tools"] = quote_agent.tools\npayload["tools"].append(send_image)\n',
+        "class Holder:\n    def __init__(self):\n        self.tools = quote_agent.tools\n"
+        "    def add(self):\n        self.tools.append(send_image)\n",
+        "handle = quote_agent.tools\nother = handle or []\nother.append(send_image)\n",
+        "handle = quote_agent.tools\nhandle += [send_image]\n",
+    ],
+    ids=["through-a-dict", "through-self-in-another-method", "through-an-alias", "augmented"],
+)
+def test_a_list_changed_through_a_handle_is_a_limit_on_its_agent(repo, change):
+    body = 'quote_agent = Agent(name="Quote", tools=[quote])\n'
+    result = _compare(repo, body, body + change)
+    assert result["comparison_status"] == "partial"
+    assert any(
+        "agent 'quote_agent' has its tools, handoffs or MCP servers changed" in limit
+        for limit in result["head"]["limits"]
+    ), result["head"]["limits"]
