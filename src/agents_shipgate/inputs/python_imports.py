@@ -35,6 +35,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import stat
+import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -94,6 +95,9 @@ class RepositoryLayout:
     #: The names inside one directory that are symbolic links or submodules:
     #: code an import can reach that is not read (#879 review).
     links: Callable[[str], frozenset[str]] = lambda path: frozenset()
+    #: The text of one repository file outside the scope, or None: what the
+    #: packages enclosing the scope run first (#879 review).
+    read: Callable[[str], str | None] = lambda path: None
 
 
 _REPOSITORY: ContextVar[RepositoryLayout | None] = ContextVar("repository_layout", default=None)
@@ -156,8 +160,17 @@ def _disk_layout(scope_root: Path) -> RepositoryLayout | None:
             if (directory / name).is_symlink()
         )
 
+    def read(path: str) -> str | None:
+        target = root / path
+        if target.is_symlink() or not target.is_file():
+            return None
+        try:
+            return load_text_file(target)
+        except (InputParseError, OSError):
+            return None
+
     scope = scope_root.relative_to(root).as_posix()
-    return RepositoryLayout("" if scope == "." else scope, entries, links)
+    return RepositoryLayout("" if scope == "." else scope, entries, links, read)
 
 _SCOPE_NODES = (
     ast.FunctionDef,
@@ -287,6 +300,7 @@ class ImportResolver:
     _scanned: dict[Path, PythonModule | _Stop] = field(default_factory=dict)
     _parsed: int = 0
     _layout: RepositoryLayout | None = None
+    _above: _AboveScope | None = None
 
     def __post_init__(self) -> None:
         self.scope_root = self.scope_root.resolve()
@@ -447,36 +461,62 @@ class ImportResolver:
             for step in steps
             if step.get("module_getattr") and not step.get("lazy_submodule")
         ]
-        chain_modules = {
-            _module_name(ref) for ref in (*(step["path"] for step in steps), defining.ref)
-        }
+        scoped = {_module_name(ref) for ref in (*(step["path"] for step in steps), defining.ref)}
+        layout = self._layout
+        prefix = layout.scope.replace("/", ".") if layout is not None and layout.scope else ""
+        full = {f"{prefix}.{name}" if name else prefix for name in scoped} if prefix else set()
+        caveats.extend(
+            f"{step['path']} changes __path__, so {step['name']!r} may be found in another "
+            "directory"
+            for step in steps
+            if step.get("path_extended")
+        )
+
+        def table(key: str, where: str, line: int, runner_ref: str, *, repository_ref: bool = False) -> None:
+            verdict = _table_verdict(
+                key, where, scoped, full, prefix, repository_ref=repository_ref
+            )
+            if verdict == "caveat":
+                caveat = (
+                    f"{where}:{line} stores into sys.modules or globals() under a computed "
+                    "name, which could replace a module or name an import reaches"
+                )
+                if caveat not in caveats:
+                    caveats.append(caveat)
+            elif verdict == "stop":
+                raise _Stop(
+                    REBOUND_NAME,
+                    f"{where}:{line} stores into sys.modules a module this chain imports, "
+                    f"which {runner_ref} runs before the name is used",
+                )
+
+        above = self._above_scope()
+        for where, line, key in above.tables:
+            table(key, where, line, "a package enclosing the scope", repository_ref=True)
+        for name in names:
+            for where, line in above.patched.get(name, []):
+                raise _Stop(
+                    REBOUND_NAME,
+                    f"an attribute named {name!r} is reassigned in {where}:{line}, which a "
+                    "package enclosing the scope runs before the name is used",
+                )
+        caveats.extend(item for item in above.unread if item not in caveats)
         for runner in runners:
             scan = self._patched_names(runner)
+            path_line = self._patch_scan(runner).attribute_patches.get(PATH_PATCH)
+            if path_line is not None:
+                # ``__path__.insert(0, ...)`` in a package on the chain: a
+                # submodule may be found in another directory (#879 review).
+                caveat = (
+                    f"{self.ref(runner)}:{path_line} changes __path__, so a module this "
+                    "chain imports may be found in another directory"
+                )
+                if caveat not in caveats:
+                    caveats.append(caveat)
             for key, stores in scan.patched.items():
-                if not key.startswith(MODULE_TABLE_PATCH):
-                    continue
-                for where, line, _ in stores:
-                    literal = key[len(MODULE_TABLE_LITERAL):] if key.startswith(MODULE_TABLE_LITERAL) else None
-                    if literal is not None and not any(
-                        _same_module(literal, module) for module in chain_modules
-                    ):
-                        # ``sys.modules["yaml"] = ...``: another module.
-                        continue
-                    if key == MODULE_TABLE_COMPUTED:
-                        # ``sys.modules[spec.name] = module`` — a plugin loader:
-                        # which module it replaces is not read.
-                        caveat = (
-                            f"{where}:{line} stores into sys.modules under a computed name, "
-                            "which could replace a module an import names"
-                        )
-                        if caveat not in caveats:
-                            caveats.append(caveat)
-                        continue
-                    raise _Stop(
-                        REBOUND_NAME,
-                        f"{where}:{line} stores into sys.modules a module this chain imports, "
-                        f"which {self.ref(runner)} runs before the name is used",
-                    )
+                if key.startswith(MODULE_TABLE_PATCH):
+                    for where, line, _ in stores:
+                        table(key, where, line, self.ref(runner))
             for name in names:
                 for where, line, targets in scan.patched.get(name, []):
                     if where == defining.ref and targets is not None and defining.path not in targets:
@@ -549,6 +589,14 @@ class ImportResolver:
             for dotted, line in module.attribute_patches.items():
                 if dotted.startswith(MODULE_TABLE_PATCH):
                     patched.setdefault(dotted, []).append((module.ref, line, None))
+                    continue
+                if dotted.startswith(SELF_PATCH):
+                    # The module rebinds its own name: it is the target.
+                    patched.setdefault(dotted[len(SELF_PATCH):], []).append(
+                        (module.ref, line, frozenset({module.path}))
+                    )
+                    continue
+                if dotted == PATH_PATCH:
                     continue
                 # Only an attribute of an imported module can be the definition:
                 # ``self.lookup = ...`` in a class, or ``backend.lookup`` on a
@@ -632,8 +680,11 @@ class ImportResolver:
         """
 
         layout = self._layout
-        if layout is None or not parts or not parts[0]:
+        if layout is None or not parts or not parts[0] or parts[0] in sys.stdlib_module_names:
+            # The standard library is never the repository's module, even
+            # under ``app/types.py`` (#879 review).
             return False
+        scope_parts = layout.scope.split("/") if layout.scope else []
         for base in self._import_roots():
             prefix = f"{base}/" if base else ""
             top = layout.entries(base)
@@ -649,7 +700,13 @@ class ImportResolver:
             inside = layout.entries(prefix + first)
             if inside is None:
                 continue
-            if "__init__.py" in inside:
+            depth = len(base.split("/")) if base else 0
+            on_the_way = len(scope_parts) > depth and scope_parts[depth] == first
+            # The package on the way to the scope, seen from this root, is the
+            # scope's own: ``from agents import Agent`` beside
+            # ``app/agents/support`` is the SDK unless ``agents`` there holds
+            # the name (#879 review).
+            if "__init__.py" in inside and not on_the_way:
                 return True
             for path in [parts[1:]] if parts[1:] else [[name] for name in names if name != "*"]:
                 directory, entries = prefix + first, inside
@@ -667,6 +724,123 @@ class ImportResolver:
                         return True
         return False
 
+    def _above_scope(self) -> _AboveScope:
+        """The ``__init__.py`` of every package between the repository root and
+        the scope, and the modules each imports, read for patches.
+
+        Importing the scope's modules through their package (``svc.app.tools``)
+        runs ``svc/__init__.py`` first; its reassignments are what the agent
+        receives (#879 review). Read through the repository layout, never
+        imported; a module it imports that cannot be found is named.
+        """
+
+        if self._above is not None:
+            return self._above
+        found = _AboveScope()
+        self._above = found
+        layout = self._layout
+        if layout is None or not layout.scope:
+            return found
+        parts = layout.scope.split("/")
+        for length in range(len(parts)):
+            directory = "/".join(parts[:length])
+            if "__init__.py" not in (layout.entries(directory) or ()):
+                continue
+            init = f"{directory}/__init__.py" if directory else "__init__.py"
+            module = self._layout_module(init)
+            if module is None:
+                found.unread.append(f"{init} runs before the scope and could not be read")
+                continue
+            modules = [module]
+            typing_only = _type_checking_only(module)
+            for node in ast.walk(module.tree):
+                if not isinstance(node, ast.ImportFrom | ast.Import) or id(node) in typing_only:
+                    continue
+                for target, spelling in self._layout_targets(directory, node):
+                    if target is None:
+                        found.unread.append(
+                            f"{init}:{node.lineno} imports {spelling!r}, which is not read and "
+                            "could reassign it"
+                        )
+                    elif not target.startswith(layout.scope + "/"):
+                        imported = self._layout_module(target)
+                        if imported is not None:
+                            modules.append(imported)
+            for item in modules:
+                for dotted, line in item.attribute_patches.items():
+                    if dotted.startswith(MODULE_TABLE_PATCH):
+                        found.tables.append((item.ref, line, dotted))
+                    elif dotted.startswith(SELF_PATCH):
+                        found.patched.setdefault(dotted[len(SELF_PATCH):], []).append((item.ref, line))
+                    elif dotted != PATH_PATCH and any(
+                        isinstance(binding.node, ast.alias)
+                        for binding in item.bindings.get(dotted.split(".", 1)[0], [])
+                    ):
+                        found.patched.setdefault(dotted.rsplit(".", 1)[-1], []).append((item.ref, line))
+        return found
+
+    def _layout_module(self, path: str) -> PythonModule | None:
+        assert self._layout is not None
+        text = self._layout.read(path)
+        if text is None:
+            return None
+        try:
+            tree = ast.parse(text, filename=path)
+        except (SyntaxError, ValueError, RecursionError):
+            return None
+        # Named by its repository path: it lies outside the scope.
+        return _module(Path(path), path, tree, text)
+
+    def _layout_targets(
+        self, directory: str, node: ast.Import | ast.ImportFrom
+    ) -> list[tuple[str | None, str]]:
+        """The repository files one import in ``directory`` runs; None for a
+        relative one that cannot be found. An absolute import the repository
+        does not hold is a third-party package: nothing to read."""
+
+        assert self._layout is not None
+        layout = self._layout
+
+        def locate(base: str, parts: list[str]) -> str | None:
+            current = base
+            for index, part in enumerate(parts):
+                entries = layout.entries(current) or frozenset()
+                last = index == len(parts) - 1
+                if last and f"{part}.py" in entries:
+                    return f"{current}/{part}.py" if current else f"{part}.py"
+                if part not in entries:
+                    return None
+                current = f"{current}/{part}" if current else part
+            if "__init__.py" in (layout.entries(current) or ()):
+                return f"{current}/__init__.py"
+            return None
+
+        results: list[tuple[str | None, str]] = []
+        if isinstance(node, ast.ImportFrom) and node.level:
+            base_parts = directory.split("/") if directory else []
+            base_parts = base_parts[: len(base_parts) - (node.level - 1)] if node.level > 1 else base_parts
+            base = "/".join(base_parts)
+            spelling = "." * node.level + (node.module or "")
+            module_parts = node.module.split(".") if node.module else []
+            if module_parts:
+                results.append((locate(base, module_parts), spelling))
+            else:
+                for alias in node.names:
+                    target = locate(base, [alias.name])
+                    if target is not None:
+                        results.append((target, spelling + alias.name))
+            return results
+        dotted = [node.module] if isinstance(node, ast.ImportFrom) else [alias.name for alias in node.names]
+        for name in dotted:
+            if not name or name.split(".", 1)[0] in sys.stdlib_module_names:
+                continue
+            for root in self._import_roots():
+                target = locate(root, name.split("."))
+                if target is not None:
+                    results.append((target, name))
+                    break
+        return results
+
     def _import_roots(self) -> list[str]:
         """Where an absolute import may be looked up from: the repository root,
         ``src/``, and every directory between the root and the scope
@@ -675,13 +849,9 @@ class ImportResolver:
         roots = ["", "src"]
         if self._layout is not None and self._layout.scope:
             parts = self._layout.scope.split("/")
-            for length in range(1, len(parts)):
-                directory = "/".join(parts[:length])
-                # A regular package is imported through its parent, never put
-                # on the path itself: ``app/agents/`` holding SDK apps is not
-                # where ``from agents import Agent`` looks (#879 review).
-                if "__init__.py" not in (self._layout.entries(directory) or ()):
-                    roots.append(directory)
+            # A package directory can be on the path too — a service run from
+            # ``backend/`` with a stray ``backend/__init__.py`` (#879 review).
+            roots += ["/".join(parts[:length]) for length in range(1, len(parts))]
         return list(dict.fromkeys(roots))
 
     def _imported_paths(
@@ -1312,6 +1482,9 @@ def _fallthrough(module: PythonModule, name: str) -> dict[str, Any]:
         "sha256": module.sha256,
         "binding": "submodule",
     }
+    if PATH_PATCH in module.attribute_patches:
+        # ``__path__.insert(0, ...)``: the submodule may come from elsewhere.
+        step["path_extended"] = True
     if "__getattr__" in module.bindings:
         step["module_getattr"] = True
         if _hook_answers_submodule(module, name):
@@ -1349,7 +1522,10 @@ def _hook_answers_submodule(module: PythonModule, name: str) -> bool:
     # ``importlib``, store into ``sys.modules``, or replace ``__getattr__``
     # through ``globals()`` (#879 review).
     if "__name__" in module.bindings or any(
-        key.startswith(MODULE_TABLE_PATCH) or key.split(".", 1)[0] in {"importlib", "import_module"}
+        key.startswith((MODULE_TABLE_PATCH, SELF_PATCH))
+        or key == PATH_PATCH
+        or key.rsplit(".", 1)[-1] == "__getattr__"
+        or key.split(".", 1)[0] in {"importlib", "import_module"}
         for key in module.attribute_patches
     ):
         return False
@@ -1604,13 +1780,50 @@ MODULE_TABLE_OWN = "*self"
 MODULE_TABLE_COMPUTED = "*?"
 
 
+#: ``attribute_patches`` key prefix for a module rebinding its own name
+#: (``globals()["lookup"] = x``, ``sys.modules[__name__].lookup = x``).
+SELF_PATCH = "<self>."
+#: ``attribute_patches`` key for a change to a package's ``__path__``.
+PATH_PATCH = "<path>"
+#: Calls that only read the namespace or module table they are handed.
+_NAMESPACE_READERS = frozenset(
+    {"set", "frozenset", "list", "tuple", "sorted", "len", "iter", "dict", "any", "all",
+     "print", "repr", "str", "enumerate", "reversed"}
+)
+#: The frameworks whose own modules build the tools an agent binds.
+_FRAMEWORK_MODULES = ("agents", "google.adk")
+
+
 def _module_table_key(key: ast.AST | None) -> str:
+    """How a ``sys.modules`` key is spelled: literal, the module's own name
+    with a literal suffix, built on ``__name__`` some other way, or computed."""
+
     if isinstance(key, ast.Constant) and isinstance(key.value, str):
         return MODULE_TABLE_LITERAL + key.value
+    if isinstance(key, ast.Name) and key.id == "__name__":
+        return MODULE_TABLE_OWN + "="
+    suffix: ast.AST | None = None
+    if (
+        isinstance(key, ast.BinOp)
+        and isinstance(key.op, ast.Add)
+        and isinstance(key.left, ast.Name)
+        and key.left.id == "__name__"
+    ):
+        suffix = key.right
+    elif (
+        isinstance(key, ast.JoinedStr)
+        and len(key.values) == 2
+        and isinstance(key.values[0], ast.FormattedValue)
+        and isinstance(key.values[0].value, ast.Name)
+        and key.values[0].value.id == "__name__"
+    ):
+        suffix = key.values[1]
+    if isinstance(suffix, ast.Constant) and isinstance(suffix.value, str):
+        return MODULE_TABLE_OWN + "=" + suffix.value
     if key is not None and any(
         isinstance(node, ast.Name) and node.id == "__name__" for node in ast.walk(key)
     ):
-        return MODULE_TABLE_OWN
+        return MODULE_TABLE_OWN + "?"
     return MODULE_TABLE_COMPUTED
 
 
@@ -1623,16 +1836,82 @@ def _module_name(ref: str) -> str:
     return ".".join(parts)
 
 
-def _same_module(stored: str, module: str) -> bool:
-    """Whether a ``sys.modules`` key can name a scope-relative module."""
+def _key_names(stored: str, scoped: set[str], full: set[str]) -> bool:
+    """Whether a ``sys.modules`` key can name a module on the chain, a package
+    enclosing one, or a framework module that builds its tools (#879 review).
 
-    return bool(module) and (
-        stored == module or stored.endswith("." + module) or module.endswith("." + stored)
-    )
+    ``scoped`` names are relative to the scope, whose own prefix is unknown:
+    the key's tail must be their head. ``full`` names are from the repository
+    root: the key may be one of them or a package above one.
+    """
+
+    parts = stored.split(".")
+    for module in scoped:
+        head = module.split(".") if module else []
+        if any(parts[-size:] == head[:size] for size in range(1, min(len(parts), len(head)) + 1)):
+            return True
+    for module in (*full, *_FRAMEWORK_MODULES):
+        if stored == module or module.startswith(stored + ".") or stored.startswith(module + "."):
+            return True
+    return False
+
+
+def _table_verdict(
+    key: str,
+    where: str,
+    scoped: set[str],
+    full: set[str],
+    prefix: str,
+    *,
+    repository_ref: bool = False,
+) -> str | None:
+    """What a store into ``sys.modules`` means for a chain: ``"stop"`` when its
+    key can name a module on it, ``"caveat"`` when computed, else None.
+    ``where`` is scope-relative, or from the repository root when
+    ``repository_ref``."""
+
+    if key == MODULE_TABLE_COMPUTED:
+        return "caveat"
+    own = _module_name(where)
+    own_full = f"{prefix}.{own}" if prefix and not repository_ref else own
+    if key.startswith(MODULE_TABLE_OWN + "="):
+        stored = own + key[len(MODULE_TABLE_OWN) + 1 :]
+    elif key.startswith(MODULE_TABLE_LITERAL):
+        stored = key[len(MODULE_TABLE_LITERAL) :]
+    elif key == MODULE_TABLE_OWN + "?":
+        # ``__name__ + name``: only the storing module's own descendants.
+        chain = {*scoped, *full}
+        return "stop" if any(
+            item == own or item.startswith(own + ".") or item.startswith(own_full + ".")
+            for item in chain
+        ) else None
+    else:
+        return None
+    return "stop" if _key_names(stored, scoped, full) else None
+
+
+@dataclass
+class _AboveScope:
+    """What the packages enclosing the scope, above it, run first (#879 review)."""
+
+    patched: dict[str, list[tuple[str, int]]] = field(default_factory=dict)
+    tables: list[tuple[str, int, str]] = field(default_factory=list)
+    unread: list[str] = field(default_factory=list)
 
 
 def _attribute_patches(tree: ast.Module) -> dict[str, int]:
+    """What running a module may reassign, as ``key -> line``.
+
+    ``a.b`` for an attribute store; ``*=...`` / ``*self...`` / ``*?`` for a
+    store into ``sys.modules`` by key; ``<self>.name`` for the module rebinding
+    its own ``name`` through ``globals()`` or ``sys.modules[__name__]``;
+    ``<path>`` for a change to ``__path__``. A use of ``sys.modules`` or
+    ``globals()`` that is not a known read counts as a computed store: what it
+    changes is not read (#879 review).
+    """
+
     patches: dict[str, int] = {}
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
     sys_names = {"sys"} | {
         alias.asname
         for node in ast.walk(tree)
@@ -1647,27 +1926,142 @@ def _attribute_patches(tree: ast.Module) -> dict[str, int]:
         for alias in node.names
         if alias.name == "modules"
     }
+    # The lazy-submodule idiom's own cache, ``globals()[name] = module``.
+    idiom_cache: set[int] = set()
+    for item in tree.body:
+        if isinstance(item, ast.FunctionDef) and item.name == "__getattr__" and item.args.args:
+            parameter = item.args.args[0].arg
+            idiom_cache |= {
+                id(node)
+                for node in ast.walk(item)
+                if isinstance(node, ast.Subscript)
+                and isinstance(node.slice, ast.Name)
+                and node.slice.id == parameter
+            }
+
     def is_table(node: ast.AST) -> bool:
         spelling = reference_spelling(node)
         return spelling in {f"{name}.modules" for name in sys_names} or spelling in modules_names
 
-    for node in ast.walk(tree):
-        if (
+    def is_namespace(node: ast.AST) -> bool:
+        return (
             isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr in {"setdefault", "__setitem__", "update"}
-            and is_table(node.func.value)
-        ):
-            # ``sys.modules.setdefault(name, module)`` / ``.update({...})``.
-            if node.func.attr == "update":
-                keys: list[ast.AST | None] = []
-                for arg in node.args:
-                    keys += list(arg.keys) if isinstance(arg, ast.Dict) else [None]
-                keys += [ast.Constant(value=item.arg) if item.arg else None for item in node.keywords]
-            else:
-                keys = [node.args[0] if node.args else None]
-            for key in keys:
-                patches.setdefault(_module_table_key(key), node.lineno)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"globals", "vars"}
+            and not node.args
+        )
+
+    def record(key: str, line: int) -> None:
+        patches.setdefault(key, line)
+
+    def read_elsewhere(node: ast.AST, parent: ast.AST | None) -> bool:
+        """``set(globals())``, ``for name in sys.modules``, ``x in globals()``."""
+
+        if isinstance(parent, ast.Compare):
+            return True
+        if isinstance(parent, ast.For | ast.AsyncFor | ast.comprehension):
+            return parent.iter is node
+        return (
+            isinstance(parent, ast.Call)
+            and any(arg is node for arg in parent.args)
+            and reference_spelling(parent.func) in _NAMESPACE_READERS
+        )
+
+    def own_or_table(key: ast.AST | None, attribute: str, line: int) -> None:
+        """``sys.modules[key].attribute = ...``."""
+
+        if isinstance(key, ast.Name) and key.id == "__name__":
+            record(SELF_PATCH + attribute, line)
+        else:
+            record(_module_table_key(key), line)
+
+    def store_keys(call: ast.Call) -> list[ast.AST | None]:
+        if call.func.attr == "update":  # type: ignore[union-attr]
+            keys: list[ast.AST | None] = []
+            for arg in call.args:
+                keys += list(arg.keys) if isinstance(arg, ast.Dict) else [None]
+            keys += [ast.Constant(value=item.arg) if item.arg else None for item in call.keywords]
+            return keys
+        return [call.args[0] if call.args else None]
+
+    for node in ast.walk(tree):
+        line = int(getattr(node, "lineno", 0) or 0)
+        parent = parents.get(node)
+        # -- sys.modules: reads allowed, anything else a store ---------------
+        if is_table(node) and not isinstance(getattr(node, "ctx", None), ast.Load):
+            # ``sys.modules |= {...}``, ``sys.modules = ...``.
+            record(MODULE_TABLE_COMPUTED, line)
+            continue
+        if is_table(node) and isinstance(getattr(node, "ctx", None), ast.Load):
+            line = int(getattr(parent, "lineno", line) or line)
+            if isinstance(parent, ast.Subscript) and parent.value is node:
+                grand = parents.get(parent)
+                if isinstance(parent.ctx, ast.Store):
+                    record(_module_table_key(parent.slice), line)
+                elif isinstance(parent.ctx, ast.Load):
+                    if isinstance(grand, ast.Attribute) and grand.value is parent and isinstance(grand.ctx, ast.Store | ast.Del):
+                        own_or_table(parent.slice, grand.attr, line)
+                    elif (
+                        isinstance(grand, ast.Call)
+                        and isinstance(grand.func, ast.Name)
+                        and grand.func.id in {"setattr", "delattr"}
+                        and grand.args[:1] == [parent]
+                    ):
+                        attribute = grand.args[1] if len(grand.args) > 1 else None
+                        own_or_table(
+                            parent.slice,
+                            attribute.value if isinstance(attribute, ast.Constant) and isinstance(attribute.value, str) else "?",
+                            line,
+                        )
+            elif isinstance(parent, ast.Attribute) and parent.value is node:
+                grand = parents.get(parent)
+                if parent.attr in {"setdefault", "__setitem__", "update"} and isinstance(grand, ast.Call):
+                    for key in store_keys(grand):
+                        record(_module_table_key(key), line)
+                elif parent.attr not in {
+                    "get", "keys", "values", "items", "copy", "__contains__", "__getitem__",
+                    "pop", "__delitem__", "clear",
+                }:
+                    record(MODULE_TABLE_COMPUTED, line)
+            elif not read_elsewhere(node, parent):
+                # ``mods = sys.modules``, ``operator.setitem(sys.modules, ...)``:
+                # not read.
+                record(MODULE_TABLE_COMPUTED, line)
+            continue
+        # -- globals() / vars(): reads allowed ---------------------------------
+        if is_namespace(node):
+            if isinstance(parent, ast.Subscript) and parent.value is node:
+                if isinstance(parent.ctx, ast.Store | ast.Del) and id(parent) not in idiom_cache:
+                    key = parent.slice
+                    record(
+                        SELF_PATCH + key.value
+                        if isinstance(key, ast.Constant) and isinstance(key.value, str)
+                        else MODULE_TABLE_COMPUTED,
+                        line,
+                    )
+            elif isinstance(parent, ast.Attribute) and parent.value is node:
+                grand = parents.get(parent)
+                if parent.attr in {"setdefault", "__setitem__", "update"} and isinstance(grand, ast.Call):
+                    for key in store_keys(grand):
+                        record(
+                            SELF_PATCH + key.value
+                            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+                            else MODULE_TABLE_COMPUTED,
+                            line,
+                        )
+                elif parent.attr not in {"get", "keys", "values", "items", "copy", "__contains__", "__getitem__"}:
+                    record(MODULE_TABLE_COMPUTED, line)
+            elif not read_elsewhere(node, parent):
+                # ``g = globals()`` and anything else: not read.
+                record(MODULE_TABLE_COMPUTED, line)
+            continue
+        # -- __path__ ----------------------------------------------------------
+        if isinstance(node, ast.Name) and node.id == "__path__":
+            if not isinstance(node.ctx, ast.Load) or not (
+                isinstance(parent, ast.Compare | ast.Subscript | ast.Starred)
+                or isinstance(parent, ast.For | ast.comprehension)
+            ):
+                record(PATH_PATCH, line)
             continue
         targets: list[ast.AST] = []
         if isinstance(node, ast.Assign):
@@ -1684,21 +2078,13 @@ def _attribute_patches(tree: ast.Module) -> dict[str, int]:
         ):
             owner = _dotted(node.args[0])
             if owner is not None:
-                patches.setdefault(".".join([*owner, node.args[1].value]), node.lineno)
+                record(".".join([*owner, node.args[1].value]), node.lineno)
             continue
         for target in targets:
             if isinstance(target, ast.Attribute):
                 dotted = _dotted(target)
                 if dotted is not None:
-                    patches.setdefault(".".join(dotted), node.lineno)
-            elif (
-                isinstance(target, ast.Subscript)
-                and not isinstance(node, ast.Delete)
-                and is_table(target.value)
-            ):
-                # ``sys.modules["pkg.memory"] = evil``: what an import returns.
-                # Removing an entry only makes the module load again.
-                patches.setdefault(_module_table_key(target.slice), node.lineno)
+                    record(".".join(dotted), node.lineno)
     return patches
 
 

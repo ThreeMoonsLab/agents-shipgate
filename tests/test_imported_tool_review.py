@@ -1813,3 +1813,91 @@ def test_a_hook_replaced_through_globals_update_is_not_trusted(repo):
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial"
     assert _rows(result) == [("x", "remember", "not_established")]
+
+
+# ---------------------------------------------------------------------------
+# Round 13: a package ancestor can be on the path; what the packages above the
+# scope run is read; sys.modules and globals() uses are read by allow-list.
+
+def test_a_stray_package_marker_on_an_import_root_still_names_the_sibling(repo):
+    """R13-1: ``backend/__init__.py`` does not keep ``backend/`` off the path."""
+
+    files = {**_sibling_app("backend"), "backend/__init__.py": ""}
+    base = commit(repo, files)
+    head = commit(repo, {"backend/app/agent.py": AGENT_LOOKUP})
+    result = run(repo, base, head, "--scope", "backend/app")
+    assert result["comparison_status"] == "partial"
+    assert _rows(result) == [("x", "lookup", "not_established")]
+
+
+def test_a_package_above_the_scope_that_patches_is_read(repo):
+    """R13-2: importing ``svc.app.agent`` runs ``svc/__init__.py`` first."""
+
+    files = {
+        "svc/__init__.py": "from .app import tools\nfrom .danger import dangerous\n\ntools.lookup = dangerous\n",
+        "svc/danger.py": "def dangerous(q: str) -> str:\n    return q.upper()\n",
+        "svc/app/__init__.py": "",
+        "svc/app/tools.py": "def lookup(q: str) -> str:\n    return q\n",
+        "svc/app/agent.py": "from google.adk.agents import Agent\n\nroot_agent = Agent(name='x', model='m')\n",
+    }
+    base = commit(repo, files)
+    head = commit(repo, {"svc/app/agent.py": AGENT_LOOKUP})
+    result = run(repo, base, head, "--scope", "svc/app")
+    assert result["comparison_status"] == "partial"
+    assert any("svc/__init__.py" in gap["reason"] for gap in result["head"]["coverage_gaps"])
+
+
+def test_a_benign_package_above_the_scope_changes_nothing(repo):
+    files = {
+        "svc/__init__.py": "from .settings import DEBUG  # noqa: F401\n__version__ = '1.0'\n",
+        "svc/settings.py": "DEBUG = False\n",
+        "svc/app/__init__.py": "",
+        "svc/app/tools.py": "def lookup(q: str) -> str:\n    return q\n",
+        "svc/app/agent.py": "from google.adk.agents import Agent\n\nroot_agent = Agent(name='x', model='m')\n",
+    }
+    base = commit(repo, files)
+    head = commit(repo, {"svc/app/agent.py": AGENT_LOOKUP})
+    result = run(repo, base, head, "--scope", "svc/app")
+    assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
+
+
+@pytest.mark.parametrize(
+    ("package", "outcome"),
+    [
+        ("import sys\nfrom . import evil\n\nsys.modules['pkg'] = evil\n", "stop"),
+        ("import sys\nfrom . import evil\n\nsys.modules |= {'pkg.memory': evil}\n", "not_established"),
+        ("import sys\nfrom . import evil\n\nmods = sys.modules\nmods['pkg.memory'] = evil\n", "not_established"),
+        ("import sys\nfrom . import evil\n\nsys.modules[__name__].memory = evil\n", "stop"),
+        ("from . import evil\n\nglobals()['memory'] = evil\n", "stop"),
+        ("import os\n\n__path__.insert(0, os.path.join(__path__[0], 'alt'))\n", "not_established"),
+        ("import sys\n\nsys.modules['yaml_compat'] = sys\nsys.modules[__name__ + '.old'] = sys\n", "added"),
+        ("NAMES = sorted(set(globals()))\n", "added"),
+    ],
+    ids=[
+        "parent-package-key", "augmented-table", "table-alias", "own-module-attribute",
+        "own-name-through-globals", "path-extended", "keys-off-the-chain", "namespace-read",
+    ],
+)
+def test_the_module_table_and_namespace_are_read_by_allow_list(repo, package, outcome):
+    """R13-3, R13-4, R13-6."""
+
+    files = {
+        "pkg/__init__.py": package,
+        "pkg/memory.py": "def remember(q: str) -> str:\n    return q\n",
+        "pkg/evil.py": "def remember(q: str) -> str:\n    return q.upper()\n",
+        "agent.py": "",
+    }
+    base = commit(repo, files)
+    # ``from pkg import memory`` reads the package's attribute, which these
+    # stores can replace; ``from pkg.memory import ...`` would get the real
+    # submodule back from the import system.
+    head = commit(repo, {"agent.py": LAZY_AGENT})
+    result = run(repo, base, head)
+    if outcome == "added":
+        assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
+        assert _rows(result) == [("x", "remember", "added")]
+    elif outcome == "not_established":
+        assert _rows(result) == [("x", "remember", "not_established")]
+    else:
+        assert result["comparison_status"] == "partial"
+        assert not any(row["change"] == "added" for row in result["rows"])

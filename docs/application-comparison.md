@@ -165,20 +165,29 @@ row `not_established` and that import in the reason. Whether an absolute import
 is the repository's own code is read from the compared commit's tree (for
 `scan`, from the checkout, or from the three directories above the scope when
 there is none): a module or regular package at the repository root, under
-`src/`, or under any directory between the root and the scope that is not itself
-a package (`backend/common` for scope `backend/app`; `app/agents/` with an
-`__init__.py` is imported through `app`, never from the path), a linked or
-submodule entry the import spells, or a
+`src/`, or under any directory between the root and the scope (`backend/common`
+for scope `backend/app`) — except a standard-library name, and the scope's own
+package on the way to it, which counts only when it holds the name imported
+(`from agents import Agent` beside `app/agents/support` is the SDK) — a linked
+or submodule entry the import spells, or a
 directory without `__init__.py` that holds the submodule named — `agents/support/`
 holding SDK apps is not the `agents` that `from agents import Agent` imports. The
 scope spelled from one of those roots through a regular package
-(`svc.app.tools` with scope `svc/app`) is read inside the scope. A store into
-`sys.modules` in code that runs first (`[...] =`, `setdefault`, `update`) is a
-named stop when its key names a module on the chain or is built on `__name__`,
-a caveat when the key is computed (a plugin loader's `spec.name`), and nothing
-when it names another module. A package hook is not trusted when the package
-rebinds `__name__`, patches `importlib`, or stores into `sys.modules` or
-`globals()` other than the idiom's own cache. A generated
+(`svc.app.tools` with scope `svc/app`) is read inside the scope. The
+`__init__.py` of every package between the repository root and the scope, and
+the modules each imports, run before the scope's modules and are read for the
+same reassignments. `sys.modules` and `globals()` are read by allow-list: a
+subscript, `get`, a membership test or a read-only builtin reads them; a store
+(`[...] =`, `setdefault`, `update`, an attribute of `sys.modules[...]`) is a
+named stop when its key names a module on the chain, a package above one, or
+the framework's own modules — `__name__` plus a literal is that module's own
+name — and nothing when it names another module; any other use (`mods =
+sys.modules`, `|=`, `operator.setitem`, a computed key) is a caveat. A
+module rebinding its own name through `globals()` or `sys.modules[__name__]` is
+a reassignment of that name, and a change to `__path__` a caveat. A package
+hook is not trusted when the package rebinds `__name__`, `__getattr__` or
+`__path__`, patches `importlib`, or stores into `sys.modules` or `globals()`
+other than the idiom's own cache. A generated
 `*_pb2` or `_version` module, an optional import, and an absolute import the
 repository does not hold (a third-party package) are the read's boundary, and a
 rebinding in a module none of these import is not looked for.

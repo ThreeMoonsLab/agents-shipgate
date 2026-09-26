@@ -246,7 +246,16 @@ def _git_layout(workspace: Path, commit: str, scope: str) -> RepositoryLayout:
         found = listing(path)
         return found[1] if found is not None else frozenset()
 
-    return RepositoryLayout("" if scope in {"", "."} else scope, entries, links)
+    def read(path: str) -> str | None:
+        output = _run_git_bounded_output(
+            workspace,
+            ["cat-file", "blob", f"{commit}:{path}"],
+            max_output_bytes=_MAX_LAYOUT_LISTING_BYTES,
+        )
+        # None: missing, too large or unreadable; an empty file reads as "".
+        return output.decode("utf-8", errors="replace") if output is not None else None
+
+    return RepositoryLayout("" if scope in {"", "."} else scope, entries, links, read)
 
 
 def observe(
