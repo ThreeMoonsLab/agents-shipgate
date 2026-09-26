@@ -376,17 +376,19 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
         # A tool reference the reader could not follow to a definition
         # carries its agent and named reason beside the warning (#864): scope
         # the gap to that agent and say why, rather than covering the file.
-        unresolved = {
-            record["warning"]: record
-            for record in artifacts.unresolved_references
-            if isinstance(record.get("warning"), str)
-        }
+        # One warning can stand for several agents: a module-level wrapper
+        # two agents share has one sentence. Every record gets its own gap, so
+        # no agent's uncertainty is carried by another's (#879 review).
+        unresolved: dict[str, list[dict[str, Any]]] = {}
+        for record in artifacts.unresolved_references:
+            if isinstance(record.get("warning"), str):
+                unresolved.setdefault(record["warning"], []).append(record)
         for warning in artifacts.warnings:
             if warning not in attributed:
-                record = unresolved.get(warning)
-                if record is None:
+                records = unresolved.get(warning)
+                if not records:
                     result.gap(warning, source=source.path)
-                else:
+                for record in records or []:
                     detail = record["detail"]
                     result.gap(
                         warning

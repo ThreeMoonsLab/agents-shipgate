@@ -25,6 +25,8 @@ from agents_shipgate.inputs.python_imports import (
     NOT_BOUND,
     ImportResolver,
     PythonModule,
+    ScopeIndex,
+    local_binding_detail,
     reference_spelling,
 )
 from agents_shipgate.inputs.python_static import (
@@ -214,6 +216,7 @@ def _extract_agent_bindings(
         tree = parse_python_file(path, label="OpenAI Agents SDK")
         source_ref = display_path(path, base_dir)
         sdk_names = _SdkNames(tree)
+        scopes = ScopeIndex(tree)
         module = imports.resolver.entry(path, tree, text)
         list_vars: dict[str, list[str] | None] = {}
         import_aliases: dict[str, str] = {}
@@ -267,10 +270,31 @@ def _extract_agent_bindings(
                 ))
                 tools_complete = False
             else:
+                # Two different definitions under one tool name: the model
+                # sees one name for both, so neither is bound (#879 review).
+                duplicated: set[str] = set()
                 for reference in references:
-                    tool, detail = imports.tool_for(
-                        reference, module, source_ref, tool_by_name, import_aliases
-                    )
+                    head = reference.split(".", 1)[0]
+                    local = scopes.enclosing_binding(call, head)
+                    if isinstance(local, ast.FunctionDef | ast.AsyncFunctionDef):
+                        # A nested ``@function_tool`` in the building function.
+                        tool = imports.by_location.get(f"{source_ref}:{local.lineno}")
+                        detail = (
+                            None
+                            if tool is not None
+                            else f"it is the nested function {local.name!r} at "
+                            f"{source_ref}:{local.lineno}, which is not decorated with "
+                            "the SDK's @function_tool"
+                        )
+                    elif local is not None:
+                        # The function binds the name itself — a local import,
+                        # a parameter — so the module's binding is not the one
+                        # this agent receives.
+                        tool, detail = None, local_binding_detail(source_ref, head, local)
+                    else:
+                        tool, detail = imports.tool_for(
+                            reference, module, source_ref, tool_by_name, import_aliases
+                        )
                     if tool is None:
                         reason = (
                             f"OpenAI Agents SDK agent {target!r} at {pointer} binds "
@@ -282,9 +306,27 @@ def _extract_agent_bindings(
                         tools_complete = False
                         names.append(import_aliases.get(reference, reference))
                         continue
+                    locator = f"{tool.source_ref}#{tool.name}" if tool.source_ref else None
+                    if tool.name in duplicated:
+                        continue
+                    bound = locators.get(tool.name)
+                    if bound is not None and locator is not None and bound != locator:
+                        reason = (
+                            f"OpenAI Agents SDK agent {target!r} at {pointer} binds two "
+                            f"different functions named {tool.name!r} "
+                            f"({bound.split('#', 1)[0]} and {tool.source_location}); the "
+                            "model sees one tool name for both, so neither is resolved."
+                        )
+                        warnings.append(reason)
+                        issues.append(reason)
+                        tools_complete = False
+                        duplicated.add(tool.name)
+                        names = [name for name in names if name != tool.name]
+                        locators.pop(tool.name, None)
+                        continue
                     names.append(tool.name)
-                    if tool.source_ref:
-                        locators[tool.name] = f"{tool.source_ref}#{tool.name}"
+                    if locator is not None:
+                        locators[tool.name] = locator
             handoff_names = _resolve_name_list(
                 _keyword(call, "handoffs"), list_vars, import_aliases
             )
@@ -376,6 +418,9 @@ class _ImportedTools:
                     "decorated with the SDK's @function_tool"
                 )
             tool = _function_to_tool(node, self.source, defining.ref, sdk_decorators)
+            # Minted from an import: another source that reads that module
+            # observes the same definition, and the catalog keeps one (#879).
+            tool.extraction["imported_definition"] = True
             self.by_location[location] = tool
             self.new_tools.append(tool)
             source_sha256, within_limits = guard_module_metadata(

@@ -126,14 +126,30 @@ package's own `from . import submodule`, even under `if TYPE_CHECKING:`, names
 that submodule, and a module-level `__getattr__` is not evaluated — a tool
 reached past one is named but, for `scan`, not counted as proven.
 
+`import a.b` followed by `a.b.f` reads the submodule `a/b.py`, which is what
+the import system guarantees after `a/__init__.py` runs, even when the package
+binds a `b` of its own; several `import a.x` statements bind one package and
+are not a rebinding. A name the function building the agent binds for itself —
+a local `from support import lookup`, a parameter, a local assignment — is not
+the module's binding of that name, so it is never resolved at module scope; a
+function defined inside the builder is that nested definition.
+
 A reference that does not reach one definition stays an unresolved tool, named
-with its reason (`Not resolved because …` in the gap) and scoped to the agent that
-lists it: a module the scope does not contain, a relative import above the
+with its reason (`Not resolved because …` in the gap) and scoped to each agent
+that lists it: a module the scope does not contain, a relative import above the
 scope, more than one matching module location, a name bound twice or only
 inside an `if`/`try`, a wildcard import, an import cycle, a class or other
-value, a symbolic link, a module that does not parse, or more than 64 modules
-read. Two agents binding same-named functions from different modules keep two
-tools; one agent binding both is reported rather than resolved.
+value, a name bound by the enclosing function, a symbolic link, a module that
+does not parse, or more than 64 modules read. Two agents binding same-named
+functions from different modules keep two tools. One agent binding two
+different functions under one name binds neither, whatever their order in the
+list; its rows for that name are `not_established`. For `scan`, a definition an
+import reaches and another configured source also reads is one catalog tool.
+
+A row compares a definition's signature and implementation digest, not the
+module it lives in: moving a function is not a change. So retargeting a binding
+between two functions whose definitions are the same text in different modules
+shows no row, even when the modules differ in what the function body refers to.
 
 ## Evidence identity and recovery
 

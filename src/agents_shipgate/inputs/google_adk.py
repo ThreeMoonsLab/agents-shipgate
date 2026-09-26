@@ -37,10 +37,13 @@ from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.openapi import load_openapi_tools
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.inputs.python_imports import (
+    LOCAL_BINDING,
     NOT_BOUND,
     ImportResolver,
     PythonModule,
     Resolution,
+    ScopeIndex,
+    local_binding_detail,
     reference_spelling,
 )
 from agents_shipgate.inputs.traces import load_trace_artifacts
@@ -879,13 +882,17 @@ class _AdkAgentBinding:
     tool_locators: dict[str, str] = field(default_factory=dict)
     #: ``tool_name -> file:line`` of that definition, for the reader.
     tool_locations: dict[str, str] = field(default_factory=dict)
+    #: Names bound to two different definitions: neither is bound (#879).
+    duplicated: set[str] = field(default_factory=set)
+    #: Why this agent's tool list is incomplete, when it is.
+    issues: list[str] = field(default_factory=list)
 
     def bind(
         self, tool_name: str, locator: str | None = None, location: str | None = None
     ) -> bool:
         """Add one tool to this agent; return False if it was already bound."""
 
-        if tool_name in self.tool_names:
+        if tool_name in self.tool_names or tool_name in self.duplicated:
             return False
         self.tool_names.append(tool_name)
         if locator is not None:
@@ -899,6 +906,20 @@ class _AdkAgentBinding:
 
         bound = self.tool_locators.get(tool_name)
         return bound is not None and bound != locator
+
+    def unbind_duplicate(self, tool_name: str, reason: str) -> None:
+        """Two definitions share ``tool_name``: bind neither, whatever the order.
+
+        Keeping the first one listed let list order decide which definition the
+        agent was reported to call (#879 review).
+        """
+
+        self.duplicated.add(tool_name)
+        self.tool_names = [name for name in self.tool_names if name != tool_name]
+        self.tool_locators.pop(tool_name, None)
+        self.tool_locations.pop(tool_name, None)
+        if reason not in self.issues:
+            self.issues.append(reason)
 
 
 def _record_tool_binding(
@@ -938,6 +959,7 @@ class _PythonAdkExtractor:
         module: PythonModule | None = None,
     ) -> None:
         self.tree = tree
+        self.scopes = ScopeIndex(tree)
         self.source_id = source_id
         self.source_ref = source_ref
         self.entrypoint_dir = entrypoint_dir
@@ -1394,9 +1416,11 @@ class _PythonAdkExtractor:
                 source_pointer=binding.source_pointer,
                 tool_names=list(binding.tool_names),
                 tool_locators=dict(binding.tool_locators),
+                tools_complete=not binding.issues,
+                issues=list(binding.issues),
             )
             for binding in self.agent_bindings.values()
-            if binding.tool_names
+            if binding.tool_names or binding.issues
         ]
 
     def _agent_calls(self) -> list[tuple[str | None, ast.Call]]:
@@ -1485,6 +1509,36 @@ class _PythonAdkExtractor:
         agent_name: str,
         binding: _AdkAgentBinding,
     ) -> list[LoadedToolSource]:
+        head = reference_spelling(expr)
+        local = (
+            self.scopes.enclosing_binding(expr, head.split(".", 1)[0])
+            if head is not None
+            else None
+        )
+        if (
+            isinstance(local, ast.FunctionDef | ast.AsyncFunctionDef)
+            and isinstance(expr, ast.Name)
+            and self.functions.get(local.name) is local
+        ):
+            # A function defined inside the one building the agent, and the
+            # only definition of that name the module's flat map holds: the
+            # usual binding path, whose proof check still weighs the name.
+            self._bind_function_tool(local, tools, agent_name, binding, False)
+            return []
+        if local is not None:
+            assert head is not None
+            self._unresolved_reference(
+                agent_name,
+                head,
+                Resolution(
+                    reference=head,
+                    reason=LOCAL_BINDING,
+                    detail=local_binding_detail(
+                        self.source_ref, head.split(".", 1)[0], local
+                    ),
+                ),
+            )
+            return []
         if isinstance(expr, ast.Name):
             if expr.id in self.wrappers:
                 # The variable's own name has to hold up too, not just the
@@ -1756,6 +1810,9 @@ class _PythonAdkExtractor:
                         name, name_bindings, aliases
                     ),
                 )
+                # Minted from an import: another source reading that module
+                # observes the same definition; the catalog keeps one (#879).
+                tool.extraction["imported_definition"] = True
                 self.imported_function_tools[key] = tool
                 tools.append(tool)
             else:
@@ -1831,12 +1888,18 @@ class _PythonAdkExtractor:
         locator = f"{tool.source_ref}#{tool.name}"
         location = tool.source_location or self.source_ref
         if binding.binds_other_definition(tool.name, locator):
-            self._surface_warning(
+            warning = (
                 f"Google ADK agent {agent_name!r} binds two different functions "
                 f"named {tool.name!r} ({binding.tool_locations[tool.name]} and "
-                f"{location}); the model sees one tool name for both.",
-                SURFACE_GAP_DUPLICATE_TOOL_NAME,
+                f"{location}); the model sees one tool name for both."
             )
+            self._surface_warning(warning, SURFACE_GAP_DUPLICATE_TOOL_NAME)
+            binding.unbind_duplicate(tool.name, warning)
+            self.artifacts.tool_bindings = [
+                item
+                for item in self.artifacts.tool_bindings
+                if not (item.get("agent_name") == agent_name and item.get("tool_name") == tool.name)
+            ]
             return
         if binding.bind(tool.name, locator, location):
             _record_tool_binding(

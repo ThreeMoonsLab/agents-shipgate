@@ -385,10 +385,62 @@ def _build_canonical_tools(
     """Build the provider-scoped identity catalog and return identity warnings."""
 
     return build_tool_identity_catalog(
-        loaded_sources,
+        _one_observation_per_imported_definition(loaded_sources),
         identity_config or ToolIdentityConfig(),
         repeated_artifacts,
     )
+
+
+def _one_observation_per_imported_definition(
+    loaded_sources: list[LoadedToolSource],
+) -> list[LoadedToolSource]:
+    """Drop a second observation of one definition that an import minted (#864).
+
+    A reader follows ``tools=[...]`` into a sibling module and mints that
+    definition as a tool of its own source. When another source of the run
+    reads that module too — ``init --local-review`` scaffolds one source per
+    file — the catalog would hold the function twice under two providers, and a
+    ``{tool: lookup}`` selector would match both (#879 review). The observation
+    a source made of its own file wins; otherwise the first source's. Its
+    import evidence is kept, and the binding graph reaches the kept tool
+    through the exact definition locator the reader recorded.
+    """
+
+    def definition(tool: Tool) -> tuple[str, str] | None:
+        return (tool.source_type, tool.source_location) if tool.source_location else None
+
+    native: dict[tuple[str, str], Tool] = {}
+    first_imported: dict[tuple[str, str], Tool] = {}
+    for loaded in loaded_sources:
+        for tool in loaded.tools:
+            key = definition(tool)
+            if key is None:
+                continue
+            if tool.extraction.get("imported_definition"):
+                first_imported.setdefault(key, tool)
+            else:
+                native.setdefault(key, tool)
+    kept = {**first_imported, **native}
+    result: list[LoadedToolSource] = []
+    for loaded in loaded_sources:
+        tools: list[Tool] = []
+        for tool in loaded.tools:
+            key = definition(tool)
+            winner = kept.get(key) if key is not None else None
+            if winner is None or winner is tool or not tool.extraction.get("imported_definition"):
+                tools.append(tool)
+                continue
+            if winner.source_id == tool.source_id:
+                tools.append(tool)
+                continue
+            evidence = winner.extraction.setdefault("import_resolutions", [])
+            for item in tool.extraction.get("import_resolutions", []):
+                if item not in evidence:
+                    evidence.append(item)
+        result.append(
+            loaded if len(tools) == len(loaded.tools) else loaded.model_copy(update={"tools": tools})
+        )
+    return result
 
 
 def _flatten_and_deduplicate_tools(

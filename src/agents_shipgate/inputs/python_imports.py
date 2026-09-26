@@ -57,6 +57,7 @@ NOT_A_FUNCTION = "not_a_function"
 LINKED_MODULE = "linked_module"
 UNREADABLE_MODULE = "unreadable_module"
 RESOLUTION_LIMIT = "resolution_limit"
+LOCAL_BINDING = "local_binding"
 
 #: Distinct modules one resolver will parse, and lookups one reference may
 #: take. A repository-local tool is normally one or two hops away; the bounds
@@ -274,6 +275,11 @@ class ImportResolver:
                 NOT_BOUND if not steps else NAME_NOT_DEFINED,
                 f"{module.ref} does not define {name!r}",
             )
+        if len(bindings) > 1 and _same_package_imports(bindings, name):
+            # ``import a.b`` and ``import a.c`` both bind ``a`` to one package:
+            # not a rebinding. Follow the statement that imports the longest
+            # prefix of this reference.
+            bindings = [_longest_import_prefix(bindings, parts)]
         if len(bindings) > 1:
             lines = ", ".join(
                 str(line) for line in sorted({_line(item.statement) for item in bindings})
@@ -305,7 +311,17 @@ class ImportResolver:
             statement = binding.statement
             steps.append({**step, "binding": "import"})
             if isinstance(statement, ast.Import):
-                dotted = node.name if node.asname else node.name.split(".", 1)[0]
+                imported = node.name.split(".")
+                if not node.asname and len(imported) > 1 and parts[: len(imported)] == imported:
+                    # ``import a.b`` then ``a.b.f``: the import system sets
+                    # ``a.b`` to the submodule after ``a/__init__`` runs, so
+                    # a binding of ``b`` in the package cannot answer (#879
+                    # review).
+                    container = self._absolute(module, node.name)
+                    return self._member(
+                        container, parts[len(imported):], steps, seen, spelling=node.name
+                    )
+                dotted = node.name if node.asname else imported[0]
                 container = self._absolute(module, dotted)
                 return self._member(container, rest, steps, seen, spelling=dotted)
             assert isinstance(statement, ast.ImportFrom)
@@ -613,6 +629,25 @@ def _imports_own_submodule(module: PythonModule, name: str) -> bool:
     )
 
 
+def _same_package_imports(bindings: list[_Binding], name: str) -> bool:
+    return all(
+        isinstance(item.node, ast.alias)
+        and isinstance(item.statement, ast.Import)
+        and item.node.asname is None
+        and item.node.name.split(".", 1)[0] == name
+        and item.top_level
+        for item in bindings
+    )
+
+
+def _longest_import_prefix(bindings: list[_Binding], parts: list[str]) -> _Binding:
+    def matched(item: _Binding) -> int:
+        imported = item.node.name.split(".")  # type: ignore[union-attr]
+        return len(imported) if parts[: len(imported)] == imported else 0
+
+    return max(bindings, key=lambda item: (matched(item), -_line(item.statement)))
+
+
 def _join(spelling: str, name: str) -> str:
     return f"{spelling}{name}" if spelling.endswith(".") else f"{spelling}.{name}"
 
@@ -645,65 +680,165 @@ def _module_bindings(tree: ast.Module) -> tuple[dict[str, list[_Binding]], bool]
     Function, class, lambda and comprehension bodies bind their own scopes and
     are skipped, except that ``global name`` inside them rebinds the module's
     ``name`` out of view — which is recorded, so it can never be proven.
+
+    One traversal carries each node's nearest statement and whether it is
+    inside a nested scope, so the cost is linear in the tree: walking up a
+    parent chain per node cost nodes × depth, which a deeply nested module
+    turned into tens of seconds (#879 review).
     """
 
-    parents: dict[ast.AST, ast.AST] = {
-        child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)
-    }
     body = set(map(id, tree.body))
     bindings: dict[str, list[_Binding]] = {}
     star_import = False
-
-    def statement_of(node: ast.AST) -> ast.stmt:
-        current = node
-        while not isinstance(current, ast.stmt):
-            current = parents[current]
-        return current
-
-    def module_scoped(node: ast.AST) -> bool:
-        current = parents.get(node)
-        while current is not None and current is not tree:
-            if isinstance(current, _SCOPE_NODES):
-                return False
-            current = parents.get(current)
-        return True
 
     def record(name: str, node: ast.AST, statement: ast.stmt, *, top: bool) -> None:
         bindings.setdefault(name, []).append(
             _Binding(node=node, statement=statement, top_level=top and id(statement) in body)
         )
 
-    for node in ast.walk(tree):
+    stack: list[tuple[ast.AST, bool, ast.stmt | None]] = [
+        (child, False, None) for child in reversed(tree.body)
+    ]
+    while stack:
+        node, nested, enclosing = stack.pop()
+        statement = node if isinstance(node, ast.stmt) else enclosing
         if isinstance(node, ast.Global):
             for name in node.names:
                 record(name, node, node, top=False)
             continue
-        if not module_scoped(node):
-            continue
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
-            record(node.name, node, node, top=True)
-        elif isinstance(node, ast.alias):
-            statement = statement_of(node)
-            if node.name == "*":
-                star_import = True
-                continue
-            name = node.asname or node.name.split(".", 1)[0]
-            record(name, node, statement, top=True)
-        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store | ast.Del):
-            statement = statement_of(node)
-            simple = (
-                isinstance(statement, ast.Assign)
-                and len(statement.targets) == 1
-                and statement.targets[0] is node
-            ) or (isinstance(statement, ast.AnnAssign) and statement.target is node)
-            record(node.id, node, statement, top=simple)
-        elif isinstance(node, ast.ExceptHandler) and node.name:
-            record(node.name, node, statement_of(node), top=False)
-        elif isinstance(node, ast.MatchAs | ast.MatchStar) and node.name:
-            record(node.name, node, statement_of(node), top=False)
-        elif isinstance(node, ast.MatchMapping) and node.rest:
-            record(node.rest, node, statement_of(node), top=False)
+        if not nested and statement is not None:
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                record(node.name, node, node, top=True)
+            elif isinstance(node, ast.alias):
+                if node.name == "*":
+                    star_import = True
+                else:
+                    name = node.asname or node.name.split(".", 1)[0]
+                    record(name, node, statement, top=True)
+            elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store | ast.Del):
+                simple = (
+                    isinstance(statement, ast.Assign)
+                    and len(statement.targets) == 1
+                    and statement.targets[0] is node
+                ) or (isinstance(statement, ast.AnnAssign) and statement.target is node)
+                record(node.id, node, statement, top=simple)
+            elif isinstance(node, ast.ExceptHandler) and node.name:
+                record(node.name, node, statement, top=False)
+            elif isinstance(node, ast.MatchAs | ast.MatchStar) and node.name:
+                record(node.name, node, statement, top=False)
+            elif isinstance(node, ast.MatchMapping) and node.rest:
+                record(node.rest, node, statement, top=False)
+        inner = nested or isinstance(node, _SCOPE_NODES)
+        children = list(ast.iter_child_nodes(node))
+        stack.extend((child, inner, statement) for child in reversed(children))
     return bindings, star_import
+
+
+class ScopeIndex:
+    """Which enclosing function scope, if any, binds a name used at a node.
+
+    A reader resolves a tool reference through the *module's* imports. When the
+    reference sits inside a function that binds the same name itself — a local
+    ``from support import lookup``, a nested ``def lookup``, a parameter — the
+    module-scope binding is not the one Python uses there (#879 review).
+    """
+
+    def __init__(self, tree: ast.Module) -> None:
+        self.parents: dict[ast.AST, ast.AST] = {
+            child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)
+        }
+        self._scopes: dict[int, tuple[dict[str, ast.AST], set[str]]] = {}
+
+    def enclosing_binding(self, node: ast.AST, name: str) -> ast.AST | None:
+        """The nearest enclosing non-module binding of ``name`` visible at ``node``.
+
+        Class bodies are consulted only for code directly in them, as Python
+        does. A ``global name`` in the binding function hands ``name`` back to
+        the module, so None is returned for it.
+        """
+
+        current = self.parents.get(node)
+        passed_function = False
+        while current is not None and not isinstance(current, ast.Module):
+            if isinstance(current, _SCOPE_NODES) and not (
+                isinstance(current, ast.ClassDef) and passed_function
+            ):
+                bound, declared_global = self._scope(current)
+                if name in declared_global:
+                    return None
+                if name in bound:
+                    return bound[name]
+                if not isinstance(current, ast.ClassDef):
+                    passed_function = True
+            current = self.parents.get(current)
+        return None
+
+    def _scope(self, scope: ast.AST) -> tuple[dict[str, ast.AST], set[str]]:
+        cached = self._scopes.get(id(scope))
+        if cached is not None:
+            return cached
+        bound: dict[str, ast.AST] = {}
+        declared_global: set[str] = set()
+
+        def bind(name: str, node: ast.AST) -> None:
+            bound.setdefault(name, node)
+
+        arguments = getattr(scope, "args", None)
+        if isinstance(arguments, ast.arguments):
+            for arg in [
+                *arguments.posonlyargs,
+                *arguments.args,
+                *arguments.kwonlyargs,
+                *([arguments.vararg] if arguments.vararg else []),
+                *([arguments.kwarg] if arguments.kwarg else []),
+            ]:
+                bind(arg.arg, arg)
+        if isinstance(scope, ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp):
+            roots: list[ast.AST] = [gen.target for gen in scope.generators]
+        elif isinstance(scope, ast.Lambda):
+            roots = []
+        else:
+            roots = list(getattr(scope, "body", []))
+        stack = list(reversed(roots))
+        while stack:
+            node = stack.pop()
+            if isinstance(node, ast.Global | ast.Nonlocal):
+                declared_global.update(node.names)
+                continue
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                bind(node.name, node)
+                continue
+            if isinstance(node, ast.Lambda | ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp):
+                continue
+            if isinstance(node, ast.alias) and node.name != "*":
+                bind(node.asname or node.name.split(".", 1)[0], node)
+            elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                bind(node.id, node)
+            elif isinstance(node, ast.ExceptHandler) and node.name:
+                bind(node.name, node)
+            elif isinstance(node, ast.MatchAs | ast.MatchStar) and node.name:
+                bind(node.name, node)
+            stack.extend(reversed(list(ast.iter_child_nodes(node))))
+        self._scopes[id(scope)] = (bound, declared_global)
+        return bound, declared_global
+
+
+def local_binding_detail(ref: str, name: str, node: ast.AST) -> str:
+    """The named reason for a reference a function binds for itself."""
+
+    kind = (
+        "a local import"
+        if isinstance(node, ast.alias)
+        else "a nested function"
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+        else "a parameter"
+        if isinstance(node, ast.arg)
+        else "a local assignment"
+    )
+    return (
+        f"{name!r} is bound by {kind} in the enclosing function at "
+        f"{ref}:{_line(node)}, which is not followed"
+    )
 
 
 __all__ = [
@@ -712,6 +847,7 @@ __all__ = [
     "IMPORT_CYCLE",
     "ImportResolver",
     "LINKED_MODULE",
+    "LOCAL_BINDING",
     "MODULE_NOT_FOUND",
     "NAME_NOT_DEFINED",
     "NOT_A_FUNCTION",
@@ -722,6 +858,8 @@ __all__ = [
     "RESOLUTION_LIMIT",
     "Resolution",
     "STAR_IMPORT",
+    "ScopeIndex",
     "UNREADABLE_MODULE",
+    "local_binding_detail",
     "reference_spelling",
 ]
