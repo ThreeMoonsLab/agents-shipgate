@@ -84,12 +84,111 @@ that uses them, so an import in another function does not decide it; LiveKit's
 relative `.agents` import is the project's own package.
 
 Discovery is bounded by `--max-python-files` (default 1000) and a 2 MB per-Python
-file limit. Partial discovery remains visible. The first increment uses existing
-SDK/ADK readers; unresolved imports, dynamic factories and built-ins remain
-explicit reader limitations. It does not support other application frameworks
-yet. Indirect helper effects, runtime loading, deployed reachability and business
-authority are outside this comparison. It grants no release or merge permission
-and cannot stand in for a reviewed verifier base or qualification evidence.
+file limit. Partial discovery remains visible. The readers follow tools imported
+from other modules inside the selected scope (next section); dynamic factories,
+built-ins and imports they cannot follow remain explicit reader limitations. It
+does not support other application frameworks yet. Indirect helper effects,
+runtime loading, deployed reachability and business authority are outside this
+comparison. It grants no release or merge permission and cannot stand in for a
+reviewed verifier base or qualification evidence.
+
+## Tools imported from other modules
+
+An agent often binds a function defined elsewhere in the repository:
+
+```python
+from . import memory_bank
+from ..tools.shop import add_to_cart
+
+root_agent = Agent(name="orchestrator", tools=[memory_bank.remember_firm_finding])
+checkout_agent = Agent(name="checkout", tools=[add_to_cart])
+```
+
+Both readers follow such a reference to its definition: a name imported from a
+sibling module or re-exported by a package's `__init__.py`, a module-qualified
+`module.function`, a plain `alias = function`, and, for Google ADK,
+`FunctionTool(imported_function)` / `LongRunningFunctionTool(...)`, including a
+wrapper built in the imported module. The row then
+shows the definition's own signature, location and implementation digest, and
+adds `import_path`: each module read, the line of the binding followed, and that
+module's SHA-256. `import_path` is evidence, not compared meaning — moving an
+import is not a change. An OpenAI Agents SDK definition must carry the SDK's
+`@function_tool`.
+
+The boundary is narrow. Only regular `.py` files inside the selected scope are
+read, parsed with `ast` and never imported or run. Symbolic links are not
+followed, and a module name must match a file's exact spelling. An absolute
+module name is looked up from the importing file's directory and each parent up
+to the scope, and — when the scope is itself a package — from the scope's
+parent for names starting with the scope's own package name. A name has to be
+bound exactly once, directly in the module body, in every module on the way; a
+package's own `from . import submodule`, even under `if TYPE_CHECKING:`, names
+that submodule, and a module-level `__getattr__` is not evaluated — a tool
+reached past one is named but, for `scan`, not counted as proven.
+
+`import a.b` followed by `a.b.f` reads the submodule `a/b.py`, which is what
+the import system guarantees after `a/__init__.py` runs, even when the package
+binds a `b` of its own; several `import a.x` statements bind one package and
+are not a rebinding. A reference is read where it is used: a function that
+builds the agent and imports the name itself (`from support import lookup`
+inside the builder) is followed through that import, like a module-level one,
+and `nonlocal` follows the outer function's binding. A function defined inside
+the builder, when it is the only definition of its name, is that nested
+definition. A module-level agent binds what the module binds at top level (its
+`def`, its import, its wrapper assignment), never a same-named `def` or wrapper
+nested in some function. A parameter, another local assignment, or a name the
+builder binds more than once is a named stop, never the module's binding. A
+factory's own `toolset = McpToolset(...)` or `tool = FunctionTool(...)` is read
+like a module-level one. `tools.lookup = tools.dangerous` or
+`setattr(tools, ...)` in the module that binds `tools.lookup`, or a
+reassignment of an attribute named `lookup` on an imported module in the
+`__init__.py` of a package that encloses the defining module, or in a module
+that `__init__.py` imports relatively (both run before the module is used),
+makes that reference a named stop, and so does such a module that cannot be
+read (a link, or a missing file not imported under `except ImportError`). An
+import that climbs above the scope is the read's boundary, as it is for every
+import. A rebinding in any other module is not looked for.
+When the module binds a name more than once or only inside an `if`, the Google
+ADK reader still names the same-named `def` or wrapper it found, for `scan`,
+but that binding is never established: its row is `not_established` on
+whichever side it is present, and so is the row of every tool the module's
+bindings of that name could give the agent instead, each followed to its
+definition (a function imported from outside the scope by its imported name) —
+every one of the agent's rows when one of those cannot be followed or a
+wildcard import could bind the name. `x = FunctionTool(func=x)` right after
+`def x` wraps that `def`; it is not a guess.
+
+An OpenAI Agents SDK `tools=NAME` or `handoffs=NAME` is read through the scope
+that binds `NAME` where the agent is constructed: a builder's own list, a class
+body's own list, or the module's. It is read only when that scope binds it
+once, to a literal list, and every use of that binding in the file only reads
+it: iterated, indexed, compared, tested, formatted, spread (`[*TOOLS, x]`),
+handed to a read-only builtin or logging method, to an agent's (or a copy's)
+own `tools=`, or to a function whose every use of that parameter is such a
+read. A list method, `+=`, a `global` or `nonlocal` rebinding, a subscript
+store, a second name (also through `x or y`), a tuple, a return, `*args` or a
+`globals()`/`vars()` call in the module makes it a dynamic tools expression. The names in a module-level list are read at module level, whatever
+the function that builds the agent imports.
+
+A reference that does not reach one definition stays an unresolved tool, named
+with its reason (`Not resolved because …` in the gap) and scoped to each agent
+that lists it: a module the scope does not contain, a relative import above the
+scope, more than one matching module location, a name bound twice or only
+inside an `if`/`try`, a wildcard import, an import cycle, a class or other
+value, a parameter or local assignment of the enclosing scope, a symbolic link, a module that
+does not parse, or more than 64 modules read. Two agents binding same-named
+functions from different modules keep two tools. One agent binding two
+different functions under one name binds neither, whatever their order in the
+list; its rows for that name are `not_established`. For `scan`, a definition an
+import reaches and another configured source also reads is one catalog tool,
+when both spell the module's path the same way; a Google ADK source configured
+as a directory records no file for its tools and is not matched. A source an
+inventory completes keeps its own observation, so the completion joins it.
+
+A row compares a definition's signature and implementation digest, not the
+module it lives in: moving a function is not a change. So retargeting a binding
+between two functions whose definitions are the same text in different modules
+shows no row, even when the modules differ in what the function body refers to.
 
 ## Evidence identity and recovery
 
@@ -97,7 +196,8 @@ and cannot stand in for a reviewed verifier base or qualification evidence.
 binding presence or only the implementation. Locations are relative to that
 side's selected scope. A partial result with no rows is not a no-change answer.
 Reader gaps are scoped to their input file unless typed agent evidence narrows
-them further; this does not infer cross-module bindings by matching names.
+them further; this does not infer cross-module bindings by matching names — a
+cross-module binding exists only where an import chain reaches its definition.
 
 Implementation digests hash the resolved function's AST, including defaults
 and decorators, excluding source positions and its leading docstring. Empty

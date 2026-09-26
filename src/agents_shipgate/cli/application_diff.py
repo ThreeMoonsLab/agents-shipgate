@@ -30,6 +30,7 @@ from agents_shipgate.cli.verify.git import (
 )
 from agents_shipgate.core.agent_bindings import resolve_agent_binding_graph
 from agents_shipgate.core.artifacts import ArtifactBag
+from agents_shipgate.core.domain import ANY_TOOL
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.privacy import sanitize_report_payload
 from agents_shipgate.core.verification_identity import build_engine_requirement
@@ -108,6 +109,20 @@ class Observations:
             ):
                 reasons.append(gap["reason"])
         return sorted(set(reasons))
+
+    def tool_gaps(self, key: tuple[str, str, str]) -> list[str]:
+        """Gaps naming this one binding, which even a present binding carries."""
+
+        return sorted(
+            {
+                gap["reason"]
+                for gap in self.coverage_gaps
+                if gap["affects"] == "binding_presence"
+                and gap["tool"] == key[2]
+                and gap["agent"] in (None, key[1])
+                and (gap["source"] is None or key[0] == gap["source"])
+            }
+        )
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -366,6 +381,18 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
                         agent=observation.agent,
                     )
                     attributed.add(message)
+            # A binding the reader made on a guess is reported, never as an
+            # established row: each tool the name may really be carries the
+            # reason on the side it is present, and the whole agent does when
+            # one of them cannot be named (#879 review).
+            for tool_name, message in observation.tool_issues.items():
+                result.gap(
+                    message,
+                    source=_source_path(root, observation.source),
+                    agent=observation.agent,
+                    tool=None if tool_name == ANY_TOOL else tool_name,
+                )
+                attributed.add(message)
         for warning in item.warnings:
             if warning not in attributed:
                 result.gap(warning, source=source.path)
@@ -373,9 +400,30 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
         for omission in item.omissions:
             result.gap(f"Omitted source surface: {omission}", source=source.path)
     if artifacts is not None:
+        # A tool reference the reader could not follow to a definition
+        # carries its agent and named reason beside the warning (#864): scope
+        # the gap to that agent and say why, rather than covering the file.
+        # One warning can stand for several agents: a module-level wrapper
+        # two agents share has one sentence. Every record gets its own gap, so
+        # no agent's uncertainty is carried by another's (#879 review).
+        unresolved: dict[str, list[dict[str, Any]]] = {}
+        for record in artifacts.unresolved_references:
+            if isinstance(record.get("warning"), str):
+                unresolved.setdefault(record["warning"], []).append(record)
         for warning in artifacts.warnings:
             if warning not in attributed:
-                result.gap(warning, source=source.path)
+                records = unresolved.get(warning)
+                if not records:
+                    result.gap(warning, source=source.path)
+                for record in records or []:
+                    detail = record["detail"]
+                    result.gap(
+                        warning
+                        if detail in warning
+                        else f"{warning} Not resolved because {detail}.",
+                        source=source.path,
+                        agent=record["agent_name"],
+                    )
                 attributed.add(warning)
     result.handoff_only |= handoff_targets - constructed
     tools, warnings = _build_canonical_tools(loaded)
@@ -450,6 +498,7 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
             "output_schema": tool.output_schema,
             "signature": tool.function_signature,
             "evidence_basis": edge.provenance_kind,
+            **_import_path(tool, key[0]),
         }
     for edge in graph.handoff_edges:
         source, target = agent_keys[edge.source_agent_id], agent_keys[edge.target_agent_id]
@@ -510,11 +559,31 @@ def _reconcile_unresolved_links(base: Observations, head: Observations) -> None:
                 side.gap(f"Linked input resolves outside the tree: {link}", source=link)
 
 
+def _import_path(tool: Any, agent_source: str) -> dict[str, Any]:
+    """How the agent's module reached a definition in another module (#864).
+
+    Each step names the module read, the line of the binding followed and that
+    module's digest. Evidence, not meaning: moving an import is not a change.
+    """
+    raw = tool.extraction.get("import_resolutions")
+    if not isinstance(raw, list):
+        return {}
+    paths = [
+        item
+        for item in raw
+        if isinstance(item, dict)
+        and item.get("steps")
+        and item["steps"][0].get("path") == agent_source
+    ]
+    return {"import_path": paths} if paths else {}
+
+
 def _meaning(binding: dict[str, Any]) -> dict[str, Any]:
     return {
         k: v
         for k, v in binding.items()
-        if k not in {"binding_location", "definition", "evidence_basis", "agent_source"}
+        if k
+        not in {"binding_location", "definition", "evidence_basis", "agent_source", "import_path"}
     } | {"implementation_sha256": binding.get("definition", {}).get("implementation_sha256")}
 
 
@@ -530,10 +599,16 @@ def compare(
             reasons = base.absence_gaps(key, target_moves)
             if reasons:
                 uncertainty["base"] = reasons
+            present = head.tool_gaps(key)
+            if present:
+                uncertainty["head"] = present
         elif after is None:
             reasons = head.absence_gaps(key)
             if reasons:
                 uncertainty["head"] = reasons
+            present = base.tool_gaps(key)
+            if present:
+                uncertainty["base"] = present
         else:
             before_meaning = _meaning(before)
             if "target_source" in before_meaning:
@@ -542,6 +617,10 @@ def compare(
             for side, value in (("base", before), ("head", after)):
                 if "definition" in value and value["definition"]["implementation_sha256"] is None:
                     uncertainty[side] = ["The bound callable's implementation could not be read."]
+            for side, observed in (("base", base), ("head", head)):
+                reasons = observed.tool_gaps(key)
+                if reasons:
+                    uncertainty.setdefault(side, []).extend(reasons)
             if before_meaning == _meaning(after) and not uncertainty:
                 continue
         candidate_change = kind
@@ -735,6 +814,25 @@ def _published_binding(binding: dict[str, Any] | None, scope: str) -> dict[str, 
     if "definition" in result:
         result["definition"] = dict(result["definition"])
         result["definition"]["source"] = _location(scope, result["definition"]["source"])
+    if "import_path" in result:
+        result["import_path"] = [
+            {
+                **item,
+                "steps": [
+                    {**step, "path": _location(scope, step["path"])} for step in item["steps"]
+                ],
+                "inputs": [
+                    {**entry, "path": _location(scope, entry["path"])}
+                    for entry in item.get("inputs", [])
+                ],
+                **(
+                    {"definition": _location(scope, item["definition"])}
+                    if "definition" in item
+                    else {}
+                ),
+            }
+            for item in result["import_path"]
+        ]
     return result
 
 
@@ -886,6 +984,13 @@ def run_application_diff(
                         typer.echo(
                             f"    implementation: {_one_line(definition['source'])}:{definition['line']} ({str(definition['implementation_sha256'])[:12]})"
                         )
+                    for path in value.get("import_path", []):
+                        hops = " → ".join(
+                            f"{step['path']}:{step['line']}"
+                            for step in path["steps"]
+                            if step.get("line") is not None
+                        )
+                        typer.echo(f"    imported: {_one_line(hops)}")
             typer.echo(f"  {_one_line(row['why'])}")
             for side, reasons in row["uncertainty"].items():
                 for reason in reasons:

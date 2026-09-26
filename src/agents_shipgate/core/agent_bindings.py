@@ -86,6 +86,9 @@ class _RawToolEdge:
     source: str
     source_pointer: str | None
     complete: bool
+    #: The native locator of the definition the reader resolved this name to,
+    #: when it knows one. It only ever narrows a name match (#864).
+    tool_locator: str | None = None
 
 
 @dataclass(frozen=True)
@@ -219,6 +222,20 @@ def resolve_agent_binding_graph(
                 or tool.annotations.get("n8n_workflow_id") == raw.source_id
             )
         ]
+        if not matches and raw.tool_locator is not None:
+            # The reader resolved this name to one definition that another
+            # source of the same run read natively, and the catalog kept that
+            # source's observation (#879 review). The locator names the exact
+            # definition — module and tool name — so this is identity, not a
+            # name join; it applies only when the edge's own source has none.
+            matches = [tool for tool in tools if tool.native_locator == raw.tool_locator]
+        if len(matches) > 1 and raw.tool_locator is not None:
+            # Same-named definitions in different modules stay distinct: the
+            # reader said which definition this agent binds. A locator never
+            # widens a match, and a name it cannot narrow stays ambiguous.
+            located = [tool for tool in matches if tool.native_locator == raw.tool_locator]
+            if len(located) == 1:
+                matches = located
         if len(matches) != 1:
             issues.append(
                 AgentBindingIssue(
@@ -664,6 +681,7 @@ def _observations(
                         observation.source,
                         observation.source_pointer,
                         observation.tools_complete,
+                        observation.tool_locators.get(tool_name),
                     )
                 )
             for target_agent in observation.handoff_names:

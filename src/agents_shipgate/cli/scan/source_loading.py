@@ -8,7 +8,7 @@ from typing import Any
 from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.domain import LoadedToolSource, Tool
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.core.tool_identity import build_tool_identity_catalog
+from agents_shipgate.core.tool_identity import build_tool_identity_catalog, source_observation_id
 from agents_shipgate.inputs.protocol import REGISTRY, LoadedAdapterResult, ToolSourceAdapter
 from agents_shipgate.schemas.manifest import (
     AgentsShipgateManifest,
@@ -212,7 +212,7 @@ def _load_sources(
             configured_ids_by_source_id=configured_ids_by_source_id,
         )
 
-    return per_source_loaded + per_scan_loaded, bag
+    return _one_observation_per_imported_definition(per_source_loaded + per_scan_loaded), bag
 
 
 def _tool_source_index(
@@ -389,6 +389,91 @@ def _build_canonical_tools(
         identity_config or ToolIdentityConfig(),
         repeated_artifacts,
     )
+
+
+def _one_observation_per_imported_definition(
+    loaded_sources: list[LoadedToolSource],
+) -> list[LoadedToolSource]:
+    """Drop a second observation of one definition that an import minted (#864).
+
+    Applied once where ``scan`` and ``inspect`` load their sources, so guard
+    association, inventory completion and the catalog all see the same tools.
+
+    A reader follows ``tools=[...]`` into a sibling module and mints that
+    definition as a tool of its own source. When another source of the run
+    reads that module too — ``init --local-review`` scaffolds one source per
+    file — the catalog would hold the function twice under two providers, and a
+    ``{tool: lookup}`` selector would match both (#879 review). The observation
+    a source made of its own file wins; otherwise the first source's. Its
+    import evidence is kept, and the binding graph reaches the kept tool
+    through the exact definition locator the reader recorded.
+    """
+
+    def definition(tool: Tool) -> tuple[str, str] | None:
+        if not tool.source_location:
+            return None
+        location = tool.source_location.replace("\\", "/")
+        while location.startswith("./"):
+            location = location[2:]
+        return (tool.source_type, location)
+
+    # An inventory that completes a source joins that source's own tools by
+    # name, so its observations stay where the completion expects them.
+    completed = {
+        completes.strip()
+        for loaded in loaded_sources
+        if (completes := (loaded.completes_source_id or "").strip())
+    }
+
+    native: dict[tuple[str, str], Tool] = {}
+    first_imported: dict[tuple[str, str], Tool] = {}
+    for loaded in loaded_sources:
+        for tool in loaded.tools:
+            key = definition(tool)
+            if key is None:
+                continue
+            if tool.extraction.get("imported_definition"):
+                first_imported.setdefault(key, tool)
+            else:
+                native.setdefault(key, tool)
+    kept = {**first_imported, **native}
+    result: list[LoadedToolSource] = []
+    for loaded in loaded_sources:
+        tools: list[Tool] = []
+        dropped: set[str] = set()
+        for tool in loaded.tools:
+            key = definition(tool)
+            winner = kept.get(key) if key is not None else None
+            if winner is None or winner is tool or not tool.extraction.get("imported_definition"):
+                tools.append(tool)
+                continue
+            if winner.source_id == tool.source_id or tool.source_id in completed:
+                tools.append(tool)
+                continue
+            dropped.add(source_observation_id(tool, tool.source_id or ""))
+            evidence = winner.extraction.setdefault("import_resolutions", [])
+            for item in tool.extraction.get("import_resolutions", []):
+                if item not in evidence:
+                    evidence.append(item)
+        if len(tools) == len(loaded.tools):
+            result.append(loaded)
+            continue
+        # The dropped copy's guard evidence goes with it: the kept tool's own
+        # source reads the same guard, and a row for an observation no tool
+        # carries any more reads as an ambiguous guard (#879 review).
+        result.append(
+            loaded.model_copy(
+                update={
+                    "tools": tools,
+                    "guard_dependencies": [
+                        item
+                        for item in loaded.guard_dependencies
+                        if item.observation_id not in dropped
+                    ],
+                }
+            )
+        )
+    return result
 
 
 def _flatten_and_deduplicate_tools(
