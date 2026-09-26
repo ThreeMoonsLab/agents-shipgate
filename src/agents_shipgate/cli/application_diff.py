@@ -12,6 +12,7 @@ import json
 import os
 import sys
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -20,6 +21,7 @@ import typer
 
 from agents_shipgate.cli.discovery import detect_workspace
 from agents_shipgate.cli.discovery.artifacts import _candidate_files, _skip_part
+from agents_shipgate.cli.discovery.signals import _is_test_path
 from agents_shipgate.cli.scan.source_loading import _build_canonical_tools
 from agents_shipgate.cli.verify.git import (
     PromisedObjectsMissingError,
@@ -28,9 +30,10 @@ from agents_shipgate.cli.verify.git import (
     ensure_git_workspace,
     tree_sha,
 )
+from agents_shipgate.core.adopter_text import DUPLICATE_TOOL_IN_SOURCE
 from agents_shipgate.core.agent_bindings import resolve_agent_binding_graph
 from agents_shipgate.core.artifacts import ArtifactBag
-from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.privacy import sanitize_report_payload
 from agents_shipgate.core.verification_identity import build_engine_requirement
 from agents_shipgate.inputs.google_adk import load_google_adk_artifacts
@@ -40,6 +43,8 @@ from agents_shipgate.schemas.manifest import ToolSourceConfig
 SUPPORTED = frozenset({"openai_agents_sdk", "google_adk"})
 SCHEMA_VERSION = "0.1"
 MAX_PYTHON_BYTES = 2_000_000
+#: How many excluded test files the limit that names them lists by path.
+TEST_PATHS_SHOWN = 5
 
 
 def _digest(value: Any) -> str:
@@ -221,13 +226,21 @@ def observe(
     if not root.is_relative_to(tree.resolve()):
         raise ConfigError(f"Application scope escapes its tree: {scope}")
     python_files = [p for p in _candidate_files(root) if p.suffix == ".py"]
+
+    def is_test(relative: str) -> bool:
+        # A scope selected inside a test directory was chosen to be read.
+        return not in_tests and _is_test_path(relative)
+
+    in_tests = scope != "." and _is_test_path(f"{scope}/__init__.py")
     for file in python_files:
+        if is_test(file.relative_to(root).as_posix()):
+            continue
         if file.stat().st_size > MAX_PYTHON_BYTES:
             result.gap(f"Python input exceeds {MAX_PYTHON_BYTES} bytes: {file.relative_to(root)}")
     if result.limits:
         result.status = "partial"
         return result
-    linked = _observe_links(result, tree.resolve(), root, python_files)
+    linked = _observe_links(result, tree.resolve(), root, python_files, is_test)
     detected = detect_workspace(root, max_python_files=max_python_files)
     if detected.python_parse_truncated:
         result.gap(f"Python discovery truncated at {max_python_files} files.")
@@ -236,13 +249,15 @@ def observe(
     # conceal a host path, `CLAUDE.md -> AGENTS.md` included. The links that can
     # conceal application source were censused above, by `_observe_links`.
     for item in detected.excluded_sources:
-        result.gap(f"Excluded candidate: {item}", source=item.get("path"))
+        if not is_test(str(item.get("path") or "")):
+            result.gap(f"Excluded candidate: {item}", source=item.get("path"))
     # Discovery omits malformed Python; preserve that gap rather than an empty
     # candidate list becoming negative evidence. Bound this second parse too.
     if len(python_files) > max_python_files:
         result.gap(f"Python input census exceeds {max_python_files} files.")
     for file in python_files[:max_python_files]:
-        if file.relative_to(root).as_posix() in linked:
+        relative = file.relative_to(root).as_posix()
+        if relative in linked or is_test(relative):
             continue
         try:
             ast.parse(file.read_bytes())
@@ -254,19 +269,32 @@ def observe(
     for framework in detected.frameworks:
         if framework.type not in SUPPORTED and framework.candidate_files:
             for path in framework.candidate_files:
+                if is_test(path):
+                    continue
                 result.gap(
                     f"Application comparison does not yet support {framework.type}: {path}",
                     source=path,
                 )
-    entries = sorted(
-        {
-            (f.type, p)
-            for f in detected.frameworks
-            if f.type in SUPPORTED
-            for p in f.candidate_files
-            if p not in linked
-        }
-    )
+    candidates = {
+        (f.type, p)
+        for f in detected.frameworks
+        if f.type in SUPPORTED
+        for p in f.candidate_files
+        if p not in linked
+    }
+    # Test code does not establish the application (#876): a test double
+    # with resolvable tools made a scope whose real agents went unread
+    # `compared`, and a tool name a test defines twice refused the whole
+    # comparison. Tests are named, never read and never a gap.
+    tests = sorted({path for _, path in candidates if is_test(path)})
+    if tests:
+        shown = ", ".join(tests[:TEST_PATHS_SHOWN])
+        more = len(tests) - TEST_PATHS_SHOWN
+        result.limits.append(
+            f"Test code is not read as the application ({len(tests)} file(s)): {shown}"
+            + (f", and {more} more" if more > 0 else "")
+        )
+    entries = sorted((kind, path) for kind, path in candidates if path not in tests)
     sources = [
         ToolSourceConfig(id=f"{kind}:{path}", type=kind, path=path) for kind, path in entries
     ]
@@ -284,7 +312,11 @@ def _resolved(path: Path) -> Path | None:
 
 
 def _observe_links(
-    result: Observations, tree: Path, root: Path, python_files: list[Path]
+    result: Observations,
+    tree: Path,
+    root: Path,
+    python_files: list[Path],
+    is_test: Callable[[str], bool],
 ) -> set[str]:
     """Census every link under the scope, and gap the ones that hide source.
 
@@ -315,6 +347,11 @@ def _observe_links(
                 continue
             relative = path.relative_to(root).as_posix()
             target = _resolved(path)
+            # A directory is test code when a module inside it is.
+            if is_test(relative if name.endswith(".py") else f"{relative}/__init__.py"):
+                if name.endswith(".py"):
+                    linked_python.add(relative)
+                continue
             if name.endswith(".py"):
                 linked_python.add(relative)
                 if target not in read_directly:
@@ -353,10 +390,18 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
             bag.set("google_adk", artifacts)
     attributed = set()
     constructed, handoff_targets = set(), set()
+    sites: dict[tuple[str, str], set[str | None]] = {}
     for item in loaded:
+        for construction in item.unread_agent_constructions:
+            # Unattributed to an agent: which agent it is, on either side, is
+            # exactly what the reader could not say.
+            result.gap(construction.reason, source=_source_path(root, construction.source))
         for observation in item.binding_observations:
             path = _source_path(root, observation.source)
             constructed.add((path, observation.agent))
+            sites.setdefault((path, observation.agent), set()).update(
+                {observation.source_pointer, *observation.construction_pointers}
+            )
             handoff_targets.update((path, name) for name in observation.handoff_names)
             if not observation.tools_complete or not observation.handoffs_complete:
                 for message in observation.issues or ["Incomplete observed binding list."]:
@@ -378,7 +423,22 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
                 result.gap(warning, source=source.path)
                 attributed.add(warning)
     result.handoff_only |= handoff_targets - constructed
-    tools, warnings = _build_canonical_tools(loaded)
+    # The graph merges constructions that share an identity into one agent
+    # binding the union of their tools. Each union binding is true of some
+    # construction, so it is kept; the gap is what stops a tool moved between
+    # two `return Agent(name="x", ...)` variants from reading as no change.
+    merged = set()
+    for key, pointers in sorted(sites.items()):
+        if len(pointers - {None}) > 1:
+            result.gap(
+                f"Agent {key[1]!r} is constructed at "
+                f"{', '.join(sorted(p for p in pointers if p is not None))}; which "
+                "construction binds which tool is not established.",
+                source=key[0],
+                agent=key[1],
+            )
+            merged.add(key)
+    tools, warnings = _canonical_tools(result, source, loaded)
     for warning in warnings:
         result.gap(warning, source=source.path)
     graph, _ = resolve_agent_binding_graph(None, tools, bag, loaded)
@@ -429,6 +489,8 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
         binding_key = (*key, tool.name)
         if binding_key in ambiguous_bindings:
             continue
+        if binding_key in result.bindings and key in merged:
+            continue  # Two constructions of one merged agent bind this tool.
         if binding_key in result.bindings:
             result.gap(
                 f"Ambiguous tool identity: {binding_key}",
@@ -465,6 +527,38 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
             "binding_location": edge.source_pointer,
             "evidence_basis": edge.provenance_kind,
         }
+
+
+def _canonical_tools(
+    result: Observations, source: ToolSourceConfig, loaded: list[Any]
+) -> tuple[list[Any], list[str]]:
+    """Build one source's catalog; a tool name defined twice is a limit.
+
+    The catalog refuses a duplicate definition, which is right for a reviewed
+    manifest and wrong here: one file defining `_tool` twice refused every
+    other agent's comparison (#876). The duplicate name is dropped from this
+    source, so no agent binds either definition, and named as a gap over the
+    rows that bind that name in this file.
+    """
+
+    while True:
+        try:
+            return _build_canonical_tools(loaded)
+        except InputParseError as error:
+            if error.details.get("failure") != DUPLICATE_TOOL_IN_SOURCE:
+                raise
+            name = error.details["tool_name"]
+            before = sum(len(item.tools) for item in loaded)
+            for item in loaded:
+                item.tools = [tool for tool in item.tools if tool.name != name]
+            if sum(len(item.tools) for item in loaded) == before:
+                raise
+            result.gap(
+                f"{source.path} defines the tool {name!r} more than once; which "
+                "definition an agent binds is not established.",
+                source=source.path,
+                tool=name,
+            )
 
 
 def _reconcile_submodules(base: Observations, head: Observations) -> None:

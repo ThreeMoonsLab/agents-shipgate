@@ -57,9 +57,11 @@ requested and compared refs/tree IDs, per-side scope/coverage, rows, source
 correspondence, and a deterministic `comparison_id`. This is a separate advisory
 artifact from the existing host diff JSON and verifier receipt.
 
-- `compared`: the selected supported source observations were compared. An
-  unchanged submodule may still be named in `limits` (see below); it cannot
-  carry a change, so it does not make the comparison `partial`.
+- `compared`: the selected supported source observations were compared, and
+  every agent construction in the scope was established. An unchanged
+  submodule or excluded test code may still be named in `limits` (see below);
+  neither can carry an application change, so it does not make the comparison
+  `partial`.
 - `partial`: a parse/discovery/binding gap remains. Gaps identify their source
   and agent where known. Only affected candidates become `change: not_established`
   rows, carrying `candidate_change` and per-side `uncertainty`; independent known
@@ -71,10 +73,87 @@ artifact from the existing host diff JSON and verifier receipt.
 An agent one side observes is absent from the other only when that side's
 file no longer names it. If the file still assigns or imports the agent's name
 (`from factory import agent`), or passes it as `name=`, through a construction the reader does not support (an `Agent`
-subclass passing `tools` through `super().__init__`, a factory,
+subclass passing `tools` through `super().__init__`, a factory's result,
 `Agent[Context](...)`, `.clone()`), that side records a gap for the agent and
 its rows are `not_established`, never `removed` or `added`. An agent referenced
 only in another agent's `handoffs` is not an observed construction.
+
+### Agent constructions
+
+An unobserved agent is not "no change". The OpenAI Agents SDK reader
+establishes two forms of `Agent(...)`:
+
+- `name = Agent(...)`, keyed by the name it is assigned to;
+- `return Agent(name="Quote", ...)` in a function or method, keyed by its
+  literal `name=`, with the same location, binding and implementation evidence
+  an assigned agent has. A builder's `tools=` parameter is supplied by its
+  caller, so it is a dynamic tools expression, never a module list that shares
+  its name.
+
+Either form's tools are not established when it unpacks arguments
+(`Agent(name="x", **config)`, `Agent(*args)`) without spelling `tools=`: the
+unpacked mapping may set them, so it is named, never read as an empty list.
+
+Every other construction the reader recognises is a coverage gap over its file,
+named with its line, so the comparison is `partial`:
+
+```text
+OpenAI Agents SDK agent construction at agents.py:12 is not read (not assigned
+to a single name or returned); its agent and tool bindings are not established.
+```
+
+Those are an agent passed inline (`handoffs=[Agent(...)]`, a list or dict of
+agents, a call argument), assigned to an attribute or to several names, a
+`lambda` or `yield`, `return Agent(name=label, ...)` without a literal name, a
+parameterized `Agent[Context](...)`, a `.clone()` of an agent the module
+assigns, and a class deriving from `Agent`, whose instances are not followed.
+The Google ADK reader reads every `Agent(...)`/`LlmAgent(...)` call; a class
+deriving from one is named the same way. `compared` therefore means every
+construction site in the scope was established; none is unaccounted for.
+
+One identity constructed at two sites in a file — two builders returning
+`Agent(name="Assistant", ...)`, one name assigned twice, or two ADK agents
+sharing a `name=` — is one agent binding the union of their tools, as before,
+and now also a gap on that agent naming both lines:
+
+```text
+Agent 'Assistant' is constructed at agent.py:12, agent.py:20; which
+construction binds which tool is not established.
+```
+
+Each union binding is true of some construction, so an added or removed
+binding is still reported, but the result is `partial`: a tool moved from one
+variant to the other leaves the union unchanged and is never read as no
+change.
+
+### Test code
+
+Test code does not establish the application. A file is test code when its
+path relative to the selected scope is in a `test/` or `tests/` directory, or
+is named `test_*.py`, `*_test.py`, `conftest.py`, `test.py` or `tests.py`; this
+is the same rule discovery uses to rank agent names. Test code is never read
+as a source, so a test double cannot make a scope `compared`, and nothing in it
+(an unsupported framework, a parse failure, a link, a tool defined twice) is a
+gap. Each side names what it left out in `limits`, without making the result
+`partial`:
+
+```text
+Test code is not read as the application (1 file(s)): tests/test_turn.py
+```
+
+A scope selected inside a test directory (`--scope tests/fixtures/app`) is read
+in full: selecting it is the request to read it. With test code excluded, a
+scope whose only agents were test doubles is `not_established`.
+
+### Tools defined twice
+
+A tool name defined twice in one application file — two nested
+`@function_tool def _tool(...)` in different builders — is a coverage gap on
+that name in that file (`examples/agent.py defines the tool '_tool' more than
+once; which definition an agent binds is not established.`). No agent binds
+either definition, so a binding of that name in that file is `not_established`
+rather than added or removed, and every other file and tool is compared. It
+never refuses the comparison.
 
 Framework identity follows the import, not the spelling. `Agent` and
 `function_tool` are the OpenAI Agents SDK's only when imported from the absolute

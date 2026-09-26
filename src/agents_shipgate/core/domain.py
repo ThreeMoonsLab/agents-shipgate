@@ -693,6 +693,27 @@ class AgentBindingObservation(BaseModel):
     tools_complete: bool = True
     handoffs_complete: bool = True
     issues: list[str] = Field(default_factory=list)
+    #: Every construction this observation merges, for a reader that merges
+    #: same-named constructions into one agent (the ADK reader does). Empty
+    #: when ``source_pointer`` is the only one.
+    construction_pointers: list[str] = Field(default_factory=list)
+
+
+class UnreadAgentConstruction(BaseModel):
+    """An agent construction a framework reader saw and did not establish.
+
+    The reader recognised the framework's agent class at ``source_pointer``
+    but the construction's form (an agent passed inline, ``Agent[Ctx](...)``,
+    a subclass, a clone) gives it no identity or tool list it can stand
+    behind. It is named so that an agent nobody observed cannot read as an
+    agent with no change (#876); it is never a binding or an absence.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: str
+    source_pointer: str
+    reason: str
 
 
 class SourceSurfaceOmission(BaseModel):
@@ -766,6 +787,11 @@ class LoadedToolSource(BaseModel):
     # separate from Tool.annotations so catalog-controlled metadata can never
     # become authority-bearing binding evidence.
     binding_observations: list[AgentBindingObservation] = Field(default_factory=list)
+    # Agent constructions the reader saw and did not establish. Read by the
+    # application comparison only; ``scan`` does not consume them yet.
+    unread_agent_constructions: list[UnreadAgentConstruction] = Field(
+        default_factory=list, exclude_if=lambda value: not value
+    )
     # Reader-owned observations, never derived from catalog annotations.
     guard_dependencies: list[GuardDependencyEvidence] = Field(default_factory=list)
     operation_evidence: list[DeclaredOperation] = Field(default_factory=list)

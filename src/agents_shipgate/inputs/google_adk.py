@@ -21,6 +21,7 @@ from agents_shipgate.core.domain import (
     RemoteBindingStatus,
     Tool,
     ToolParameter,
+    UnreadAgentConstruction,
 )
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.privacy import is_credential_key, redact_url_credentials
@@ -933,6 +934,9 @@ class _PythonAdkExtractor:
         # ordinal within one agent's tool list, never a line number.
         self.inline_slot_counts: dict[str, int] = {}
         self.agent_bindings: dict[str, _AdkAgentBinding] = {}
+        # Every construction of each agent name. ``agent_bindings`` merges
+        # same-named constructions; these say that it did.
+        self.construction_pointers: dict[str, set[str]] = {}
         # Reasons this module's tool surface was not proven complete (#393).
         # Empty at the end of ``extract`` is what earns ``SURFACE_ENUMERATED``.
         self.surface_gaps: list[str] = []
@@ -960,6 +964,9 @@ class _PythonAdkExtractor:
         self._record_mutable_tool_bindings()
         for target_name, call in self.agent_call_list:
             agent_name = _kwarg_string(call, "name") or target_name or "adk_agent"
+            self.construction_pointers.setdefault(agent_name, set()).add(
+                f"{self.source_ref}:{call.lineno}"
+            )
             # The call is only ADK's ``Agent`` while the name still refers to
             # the import it was resolved through.
             self._require_proven_framework_symbol(call)
@@ -1010,9 +1017,52 @@ class _PythonAdkExtractor:
                 tools=tools,
                 warnings=[],
                 binding_observations=self._binding_observations(),
+                unread_agent_constructions=self._unread_agent_constructions(),
             ),
             *loaded_sources,
         ]
+
+    def _unread_agent_constructions(self) -> list[UnreadAgentConstruction]:
+        """Name each class deriving from an ADK agent class (#876).
+
+        ``extract`` reads every ``Agent(...)`` call; an instance of a subclass
+        is not one, so its wiring is named rather than silently absent. A base
+        is ADK's only while its root name is bound by nothing but an import,
+        as ``_framework_symbol_is_proven`` requires of a call.
+        """
+
+        unread: list[UnreadAgentConstruction] = []
+        for node in ast.walk(self.tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            for base in node.bases:
+                expression = base.value if isinstance(base, ast.Subscript) else base
+                root = expression
+                while isinstance(root, ast.Attribute):
+                    root = root.value
+                if (
+                    isinstance(root, ast.Name)
+                    and _qualified_name(expression, self.aliases) in AGENT_CLASS_NAMES
+                    and all(
+                        isinstance(binding, ast.alias)
+                        for binding in self.name_bindings.get(root.id, [])
+                    )
+                ):
+                    pointer = f"{self.source_ref}:{node.lineno}"
+                    unread.append(
+                        UnreadAgentConstruction(
+                            source=self.source_ref,
+                            source_pointer=pointer,
+                            reason=(
+                                f"Google ADK agent construction at {pointer} is not read "
+                                f"(class {node.name!r} derives from an agent class; its "
+                                "instances are not followed); its agent and tool bindings "
+                                "are not established."
+                            ),
+                        )
+                    )
+                    break
+        return unread
 
     def _surface_warning(self, message: str, reason: str) -> None:
         """Report a construct that leaves part of this module's surface unknown."""
@@ -1339,6 +1389,7 @@ class _PythonAdkExtractor:
                 source=self.source_ref,
                 source_pointer=binding.source_pointer,
                 tool_names=list(binding.tool_names),
+                construction_pointers=sorted(self.construction_pointers.get(binding.agent, ())),
             )
             for binding in self.agent_bindings.values()
             if binding.tool_names

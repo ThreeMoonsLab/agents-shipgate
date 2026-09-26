@@ -10,6 +10,7 @@ from agents_shipgate.core.domain import (
     LoadedToolSource,
     Tool,
     ToolkitScopeBound,
+    UnreadAgentConstruction,
 )
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.common import (
@@ -90,7 +91,7 @@ def load_openai_sdk_static_tools(
         raise InputParseError(
             f"OpenAI Agents SDK source must be a Python file or directory: {path}"
         )
-    binding_warnings, binding_observations, recovery_evidence = _extract_agent_bindings(
+    binding_warnings, binding_observations, recovery_evidence, unread = _extract_agent_bindings(
         tools, python_files, source, base_dir
     )
     return LoadedToolSource(
@@ -99,6 +100,7 @@ def load_openai_sdk_static_tools(
         tools=tools,
         toolkit_bounds=toolkit_bounds,
         binding_observations=binding_observations,
+        unread_agent_constructions=unread,
         warnings=[*_toolkit_binding_warnings(toolkit_bounds), *binding_warnings],
         recovery_evidence=recovery_evidence,
         guard_dependencies=guard_dependencies,
@@ -166,17 +168,24 @@ def _extract_agent_bindings(
     paths: list[Path],
     source: ToolSourceConfig,
     base_dir: Path,
-) -> tuple[list[str], list[AgentBindingObservation], list[SourceRecoveryEvidence]]:
+) -> tuple[
+    list[str],
+    list[AgentBindingObservation],
+    list[SourceRecoveryEvidence],
+    list[UnreadAgentConstruction],
+]:
     """Extract exact, local-only ``Agent(..., tools=[...])`` wiring.
 
     This intentionally resolves only literal lists, names bound to literal
     lists, and local/imported function-tool identifiers. Dynamic expressions
-    are preserved as partial evidence instead of being guessed.
+    are preserved as partial evidence instead of being guessed. Every other
+    construction of the SDK's ``Agent`` is returned as unread (#876).
     """
 
     warnings: list[str] = []
     observations: list[AgentBindingObservation] = []
     recovery_evidence: list[SourceRecoveryEvidence] = []
+    unread: list[UnreadAgentConstruction] = []
     tool_by_name = {tool.name: tool for tool in tools}
     tool_by_name.update(
         {
@@ -189,7 +198,9 @@ def _extract_agent_bindings(
         tree = parse_python_file(path, label="OpenAI Agents SDK")
         source_ref = display_path(path, base_dir)
         sdk_names = _SdkNames(tree)
-        list_vars: dict[str, list[str] | None] = {}
+        # Keyed by the scope that binds the name, so a builder's ``tools``
+        # parameter never resolves to a module list that happens to share it.
+        list_vars: dict[tuple[int, str], list[str] | None] = {}
         import_aliases: dict[str, str] = {}
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
@@ -199,22 +210,27 @@ def _extract_agent_bindings(
                 target = _assignment_target(node)
                 value = node.value
                 if target and isinstance(value, (ast.List, ast.Tuple)):
-                    list_vars[target] = _literal_names(value, import_aliases)
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
-                continue
-            target = _assignment_target(node)
-            call = node.value if isinstance(node.value, ast.Call) else None
-            if (
-                not target
-                or call is None
-                or not sdk_names.denotes(
-                    dotted_name(call.func), call, "Agent", DEFAULT_AGENT_CONSTRUCTORS
-                )
-            ):
-                continue
+                    scope = id(sdk_names.scope_of[id(node)])
+                    list_vars[(scope, target)] = _literal_names(value, import_aliases)
+        constructions, unread_sites = _agent_constructions(tree, sdk_names)
+        unread.extend(
+            UnreadAgentConstruction(
+                source=source_ref,
+                source_pointer=f"{source_ref}:{line}",
+                reason=(
+                    f"OpenAI Agents SDK agent construction at {source_ref}:{line} is "
+                    f"not read ({form}); its agent and tool bindings are not established."
+                ),
+            )
+            for line, form in unread_sites
+        )
+        for target, call in constructions:
             tools_expr = _keyword(call, "tools")
-            names = _resolve_name_list(tools_expr, list_vars, import_aliases)
+            names = _resolve_name_list(tools_expr, list_vars, import_aliases, sdk_names)
+            if tools_expr is None and _unpacks_arguments(call):
+                # `Agent(name="x", **config)` may carry `tools`; an empty
+                # list would be a false complete answer.
+                names = None
             pointer = f"{source_ref}:{call.lineno}"
             issues: list[str] = []
             tools_complete = True
@@ -222,6 +238,9 @@ def _extract_agent_bindings(
                 reason = (
                     f"OpenAI Agents SDK agent {target!r} at {pointer} uses a "
                     "dynamic tools expression; its binding graph is incomplete."
+                    if tools_expr is not None
+                    else f"OpenAI Agents SDK agent {target!r} at {pointer} unpacks "
+                    "arguments that may set its tools; its binding graph is incomplete."
                 )
                 warnings.append(reason)
                 issues.append(reason)
@@ -253,9 +272,12 @@ def _extract_agent_bindings(
                     tool_by_name[name].name if name in tool_by_name else name
                     for name in names
                 ]
+            handoffs_expr = _keyword(call, "handoffs")
             handoff_names = _resolve_name_list(
-                _keyword(call, "handoffs"), list_vars, import_aliases
+                handoffs_expr, list_vars, import_aliases, sdk_names
             )
+            if handoffs_expr is None and _unpacks_arguments(call):
+                handoff_names = None
             handoffs_complete = True
             if handoff_names is None:
                 reason = f"OpenAI Agents SDK agent {target!r} has dynamic handoffs at {pointer}."
@@ -276,7 +298,80 @@ def _extract_agent_bindings(
                     issues=issues,
                 )
             )
-    return list(dict.fromkeys(warnings)), observations, recovery_evidence
+    return list(dict.fromkeys(warnings)), observations, recovery_evidence, unread
+
+
+def _agent_constructions(
+    tree: ast.Module, sdk_names: _SdkNames
+) -> tuple[list[tuple[str, ast.Call]], list[tuple[int, str]]]:
+    """Partition every construction of the SDK's ``Agent`` in one module.
+
+    Returns the constructions the reader establishes, with the identity each
+    is keyed by, and ``(line, form)`` for every other one. Two forms are
+    established: ``name = Agent(...)``, keyed by the bound name, and
+    ``return Agent(name="...", ...)`` in a function or method, keyed by its
+    literal ``name=`` — the identity ``_still_named_at`` and the ADK reader
+    already use. Everything else the module visibly constructs as an agent is
+    unread, never silently absent (#876): an agent passed inline, a
+    parameterized ``Agent[Ctx](...)``, a clone of an agent this module
+    assigns, and a class deriving from ``Agent``, whose instances the reader
+    does not follow.
+    """
+
+    def is_agent(expression: ast.AST, node: ast.AST) -> bool:
+        return sdk_names.denotes(
+            dotted_name(expression), node, "Agent", DEFAULT_AGENT_CONSTRUCTORS
+        )
+
+    established: list[tuple[str, ast.Call]] = []
+    unread: list[tuple[int, str]] = []
+    claimed: set[int] = set()
+    assigned: set[tuple[int, str]] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            call, target = node.value, _assignment_target(node)
+            if target and isinstance(call, ast.Call) and is_agent(call.func, call):
+                established.append((target, call))
+                claimed.add(id(call))
+                assigned.add((id(sdk_names.scope_of[id(node)]), target))
+        elif isinstance(node, ast.Return):
+            call = node.value
+            if isinstance(call, ast.Call) and is_agent(call.func, call):
+                claimed.add(id(call))
+                name = _keyword(call, "name")
+                if isinstance(name, ast.Constant) and isinstance(name.value, str) and name.value:
+                    established.append((name.value, call))
+                else:
+                    unread.append((call.lineno, "returned without a literal name="))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            for base in node.bases:
+                expression = base.value if isinstance(base, ast.Subscript) else base
+                if is_agent(expression, expression):
+                    unread.append(
+                        (
+                            node.lineno,
+                            f"class {node.name!r} derives from Agent; its instances "
+                            "are not followed",
+                        )
+                    )
+                    break
+        if not isinstance(node, ast.Call) or id(node) in claimed:
+            continue
+        func = node.func
+        if isinstance(func, ast.Subscript) and is_agent(func.value, func.value):
+            unread.append((node.lineno, "a parameterized Agent[...]"))
+        elif is_agent(func, node):
+            unread.append((node.lineno, "not assigned to a single name or returned"))
+        elif (
+            isinstance(func, ast.Attribute)
+            and func.attr == "clone"
+            and isinstance(func.value, ast.Name)
+            and (scope := sdk_names.binding_scope(func.value.id, func.value)) is not None
+            and (id(scope), func.value.id) in assigned
+        ):
+            unread.append((node.lineno, f"a clone of agent {func.value.id!r}"))
+    return established, sorted(set(unread))
 
 
 def _literal_tool_list_concatenation(value: ast.AST | None) -> bool:
@@ -292,6 +387,14 @@ def _literal_tool_list_concatenation(value: ast.AST | None) -> bool:
         and isinstance(value.left, ast.List)
         and isinstance(value.right, ast.List)
         and all(isinstance(item, ast.Name) for item in [*value.left.elts, *value.right.elts])
+    )
+
+
+def _unpacks_arguments(call: ast.Call) -> bool:
+    """``*args`` or ``**kwargs`` can supply any keyword the call does not spell."""
+
+    return any(isinstance(arg, ast.Starred) for arg in call.args) or any(
+        keyword.arg is None for keyword in call.keywords
     )
 
 
@@ -317,16 +420,21 @@ def _literal_names(
 
 def _resolve_name_list(
     value: ast.AST | None,
-    list_vars: dict[str, list[str] | None],
+    list_vars: dict[tuple[int, str], list[str] | None],
     aliases: dict[str, str],
+    sdk_names: _SdkNames,
 ) -> list[str] | None:
     if value is None:
         return []
     if isinstance(value, (ast.List, ast.Tuple)):
         return _literal_names(value, aliases)
     if isinstance(value, ast.Name):
-        if value.id in list_vars:
-            return list_vars[value.id]
+        scope = sdk_names.binding_scope(value.id, value)
+        if scope is not None and (id(scope), value.id) in list_vars:
+            return list_vars[(id(scope), value.id)]
+        if scope is not None and (id(scope), value.id) in sdk_names.parameters:
+            # The caller supplies it; its value is not this module's to read.
+            return None
         return [aliases.get(value.id, value.id)]
     return None
 
@@ -363,6 +471,8 @@ class _SdkNames:
         self.scope_of: dict[int, ast.AST] = {}
         self.parent: dict[int, ast.AST | None] = {id(tree): None}
         self.bindings: dict[int, dict[str, list[str | None]]] = {}
+        #: ``(scope, name)`` for each function or lambda parameter.
+        self.parameters: set[tuple[int, str]] = set()
         self.declared: dict[int, dict[str, str]] = {}
         self.foreign_wildcard = False
         # Decorators, defaults, class bases and a comprehension's first
@@ -407,6 +517,7 @@ class _SdkNames:
                 self._bind(scope, node.id)
             elif isinstance(node, ast.arg):
                 self._bind(scope, node.arg)
+                self.parameters.add((id(scope), node.arg))
             elif isinstance(node, ast.ExceptHandler) and node.name:
                 self._bind(scope, node.name)
             elif isinstance(node, (ast.Global, ast.Nonlocal)):
@@ -417,19 +528,24 @@ class _SdkNames:
     def _bind(self, scope: ast.AST, name: str, path: str | None = None) -> None:
         self.bindings.setdefault(id(scope), {}).setdefault(name, []).append(path)
 
-    def _resolve(self, name: str, node: ast.AST) -> list[str | None] | None:
+    def binding_scope(self, name: str, node: ast.AST) -> ast.AST | None:
+        """The scope whose binding of ``name`` a use at ``node`` reads."""
+
         scope: ast.AST | None = self.scope_of.get(id(node), self.module)
         start = scope
         while scope is not None:
             declared = self.declared.get(id(scope), {}).get(name)
             if declared == "global":
-                return self.bindings.get(id(self.module), {}).get(name)
+                return self.module if name in self.bindings.get(id(self.module), {}) else None
             if declared is None and (scope is start or not isinstance(scope, ast.ClassDef)):
-                bound = self.bindings.get(id(scope), {}).get(name)
-                if bound is not None:
-                    return bound
+                if name in self.bindings.get(id(scope), {}):
+                    return scope
             scope = self.parent.get(id(scope))
         return None
+
+    def _resolve(self, name: str, node: ast.AST) -> list[str | None] | None:
+        scope = self.binding_scope(name, node)
+        return None if scope is None else self.bindings[id(scope)][name]
 
     def denotes(
         self, spelling: str | None, node: ast.AST, symbol: str, defaults: frozenset[str]

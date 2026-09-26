@@ -178,9 +178,16 @@ def test_import_bound_agent_name_is_not_a_removal(repo, spelling):
     )
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial"
+    # #876: the factory's `return Agent(name="assistant", ...)` is itself an
+    # observed construction, at a path the base does not have. `agent`, the
+    # name its result is bound to, is still not a removal.
     assert [
-        (r["agent"], r["tool"], r["change"], r["candidate_change"]) for r in result["rows"]
-    ] == [("agent", "lookup", "not_established", "removed")]
+        (r["agent"], r["agent_source"], r["tool"], r["change"], r["candidate_change"])
+        for r in result["rows"]
+    ] == [
+        ("agent", "agent.py", "lookup", "not_established", "removed"),
+        ("assistant", "agent_factory.py", "lookup", "added", None),
+    ]
     assert list(result["rows"][0]["uncertainty"]) == ["head"]
 
 
