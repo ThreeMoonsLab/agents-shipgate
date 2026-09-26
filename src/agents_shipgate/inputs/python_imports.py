@@ -172,8 +172,8 @@ class ImportResolver:
     scope_root: Path
     _modules: dict[Path, PythonModule | _Stop] = field(default_factory=dict)
     _listings: dict[Path, frozenset[str] | None] = field(default_factory=dict)
-    _patches: dict[Path, dict[str, tuple[str, int]]] = field(default_factory=dict)
-    _scanned: dict[Path, PythonModule] = field(default_factory=dict)
+    _patches: dict[Path, dict[str, tuple[str, int]] | _Stop] = field(default_factory=dict)
+    _scanned: dict[Path, PythonModule | _Stop] = field(default_factory=dict)
     _parsed: int = 0
 
     def __post_init__(self) -> None:
@@ -209,6 +209,19 @@ class ImportResolver:
         if cached is not None:
             return cached
         ref = self.ref(path)
+        if isinstance(self._scanned.get(path), PythonModule):
+            # Already read for an enclosing package's patches: one object per
+            # module (#879 review). It now counts against the resolution budget.
+            if self._parsed >= MAX_MODULES:
+                raise _Stop(
+                    RESOLUTION_LIMIT,
+                    f"resolving it would read more than {MAX_MODULES} modules",
+                )
+            self._parsed += 1
+            scanned = self._scanned[path]
+            assert isinstance(scanned, PythonModule)
+            self._modules[path] = scanned
+            return scanned
         if self._parsed >= MAX_MODULES:
             stop = _Stop(
                 RESOLUTION_LIMIT,
@@ -319,23 +332,34 @@ class ImportResolver:
         or through the in-scope modules it imports relatively."""
 
         cached = self._patches.get(init)
+        if isinstance(cached, _Stop):
+            raise cached
         if cached is not None:
             return cached
+        try:
+            patched = self._scan_package(init)
+        except _Stop as stop:
+            # A module ``__init__`` imports but that cannot be read — a link,
+            # a missing file — could patch the name; so it stops, every time
+            # (#879 review).
+            self._patches[init] = stop
+            raise
+        self._patches[init] = patched
+        return patched
+
+    def _scan_package(self, init: Path) -> dict[str, tuple[str, int]]:
         package = self.module(init)
         modules = [package]
         for node in ast.walk(package.tree):
             if not isinstance(node, ast.ImportFrom) or not node.level:
                 continue
-            try:
-                container = self._from_base(package, node)
-                paths = [container.module_path] if container.module_path else []
-                if not node.module:
-                    for alias in node.names:
-                        found = self._locate(container.directory, [alias.name], spelling=alias.name)
-                        if found is not None and found.module_path is not None:
-                            paths.append(found.module_path)
-            except _Stop:
-                continue
+            container = self._from_base(package, node)
+            paths = [container.module_path] if container.module_path else []
+            if not node.module:
+                for alias in node.names:
+                    found = self._locate(container.directory, [alias.name], spelling=alias.name)
+                    if found is not None and found.module_path is not None:
+                        paths.append(found.module_path)
             modules.extend(
                 self._patch_scan(path) for path in paths if path is not None and path != init
             )
@@ -348,7 +372,6 @@ class ImportResolver:
                 root = dotted.split(".", 1)[0]
                 if any(isinstance(item.node, ast.alias) for item in module.bindings.get(root, [])):
                     patched.setdefault(dotted.rsplit(".", 1)[-1], (module.ref, line))
-        self._patches[init] = patched
         return patched
 
     def _patch_scan(self, path: Path) -> PythonModule:
@@ -363,6 +386,8 @@ class ImportResolver:
         if isinstance(cached, PythonModule):
             return cached
         scanned = self._scanned.get(path)
+        if isinstance(scanned, _Stop):
+            raise scanned
         if scanned is not None:
             return scanned
         if len(self._scanned) >= MAX_PATCH_SCAN_MODULES:
@@ -376,7 +401,9 @@ class ImportResolver:
             text = load_text_file(path)
             tree = ast.parse(text, filename=str(path))
         except (InputParseError, SyntaxError, ValueError, RecursionError):
-            raise _Stop(UNREADABLE_MODULE, f"{ref} could not be read or parsed") from None
+            stop = _Stop(UNREADABLE_MODULE, f"{ref} could not be read or parsed")
+            self._scanned[path] = stop
+            raise stop from None
         module = _module(path, ref, tree, text)
         self._scanned[path] = module
         return module

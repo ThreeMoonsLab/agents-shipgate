@@ -536,38 +536,59 @@ def _leaves_arguments_alone(call: ast.Call) -> bool:
 
 
 def _parameter_left_alone(function: ast.FunctionDef | ast.AsyncFunctionDef, name: str) -> bool:
-    """Whether ``function`` never changes, re-binds out, or hands on parameter ``name``."""
+    """Whether every use of parameter ``name`` in ``function`` only reads it.
 
-    def rooted(node: ast.AST) -> bool:
-        while isinstance(node, ast.Attribute | ast.Subscript):
-            node = node.value
-        return isinstance(node, ast.Name) and node.id == name
+    The same test as a module list's own uses, one level deep: handing it on
+    to any call but a read-only builtin or logging method is not a read.
+    """
 
+    parents = {child: node for node in ast.walk(function) for child in ast.iter_child_nodes(node)}
     for node in ast.walk(function):
         if isinstance(node, ast.Global | ast.Nonlocal) and name in node.names:
             return False
-        if isinstance(node, ast.Assign | ast.AugAssign | ast.AnnAssign | ast.Delete):
-            targets = node.targets if isinstance(node, ast.Assign | ast.Delete) else [node.target]
-            if any(isinstance(t, ast.Subscript | ast.Attribute) and rooted(t) for t in targets):
+        if isinstance(node, ast.Name) and node.id == name:
+            if not isinstance(node.ctx, ast.Load):
                 return False
-            value = node.value if isinstance(node, ast.Assign | ast.AnnAssign) else None
-            if isinstance(value, ast.Name) and value.id == name:
-                return False
-        if isinstance(node, ast.NamedExpr) and isinstance(node.value, ast.Name) and node.value.id == name:
-            return False
-        if isinstance(node, ast.Call):
-            if (
-                isinstance(node.func, ast.Attribute)
-                and node.func.attr in _LIST_MUTATORS
-                and rooted(node.func.value)
-            ):
-                return False
-            if not _leaves_arguments_alone(node) and any(
-                isinstance(value, ast.Name) and value.id == name
-                for value in [*node.args, *(keyword.value for keyword in node.keywords)]
-            ):
+            if not _read_only_use(node, parents, lambda call, *_: _leaves_arguments_alone(call)):
                 return False
     return True
+
+
+def _read_only_use(
+    node: ast.Name,
+    parents: dict[ast.AST, ast.AST],
+    call_reads: Callable[[ast.Call, int | None, str | None], bool],
+) -> bool:
+    """Whether this load of a list can only read it, never change or hand it on."""
+
+    parent = parents.get(node)
+    if isinstance(parent, ast.keyword):
+        call = parents.get(parent)
+        return isinstance(call, ast.Call) and call_reads(call, None, parent.arg)
+    if isinstance(parent, ast.Call):
+        for position, arg in enumerate(parent.args):
+            if arg is node:
+                return call_reads(parent, position, None)
+        return False
+    if isinstance(parent, ast.For | ast.AsyncFor | ast.comprehension):
+        return parent.iter is node
+    if isinstance(parent, ast.Subscript):
+        return parent.value is node and isinstance(parent.ctx, ast.Load)
+    if isinstance(parent, ast.If | ast.While | ast.IfExp | ast.Assert):
+        return parent.test is node
+    if isinstance(parent, ast.UnaryOp):
+        return isinstance(parent.op, ast.Not)
+    if isinstance(parent, ast.Compare | ast.FormattedValue | ast.Expr | ast.BinOp):
+        # A comparison, a string, a bare expression, or ``TOOLS + [x]`` (a new list).
+        return True
+    if isinstance(parent, ast.Attribute) and parent.value is node:
+        grand = parents.get(parent)
+        return (
+            parent.attr in {"count", "index", "copy"}
+            and isinstance(grand, ast.Call)
+            and grand.func is parent
+        )
+    return False
 
 
 class _ToolLists:
@@ -599,9 +620,7 @@ class _ToolLists:
         self.sdk_names = sdk_names
         self.resolve = resolve
         self.changed: set[object] = set()
-        # Only a name bound to a literal list somewhere can be read as one, so
-        # only those are followed into a callee — reading other modules for any
-        # call would widen the run's inputs for nothing.
+        # Only a name bound to a literal list somewhere can be read as one.
         listed = {
             target.id
             for node in ast.walk(tree)
@@ -610,65 +629,49 @@ class _ToolLists:
             for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
             if isinstance(target, ast.Name)
         }
+        # Every use of such a name must be a read that cannot change the list:
+        # iterated, indexed, compared, tested, handed to a read-only builtin, to
+        # an agent's own ``tools=``, or to a function that treats its parameter
+        # the same way. Any other use — a method call, ``+=``, a second name, a
+        # tuple, a return, ``*args`` — may change it (#879 review).
         for node in ast.walk(tree):
-            roots: list[ast.AST] = []
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr in _LIST_MUTATORS
-            ):
-                roots = [node.func.value]
-            elif isinstance(node, ast.Assign | ast.AugAssign | ast.AnnAssign | ast.Delete):
-                targets = node.targets if isinstance(node, ast.Assign | ast.Delete) else [node.target]
-                roots = [target for target in targets if isinstance(target, ast.Subscript | ast.Attribute)]
-                # ``alias = TOOLS``: a second handle that can change the list
-                # where this index cannot see it (#879 review).
-                if isinstance(node, ast.Assign | ast.AnnAssign) and isinstance(node.value, ast.Name):
-                    roots.append(node.value)
-            elif isinstance(node, ast.NamedExpr) and isinstance(node.value, ast.Name):
-                roots = [node.value]
-            elif isinstance(node, ast.Call) and not _leaves_arguments_alone(node):
-                # ``register(TOOLS)``: a callee may change the list it is given,
-                # unless it is an SDK agent reading its own ``tools=`` or a
-                # function this module can read that leaves it alone.
-                # An agent, or a copy of one, reads its own ``tools=``.
-                agent = (
-                    self.sdk_names is not None
-                    and self.sdk_names.denotes(
-                        dotted_name(node.func), node, "Agent", DEFAULT_AGENT_CONSTRUCTORS
-                    )
-                ) or (
-                    (isinstance(node.func, ast.Attribute) and node.func.attr == "clone")
-                    or dotted_name(node.func) in {"replace", "dataclasses.replace", "copy.replace"}
-                )
-                roots = [
-                    arg
-                    for position, arg in enumerate(node.args)
-                    if isinstance(arg, ast.Name)
-                    and arg.id in listed
-                    and not self._callee_leaves_alone(node, position, None)
-                ]
-                roots.extend(
-                    keyword.value
-                    for keyword in node.keywords
-                    if isinstance(keyword.value, ast.Name)
-                    and keyword.value.id in listed
-                    and not (agent and keyword.arg in {"tools", "handoffs", "mcp_servers"})
-                    and not self._callee_leaves_alone(node, None, keyword.arg)
-                )
-            elif isinstance(node, ast.Global):
+            if isinstance(node, ast.Global):
                 self.changed.update(("module", name) for name in node.names)
             elif isinstance(node, ast.Nonlocal):
                 for name in node.names:
                     found = scopes.enclosing_bindings(node, name)
                     if found:
                         self.changed.add(id(found[0]))
-            for root in roots:
-                while isinstance(root, ast.Attribute | ast.Subscript):
-                    root = root.value
-                if isinstance(root, ast.Name):
-                    found = scopes.enclosing_bindings(root, root.id)
-                    self.changed.add(id(found[0]) if found else ("module", root.id))
+            elif isinstance(node, ast.Name) and node.id in listed:
+                parent = scopes.parents.get(node)
+                if isinstance(node.ctx, ast.Load):
+                    unchanged = _read_only_use(node, scopes.parents, self._call_reads)
+                else:
+                    unchanged = isinstance(node.ctx, ast.Store) and not isinstance(
+                        parent, ast.AugAssign
+                    )
+                if not unchanged:
+                    found = scopes.enclosing_bindings(node, node.id)
+                    self.changed.add(id(found[0]) if found else ("module", node.id))
+
+    def _call_reads(self, call: ast.Call, position: int | None, keyword: str | None) -> bool:
+        """Whether ``call`` only reads the list it is passed at ``position``/``keyword``."""
+
+        if _leaves_arguments_alone(call):
+            return True
+        if keyword in {"tools", "handoffs", "mcp_servers"} and (
+            (
+                self.sdk_names is not None
+                and self.sdk_names.denotes(
+                    dotted_name(call.func), call, "Agent", DEFAULT_AGENT_CONSTRUCTORS
+                )
+            )
+            or (isinstance(call.func, ast.Attribute) and call.func.attr == "clone")
+            or dotted_name(call.func) in {"replace", "dataclasses.replace", "copy.replace"}
+        ):
+            # An agent, or a copy of one, reads its own ``tools=``.
+            return True
+        return self._callee_leaves_alone(call, position, keyword)
 
     def _callee_leaves_alone(
         self, call: ast.Call, position: int | None, keyword: str | None

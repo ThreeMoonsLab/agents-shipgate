@@ -144,24 +144,27 @@ like a module-level one. `tools.lookup = tools.dangerous` or
 reassignment of an attribute named `lookup` on an imported module in the
 `__init__.py` of a package that encloses the defining module, or in a module
 that `__init__.py` imports relatively (both run before the module is used),
-makes that reference a named stop. A rebinding in any other module is not looked for.
+makes that reference a named stop, and so does such a module that cannot be
+read (a link, a missing file). A rebinding in any other module is not looked for.
 When the module binds a name more than once or only inside an `if`, the Google
 ADK reader still names the same-named `def` or wrapper it found, for `scan`,
 but that binding is never established: its row is `not_established` on
 whichever side it is present, and so is the row of every tool the module's
-bindings of that name could give the agent instead — every one of the agent's
-rows only when one of those cannot be named. `x = FunctionTool(func=x)` right after
+bindings of that name could give the agent instead, each followed to its
+definition (a function imported from outside the scope by its imported name) —
+every one of the agent's rows when one of those cannot be followed or a
+wildcard import could bind the name. `x = FunctionTool(func=x)` right after
 `def x` wraps that `def`; it is not a guess.
 
 An OpenAI Agents SDK `tools=NAME` or `handoffs=NAME` is read through the scope
 that binds `NAME` where the agent is constructed: a builder's own list, a class
 body's own list, or the module's. It is read only when that scope binds it
-once, to a literal list, and nothing in the file changes that binding in place
-(`.append` and the other list methods from any function, a `global` or
-`nonlocal` rebinding, a subscript store) or takes a second handle on it
-(`alias = TOOLS`, or `TOOLS` passed to a call — unless the call is a read-only
-builtin, a logging method, the agent's own `tools=`, or a function the module
-can read that leaves that parameter alone). Anything else is a dynamic tools expression. The names in a module-level list are read at module level, whatever
+once, to a literal list, and every use of that binding in the file only reads
+it: iterated, indexed, compared, tested, formatted, handed to a read-only
+builtin or logging method, to an agent's (or a copy's) own `tools=`, or to a
+function whose every use of that parameter is such a read. A list method, `+=`,
+a `global` or `nonlocal` rebinding, a subscript store, a second name, a tuple, a
+return or `*args` makes it a dynamic tools expression. Anything else is a dynamic tools expression. The names in a module-level list are read at module level, whatever
 the function that builds the agent imports.
 
 A reference that does not reach one definition stays an unresolved tool, named

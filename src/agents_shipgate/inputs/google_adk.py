@@ -39,7 +39,9 @@ from agents_shipgate.inputs.openapi import load_openapi_tools
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.inputs.python_imports import (
     LOCAL_BINDING,
+    MODULE_NOT_FOUND,
     NOT_BOUND,
+    OUTSIDE_SCOPE,
     ImportResolver,
     PythonModule,
     Resolution,
@@ -1815,7 +1817,16 @@ class _PythonAdkExtractor:
         binding.tool_issues.update({item: issue for item in names})
 
     def _guess_candidates(self, name: str) -> set[str] | None:
-        if self.module is None:
+        """The tool names the module's bindings of ``name`` can give the agent.
+
+        Each binding is followed to its definition — an import through the
+        resolver, ``x = other`` and ``x = FunctionTool(func=f)`` through the
+        name they spell — since an alias's own spelling need not be the tool's
+        name. None, meaning any of the agent's tools, when one of them cannot be
+        followed or a wildcard import could bind the name too (#879 review).
+        """
+
+        if self.module is None or self.resolver is None or self.module.star_import:
             return None
         candidates: set[str] = set()
         for item in self.module.bindings.get(name, []):
@@ -1823,10 +1834,19 @@ class _PythonAdkExtractor:
             value = getattr(statement, "value", None)
             if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 candidates.add(node.name)
-            elif isinstance(node, ast.alias):
-                candidates.add(node.name.rsplit(".", 1)[-1])
+                continue
+            if isinstance(node, ast.alias) and isinstance(statement, ast.Import | ast.ImportFrom):
+                resolution, _ = self._through_wrapper(
+                    self.resolver.resolve_local_import(self.module, statement, node, name)
+                )
+                if resolution.reason in (MODULE_NOT_FOUND, OUTSIDE_SCOPE):
+                    # A module the scope does not hold — ``try: from fast_search
+                    # import search`` — gives a function no in-scope tool is;
+                    # its name is the one imported.
+                    candidates.add(node.name.rsplit(".", 1)[-1])
+                    continue
             elif isinstance(node, ast.Name) and isinstance(value, ast.Name):
-                candidates.add(value.id)
+                resolution, _ = self._resolve_reference(value.id)
             elif (
                 isinstance(node, ast.Name)
                 and isinstance(value, ast.Call)
@@ -1834,10 +1854,13 @@ class _PythonAdkExtractor:
                 in FUNCTION_TOOL_NAMES | LONG_RUNNING_TOOL_NAMES
                 and _call_func_name(value) is not None
             ):
-                candidates.add(str(_call_func_name(value)))
+                resolution, _ = self._resolve_reference(str(_call_func_name(value)))
             else:
                 return None
-        return candidates
+            if resolution is None or not resolution.resolved or resolution.definition is None:
+                return None
+            candidates.add(resolution.definition.name)
+        return candidates or None
 
     def _visible_function(self, name: str, node: ast.AST | None) -> bool:
         """Whether ``self.functions[name]`` is the binding of ``name`` visible at ``node``."""
