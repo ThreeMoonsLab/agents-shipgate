@@ -1075,3 +1075,60 @@ def test_a_helper_of_the_file_that_only_reads_the_list_is_a_read(repo):
     result = _compare(repo, body.replace("TOOLS", "[quote]"), body.replace("TOOLS", "[quote, send_image]"))
     assert result["comparison_status"] == "compared"
     assert _pairs(result) == [("main_agent", "send_image", "added")]
+
+
+# ---------------------------------------------------------------------------
+# #876 review, round 8: a helper the file imports is followed like its own,
+# and a list reached through the file's container of agents is an agent's.
+
+HELPERS = "def register_defaults(lst):\n    BODY\n"
+
+
+@pytest.mark.parametrize(
+    "wiring",
+    [
+        "from app.agents_def import AGENTS\nfrom app.helpers import register_defaults\n\n"
+        "for agent in AGENTS:\n    register_defaults(agent.tools)\n",
+    ],
+    ids=["loop-in-a-module-without-the-sdk"],
+)
+def test_an_imported_helper_that_changes_an_agents_list_is_a_limit(repo, wiring):
+    agents = WIRING_AGENTS + "AGENTS = [quote_agent, other]\n"
+    base = commit(
+        repo,
+        {
+            "app/__init__.py": "",
+            "app/agents_def.py": agents,
+            "app/helpers.py": HELPERS.replace("BODY", "pass"),
+            "app/wiring.py": wiring,
+        },
+    )
+    head = commit(repo, {"app/helpers.py": HELPERS.replace("BODY", "lst.append(len)")})
+    result = run(repo, base, head, "--scope", "app")
+    assert result["comparison_status"] == "partial"
+
+
+@pytest.mark.parametrize(
+    "use",
+    [
+        "from helpers import register_defaults\nfor agent in AGENTS:\n    register_defaults(agent.tools)\n",
+        "add = lambda lst: lst.append(send_image)\nadd(AGENTS[0].tools)\n",
+        "import functools\n\ndef extend(lst, extra):\n    lst.extend(extra)\n"
+        "functools.partial(extend, extra=[send_image])(AGENTS[0].tools)\n",
+        "class H:\n    def add(self, lst):\n        lst.append(send_image)\nH().add(REG['a'].tools)\n",
+        "class Registry:\n    held = Agent(name='Held', tools=[quote])\n"
+        "def forward(*lists):\n    lists[0].append(send_image)\nforward(Registry.held.tools)\n",
+    ],
+    ids=["imported-helper-in-a-loop", "lambda", "partial", "method-on-dict-item", "star-args-on-class-attribute"],
+)
+def test_a_list_of_the_files_agents_handed_out_of_view_is_a_limit(repo, use):
+    body = (
+        'quote_agent = Agent(name="Quote", tools=[quote])\nAGENTS = [quote_agent]\n'
+        "REG = {'a': quote_agent}\n"
+    )
+    helpers = "def register_defaults(lst):\n    lst.append(len)\n"
+    base = commit(repo, {"agent.py": _agents(body), "helpers.py": helpers})
+    head = commit(repo, {"agent.py": _agents(body + use)})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert result["head"]["limits"] != result["base"]["limits"]

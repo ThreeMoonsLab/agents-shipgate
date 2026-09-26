@@ -40,9 +40,10 @@ from agents_shipgate.core.verification_identity import build_engine_requirement
 from agents_shipgate.inputs.google_adk import load_google_adk_artifacts
 from agents_shipgate.inputs.openai_sdk_static import (
     census_module,
+    imported_function,
     load_openai_sdk_static_tools,
 )
-from agents_shipgate.inputs.python_imports import RepositoryLayout, repository_layout
+from agents_shipgate.inputs.python_imports import ImportResolver, RepositoryLayout, ScopeIndex, repository_layout
 from agents_shipgate.schemas.manifest import ToolSourceConfig
 
 SUPPORTED = frozenset({"openai_agents_sdk", "google_adk"})
@@ -433,6 +434,7 @@ def observe(
         | {root.name}
         | set(PurePosixPath(scope).parts)
     )
+    helpers = ImportResolver(root)
     for file in python_files[:max_python_files]:
         relative = file.relative_to(root).as_posix()
         if relative in linked:
@@ -447,12 +449,22 @@ def observe(
             )
             continue
         texts[relative] = raw.decode("utf-8", errors="replace")
+        entry = helpers.entry(file, parsed, texts[relative])
         censuses[relative] = census_module(
             parsed,
             texts[relative],
             local_modules,
             read_as_sdk=relative in read_as_sdk,
             read_as_adk=relative in read_as_adk,
+            # A helper this module imports that changes the list it is handed
+            # (#876 review).
+            resolve=(
+                (lambda call, entry=entry, parsed=parsed: imported_function(
+                    helpers, entry, ScopeIndex(parsed), call
+                ))
+                if entry is not None
+                else None
+            ),
         )
     for framework in detected.frameworks:
         if framework.type not in SUPPORTED and framework.candidate_files:
