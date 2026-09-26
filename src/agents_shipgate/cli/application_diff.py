@@ -20,6 +20,7 @@ import typer
 
 from agents_shipgate.cli.discovery import detect_workspace
 from agents_shipgate.cli.discovery.artifacts import _candidate_files, _skip_part
+from agents_shipgate.cli.discovery.signals import _is_test_path
 from agents_shipgate.cli.scan.source_loading import _build_canonical_tools
 from agents_shipgate.cli.verify.git import (
     PromisedObjectsMissingError,
@@ -28,14 +29,18 @@ from agents_shipgate.cli.verify.git import (
     ensure_git_workspace,
     tree_sha,
 )
+from agents_shipgate.core.adopter_text import DUPLICATE_TOOL_IN_SOURCE
 from agents_shipgate.core.agent_bindings import resolve_agent_binding_graph
 from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.domain import ANY_TOOL
-from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.privacy import sanitize_report_payload
 from agents_shipgate.core.verification_identity import build_engine_requirement
 from agents_shipgate.inputs.google_adk import load_google_adk_artifacts
-from agents_shipgate.inputs.openai_sdk_static import load_openai_sdk_static_tools
+from agents_shipgate.inputs.openai_sdk_static import (
+    census_module,
+    load_openai_sdk_static_tools,
+)
 from agents_shipgate.schemas.manifest import ToolSourceConfig
 
 SUPPORTED = frozenset({"openai_agents_sdk", "google_adk"})
@@ -71,6 +76,9 @@ class Observations:
     submodules: dict[str, str] = field(default_factory=dict)
     #: Links under the scope that resolve to nothing in the tree.
     unresolved_links: list[str] = field(default_factory=list)
+    #: Test files under the scope, which never establish the application
+    #: (#876): a test double's agent is not the application's agent.
+    excluded_tests: list[str] = field(default_factory=list)
 
     def gap(
         self,
@@ -135,6 +143,7 @@ class Observations:
             "coverage_gaps": sorted(
                 self.coverage_gaps, key=lambda gap: json.dumps(gap, sort_keys=True)
             ),
+            "excluded_tests": sorted(self.excluded_tests),
         }
 
 
@@ -236,6 +245,17 @@ def observe(
     if not root.is_relative_to(tree.resolve()):
         raise ConfigError(f"Application scope escapes its tree: {scope}")
     python_files = [p for p in _candidate_files(root) if p.suffix == ".py"]
+    # Test code is not the application (#876). A test double's agent must not
+    # establish the scope, and a test file's own defects (a tool defined twice,
+    # an unsupported framework, a parse failure) must not stand in for the
+    # application's. Tests are listed, not read.
+    result.excluded_tests = sorted(
+        p.relative_to(root).as_posix()
+        for p in python_files
+        if _is_test_path(p.relative_to(root).as_posix())
+    )
+    tests = set(result.excluded_tests)
+    python_files = [p for p in python_files if p.relative_to(root).as_posix() not in tests]
     for file in python_files:
         if file.stat().st_size > MAX_PYTHON_BYTES:
             result.gap(f"Python input exceeds {MAX_PYTHON_BYTES} bytes: {file.relative_to(root)}")
@@ -256,19 +276,50 @@ def observe(
     # candidate list becoming negative evidence. Bound this second parse too.
     if len(python_files) > max_python_files:
         result.gap(f"Python input census exceeds {max_python_files} files.")
+    # A copy of an agent that passes its own tools, or a change to an agent's
+    # tools, can live in a module no reader reads as an SDK source; and an
+    # agent subclass defined in one module can be instantiated in another
+    # (#876 review).
+    censuses: dict[str, Any] = {}
+    texts: dict[str, str] = {}
+    # The SDK reader reads its own sources' copies and changes.
+    read_as_sdk = {
+        path
+        for framework in detected.frameworks
+        if framework.type == "openai_agents_sdk"
+        for path in framework.candidate_files
+    }
+    # Top-level names a module in the scope can be imported by.
+    local_modules = frozenset(
+        {
+            PurePosixPath(file.relative_to(root).as_posix()).parts[0].removesuffix(".py")
+            for file in python_files
+        }
+        # The scope may itself be the package its modules import through.
+        | {root.name}
+    )
     for file in python_files[:max_python_files]:
-        if file.relative_to(root).as_posix() in linked:
+        relative = file.relative_to(root).as_posix()
+        if relative in linked:
             continue
         try:
-            ast.parse(file.read_bytes())
+            raw = file.read_bytes()
+            parsed = ast.parse(raw)
         except (SyntaxError, ValueError, RecursionError, OSError):
             result.gap(
-                f"Python input could not be parsed: {file.relative_to(root)}",
-                source=file.relative_to(root).as_posix(),
+                f"Python input could not be parsed: {relative}",
+                source=relative,
             )
+            continue
+        texts[relative] = raw.decode("utf-8", errors="replace")
+        censuses[relative] = census_module(
+            parsed, texts[relative], local_modules, read_as_sdk=relative in read_as_sdk
+        )
     for framework in detected.frameworks:
         if framework.type not in SUPPORTED and framework.candidate_files:
             for path in framework.candidate_files:
+                if path in tests:
+                    continue
                 result.gap(
                     f"Application comparison does not yet support {framework.type}: {path}",
                     source=path,
@@ -279,12 +330,40 @@ def observe(
             for f in detected.frameworks
             if f.type in SUPPORTED
             for p in f.candidate_files
-            if p not in linked
+            if p not in linked and p not in tests
         }
     )
     sources = [
         ToolSourceConfig(id=f"{kind}:{path}", type=kind, path=path) for kind, path in entries
     ]
+    sdk_sources = {path for kind, path in entries if kind == "openai_agents_sdk"}
+    for path, census in sorted(censuses.items()):
+        if path in sdk_sources:
+            # The SDK reader reads these itself, against the agents it saw.
+            continue
+        if census.copies:
+            result.gap(
+                f"An agent copy at {path}:{census.copies[0]} passes its own tools, handoffs "
+                "or MCP servers in a module that does not import the OpenAI Agents SDK; it "
+                "is not read.",
+                source=path,
+            )
+        if census.changes:
+            result.gap(
+                f"An object's tools, handoffs, MCP servers or sub-agents are changed at "
+                f"{path}:{census.changes[0]}, in a module the comparison does not read for "
+                "that; agents it reaches are not established.",
+                source=path,
+            )
+    for defining, census in sorted(censuses.items()):
+        for name, line in sorted(census.subclasses.items()):
+            for path, other in sorted(censuses.items()):
+                if path != defining and other.uses(name, defining):
+                    result.gap(
+                        f"{path} uses {name}, an OpenAI Agents SDK agent subclass defined at "
+                        f"{defining}:{line}; agents built from it are not read.",
+                        source=path,
+                    )
     result.sources = [{"type": s.type, "path": s.path} for s in sources]
     for source in sources:
         _observe_source(result, root, source)
@@ -426,7 +505,19 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
                     )
                 attributed.add(warning)
     result.handoff_only |= handoff_targets - constructed
-    tools, warnings = _build_canonical_tools(loaded)
+    try:
+        tools, warnings = _build_canonical_tools(loaded)
+    except InputParseError as exc:
+        if exc.details.get("failure") != DUPLICATE_TOOL_IN_SOURCE:
+            raise
+        # One file's duplicate is a limit on that file, not a refusal of every
+        # other agent in the scope (#876).
+        result.gap(
+            f"{source.path} defines the tool {exc.details.get('tool_name')!r} more "
+            "than once, so the agents it constructs are not compared.",
+            source=source.path,
+        )
+        return
     for warning in warnings:
         result.gap(warning, source=source.path)
     graph, _ = resolve_agent_binding_graph(None, tools, bag, loaded)
@@ -1007,5 +1098,15 @@ def run_application_diff(
         for side in ("base", "head"):
             for limit in payload[side]["limits"]:
                 typer.echo(f"  {side} limit: {_one_line(limit)}")
+        # Test files are never the application (#876); say which were left
+        # out, so a product module that only looks like a test is visible.
+        excluded = sorted(
+            set(payload["base"].get("excluded_tests", []))
+            | set(payload["head"].get("excluded_tests", []))
+        )
+        if excluded:
+            shown = ", ".join(_one_line(path) for path in excluded[:5])
+            more = f", and {len(excluded) - 5} more" if len(excluded) > 5 else ""
+            typer.echo(f"Test files not read as the application ({len(excluded)}): {shown}{more}")
         typer.echo(payload["limits"][-1])
     return 0
