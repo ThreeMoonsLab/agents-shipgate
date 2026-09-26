@@ -2006,11 +2006,13 @@ def test_a_dynamic_tools_expression_holds_the_module_at_medium(tmp_path):
     project = _proven_project(
         tmp_path,
         source=_proven_module(
-            preamble="extra_tools = []\n",
+            preamble="from plugins import load_extra_tools\n",
             agent_kwargs="\n    sub_agents=[dynamic_agent],",
         ).replace(
             "root_agent = LlmAgent(",
-            'dynamic_agent = LlmAgent(name="dyn", tools=extra_tools + [])\n\n'
+            # A call nothing in the scope defines: not a list the reader can
+            # evaluate (``extra_tools = []`` joined to ``[]`` now is, #874).
+            'dynamic_agent = LlmAgent(name="dyn", tools=load_extra_tools() + [])\n\n'
             "root_agent = LlmAgent(",
         ),
     )

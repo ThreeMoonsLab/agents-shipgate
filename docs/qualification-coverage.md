@@ -31,7 +31,7 @@ report. Read `kind` and `reason`, not warning prose or `authorable_by`:
 | `kind` | SDK evidence in this first supported slice | Next step |
 |---|---|---|
 | `input_unavailable` | Configured SDK entrypoint not found (`sdk_entrypoint_not_found`). The SDK loader currently reports this warning for either required or optional entries; the required-source execution-contract mismatch is tracked in #585. | Restore the existing file named by `next_action.path`; a declaration does not replace it. |
-| `reader_limitation` | Two literal lists of tool names joined by `+` (`sdk_literal_tool_list_concatenation_unsupported`). The binding reader has no branch for this static form. | Retain the source as a reproducer for an Agents Shipgate reader repair. This does not assert what the deployed agent can access. |
+| `reader_limitation` | Two literal lists of tool names joined by `+` (`sdk_literal_tool_list_concatenation_unsupported`), only when the reader cannot follow the module's names at all. Since #874 the reader evaluates this static form, so it is no longer reported for a module inside the read scope. | Retain the source as a reproducer for an Agents Shipgate reader repair. This does not assert what the deployed agent can access. |
 | `unresolved` | An unresolved tools expression (`sdk_tools_expression_unresolved`), or distinct raw source warnings that collapse to one public identity (`ambiguous_warning_identity`). | Establish the missing input or reader limitation before assigning a repair owner. An ambiguous source gets no guessed path. |
 
 Other loaders and SDK warning shapes remain unclassified. A dynamic expression

@@ -239,8 +239,44 @@ it: iterated, indexed, compared, tested, formatted, handed to a read-only
 builtin or logging method, to an agent's (or a copy's) own `tools=`, or to a
 function whose every use of that parameter is such a read. A list method, `+=`,
 a `global` or `nonlocal` rebinding, a subscript store, a second name, a tuple, a
-return or `*args` makes it a dynamic tools expression. Anything else is a dynamic tools expression. The names in a module-level list are read at module level, whatever
+return or `*args` makes it a dynamic tools expression. The names in a module-level list are read at module level, whatever
 the function that builds the agent imports.
+
+### Tool lists a builder receives (#874)
+
+A `tools=`, `handoffs=` or `sub_agents=` value that is not a literal list — in
+either reader — is evaluated from source before it is called dynamic:
+
+- a name bound once, in its scope or at module level (imported or not), to a
+  literal list or tuple that nothing changes or hands to a call that may change
+  it; `+` and `*` splices of such lists; `x or [...]`, taking the first operand
+  with elements, where every operand before it is a known list or `None`;
+- a literal-key subscript or `.get` of a dict literal, including one a factory
+  function returns, and the value of a factory function's single final
+  `return` — its nested functions are the tools;
+- a parameter of a module-level function: the value its **one** call site in
+  the read scope passes (or the parameter's default), followed through at most
+  four functions.
+
+Finding that call site is a census of the read scope. Every file that names the
+function is parsed, test files excepted as everywhere else. A reference to it
+that is not a direct call — passed as a value, named in a string, reached
+through a binding that is not followed — or a decorator on it, a link in the
+scope, a second call site, no call site, `*`/`**` arguments, or a builder that
+changes its parameter, stops the evaluation. The agent then keeps its "dynamic
+tools expression" limit, now followed by the reason (`Not followed because …`).
+Lists from two call sites are never merged.
+
+Each element is then resolved where it is written, in its own module, as any
+tool reference is. A row reached this way carries `parameter_flow`: the call
+site that supplied the list and every module the evaluation read, with its
+digest. It is evidence, outside the compared meaning. The text output prints
+`supplied by the call at …`. A sub-agent or handoff reached this way is named
+by the agent its element constructs, directly or through a builder's `return`.
+
+Not followed: an agent built in a method from `self.tools` (instance
+attributes), a builder whose agent `name=` is itself a parameter, lists loaded
+from configuration, registries, or anything that needs the code to run.
 
 A reference that does not reach one definition stays an unresolved tool, named
 with its reason (`Not resolved because …` in the gap) and scoped to each agent

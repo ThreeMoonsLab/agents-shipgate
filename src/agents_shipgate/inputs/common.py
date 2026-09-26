@@ -53,6 +53,30 @@ MAX_INPUT_FILE_BYTES = 10 * 1024 * 1024
 CONVENTIONAL_TOOL_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,128}$")
 
 
+# Conventional test module filenames that carry no ``test_`` prefix, so the
+# prefix rule alone reads them as product code.
+TEST_MODULE_NAMES = frozenset({"conftest.py", "test.py", "tests.py"})
+
+
+def is_test_path(rel_path: str) -> bool:
+    """Whether ``rel_path`` is test code rather than product code.
+
+    One predicate for every reader that has to tell the two apart: discovery
+    ranks a name declared only in a test below a shipped one, the application
+    comparison does not read tests as the application (#876), and the
+    call-site census does not count a test's call of a builder (#874).
+    """
+    parts = Path(rel_path).parts
+    if any(part in {"test", "tests"} for part in parts[:-1]):
+        return True
+    stem = Path(rel_path).name
+    return (
+        stem in TEST_MODULE_NAMES
+        or stem.startswith("test_")
+        or stem.endswith("_test.py")
+    )
+
+
 def resolve_input_path(base_dir: Path, value: str) -> Path:
     base = base_dir.resolve()
     raw_path = Path(value)

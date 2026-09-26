@@ -23,13 +23,16 @@ from agents_shipgate.inputs.common import (
 from agents_shipgate.inputs.config_trace import trace_config_binding
 from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
+from agents_shipgate.inputs.python_flow import Flow, FlowStop, ParameterFlow
 from agents_shipgate.inputs.python_imports import (
     NOT_BOUND,
     ImportResolver,
     PythonModule,
     Resolution,
     ScopeIndex,
+    _leaves_arguments_alone,
     _module_bindings,
+    _read_only_use,
     local_binding_detail,
     reference_spelling,
 )
@@ -215,6 +218,12 @@ def _extract_agent_bindings(
         }
     )
     imports = _ImportedTools(tools, source, base_dir)
+    flow = ParameterFlow(imports.resolver)
+    agent_rule = _SdkAgentRule(flow)
+    # An agent, or a copy of one, reads the list it is handed as ``tools=``.
+    flow.agent_call = lambda module, call: agent_rule.constructs(module, call) or (
+        isinstance(call.func, ast.Attribute) and call.func.attr == "clone"
+    ) or dotted_name(call.func) in {"replace", "dataclasses.replace", "copy.replace"}
     for path in paths:
         text = load_text_file(path)
         tree = parse_python_file(path, label="OpenAI Agents SDK")
@@ -366,14 +375,25 @@ def _extract_agent_bindings(
                 continue
             tools_expr = _keyword(call, "tools")
             references = tool_lists.references(tools_expr, call)
+            # What a non-literal ``tools=`` evaluates to — a module list, a
+            # factory's dict entry, a builder parameter at its one call site
+            # (#874) — or the reason it does not.
+            flowed: Flow | None = None
+            flow_stop: FlowStop | None = None
+            if references is None and module is not None and isinstance(tools_expr, ast.expr):
+                try:
+                    flowed = flow.elements(module, tools_expr)
+                except FlowStop as stop:
+                    flow_stop = stop
             issues: list[str] = []
             tools_complete = True
             names: list[str] = []
             locators: dict[str, str] = {}
-            if references is None:
+            if references is None and flowed is None:
                 reason = (
                     f"OpenAI Agents SDK agent {target!r} at {pointer} uses a "
                     "dynamic tools expression; its binding graph is incomplete."
+                    + (f" Not followed because {flow_stop.detail}." if flow_stop else "")
                 )
                 warnings.append(reason)
                 issues.append(reason)
@@ -395,7 +415,20 @@ def _extract_agent_bindings(
                 # sees one name for both, so neither is bound (#879 review).
                 duplicated: set[str] = set()
                 first_location: dict[str, str] = {}
-                for reference, element in references:
+                candidates: list[tuple[str, Tool | None, str | None]] = []
+                if flowed is not None:
+                    for item in flowed.elements:
+                        resolution = flow.resolve(item)
+                        tool, detail = imports.tool_from_resolution(resolution)
+                        if tool is not None and flowed.via:
+                            record = {"agent": target, "source": source_ref, **flowed.evidence()}
+                            recorded = tool.extraction.setdefault("parameter_flows", [])
+                            if record not in recorded:
+                                recorded.append(record)
+                        candidates.append(
+                            (reference_spelling(item.node) or f"<expression at {item.location}>", tool, detail)
+                        )
+                for reference, element in references or []:
                     head = reference.split(".", 1)[0]
                     # Read where the reference is written: a module-level
                     # list's names are the module's, whatever the agent's
@@ -438,6 +471,8 @@ def _extract_agent_bindings(
                         tool, detail = imports.tool_for(
                             reference, module, source_ref, tool_by_name, import_aliases
                         )
+                    candidates.append((reference, tool, detail))
+                for reference, tool, detail in candidates:
                     if tool is None:
                         reason = (
                             f"OpenAI Agents SDK agent {target!r} at {pointer} binds "
@@ -472,9 +507,12 @@ def _extract_agent_bindings(
                     if locator is not None:
                         locators[tool.name] = locator
                         first_location.setdefault(tool.name, tool.source_location or locator)
+            handoffs_expr = _keyword(call, "handoffs")
             handoff_names = tool_lists.names(
-                _keyword(call, "handoffs"), call, import_aliases, identity_of, sdk_names
+                handoffs_expr, call, import_aliases, identity_of, sdk_names
             )
+            if handoff_names is None and module is not None and isinstance(handoffs_expr, ast.expr):
+                handoff_names = _flowed_handoffs(flow, module, handoffs_expr)
             handoffs_complete = True
             if handoff_names is None:
                 reason = f"OpenAI Agents SDK agent {target!r} has dynamic handoffs at {pointer}."
@@ -1204,6 +1242,43 @@ def census_module(
     return ModuleCensus(copies, changes, subclasses, **identifiers_of)
 
 
+class _SdkAgentRule:
+    """The SDK reader's agent recognition and identity, for a flowed handoff (#874)."""
+
+    def __init__(self, flow: ParameterFlow) -> None:
+        self.flow = flow
+        self._names: dict[str, _SdkNames] = {}
+
+    def constructs(self, module: PythonModule, call: ast.Call) -> bool:
+        names = self._names.get(module.ref)
+        if names is None:
+            names = self._names[module.ref] = _SdkNames(module.tree)
+        return _denotes_agent(names, call)
+
+    def identity(self, module: PythonModule, call: ast.Call, assigned: str | None) -> str | None:
+        scopes = self.flow.scopes(module)
+        statement = scopes.statement_of(call)
+        target = (
+            _assignment_target(statement)
+            if isinstance(statement, ast.Assign | ast.AnnAssign) and statement.value is call
+            else None
+        )
+        return target or _literal_agent_name(call)
+
+
+def _flowed_handoffs(
+    flow: ParameterFlow, module: PythonModule, expr: ast.expr
+) -> list[str] | None:
+    """The agents a non-literal ``handoffs=`` evaluates to, or None (#874)."""
+
+    try:
+        flowed = flow.elements(module, expr)
+        rule = _SdkAgentRule(flow)
+        return [flow.agent_name(element, rule) for element in flowed.elements]
+    except FlowStop:
+        return None
+
+
 def _enclosing_function(scopes: ScopeIndex, node: ast.AST) -> ast.AST | None:
     current = scopes.parents.get(node)
     while current is not None and not isinstance(current, ast.Module | ast.ClassDef):
@@ -1272,26 +1347,6 @@ def _keyword(call: ast.Call, name: str) -> ast.AST | None:
     return next((item.value for item in call.keywords if item.arg == name), None)
 
 
-#: Calls that read the values they are given and never change them.
-_READ_ONLY_CALLS = frozenset(
-    {
-        "len", "print", "repr", "str", "bool", "id", "hash", "isinstance", "type",
-        "list", "tuple", "set", "frozenset", "sorted", "reversed", "enumerate", "iter",
-        "any", "all", "sum", "min", "max", "zip", "map", "filter",
-        "copy.copy", "copy.deepcopy", "json.dumps", "pprint", "pprint.pprint",
-        "pprint.pformat", "pformat",
-    }
-)
-_LOG_METHODS = frozenset({"debug", "info", "warning", "error", "exception", "critical", "log"})
-
-
-def _leaves_arguments_alone(call: ast.Call) -> bool:
-    name = dotted_name(call.func)
-    if name in _READ_ONLY_CALLS:
-        return True
-    return isinstance(call.func, ast.Attribute) and call.func.attr in _LOG_METHODS
-
-
 def _parameter_left_alone(function: ast.FunctionDef | ast.AsyncFunctionDef, name: str) -> bool:
     """Whether every use of parameter ``name`` in ``function`` only reads it.
 
@@ -1309,43 +1364,6 @@ def _parameter_left_alone(function: ast.FunctionDef | ast.AsyncFunctionDef, name
             if not _read_only_use(node, parents, lambda call, *_: _leaves_arguments_alone(call)):
                 return False
     return True
-
-
-def _read_only_use(
-    node: ast.Name,
-    parents: dict[ast.AST, ast.AST],
-    call_reads: Callable[[ast.Call, int | None, str | None], bool],
-) -> bool:
-    """Whether this load of a list can only read it, never change or hand it on."""
-
-    parent = parents.get(node)
-    if isinstance(parent, ast.keyword):
-        call = parents.get(parent)
-        return isinstance(call, ast.Call) and call_reads(call, None, parent.arg)
-    if isinstance(parent, ast.Call):
-        for position, arg in enumerate(parent.args):
-            if arg is node:
-                return call_reads(parent, position, None)
-        return False
-    if isinstance(parent, ast.For | ast.AsyncFor | ast.comprehension):
-        return parent.iter is node
-    if isinstance(parent, ast.Subscript):
-        return parent.value is node and isinstance(parent.ctx, ast.Load)
-    if isinstance(parent, ast.If | ast.While | ast.IfExp | ast.Assert):
-        return parent.test is node
-    if isinstance(parent, ast.UnaryOp):
-        return isinstance(parent.op, ast.Not)
-    if isinstance(parent, ast.Compare | ast.FormattedValue | ast.Expr | ast.BinOp):
-        # A comparison, a string, a bare expression, or ``TOOLS + [x]`` (a new list).
-        return True
-    if isinstance(parent, ast.Attribute) and parent.value is node:
-        grand = parents.get(parent)
-        return (
-            parent.attr in {"count", "index", "copy"}
-            and isinstance(grand, ast.Call)
-            and grand.func is parent
-        )
-    return False
 
 
 class _ToolLists:

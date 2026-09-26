@@ -67,10 +67,6 @@ agent = SupportAgent(tools=TOOLS)""",
 # (the name it is assigned to) while hiding its tool list from the reader.
 UNREAD_CONSTRUCTIONS = {
     "subclass": SDK_SUBCLASS,
-    "factory": SDK.replace(
-        'agent = Agent(name="assistant", tools=TOOLS)',
-        'def build(tools):\n    return Agent(name="assistant", tools=tools)\nagent = build(TOOLS)',
-    ),
     "clone": SDK.replace(
         'agent = Agent(name="assistant", tools=TOOLS)',
         'agent = Agent(name="assistant").clone(tools=TOOLS)',
@@ -295,3 +291,23 @@ def test_deleted_agent_is_still_an_established_removal(repo):
     assert [(r["agent"], r["tool"], r["change"]) for r in result["rows"]] == [
         ("worker", "execute", "removed")
     ]
+
+
+def test_a_factory_refactor_is_never_a_definite_change(repo):
+    # #874 reads the builder's list at its call site, so the head agent is
+    # observed, under the literal name its ``return`` gives. Base and head spell
+    # its identity differently, which is never a definite removal or addition.
+    base = commit(repo, {"agent.py": SDK.replace("TOOLS", "[lookup, execute]")})
+    head = commit(
+        repo,
+        {
+            "agent.py": SDK.replace(
+                'agent = Agent(name="assistant", tools=TOOLS)',
+                'def build(tools):\n    return Agent(name="assistant", tools=tools)\n'
+                "agent = build([lookup, execute])",
+            )
+        },
+    )
+    result = run(repo, base, head)
+    assert result["rows"]
+    assert all(row["change"] == "not_established" for row in result["rows"])

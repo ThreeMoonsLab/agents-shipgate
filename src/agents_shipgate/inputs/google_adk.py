@@ -37,6 +37,7 @@ from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
 from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.openapi import load_openapi_tools
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
+from agents_shipgate.inputs.python_flow import Element, Flow, FlowStop, ParameterFlow
 from agents_shipgate.inputs.python_imports import (
     LOCAL_BINDING,
     MODULE_NOT_FOUND,
@@ -954,6 +955,21 @@ def _record_tool_binding(
     )
 
 
+class _AdkAgentRule:
+    """ADK's agent recognition and naming, for a flowed ``sub_agents`` element."""
+
+    def __init__(self, extractor: _PythonAdkExtractor) -> None:
+        self.extractor = extractor
+
+    def constructs(self, module: PythonModule, call: ast.Call) -> bool:
+        aliases, _ = self.extractor._names_of(module)
+        return _qualified_name(call.func, aliases) in AGENT_CLASS_NAMES
+
+    def identity(self, module: PythonModule, call: ast.Call, assigned: str | None) -> str | None:
+        # ADK routes a handoff to the sub-agent's ``name=`` (#385).
+        return _kwarg_string(call, "name") or assigned
+
+
 class _PythonAdkExtractor:
     def __init__(
         self,
@@ -979,6 +995,13 @@ class _PythonAdkExtractor:
         # case an imported name stays unresolved exactly as before.
         self.resolver = resolver
         self.module = module
+        # What a non-literal ``tools=`` / ``sub_agents=`` evaluates to,
+        # including a builder parameter's value at its one call site (#874).
+        self.flow = (
+            ParameterFlow(resolver, agent_call=self._constructs_agent)
+            if resolver is not None and module is not None
+            else None
+        )
         self.aliases = _import_aliases(tree)
         self.functions = {
             node.name: node
@@ -1073,18 +1096,8 @@ class _PythonAdkExtractor:
             self._record_agent_callbacks_plugins_subagents(call, agent_name)
             if not isinstance(tools_expr, (ast.List, ast.Tuple)):
                 if tools_expr is not None:
-                    self._surface_warning(
-                        f"Google ADK agent {agent_name!r} uses a dynamic tools expression.",
-                        SURFACE_GAP_DYNAMIC_TOOLS,
-                    )
-                    self.artifacts.toolsets.append(
-                        GoogleAdkToolset(
-                            kind="dynamic",
-                            source_id=self.source_id,
-                            source_ref=f"{self.source_ref}:{call.lineno}",
-                            agent_name=agent_name,
-                            dynamic=True,
-                        )
+                    loaded_sources.extend(
+                        self._extract_flowed_tools(call, tools_expr, tools, agent_name)
                     )
                 continue
             binding = self._binding_for(agent_name, call)
@@ -1670,6 +1683,120 @@ class _PythonAdkExtractor:
         )
         return []
 
+    def _constructs_agent(self, module: PythonModule, call: ast.Call) -> bool:
+        """Whether ``call``, in ``module``, is an ADK agent, which reads its ``tools=``."""
+
+        aliases, _ = self._names_of(module)
+        return _qualified_name(call.func, aliases) in AGENT_CLASS_NAMES
+
+    def _flowed(self, expr: ast.expr) -> Flow | FlowStop:
+        """What a non-literal capability expression evaluates to (#874)."""
+
+        if self.flow is None or self.module is None:
+            return FlowStop("no_scope", "the module is read outside a resolvable scope")
+        try:
+            return self.flow.elements(self.module, expr)
+        except FlowStop as stop:
+            return stop
+
+    def _extract_flowed_tools(
+        self,
+        call: ast.Call,
+        tools_expr: ast.expr,
+        tools: list[Tool],
+        agent_name: str,
+    ) -> list[LoadedToolSource]:
+        """``tools=<expression>``: bind what it evaluates to, or name why not.
+
+        A builder's ``tools=tools`` is read at the one call site in the scope
+        that passes it (#874). Anything the flow cannot establish stays the
+        dynamic tools expression it always was, now with its reason.
+        """
+
+        flow = self._flowed(tools_expr)
+        if isinstance(flow, FlowStop):
+            detail = "" if flow.reason == "no_scope" else f": {flow.detail}"
+            self._surface_warning(
+                f"Google ADK agent {agent_name!r} uses a dynamic tools expression{detail}.",
+                SURFACE_GAP_DYNAMIC_TOOLS,
+            )
+            self.artifacts.toolsets.append(
+                GoogleAdkToolset(
+                    kind="dynamic",
+                    source_id=self.source_id,
+                    source_ref=f"{self.source_ref}:{call.lineno}",
+                    agent_name=agent_name,
+                    dynamic=True,
+                )
+            )
+            return []
+        binding = self._binding_for(agent_name, call)
+        before = set(binding.tool_names)
+        loaded: list[LoadedToolSource] = []
+        for element in flow.elements:
+            loaded.extend(self._extract_flowed_element(element, tools, agent_name, binding))
+        self._record_flow(binding, before, agent_name, flow)
+        return loaded
+
+    def _extract_flowed_element(
+        self,
+        element: Element,
+        tools: list[Tool],
+        agent_name: str,
+        binding: _AdkAgentBinding,
+    ) -> list[LoadedToolSource]:
+        if element.module is self.module and element.context is element.node:
+            # Written in this module: every spelling this module supports.
+            return self._extract_tool_expr(element.node, tools, agent_name, binding)
+        assert self.flow is not None
+        node = element.node
+        long_running = False
+        if isinstance(node, ast.Call):
+            aliases, _ = self._names_of(element.module)
+            call_name = _qualified_name(node.func, aliases)
+            func_expr = _call_func_expr(node)
+            if call_name not in FUNCTION_TOOL_NAMES | LONG_RUNNING_TOOL_NAMES or func_expr is None:
+                self._surface_warning(
+                    f"Google ADK agent {agent_name!r} has a tool expression at "
+                    f"{element.location} that could not be statically resolved.",
+                    SURFACE_GAP_UNRESOLVED_EXPRESSION,
+                )
+                return []
+            long_running = call_name in LONG_RUNNING_TOOL_NAMES
+            context = func_expr if element.context is element.node else element.context
+            element = Element(element.module, func_expr, context)
+        resolution, wrapped = self._through_wrapper(self.flow.resolve(element))
+        if resolution.resolved:
+            self._bind_resolved(
+                resolution, tools, agent_name, binding, long_running or wrapped, flowed=True
+            )
+        else:
+            self._unresolved_reference(agent_name, resolution.reference, resolution)
+        return []
+
+    def _record_flow(
+        self, binding: _AdkAgentBinding, before: set[str], agent_name: str, flow: Flow
+    ) -> None:
+        """Name, on each tool the flow bound, the call site that supplied it."""
+
+        if not flow.via:
+            return
+        known = {
+            f"{tool.source_ref}#{tool.name}": tool
+            for tool in [
+                *self.canonical_function_tools.values(),
+                *self.imported_function_tools.values(),
+            ]
+        }
+        record = {"agent": agent_name, "source": self.source_ref, **flow.evidence()}
+        for name in binding.tool_names:
+            tool = known.get(binding.tool_locators.get(name, ""))
+            if name in before or tool is None:
+                continue
+            recorded = tool.extraction.setdefault("parameter_flows", [])
+            if record not in recorded:
+                recorded.append(record)
+
     def _local_meaning(
         self, node: ast.AST, spelling: str
     ) -> tuple[Resolution, bool] | str | None:  # None | "flat" | resolution
@@ -2104,13 +2231,18 @@ class _PythonAdkExtractor:
         agent_name: str,
         binding: _AdkAgentBinding,
         long_running: bool,
+        *,
+        flowed: bool = False,
     ) -> None:
         """Bind the definition an import chain reached, once per definition."""
 
         node, module = resolution.definition, resolution.module
         assert node is not None and module is not None
-        # The spelling this module used has to hold up like a local name.
-        self._require_proven_name(resolution.reference.split(".", 1)[0])
+        if not flowed:
+            # The spelling this module used has to hold up like a local name.
+            # A flowed reference was written elsewhere and read in its own
+            # module's scopes (#874).
+            self._require_proven_name(resolution.reference.split(".", 1)[0])
         if any(step.get("module_getattr") for step in resolution.steps):
             # A package ``__getattr__`` could have answered before the
             # submodule did; the definition is named, not proven.
@@ -2629,6 +2761,10 @@ class _PythonAdkExtractor:
                     }
                 )
             elif keyword.arg == "sub_agents":
+                if not isinstance(keyword.value, ast.List | ast.Tuple) and self._record_flowed_sub_agents(
+                    call, agent_name, keyword.value
+                ):
+                    continue
                 elements = (
                     keyword.value.elts
                     if isinstance(keyword.value, ast.List | ast.Tuple)
@@ -2677,6 +2813,43 @@ class _PythonAdkExtractor:
                         "source_ref": f"{self.source_ref}:{call.lineno}",
                     }
                 )
+
+    def _record_flowed_sub_agents(
+        self, call: ast.Call, agent_name: str, value: ast.expr
+    ) -> bool:
+        """``sub_agents=<expression>``: record the agents it evaluates to (#874).
+
+        False when the flow cannot establish the list, which leaves the
+        unnamed-sub-agents record it always produced.
+        """
+
+        flow = self._flowed(value)
+        if isinstance(flow, FlowStop):
+            return False
+        assert self.flow is not None
+        names: list[str] = []
+        unresolved: list[str] = []
+        for element in flow.elements:
+            try:
+                names.append(self.flow.agent_name(element, _AdkAgentRule(self)))
+            except FlowStop:
+                unresolved.append(
+                    reference_spelling(element.node) or f"<expression at {element.location}>"
+                )
+        if unresolved:
+            self._note_surface_gap(SURFACE_GAP_UNRESOLVED_SUB_AGENT)
+        self.artifacts.sub_agents.append(
+            {
+                "agent_name": agent_name,
+                "source_id": self.source_id,
+                "sub_agent_count": len(flow.elements),
+                "sub_agents": names,
+                "unresolved_sub_agents": unresolved,
+                "source_ref": f"{self.source_ref}:{call.lineno}",
+                **({"call_sites": [site.location for site in flow.via]} if flow.via else {}),
+            }
+        )
+        return True
 
     def _record_eval_references(self) -> None:
         for node in ast.walk(self.tree):

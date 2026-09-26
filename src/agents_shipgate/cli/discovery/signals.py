@@ -87,6 +87,7 @@ from agents_shipgate.cli.discovery.scope import (
 from agents_shipgate.core.errors import DiscoveryError, InputParseError
 from agents_shipgate.core.surface_exclusions import build_detect_exclusions
 from agents_shipgate.inputs.codex_plugin import resolve_local_codex_marketplace_roots
+from agents_shipgate.inputs.common import is_test_path
 from agents_shipgate.inputs.conductor import conductor_agent_task_types
 from agents_shipgate.inputs.mcp_server_source import SOURCE_TYPE
 from agents_shipgate.invocation import render_command
@@ -223,9 +224,6 @@ CHILD_AGENT_KEYWORDS = ("sub_agents", "handoffs")
 # (ROOT_BONUS + CORROBORATION_BONUS − SUB_AGENT_PENALTY = 5.5), which keeps
 # the published rank_score the single ordering key instead of needing a
 # separate tier the score cannot explain.
-# Conventional test module filenames that carry no ``test_`` prefix, so the
-# prefix rule alone reads them as product code.
-TEST_MODULE_NAMES = frozenset({"conftest.py", "test.py", "tests.py"})
 #: Consecutive directory names that mark code shipped as *material* rather
 #: than as the running application. A ``templates/`` directory nested inside
 #: a ``resources/`` one is the scaffolding convention #398 found: the file it
@@ -2087,15 +2085,7 @@ def _is_test_path(rel_path: str) -> bool:
     it is often the real one — but it must not outrank a name the shipped
     code declares.
     """
-    parts = Path(rel_path).parts
-    if any(part in {"test", "tests"} for part in parts[:-1]):
-        return True
-    stem = Path(rel_path).name
-    return (
-        stem in TEST_MODULE_NAMES
-        or stem.startswith("test_")
-        or stem.endswith("_test.py")
-    )
+    return is_test_path(rel_path)
 
 
 def _resolve_agent_name_evidence(

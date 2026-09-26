@@ -35,6 +35,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import stat
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -1091,6 +1092,72 @@ class ScopeIndex:
         while current is not None and not isinstance(current, ast.stmt):
             current = self.parents.get(current)
         return current
+
+
+#: Calls that read the values they are given and never change them.
+_READ_ONLY_CALLS = frozenset(
+    {
+        "len", "print", "repr", "str", "bool", "id", "hash", "isinstance", "type",
+        "list", "tuple", "set", "frozenset", "sorted", "reversed", "enumerate", "iter",
+        "any", "all", "sum", "min", "max", "zip", "map", "filter",
+        "copy.copy", "copy.deepcopy", "json.dumps", "pprint", "pprint.pprint",
+        "pprint.pformat", "pformat",
+    }
+)
+_LOG_METHODS = frozenset({"debug", "info", "warning", "error", "exception", "critical", "log"})
+
+
+def _leaves_arguments_alone(call: ast.Call) -> bool:
+    name = reference_spelling(call.func)
+    if name in _READ_ONLY_CALLS:
+        return True
+    return isinstance(call.func, ast.Attribute) and call.func.attr in _LOG_METHODS
+
+
+def _read_only_use(
+    node: ast.expr,
+    parents: dict[ast.AST, ast.AST],
+    call_reads: Callable[[ast.Call, int | None, str | None], bool],
+) -> bool:
+    """Whether this load of a list can only read it, never change or hand it on."""
+
+    parent = parents.get(node)
+    if isinstance(parent, ast.keyword):
+        call = parents.get(parent)
+        return isinstance(call, ast.Call) and call_reads(call, None, parent.arg)
+    if isinstance(parent, ast.Call):
+        for position, arg in enumerate(parent.args):
+            if arg is node:
+                return call_reads(parent, position, None)
+        return False
+    if isinstance(parent, ast.For | ast.AsyncFor | ast.comprehension):
+        return parent.iter is node
+    if isinstance(parent, ast.Subscript):
+        return parent.value is node and isinstance(parent.ctx, ast.Load)
+    if isinstance(parent, ast.BoolOp) or (
+        isinstance(parent, ast.IfExp) and parent.test is not node
+    ):
+        # ``TOOLS or [x]`` may be the list itself: its own use decides.
+        return _read_only_use(parent, parents, call_reads)
+    if isinstance(parent, ast.If | ast.While | ast.IfExp | ast.Assert):
+        return parent.test is node
+    if isinstance(parent, ast.UnaryOp):
+        return isinstance(parent.op, ast.Not)
+    if isinstance(parent, ast.Starred):
+        # ``[*TOOLS, x]`` or ``f(*TOOLS)`` spreads the members; the list itself
+        # goes nowhere.
+        return parent.value is node
+    if isinstance(parent, ast.Compare | ast.FormattedValue | ast.Expr | ast.BinOp):
+        # A comparison, a string, a bare expression, or ``TOOLS + [x]`` (a new list).
+        return True
+    if isinstance(parent, ast.Attribute) and parent.value is node:
+        grand = parents.get(parent)
+        return (
+            parent.attr in {"count", "index", "copy", "get", "keys", "values", "items"}
+            and isinstance(grand, ast.Call)
+            and grand.func is parent
+        )
+    return False
 
 
 def local_binding_detail(ref: str, name: str, node: ast.AST, *, rebound: bool = False) -> str:

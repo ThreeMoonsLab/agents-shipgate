@@ -590,6 +590,7 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
             "signature": tool.function_signature,
             "evidence_basis": edge.provenance_kind,
             **_import_path(tool, key[0]),
+            **_call_sites(tool, key[1], key[0]),
         }
     for edge in graph.handoff_edges:
         source, target = agent_keys[edge.source_agent_id], agent_keys[edge.target_agent_id]
@@ -669,12 +670,38 @@ def _import_path(tool: Any, agent_source: str) -> dict[str, Any]:
     return {"import_path": paths} if paths else {}
 
 
+def _call_sites(tool: Any, agent: str, agent_source: str) -> dict[str, Any]:
+    """Where a builder's caller supplied this tool to the agent (#874).
+
+    The call site and every module the evaluation read. Evidence, not
+    meaning: moving the call is not a change.
+    """
+    raw = tool.extraction.get("parameter_flows")
+    if not isinstance(raw, list):
+        return {}
+    flows = [
+        item
+        for item in raw
+        if isinstance(item, dict)
+        and item.get("agent") == agent
+        and PurePosixPath(str(item.get("source", ""))).as_posix().endswith(agent_source)
+    ]
+    return {"parameter_flow": flows} if flows else {}
+
+
 def _meaning(binding: dict[str, Any]) -> dict[str, Any]:
     return {
         k: v
         for k, v in binding.items()
         if k
-        not in {"binding_location", "definition", "evidence_basis", "agent_source", "import_path"}
+        not in {
+            "binding_location",
+            "definition",
+            "evidence_basis",
+            "agent_source",
+            "import_path",
+            "parameter_flow",
+        }
     } | {"implementation_sha256": binding.get("definition", {}).get("implementation_sha256")}
 
 
@@ -924,6 +951,22 @@ def _published_binding(binding: dict[str, Any] | None, scope: str) -> dict[str, 
             }
             for item in result["import_path"]
         ]
+    if "parameter_flow" in result:
+        result["parameter_flow"] = [
+            {
+                **item,
+                "source": _location(scope, item.get("source")),
+                "call_sites": [
+                    f"{_location(scope, site.rsplit(':', 1)[0])}:{site.rsplit(':', 1)[1]}"
+                    for site in item.get("call_sites", [])
+                ],
+                "inputs": [
+                    {**entry, "path": _location(scope, entry["path"])}
+                    for entry in item.get("inputs", [])
+                ],
+            }
+            for item in result["parameter_flow"]
+        ]
     return result
 
 
@@ -1082,6 +1125,9 @@ def run_application_diff(
                             if step.get("line") is not None
                         )
                         typer.echo(f"    imported: {_one_line(hops)}")
+                    for flow in value.get("parameter_flow", []):
+                        sites = " → ".join(flow.get("call_sites", []))
+                        typer.echo(f"    supplied by the call at: {_one_line(sites)}")
             typer.echo(f"  {_one_line(row['why'])}")
             for side, reasons in row["uncertainty"].items():
                 for reason in reasons:

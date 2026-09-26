@@ -30,10 +30,6 @@ ROOT = Path(__file__).resolve().parents[1]
 CASES = [
     (None, "input_unavailable", "sdk_entrypoint_not_found", "Restore the existing entrypoint"),
     (
-        "[read_tool] + [other_tool]", "reader_limitation",
-        "sdk_literal_tool_list_concatenation_unsupported", "needs a reader repair",
-    ),
-    (
         "get_tools()", "unresolved", "sdk_tools_expression_unresolved",
         "before choosing a remedy",
     ),
@@ -275,7 +271,7 @@ def test_required_sdk_source_uses_the_shared_input_error_contract(tmp_path, monk
 def test_recovery_does_not_rewrite_space_bearing_source_locations(tmp_path, capsys):
     from test_evidence_gap_ranking import _verifier_with
 
-    project = _project(tmp_path / "project", "[read_tool] + [other_tool]")
+    project = _project(tmp_path / "project", "get_tools()")
     filename = "agent  tools.py"
     (project / "agent.py").rename(project / filename)
     manifest = project / "shipgate.yaml"
