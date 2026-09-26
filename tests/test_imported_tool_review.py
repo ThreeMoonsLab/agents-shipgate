@@ -946,3 +946,105 @@ def test_a_linked_module_the_package_imports_is_a_named_stop(repo):
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial"
     assert not any(row["change"] == "added" for row in result["rows"])
+
+
+# -- Round 7 --------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "use",
+    [
+        "ALL = [*TOOLS, support.lookup]\n",
+        "if TOOLS or None:\n    pass\n",
+        "SNAPSHOT = TOOLS.copy()\n",
+    ],
+    ids=["spread-into-another-list", "or-in-a-test", "copy"],
+)
+def test_sdk_list_reads_keep_it_established(repo, use):
+    agent = (
+        "from agents import Agent\nimport billing, support\n\nTOOLS = [billing.lookup]\n"
+        + use
+        + "agent = Agent(name='app', tools=TOOLS)\n"
+    )
+    base = commit(repo, {"agent.py": agent, "billing.py": BILLING_SDK, "support.py": SUPPORT_SDK})
+    head = commit(repo, {"billing.py": BILLING_SDK.replace("'billing'", "q.upper()")})
+    result = run(repo, base, head)
+    assert ("agent", "lookup", "changed") in _rows(result)
+
+
+def test_sdk_list_escaping_through_or_is_dynamic(repo):
+    agent = (
+        "from agents import Agent\nimport billing, support\n\nTOOLS = [billing.lookup]\n"
+        "handle = TOOLS or []\nhandle.append(support.lookup)\n"
+        "agent = Agent(name='app', tools=TOOLS)\n"
+    )
+    base = commit(repo, {"agent.py": agent, "billing.py": BILLING_SDK, "support.py": SUPPORT_SDK})
+    head = commit(repo, {"support.py": SUPPORT_SDK.replace("'support'", "q.upper()")})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+
+
+def test_a_shared_base_list_spread_into_another_agent_stays_established(repo):
+    agent = (
+        "from agents import Agent\nimport billing, support\n\nCOMMON = [billing.lookup]\n"
+        "triage = Agent(name='triage', tools=COMMON)\n"
+        "print(*COMMON)\n"
+        "specialist = Agent(name='specialist', tools=[*COMMON, support.lookup])\n"
+    )
+    base = commit(repo, {"agent.py": agent, "billing.py": BILLING_SDK, "support.py": SUPPORT_SDK})
+    head = commit(repo, {"billing.py": BILLING_SDK.replace("'billing'", "q.upper()")})
+    result = run(repo, base, head)
+    assert ("triage", "lookup", "changed") in _rows(result)
+
+
+def test_a_list_reached_through_globals_is_dynamic(repo):
+    agent = (
+        "from agents import Agent\nimport billing, support\n\nTOOLS = [billing.lookup]\n"
+        "globals()['TOOLS'].append(support.lookup)\n"
+        "agent = Agent(name='app', tools=TOOLS)\n"
+    )
+    base = commit(repo, {"agent.py": agent, "billing.py": BILLING_SDK, "support.py": SUPPORT_SDK})
+    head = commit(repo, {"support.py": SUPPORT_SDK.replace("'support'", "q.upper()")})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+
+
+@pytest.mark.parametrize(
+    ("files", "scope"),
+    [
+        (
+            {
+                "tools/__init__.py": (
+                    "from .search import search\n\ntry:\n    from .gpu import gpu_run\n"
+                    "except ImportError:\n    gpu_run = None\n"
+                ),
+                "tools/search.py": "def search(q: str) -> str:\n    return BODY\n",
+                "agent.py": (
+                    "from google.adk.agents import Agent\nfrom tools.search import search\n\n"
+                    "root_agent = Agent(name='x', model='m', tools=[search])\n"
+                ),
+            },
+            None,
+        ),
+        (
+            {
+                "svc/__init__.py": "",
+                "svc/common.py": "settings = {}\n",
+                "svc/app/__init__.py": "from ..common import settings\n",
+                "svc/app/tools.py": "def search(q: str) -> str:\n    return BODY\n",
+                "svc/app/agent.py": (
+                    "from google.adk.agents import Agent\nfrom .tools import search\n\n"
+                    "root_agent = Agent(name='x', model='m', tools=[search])\n"
+                ),
+            },
+            "svc/app",
+        ),
+    ],
+    ids=["optional-import", "import-above-the-scope"],
+)
+def test_routine_package_imports_do_not_stop_a_resolution(repo, files, scope):
+    base = commit(repo, {name: text.replace("BODY", "q") for name, text in files.items()})
+    changed = next(name for name in files if name.endswith("search.py") or name.endswith("tools.py"))
+    head = commit(repo, {changed: files[changed].replace("BODY", "q.upper()")})
+    result = run(repo, base, head, *(["--scope", scope] if scope else []))
+    assert _rows(result) == [("x", "search", "changed")]

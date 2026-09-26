@@ -555,7 +555,7 @@ def _parameter_left_alone(function: ast.FunctionDef | ast.AsyncFunctionDef, name
 
 
 def _read_only_use(
-    node: ast.Name,
+    node: ast.expr,
     parents: dict[ast.AST, ast.AST],
     call_reads: Callable[[ast.Call, int | None, str | None], bool],
 ) -> bool:
@@ -574,17 +574,26 @@ def _read_only_use(
         return parent.iter is node
     if isinstance(parent, ast.Subscript):
         return parent.value is node and isinstance(parent.ctx, ast.Load)
+    if isinstance(parent, ast.BoolOp) or (
+        isinstance(parent, ast.IfExp) and parent.test is not node
+    ):
+        # ``TOOLS or [x]`` may be the list itself: its own use decides.
+        return _read_only_use(parent, parents, call_reads)
     if isinstance(parent, ast.If | ast.While | ast.IfExp | ast.Assert):
         return parent.test is node
     if isinstance(parent, ast.UnaryOp):
         return isinstance(parent.op, ast.Not)
+    if isinstance(parent, ast.Starred):
+        # ``[*TOOLS, x]`` or ``f(*TOOLS)`` spreads the members; the list itself
+        # goes nowhere.
+        return parent.value is node
     if isinstance(parent, ast.Compare | ast.FormattedValue | ast.Expr | ast.BinOp):
         # A comparison, a string, a bare expression, or ``TOOLS + [x]`` (a new list).
         return True
     if isinstance(parent, ast.Attribute) and parent.value is node:
         grand = parents.get(parent)
         return (
-            parent.attr in {"count", "index", "copy"}
+            parent.attr in {"count", "index", "copy", "get", "keys", "values", "items"}
             and isinstance(grand, ast.Call)
             and grand.func is parent
         )
@@ -634,6 +643,17 @@ class _ToolLists:
         # an agent's own ``tools=``, or to a function that treats its parameter
         # the same way. Any other use — a method call, ``+=``, a second name, a
         # tuple, a return, ``*args`` — may change it (#879 review).
+        # ``globals()["TOOLS"]`` and ``vars()`` reach a module list without
+        # spelling its name (#879 review).
+        reflective = any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"globals", "vars", "locals"}
+            and not node.args
+            for node in ast.walk(tree)
+        )
+        if reflective:
+            self.changed.update(("module", name) for name in listed)
         for node in ast.walk(tree):
             if isinstance(node, ast.Global):
                 self.changed.update(("module", name) for name in node.names)

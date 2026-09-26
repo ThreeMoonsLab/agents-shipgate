@@ -350,16 +350,28 @@ class ImportResolver:
     def _scan_package(self, init: Path) -> dict[str, tuple[str, int]]:
         package = self.module(init)
         modules = [package]
+        guarded = _import_guarded(package.tree)
         for node in ast.walk(package.tree):
             if not isinstance(node, ast.ImportFrom) or not node.level:
                 continue
-            container = self._from_base(package, node)
-            paths = [container.module_path] if container.module_path else []
-            if not node.module:
-                for alias in node.names:
-                    found = self._locate(container.directory, [alias.name], spelling=alias.name)
-                    if found is not None and found.module_path is not None:
-                        paths.append(found.module_path)
+            try:
+                container = self._from_base(package, node)
+                paths = [container.module_path] if container.module_path else []
+                if not node.module:
+                    for alias in node.names:
+                        found = self._locate(container.directory, [alias.name], spelling=alias.name)
+                        if found is not None and found.module_path is not None:
+                            paths.append(found.module_path)
+            except _Stop as stop:
+                # A module above the scope is the read's boundary, as it is for
+                # every import; an optional import under ``except ImportError``
+                # may be absent. Anything else — a link, a missing module — could
+                # hide a patch and stops the resolution (#879 review).
+                if stop.reason == OUTSIDE_SCOPE or (
+                    id(node) in guarded and stop.reason == MODULE_NOT_FOUND
+                ):
+                    continue
+                raise
             modules.extend(
                 self._patch_scan(path) for path in paths if path is not None and path != init
             )
@@ -784,6 +796,30 @@ class ImportResolver:
         except ValueError:
             return directory.as_posix()
         return relative or "."
+
+
+def _import_guarded(tree: ast.Module) -> set[int]:
+    """Imports inside a ``try`` whose handler catches ``ImportError``."""
+
+    guarded: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Try):
+            continue
+        catches = any(
+            handler.type is None
+            or any(
+                isinstance(kind, ast.Name)
+                and kind.id in {"ImportError", "ModuleNotFoundError", "Exception"}
+                for kind in (
+                    handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
+                )
+            )
+            for handler in node.handlers
+        )
+        if catches:
+            for statement in node.body:
+                guarded.update(id(child) for child in ast.walk(statement))
+    return guarded
 
 
 def reference_spelling(node: ast.AST) -> str | None:

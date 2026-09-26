@@ -145,7 +145,9 @@ reassignment of an attribute named `lookup` on an imported module in the
 `__init__.py` of a package that encloses the defining module, or in a module
 that `__init__.py` imports relatively (both run before the module is used),
 makes that reference a named stop, and so does such a module that cannot be
-read (a link, a missing file). A rebinding in any other module is not looked for.
+read (a link, or a missing file not imported under `except ImportError`). An
+import that climbs above the scope is the read's boundary, as it is for every
+import. A rebinding in any other module is not looked for.
 When the module binds a name more than once or only inside an `if`, the Google
 ADK reader still names the same-named `def` or wrapper it found, for `scan`,
 but that binding is never established: its row is `not_established` on
@@ -160,11 +162,12 @@ An OpenAI Agents SDK `tools=NAME` or `handoffs=NAME` is read through the scope
 that binds `NAME` where the agent is constructed: a builder's own list, a class
 body's own list, or the module's. It is read only when that scope binds it
 once, to a literal list, and every use of that binding in the file only reads
-it: iterated, indexed, compared, tested, formatted, handed to a read-only
-builtin or logging method, to an agent's (or a copy's) own `tools=`, or to a
-function whose every use of that parameter is such a read. A list method, `+=`,
-a `global` or `nonlocal` rebinding, a subscript store, a second name, a tuple, a
-return or `*args` makes it a dynamic tools expression. Anything else is a dynamic tools expression. The names in a module-level list are read at module level, whatever
+it: iterated, indexed, compared, tested, formatted, spread (`[*TOOLS, x]`),
+handed to a read-only builtin or logging method, to an agent's (or a copy's)
+own `tools=`, or to a function whose every use of that parameter is such a
+read. A list method, `+=`, a `global` or `nonlocal` rebinding, a subscript
+store, a second name (also through `x or y`), a tuple, a return, `*args` or a
+`globals()`/`vars()` call in the module makes it a dynamic tools expression. The names in a module-level list are read at module level, whatever
 the function that builds the agent imports.
 
 A reference that does not reach one definition stays an unresolved tool, named
