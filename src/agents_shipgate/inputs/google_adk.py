@@ -2131,6 +2131,16 @@ class _PythonAdkExtractor:
             self._bind_tool_edge(tool, agent_name, binding)
         if tool is None:
             return
+        if resolution.caveats and tool.name not in binding.duplicated:
+            # Code that runs before the name is used is not read: the
+            # definition is named, never established as the one bound (#879
+            # review). ``scan`` holds the module at medium.
+            self._note_surface_gap(SURFACE_GAP_SHADOWED_DEFINITION)
+            binding.tool_issues[tool.name] = (
+                f"Google ADK agent {agent_name!r} binds {tool.name!r} "
+                f"({tool.source_location}), but {'; '.join(resolution.caveats)}; the "
+                "definition read for it is not established as the one bound."
+            )
         evidence = resolution.evidence()
         recorded = tool.extraction.setdefault("import_resolutions", [])
         if evidence not in recorded:

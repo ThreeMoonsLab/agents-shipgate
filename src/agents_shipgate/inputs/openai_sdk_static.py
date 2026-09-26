@@ -31,6 +31,7 @@ from agents_shipgate.inputs.python_imports import (
     _module_bindings,
     local_binding_detail,
     reference_spelling,
+    reflective_access,
 )
 from agents_shipgate.inputs.python_static import (
     display_path,
@@ -257,6 +258,7 @@ def _extract_agent_bindings(
             tools_complete = True
             names: list[str] = []
             locators: dict[str, str] = {}
+            tool_issues: dict[str, str] = {}
             if references is None:
                 reason = (
                     f"OpenAI Agents SDK agent {target!r} at {pointer} uses a "
@@ -354,11 +356,22 @@ def _extract_agent_bindings(
                         duplicated.add(tool.name)
                         names = [name for name in names if name != tool.name]
                         locators.pop(tool.name, None)
+                        tool_issues.pop(tool.name, None)
                         continue
                     names.append(tool.name)
                     if locator is not None:
                         locators[tool.name] = locator
                         first_location.setdefault(tool.name, tool.source_location or locator)
+                    if detail:
+                        # Named, never established: code that runs first is
+                        # not read (#879 review).
+                        reason = (
+                            f"OpenAI Agents SDK agent {target!r} at {pointer} binds "
+                            f"{tool.name!r} ({tool.source_location}), but {detail}; the "
+                            "definition read for it is not established as the one bound."
+                        )
+                        warnings.append(reason)
+                        tool_issues[tool.name] = reason
             handoff_names = tool_lists.names(_keyword(call, "handoffs"), call, import_aliases)
             handoffs_complete = True
             if handoff_names is None:
@@ -375,6 +388,7 @@ def _extract_agent_bindings(
                     source_pointer=pointer,
                     tool_names=names,
                     tool_locators=locators,
+                    tool_issues=tool_issues,
                     handoff_names=handoff_names,
                     tools_complete=tools_complete,
                     handoffs_complete=handoffs_complete,
@@ -419,7 +433,8 @@ class _ImportedTools:
         tool_by_name: dict[str, Tool],
         import_aliases: dict[str, str],
     ) -> tuple[Tool | None, str | None]:
-        """The tool ``reference`` binds, or None and why not."""
+        """The tool ``reference`` binds, or None and why not; see
+        :meth:`tool_from_resolution` for a tool that comes with a reason."""
 
         local = self.by_symbol.get((source_ref, reference))
         if module is None:
@@ -445,7 +460,12 @@ class _ImportedTools:
         return self.tool_from_resolution(resolution)
 
     def tool_from_resolution(self, resolution: Resolution) -> tuple[Tool | None, str | None]:
-        """The tool one import resolution reached, or None and why not."""
+        """The tool one import resolution reached, or None and why not.
+
+        A tool comes with a reason too when the resolution carries a caveat:
+        code that runs before the name is used is not read, so the binding is
+        named and never established (#879 review).
+        """
 
         if not resolution.resolved:
             return None, resolution.detail
@@ -485,7 +505,7 @@ class _ImportedTools:
         recorded = tool.extraction.setdefault("import_resolutions", [])
         if evidence not in recorded:
             recorded.append(evidence)
-        return tool, None
+        return tool, "; ".join(resolution.caveats) or None
 
 
 def _literal_tool_list_concatenation(value: ast.AST | None) -> bool:
@@ -643,16 +663,9 @@ class _ToolLists:
         # an agent's own ``tools=``, or to a function that treats its parameter
         # the same way. Any other use — a method call, ``+=``, a second name, a
         # tuple, a return, ``*args`` — may change it (#879 review).
-        # ``globals()["TOOLS"]`` and ``vars()`` reach a module list without
-        # spelling its name (#879 review).
-        reflective = any(
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id in {"globals", "vars", "locals"}
-            and not node.args
-            for node in ast.walk(tree)
-        )
-        if reflective:
+        # ``globals()["TOOLS"]``, ``vars()`` and ``sys.modules[__name__]``
+        # reach a module list without spelling its name (#879 review).
+        if reflective_access(tree) is not None:
             self.changed.update(("module", name) for name in listed)
         for node in ast.walk(tree):
             if isinstance(node, ast.Global):

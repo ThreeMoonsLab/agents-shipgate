@@ -124,7 +124,9 @@ parent for names starting with the scope's own package name. A name has to be
 bound exactly once, directly in the module body, in every module on the way; a
 package's own `from . import submodule`, even under `if TYPE_CHECKING:`, names
 that submodule, and a module-level `__getattr__` is not evaluated — a tool
-reached past one is named but, for `scan`, not counted as proven.
+reached past one is named and, for `scan`, not counted as proven; the
+comparison takes the submodule and records the hook in `import_path`
+(`module_getattr`).
 
 `import a.b` followed by `a.b.f` reads the submodule `a/b.py`, which is what
 the import system guarantees after `a/__init__.py` runs, even when the package
@@ -139,15 +141,21 @@ definition. A module-level agent binds what the module binds at top level (its
 nested in some function. A parameter, another local assignment, or a name the
 builder binds more than once is a named stop, never the module's binding. A
 factory's own `toolset = McpToolset(...)` or `tool = FunctionTool(...)` is read
-like a module-level one. `tools.lookup = tools.dangerous` or
-`setattr(tools, ...)` in the module that binds `tools.lookup`, or a
-reassignment of an attribute named `lookup` on an imported module in the
-`__init__.py` of a package that encloses the defining module, or in a module
-that `__init__.py` imports relatively (both run before the module is used),
-makes that reference a named stop, and so does such a module that cannot be
-read (a link, or a missing file not imported under `except ImportError`). An
-import that climbs above the scope is the read's boundary, as it is for every
-import. A rebinding in any other module is not looked for.
+like a module-level one. Code that runs before the name is used is checked
+for a reassignment: every module on the chain (the agent's own file included),
+the `__init__.py` of every package enclosing one of them, and every in-scope
+module those import (`import patches` in the agent's file, `from . import
+impl` in a package). `tools.lookup = tools.dangerous`, `setattr(tools, ...)`,
+or a reassignment there of an attribute named like a step of the chain on an
+imported module makes that reference a named stop, and so does such a module
+that cannot be read (a link, or a missing relative module not imported under
+`except ImportError`). The defining module's own `registry.lookup = lookup`
+hands the definition on and does not count; an import under `if
+TYPE_CHECKING:` never runs and is skipped. A relative import there that climbs
+above the scope runs code that is not read: the tool is named, and its row is
+`not_established` with that import in the reason. An absolute import that no
+file in the scope provides is the read's boundary, as for every import, and a
+rebinding in a module none of these import is not looked for.
 When the module binds a name more than once or only inside an `if`, the Google
 ADK reader still names the same-named `def` or wrapper it found, for `scan`,
 but that binding is never established: its row is `not_established` on
@@ -166,8 +174,10 @@ it: iterated, indexed, compared, tested, formatted, spread (`[*TOOLS, x]`),
 handed to a read-only builtin or logging method, to an agent's (or a copy's)
 own `tools=`, or to a function whose every use of that parameter is such a
 read. A list method, `+=`, a `global` or `nonlocal` rebinding, a subscript
-store, a second name (also through `x or y`), a tuple, a return, `*args` or a
-`globals()`/`vars()` call in the module makes it a dynamic tools expression. The names in a module-level list are read at module level, whatever
+store, a second name (also through `x or y`), a tuple, a return, `*args`, or anything
+in the module that reaches its names without spelling them (`globals()`,
+`vars()`, `sys.modules`, importing the module by `__name__`) makes it a dynamic
+tools expression. The names in a module-level list are read at module level, whatever
 the function that builds the agent imports.
 
 A reference that does not reach one definition stays an unresolved tool, named
