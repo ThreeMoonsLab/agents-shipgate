@@ -763,3 +763,100 @@ def test_a_self_wrapping_function_tool_is_read_without_a_guess(repo):
     result = run(repo, unchanged, head)
     assert result["comparison_status"] == "compared"
     assert _rows(result) == [("app", "score", "changed")]
+
+
+def test_a_same_named_attribute_of_another_object_is_not_a_patch(repo):
+    files = {
+        "pkg/__init__.py": "from .client import Client\n",
+        "pkg/client.py": (
+            "class Client:\n    def __init__(self, backend):\n        self.lookup = backend.lookup\n"
+        ),
+        "pkg/impl.py": "def lookup(q: str) -> str:\n    return BODY\n",
+    }
+    agent = (
+        "from google.adk.agents import Agent\nfrom pkg.impl import lookup\n\n"
+        "root_agent = Agent(name='x', model='m', tools=[lookup])\n"
+    )
+    base = commit(repo, {"agent.py": agent, **{k: v.replace("BODY", "q") for k, v in files.items()}})
+    head = commit(repo, {"pkg/impl.py": files["pkg/impl.py"].replace("BODY", "q.upper()")})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "compared"
+    assert _rows(result) == [("x", "lookup", "changed")]
+
+
+# -- Round 5 --------------------------------------------------------------------
+
+
+def test_a_guess_that_binds_a_listed_name_still_leaves_a_gap(repo):
+    source = (
+        "import os\n\nfrom google.adk.agents import Agent\nfrom google.adk.tools import FunctionTool\n\n\n"
+        "def dangerous(q: str) -> str:\n    return __import__('os').system(q)\n\n\n"
+        "def other(q: str) -> str:\n    return q\n\n\n"
+        "lookup = FunctionTool(func=dangerous)\n"
+        "if os.environ.get('SAFE'):\n    lookup = FunctionTool(func=other)\n\n"
+        "root_agent = Agent(name='app', model='m', tools=TOOLS)\n"
+    )
+    base = commit(repo, {"agent.py": source.replace("TOOLS", "[other]")})
+    head = commit(repo, {"agent.py": source.replace("TOOLS", "[other, lookup]")})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert all(row["change"] == "not_established" for row in result["rows"])
+
+
+@pytest.mark.parametrize("direction", ["added", "removed"])
+def test_an_import_fallback_does_not_hide_the_agents_other_changes(repo, direction):
+    source = (
+        "from google.adk.agents import Agent\n\n"
+        "try:\n    from fast_search import search\nexcept ImportError:\n"
+        "    def search(q: str) -> str:\n        return q\n\n\n"
+        "def delete_customer_account(customer_id: str) -> str:\n    return customer_id\n\n\n"
+        "root_agent = Agent(name='app', model='m', tools=TOOLS)\n"
+    )
+    with_delete = source.replace("TOOLS", "[search, delete_customer_account]")
+    without = source.replace("TOOLS", "[search]")
+    base = commit(repo, {"agent.py": without if direction == "added" else with_delete})
+    head = commit(repo, {"agent.py": with_delete if direction == "added" else without})
+    result = run(repo, base, head)
+    assert ("app", "delete_customer_account", direction) in _rows(result)
+
+
+@pytest.mark.parametrize(
+    ("helper", "dynamic"),
+    [
+        ("def describe(items):\n    return ', '.join(str(item) for item in items)\n\n\nSUMMARY = describe(TOOLS)\n", False),
+        ("from pprint import pprint\n\npprint(TOOLS)\n", False),
+        ("def register(tools):\n    tools.append(support.lookup)\n\n\nregister(tools=TOOLS)\n", True),
+        ("base_agent = Agent(name='base', tools=[billing.lookup])\nvariant = base_agent.clone(tools=TOOLS)\n", False),
+    ],
+    ids=["read-only-helper", "pprint", "appending-keyword", "clone-reads-it"],
+)
+def test_sdk_list_passed_to_a_helper_is_dynamic_only_when_it_can_change(repo, helper, dynamic):
+    agent = (
+        "from agents import Agent\nimport billing, support\n\nTOOLS = [billing.lookup]\n"
+        + helper
+        + "agent = Agent(name='app', tools=TOOLS)\n"
+    )
+    base = commit(repo, {"agent.py": agent, "billing.py": BILLING_SDK, "support.py": SUPPORT_SDK})
+    head = commit(repo, {"billing.py": BILLING_SDK.replace("'billing'", "q.upper()")})
+    result = run(repo, base, head)
+    if dynamic:
+        assert result["comparison_status"] == "partial"
+    else:
+        assert result["comparison_status"] == "compared"
+        assert ("agent", "lookup", "changed") in _rows(result)
+
+
+def test_a_package_that_reexports_many_modules_does_not_exhaust_the_budget(repo):
+    files = {
+        f"tools/mod{index}.py": f"def fn{index}(q: str) -> str:\n    return q\n" for index in range(70)
+    }
+    files["tools/__init__.py"] = "".join(f"from .mod{index} import fn{index}\n" for index in range(70))
+    agent = (
+        "from google.adk.agents import Agent\nfrom tools import fn5\n\n"
+        "root_agent = Agent(name='x', model='m', tools=[fn5])\n"
+    )
+    base = commit(repo, {"agent.py": agent, **files})
+    head = commit(repo, {"tools/mod5.py": "def fn5(q: str) -> str:\n    return q.upper()\n"})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "compared"
+    assert _rows(result) == [("x", "fn5", "changed")]

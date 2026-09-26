@@ -64,6 +64,8 @@ LOCAL_BINDING = "local_binding"
 #: exist so a pathological re-export web ends in a named reason, not a hang.
 MAX_MODULES = 64
 MAX_STEPS = 32
+#: Modules read only to check an enclosing package for patches.
+MAX_PATCH_SCAN_MODULES = 256
 
 _SCOPE_NODES = (
     ast.FunctionDef,
@@ -171,6 +173,7 @@ class ImportResolver:
     _modules: dict[Path, PythonModule | _Stop] = field(default_factory=dict)
     _listings: dict[Path, frozenset[str] | None] = field(default_factory=dict)
     _patches: dict[Path, dict[str, tuple[str, int]]] = field(default_factory=dict)
+    _scanned: dict[Path, PythonModule] = field(default_factory=dict)
     _parsed: int = 0
 
     def __post_init__(self) -> None:
@@ -333,13 +336,50 @@ class ImportResolver:
                             paths.append(found.module_path)
             except _Stop:
                 continue
-            modules.extend(self.module(path) for path in paths if path is not None and path != init)
+            modules.extend(
+                self._patch_scan(path) for path in paths if path is not None and path != init
+            )
         patched: dict[str, tuple[str, int]] = {}
         for module in modules:
             for dotted, line in module.attribute_patches.items():
-                patched.setdefault(dotted.rsplit(".", 1)[-1], (module.ref, line))
+                # Only an attribute of an imported module can be the definition:
+                # ``self.lookup = ...`` in a class, or ``backend.lookup`` on a
+                # parameter, reassigns some other object (#879 review).
+                root = dotted.split(".", 1)[0]
+                if any(isinstance(item.node, ast.alias) for item in module.bindings.get(root, [])):
+                    patched.setdefault(dotted.rsplit(".", 1)[-1], (module.ref, line))
         self._patches[init] = patched
         return patched
+
+    def _patch_scan(self, path: Path) -> PythonModule:
+        """A module a package ``__init__`` imports, read only for its patches.
+
+        Parsed on its own bounded budget: a package that re-exports seventy
+        modules must not use up the resolution budget of every tool in it
+        (#879 review). Read through the same snapshot-aware reader.
+        """
+
+        cached = self._modules.get(path)
+        if isinstance(cached, PythonModule):
+            return cached
+        scanned = self._scanned.get(path)
+        if scanned is not None:
+            return scanned
+        if len(self._scanned) >= MAX_PATCH_SCAN_MODULES:
+            raise _Stop(
+                RESOLUTION_LIMIT,
+                f"checking the enclosing packages would read more than "
+                f"{MAX_PATCH_SCAN_MODULES} modules",
+            )
+        ref = self.ref(path)
+        try:
+            text = load_text_file(path)
+            tree = ast.parse(text, filename=str(path))
+        except (InputParseError, SyntaxError, ValueError, RecursionError):
+            raise _Stop(UNREADABLE_MODULE, f"{ref} could not be read or parsed") from None
+        module = _module(path, ref, tree, text)
+        self._scanned[path] = module
+        return module
 
     def resolve(self, module: PythonModule, reference: str) -> Resolution:
         """Resolve ``reference`` (``name`` or ``module.attr...``) in ``module``."""

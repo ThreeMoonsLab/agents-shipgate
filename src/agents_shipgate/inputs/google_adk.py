@@ -13,6 +13,7 @@ from agents_shipgate.core.artifact_models import (
     GoogleAdkToolsetConnection,
 )
 from agents_shipgate.core.domain import (
+    ANY_TOOL,
     SURFACE_ENUMERATED,
     SURFACE_PARTIAL,
     AgentBindingObservation,
@@ -1549,9 +1550,7 @@ class _PythonAdkExtractor:
                 issue = self._name_unproven_guess(expr.id, resolution, agent_name, binding)
                 before = set(binding.tool_names)
                 loaded = self._extract_flat_name(expr, tools, agent_name, binding)
-                binding.tool_issues.update(
-                    {name: issue for name in binding.tool_names if name not in before}
-                )
+                self._record_guess(expr.id, issue, before, binding)
                 return loaded
         if isinstance(expr, ast.Name):
             return self._extract_flat_name(expr, tools, agent_name, binding)
@@ -1765,9 +1764,7 @@ class _PythonAdkExtractor:
         issue = self._name_unproven_guess(name, resolution, agent_name, binding)
         before = set(binding.tool_names)
         self._bind_function_tool(self.functions[name], tools, agent_name, binding, long_running)
-        binding.tool_issues.update(
-            {bound: issue for bound in binding.tool_names if bound not in before}
-        )
+        self._record_guess(name, issue, before, binding)
         return True
 
     def _name_unproven_guess(
@@ -1799,6 +1796,48 @@ class _PythonAdkExtractor:
             f"Google ADK agent {agent_name!r} lists {name!r}, and {why}; the "
             "same-named definition read for it is not established as the one bound."
         )
+
+    def _record_guess(
+        self, name: str, issue: str, before: set[str], binding: _AdkAgentBinding
+    ) -> None:
+        """Scope a guessed binding's reason to every tool it may really be.
+
+        The tool the guess bound, and every tool name the module's bindings of
+        ``name`` could give the agent instead (a ``def``, an imported function,
+        ``name = other``, ``name = FunctionTool(func=f)``). Only when one of
+        those cannot be named does the reason cover the whole agent (#879
+        review): a guess that bound nothing new still leaves a gap.
+        """
+
+        names = {bound for bound in binding.tool_names if bound not in before}
+        candidates = self._guess_candidates(name)
+        names |= candidates if candidates is not None else {ANY_TOOL}
+        binding.tool_issues.update({item: issue for item in names})
+
+    def _guess_candidates(self, name: str) -> set[str] | None:
+        if self.module is None:
+            return None
+        candidates: set[str] = set()
+        for item in self.module.bindings.get(name, []):
+            node, statement = item.node, item.statement
+            value = getattr(statement, "value", None)
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                candidates.add(node.name)
+            elif isinstance(node, ast.alias):
+                candidates.add(node.name.rsplit(".", 1)[-1])
+            elif isinstance(node, ast.Name) and isinstance(value, ast.Name):
+                candidates.add(value.id)
+            elif (
+                isinstance(node, ast.Name)
+                and isinstance(value, ast.Call)
+                and _qualified_name(value.func, self.aliases)
+                in FUNCTION_TOOL_NAMES | LONG_RUNNING_TOOL_NAMES
+                and _call_func_name(value) is not None
+            ):
+                candidates.add(str(_call_func_name(value)))
+            else:
+                return None
+        return candidates
 
     def _visible_function(self, name: str, node: ast.AST | None) -> bool:
         """Whether ``self.functions[name]`` is the binding of ``name`` visible at ``node``."""

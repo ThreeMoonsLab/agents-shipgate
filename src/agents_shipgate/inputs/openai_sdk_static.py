@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
@@ -226,7 +227,15 @@ def _extract_agent_bindings(
                 for alias in node.names:
                     import_aliases[alias.asname or alias.name] = alias.name
         tool_lists = _ToolLists(
-            tree, scopes, module.bindings if module is not None else _module_bindings(tree)[0]
+            tree,
+            scopes,
+            module.bindings if module is not None else _module_bindings(tree)[0],
+            sdk_names=sdk_names,
+            resolve=(
+                (lambda spelling, module=module: imports.resolver.resolve(module, spelling))
+                if module is not None
+                else None
+            ),
         )
         for node in ast.walk(tree):
             if not isinstance(node, (ast.Assign, ast.AnnAssign)):
@@ -512,7 +521,8 @@ _READ_ONLY_CALLS = frozenset(
         "len", "print", "repr", "str", "bool", "id", "hash", "isinstance", "type",
         "list", "tuple", "set", "frozenset", "sorted", "reversed", "enumerate", "iter",
         "any", "all", "sum", "min", "max", "zip", "map", "filter",
-        "copy.copy", "copy.deepcopy", "json.dumps",
+        "copy.copy", "copy.deepcopy", "json.dumps", "pprint", "pprint.pprint",
+        "pprint.pformat", "pformat",
     }
 )
 _LOG_METHODS = frozenset({"debug", "info", "warning", "error", "exception", "critical", "log"})
@@ -523,6 +533,41 @@ def _leaves_arguments_alone(call: ast.Call) -> bool:
     if name in _READ_ONLY_CALLS:
         return True
     return isinstance(call.func, ast.Attribute) and call.func.attr in _LOG_METHODS
+
+
+def _parameter_left_alone(function: ast.FunctionDef | ast.AsyncFunctionDef, name: str) -> bool:
+    """Whether ``function`` never changes, re-binds out, or hands on parameter ``name``."""
+
+    def rooted(node: ast.AST) -> bool:
+        while isinstance(node, ast.Attribute | ast.Subscript):
+            node = node.value
+        return isinstance(node, ast.Name) and node.id == name
+
+    for node in ast.walk(function):
+        if isinstance(node, ast.Global | ast.Nonlocal) and name in node.names:
+            return False
+        if isinstance(node, ast.Assign | ast.AugAssign | ast.AnnAssign | ast.Delete):
+            targets = node.targets if isinstance(node, ast.Assign | ast.Delete) else [node.target]
+            if any(isinstance(t, ast.Subscript | ast.Attribute) and rooted(t) for t in targets):
+                return False
+            value = node.value if isinstance(node, ast.Assign | ast.AnnAssign) else None
+            if isinstance(value, ast.Name) and value.id == name:
+                return False
+        if isinstance(node, ast.NamedExpr) and isinstance(node.value, ast.Name) and node.value.id == name:
+            return False
+        if isinstance(node, ast.Call):
+            if (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr in _LIST_MUTATORS
+                and rooted(node.func.value)
+            ):
+                return False
+            if not _leaves_arguments_alone(node) and any(
+                isinstance(value, ast.Name) and value.id == name
+                for value in [*node.args, *(keyword.value for keyword in node.keywords)]
+            ):
+                return False
+    return True
 
 
 class _ToolLists:
@@ -541,11 +586,30 @@ class _ToolLists:
     """
 
     def __init__(
-        self, tree: ast.Module, scopes: ScopeIndex, module_bindings: dict[str, list[Any]]
+        self,
+        tree: ast.Module,
+        scopes: ScopeIndex,
+        module_bindings: dict[str, list[Any]],
+        *,
+        sdk_names: _SdkNames | None = None,
+        resolve: Callable[[str], Resolution] | None = None,
     ) -> None:
         self.scopes = scopes
         self.module_bindings = module_bindings
+        self.sdk_names = sdk_names
+        self.resolve = resolve
         self.changed: set[object] = set()
+        # Only a name bound to a literal list somewhere can be read as one, so
+        # only those are followed into a callee — reading other modules for any
+        # call would widen the run's inputs for nothing.
+        listed = {
+            target.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign | ast.AnnAssign)
+            and isinstance(node.value, ast.List | ast.Tuple)
+            for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
+            if isinstance(target, ast.Name)
+        }
         for node in ast.walk(tree):
             roots: list[ast.AST] = []
             if (
@@ -564,16 +628,34 @@ class _ToolLists:
             elif isinstance(node, ast.NamedExpr) and isinstance(node.value, ast.Name):
                 roots = [node.value]
             elif isinstance(node, ast.Call) and not _leaves_arguments_alone(node):
-                # ``register(TOOLS)``: a callee may change the list it is given.
+                # ``register(TOOLS)``: a callee may change the list it is given,
+                # unless it is an SDK agent reading its own ``tools=`` or a
+                # function this module can read that leaves it alone.
+                # An agent, or a copy of one, reads its own ``tools=``.
+                agent = (
+                    self.sdk_names is not None
+                    and self.sdk_names.denotes(
+                        dotted_name(node.func), node, "Agent", DEFAULT_AGENT_CONSTRUCTORS
+                    )
+                ) or (
+                    (isinstance(node.func, ast.Attribute) and node.func.attr == "clone")
+                    or dotted_name(node.func) in {"replace", "dataclasses.replace", "copy.replace"}
+                )
                 roots = [
-                    *(arg for arg in node.args if isinstance(arg, ast.Name)),
-                    *(
-                        keyword.value
-                        for keyword in node.keywords
-                        if isinstance(keyword.value, ast.Name)
-                        and keyword.arg not in {"tools", "handoffs", "mcp_servers"}
-                    ),
+                    arg
+                    for position, arg in enumerate(node.args)
+                    if isinstance(arg, ast.Name)
+                    and arg.id in listed
+                    and not self._callee_leaves_alone(node, position, None)
                 ]
+                roots.extend(
+                    keyword.value
+                    for keyword in node.keywords
+                    if isinstance(keyword.value, ast.Name)
+                    and keyword.value.id in listed
+                    and not (agent and keyword.arg in {"tools", "handoffs", "mcp_servers"})
+                    and not self._callee_leaves_alone(node, None, keyword.arg)
+                )
             elif isinstance(node, ast.Global):
                 self.changed.update(("module", name) for name in node.names)
             elif isinstance(node, ast.Nonlocal):
@@ -587,6 +669,29 @@ class _ToolLists:
                 if isinstance(root, ast.Name):
                     found = scopes.enclosing_bindings(root, root.id)
                     self.changed.add(id(found[0]) if found else ("module", root.id))
+
+    def _callee_leaves_alone(
+        self, call: ast.Call, position: int | None, keyword: str | None
+    ) -> bool:
+        """Whether the function ``call`` names never changes the argument it passes."""
+
+        spelling = reference_spelling(call.func)
+        if spelling is None or self.resolve is None:
+            return False
+        resolution = self.resolve(spelling)
+        function = resolution.definition if resolution.resolved else None
+        if function is None:
+            return False
+        positional = [*function.args.posonlyargs, *function.args.args]
+        if position is not None:
+            if position >= len(positional):
+                return False
+            parameter = positional[position].arg
+        elif keyword in {arg.arg for arg in [*positional, *function.args.kwonlyargs]}:
+            parameter = str(keyword)
+        else:
+            return False
+        return _parameter_left_alone(function, parameter)
 
     def _literal(self, name: str, node: ast.AST) -> ast.List | ast.Tuple | None | bool:
         """The one literal list ``name`` holds at ``node``.

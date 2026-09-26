@@ -30,6 +30,7 @@ from agents_shipgate.cli.verify.git import (
 )
 from agents_shipgate.core.agent_bindings import resolve_agent_binding_graph
 from agents_shipgate.core.artifacts import ArtifactBag
+from agents_shipgate.core.domain import ANY_TOOL
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.privacy import sanitize_report_payload
 from agents_shipgate.core.verification_identity import build_engine_requirement
@@ -381,17 +382,16 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
                     )
                     attributed.add(message)
             # A binding the reader made on a guess is reported, never as an
-            # established row: the tool's own row carries the reason on the
-            # side it is present, and the agent's other absences do too, since
-            # what the name really binds may be one of them (#879 review).
+            # established row: each tool the name may really be carries the
+            # reason on the side it is present, and the whole agent does when
+            # one of them cannot be named (#879 review).
             for tool_name, message in observation.tool_issues.items():
-                for tool in (tool_name, None):
-                    result.gap(
-                        message,
-                        source=_source_path(root, observation.source),
-                        agent=observation.agent,
-                        tool=tool,
-                    )
+                result.gap(
+                    message,
+                    source=_source_path(root, observation.source),
+                    agent=observation.agent,
+                    tool=None if tool_name == ANY_TOOL else tool_name,
+                )
                 attributed.add(message)
         for warning in item.warnings:
             if warning not in attributed:

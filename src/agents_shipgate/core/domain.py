@@ -679,6 +679,11 @@ class AgentRemoteBinding(BaseModel):
     source_ref: str | None = None
 
 
+#: A ``tool_issues`` key for a guess whose real binding could be any of the
+#: agent's tools, not one this reader can name (#879 review).
+ANY_TOOL = "*"
+
+
 class AgentBindingObservation(BaseModel):
     """One framework parser's normalized, agent-level binding observation."""
 
