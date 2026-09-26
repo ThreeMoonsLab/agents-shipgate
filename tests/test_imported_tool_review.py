@@ -842,7 +842,8 @@ def test_sdk_list_passed_to_a_helper_is_dynamic_only_when_it_can_change(repo, he
     if dynamic:
         assert result["comparison_status"] == "partial"
     else:
-        assert result["comparison_status"] == "compared"
+        # The list stays established. A copy passing its own tools is a limit on
+        # the copy (#876), never on the agent whose list it reads.
         assert ("agent", "lookup", "changed") in _rows(result)
 
 

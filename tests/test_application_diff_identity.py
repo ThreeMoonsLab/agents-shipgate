@@ -67,7 +67,6 @@ agent = SupportAgent(tools=TOOLS)""",
 # (the name it is assigned to) while hiding its tool list from the reader.
 UNREAD_CONSTRUCTIONS = {
     "subclass": SDK_SUBCLASS,
-    "generic": SDK.replace("Agent(name=", "Agent[dict](name="),
     "factory": SDK.replace(
         'agent = Agent(name="assistant", tools=TOOLS)',
         'def build(tools):\n    return Agent(name="assistant", tools=tools)\nagent = build(TOOLS)',
@@ -178,10 +177,18 @@ def test_import_bound_agent_name_is_not_a_removal(repo, spelling):
     )
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial"
+    # The factory's own construction is read since #876, under its literal
+    # name in the module that builds it. That is a head-side construction
+    # site, not evidence about `agent`: the absence of `agent` in agent.py
+    # stays not established.
     assert [
         (r["agent"], r["tool"], r["change"], r["candidate_change"]) for r in result["rows"]
-    ] == [("agent", "lookup", "not_established", "removed")]
+    ] == [
+        ("agent", "lookup", "not_established", "removed"),
+        ("assistant", "lookup", "added", None),
+    ]
     assert list(result["rows"][0]["uncertainty"]) == ["head"]
+    assert result["rows"][1]["after"]["agent_source"] == "agent_factory.py"
 
 
 @pytest.mark.parametrize("construction", sorted(UNREAD_CONSTRUCTIONS))
@@ -202,6 +209,18 @@ def test_unread_head_construction_is_not_a_removal(repo, construction):
     assert any(
         g["agent"] == "agent" and g["source"] == "agent.py" for g in result["head"]["coverage_gaps"]
     )
+
+
+def test_generic_construction_is_read(repo):
+    # `Agent[Context](...)` constructs the SDK's Agent; it was unread before #876.
+    source = SDK.replace("Agent(name=", "Agent[dict](name=")
+    base = commit(repo, {"agent.py": source.replace("TOOLS", "[lookup]")})
+    head = commit(repo, {"agent.py": source.replace("TOOLS", "[lookup, execute]")})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "compared"
+    assert [(r["agent"], r["tool"], r["change"]) for r in result["rows"]] == [
+        ("agent", "execute", "added")
+    ]
 
 
 def test_handoff_reference_is_not_an_observed_construction(repo):
