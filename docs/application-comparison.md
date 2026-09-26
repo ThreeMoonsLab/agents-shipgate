@@ -125,10 +125,12 @@ bound exactly once, directly in the module body, in every module on the way; a
 package's own `from . import submodule`, even under `if TYPE_CHECKING:`, names
 that submodule. A module-level `__getattr__` is not evaluated: a tool reached
 past one is, for `scan`, not counted as proven. The comparison takes the
-submodule only when every `return` the hook can reach for that name (one under
-`if name == "other":` cannot) gives `importlib.import_module(f".{name}",
-__name__)` or the package's own `from . import <name>` — the lazy-loading
-idioms — and otherwise keeps the tool named with its row `not_established`.
+submodule only when the hook is undecorated, never rebinds its parameter, and
+every `return` it can reach for that name (one under `if name == "other":`
+cannot) gives `importlib.import_module(f".{name}", __name__)` — with
+`importlib` bound only by importing it — or the package's own `from . import
+<name>`: the lazy-loading idioms. Otherwise the tool stays named with its row
+`not_established`.
 
 `import a.b` followed by `a.b.f` reads the submodule `a/b.py`, which is what
 the import system guarantees after `a/__init__.py` runs, even when the package
@@ -156,13 +158,19 @@ hands the definition on and does not count (a reassignment through its own
 import still does); an import under `typing`'s `if TYPE_CHECKING:` never runs
 and is skipped; every location an ambiguous import could mean is read. Code
 there that runs but is not read — a relative import above the scope, an
-absolute import spelled through a directory above the scope (`from
-svc.patches import …` with scope `svc/app`), a relative module no file
-provides — keeps the tool named, with its row `not_established` and that
-import in the reason. A generated `*_pb2` module, an optional import, and an
-absolute import of anything else no file in the scope provides (a third-party
-package) are the read's boundary, and a rebinding in a module none of these
-import is not looked for.
+absolute import of a module the repository holds outside the scope (`from
+svc.patches import …` or `from common.patches import …` with scope
+`svc/app`), a relative module no file provides — keeps the tool named, with its
+row `not_established` and that import in the reason. Whether an absolute import
+is the repository's own code is read from the compared commit's tree (for
+`scan`, from the checkout): a module or regular package at the repository root
+or under `src/`, or a directory without `__init__.py` that holds the submodule
+named — `agents/support/` holding SDK apps is not the `agents` that `from
+agents import Agent` imports. The scope spelled from the repository root
+(`svc.app.tools` with scope `svc/app`) is read inside the scope. A generated
+`*_pb2` or `_version` module, an optional import, and an absolute import the
+repository does not hold (a third-party package) are the read's boundary, and a
+rebinding in a module none of these import is not looked for.
 When the module binds a name more than once or only inside an `if`, the Google
 ADK reader still names the same-named `def` or wrapper it found, for `scan`,
 but that binding is never established: its row is `not_established` on

@@ -35,6 +35,9 @@ from __future__ import annotations
 import ast
 import hashlib
 import stat
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -66,8 +69,69 @@ MAX_MODULES = 64
 MAX_STEPS = 32
 #: Modules read only to check what runs before a name is used for patches.
 MAX_PATCH_SCAN_MODULES = 1024
-#: Directories above the scope whose names an absolute import may spell.
-MAX_ANCESTOR_PACKAGES = 8
+#: Module names generated at build time, which define data and patch nothing:
+#: ``*_pb2`` / ``*_pb2_grpc`` from a ``.proto``, setuptools-scm's ``_version``.
+_GENERATED_SUFFIXES = ("_pb2", "_pb2_grpc")
+_GENERATED_NAMES = frozenset({"_version"})
+
+
+@dataclass(frozen=True)
+class RepositoryLayout:
+    """What the repository holds outside the read scope (#879 review).
+
+    An absolute import that no file in the scope provides is a third-party
+    package, or the application's own code outside the scope (``from
+    common.patches import applied`` in a monorepo). Only the repository can
+    tell the two apart; a directory named like the ancestor is not enough
+    (``agents/`` holding OpenAI Agents SDK apps).
+    """
+
+    #: The scope's path from the repository root; "" for the root itself.
+    scope: str
+    #: The names directly inside one repository directory ("" is the root);
+    #: None when it is not a directory or cannot be listed.
+    entries: Callable[[str], frozenset[str] | None]
+
+
+_REPOSITORY: ContextVar[RepositoryLayout | None] = ContextVar("repository_layout", default=None)
+
+
+@contextmanager
+def repository_layout(layout: RepositoryLayout | None) -> Iterator[None]:
+    """Read imports against ``layout`` — the comparison's Git tree — while active."""
+
+    token = _REPOSITORY.set(layout)
+    try:
+        yield
+    finally:
+        _REPOSITORY.reset(token)
+
+
+def _disk_layout(scope_root: Path) -> RepositoryLayout | None:
+    """The checkout that holds ``scope_root``, read from disk; None outside one."""
+
+    root = scope_root
+    while not (root / ".git").exists():
+        if root.parent == root:
+            return None
+        root = root.parent
+    listings: dict[str, frozenset[str] | None] = {}
+
+    def entries(path: str) -> frozenset[str] | None:
+        if path not in listings:
+            directory = root / path if path else root
+            try:
+                listings[path] = (
+                    frozenset(child.name for child in list_input_directory(directory))
+                    if directory.is_dir() and not directory.is_symlink()
+                    else None
+                )
+            except (InputParseError, OSError):
+                listings[path] = None
+        return listings[path]
+
+    scope = scope_root.relative_to(root).as_posix()
+    return RepositoryLayout("" if scope == "." else scope, entries)
 
 _SCOPE_NODES = (
     ast.FunctionDef,
@@ -196,23 +260,11 @@ class ImportResolver:
     _patches: dict[Path, _PatchScan | _Stop] = field(default_factory=dict)
     _scanned: dict[Path, PythonModule | _Stop] = field(default_factory=dict)
     _parsed: int = 0
-    #: Names of the directories above the scope, up to the repository root:
-    #: what an absolute import of application code above the scope spells.
-    _above: frozenset[str] = frozenset()
+    _layout: RepositoryLayout | None = None
 
     def __post_init__(self) -> None:
         self.scope_root = self.scope_root.resolve()
-        names: list[str] = []
-        directory = self.scope_root
-        for _ in range(MAX_ANCESTOR_PACKAGES):
-            parent = directory.parent
-            if parent == directory or (directory / ".git").exists():
-                break
-            names.append(directory.name)
-            directory = parent
-        # The scope's own name is looked up inside it (``_absolute``); only the
-        # directories above it are unread.
-        self._above = frozenset(names[1:])
+        self._layout = _REPOSITORY.get() or _disk_layout(self.scope_root)
 
     # -- modules ---------------------------------------------------------------
 
@@ -428,8 +480,10 @@ class ImportResolver:
             if not isinstance(node, ast.Import | ast.ImportFrom) or id(node) in typing_only:
                 continue
             paths, missing = self._imported_paths(runner, node)
-            for stop, spelling in missing:
-                caveat = self._unread_import(runner, node, stop, spelling, id(node) in guarded)
+            for stop, spelling, names in missing:
+                caveat = self._unread_import(
+                    runner, node, stop, spelling, names, id(node) in guarded
+                )
                 if caveat is not None and caveat not in unread:
                     unread.append(caveat)
             for item in paths:
@@ -463,7 +517,7 @@ class ImportResolver:
             if not isinstance(statement, ast.Import | ast.ImportFrom):
                 return None
             paths, missing = self._imported_paths(module, statement)
-            if any(stop.reason != MODULE_NOT_FOUND for stop, _ in missing):
+            if any(stop.reason != MODULE_NOT_FOUND for stop, _, _ in missing):
                 return None
             targets.update(paths)
         return frozenset(targets)
@@ -474,6 +528,7 @@ class ImportResolver:
         node: ast.Import | ast.ImportFrom,
         stop: _Stop,
         spelling: str,
+        names: list[str],
         guarded: bool,
     ) -> str | None:
         """The caveat for one import target no file in the scope provides; raise
@@ -481,11 +536,7 @@ class ImportResolver:
 
         where = f"{runner.ref}:{node.lineno}"
         relative = isinstance(node, ast.ImportFrom) and bool(node.level)
-        if stop.reason == OUTSIDE_SCOPE or (
-            stop.reason == MODULE_NOT_FOUND
-            and not relative
-            and spelling.split(".", 1)[0] in self._above
-        ):
+        if stop.reason == OUTSIDE_SCOPE:
             # Application code above the scope runs here, unread: the binding
             # is named, never established (#879 review).
             return (
@@ -494,22 +545,72 @@ class ImportResolver:
             )
         if stop.reason != MODULE_NOT_FOUND:
             raise stop
+        if not relative and self._repository_provides(spelling.split("."), names):
+            return (
+                f"{where} imports {spelling!r}, which the repository holds outside the "
+                "read scope, which is not read and could reassign it"
+            )
         if guarded or not relative:
             # An optional import may be absent; an absolute import no file in
-            # the scope provides is a third-party package — the read's
+            # the repository provides is a third-party package — the read's
             # boundary, as for every import.
             return None
-        if spelling.rsplit(".", 1)[-1].endswith(("_pb2", "_pb2_grpc")):
-            # Generated from a ``.proto`` at build time; it defines messages.
+        last = spelling.rsplit(".", 1)[-1]
+        if last.endswith(_GENERATED_SUFFIXES) or last in _GENERATED_NAMES:
+            # Generated at build time; it defines data.
             return None
         return (
             f"{where} imports {spelling!r}, which no file in the read scope provides and "
             "which could reassign it"
         )
 
+    def _repository_provides(self, parts: list[str], names: list[str]) -> bool:
+        """Whether the repository holds the module an absolute import names.
+
+        A module or regular package at the repository root (or ``src/``). A
+        directory without ``__init__.py`` only when it holds the submodule
+        named: an installed package of the same name wins over a namespace
+        directory, so ``agents/`` holding SDK apps is not the ``agents`` that
+        ``from agents import Agent`` imports.
+        """
+
+        layout = self._layout
+        if layout is None or not parts or not parts[0]:
+            return False
+        for base in ("", "src"):
+            prefix = f"{base}/" if base else ""
+            top = layout.entries(base)
+            if not top:
+                continue
+            first = parts[0]
+            if f"{first}.py" in top:
+                return True
+            if first not in top:
+                continue
+            inside = layout.entries(prefix + first)
+            if inside is None:
+                continue
+            if "__init__.py" in inside:
+                return True
+            for path in [parts[1:]] if parts[1:] else [[name] for name in names if name != "*"]:
+                directory, entries = prefix + first, inside
+                for index, part in enumerate(path):
+                    last = index == len(path) - 1
+                    if last and f"{part}.py" in entries:
+                        return True
+                    if part not in entries:
+                        break
+                    directory = f"{directory}/{part}"
+                    entries = layout.entries(directory)
+                    if entries is None:
+                        break
+                    if last:
+                        return True
+        return False
+
     def _imported_paths(
         self, runner: PythonModule, node: ast.Import | ast.ImportFrom
-    ) -> tuple[list[Path], list[tuple[_Stop, str]]]:
+    ) -> tuple[list[Path], list[tuple[_Stop, str, list[str]]]]:
         """The in-scope module files one import statement runs, and each target
         it could not locate with why.
 
@@ -519,13 +620,13 @@ class ImportResolver:
         """
 
         paths: list[Path] = []
-        missing: list[tuple[_Stop, str]] = []
+        missing: list[tuple[_Stop, str, list[str]]] = []
         if isinstance(node, ast.Import):
             for alias in node.names:
                 try:
                     containers = self._absolute_candidates(runner, alias.name)
                 except _Stop as stop:
-                    missing.append((stop, alias.name))
+                    missing.append((stop, alias.name, []))
                     continue
                 paths.extend(item.module_path for item in containers if item.module_path)
             return paths, missing
@@ -540,7 +641,7 @@ class ImportResolver:
                 else self._absolute_candidates(runner, node.module or "")
             )
         except _Stop as stop:
-            missing.append((stop, spelling))
+            missing.append((stop, spelling, [alias.name for alias in node.names]))
             return paths, missing
         for container in containers:
             if container.module_path is not None:
@@ -575,8 +676,8 @@ class ImportResolver:
         if len(self._scanned) >= MAX_PATCH_SCAN_MODULES:
             raise _Stop(
                 RESOLUTION_LIMIT,
-                f"checking the enclosing packages would read more than "
-                f"{MAX_PATCH_SCAN_MODULES} modules",
+                f"checking the code that runs before it for patches would read more "
+                f"than {MAX_PATCH_SCAN_MODULES} modules",
             )
         ref = self.ref(path)
         try:
@@ -852,6 +953,16 @@ class ImportResolver:
             and self._file_entry(self.scope_root, "__init__.py") is not None
         ):
             roots.append((self.scope_root, parts[1:]))
+        # The scope spelled from the repository root (``svc.app.tools`` with
+        # scope ``svc/app``, or ``app.tools`` under ``src/app``): its own files.
+        if self._layout is not None and self._layout.scope:
+            scope_parts = self._layout.scope.split("/")
+            prefixes = [scope_parts]
+            if scope_parts[0] == "src" and len(scope_parts) > 1:
+                prefixes.append(scope_parts[1:])
+            for prefix in prefixes:
+                if parts[: len(prefix)] == prefix:
+                    roots.append((self.scope_root, parts[len(prefix):]))
         found: dict[Path, _Container] = {}
         for root, remaining in roots:
             if not remaining:
@@ -1134,30 +1245,63 @@ def _hook_answers_submodule(module: PythonModule, name: str) -> bool:
     """Whether a package ``__getattr__`` can answer ``name`` only with that
     submodule, or not at all (#879 review).
 
-    Defined once, at module level, taking one parameter. Every ``return`` it
-    can reach for ``name`` — one guarded by ``if param == "other":`` cannot —
-    gives ``importlib.import_module(f".{param}", __name__)`` (or ``"." +
-    param``, or ``f"{__name__}.{param}"``), directly or through a local
-    assigned once from it, or the package's own ``from . import name``. Those
-    are the lazy-loading idioms; anything else could redirect the name.
+    Defined once, at module level, undecorated, taking one parameter it never
+    rebinds. Every ``return`` it can reach for ``name`` — one guarded by ``if
+    param == "other":`` cannot — gives ``importlib.import_module(f".{param}",
+    __name__)`` (or ``"." + param``, or ``f"{__name__}.{param}"``), with
+    ``importlib`` / ``import_module`` bound only by an import from
+    ``importlib``, directly or through a local bound exactly once from it; or
+    the package's own ``from . import name``. Those are the lazy-loading
+    idioms; anything else could redirect the name.
     """
 
     bindings = module.bindings.get("__getattr__", [])
     if len(bindings) != 1 or not bindings[0].top_level:
         return False
     function = bindings[0].node
-    if not isinstance(function, ast.FunctionDef) or len(function.args.args) != 1:
+    if (
+        not isinstance(function, ast.FunctionDef)
+        or function.decorator_list
+        or len(function.args.args) != 1
+    ):
         return False
     parameter = function.args.args[0].arg
+
+    def from_importlib(head: str) -> bool:
+        """``importlib`` / ``import_module`` bound in the module only by importing it."""
+
+        found = module.bindings.get(head, [])
+        return bool(found) and all(
+            isinstance(item.node, ast.alias)
+            and (
+                (
+                    isinstance(item.statement, ast.Import)
+                    and head == "importlib"
+                    and item.node.name == "importlib"
+                    and item.node.asname is None
+                )
+                or (
+                    isinstance(item.statement, ast.ImportFrom)
+                    and head == "import_module"
+                    and not item.statement.level
+                    and item.statement.module == "importlib"
+                    and item.node.name == "import_module"
+                    and item.node.asname in (None, "import_module")
+                )
+            )
+            for item in found
+        )
 
     def is_parameter(node: ast.AST) -> bool:
         return isinstance(node, ast.Name) and node.id == parameter
 
     def is_import(node: ast.AST | None) -> bool:
-        if not isinstance(node, ast.Call) or reference_spelling(node.func) not in {
-            "importlib.import_module",
-            "import_module",
-        }:
+        spelling = reference_spelling(node.func) if isinstance(node, ast.Call) else None
+        if spelling not in {"importlib.import_module", "import_module"}:
+            return False
+        assert isinstance(node, ast.Call) and spelling is not None
+        head = spelling.split(".", 1)[0]
+        if head in assigned or not from_importlib(head):
             return False
         args = node.args
         package = len(args) == 2 and isinstance(args[1], ast.Name) and args[1].id == "__name__"
@@ -1207,6 +1351,11 @@ def _hook_answers_submodule(module: PythonModule, name: str) -> bool:
     # names its enclosing ``if param == ...`` branches restrict it to.
     assigned: dict[str, list[ast.AST | None]] = {}
     returns: list[tuple[ast.Return, set[str]]] = []
+
+    def bind(name: str, value: ast.AST | None) -> None:
+        assigned.setdefault(name, []).append(value)
+
+    parents = {child: node for node in ast.walk(function) for child in ast.iter_child_nodes(node)}
     stack: list[tuple[ast.AST, frozenset[str]]] = [(item, frozenset()) for item in function.body]
     while stack:
         node, guards = stack.pop()
@@ -1216,16 +1365,25 @@ def _hook_answers_submodule(module: PythonModule, name: str) -> bool:
             return False
         if isinstance(node, ast.Return):
             returns.append((node, set(guards)))
-        elif isinstance(node, ast.Assign | ast.AnnAssign | ast.AugAssign | ast.NamedExpr):
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            for target in targets:
-                if isinstance(target, ast.Name):
-                    value = None if isinstance(node, ast.AugAssign) else node.value
-                    assigned.setdefault(target.id, []).append(value)
+        elif isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+            # Every binding counts — ``for``, ``with``, walrus, ``del`` — so a
+            # local "bound once" is bound exactly once (#879 review).
+            parent_value: ast.AST | None = None
+            owner = parents.get(node)
+            if isinstance(owner, ast.Assign) and owner.targets == [node]:
+                parent_value = owner.value
+            elif isinstance(owner, ast.AnnAssign) and owner.target is node:
+                parent_value = owner.value
+            bind(node.id, parent_value)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            bind(node.name, None)
         elif isinstance(node, ast.ImportFrom | ast.Import):
             for alias in node.names:
-                assigned.setdefault((alias.asname or alias.name).split(".", 1)[0], []).append(
-                    alias if isinstance(node, ast.ImportFrom) and node.level == 1 and not node.module else None
+                bind(
+                    (alias.asname or alias.name).split(".", 1)[0],
+                    alias
+                    if isinstance(node, ast.ImportFrom) and node.level == 1 and not node.module
+                    else None,
                 )
         if isinstance(node, ast.If):
             served = guard(node.test)
@@ -1235,6 +1393,10 @@ def _hook_answers_submodule(module: PythonModule, name: str) -> bool:
             stack.append((node.test, guards))
             continue
         stack.extend((child, guards) for child in ast.iter_child_nodes(node))
+    if parameter in assigned:
+        # ``name = "evil"`` before the import: the parameter no longer says
+        # which submodule is imported.
+        return False
     for node, guards in returns:
         if guards and guards != {name}:
             # Reached only for another name (or never).

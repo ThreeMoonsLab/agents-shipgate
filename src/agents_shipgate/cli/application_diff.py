@@ -23,6 +23,7 @@ from agents_shipgate.cli.discovery.artifacts import _candidate_files, _skip_part
 from agents_shipgate.cli.scan.source_loading import _build_canonical_tools
 from agents_shipgate.cli.verify.git import (
     PromisedObjectsMissingError,
+    _run_git_bounded_output,
     archive_fetched_tree,
     commit_sha,
     ensure_git_workspace,
@@ -36,6 +37,7 @@ from agents_shipgate.core.privacy import sanitize_report_payload
 from agents_shipgate.core.verification_identity import build_engine_requirement
 from agents_shipgate.inputs.google_adk import load_google_adk_artifacts
 from agents_shipgate.inputs.openai_sdk_static import load_openai_sdk_static_tools
+from agents_shipgate.inputs.python_imports import RepositoryLayout, repository_layout
 from agents_shipgate.schemas.manifest import ToolSourceConfig
 
 SUPPORTED = frozenset({"openai_agents_sdk", "google_adk"})
@@ -203,6 +205,38 @@ def _definition(root: Path, tool: Any) -> dict[str, Any]:
             )
         ),
     }
+
+
+#: Bytes one repository-directory listing may take.
+_MAX_LAYOUT_LISTING_BYTES = 4 * 1024 * 1024
+
+
+def _git_layout(workspace: Path, commit: str, scope: str) -> RepositoryLayout:
+    """The commit's tree outside the scope, listed one directory at a time (#879 review)."""
+
+    listings: dict[str, frozenset[str] | None] = {}
+
+    def entries(path: str) -> frozenset[str] | None:
+        if path not in listings:
+            args = ["--literal-pathspecs", "ls-tree", "-z", "--name-only", commit]
+            if path:
+                args += ["--", f"{path}/"]
+            output = _run_git_bounded_output(
+                workspace, args, max_output_bytes=_MAX_LAYOUT_LISTING_BYTES
+            )
+            names = (
+                frozenset(
+                    PurePosixPath(raw.decode("utf-8", errors="replace")).name
+                    for raw in output.split(b"\0")
+                    if raw
+                )
+                if output is not None
+                else frozenset()
+            )
+            listings[path] = names or None
+        return listings[path]
+
+    return RepositoryLayout("" if scope in {"", "."} else scope, entries)
 
 
 def observe(
@@ -897,15 +931,20 @@ def run_application_diff(
                 )
             except PromisedObjectsMissingError:
                 _refuse_objects_missing(workspace, ref, commit, side=side)
-        old = observe(
-            scratch / "base",
-            old_scope,
-            max_python_files=max_python_files,
-            gitlinks=gitlinks["base"],
-        )
-        new = observe(
-            scratch / "head", scope, max_python_files=max_python_files, gitlinks=gitlinks["head"]
-        )
+        # Each side's imports are read against its own commit's tree: the
+        # materialized scope alone cannot say whether ``from common.patches
+        # import ...`` is the application's code or an installed package.
+        with repository_layout(_git_layout(workspace, base_commit, old_scope)):
+            old = observe(
+                scratch / "base",
+                old_scope,
+                max_python_files=max_python_files,
+                gitlinks=gitlinks["base"],
+            )
+        with repository_layout(_git_layout(workspace, head_commit, scope)):
+            new = observe(
+                scratch / "head", scope, max_python_files=max_python_files, gitlinks=gitlinks["head"]
+            )
         if old.status == new.status == "absent":
             raise ConfigError(
                 f"Neither comparison tree contains the selected scopes: "
