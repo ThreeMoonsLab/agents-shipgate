@@ -101,14 +101,16 @@ agents' rows in the file stand:
   container or attribute, returned, unpacked, or bound by `for`, `with` or
   walrus, directly or through a handle; so does one reached through the file's
   own container of agents (`AGENTS[0].tools`, a loop over `AGENTS` at any level,
-  a class attribute bound to an agent — the container a literal, a list the
-  module appends agents to, a comprehension over one, or a module function's
-  returned list), a limit on the agents it holds, and one imported from the
-  scope (`from app.registry import AGENTS`, `getattr(registry, "a")`). On any
-  value, a function of the same module, or one it imports, that changes the
-  list it is given (`add_image(x.tools)` with `add_image` appending, directly or
-  through the helper's own inner calls) changes it, and one that only reads it
-  reads it. On
+  a class attribute bound to an agent — the container a literal, filled by
+  `append`, an item store, `setdefault` or `update`, a comprehension, `+`, a
+  slice, `sorted`/`enumerate`/`zip`/`list(REG.values())`, a nested container, or
+  a module function's returned list), a limit on the agents it holds, and one
+  imported from the scope (`from app.registry import AGENTS`, `getattr(registry,
+  "a")`). On any value, a function of the same module, one it imports (at module
+  level or inside the function), or a method of a class it defines or imports
+  (`H().add(...)`, `holder.add(...)`), that changes the list it is given
+  (`add_image(x.tools)` with `add_image` appending, directly or through the
+  helper's own inner calls) changes it, and one that only reads it reads it. On
   any other value — a request object, another library's model — a handle only
   read or handed on, like `payload["tools"] = request.tools`, is nothing. The
   changed value is read in

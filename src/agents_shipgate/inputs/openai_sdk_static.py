@@ -4,7 +4,7 @@ import ast
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar, Literal, NamedTuple
 
 from agents_shipgate.core.domain import (
     AgentBindingObservation,
@@ -600,25 +600,20 @@ def _extract_agent_bindings(
             """Whether a receiver is reached from a name imported from the scope
             (``from app.registry import AGENTS``, ``getattr(registry, "a")``)."""
 
-            root: ast.AST = _through_loops(receiver, site, scopes, tool_lists.module_bindings)
-            while isinstance(root, ast.Attribute | ast.Subscript | ast.Call):
-                if isinstance(root, ast.Call):
-                    if dotted_name(root.func) != "getattr" or not root.args:
-                        return False
-                    root = root.args[0]
-                else:
-                    root = root.value
-            if module is None or not isinstance(root, ast.Name):
+            if module is None:
                 return False
-            if scopes.enclosing_bindings(site, root.id):
-                return False
-            if not any(
-                isinstance(item.node, ast.alias)
-                for item in tool_lists.module_bindings.get(root.id, [])
-            ):
-                return False
-            resolution = imports.resolver.resolve(module, root.id)
-            return bool(resolution.steps) and resolution.reason not in _OUTSIDE_THE_SCOPE
+            for root in _roots(_through_loops(receiver, site, scopes, tool_lists.module_bindings)):
+                if scopes.enclosing_bindings(site, root):
+                    continue
+                if not any(
+                    isinstance(item.node, ast.alias)
+                    for item in tool_lists.module_bindings.get(root, [])
+                ):
+                    continue
+                resolution = imports.resolver.resolve(module, root)
+                if resolution.steps and resolution.reason not in _OUTSIDE_THE_SCOPE:
+                    return True
+            return False
 
         for receiver, site, strict in _capability_changes(
             tree,
@@ -634,17 +629,17 @@ def _extract_agent_bindings(
         ):
             owner = values.owner(receiver, site)
             owners: list[str | bool | None] = [owner]
-            if strict and not isinstance(owner, str):
-                # Handed on, not changed in view: followed that far only for
-                # an agent this file builds — named, or held in its containers
-                # — or one imported from the scope (#876 review).
+            if owner is not None and not isinstance(owner, str):
+                # A receiver the reader cannot name may still be one of the
+                # file's own agents, held in its containers: the change is a
+                # limit on those (#876 review).
                 held = values.agent_like(receiver, site)
                 if held:
                     owners = list(sorted(held))
-                elif held is None and not scope_imported(receiver, site):
+                elif strict and held is None and not scope_imported(receiver, site):
+                    # Handed on, not changed in view: followed that far only
+                    # for the file's agents or one imported from the scope.
                     continue
-                else:
-                    owners = [True]
             for item in owners:
                 record_change(item, site)
         # One identity constructed twice in a file — ``if premium: return
@@ -932,8 +927,8 @@ def _capability_changes(
         target = within(call)
         if target is None:
             return None
-        function, inner = target
-        positional = [*function.args.posonlyargs, *function.args.args]
+        function, inner, skip = target
+        positional = [*function.args.posonlyargs, *function.args.args][skip:]
         if position is not None:
             if position >= len(positional):
                 return None
@@ -1175,10 +1170,26 @@ def _capability_changes(
     return changes
 
 
+class Callee(NamedTuple):
+    """A call's function, the callees of its own module, and how many leading
+    positional parameters the call does not supply (a bound method's ``self``)."""
+
+    function: ast.FunctionDef | ast.AsyncFunctionDef
+    callees: ModuleCallees
+    skip: int = 0
+
+
+#: Calls that hand on the members of what they are given.
+_ITERATION_WRAPPERS = frozenset(
+    {"list", "tuple", "set", "frozenset", "sorted", "reversed", "iter", "enumerate", "zip", "filter"}
+)
+
+
 class ModuleCallees:
     """The function a call in one module names — defined there or imported
-    (#864) — with the callees of that function's own module, so a helper's
-    inner calls are read where the helper is written (#876 review).
+    (#864), a method of a class it defines or imports, or a helper a function
+    imports for itself — with the callees of that function's own module, so a
+    helper's inner calls are read where the helper is written (#876 review).
 
     One per module, shared through ``registry``; resolutions are cached, so a
     module with a thousand calls reads each spelling once.
@@ -1199,35 +1210,118 @@ class ModuleCallees:
         self.resolver = resolver
         self.module = module
         self.registry = registry if registry is not None else {}
-        self._cache: dict[str, tuple[ast.FunctionDef | ast.AsyncFunctionDef, ModuleCallees] | None] = {}
+        self._cache: dict[str, Callee | None] = {}
 
-    def __call__(
-        self, call: ast.Call
-    ) -> tuple[ast.FunctionDef | ast.AsyncFunctionDef, ModuleCallees] | None:
-        spelling = reference_spelling(call.func)
-        if spelling is None or self.scopes.enclosing_bindings(call, spelling.split(".", 1)[0]):
+    def __call__(self, call: ast.Call) -> Callee | None:
+        func = call.func
+        if isinstance(func, ast.Attribute):
+            method = self._method(func, call)
+            if method is not None:
+                return method
+        spelling = reference_spelling(func)
+        if spelling is None:
             return None
+        head = spelling.split(".", 1)[0]
+        found = self.scopes.enclosing_bindings(call, head)
+        if found:
+            # ``from app.helpers import add_image`` inside the function that
+            # calls it, the usual way to break an import cycle.
+            return self._local_import(found, spelling)
         if spelling not in self._cache:
             self._cache[spelling] = self._resolve(spelling)
         return self._cache[spelling]
 
-    def _resolve(
-        self, spelling: str
-    ) -> tuple[ast.FunctionDef | ast.AsyncFunctionDef, ModuleCallees] | None:
+    def _resolve(self, spelling: str) -> Callee | None:
         found = self.bindings.get(spelling, []) if "." not in spelling else []
         if (
             len(found) == 1
             and found[0].top_level
             and isinstance(found[0].node, ast.FunctionDef | ast.AsyncFunctionDef)
         ):
-            return found[0].node, self
+            return Callee(found[0].node, self)
         if self.resolver is None or self.module is None:
             return None
         resolution = self.resolver.resolve(self.module, spelling)
         if not resolution.resolved or resolution.module is None:
             return None
         assert resolution.definition is not None
-        return resolution.definition, self.for_module(resolution.module)
+        return Callee(resolution.definition, self.for_module(resolution.module))
+
+    def _local_import(self, found: list[ast.AST], spelling: str) -> Callee | None:
+        if len(found) != 1 or not isinstance(found[0], ast.alias):
+            return None
+        if self.resolver is None or self.module is None:
+            return None
+        statement = self.scopes.statement_of(found[0])
+        if not isinstance(statement, ast.Import | ast.ImportFrom):
+            return None
+        resolution = self.resolver.resolve_local_import(self.module, statement, found[0], spelling)
+        if not resolution.resolved or resolution.module is None:
+            return None
+        assert resolution.definition is not None
+        return Callee(resolution.definition, self.for_module(resolution.module))
+
+    def _method(self, func: ast.Attribute, call: ast.Call) -> Callee | None:
+        """``H().add(...)``, or ``obj.add(...)`` with ``obj = H()``: the method of a
+        class the module defines or imports, ``self`` not supplied."""
+
+        owner = func.value
+        maker: ast.expr | None = None
+        if isinstance(owner, ast.Call):
+            maker = owner.func
+        elif isinstance(owner, ast.Name):
+            value = self._value_of(owner.id, call)
+            if isinstance(value, ast.Call):
+                maker = value.func
+        if maker is None:
+            return None
+        found = self._class(maker, call)
+        if found is None:
+            return None
+        cls, callees = found
+        for item in cls.body:
+            if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef) and item.name == func.attr:
+                static = any(dotted_name(decorator) == "staticmethod" for decorator in item.decorator_list)
+                return Callee(item, callees, 0 if static else 1)
+        return None
+
+    def _value_of(self, name: str, site: ast.AST) -> ast.expr | None:
+        found = self.scopes.enclosing_bindings(site, name)
+        if found:
+            statement = self.scopes.statement_of(found[0]) if len(found) == 1 else None
+        else:
+            bindings = self.bindings.get(name, [])
+            statement = bindings[0].statement if len(bindings) == 1 and bindings[0].top_level else None
+        if isinstance(statement, ast.Assign | ast.AnnAssign) and _assignment_target(statement) == name:
+            return statement.value
+        return None
+
+    def _class(self, maker: ast.expr, site: ast.AST, depth: int = 0) -> tuple[ast.ClassDef, ModuleCallees] | None:
+        if not isinstance(maker, ast.Name) or depth > 3 or self.scopes.enclosing_bindings(site, maker.id):
+            return None
+        found = self.bindings.get(maker.id, [])
+        if len(found) != 1 or not found[0].top_level:
+            return None
+        node, statement = found[0].node, found[0].statement
+        if isinstance(node, ast.ClassDef):
+            return node, self
+        if (
+            isinstance(node, ast.alias)
+            and isinstance(statement, ast.ImportFrom)
+            and self.resolver is not None
+            and self.module is not None
+        ):
+            # Follow ``from app.helpers import H`` to the module that defines it.
+            try:
+                container = self.resolver._from_base(self.module, statement)
+                if container.module_path is None:
+                    return None
+                defining = self.resolver.module(container.module_path)
+            except Exception:  # noqa: BLE001 - any stop means "not followed"
+                return None
+            other = self.for_module(defining)
+            return other._class(ast.Name(id=node.name, ctx=ast.Load()), defining.tree, depth + 1)
+        return None
 
     def for_module(self, module: PythonModule) -> ModuleCallees:
         if module is self.module:
@@ -1243,6 +1337,27 @@ class ModuleCallees:
                 registry=self.registry,
             )
         return known
+
+
+def _roots(expr: ast.AST) -> set[str]:
+    """The names an expression's value is reached from, through attributes,
+    items, ``getattr`` and iteration wrappers (``enumerate(AGENTS)``)."""
+
+    if isinstance(expr, ast.Name):
+        return {expr.id}
+    if isinstance(expr, ast.Attribute | ast.Subscript | ast.Starred):
+        return _roots(expr.value)
+    if isinstance(expr, ast.BinOp):
+        return _roots(expr.left) | _roots(expr.right)
+    if isinstance(expr, ast.Call):
+        name = dotted_name(expr.func)
+        if name == "getattr" and expr.args:
+            return _roots(expr.args[0])
+        if name in _ITERATION_WRAPPERS:
+            return set().union(*(_roots(arg) for arg in expr.args)) if expr.args else set()
+        if isinstance(expr.func, ast.Attribute) and expr.func.attr in {"values", "items", "keys", "copy"}:
+            return _roots(expr.func.value)
+    return set()
 
 
 def _through_loops(
@@ -1443,12 +1558,20 @@ class _AgentValues:
         return None
 
     def _agents_in(self, container: ast.expr, site: ast.AST, depth: int) -> set[str] | None:
-        """The agents a container holds: its literal items, what is appended to
-        it, a comprehension over one, or a module function's returned list."""
+        """The agents a container holds, at any depth: its literal items, what is
+        put into it (``append``, an item store, ``setdefault``, ``update``), a
+        comprehension over one, ``+`` of two, a slice, an iteration wrapper
+        (``sorted``, ``enumerate``, ``zip``, ``list(REG.values())``), a loop
+        variable over one, or a module function's returned list (#876 review)."""
 
-        if depth > 4:
+        if depth > 6:
             return None
         found: set[str] | None = None
+
+        def merge(inner: set[str] | None) -> None:
+            nonlocal found
+            if inner is not None:
+                found = (found or set()) | inner
 
         def add(item: ast.expr, where: ast.AST) -> None:
             nonlocal found
@@ -1457,42 +1580,59 @@ class _AgentValues:
                 identity = self._identity(item, where)
                 if identity is not None:
                     found.add(identity)
+            elif isinstance(item, ast.List | ast.Tuple | ast.Set | ast.Dict | ast.Name | ast.Call):
+                merge(self._agents_in(item, where, depth + 1))
 
         if isinstance(container, ast.Name):
             for node in self._appends.get(container.id, []):
                 add(node, node)
             value = self.value_of(container.id, site)
             if value is None:
+                # A loop variable: the members of what the loop iterates.
+                loops = [
+                    self.scopes.statement_of(item)
+                    for item in self.scopes.enclosing_bindings(site, container.id)
+                    if isinstance(item, ast.Name)
+                ] or [item.statement for item in self.module_bindings.get(container.id, [])]
+                for loop in loops:
+                    if isinstance(loop, ast.For | ast.AsyncFor):
+                        merge(self._agents_in(loop.iter, loop, depth + 1))
                 return found
             container = value
         if isinstance(container, ast.List | ast.Tuple | ast.Set):
             for item in container.elts:
-                add(item, site)
+                add(item.value if isinstance(item, ast.Starred) else item, site)
         elif isinstance(container, ast.Dict):
             for item in container.values:
                 add(item, site)
+        elif isinstance(container, ast.BinOp):
+            merge(self._agents_in(container.left, site, depth + 1))
+            merge(self._agents_in(container.right, site, depth + 1))
+        elif isinstance(container, ast.Subscript):
+            # ``AGENTS[1:]``, or ``GROUPS["x"]`` of a container of containers.
+            merge(self._agents_in(container.value, site, depth + 1))
         elif isinstance(container, ast.ListComp | ast.SetComp | ast.GeneratorExp | ast.DictComp):
             for generator in container.generators:
-                inner = self._agents_in(generator.iter, site, depth + 1)
-                if inner is not None:
-                    found = (found or set()) | inner
+                merge(self._agents_in(generator.iter, site, depth + 1))
         elif isinstance(container, ast.Call):
-            if isinstance(container.func, ast.Attribute) and container.func.attr in {"values", "items"}:
+            name = dotted_name(container.func)
+            if isinstance(container.func, ast.Attribute) and container.func.attr in {"values", "items", "copy"}:
                 # ``REG.values()`` / ``REG.items()`` of a dict of agents.
-                inner = self._agents_in(container.func.value, site, depth + 1)
-                if inner is not None:
-                    found = (found or set()) | inner
+                merge(self._agents_in(container.func.value, site, depth + 1))
+            elif name in _ITERATION_WRAPPERS:
+                for arg in container.args:
+                    merge(self._agents_in(arg, site, depth + 1))
             elif isinstance(container.func, ast.Name) and container.func.id in self.functions:
                 for node in ast.walk(self.functions[container.func.id]):
                     if isinstance(node, ast.Return) and node.value is not None:
-                        inner = self._agents_in(node.value, node, depth + 1)
-                        if inner is not None:
-                            found = (found or set()) | inner
+                        merge(self._agents_in(node.value, node, depth + 1))
         return found
 
     @property
     def _appends(self) -> dict[str, list[ast.expr]]:
-        """``name -> items`` put into a module list by ``append`` / ``extend`` / ``insert``."""
+        """``name -> items`` put into a module container: ``append`` /
+        ``extend`` / ``insert``, ``x[k] = item``, ``setdefault(k, item)``,
+        ``update({k: item})``."""
 
         if self._appended is None:
             self._appended = {}
@@ -1501,12 +1641,26 @@ class _AgentValues:
                     isinstance(node, ast.Call)
                     and isinstance(node.func, ast.Attribute)
                     and isinstance(node.func.value, ast.Name)
-                    and node.func.attr in {"append", "extend", "insert"}
-                    and node.args
                 ):
-                    item = node.args[-1]
-                    items = list(item.elts) if isinstance(item, ast.List | ast.Tuple) and node.func.attr == "extend" else [item]
-                    self._appended.setdefault(node.func.value.id, []).extend(items)
+                    method, target = node.func.attr, node.func.value.id
+                    items: list[ast.expr] = []
+                    if method in {"append", "insert"} and node.args:
+                        items = [node.args[-1]]
+                    elif method == "extend" and node.args:
+                        arg = node.args[0]
+                        items = list(arg.elts) if isinstance(arg, ast.List | ast.Tuple) else [arg]
+                    elif method == "setdefault" and len(node.args) > 1:
+                        items = [node.args[1]]
+                    elif method == "update":
+                        for arg in node.args:
+                            items += [item for item in arg.values if item is not None] if isinstance(arg, ast.Dict) else [arg]
+                        items += [keyword.value for keyword in node.keywords]
+                    if items:
+                        self._appended.setdefault(target, []).extend(items)
+                elif isinstance(node, ast.Assign):
+                    for target_node in node.targets:
+                        if isinstance(target_node, ast.Subscript) and isinstance(target_node.value, ast.Name):
+                            self._appended.setdefault(target_node.value.id, []).append(node.value)
         return self._appended
 
     def _identity(self, item: ast.expr, site: ast.AST) -> str | None:
@@ -1801,7 +1955,7 @@ def census_module(
                 and (
                     not strict
                     or isinstance(owner, str)
-                    or _root_name(_through_loops(receiver, site, scopes, bindings)) in scope_names
+                    or bool(_roots(_through_loops(receiver, site, scopes, bindings)) & scope_names)
                 )
             },
             key=lambda item: item[0],

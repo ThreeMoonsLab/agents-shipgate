@@ -1193,3 +1193,64 @@ def test_a_helpers_inner_call_is_read_in_the_helpers_module(repo):
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial"
     assert any("cannot identify" in limit for limit in result["head"]["limits"])
+
+
+# ---------------------------------------------------------------------------
+# #876 review, round 10: methods and locally imported helpers are resolved;
+# containers filled or iterated in any common spelling hold their agents.
+
+
+@pytest.mark.parametrize(
+    "use",
+    [
+        "REG = {}\nREG['a'] = quote_agent\nhelper(REG['a'].tools)\n",
+        "REG = {}\nREG.setdefault('a', quote_agent)\nhelper(REG['a'].tools)\n",
+        "REG = {}\nREG.update({'a': quote_agent})\nhelper(REG['a'].tools)\n",
+        "OTHERS = []\nAGENTS = [quote_agent] + OTHERS\nhelper(AGENTS[0].tools)\n",
+        "REG = {'a': quote_agent}\nfor ag in list(REG.values()):\n    helper(ag.tools)\n",
+        "AGENTS = [quote_agent]\nfor i, ag in enumerate(AGENTS):\n    helper(ag.tools)\n",
+        "AGENTS = [quote_agent]\nfor name, ag in zip(['q'], AGENTS):\n    helper(ag.tools)\n",
+        "GROUPS = [[quote_agent]]\nfor group in GROUPS:\n    for ag in group:\n        helper(ag.tools)\n",
+        "AGENTS = [quote_agent, quote_agent]\nfor ag in sorted(AGENTS[1:], key=id):\n    helper(ag.tools)\n",
+    ],
+    ids=[
+        "item-store", "setdefault", "update", "concatenation", "list-of-values", "enumerate",
+        "zip", "nested-loops", "sorted-slice",
+    ],
+)
+def test_a_container_filled_or_iterated_any_common_way_holds_its_agents(repo, use):
+    """An unresolvable callee (a third-party ``helper``) on the file's own agents."""
+
+    body = 'quote_agent = Agent(name="Quote", tools=[quote])\nfrom vendor import helper\n' + use
+    result = _compare(repo, 'quote_agent = Agent(name="Quote", tools=[quote])\n', body)
+    assert result["comparison_status"] == "partial"
+    assert any("quote_agent" in limit for limit in result["head"]["limits"]), result["head"]["limits"]
+
+
+@pytest.mark.parametrize(
+    "use",
+    [
+        "class H:\n    def add(self, lst):\n        BODY\n\n\ndef wire(agents):\n    for ag in agents:\n        H().add(ag.tools)\n",
+        "class H:\n    def add(self, lst):\n        BODY\n\n\nholder = H()\n\n\ndef wire(agent):\n    holder.add(agent.tools)\n",
+    ],
+    ids=["method-on-a-fresh-instance", "method-on-a-module-instance"],
+)
+def test_a_method_that_changes_the_list_it_is_given_is_a_change(repo, use):
+    """Whatever the receiver — here a parameter — the resolved method changes it."""
+
+    body = 'quote_agent = Agent(name="Quote", tools=[quote])\n' + use
+    result = _compare(repo, body.replace("BODY", "pass"), body.replace("BODY", "lst.append(send_image)"))
+    assert result["comparison_status"] == "partial"
+    assert any("cannot identify" in limit for limit in result["head"]["limits"])
+
+
+def test_a_helper_imported_inside_the_function_is_resolved(repo):
+    helpers = "def add_image(lst):\n    BODY\n"
+    body = (
+        'quote_agent = Agent(name="Quote", tools=[quote])\n\n\n'
+        "def setup(agent):\n    from helpers import add_image\n\n    add_image(agent.tools)\n"
+    )
+    base = commit(repo, {"agent.py": _agents(body), "helpers.py": helpers.replace("BODY", "pass")})
+    head = commit(repo, {"helpers.py": helpers.replace("BODY", "lst.append(len)")})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
