@@ -939,7 +939,7 @@ def test_an_adk_agent_changed_after_construction_is_a_limit(repo):
         '    payload["tools"] = request.tools\n    return payload\n',
         "class Client:\n    def __init__(self, request):\n        self.tools = request.tools\n"
         "    def count(self):\n        return len(self.tools)\n",
-        "from openai import OpenAI\n\n\ndef forward(request, client: OpenAI):\n    tools = request.tools\n"
+        "from openai import OpenAI\n\nclient = OpenAI()\n\n\ndef forward(request):\n    tools = request.tools\n"
         "    return client.create(tools=tools)\n",
         "def swap(request):\n    tools = request.tools\n    tools = []\n    return tools\n",
     ],
@@ -1351,12 +1351,10 @@ def test_a_module_that_does_not_import_the_sdk_follows_the_same_rule(repo, wirin
         "from somelib import validate\n\n\ndef handle(request):\n    validate(request.tools)\n",
         "from pydantic import TypeAdapter\n\nADAPTER = TypeAdapter(list)\n\n\n"
         "def handle(request):\n    return ADAPTER.validate_python(request.tools)\n",
-        "from openai import AsyncOpenAI\n\n\ndef handle(client: AsyncOpenAI, request):\n"
-        "    return client.chat.completions.create(model='m', tools=request.tools)\n",
-        "from openai import OpenAI\n\n\nclass Responder:\n    def __init__(self):\n        self.client = OpenAI()\n\n"
-        "    def handle(self, request):\n        return self.client.responses.create(tools=request.tools)\n",
+        "from openai import AsyncOpenAI\n\nclient = AsyncOpenAI()\n\n\ndef handle(request, model):\n"
+        "    return client.chat.completions.create(model=model, tools=request.tools)\n",
     ],
-    ids=["third-party-function", "third-party-instance", "api-payload", "held-client"],
+    ids=["third-party-function", "third-party-instance", "api-payload"],
 )
 def test_a_request_handed_to_another_library_is_not_a_limit(repo, handler):
     before = 'main_agent = Agent(name="Main", tools=[quote])\n' + handler
@@ -1419,4 +1417,65 @@ def test_the_repositorys_own_code_outside_the_scope_is_not_another_library(repo)
     base = commit(repo, {"app/agent.py": agent, "lib/__init__.py": "", "lib/registry.py": helper.replace("BODY", "pass")})
     head = commit(repo, {"lib/registry.py": helper.replace("BODY", "lst.append(len)")})
     result = run(repo, base, head, "--scope", "app")
+    assert result["comparison_status"] == "partial"
+
+
+# ---------------------------------------------------------------------------
+# #876 review, round 14: the application's callables handed to another library
+# in any spelling, repository code on any path entry, and objects a subclass
+# or a caller may supply are the application's.
+
+@pytest.mark.parametrize(
+    "use",
+    [
+        "from somelib import wrap\n\n\nclass Svc:\n    def add_image(self, lst):\n        add_image(lst)\n\n"
+        "    def setup(self, agent):\n        wrap(self.add_image)(agent.tools)\n\n\ndef setup(agent):\n    Svc().setup(agent)\n",
+        "from somelib import wrap\n\n\nclass Utils:\n    @staticmethod\n    def add(lst):\n        add_image(lst)\n\n\n"
+        "def setup(agent):\n    wrap(Utils.add, agent.tools)\n",
+        "from somelib import wrap\n\n\ndef setup(agent):\n    wrap(lambda lst: add_image(lst), agent.tools)\n",
+        "import functools\nfrom somelib import wrap\n\n\ndef setup(agent):\n    wrap(functools.partial(add_image, extra=1), agent.tools)\n",
+        "from somelib import wrap\n\n\ndef setup(agent):\n    fn = add_image\n    wrap(fn, agent.tools)\n",
+        "from somelib import cached, wrap\n\nadd = cached(add_image)\n\n\ndef setup(agent):\n    wrap(add, agent.tools)\n",
+    ],
+    ids=["bound-method", "class-attribute", "inline-lambda", "nested-partial", "alias", "wrapped-at-module-level"],
+)
+def test_the_applications_callable_handed_to_a_library_in_any_spelling_is_not_a_read(repo, use):
+    body = 'quote_agent = Agent(name="Quote", tools=[quote])\n' + ADD_IMAGE_HELPER + use + "\n\nsetup(quote_agent)\n"
+    result = _compare(repo, body.replace("BODY", "pass"), body.replace("BODY", "lst.append(send_image)"))
+    assert result["comparison_status"] == "partial", result["rows"]
+
+
+@pytest.mark.parametrize(
+    "use",
+    [
+        "from openai import OpenAI\n\n\nclass Svc:\n    def __init__(self):\n        self.client = OpenAI()\n\n"
+        "    def run(self, agent):\n        self.client.install(tools=agent.tools)\n\n\n"
+        "class Toolbox:\n    def install(self, tools):\n        lst = tools\n        BODY\n\n\n"
+        "class AppSvc(Svc):\n    def __init__(self):\n        self.client = Toolbox()\n\n\nAppSvc().run(quote_agent)\n",
+        "from somelib import ToolRegistry\n\n\ndef attach(agent, registry: ToolRegistry):\n    registry.install(tools=agent.tools)\n\n\n"
+        "class Toolbox(ToolRegistry):\n    def install(self, tools):\n        lst = tools\n        BODY\n\n\nattach(quote_agent, Toolbox())\n",
+    ],
+    ids=["subclass-reassigns-the-client", "library-annotated-parameter"],
+)
+def test_an_object_a_subclass_or_caller_supplies_is_not_trusted_as_a_library(repo, use):
+    body = 'quote_agent = Agent(name="Quote", tools=[quote])\n' + use
+    result = _compare(repo, body.replace("BODY", "pass"), body.replace("BODY", "lst.append(send_image)"))
+    assert result["comparison_status"] == "partial", result["rows"]
+
+
+def test_the_repositorys_code_on_another_path_entry_is_not_another_library(repo):
+    """``libs/`` on ``PYTHONPATH`` in a monorepo: ``shared`` is the repository's."""
+
+    helper = "def register_defaults(lst):\n    BODY\n"
+    agent = _agents(
+        'quote_agent = Agent(name="Quote", tools=[quote])\nfrom shared.registry import register_defaults\n\n\n'
+        "def setup(agent):\n    register_defaults(agent.tools)\n\n\nsetup(quote_agent)\n"
+    )
+    base = commit(repo, {
+        "services/app/agent.py": agent,
+        "libs/shared/__init__.py": "",
+        "libs/shared/registry.py": helper.replace("BODY", "pass"),
+    })
+    head = commit(repo, {"libs/shared/registry.py": helper.replace("BODY", "lst.append(len)")})
+    result = run(repo, base, head, "--scope", "services/app")
     assert result["comparison_status"] == "partial"

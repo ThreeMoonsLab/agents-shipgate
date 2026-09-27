@@ -120,18 +120,19 @@ agents' rows in the file stand:
   hands it on again out of view) is a limit on the file, and in a module that
   is not read as an SDK source too: it may be any agent. A call into another
   library is the reader's boundary, as it is for every library: a function or
-  an instance's method (`client = OpenAI()`, `self.client = OpenAI()`, a
-  parameter annotated `client: OpenAI`) reached from a package no file in the
-  repository provides, and handed none of the application's own functions
-  (`partial(add_image, …)` or `wrap(add_image)` is the application's code).
+  an instance's method (`client = OpenAI()`) reached from a package the
+  repository holds nowhere — on no path entry, `libs/shared` of a monorepo
+  included — and handed none of the application's own callables by any call
+  on the way (a function, lambda, bound method or class attribute of its own,
+  `partial(add_image, …)`, `wrap(self.add_image)`, or a name bound to one).
   A builtin or the standard library (`list.extend(x.tools, …)`,
-  `operator.iadd`), the repository's own code outside a narrowed scope, and an
-  object of unknown origin (an unannotated parameter) are not another library;
-  a capability keyword (`client.create(tools=request.tools)`) is a read only
-  when the call is another library's. `getattr(x, "tools")` is `x.tools`, and
-  `svc.app.tools` after `import svc.app.tools` is that module. A library that
-  keeps the list and later calls back into the application's code that
-  changes it is not followed. On
+  `operator.iadd`), the repository's own code, and an object a subclass or a
+  caller supplies (`self.client`, a parameter, however annotated) are not
+  another library; a capability keyword (`client.create(tools=request.tools)`)
+  is a read only when the call is another library's. `getattr(x, "tools")` is
+  `x.tools`, and `svc.app.tools` after `import svc.app.tools` is that module. A
+  library that keeps the list and later calls back into the application's
+  code that changes it is not followed. On
   any other value — a request object, another library's model — a handle only
   read or handed on, like `payload["tools"] = request.tools`, is nothing. The
   changed value is read in

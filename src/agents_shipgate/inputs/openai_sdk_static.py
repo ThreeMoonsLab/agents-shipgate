@@ -1372,45 +1372,48 @@ class ModuleCallees:
 
     def outside(self, call: ast.Call, depth: int = 0) -> bool:
         """Whether the function a call names is another library's: reached
-        from a name imported from a package no file in the repository provides
-        (``validate``, ``ADAPTER.validate_python`` with ``ADAPTER =
+        from a name imported from a package the repository holds nowhere
+        (``validate``, or ``ADAPTER.validate_python`` with ``ADAPTER =
         TypeAdapter(...)``), and handed none of the application's own
-        callables (``partial(add_image, ...)``, ``wrap(add_image)``). A
-        builtin or the standard library (``list.extend``, ``operator.iadd``),
-        a parameter, a local value of unknown origin, and the repository's own
-        code are not (#876 review)."""
+        callables by any call on the way (``partial(add_image, ...)``,
+        ``wrap(self.add_image)(x)``). A builtin or the standard library
+        (``list.extend``, ``operator.iadd``), a parameter or ``self`` object,
+        a local value of unknown origin, and the repository's own code are not
+        (#876 review)."""
 
         if depth > 3 or self.resolver is None or self.module is None:
             return False
-        if any(self._app_callable(arg, call) for arg in [*call.args, *(item.value for item in call.keywords)]):
-            return False
-        root: ast.AST = call.func
-        below: ast.AST | None = None
+        calls: list[ast.Call] = []
+        root: ast.AST = call
         while isinstance(root, ast.Attribute | ast.Subscript | ast.Call):
-            below, root = root, root.func if isinstance(root, ast.Call) else root.value
+            if isinstance(root, ast.Call):
+                calls.append(root)
+                root = root.func
+            else:
+                root = root.value
+        if any(
+            self._app_callable(arg, call)
+            for item in calls
+            for arg in [*item.args, *(keyword.value for keyword in item.keywords)]
+        ):
+            return False
         if not isinstance(root, ast.Name):
             return False
-        if root.id == "self" and isinstance(below, ast.Attribute):
-            # ``self.client.create(...)`` with every ``self.client = OpenAI()``.
-            values = self._self_values(below.attr, call)
-            return bool(values) and all(
-                isinstance(value, ast.Call) and self.outside(value, depth + 1) for value in values
-            )
         binding = self._binding(root.id, call)
         if binding is None:
             return False
         node, statement = binding
         if isinstance(node, ast.alias) and isinstance(statement, ast.Import | ast.ImportFrom):
             return self._origin(node, statement, root.id, call)[0] == "library"
-        if isinstance(node, ast.arg):
-            # ``def forward(request, client: OpenAI)``.
-            return node.annotation is not None and self._library_name(node.annotation, call)
         if (
             isinstance(statement, ast.Assign | ast.AnnAssign)
             and _assignment_target(statement) == root.id
             and isinstance(statement.value, ast.Call)
         ):
             # ``client = OpenAI()``: an instance of another library's class.
+            # Never ``self.client`` or a parameter, whatever it is annotated:
+            # a subclass or a caller may put the application's own object
+            # there.
             return self.outside(statement.value, depth + 1)
         return False
 
@@ -1424,6 +1427,12 @@ class ModuleCallees:
         if len(bindings) != 1 or not bindings[0].top_level:
             return None
         return bindings[0].node, bindings[0].statement
+
+    def _bindings_of(self, name: str, site: ast.AST) -> list[tuple[ast.AST, ast.AST | None]]:
+        found = self.scopes.enclosing_bindings(site, name)
+        if found:
+            return [(item, self.scopes.statement_of(item)) for item in found]
+        return [(item.node, item.statement) for item in self.bindings.get(name, [])]
 
     def _origin(
         self, node: ast.alias, statement: ast.Import | ast.ImportFrom, spelling: str, site: ast.AST
@@ -1444,67 +1453,85 @@ class ModuleCallees:
         stdlib = not getattr(statement, "level", 0) and top in sys.stdlib_module_names
         return ("stdlib" if stdlib else "repository"), resolution
 
-    def _library_name(self, expr: ast.expr, site: ast.AST) -> bool:
-        """Whether ``expr`` names a class or function of another library."""
+    def _app_callable(self, expr: ast.expr, site: ast.AST, depth: int = 0) -> bool:
+        """Whether an argument may be the application's own callable: a lambda,
+        a function of the module or one it imports from its own code, a bound
+        method or class attribute of its own (``self.add_image``,
+        ``Utils.add_image``, ``obj.add`` with ``obj = H()``), a call handed
+        one (``partial(add_image)``), or a name bound to any of these (#876
+        review). A parameter or other value is data."""
 
-        spelling = reference_spelling(expr)
-        binding = self._binding(spelling.split(".", 1)[0], site) if spelling else None
-        if spelling is None or binding is None:
+        if depth > 4:
+            return True
+        if isinstance(expr, ast.Lambda):
+            return True
+        if isinstance(expr, ast.Starred):
+            return self._app_callable(expr.value, site, depth + 1)
+        if isinstance(expr, ast.Call):
+            return any(
+                self._app_callable(arg, site, depth + 1)
+                for arg in [*expr.args, *(keyword.value for keyword in expr.keywords)]
+            )
+        if isinstance(expr, ast.Attribute):
+            root: ast.AST = expr
+            while isinstance(root, ast.Attribute | ast.Subscript):
+                root = root.value
+            if not isinstance(root, ast.Name):
+                return False
+            if root.id in {"self", "cls"}:
+                return True
+            spelling = reference_spelling(expr)
+            for node, statement in self._bindings_of(root.id, site):
+                if isinstance(node, ast.ClassDef):
+                    return True
+                if isinstance(node, ast.alias) and isinstance(statement, ast.Import | ast.ImportFrom):
+                    if spelling is not None and self._own_function(node, statement, spelling, site):
+                        return True
+                elif isinstance(statement, ast.Assign | ast.AnnAssign) and statement.value is not None:
+                    value = statement.value
+                    if isinstance(value, ast.Call) and self._own_class(value.func, site):
+                        return True  # ``obj = H()``: its methods are the application's
+                    if isinstance(value, ast.Name | ast.Attribute) and self._app_callable(value, site, depth + 1):
+                        return True
             return False
-        node, statement = binding
-        return (
-            isinstance(node, ast.alias)
-            and isinstance(statement, ast.Import | ast.ImportFrom)
-            and self._origin(node, statement, spelling, site)[0] == "library"
-        )
+        if isinstance(expr, ast.Name):
+            for node, statement in self._bindings_of(expr.id, site):
+                if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                    return True
+                if isinstance(node, ast.alias) and isinstance(statement, ast.Import | ast.ImportFrom):
+                    if self._own_function(node, statement, expr.id, site):
+                        return True
+                elif (
+                    isinstance(statement, ast.Assign | ast.AnnAssign)
+                    and statement.value is not None
+                    and self._app_callable(statement.value, site, depth + 1)
+                ):
+                    return True
+        return False
 
-    def _self_values(self, attr: str, site: ast.AST) -> list[ast.expr]:
-        """Every value the enclosing class assigns to ``self.<attr>``."""
+    def _own_function(
+        self, node: ast.alias, statement: ast.Import | ast.ImportFrom, spelling: str, site: ast.AST
+    ) -> bool:
+        if self.resolver is None or self.module is None:
+            return False
+        origin, resolution = self._origin(node, statement, spelling, site)
+        # Code the repository holds outside the scope cannot be read: it may
+        # be a function.
+        return origin == "repository" or (origin == "scope" and resolution.resolved)
 
-        current = self.scopes.parents.get(site)
-        while current is not None and not isinstance(current, ast.ClassDef):
-            current = self.scopes.parents.get(current)
-        if current is None:
-            return []
-        values: list[ast.expr] = []
-        for node in ast.walk(current):
-            if isinstance(node, ast.Assign | ast.AnnAssign | ast.AugAssign) and node.value is not None:
-                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-                for target in targets:
-                    if (
-                        isinstance(target, ast.Attribute)
-                        and target.attr == attr
-                        and isinstance(target.value, ast.Name)
-                        and target.value.id == "self"
-                    ):
-                        values.append(node.value)
-            elif isinstance(node, ast.Attribute) and node.attr == attr and isinstance(node.ctx, ast.Store | ast.Del):
-                # A store we cannot see the value of (a tuple target, ``del``).
-                if not isinstance(self.scopes.parents.get(node), ast.Assign | ast.AnnAssign | ast.AugAssign):
-                    values.append(node)
-        return values
+    def _own_class(self, maker: ast.expr, site: ast.AST) -> bool:
+        """Whether ``maker`` names a class of the module or the repository."""
 
-    def _app_callable(self, expr: ast.expr, site: ast.AST) -> bool:
-        """Whether an argument names the application's own function: a ``def``
-        or lambda of the module, or a function it imports from its own code."""
-
-        spelling = reference_spelling(expr)
+        if isinstance(maker, ast.Name) and self._class(maker, site) is not None:
+            return True
+        spelling = reference_spelling(maker)
         if spelling is None:
             return False
-        binding = self._binding(spelling.split(".", 1)[0], site)
-        if binding is None:
-            return False
-        node, statement = binding
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-            return True
-        if isinstance(node, ast.alias) and isinstance(statement, ast.Import | ast.ImportFrom):
-            if self.resolver is None or self.module is None:
-                return False
-            origin, resolution = self._origin(node, statement, spelling, site)
-            # Code the repository holds outside the scope cannot be read: it
-            # may be a function.
-            return origin == "repository" or (origin == "scope" and resolution.resolved)
-        return isinstance(statement, ast.Assign) and isinstance(statement.value, ast.Lambda)
+        for node, statement in self._bindings_of(spelling.split(".", 1)[0], site):
+            if isinstance(node, ast.alias) and isinstance(statement, ast.Import | ast.ImportFrom):
+                if self._origin(node, statement, spelling, site)[0] in {"scope", "repository"}:
+                    return True
+        return False
 
     def _value_of(self, name: str, site: ast.AST) -> ast.expr | None:
         found = self.scopes.enclosing_bindings(site, name)

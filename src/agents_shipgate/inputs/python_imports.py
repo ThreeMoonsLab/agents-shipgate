@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import os
 import stat
 import sys
 from collections.abc import Callable, Iterator
@@ -76,6 +77,10 @@ _GENERATED_SUFFIXES = ("_pb2", "_pb2_grpc")
 _GENERATED_NAMES = frozenset({"_version"})
 
 
+#: The most repository entries walked to tell whether it holds a module name.
+MAX_REPOSITORY_NAMES = 100_000
+
+
 @dataclass(frozen=True)
 class RepositoryLayout:
     """What the repository holds outside the read scope (#879 review).
@@ -98,6 +103,11 @@ class RepositoryLayout:
     #: The text of one repository file outside the scope, or None: what the
     #: packages enclosing the scope run first (#879 review).
     read: Callable[[str], str | None] = lambda path: None
+    #: Whether any directory in the repository holds a module or regular
+    #: package of that name, wherever it is put on the path (``libs/shared``
+    #: in a monorepo); True when the repository is too large to tell (#876
+    #: review).
+    holds: Callable[[str], bool] = lambda name: True
 
 
 _REPOSITORY: ContextVar[RepositoryLayout | None] = ContextVar("repository_layout", default=None)
@@ -169,8 +179,30 @@ def _disk_layout(scope_root: Path) -> RepositoryLayout | None:
         except (InputParseError, OSError):
             return None
 
+    held: list[frozenset[str] | None] = []
+
+    def holds(name: str) -> bool:
+        if not held:
+            names: set[str] = set()
+            seen = 0
+            for directory, dirnames, filenames in os.walk(root):
+                dirnames[:] = [item for item in dirnames if item != ".git" and not (Path(directory) / item).is_symlink()]
+                seen += len(dirnames) + len(filenames)
+                if seen > MAX_REPOSITORY_NAMES:
+                    held.append(None)
+                    break
+                for filename in filenames:
+                    if filename == "__init__.py":
+                        names.add(Path(directory).name)
+                    elif filename.endswith(".py"):
+                        names.add(filename[:-3])
+            else:
+                held.append(frozenset(names))
+        found = held[0]
+        return found is None or name in found
+
     scope = scope_root.relative_to(root).as_posix()
-    return RepositoryLayout("" if scope == "." else scope, entries, links, read)
+    return RepositoryLayout("" if scope == "." else scope, entries, links, read, holds)
 
 _SCOPE_NODES = (
     ast.FunctionDef,
@@ -697,6 +729,9 @@ class ImportResolver:
             dotted, names = alias.name, []
         parts = dotted.split(".")
         if not parts[0] or parts[0] in sys.stdlib_module_names:
+            return False
+        if self._layout is None or self._layout.holds(parts[0]):
+            # The repository's own code, on some path entry or other.
             return False
         return not self._repository_provides(parts, names)
 

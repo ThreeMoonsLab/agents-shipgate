@@ -222,6 +222,8 @@ def _definition(root: Path, tool: Any) -> dict[str, Any]:
 
 #: Bytes one repository-directory listing may take.
 _MAX_LAYOUT_LISTING_BYTES = 4 * 1024 * 1024
+#: The most bytes one listing of every path in a commit may take.
+_MAX_REPOSITORY_LISTING_BYTES = 64 * 1024 * 1024
 
 
 #: The most blob bytes one batched read of a directory's modules holds.
@@ -342,7 +344,30 @@ def _git_layout(workspace: Path, commit: str, scope: str) -> RepositoryLayout:
             contents[path] = output.decode("utf-8", errors="replace") if output is not None else None
         return contents[path]
 
-    return RepositoryLayout("" if scope in {"", "."} else scope, entries, links, read)
+    held: list[frozenset[str] | None] = []
+
+    def holds(name: str) -> bool:
+        """Whether any directory of the commit holds module or regular package
+        ``name``; True when the tree is too large to list (#876 review)."""
+
+        if not held:
+            output = _run_git_bounded_output(
+                workspace,
+                ["ls-tree", "-r", "-z", "--name-only", commit],
+                max_output_bytes=_MAX_REPOSITORY_LISTING_BYTES,
+            )
+            names: set[str] = set()
+            for raw in (output or b"").split(b"\0"):
+                path = PurePosixPath(raw.decode("utf-8", errors="replace"))
+                if path.name == "__init__.py" and path.parent.name:
+                    names.add(path.parent.name)
+                elif path.suffix == ".py":
+                    names.add(path.stem)
+            held.append(frozenset(names) if output is not None else None)
+        found = held[0]
+        return found is None or name in found
+
+    return RepositoryLayout("" if scope in {"", "."} else scope, entries, links, read, holds)
 
 
 def observe(
