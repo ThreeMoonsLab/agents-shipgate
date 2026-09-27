@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import builtins
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -553,7 +552,7 @@ def _extract_agent_bindings(
         #: ``agent -> reason`` of the agents a change here limits, and the
         #: ``(agent, capability)`` pairs already recorded.
         limited: dict[str, str] = {}
-        limited_kinds: set[tuple[str, str]] = set()
+        limited_kinds: set[tuple[str, str, bool]] = set()
         #: Other files whose agents a change here already limits.
         homes: set[str] = set()
         module_callees = ModuleCallees(
@@ -631,7 +630,7 @@ def _extract_agent_bindings(
             receiver: ast.expr | None = None,
             lookup: ast.AST | None = None,
             limited: dict[str, str] = limited,
-            limited_kinds: set[tuple[str, str]] = limited_kinds,
+            limited_kinds: set[tuple[str, str, bool]] = limited_kinds,
             first_unattributed: list[str] = first_unattributed,
             scopes: ScopeIndex = scopes,
             homes: set[str] = homes,
@@ -697,9 +696,11 @@ def _extract_agent_bindings(
             # Which list changed: a change to ``handoffs`` does not make what
             # the constructor binds as ``tools`` uncertain (#876 review).
             kind = _changed_capability(receiver, site, scopes)
-            if (owner, kind) in limited_kinds:
+            # An ``append`` first, then a ``clear``: the second can still undo
+            # what the constructor binds (#876 review).
+            if (owner, kind, removes) in limited_kinds:
                 return
-            limited_kinds.add((owner, kind))
+            limited_kinds.add((owner, kind, removes))
             reason = limited.get(owner)
             if reason is None:
                 reason = limited[owner] = (
@@ -1288,6 +1289,33 @@ def _capability_changes(
                     return True, via
         return False, False
 
+    def additive_handle_ops(statement: ast.Assign | ast.AnnAssign) -> list[ast.AST] | None:
+        """The ``append``/``extend``/``insert``/``+=`` made through a handle,
+        when those are all that uses it other than to read it; else None."""
+
+        targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+        if len(targets) != 1 or not isinstance(targets[0], ast.Name):
+            return None
+        spelling = targets[0].id
+        ops: list[ast.AST] = []
+        for node in ast.walk(handle_scope(statement, targets[0])):
+            if not (isinstance(node, ast.Name) and node.id == spelling) or node is targets[0]:
+                continue
+            parent = scopes.parents.get(node)
+            grand = scopes.parents.get(parent) if parent is not None else None
+            if (
+                isinstance(parent, ast.Attribute)
+                and parent.attr in {"append", "extend", "insert"}
+                and isinstance(grand, ast.Call)
+                and grand.func is parent
+            ):
+                ops.append(grand)
+            elif isinstance(parent, ast.AugAssign) and parent.target is node and isinstance(parent.op, ast.Add):
+                ops.append(parent)
+            elif not (isinstance(node.ctx, ast.Load) and read_only(node)):
+                return None
+        return ops or None
+
     def reflective(call: ast.Call, names: frozenset[str]) -> bool:
         return (
             isinstance(call.func, ast.Name)
@@ -1339,6 +1367,23 @@ def _capability_changes(
 
         return isinstance(key, ast.Constant) and key.value not in capabilities
 
+    def namespace_read(node: ast.AST) -> bool:
+        """Whether ``vars(x)`` / ``x.__dict__`` is only read, or changed where
+        its own branch records it: a constant non-capability key read, a
+        read-only use (``.items()``, iteration, ``json.dumps``), or the store and
+        method forms handled above."""
+
+        parent = scopes.parents.get(node)
+        if isinstance(parent, ast.Subscript) and parent.value is node:
+            return not isinstance(parent.ctx, ast.Load) or names_other(parent.slice)
+        if isinstance(parent, ast.Attribute) and parent.value is node:
+            call = scopes.parents.get(parent)
+            if parent.attr in {"update", "setdefault", "pop", "popitem", "clear", "__setitem__", "__delitem__"}:
+                return True
+            if parent.attr == "get" and isinstance(call, ast.Call) and call.args:
+                return names_other(call.args[0])
+        return isinstance(node, ast.expr) and read_only(node)
+
     def mutated_in_place(node: ast.AST) -> bool:
         """``x.tools`` as the receiver of ``x.tools.append(...)``: that call is the
         change, recorded with what it does."""
@@ -1361,8 +1406,10 @@ def _capability_changes(
                     owner = namespace_of(target.value)
                     if owner is not None and not names_other(target.slice):
                         # ``vars(agent)["tools"] = ...``, ``agent.__dict__[k] = ...``:
-                        # the list reached by name (#876 review).
-                        changes.append((owner, node, False, False))
+                        # the list reached by name (#876 review); by a computed
+                        # name, as ``setattr`` is.
+                        computed = not isinstance(target.slice, ast.Constant)
+                        changes.append((owner, node, computed, False))
                         continue
                     target = target.value
                 if isinstance(target, ast.Attribute | ast.Call) and (receiver := access(target)) is not None:
@@ -1374,7 +1421,11 @@ def _capability_changes(
                     continue
                 assert isinstance(node, ast.Assign | ast.AnnAssign)
                 if changed_handle(node):
-                    changes.append((receiver, node, False, False))
+                    # Through ``t = agent.tools``, only ``t.append(...)``: those
+                    # calls are the changes, and none can undo a binding.
+                    ops = additive_handle_ops(node)
+                    for site in ops or [node]:
+                        changes.append((receiver, site, False, False))
                 else:
                     escapes, via_unresolved = handle_escapes(node)
                     if escapes:
@@ -1399,15 +1450,21 @@ def _capability_changes(
             ):
                 # ``setattr(agent, key, value)`` over overrides, or
                 # ``getattr(agent, cap).clear()``: any capability, by a name
-                # computed at run time (#876 review).
-                changes.append((node.args[0], node, False, False))
+                # computed at run time (#876 review). Counted, as a list handed
+                # on is, for an agent the file can name or one imported from
+                # the scope: ``setattr(record, field, value)`` on a database
+                # row and ``return getattr(module, name)`` are everywhere.
+                in_view = func.id == "getattr" and mutated_in_place(node)
+                changes.append(
+                    (node.args[0], node, not in_view, not in_view and unresolved_call(node))
+                )
             elif (
                 isinstance(func, ast.Attribute)
                 and func.attr in {"update", "setdefault", "pop", "popitem", "clear", "__setitem__", "__delitem__"}
                 and (owner := namespace_of(func.value)) is not None
             ):
-                # ``agent.__dict__.update(overrides)``.
-                changes.append((owner, node, False, False))
+                # ``agent.__dict__.update(overrides)``: names from the data.
+                changes.append((owner, node, True, False))
             elif (
                 reflective(node, frozenset({"getattr"}))
                 and not read_only(node)
@@ -1415,7 +1472,34 @@ def _capability_changes(
             ):
                 # ``helper(getattr(agent, "tools"))``: out of view, as below.
                 changes.append((node.args[0], node, True, unresolved_call(node)))
-        elif (
+        if (owner := namespace_of(node)) is not None and not namespace_read(node):
+            # ``d = agent.__dict__``, ``operator.setitem(vars(agent), ...)``:
+            # its attributes, the lists among them, by any name (#876 review).
+            changes.append((owner, node, True, unresolved_call(node)))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in {
+            "__setattr__",
+            "__delattr__",
+        }:
+            # ``object.__setattr__(agent, "tools", ...)``, ``agent.__setattr__(...)``.
+            direct = bool(node.args) and not isinstance(node.args[0], ast.Constant)
+            owner = node.args[0] if direct else node.func.value
+            key = node.args[1] if direct and len(node.args) > 1 else node.args[0] if node.args and not direct else None
+            if not names_other(key):
+                changes.append((owner, node, not isinstance(key, ast.Constant), False))
+        if (
+            isinstance(node, ast.Name)
+            and node.id in {"setattr", "delattr"}
+            and isinstance(node.ctx, ast.Load)
+            and isinstance(scopes.parents.get(node), ast.Call)
+            and scopes.parents[node].func is not node  # type: ignore[attr-defined]
+        ):
+            # ``functools.partial(setattr, agent)``: every other argument may be
+            # the object it is applied to.
+            call = scopes.parents[node]
+            for arg in [*call.args, *(item.value for item in call.keywords)]:  # type: ignore[attr-defined]
+                if arg is not node and isinstance(arg, ast.Name | ast.Attribute | ast.Subscript):
+                    changes.append((arg, call, True, False))
+        if (
             isinstance(node, ast.Attribute)
             and isinstance(node.ctx, ast.Load)
             and access(node) is not None
@@ -2160,20 +2244,6 @@ class _AgentValues:
         if depth > 3:
             return None
         if isinstance(receiver, ast.Subscript):
-            held = receiver.value
-            if isinstance(held, ast.Name):
-                held = self.value_of(held.id, site) or held
-            index = receiver.slice
-            if (
-                isinstance(held, ast.List | ast.Tuple)
-                and isinstance(index, ast.Constant)
-                and isinstance(index.value, int)
-                and not any(isinstance(item, ast.Starred) for item in held.elts)
-                and -len(held.elts) <= index.value < len(held.elts)
-                and not self._appends.get(receiver.value.id if isinstance(receiver.value, ast.Name) else "")
-            ):
-                # ``PIPELINE[0]`` of a literal list nothing adds to: that member.
-                return self._agents_in(ast.List(elts=[held.elts[index.value]]), site, depth + 1, unknown)
             return self._agents_in(receiver.value, site, depth + 1, unknown)
         if isinstance(receiver, ast.Attribute) and isinstance(receiver.value, ast.Name):
             holder = self.value_of(receiver.value.id, site)
@@ -2321,7 +2391,7 @@ class _AgentValues:
             spelling = reference_spelling(expr.func) or ""
             if spelling.rsplit(".", 1)[-1] in _LOGGER_FACTORIES or (
                 isinstance(expr.func, ast.Name)
-                and expr.func.id in _ALL_BUILTINS
+                and expr.func.id in _NON_AGENT_BUILTINS
                 and not self.scopes.enclosing_bindings(site, expr.func.id)
                 and not self.module_bindings.get(expr.func.id)
             ):
@@ -2849,9 +2919,15 @@ def _leaves_arguments_alone(call: ast.Call, bindings_at: BindingsAt) -> bool:
     )
 
 
-#: Every builtin: a container member one returns is no agent. Not the data
+#: Builtins whose result, as a container member, is no agent. Not the data
 #: builtins above (``_BUILTIN_NAMES``), which a library read trusts.
-_ALL_BUILTINS = frozenset(dir(builtins))
+_NON_AGENT_BUILTINS = frozenset(
+    {"abs", "all", "any", "bool", "bytes", "callable", "chr", "dict", "divmod", "enumerate",
+     "filter", "float", "format", "frozenset", "hash", "hex", "id", "int", "isinstance",
+     "issubclass", "iter", "len", "list", "map", "max", "min", "oct", "open", "ord", "pow",
+     "print", "range", "repr", "reversed", "round", "set", "slice", "sorted", "str", "sum",
+     "tuple", "zip"}
+)
 
 #: Calls whose result is a logger.
 _LOGGER_FACTORIES = frozenset({"getLogger", "get_logger", "getChild", "LoggerAdapter"})

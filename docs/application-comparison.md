@@ -165,11 +165,16 @@ agents' rows in the file stand:
   plant_agent]` with `plant_agent` imported, also through `+`, a
   comprehension or `list(...)`) limits each: the file's by name, the other
   where it is built or everywhere; a member that is plainly no agent (a
-  function, a class, a logger, a builtin's result, a literal) is not one, and
-  `PIPELINE[0]` of a literal list is only that member. A list reached by a
-  name computed at run time (`setattr(agent, key, value)`, `getattr(agent,
-  cap).clear()`) or through the agent's namespace (`vars(agent)[...]`,
-  `agent.__dict__`) is changed too. A change qualifies both sides: a binding
+  function, a class, a logger, a builtin's result, a literal) is not one. A
+  list reached through the agent's namespace or by another spelling of an
+  attribute store (`vars(agent)["tools"]`, `agent.__dict__`,
+  `object.__setattr__`, `operator.setitem(vars(agent), …)`,
+  `functools.partial(setattr, agent)`) is changed too, and so is one reached
+  by a name computed at run time (`setattr(agent, key, value)`,
+  `getattr(agent, cap).clear()`) on an agent the file can name or imports
+  from the scope — on any other object, like `setattr(record, field, value)`
+  or `return getattr(module, name)`, it is the object's own business. An
+  index into a list of agents is any member, since the list can be reordered. A change qualifies both sides: a binding
   the constructor makes is not established on the side where the list it is
   in is reset, emptied or replaced after construction either
   (`plant_agent.tools = [quote]` in the head of a change that adds

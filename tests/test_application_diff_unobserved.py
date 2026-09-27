@@ -1844,3 +1844,76 @@ def test_a_builtin_that_reaches_the_applications_code_is_not_data(repo, builtin)
     body = 'quote_agent = Agent(name="Quote", tools=[quote])\n' + ADD_IMAGE_HELPER + use + "\n\nsetup(quote_agent)\n"
     result = _compare(repo, body.replace("BODY", "pass"), body.replace("BODY", "lst.append(send_image)"))
     assert result["comparison_status"] == "partial", result["rows"]
+
+
+# ---------------------------------------------------------------------------
+# #876 review, round 20: an ``append`` then a ``clear`` still undoes; a list of
+# agents reordered in place is not narrowed by index; any other spelling of an
+# attribute store is a change; a handle only appended through is additive; and
+# a dynamic lookup or store on an object the file cannot name as an agent is
+# not a change at all (the corpus's plugin loaders and record updates).
+
+
+@pytest.mark.parametrize(
+    "reset",
+    [
+        "plant_agent.tools.append(quote)\nplant_agent.tools.clear()\n",
+        "plant_agent.tools.insert(0, quote)\nplant_agent.tools.pop()\n",
+    ],
+    ids=["append-then-clear", "insert-then-pop"],
+)
+def test_a_removing_change_after_an_additive_one_still_counts(repo, reset):
+    result = _compare(
+        repo,
+        _PLANT.replace("TOOLS", "[quote]"),
+        _PLANT.replace("TOOLS", "[quote, send_image]") + reset,
+    )
+    assert _pairs(result) == [("plant_agent", "send_image", "not_established")]
+
+
+@pytest.mark.parametrize(
+    "reorder",
+    ["AGENTS.reverse()\n", "AGENTS.pop(0)\n", "del AGENTS[0]\n"],
+    ids=["reverse", "pop", "del"],
+)
+def test_a_list_of_agents_reordered_in_place_is_not_narrowed_by_index(repo, reorder):
+    result = _reset_elsewhere(repo, "AGENTS = [manager, plant_agent]\n" + reorder + "AGENTS[0].tools = [quote]\n")
+    assert _pairs(result) == [("plant_agent", "send_image", "not_established")]
+
+
+@pytest.mark.parametrize(
+    "reset",
+    [
+        "object.__setattr__(plant_agent, 'tools', [quote])\n",
+        "type(plant_agent).__setattr__(plant_agent, 'tools', [quote])\n",
+        "import operator\n\noperator.setitem(vars(plant_agent), 'tools', [quote])\n",
+        "namespace = plant_agent.__dict__\nnamespace['tools'] = [quote]\n",
+        "namespace = vars(plant_agent)\nnamespace.update(tools=[quote])\n",
+        "import functools\n\nfunctools.partial(setattr, plant_agent)('tools', [quote])\n",
+    ],
+    ids=["object-setattr", "type-setattr", "operator-setitem", "dict-alias", "vars-alias", "partial"],
+)
+def test_any_spelling_of_an_attribute_store_is_a_change(repo, reset):
+    assert _pairs(_reset_elsewhere(repo, reset)) == [("plant_agent", "send_image", "not_established")]
+
+
+def test_a_handle_only_appended_through_leaves_the_constructor_established(repo):
+    result = _reset_elsewhere(repo, "handle = plant_agent.tools\nhandle.append(quote)\n")
+    assert _pairs(result) == [("plant_agent", "send_image", "added")]
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        "from agents import Runner\n\n\ndef load(module, name):\n    return getattr(module, name)\n",
+        "def load(module, name):\n    return getattr(module, name)\n",
+        "from agents import Runner\n\n\ndef save(record, updates):\n"
+        "    for field, value in updates.items():\n        setattr(record, field, value)\n",
+        "import math\n\nALLOWED = {name: getattr(math, name) for name in ('sin', 'cos')}\n",
+    ],
+    ids=["plugin-loader-sdk-module", "plugin-loader", "record-update", "comprehension-lookup"],
+)
+def test_a_dynamic_lookup_or_store_on_another_object_is_not_a_change(repo, module):
+    result = _reset_elsewhere(repo, "", {"helpers.py": module})
+    assert result["comparison_status"] == "compared", result["head"]["limits"]
+    assert _pairs(result) == [("plant_agent", "send_image", "added")]
