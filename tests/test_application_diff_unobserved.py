@@ -2152,3 +2152,157 @@ def test_another_modules_helper_clearing_the_agents_lists_is_followed(repo):
         },
     )
     assert _pairs(run(repo, base, head)) == [("plant_agent", "send_image", "not_established")]
+
+
+# ---------------------------------------------------------------------------
+# #876 review, round 24: the helper is followed through a literal of its
+# parameter, ``enumerate`` and ``.items()``; it changes a capability directly;
+# it is a method of a base class, ``super()`` or ``__init__``; and the value it
+# is handed is an alias, a loop variable, a starred member or a builder's
+# result, in a module that does not import the SDK too.
+
+_RESET = "{'tools': [quote]}"
+
+
+def _wired(repo, wiring: str, extra: dict | None = None, *, builder: bool = False):
+    agent = (
+        _agents("\n\ndef build_plant():\n    return Agent(name='Plant', tools=TOOLS)\n")
+        if builder
+        else _agents(_PLANT)
+    )
+    base = commit(repo, {"agent.py": agent.replace("TOOLS", "[quote]"), "wiring.py": wiring, **(extra or {})})
+    head = commit(repo, {"agent.py": agent.replace("TOOLS", "[quote, send_image]")})
+    return run(repo, base, head)
+
+
+@pytest.mark.parametrize(
+    "reset",
+    [
+        _APPLY + f"def configure(agent):\n    for each in [agent]:\n        apply(each, {_RESET})\n\n\nconfigure(plant_agent)\n",
+        _APPLY
+        + f"def configure(agent, fallback):\n    for each in (agent, fallback):\n        if each is not None:\n"
+        f"            apply(each, {_RESET})\n\n\nconfigure(plant_agent, None)\n",
+        _APPLY + f"def configure(agents):\n    for index, each in enumerate(agents):\n        apply(each, {_RESET})\n\n\n"
+        "configure([plant_agent])\n",
+        _APPLY + f"def configure(agents):\n    for name, each in agents.items():\n        apply(each, {_RESET})\n\n\n"
+        "AGENTS = {'plant': plant_agent}\nconfigure(AGENTS)\n",
+        "\n\ndef apply_all(agents, overrides):\n    for each in agents:\n        for key, value in overrides.items():\n"
+        f"            setattr(each, key, value)\n\n\ndef configure(agent):\n    apply_all([agent], {_RESET})\n\n\n"
+        "configure(plant_agent)\n",
+    ],
+    ids=["literal-list", "literal-tuple", "enumerate", "dict-items", "wrapped-in-a-list"],
+)
+def test_a_member_of_the_parameter_is_the_parameter(repo, reset):
+    assert _pairs(_reset_elsewhere(repo, reset)) == [("plant_agent", "send_image", "not_established")]
+
+
+@pytest.mark.parametrize(
+    "helper",
+    [
+        "def set_tools(agent, tools):\n    agent.tools = list(tools)\n",
+        "def set_tools(agent, tools):\n    agent.tools.clear()\n    agent.tools.extend(tools)\n",
+        "def set_tools(agent, tools):\n    agent.tools[:] = tools\n",
+        "def set_tools(agent, tools):\n    for capability in ('tools', 'handoffs'):\n        getattr(agent, capability).clear()\n",
+    ],
+    ids=["assigned", "cleared", "slice-stored", "computed-getattr"],
+)
+def test_a_helper_changing_a_capability_directly_is_followed_from_any_module(repo, helper):
+    extra = {"helpers.py": helper}
+    call = "from helpers import set_tools\n\nset_tools(plant_agent, [quote])\n"
+    assert _pairs(_reset_elsewhere(repo, call, extra)) == [("plant_agent", "send_image", "not_established")]
+    wiring = "from agent import plant_agent, quote\n" + call
+    assert _pairs(_wired(repo, wiring, extra)) == [("plant_agent", "send_image", "not_established")]
+
+
+_BASE = "class Base:\n    def _apply(self, agent, overrides):\n        for key, value in overrides.items():\n            setattr(agent, key, value)\n"
+
+
+@pytest.mark.parametrize(
+    "reset",
+    [
+        "from helpers import Base\n\n\nclass Setup(Base):\n    def run(self):\n"
+        f"        self._apply(plant_agent, {_RESET})\n\n\nSetup().run()\n",
+        f"from helpers import Base\n\n\nclass Setup(Base):\n    pass\n\n\nSetup()._apply(plant_agent, {_RESET})\n",
+        "from helpers import Base\n\n\nclass Setup(Base):\n    def _apply(self, agent, overrides):\n"
+        f"        super()._apply(agent, overrides)\n\n\nSetup()._apply(plant_agent, {_RESET})\n",
+        "class Service:\n    def __init__(self, agent):\n        for key, value in {'tools': [quote]}.items():\n"
+        "            setattr(agent, key, value)\n\n\nService(plant_agent)\n",
+    ],
+    ids=["inherited-self-method", "inherited-instance-method", "super", "constructor"],
+)
+def test_a_method_of_a_base_class_super_or_a_constructor_is_followed(repo, reset):
+    assert _pairs(_reset_elsewhere(repo, reset, {"helpers.py": _BASE})) == [
+        ("plant_agent", "send_image", "not_established")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("wiring", "builder"),
+    [
+        ("from agent import plant_agent, quote\nfrom helpers import apply\n\nagent = plant_agent\napply(agent, RESET)\n", False),
+        ("from agent import plant_agent, quote\nfrom helpers import apply\n\nfor each in [plant_agent]:\n    apply(each, RESET)\n", False),
+        (
+            "from agent import quote, plant_agent\nfrom helpers import apply\n\nAGENTS = [plant_agent]\n"
+            "for each in AGENTS:\n    apply(each, RESET)\n",
+            False,
+        ),
+        ("from agent import quote, plant_agent\nfrom helpers import apply_all\n\nAGENTS = [plant_agent]\napply_all([*AGENTS], RESET)\n", False),
+        ("from agent import plant_agent, quote\nfrom helpers import apply\n\n\ndef main():\n    agent = plant_agent\n    apply(agent, RESET)\n", False),
+        ("from agent import build_plant, quote\nfrom helpers import apply\n\n\ndef main():\n    agent = build_plant()\n    apply(agent, RESET)\n", True),
+    ],
+    ids=["alias", "literal-loop", "container-loop", "starred-member", "function-local-alias", "builder-result"],
+)
+def test_the_census_counts_what_it_hands_to_a_helper_however_spelled(repo, wiring, builder):
+    helpers = _HELPERS + "\n\ndef apply_all(agents, overrides):\n    for each in agents:\n        apply(each, overrides)\n"
+    result = _wired(repo, wiring.replace("RESET", _RESET), {"helpers.py": helpers}, builder=builder)
+    assert _pairs(result) == [("Plant" if builder else "plant_agent", "send_image", "not_established")]
+
+
+@pytest.mark.parametrize(
+    "loop",
+    [
+        "for key, value in vars(agent).items():\n        held = value\n        held.clear()\n",
+        "for key, value in vars(agent).items():\n        _clear(value)\n",
+        "for key in vars(agent):\n        vars(agent)[key].clear()\n",
+        "for key, value in agent.__dict__.copy().items():\n        if isinstance(value, list):\n            value.clear()\n",
+    ],
+    ids=["value-alias", "value-handed-to-a-function", "subscript-clear", "copied-namespace"],
+)
+def test_a_helper_clearing_what_it_iterates_is_followed(repo, loop):
+    reset = (
+        "\n\ndef _clear(items):\n    if isinstance(items, list):\n        items.clear()\n\n\n"
+        f"def clear_lists(agent):\n    {loop}\n\nclear_lists(plant_agent)\n"
+    )
+    assert _pairs(_reset_elsewhere(repo, reset)) == [("plant_agent", "send_image", "not_established")]
+
+
+@pytest.mark.parametrize(
+    "reset",
+    [
+        "SNAPSHOT = {key: repr(value) for key, value in vars(plant_agent).items()}\n",
+        "\n\ndef describe(obj):\n    return {key: repr(value) for key, value in sorted(vars(obj).items())}\n\n\ndescribe(plant_agent)\n",
+    ],
+    ids=["module-level-read", "sorted-read"],
+)
+def test_reading_the_agents_attributes_is_not_a_change(repo, reset):
+    result = _reset_elsewhere(repo, reset)
+    assert result["comparison_status"] == "compared", result["head"]["limits"]
+    wiring = "from agent import plant_agent\n\n" + reset
+    result = _wired(repo, wiring)
+    assert result["comparison_status"] == "compared", result["head"]["limits"]
+
+
+def test_a_cycle_of_helpers_is_answered_once(repo):
+    names = [f"f{index}" for index in range(12)]
+    helpers = "".join(
+        f"\n\ndef {name}(agent, n):\n    if n:\n"
+        + "".join(f"        {other}(agent, n - 1)\n" for other in names if other != name)
+        + "    return agent.name\n"
+        for name in names
+    )
+    result = _reset_elsewhere(repo, helpers + "\n\nf0(plant_agent, 3)\n")
+    assert result["comparison_status"] == "compared", result["head"]["limits"]
+    rewriting = helpers.replace("    return agent.name\n", "    setattr(agent, 'tools', [])\n", 1)
+    assert _pairs(_reset_elsewhere(repo, rewriting + "\n\nf5(plant_agent, 3)\n")) == [
+        ("plant_agent", "send_image", "not_established")
+    ]

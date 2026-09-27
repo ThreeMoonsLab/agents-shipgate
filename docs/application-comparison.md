@@ -174,16 +174,25 @@ agents' rows in the file stand:
   `getattr(agent, cap).clear()`, `vars(agent).items()`,
   `operator.attrgetter("tools")(agent)`) on an agent the file can name or
   imports from the scope, or gets from another file's builder, including one
-  handed to a function that changes its parameter this way (`apply(agent,
-  overrides)`, called from any file that imports the agent, whether it
-  imports the SDK or not; imported, a static, class or `self` method, through
-  another function, over a list of agents or an alias inside it, or clearing
-  the lists it iterates from `vars(agent).items()`; not through
-  `functools.partial`, `*args`, `**kwargs` or a default) — on any other
+  handed to a function that changes its parameter this way or changes one of
+  its capabilities directly (`apply(agent, overrides)`, `agent.tools =
+  list(tools)`, `getattr(agent, cap).clear()`), called from any file that
+  imports the agent, whether it imports the SDK or not, and however the
+  value is spelled there (an alias, a loop variable, a starred member, a
+  container of agents, a builder's result); the function is imported, a
+  static, class or `self` method, one a base class defines, `super()`'s, a
+  constructor's `__init__`, or one reached through another function, and
+  its parameter may be a list of agents, looped over directly, through
+  `enumerate` or `.items()`, or wrapped in a literal (`for each in [agent]`,
+  `apply_all([agent], ...)`), or an alias; clearing the lists it iterates
+  from `vars(agent).items()` counts, directly, through an alias of the value
+  or a function handed it; not through `functools.partial`, `*args`,
+  `**kwargs` or a default — on any other
   object, like `setattr(record, field, value)`, `return getattr(module,
-  name)` or copying `vars(args)`, it is the object's own business, and a
-  function that only reads the agent's attributes (`describe(agent)`,
-  copying them onto another object) does not change it. An
+  name)` or copying `vars(args)`, it is the object's own business, and
+  code that only reads the agent's attributes (`describe(agent)`, a
+  snapshot `{k: repr(v) for k, v in vars(agent).items()}`, copying them onto
+  another object) does not change it. An
   index into a list of agents is any member, since the list can be reordered. A change qualifies both sides: a binding
   the constructor makes is not established on the side where the list it is
   in is reset, emptied or replaced after construction either
