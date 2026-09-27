@@ -68,7 +68,7 @@ Agent capability diff  origin/main (07c50e1b) -> working tree
 
 ⚠ high    added    claude-code .mcp.json
                   billing (command name npx; env keys BILLING_TOKEN)
-                  an MCP tool surface the agent may call has changed
+                  an MCP tool surface the agent may call has changed; launch source is mutable
 
 ⚠ medium  widened  claude-code .claude/settings.json
                   allow: Bash(npm test:*) → allow: Bash(npm *)
@@ -132,11 +132,11 @@ beside the refusal. The
 [quickstart](docs/quickstart.md#review-a-host-configuration-change) shows each
 answer, the `--base <ref>` recovery when no base can be detected, and the
 [surfaces `diff` does not read](docs/host-boundary-support.md#known-unread-surfaces).
-**Released in `1.1.0`:** the output above is from the published `1.1.0`,
-installed from PyPI into a clean virtualenv outside any checkout and run in a
-clone. The previous release, `1.0.0`, names the same changes as four rows,
-without the dispositions, the joined replacement, the MCP launch details, the
-`What this run established` block, the review question and the reference lines.
+**Not yet released:** the output above is from this repository's source tree,
+which still reports version `1.1.0`, run in a clone. The published `1.1.0`
+prints the same comparison without the `launch source is mutable` note.
+That note identifies the unversioned `npx` package declared by the added server;
+it changes neither the row's severity nor the widening count.
 
 When the answer is useful and you want it on every pull request, add
 [`examples/github-actions/14-host-only-advisory-pr.yml`](examples/github-actions/14-host-only-advisory-pr.yml):

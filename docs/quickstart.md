@@ -49,8 +49,8 @@ either.
 Pick one channel and stay on it for the whole walkthrough. **Every command in
 [One review, end to end](#one-review-end-to-end) runs on the published
 release, and reaches the same verdict there** — `blocked`, `can merge without
-human: false`, exit `0`. The excerpts below are from a source checkout, and the
-published release renders the same lines —
+human: false`, exit `0`. The verdict excerpts in that walkthrough are from a source checkout, and the
+published release renders those same lines —
 a test fails if a step quotes output only one channel produces without saying
 which.
 
@@ -121,12 +121,11 @@ as data.
 
 ### 3. Read the answer
 
-**The answers below are released in `1.1.0`:** they are from the published
-`1.1.0`, installed from PyPI into a clean virtualenv outside any source
-checkout of this project and run in a clone. The previous release, `1.0.0`,
-names the same changes as four rows, without the dispositions, the joined
-replacement, the MCP launch details, the review question and the reference
-lines, and none of its answers has the `What this run established` block. On
+**The answers below are not yet released:** they are from this repository's
+source tree, which still reports version `1.1.0`, run in a clone. The published
+`1.1.0` prints the same answers without the `launch source is mutable` note on
+the added MCP server. That note identifies its unversioned `npx` package and
+changes neither severity nor the widening count. On
 the remote's `main`, `.claude/settings.json` allows `Bash(npm test:*)` and denies `Bash(rm -rf:*)`,
 and `.mcp.json` configures one server, `docs`. The PR branch allows
 `Bash(npm *)`, drops the denial, and adds a `billing` server.
@@ -155,7 +154,7 @@ Agent capability diff  origin/main (07c50e1b) -> working tree
 
 ⚠ high    added    claude-code .mcp.json
                   billing (command name npx; env keys BILLING_TOKEN)
-                  an MCP tool surface the agent may call has changed
+                  an MCP tool surface the agent may call has changed; launch source is mutable
 
 ⚠ medium  widened  claude-code .claude/settings.json
                   allow: Bash(npm test:*) → allow: Bash(npm *)
