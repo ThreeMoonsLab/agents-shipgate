@@ -42,7 +42,11 @@ from agents_shipgate.inputs.openai_sdk_static import (
     census_module,
     load_openai_sdk_static_tools,
 )
-from agents_shipgate.inputs.python_imports import ImportResolver, RepositoryLayout, ScopeIndex, repository_layout
+from agents_shipgate.inputs.python_imports import (
+    ImportResolver,
+    RepositoryLayout,
+    repository_layout,
+)
 from agents_shipgate.schemas.manifest import ToolSourceConfig
 
 SUPPORTED = frozenset({"openai_agents_sdk", "google_adk"})

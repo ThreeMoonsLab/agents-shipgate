@@ -683,6 +683,23 @@ class ImportResolver:
             "which could reassign it"
         )
 
+    def another_library(self, statement: ast.Import | ast.ImportFrom, alias: ast.alias) -> bool:
+        """Whether an import the scope does not provide names another library:
+        absolute, not the standard library, and held nowhere in the repository
+        (#876 review). A module the repository holds outside a narrowed scope
+        is the application's own code, not a library."""
+
+        if isinstance(statement, ast.ImportFrom):
+            if statement.level:
+                return False
+            dotted, names = statement.module or "", [alias.name]
+        else:
+            dotted, names = alias.name, []
+        parts = dotted.split(".")
+        if not parts[0] or parts[0] in sys.stdlib_module_names:
+            return False
+        return not self._repository_provides(parts, names)
+
     def _repository_provides(self, parts: list[str], names: list[str]) -> bool:
         """Whether the repository holds the module an absolute import names.
 

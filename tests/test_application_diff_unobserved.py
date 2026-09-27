@@ -939,7 +939,8 @@ def test_an_adk_agent_changed_after_construction_is_a_limit(repo):
         '    payload["tools"] = request.tools\n    return payload\n',
         "class Client:\n    def __init__(self, request):\n        self.tools = request.tools\n"
         "    def count(self):\n        return len(self.tools)\n",
-        "def forward(request, client):\n    tools = request.tools\n    return client.create(tools=tools)\n",
+        "from openai import OpenAI\n\n\ndef forward(request, client: OpenAI):\n    tools = request.tools\n"
+        "    return client.create(tools=tools)\n",
         "def swap(request):\n    tools = request.tools\n    tools = []\n    return tools\n",
     ],
     ids=["dict-payload", "attribute-copy", "handed-to-a-call", "handle-rebound"],
@@ -1350,9 +1351,12 @@ def test_a_module_that_does_not_import_the_sdk_follows_the_same_rule(repo, wirin
         "from somelib import validate\n\n\ndef handle(request):\n    validate(request.tools)\n",
         "from pydantic import TypeAdapter\n\nADAPTER = TypeAdapter(list)\n\n\n"
         "def handle(request):\n    return ADAPTER.validate_python(request.tools)\n",
-        "def handle(client, request):\n    return client.chat.completions.create(model='m', tools=request.tools)\n",
+        "from openai import AsyncOpenAI\n\n\ndef handle(client: AsyncOpenAI, request):\n"
+        "    return client.chat.completions.create(model='m', tools=request.tools)\n",
+        "from openai import OpenAI\n\n\nclass Responder:\n    def __init__(self):\n        self.client = OpenAI()\n\n"
+        "    def handle(self, request):\n        return self.client.responses.create(tools=request.tools)\n",
     ],
-    ids=["third-party-function", "third-party-instance", "api-payload"],
+    ids=["third-party-function", "third-party-instance", "api-payload", "held-client"],
 )
 def test_a_request_handed_to_another_library_is_not_a_limit(repo, handler):
     before = 'main_agent = Agent(name="Main", tools=[quote])\n' + handler
@@ -1372,4 +1376,47 @@ def test_a_method_called_on_self_is_whichever_the_instance_has(repo):
         "Runner().setup(quote_agent)\n"
     )
     result = _compare(repo, body.replace("BODY", "pass"), body.replace("BODY", "tools.append(send_image)"))
+    assert result["comparison_status"] == "partial"
+
+
+# ---------------------------------------------------------------------------
+# #876 review, round 13: another library is a package the repository does not
+# hold, handed none of the application's functions; a builtin, the standard
+# library and an unannotated parameter object are not.
+
+ADD_IMAGE_HELPER = "def add_image(lst, extra=None):\n    BODY\n\n\n"
+
+
+@pytest.mark.parametrize(
+    "use",
+    [
+        "import functools\n\n\ndef setup(agent):\n    add = functools.partial(add_image, extra=None)\n    add(agent.tools)\n",
+        "from somelib import wrap\n\n\ndef setup(agent):\n    add = wrap(add_image)\n    add(agent.tools)\n",
+        "from somelib import apply_hooks\n\n\ndef setup(agent):\n    apply_hooks(agent.tools, add_image)\n",
+        "def setup(agent):\n    list.extend(agent.tools, [send_image])\n",
+        "import operator\n\n\ndef setup(agent):\n    operator.iadd(agent.tools, [send_image])\n",
+        "def setup(agent, toolbox=None):\n    toolbox.install(tools=agent.tools)\n",
+        "def setup(agent):\n    getattr(agent, 'tools').append(send_image)\n",
+    ],
+    ids=[
+        "partial-of-the-apps-function", "library-wrapper-of-the-apps-function",
+        "library-handed-the-apps-function", "builtin-mutator", "stdlib-mutator",
+        "parameter-object-capability-keyword", "getattr-append",
+    ],
+)
+def test_a_call_that_is_not_another_librarys_own_is_not_a_read(repo, use):
+    body = 'quote_agent = Agent(name="Quote", tools=[quote])\n' + ADD_IMAGE_HELPER + use + "\n\nsetup(quote_agent)\n"
+    result = _compare(repo, body.replace("BODY", "pass"), body.replace("BODY", "lst.append(send_image)"))
+    assert result["comparison_status"] == "partial", result["rows"]
+
+
+def test_the_repositorys_own_code_outside_the_scope_is_not_another_library(repo):
+    helper = "def register_defaults(lst):\n    BODY\n"
+    agent = _agents(
+        'quote_agent = Agent(name="Quote", tools=[quote])\nfrom lib.registry import register_defaults\n\n\n'
+        "def setup(agent):\n    register_defaults(agent.tools)\n\n\nsetup(quote_agent)\n"
+    )
+    base = commit(repo, {"app/agent.py": agent, "lib/__init__.py": "", "lib/registry.py": helper.replace("BODY", "pass")})
+    head = commit(repo, {"lib/registry.py": helper.replace("BODY", "lst.append(len)")})
+    result = run(repo, base, head, "--scope", "app")
     assert result["comparison_status"] == "partial"
