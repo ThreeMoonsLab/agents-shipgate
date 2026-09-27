@@ -2278,3 +2278,25 @@ def test_globals_handed_positionally_to_get_type_hints_is_a_read(repo):
     head = commit(repo, {"svc/app/agent.py": SCOPED_LOOKUP_AGENT.format(tools="lookup")})
     result = run(repo, base, head, "--scope", "svc/app")
     assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
+
+
+# ---------------------------------------------------------------------------
+# Round 16: a frame's namespace is read by allow-list too.
+
+@pytest.mark.parametrize(
+    "helper",
+    [
+        "import logging\nimport sys\n\n\ndef log():\n    return logging.getLogger(sys._getframe(1).f_globals.get('__name__'))\n",
+        "import inspect\n\n\ndef caller():\n    return inspect.currentframe().f_back.f_globals['__name__']\n",
+    ],
+    ids=["frame-globals-get", "frame-globals-item"],
+)
+def test_a_logging_helper_reading_its_callers_frame_changes_nothing(repo, helper):
+    """R16-1."""
+
+    tools = "from .log import log  # noqa: F401\n\n\ndef lookup(q: str) -> str:\n    return q\n"
+    base = commit(repo, _svc({"svc/app/tools.py": tools, "svc/app/log.py": helper}))
+    head = commit(repo, {"svc/app/agent.py": SCOPED_LOOKUP_AGENT.format(tools="lookup")})
+    result = run(repo, base, head, "--scope", "svc/app")
+    assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
+    assert _rows(result) == [("x", "lookup", "added")]

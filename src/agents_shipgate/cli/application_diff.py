@@ -310,8 +310,12 @@ def _git_layout(workspace: Path, commit: str, scope: str) -> RepositoryLayout:
                 and (str(PurePosixPath(name).parent) if "/" in name else "") == directory
                 and blobs[name][1] <= _MAX_LAYOUT_LISTING_BYTES
             ]
-            for name, text in _batch_blobs(workspace, pending).items():
-                contents[name] = text
+            # One batch per directory only while it is small: a directory of
+            # generated or vendored modules is read file by file, as asked
+            # (#879 review).
+            if sum(size for _, _, size in pending) <= _MAX_LAYOUT_BATCH_BYTES:
+                for name, text in _batch_blobs(workspace, pending).items():
+                    contents[name] = text
         if path not in contents:
             oid, size = blobs[path]
             output = (

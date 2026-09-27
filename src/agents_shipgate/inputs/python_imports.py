@@ -2405,8 +2405,22 @@ def _attribute_patches(tree: ast.Module) -> dict[str, int]:
             object_use(node, line)
             continue
         if isinstance(node, ast.Attribute) and node.attr in {"f_globals", "f_locals"}:
-            # ``sys._getframe().f_globals[k] = v``: a frame's namespace.
-            record(MODULE_TABLE_COMPUTED, line)
+            # A frame's namespace, some module's: ``f_globals.get("__name__")``
+            # in a logging helper only reads it; ``f_globals[k] = v`` or any
+            # other use may rebind a name (#879 review).
+            holder_parent = parents.get(node)
+            grand = parents.get(holder_parent)
+            reads = (
+                (isinstance(holder_parent, ast.Subscript) and holder_parent.value is node
+                 and isinstance(holder_parent.ctx, ast.Load))
+                or (isinstance(holder_parent, ast.Attribute) and holder_parent.value is node
+                    and holder_parent.attr in {"get", "keys", "values", "items", "copy", "__contains__", "__getitem__"}
+                    and isinstance(grand, ast.Call))
+                or isinstance(holder_parent, ast.Compare)
+                or (isinstance(holder_parent, ast.For | ast.comprehension) and holder_parent.iter is node)
+            )
+            if not reads:
+                record(MODULE_TABLE_COMPUTED, line)
             continue
         if (
             isinstance(node, ast.Attribute)

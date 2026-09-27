@@ -191,7 +191,9 @@ module (`_t = tools`) still counts. A module of the scope one of them imports
 modules that cannot be read — a link included — is a caveat unless its import
 is guarded or generated, and past 1024 modules the rest are one caveat. What
 they import in turn, or import by name at run time
-(`importlib.import_module("svc.patches")`), is not followed. A module file
+(`importlib.import_module("svc.patches")`), is not followed, and neither is a
+change to `sys.path` or `sys.meta_path` that makes a same-named module elsewhere
+the one imported. A module file
 wins over a directory without `__init__.py` of the same name, as the import
 system prefers it. `sys.modules` and
 `globals()` are read by allow-list: a subscript, `get`, a membership test, a
