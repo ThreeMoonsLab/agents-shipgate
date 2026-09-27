@@ -40,7 +40,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from agents_shipgate.core.errors import InputParseError
@@ -302,6 +302,8 @@ class ImportResolver:
     _layout: RepositoryLayout | None = None
     _above: _AboveScope | None = None
     _layout_modules: dict[str, PythonModule | None] = field(default_factory=dict)
+    #: Repository files the read bound left unread.
+    _over_budget: set[str] = field(default_factory=set)
 
     def __post_init__(self) -> None:
         self.scope_root = self.scope_root.resolve()
@@ -502,6 +504,20 @@ class ImportResolver:
                     "package enclosing the scope runs before the name is used",
                 )
         caveats.extend(item for item in above.unread if item not in caveats)
+        if layout is not None and layout.scope:
+            for target in above.inscope:
+                # ``from .app import bootstrap`` in ``svc/__init__.py``: the
+                # scope's own module, run before the chain (#879 review).
+                relative = PurePosixPath(target).relative_to(layout.scope)
+                entry = self._file_entry(self.scope_root / relative.parent, relative.name)
+                if entry is None:
+                    caveat = f"a package enclosing the scope runs {target}, which could not be read"
+                    if caveat not in caveats:
+                        caveats.append(caveat)
+                    continue
+                for item in (entry, *self._enclosing_packages(entry)):
+                    if item not in runners:
+                        runners.append(item)
         for runner in runners:
             scan = self._patched_names(runner)
             path_line = self._patch_scan(runner).attribute_patches.get(PATH_PATCH)
@@ -603,9 +619,7 @@ class ImportResolver:
                 # ``self.lookup = ...`` in a class, or ``backend.lookup`` on a
                 # parameter, reassigns some other object (#879 review).
                 root = dotted.split(".", 1)[0]
-                imports = [
-                    item for item in module.bindings.get(root, []) if isinstance(item.node, ast.alias)
-                ]
+                imports = _root_imports(module, root)
                 if not imports:
                     continue
                 found = patched.setdefault(dotted.rsplit(".", 1)[-1], [])
@@ -614,14 +628,13 @@ class ImportResolver:
                 found.append((module.ref, line, self._patch_targets(module, imports)))
         return _PatchScan(patched, tuple(unread))
 
-    def _patch_targets(self, module: PythonModule, imports: list[_Binding]) -> frozenset[Path] | None:
+    def _patch_targets(
+        self, module: PythonModule, imports: list[ast.Import | ast.ImportFrom]
+    ) -> frozenset[Path] | None:
         """The in-scope modules a patch's root import names; None when it cannot be located."""
 
         targets: set[Path] = set()
-        for item in imports:
-            statement = item.statement
-            if not isinstance(statement, ast.Import | ast.ImportFrom):
-                return None
+        for statement in imports:
             paths, missing = self._imported_paths(module, statement)
             if any(stop.reason != MODULE_NOT_FOUND for stop, _, _ in missing):
                 return None
@@ -779,12 +792,23 @@ class ImportResolver:
                             f"{runner.ref}:{node.lineno} imports {spelling!r}, which is not read and "
                             "could reassign it"
                         )
-                    elif not target.startswith(scope_prefix):
+                    elif target.startswith(scope_prefix):
+                        # ``from .app import bootstrap`` in ``svc/__init__.py``
+                        # runs the scope's own module first (#879 review).
+                        if target not in found.inscope:
+                            found.inscope.append(target)
+                    else:
                         imported = self._layout_module(target)
                         if imported is None:
-                            found.unread.append(
-                                f"{runner.ref}:{node.lineno} runs {target}, which could not be read"
+                            message = (
+                                f"the packages enclosing the scope run more than "
+                                f"{MAX_PATCH_SCAN_MODULES} modules, past the read bound, and the "
+                                "rest are not read"
+                                if self._layout_budget_spent(target)
+                                else f"{runner.ref}:{node.lineno} runs {target}, which could not be read"
                             )
+                            if message not in found.unread:
+                                found.unread.append(message)
                         elif imported not in modules:
                             modules.append(imported)
             for item in modules:
@@ -797,30 +821,86 @@ class ImportResolver:
                         found.patched.setdefault(dotted[len(SELF_PATCH):], []).append((item.ref, line))
                         continue
                     if dotted == PATH_PATCH:
+                        # ``__path__.insert(0, ...)`` above the scope: the
+                        # scope's own package may be found elsewhere.
+                        found.unread.append(
+                            f"{item.ref}:{line} changes __path__, so the scope's modules may be "
+                            "found in another directory"
+                        )
                         continue
                     root = dotted.split(".", 1)[0]
-                    imports = [
-                        binding.statement
-                        for binding in item.bindings.get(root, [])
-                        if isinstance(binding.node, ast.alias)
-                        and isinstance(binding.statement, ast.Import | ast.ImportFrom)
-                    ]
+                    imports = _root_imports(item, root)
                     if not imports:
                         continue
-                    # Above the scope, a patch matters only when what it is
-                    # rooted at reaches into the scope (or cannot be found):
-                    # ``registry.tools = []`` on ``app/services/registry.py``
-                    # replaces nothing the agent binds.
-                    targets = [
-                        target
-                        for statement in imports
-                        for target, _ in self._layout_targets(item_directory, statement)
-                    ]
-                    if not targets or any(
-                        target is None or target.startswith(scope_prefix) for target in targets
-                    ):
+                    if not self._other_module(item, item_directory, dotted, imports, scope_prefix):
                         found.patched.setdefault(dotted.rsplit(".", 1)[-1], []).append((item.ref, line))
         return found
+
+    def _other_module(
+        self,
+        item: PythonModule,
+        directory: str,
+        dotted: str,
+        imports: list[ast.Import | ast.ImportFrom],
+        scope_prefix: str,
+    ) -> bool:
+        """Whether a patch above the scope sets an attribute of another module
+        file outside it: ``registry.tools = []`` with ``registry`` a submodule
+        its package does not otherwise bind. A longer path
+        (``registry.tools.lookup``), a name imported from a module, or a root
+        the package also binds could reach the scope (#879 review)."""
+
+        if dotted.count(".") != 1:
+            return False
+        root = dotted.split(".", 1)[0]
+        for statement in imports:
+            targets = self._layout_targets(directory, statement)
+            if not targets or any(target is None for target, _ in targets):
+                return False
+            files = [target for target, _ in targets if target is not None]
+            alias = next(
+                (name for name in statement.names if (name.asname or name.name.split(".", 1)[0]) == root),
+                None,
+            )
+            if alias is None:
+                return False
+            if isinstance(statement, ast.ImportFrom):
+                # ``from P import M``: ``M`` must be P's submodule file, and P
+                # must bind nothing else under that name.
+                module = next(
+                    (
+                        file
+                        for file in files
+                        if file.endswith((f"/{alias.name}.py", f"/{alias.name}/__init__.py"))
+                        or file in {f"{alias.name}.py", f"{alias.name}/__init__.py"}
+                    ),
+                    None,
+                )
+                if module is None:
+                    return False
+                module_dir = module[: -len("/__init__.py")] if module.endswith("/__init__.py") else module[: -len(".py")]
+                parent = module_dir.rsplit("/", 1)[0] if "/" in module_dir else ""
+                if "__init__.py" in (self._layout.entries(parent) or ()):  # type: ignore[union-attr]
+                    holder = self._layout_module(f"{parent}/__init__.py" if parent else "__init__.py")
+                    if holder is None or any(
+                        not (
+                            isinstance(binding.statement, ast.ImportFrom)
+                            and binding.statement.level
+                            and not binding.statement.module
+                        )
+                        for binding in holder.bindings.get(alias.name, [])
+                    ):
+                        # ``from .app import tools as helpers`` in the package
+                        # makes ``helpers`` its attribute, not the submodule.
+                        return False
+            else:
+                module = files[-1]
+            if module.startswith(scope_prefix):
+                return False
+        return True
+
+    def _layout_budget_spent(self, path: str) -> bool:
+        return path in self._over_budget
 
     def _layout_module(self, path: str) -> PythonModule | None:
         """One repository file outside the scope, read and parsed once."""
@@ -829,7 +909,9 @@ class ImportResolver:
         if path in self._layout_modules:
             return self._layout_modules[path]
         module: PythonModule | None = None
-        if len(self._layout_modules) < MAX_PATCH_SCAN_MODULES:
+        if len(self._layout_modules) >= MAX_PATCH_SCAN_MODULES:
+            self._over_budget.add(path)
+        else:
             text = self._layout.read(path)
             if text is not None:
                 try:
@@ -857,19 +939,21 @@ class ImportResolver:
             """The files importing ``parts`` from ``base`` runs; None if absent."""
 
             current, files = base, []
-            for index, part in enumerate(parts):
+            for part in parts:
                 entries = layout.entries(current) or frozenset()
-                last = index == len(parts) - 1
-                if last and f"{part}.py" in entries and part not in entries:
-                    return [*files, f"{current}/{part}.py" if current else f"{part}.py"]
-                if part not in entries:
-                    if last and f"{part}.py" in entries:
-                        return [*files, f"{current}/{part}.py" if current else f"{part}.py"]
+                directory = f"{current}/{part}" if current else part
+                inside = layout.entries(directory) if part in entries else None
+                package = inside is not None and "__init__.py" in inside
+                if not package and f"{part}.py" in entries:
+                    # A regular package, then a module, then a namespace
+                    # portion: ``config.py`` wins over a ``config/`` data
+                    # directory beside it (#879 review).
+                    return [*files, f"{directory}.py"]
+                if inside is None:
                     return None
-                current = f"{current}/{part}" if current else part
-                if "__init__.py" in (layout.entries(current) or ()):
+                current = directory
+                if package:
                     files.append(f"{current}/__init__.py")
-                # A directory without ``__init__.py`` is a namespace package.
             return files
 
         def named(base_files: list[str], base_dir: str, names: list[str]) -> list[str]:
@@ -1940,6 +2024,32 @@ def _key_names(stored: str, scoped: set[str], full: set[str]) -> bool:
     return False
 
 
+def _root_imports(module: PythonModule, root: str) -> list[ast.Import | ast.ImportFrom]:
+    """The imports a patch's root name is bound by, through one plain alias
+    (``_t = tools`` then ``_t.lookup = ...``, #879 review)."""
+
+    def imports_of(name: str) -> list[ast.Import | ast.ImportFrom]:
+        return [
+            binding.statement
+            for binding in module.bindings.get(name, [])
+            if isinstance(binding.node, ast.alias)
+            and isinstance(binding.statement, ast.Import | ast.ImportFrom)
+        ]
+
+    found = imports_of(root)
+    if found:
+        return found
+    for binding in module.bindings.get(root, []):
+        statement = binding.statement
+        if (
+            isinstance(statement, ast.Assign | ast.AnnAssign)
+            and isinstance(statement.value, ast.Name)
+            and statement.value.id != root
+        ):
+            found += imports_of(statement.value.id)
+    return found
+
+
 def _module_object(node: ast.AST, sys_names: set[str], modules_names: set[str]) -> bool:
     """``sys.modules[__name__]``, ``sys.modules.get(__name__)`` or
     ``importlib.import_module(__name__)``: the module itself."""
@@ -2000,6 +2110,9 @@ class _AboveScope:
     patched: dict[str, list[tuple[str, int]]] = field(default_factory=dict)
     tables: list[tuple[str, int, str]] = field(default_factory=list)
     unread: list[str] = field(default_factory=list)
+    #: In-scope modules they import, by repository path: the in-scope reader
+    #: reads these as it reads the chain's own modules.
+    inscope: list[str] = field(default_factory=list)
 
 
 def _attribute_patches(tree: ast.Module) -> dict[str, int]:
@@ -2048,22 +2161,45 @@ def _attribute_patches(tree: ast.Module) -> dict[str, int]:
         """Whether a bare ``globals`` / ``vars`` is the builtin, not a variable
         of that name (``vars = stack[-2][-3]``)."""
 
+        scopes, module_bindings = bindings_of()
+
+        def keeps_builtin(statement: ast.AST | None) -> bool:
+            # ``globals = globals`` or ``globals = builtins.globals``.
+            value = getattr(statement, "value", None)
+            return isinstance(statement, ast.Assign | ast.AnnAssign) and (
+                (isinstance(value, ast.Name) and value.id == node.id)
+                or reference_spelling(value) == f"builtins.{node.id}"
+            )
+
+        local = scopes.enclosing_bindings(node, node.id)
+        if local:
+            return all(keeps_builtin(scopes.statement_of(item)) for item in local)
+        return all(keeps_builtin(item.statement) for item in module_bindings.get(node.id, []))
+
+    def bindings_of() -> tuple[ScopeIndex, dict[str, list[_Binding]]]:
         if not shadowing:
             shadowing.append((ScopeIndex(tree), _module_bindings(tree)[0]))
-        scopes, module_bindings = shadowing[0]
-        return not scopes.enclosing_bindings(node, node.id) and node.id not in module_bindings
+        return shadowing[0]
+
+    def imported(func: ast.AST) -> bool:
+        """Whether a bare reader name is imported (``from typing import
+        get_type_hints``), not a function of the module's own."""
+
+        if not isinstance(func, ast.Name):
+            return True
+        found = bindings_of()[1].get(func.id, [])
+        return bool(found) and all(isinstance(item.node, ast.alias) for item in found)
 
     def is_table(node: ast.AST) -> bool:
         spelling = reference_spelling(node)
         return spelling in {f"{name}.modules" for name in sys_names} or spelling in modules_names
 
     def is_namespace(node: ast.AST) -> bool:
-        return (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id in {"globals", "vars"}
-            and not node.args
-        )
+        if not isinstance(node, ast.Call) or node.args:
+            return False
+        if isinstance(node.func, ast.Name):
+            return node.func.id in {"globals", "vars"} and builtin(node.func)
+        return reference_spelling(node.func) in {"builtins.globals", "builtins.vars"}
 
     def record(key: str, line: int) -> None:
         patches.setdefault(key, line)
@@ -2077,13 +2213,24 @@ def _attribute_patches(tree: ast.Module) -> dict[str, int]:
         if isinstance(parent, ast.keyword):
             if parent.arg is None:
                 return True
-            # ``typing.get_type_hints(fn, globalns=globals())``.
+            # ``typing.get_type_hints(fn, globalns=globals())``, never a
+            # function of the module's own under that name.
             call = parents.get(parent)
-            return isinstance(call, ast.Call) and (
-                reference_spelling(call.func) or ""
-            ).rsplit(".", 1)[-1] in _NAMESPACE_KEYWORD_READERS
+            return (
+                isinstance(call, ast.Call)
+                and (reference_spelling(call.func) or "").rsplit(".", 1)[-1] in _NAMESPACE_KEYWORD_READERS
+                and imported(call.func)
+            )
         if isinstance(parent, ast.For | ast.AsyncFor | ast.comprehension):
             return parent.iter is node
+        if (
+            isinstance(parent, ast.Call)
+            and node in parent.args[1:3]
+            and (reference_spelling(parent.func) or "").rsplit(".", 1)[-1] == "get_type_hints"
+            and imported(parent.func)
+        ):
+            # ``get_type_hints(fn, globals())``: its ``globalns``.
+            return True
         return (
             isinstance(parent, ast.Call)
             and any(arg is node for arg in parent.args)
@@ -2108,6 +2255,70 @@ def _attribute_patches(tree: ast.Module) -> dict[str, int]:
             return keys
         return [call.args[0] if call.args else None]
 
+    def self_key(value: str | None) -> str:
+        return SELF_PATCH + value if value is not None else MODULE_TABLE_COMPUTED
+
+    def literal(node: ast.AST | None) -> str | None:
+        return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
+
+    def dict_use(holder: ast.AST, line: int) -> None:
+        """The module's own ``__dict__`` (``m.__dict__``, ``vars(m)``,
+        ``getattr(m, "__dict__")``): an item read, or a store by key."""
+
+        parent = parents.get(holder)
+        if isinstance(parent, ast.Subscript) and parent.value is holder:
+            return  # a store is read with the assignment's targets
+        if isinstance(parent, ast.Attribute) and parent.value is holder:
+            grand = parents.get(parent)
+            if parent.attr in {"setdefault", "__setitem__", "update"} and isinstance(grand, ast.Call):
+                for key in store_keys(grand):
+                    record(self_key(literal(key)), line)
+                return
+            if parent.attr in {"get", "keys", "values", "items", "copy", "__contains__", "__getitem__"}:
+                return
+        if isinstance(parent, ast.Compare) or (
+            isinstance(parent, ast.For | ast.comprehension) and parent.iter is holder
+        ):
+            return
+        record(MODULE_TABLE_COMPUTED, line)
+
+    def object_use(obj: ast.AST, line: int) -> None:
+        """One use of the module's own object. An attribute read or store, a
+        plain alias, ``setattr``/``delattr`` by name, a comparison and a known
+        reader are read; anything else — a container, a return, a walrus, a
+        call — may set anything on it (#879 review)."""
+
+        parent = parents.get(obj)
+        if isinstance(parent, ast.Attribute) and parent.value is obj:
+            if parent.attr == "__dict__":
+                dict_use(parent, line)
+            return
+        if (
+            isinstance(parent, ast.Assign)
+            and parent.value is obj
+            and all(isinstance(target, ast.Name) for target in parent.targets)
+        ) or isinstance(parent, ast.Compare):
+            return
+        if isinstance(parent, ast.Call) and parent.func is not obj and parent.args[:1] == [obj]:
+            spelling = reference_spelling(parent.func) or ""
+            if spelling in {"setattr", "delattr"}:
+                record(self_key(literal(parent.args[1]) if len(parent.args) > 1 else None), line)
+                return
+            if spelling == "vars":
+                dict_use(parent, line)
+                return
+            if spelling == "getattr":
+                if literal(parent.args[1] if len(parent.args) > 1 else None) == "__dict__":
+                    dict_use(parent, line)
+                return
+        if (
+            isinstance(parent, ast.Call)
+            and any(arg is obj for arg in parent.args)
+            and (reference_spelling(parent.func) or "") in _MODULE_READERS - {"vars", "getattr"}
+        ):
+            return
+        record(MODULE_TABLE_COMPUTED, line)
+
     # ``_this = sys.modules[__name__]``: names bound to the module itself.
     self_aliases = {
         target.id
@@ -2130,6 +2341,8 @@ def _attribute_patches(tree: ast.Module) -> dict[str, int]:
                 grand = parents.get(parent)
                 if isinstance(parent.ctx, ast.Store):
                     record(_module_table_key(parent.slice), line)
+                elif isinstance(parent.ctx, ast.Load) and isinstance(parent.slice, ast.Name) and parent.slice.id == "__name__":
+                    object_use(parent, line)
                 elif isinstance(parent.ctx, ast.Load):
                     if isinstance(grand, ast.Attribute) and grand.value is parent and isinstance(grand.ctx, ast.Store | ast.Del):
                         own_or_table(parent.slice, grand.attr, line)
@@ -2184,6 +2397,25 @@ def _attribute_patches(tree: ast.Module) -> dict[str, int]:
                 # ``mods = sys.modules``: not read.
                 record(MODULE_TABLE_COMPUTED, line)
             continue
+        # -- the module's own object, however spelled ---------------------------
+        if isinstance(node, ast.Call) and _module_object(node, sys_names, modules_names):
+            # ``sys.modules.get(__name__)``, ``import_module(__name__)``.
+            object_use(node, line)
+        elif isinstance(node, ast.Name) and node.id in self_aliases and isinstance(node.ctx, ast.Load):
+            object_use(node, line)
+            continue
+        if isinstance(node, ast.Attribute) and node.attr in {"f_globals", "f_locals"}:
+            # ``sys._getframe().f_globals[k] = v``: a frame's namespace.
+            record(MODULE_TABLE_COMPUTED, line)
+            continue
+        if (
+            isinstance(node, ast.Attribute)
+            and reference_spelling(node) in {"builtins.globals", "builtins.vars"}
+            and not (isinstance(parent, ast.Call) and parent.func is node)
+        ):
+            # ``_g = builtins.globals``.
+            record(MODULE_TABLE_COMPUTED, line)
+            continue
         # -- globals() / vars(): reads allowed ---------------------------------
         if is_namespace(node):
             if isinstance(parent, ast.Subscript) and parent.value is node:
@@ -2213,6 +2445,18 @@ def _attribute_patches(tree: ast.Module) -> dict[str, int]:
             continue
         # -- __path__ ----------------------------------------------------------
         if isinstance(node, ast.Name) and node.id == "__path__":
+            value = getattr(parent, "value", None)
+            if (
+                isinstance(parent, ast.Assign)
+                and isinstance(value, ast.Call)
+                and (
+                    value.func.attr if isinstance(value.func, ast.Attribute) else getattr(value.func, "id", None)
+                )
+                == "extend_path"
+            ):
+                # ``__path__ = pkgutil.extend_path(__path__, __name__)``: a
+                # namespace declaration.
+                continue
             if not isinstance(node.ctx, ast.Load) or not (
                 isinstance(parent, ast.Compare | ast.Subscript | ast.Starred)
                 or isinstance(parent, ast.For | ast.comprehension)
@@ -2270,6 +2514,13 @@ def _attribute_patches(tree: ast.Module) -> dict[str, int]:
                     and isinstance(target.value.func, ast.Name)
                     and target.value.func.id == "vars"
                     and target.value.args
+                ):
+                    holder = target.value.args[0]
+                elif (
+                    isinstance(target.value, ast.Call)
+                    and reference_spelling(target.value.func) == "getattr"
+                    and len(target.value.args) > 1
+                    and literal(target.value.args[1]) == "__dict__"
                 ):
                     holder = target.value.args[0]
                 if holder is None:

@@ -181,11 +181,19 @@ scope spelled from one of those roots through a regular package
 the modules each imports — every package on the way to one (`import
 svc.lib.util` runs `svc/lib/__init__.py`) and each submodule named (`from
 .hooks import patches`) — run before the scope's modules and are read for the
-same reassignments. There a reassignment counts only when the module it is
-rooted at is in the scope or cannot be found (`registry.tools = []` on
-`app/services/registry.py` replaces nothing the agent binds); one of those
-modules that cannot be read is a caveat unless its import is guarded or
-generated; and what they import in turn is not followed. `sys.modules` and
+same reassignments. There a reassignment counts unless it sets one attribute
+of another module file outside the scope (`registry.tools = []` with
+`registry` a submodule its package binds nothing else under); a longer path
+(`registry.tools.lookup`), a name imported from a module, or an alias of a
+module (`_t = tools`) still counts. A module of the scope one of them imports
+(`from .app import bootstrap`) is read like the chain's own. A change to
+`__path__` there is a caveat, except `pkgutil.extend_path`. One of those
+modules that cannot be read — a link included — is a caveat unless its import
+is guarded or generated, and past 1024 modules the rest are one caveat. What
+they import in turn, or import by name at run time
+(`importlib.import_module("svc.patches")`), is not followed. A module file
+wins over a directory without `__init__.py` of the same name, as the import
+system prefers it. `sys.modules` and
 `globals()` are read by allow-list: a subscript, `get`, a membership test, a
 comparison, iteration, a spread (`[*globals()]`, `**globals()`), a read-only
 builtin, `pkgutil.iter_modules(__path__)` or a namespace keyword
@@ -200,8 +208,12 @@ a reassignment of that name, whichever way it spells the object
 (`sys.modules[__name__]`, `sys.modules.get(__name__)`,
 `importlib.import_module(__name__)`, an alias of one, `globals` under another
 name) or the store (an attribute, `__dict__[...]`, `vars(...)[...]`); a
-computed `setattr`, handing the module object to a function that is not a read,
-and a change to `__path__` are caveats. A package
+computed `setattr`, the module object anywhere but an attribute, a plain alias,
+a comparison or a reader (a container, a return, an annotated or conditional
+alias, a walrus, a function), a store through `__dict__.update`, a frame's
+`f_globals`, `builtins.globals` under another name, a function of the module's
+own named like a reader, and a change to `__path__` are caveats. A local named
+`globals` or `vars` is a variable, unless it rebinds the builtin itself. A package
 hook is not trusted when the package rebinds `__name__`, `__getattr__` or
 `__path__`, patches `importlib`, or stores into `sys.modules` or `globals()`
 other than the idiom's own cache. A generated

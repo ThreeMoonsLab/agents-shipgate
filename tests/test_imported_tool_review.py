@@ -2140,3 +2140,141 @@ def test_a_module_dict_store_before_the_import_is_a_patch(repo):
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial"
     assert not any(row["change"] == "added" for row in result["rows"])
+
+
+# ---------------------------------------------------------------------------
+# Round 15: above the scope, only a two-part patch on another module file is
+# exempt; the scope's own modules an ancestor imports are read; the module's
+# own object is read by allow-list wherever it goes.
+
+def _svc(files: dict[str, str]) -> dict[str, str]:
+    return {
+        "svc/__init__.py": "",
+        "svc/danger.py": DANGER,
+        "svc/app/__init__.py": "",
+        "svc/app/tools.py": "def lookup(q: str) -> str:\n    return q\n",
+        "svc/app/agent.py": SCOPED_LOOKUP_AGENT.format(tools=""),
+        **files,
+    }
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        {
+            "svc/__init__.py": "from . import registry\nfrom .danger import dangerous\n\nregistry.tools.lookup = dangerous\n",
+            "svc/registry.py": "from .app import tools  # noqa: F401\n",
+        },
+        {
+            "svc/__init__.py": "from .registry import tools\nfrom .danger import dangerous\n\ntools.lookup = dangerous\n",
+            "svc/registry.py": "from .app import tools  # noqa: F401\n",
+        },
+        {
+            "svc/__init__.py": (
+                "import svc\nfrom .app import tools  # noqa: F401\nfrom .danger import dangerous\n\n"
+                "svc.app.tools.lookup = dangerous\n"
+            )
+        },
+        {
+            "svc/__init__.py": (
+                "from .app import tools as helpers\nfrom . import helpers as h\nfrom .danger import dangerous\n\n"
+                "h.lookup = dangerous\n"
+            ),
+            "svc/helpers.py": "X = 1\n",
+        },
+        {"svc/__init__.py": "from .app import tools\nfrom .danger import dangerous\n\n_t = tools\n_t.lookup = dangerous\n"},
+        {"svc/__init__.py": "from .app import bootstrap  # noqa: F401\n",
+         "svc/app/bootstrap.py": "from . import tools\nfrom ..danger import dangerous\n\ntools.lookup = dangerous\n"},
+        {"svc/__init__.py": "import svc.app.instrumentation  # noqa: F401\n",
+         "svc/app/instrumentation.py": "from . import tools\n\n_orig = tools.lookup\n\n\ndef _traced(q):\n    return _orig(q)\n\n\ntools.lookup = _traced\n"},
+        {"svc/__init__.py": "from .config import settings  # noqa: F401\n",
+         "svc/config.py": "from .app import tools\nfrom .danger import dangerous\n\nsettings = {}\ntools.lookup = dangerous\n",
+         "svc/config/data.json": "{}\n"},
+    ],
+    ids=[
+        "re-exported-module", "name-from-a-module", "package-dotted", "package-attribute-over-submodule",
+        "module-alias", "scope-module-an-ancestor-imports", "absolute-scope-module-an-ancestor-imports",
+        "module-beside-a-data-directory",
+    ],
+)
+def test_a_patch_an_ancestor_runs_that_can_reach_the_scope_is_a_named_stop(repo, files):
+    """R15-1, R15-2, R15-3, R15-5 (alias)."""
+
+    base = commit(repo, _svc(files))
+    head = commit(repo, {"svc/app/agent.py": SCOPED_LOOKUP_AGENT.format(tools="lookup")})
+    result = run(repo, base, head, "--scope", "svc/app")
+    assert result["comparison_status"] == "partial"
+    assert not any(row["change"] == "added" for row in result["rows"])
+
+
+def test_a_path_change_above_the_scope_is_a_caveat(repo):
+    files = _svc({"svc/__init__.py": "import os\n\n__path__.insert(0, os.path.join(os.path.dirname(__file__), 'alt'))\n"})
+    base = commit(repo, files)
+    head = commit(repo, {"svc/app/agent.py": SCOPED_LOOKUP_AGENT.format(tools="lookup")})
+    result = run(repo, base, head, "--scope", "svc/app")
+    assert _rows(result) == [("x", "lookup", "not_established")]
+
+
+@pytest.mark.parametrize(
+    "init",
+    [
+        "__path__ = __import__('pkgutil').extend_path(__path__, __name__)\n",
+        "import pkgutil\n\n__path__ = pkgutil.extend_path(__path__, __name__)\n",
+    ],
+    ids=["import-builtin", "pkgutil"],
+)
+def test_a_namespace_declaration_above_the_scope_changes_nothing(repo, init):
+    base = commit(repo, _svc({"svc/__init__.py": init}))
+    head = commit(repo, {"svc/app/agent.py": SCOPED_LOOKUP_AGENT.format(tools="lookup")})
+    result = run(repo, base, head, "--scope", "svc/app")
+    assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
+    assert _rows(result) == [("x", "lookup", "added")]
+
+
+@pytest.mark.parametrize(
+    "package",
+    [
+        "import sys\n\nfrom . import evil\n\n_mods = [sys.modules[__name__]]\n_mods[0].memory = evil\n",
+        "import sys\n\nfrom . import evil\n\n\ndef _me():\n    return sys.modules[__name__]\n\n\n_me().memory = evil\n",
+        "import sys\nimport types\n\nfrom . import evil\n\n_this: types.ModuleType = sys.modules[__name__]\n_this.memory = evil\n",
+        "import sys\n\nfrom . import evil\n\nif (_this := sys.modules[__name__]) is not None:\n    _this.memory = evil\n",
+        "import sys\n\nfrom . import evil\n\nsys.modules[__name__].__dict__.update(memory=evil)\n",
+        "import sys\n\nfrom . import evil\n\nvars(sys.modules[__name__]).update(memory=evil)\n",
+        "import sys\n\nfrom . import evil\n\ngetattr(sys.modules[__name__], '__dict__')['memory'] = evil\n",
+        "import sys\n\nfrom . import evil\n\nsys._getframe().f_globals['memory'] = evil\n",
+        "from . import evil\n\n\ndef get_type_hints(obj, globalns=None):\n    globalns['memory'] = evil\n\n\n"
+        "get_type_hints(None, globalns=globals())\n",
+        "import sys\n\nfrom . import evil\n\n_this = sys.modules[__name__] if True else None\n_this.memory = evil\n",
+        "import builtins\n\nfrom . import evil\n\n_g = builtins.globals\n_g()['memory'] = evil\n",
+        "from . import evil\n\nglobals = globals\n_g = globals\n_g()['memory'] = evil\n",
+    ],
+    ids=[
+        "container", "return", "annotated-alias", "walrus", "dict-update", "vars-update", "getattr-dict",
+        "frame-globals", "reader-named-function", "conditional-alias", "builtins-alias", "rebound-builtin",
+    ],
+)
+def test_the_module_object_anywhere_but_a_read_is_not_established(repo, package):
+    """R15-5."""
+
+    files = {
+        "pkg/__init__.py": package,
+        "pkg/memory.py": "def remember(q: str) -> str:\n    return q\n",
+        "pkg/evil.py": "def remember(q: str) -> str:\n    return q.upper()\n",
+        "agent.py": "",
+    }
+    base = commit(repo, files)
+    head = commit(repo, {"agent.py": LAZY_AGENT})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert not any(row["change"] == "added" for row in result["rows"])
+
+
+def test_globals_handed_positionally_to_get_type_hints_is_a_read(repo):
+    tools = (
+        "import typing\n\n\ndef lookup(q: str) -> str:\n    return q\n\n\n"
+        "HINTS = typing.get_type_hints(lookup, globals())\n"
+    )
+    base = commit(repo, _svc({"svc/app/tools.py": tools}))
+    head = commit(repo, {"svc/app/agent.py": SCOPED_LOOKUP_AGENT.format(tools="lookup")})
+    result = run(repo, base, head, "--scope", "svc/app")
+    assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]

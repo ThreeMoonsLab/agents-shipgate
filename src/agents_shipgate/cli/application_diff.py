@@ -211,14 +211,54 @@ def _definition(root: Path, tool: Any) -> dict[str, Any]:
 _MAX_LAYOUT_LISTING_BYTES = 4 * 1024 * 1024
 
 
+#: The most blob bytes one batched read of a directory's modules holds.
+_MAX_LAYOUT_BATCH_BYTES = 16 * 1024 * 1024
+
+
+def _batch_blobs(workspace: Path, pending: list[tuple[str, str, int]]) -> dict[str, str]:
+    """``path -> text`` for ``(path, object, size)`` blobs, in bounded ``cat-file --batch``
+    reads; a blob a read does not return is simply absent."""
+
+    texts: dict[str, str] = {}
+    chunk: list[tuple[str, str, int]] = []
+    total = 0
+    for item in [*pending, None]:
+        if item is not None and (not chunk or total + item[2] <= _MAX_LAYOUT_BATCH_BYTES):
+            chunk.append(item)
+            total += item[2]
+            continue
+        output = _run_git_bounded_output(
+            workspace,
+            ["cat-file", "--batch"],
+            max_output_bytes=sum(size + 128 for _, _, size in chunk),
+            input=b"".join(oid.encode("ascii") + b"\n" for _, oid, _ in chunk),
+        ) if chunk else None
+        offset = 0
+        for name, oid, size in chunk if output is not None else []:
+            header_end = output.find(b"\n", offset)
+            if header_end < 0 or output[offset:header_end].split() != [
+                oid.encode("ascii"), b"blob", str(size).encode("ascii")
+            ]:
+                break
+            start = header_end + 1
+            texts[name] = output[start : start + size].decode("utf-8", errors="replace")
+            offset = start + size + 1
+        chunk, total = ([item], item[2]) if item is not None else ([], 0)
+    return texts
+
+
 def _git_layout(workspace: Path, commit: str, scope: str) -> RepositoryLayout:
     """The commit's tree outside the scope, listed one directory at a time (#879 review)."""
 
     listings: dict[str, tuple[frozenset[str], frozenset[str]] | None] = {}
+    #: ``path -> (object, size)`` of every regular ``.py`` file listed.
+    blobs: dict[str, tuple[str, int]] = {}
+    contents: dict[str, str | None] = {}
+    batched: set[str] = set()
 
     def listing(path: str) -> tuple[frozenset[str], frozenset[str]] | None:
         if path not in listings:
-            args = ["--literal-pathspecs", "ls-tree", "-z", commit]
+            args = ["--literal-pathspecs", "ls-tree", "-z", "-l", commit]
             if path:
                 args += ["--", f"{path}/"]
             output = _run_git_bounded_output(
@@ -232,9 +272,13 @@ def _git_layout(workspace: Path, commit: str, scope: str) -> RepositoryLayout:
                 meta, _, name_bytes = raw.partition(b"\t")
                 name = PurePosixPath(name_bytes.decode("utf-8", errors="replace")).name
                 names.add(name)
-                if meta.split(b" ", 1)[0] in {b"120000", b"160000"}:
+                fields = meta.split()
+                if fields[:1] in ([b"120000"], [b"160000"]):
                     # A symbolic link or a submodule: reachable, not read.
                     links.add(name)
+                elif fields[:1] in ([b"100644"], [b"100755"]) and len(fields) == 4 and name.endswith(".py"):
+                    full = f"{path}/{name}" if path else name
+                    blobs[full] = (fields[2].decode("ascii"), int(fields[3]))
             listings[path] = (frozenset(names), frozenset(links)) if names else None
         return listings[path]
 
@@ -247,13 +291,39 @@ def _git_layout(workspace: Path, commit: str, scope: str) -> RepositoryLayout:
         return found[1] if found is not None else frozenset()
 
     def read(path: str) -> str | None:
-        output = _run_git_bounded_output(
-            workspace,
-            ["cat-file", "blob", f"{commit}:{path}"],
-            max_output_bytes=_MAX_LAYOUT_LISTING_BYTES,
-        )
-        # None: missing, too large or unreadable; an empty file reads as "".
-        return output.decode("utf-8", errors="replace") if output is not None else None
+        """A regular ``.py`` file's text — never a link's target path — read
+        with its directory's other modules in one ``cat-file --batch``."""
+
+        if path in contents:
+            return contents[path]
+        directory = str(PurePosixPath(path).parent) if "/" in path else ""
+        listing(directory)
+        if path not in blobs:
+            # Missing, a link, a submodule, or not a regular file.
+            return None
+        if directory not in batched:
+            batched.add(directory)
+            pending = [
+                (name, *blobs[name])
+                for name in sorted(blobs)
+                if name not in contents
+                and (str(PurePosixPath(name).parent) if "/" in name else "") == directory
+                and blobs[name][1] <= _MAX_LAYOUT_LISTING_BYTES
+            ]
+            for name, text in _batch_blobs(workspace, pending).items():
+                contents[name] = text
+        if path not in contents:
+            oid, size = blobs[path]
+            output = (
+                _run_git_bounded_output(
+                    workspace, ["cat-file", "blob", oid], max_output_bytes=_MAX_LAYOUT_LISTING_BYTES
+                )
+                if size <= _MAX_LAYOUT_LISTING_BYTES
+                else None
+            )
+            # None: too large or unreadable; an empty file reads as "".
+            contents[path] = output.decode("utf-8", errors="replace") if output is not None else None
+        return contents[path]
 
     return RepositoryLayout("" if scope in {"", "."} else scope, entries, links, read)
 
