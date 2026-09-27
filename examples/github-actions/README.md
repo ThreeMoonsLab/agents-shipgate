@@ -86,15 +86,10 @@ the wheel archive's SHA-256: ZIP metadata and packaging can change a wheel hash
 without changing its installed contents. Compare the log with
 `engine.engine_distribution_sha256` in `verification-plan.json` (also
 `plan.engine.engine_distribution_sha256` in `verify-run.json`) from a local
-verifier run using the same installed wheel, or run this with that wheel's interpreter
-outside an unrelated source checkout:
-
-```sh
-python -P -c 'from agents_shipgate.core.verification_identity import _engine_distribution_sha256; print(_engine_distribution_sha256())'
-```
-
-The script-path invocation and pip's `-P` keep the PR checkout from
-impersonating the engine.
+verifier run using the same installed wheel. The script-path invocation and
+pip's `-P` keep the PR checkout from impersonating the engine. An engine that
+cannot compute this identity, such as any release before `1.0.0`, logs a
+warning instead and the install continues.
 This logging change is not present in historical Action tags such as `v1.1.0`;
 use the immutable Action commit containing it until it is released. The
 `shipgate_wheel`/`shipgate_wheel_sha256` route still verifies the supplied wheel

@@ -288,6 +288,27 @@ def test_install_step_runs_pip_and_not_the_pull_requests_pip(
 
 
 @_BASH_STEPS
+def test_an_engine_without_the_identity_still_installs(
+    pull_request_checkout: dict[str, Path], tmp_path: Path,
+) -> None:
+    """The identity line is a diagnostic: an engine before 1.0.0 lacks it."""
+
+    checkout = pull_request_checkout
+    legacy = tmp_path / "legacy-engine"
+    (legacy / "agents_shipgate").mkdir(parents=True)
+    (legacy / "agents_shipgate" / "__init__.py").write_text('__version__ = "0.15.0"\n', encoding="utf-8")
+    env = {**_INSTALL_ENV, "SHIPGATE_VERSION": "0.15.0"}
+    run = f'export PYTHONPATH="{legacy}{os.pathsep}$PYTHONPATH"\n' + _action_steps()[
+        "Install Agents Shipgate"
+    ]["run"]
+    result = _run_step(checkout, "Install Agents Shipgate", env, run=run)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "::warning::installed engine identity unavailable" in result.stdout
+    assert "engine_distribution_sha256=" not in result.stdout
+
+
+@_BASH_STEPS
 @pytest.mark.parametrize(("verdict", "expected"), [("blocked", 20), ("human_review_required", 0)])
 def test_merge_verdict_step_imports_the_installed_engine(
     pull_request_checkout: dict[str, Path], verdict: str, expected: int,

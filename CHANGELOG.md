@@ -25,8 +25,10 @@
 
 - Version-based Action installs log the existing installed engine content
   digest, including host-only runs. It can be compared with a local verifier's
-  `engine_distribution_sha256`; it is not the wheel ZIP hash. The explicit
-  wheel-and-hash install route is unchanged. (#855)
+  `engine_distribution_sha256`; it is not the wheel ZIP hash. An engine that
+  cannot compute it, such as any release before `1.0.0`, logs a warning and
+  the install continues. The explicit wheel-and-hash install route is
+  unchanged. (#855)
 
 - Move the published-release pins, examples and adoption prompts to `v1.1.0` (contract 40) now that it is published, re-capture the README and quickstart `diff` answers from the published `1.1.0`, and re-measure the pilot ledger's Route H dry run on it. No schema or contract change. (#778)
 - A host comparison names the changed inputs it does not read, so a zero-row result is not read as covering them. (#821; slice 2 of #812)
