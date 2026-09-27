@@ -88,7 +88,11 @@ agents' rows in the file stand:
   merge them, so which construction binds which tool is not established;
   constructions that bind exactly the same tools and handoffs are one agent.
   A tool every such construction binds identically is still a row of that
-  agent, beside the limit. The same holds for a Google ADK agent name;
+  agent, beside the limit. The same holds for a Google ADK agent name: its
+  constructions are one agent only when each binds the same tool definitions
+  and handoffs and was read cleanly (no toolset, no `**`, no warning, no
+  unresolved or non-literal `sub_agents`), as `root_agent` and a builder
+  returning its twin do;
 - a construction with `**` keyword unpacking or positional arguments after its
   name, which can carry `tools` or `handoffs`;
 - an agent whose `tools`, `handoffs` or `mcp_servers` are changed after
@@ -133,10 +137,22 @@ own package path counts as the scope (`from svc.app.x import …` under
 
 The Google ADK reader reads each `Agent(...)` / `LlmAgent(...)` call, not a
 subclass's constructor. A class deriving from an ADK agent class (`class
-Helper(LlmAgent)`, its base imported from `google.adk`) is therefore a named
-limit on the module that defines it, whether its instances are built there or
-in another module, and that module's tool surface is not reported as
-enumerated to `scan` either.
+Helper(LlmAgent)`, its base imported from `google.adk`, or a class deriving
+from that one) is therefore a named limit where it is used: on the module that
+defines it when that module names it again — a call, `functools.partial`, any
+other reference, or a decorator that could build it — and that module's tool
+surface is then not reported as enumerated to `scan` either; and on every other
+module in the scope that imports it, as for an SDK subclass. A subclass nothing
+uses, even one another unused subclass derives from, is not a limit. `scan`
+reads one declared module, so a subclass used only in another module does not
+affect it.
+
+The census of copies, changes and subclasses runs only when some side's
+discovery found an OpenAI Agents SDK or Google ADK source. Without one, no
+agent is read on either side, and the result stays `not_established` rather
+than turning `partial` over the repository's own `.tools` (a report builder's
+`artifacts.tools.append(record)`). Every module is still parsed, and one that
+cannot be is still a gap.
 
 Not read at all: an `Agent` re-exported through a project module,
 `functools.partial(Agent, ...)`, or a subclass defined outside the scope.

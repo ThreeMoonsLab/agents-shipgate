@@ -999,3 +999,227 @@ def test_an_adk_agent_subclass_is_a_named_limit(repo):
         "agent.py:7" in g["reason"] and "'Helper'" in g["reason"]
         for g in result["head"]["coverage_gaps"]
     )
+
+
+# ---------------------------------------------------------------------------
+# #876 review, final pass: a Google ADK subclass counts only where it is used,
+# identical constructions of one ADK name are one agent, and a scope with no
+# agent source on either side stays `not_established`.
+
+_ADK = (
+    "from google.adk.agents import LlmAgent\n"
+    "def lookup(query: str) -> dict:\n"
+    '    """Look up one catalog record by its identifier and return its fields."""\n'
+    '    return {"query": query}\n'
+    "def search(query: str) -> dict:\n"
+    '    """Search the public catalog index for records whose title matches."""\n'
+    '    return {"query": query}\n'
+)
+
+
+def _scan_decision(tmp_path, source: str) -> str:
+    import json
+
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+
+    (tmp_path / "agent.py").write_text(source)
+    (tmp_path / "shipgate.yaml").write_text(
+        'version: "0.1"\nproject:\n  name: p\nagent:\n  name: a\n'
+        "  declared_purpose:\n    - look things up\nenvironment:\n  target: local\n"
+        "tool_sources:\n  - id: src\n    type: google_adk\n    path: agent.py\n"
+        "action_surface:\n  actions:\n"
+        "    - tool: lookup\n      effect: read\n      authority:\n        mode: none\n"
+        "    - tool: search\n      effect: read\n      authority:\n        mode: none\n"
+    )
+    out = tmp_path / "reports"
+    result = CliRunner().invoke(
+        app, ["scan", "-c", str(tmp_path / "shipgate.yaml"), "--out", str(out), "--format", "json"]
+    )
+    assert result.exit_code == 0, result.output
+    return json.loads((out / "report.json").read_text())["release_decision"]["decision"]
+
+
+_UNUSED_HELPER = (
+    'root_agent = LlmAgent(name="root", model="m", tools=TOOLS)\n'
+    "class Helper(LlmAgent):\n    pass\n"
+)
+
+
+def test_an_adk_subclass_nothing_uses_is_not_a_limit(repo, tmp_path):
+    # The unused class made the module `partial`, hid the root agent's true
+    # row, and dropped `scan` to insufficient_evidence (#876 review).
+    base = commit(repo, {"agent.py": _ADK + _UNUSED_HELPER.replace("TOOLS", "[lookup]")})
+    head = commit(repo, {"agent.py": _ADK + _UNUSED_HELPER.replace("TOOLS", "[lookup, search]")})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "compared", result["head"]["limits"]
+    assert _pairs(result) == [("root", "search", "added")]
+    scan_dir = tmp_path / "scan"
+    scan_dir.mkdir()
+    source = _ADK + _UNUSED_HELPER.replace("TOOLS", "[lookup, search]")
+    assert _scan_decision(scan_dir, source) == "passed"
+
+
+@pytest.mark.parametrize(
+    ("use", "named"),
+    [
+        ('helper = Helper(name="helper", model="m", tools=TOOLS)\n', "Helper"),
+        (
+            "import functools\nmake = functools.partial(Helper, model='m')\n"
+            'helper = make(name="helper", tools=TOOLS)\n',
+            "Helper",
+        ),
+        (
+            'class Deeper(Helper):\n    pass\nhelper = Deeper(name="helper", model="m", tools=TOOLS)\n',
+            "Deeper",
+        ),
+        ('def build():\n    return Helper(name="helper", model="m", tools=TOOLS)\n', "Helper"),
+        ("@register\nclass Registered(LlmAgent):\n    pass\n", "Registered"),
+    ],
+    ids=["instantiated", "partial", "subclassed", "in-a-builder", "decorated"],
+)
+def test_an_adk_subclass_the_module_uses_is_a_limit(repo, use, named):
+    body = (
+        _ADK
+        + "register = list\n"
+        + 'root_agent = LlmAgent(name="root", model="m", tools=[lookup])\n'
+        + "class Helper(LlmAgent):\n    pass\n"
+        + use
+    )
+    base = commit(repo, {"agent.py": body.replace("TOOLS", "[lookup]")})
+    head = commit(repo, {"agent.py": body.replace("TOOLS", "[lookup, search]")})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert any(f"'{named}'" in limit for limit in result["head"]["limits"]), result["head"][
+        "limits"
+    ]
+
+
+def test_an_unused_chain_of_adk_subclasses_is_not_a_limit(repo):
+    chain = "class Deeper(Helper):\n    pass\n"
+    base = commit(repo, {"agent.py": _ADK + _UNUSED_HELPER.replace("TOOLS", "[lookup]") + chain})
+    head = commit(
+        repo, {"agent.py": _ADK + _UNUSED_HELPER.replace("TOOLS", "[lookup, search]") + chain}
+    )
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "compared", result["head"]["limits"]
+    assert _pairs(result) == [("root", "search", "added")]
+
+
+@pytest.mark.parametrize(
+    ("wiring", "named"),
+    [
+        (
+            'from agent import Helper, lookup\nhelper = Helper(name="helper", model="m", tools=[lookup])\n',
+            "Helper",
+        ),
+        (
+            'import agent\nhelper = agent.Helper(name="helper", model="m", tools=[agent.lookup])\n',
+            "Helper",
+        ),
+        (
+            'from agent import Deeper, lookup\nhelper = Deeper(name="helper", model="m", tools=[lookup])\n',
+            "Deeper",
+        ),
+    ],
+    ids=["imported-by-name", "module-attribute", "deeper-subclass"],
+)
+def test_an_adk_subclass_another_module_uses_is_a_limit_there(repo, wiring, named):
+    agent = _ADK + _UNUSED_HELPER.replace("TOOLS", "[lookup]") + "class Deeper(Helper):\n    pass\n"
+    base = commit(repo, {"agent.py": agent, "make.py": wiring})
+    head = commit(repo, {"make.py": wiring + "# touched\n"})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert any(
+        g["source"] == "make.py" and f"uses {named}, a Google ADK" in g["reason"]
+        for g in result["head"]["coverage_gaps"]
+    ), result["head"]["coverage_gaps"]
+    # The defining module builds no instance of either class itself.
+    assert not any(g["source"] == "agent.py" for g in result["head"]["coverage_gaps"])
+
+
+_TWICE = (
+    'root_agent = LlmAgent(name="rev", model="m", tools=TOOLS)\n'
+    "def mk():\n"
+    '    return LlmAgent(name="rev", model="m", tools=TOOLS)\n'
+)
+
+
+def test_identical_adk_constructions_of_one_name_are_one_agent(repo, tmp_path):
+    # Two identical constructions were named "constructed more than once",
+    # which hid the true row and failed `scan` (#876 review).
+    base = commit(repo, {"agent.py": _ADK + _TWICE.replace("TOOLS", "[lookup]")})
+    head = commit(repo, {"agent.py": _ADK + _TWICE.replace("TOOLS", "[lookup, search]")})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "compared", result["head"]["limits"]
+    assert _pairs(result) == [("rev", "search", "added")]
+    scan_dir = tmp_path / "scan"
+    scan_dir.mkdir()
+    assert _scan_decision(scan_dir, _ADK + _TWICE.replace("TOOLS", "[lookup, search]")) == "passed"
+
+
+@pytest.mark.parametrize(
+    "second",
+    [
+        '    return LlmAgent(name="rev", model="m", tools=[search])\n',
+        '    child = LlmAgent(name="child", model="m", tools=[search])\n'
+        '    return LlmAgent(name="rev", model="m", tools=[lookup], sub_agents=[child])\n',
+        '    return LlmAgent(name="rev", model="m", tools=[lookup], **OPTIONS)\n',
+        "    from other import lookup\n"
+        '    return LlmAgent(name="rev", model="m", tools=[lookup])\n',
+    ],
+    ids=["other-tools", "other-handoffs", "keyword-unpacking", "other-definition"],
+)
+def test_differing_adk_constructions_of_one_name_stay_a_limit(repo, tmp_path, second):
+    body = (
+        _ADK
+        + "OPTIONS = {}\n"
+        + 'root_agent = LlmAgent(name="rev", model="m", tools=[lookup])\n'
+        + "def mk():\n"
+        + second
+    )
+    other = "def lookup(query: str) -> str:\n    return query + '!'\n"
+    base = commit(repo, {"agent.py": body.replace('"rev"', '"solo"', 1), "other.py": other})
+    head = commit(repo, {"agent.py": body})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert any(
+        "constructed more than once" in limit for limit in result["head"]["limits"]
+    ), result["head"]["limits"]
+    scan_dir = tmp_path / "scan"
+    scan_dir.mkdir()
+    (scan_dir / "other.py").write_text(other)
+    assert _scan_decision(scan_dir, body) == "insufficient_evidence"
+
+
+_NO_AGENTS = {
+    "app/__init__.py": "",
+    "app/model.py": "class Artifacts:\n    tools: list = []\n",
+    "app/report.py": (
+        "from app.model import Artifacts\n\n\n"
+        "def record(artifacts, item):\n    artifacts.tools.append(item)\n\n\n"
+        "def copy(artifacts, extra):\n    return artifacts.clone(tools=extra)\n"
+    ),
+}
+
+
+def test_a_scope_with_no_agent_source_on_either_side_is_not_established(repo):
+    # `--scope src` of this repository read `partial` from the census of its
+    # own `artifacts.tools.append(...)`, with no agent source anywhere.
+    base = commit(repo, dict(_NO_AGENTS))
+    head = commit(repo, {"app/report.py": _NO_AGENTS["app/report.py"] + "# touched\n"})
+    result = run(repo, base, head, "--scope", "app")
+    assert result["comparison_status"] == "not_established", result["head"]["limits"]
+    assert result["head"]["limits"] == [] and result["base"]["limits"] == []
+
+
+def test_the_census_still_runs_when_either_side_has_an_agent_source(repo):
+    base = commit(repo, dict(_NO_AGENTS))
+    head = commit(
+        repo, {"app/agent.py": _agents('quote_agent = Agent(name="Quote", tools=[quote])\n')}
+    )
+    result = run(repo, base, head, "--scope", "app")
+    assert result["comparison_status"] == "partial"
+    assert any("report.py:5" in limit for limit in result["head"]["limits"])
+    assert any("report.py:5" in limit for limit in result["base"]["limits"])

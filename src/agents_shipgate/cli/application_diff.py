@@ -37,7 +37,7 @@ from agents_shipgate.core.domain import ANY_TOOL
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.privacy import sanitize_report_payload
 from agents_shipgate.core.verification_identity import build_engine_requirement
-from agents_shipgate.inputs.google_adk import load_google_adk_artifacts
+from agents_shipgate.inputs.google_adk import adk_agent_subclasses, load_google_adk_artifacts
 from agents_shipgate.inputs.openai_sdk_static import (
     census_module,
     load_openai_sdk_static_tools,
@@ -341,13 +341,31 @@ def _git_layout(workspace: Path, commit: str, scope: str) -> RepositoryLayout:
     return RepositoryLayout("" if scope in {"", "."} else scope, entries, links, read)
 
 
-def observe(
+@dataclass
+class _Discovered:
+    """One side after discovery, before any module is read (#876 review).
+
+    Whether either side found an agent source decides whether the census
+    runs, so both sides are discovered before either is read.
+    """
+
+    result: Observations
+    root: Path | None = None
+    python_files: list[Path] = field(default_factory=list)
+    linked: set[str] = field(default_factory=set)
+    detected: Any = None
+    tests: set[str] = field(default_factory=set)
+    #: ``(framework, path)`` for every supported agent source to read.
+    entries: list[tuple[str, str]] = field(default_factory=list)
+
+
+def discover(
     tree: Path,
     scope: str,
     *,
     max_python_files: int,
     gitlinks: dict[str, str] | None = None,
-) -> Observations:
+) -> _Discovered:
     result = Observations(scope)
     for path, commit in (gitlinks or {}).items():
         # A gitlink outside the scope arrived with an in-scope link's target,
@@ -365,7 +383,7 @@ def observe(
             f"Scope {scope!r} is absent in this tree. If the application moved, "
             "select its old path with --base-scope and new path with --scope."
         )
-        return result
+        return _Discovered(result)
     if not root.is_dir() or root.is_symlink():
         raise ConfigError(f"Application scope is not a regular directory: {scope}")
     root = root.resolve()
@@ -388,7 +406,7 @@ def observe(
             result.gap(f"Python input exceeds {MAX_PYTHON_BYTES} bytes: {file.relative_to(root)}")
     if result.limits:
         result.status = "partial"
-        return result
+        return _Discovered(result)
     linked = _observe_links(result, tree.resolve(), root, python_files)
     detected = detect_workspace(root, max_python_files=max_python_files)
     if detected.python_parse_truncated:
@@ -399,16 +417,90 @@ def observe(
     # conceal application source were censused above, by `_observe_links`.
     for item in detected.excluded_sources:
         result.gap(f"Excluded candidate: {item}", source=item.get("path"))
+    entries = sorted(
+        {
+            (f.type, p)
+            for f in detected.frameworks
+            if f.type in SUPPORTED
+            for p in f.candidate_files
+            if p not in linked and p not in tests
+        }
+    )
+    return _Discovered(result, root, python_files, linked, detected, tests, entries)
+
+
+def observe(found: _Discovered, *, max_python_files: int, census: bool) -> Observations:
+    """Read one discovered side: every module's parse, the census, its sources.
+
+    ``census`` is False only when neither side found a supported agent source
+    (#876 review). No agent is then read on either side, so no census limit
+    could qualify a row: it would only turn ``not_established`` into
+    ``partial`` over the repository's own ``.tools`` (``artifacts.tools.append``).
+    """
+
+    result = found.result
+    if found.root is None:
+        return result
+    root, python_files, linked = found.root, found.python_files, found.linked
     # Discovery omits malformed Python; preserve that gap rather than an empty
     # candidate list becoming negative evidence. Bound this second parse too.
     if len(python_files) > max_python_files:
         result.gap(f"Python input census exceeds {max_python_files} files.")
-    # A copy of an agent that passes its own tools, or a change to an agent's
-    # tools, can live in a module no reader reads as an SDK source; and an
-    # agent subclass defined in one module can be instantiated in another
-    # (#876 review).
+    parsed: dict[str, tuple[ast.Module, str]] = {}
+    for file in python_files[:max_python_files]:
+        relative = file.relative_to(root).as_posix()
+        if relative in linked:
+            continue
+        try:
+            raw = file.read_bytes()
+            tree = ast.parse(raw)
+        except (SyntaxError, ValueError, RecursionError, OSError):
+            result.gap(
+                f"Python input could not be parsed: {relative}",
+                source=relative,
+            )
+            continue
+        if census:
+            parsed[relative] = (tree, raw.decode("utf-8", errors="replace"))
+    for framework in found.detected.frameworks:
+        if framework.type not in SUPPORTED and framework.candidate_files:
+            for path in framework.candidate_files:
+                if path in found.tests:
+                    continue
+                result.gap(
+                    f"Application comparison does not yet support {framework.type}: {path}",
+                    source=path,
+                )
+    if census:
+        _census(result, root, parsed, python_files, found.detected, found.entries)
+    sources = [
+        ToolSourceConfig(id=f"{kind}:{path}", type=kind, path=path) for kind, path in found.entries
+    ]
+    result.sources = [{"type": s.type, "path": s.path} for s in sources]
+    for source in sources:
+        _observe_source(result, root, source)
+    return result
+
+
+def _census(
+    result: Observations,
+    root: Path,
+    parsed: dict[str, tuple[ast.Module, str]],
+    python_files: list[Path],
+    detected: Any,
+    entries: list[tuple[str, str]],
+) -> None:
+    """What can change an agent outside the constructions its reader reads.
+
+    A copy of an agent that passes its own tools, or a change to an agent's
+    tools, can live in a module no reader reads as an SDK source; and an
+    agent subclass defined in one module can be instantiated in another
+    (#876 review).
+    """
+
     censuses: dict[str, Any] = {}
-    texts: dict[str, str] = {}
+    #: Google ADK agent subclasses each module defines, by name, with their line.
+    adk_subclasses: dict[str, dict[str, int]] = {}
     # The SDK reader reads its own sources' copies and changes.
     read_as_sdk = {
         path
@@ -431,50 +523,20 @@ def observe(
         # The scope, and every package above it, may be what its modules
         # import through (``from svc.app.agents_def import …``).
         | {root.name}
-        | set(PurePosixPath(scope).parts)
+        | set(PurePosixPath(result.scope).parts)
     )
-    for file in python_files[:max_python_files]:
-        relative = file.relative_to(root).as_posix()
-        if relative in linked:
-            continue
-        try:
-            raw = file.read_bytes()
-            parsed = ast.parse(raw)
-        except (SyntaxError, ValueError, RecursionError, OSError):
-            result.gap(
-                f"Python input could not be parsed: {relative}",
-                source=relative,
-            )
-            continue
-        texts[relative] = raw.decode("utf-8", errors="replace")
+    for relative, (tree, text) in parsed.items():
         censuses[relative] = census_module(
-            parsed,
-            texts[relative],
+            tree,
+            text,
             local_modules,
             read_as_sdk=relative in read_as_sdk,
             read_as_adk=relative in read_as_adk,
         )
-    for framework in detected.frameworks:
-        if framework.type not in SUPPORTED and framework.candidate_files:
-            for path in framework.candidate_files:
-                if path in tests:
-                    continue
-                result.gap(
-                    f"Application comparison does not yet support {framework.type}: {path}",
-                    source=path,
-                )
-    entries = sorted(
-        {
-            (f.type, p)
-            for f in detected.frameworks
-            if f.type in SUPPORTED
-            for p in f.candidate_files
-            if p not in linked and p not in tests
-        }
-    )
-    sources = [
-        ToolSourceConfig(id=f"{kind}:{path}", type=kind, path=path) for kind, path in entries
-    ]
+        if "google.adk" in text:
+            found = adk_agent_subclasses(tree)
+            if found:
+                adk_subclasses[relative] = found
     sdk_sources = {path for kind, path in entries if kind == "openai_agents_sdk"}
     for path, census in sorted(censuses.items()):
         if path in sdk_sources:
@@ -497,31 +559,46 @@ def observe(
                 "that; agents it reaches are not established.",
                 source=path,
             )
-    for defining, census in sorted(censuses.items()):
-        for name, line in sorted(census.subclasses.items()):
-            # A package that re-exports the class (``from app.core import *``)
-            # provides it too, transitively.
-            providers = {defining}
-            grown = True
-            while grown:
-                grown = False
-                for path, other in censuses.items():
-                    if path not in providers and any(
-                        other.reexports(name, provider) for provider in providers
-                    ):
-                        providers.add(path)
-                        grown = True
-            for path, other in sorted(censuses.items()):
-                if path != defining and any(other.uses(name, provider) for provider in providers):
+    # A subclass is read where it is used. The defining module's reader names
+    # an instance it builds there; every other module that uses the class is
+    # named here. A subclass nothing uses is no agent (#876 review).
+    defined = (
+        ("an OpenAI Agents SDK", {path: census.subclasses for path, census in censuses.items()}),
+        ("a Google ADK", adk_subclasses),
+    )
+    for framework, table in defined:
+        for defining, classes in sorted(table.items()):
+            for name, line in sorted(classes.items()):
+                for path in _subclass_users(name, defining, censuses):
                     result.gap(
-                        f"{path} uses {name}, an OpenAI Agents SDK agent subclass defined at "
+                        f"{path} uses {name}, {framework} agent subclass defined at "
                         f"{defining}:{line}; agents built from it are not read.",
                         source=path,
                     )
-    result.sources = [{"type": s.type, "path": s.path} for s in sources]
-    for source in sources:
-        _observe_source(result, root, source)
-    return result
+
+
+def _subclass_users(name: str, defining: str, censuses: dict[str, Any]) -> list[str]:
+    """Every other module whose code uses ``name`` from ``defining``.
+
+    A package that re-exports the class (``from app.core import *``) provides
+    it too, transitively.
+    """
+
+    providers = {defining}
+    grown = True
+    while grown:
+        grown = False
+        for path, other in censuses.items():
+            if path not in providers and any(
+                other.reexports(name, provider) for provider in providers
+            ):
+                providers.add(path)
+                grown = True
+    return [
+        path
+        for path, other in sorted(censuses.items())
+        if path != defining and any(other.uses(name, provider) for provider in providers)
+    ]
 
 
 def _plain_scope_class(built: tuple[str, str] | None, censuses: dict[str, Any]) -> bool:
@@ -1206,17 +1283,27 @@ def run_application_diff(
         # Each side's imports are read against its own commit's tree: the
         # materialized scope alone cannot say whether ``from common.patches
         # import ...`` is the application's code or an installed package.
-        with repository_layout(_git_layout(workspace, base_commit, old_scope)):
-            old = observe(
+        old_layout = _git_layout(workspace, base_commit, old_scope)
+        new_layout = _git_layout(workspace, head_commit, scope)
+        with repository_layout(old_layout):
+            old_found = discover(
                 scratch / "base",
                 old_scope,
                 max_python_files=max_python_files,
                 gitlinks=gitlinks["base"],
             )
-        with repository_layout(_git_layout(workspace, head_commit, scope)):
-            new = observe(
+        with repository_layout(new_layout):
+            new_found = discover(
                 scratch / "head", scope, max_python_files=max_python_files, gitlinks=gitlinks["head"]
             )
+        # The census names what can change an agent its reader did not read.
+        # With no agent source on either side there is no agent to qualify
+        # (#876 review).
+        census = bool(old_found.entries or new_found.entries)
+        with repository_layout(old_layout):
+            old = observe(old_found, max_python_files=max_python_files, census=census)
+        with repository_layout(new_layout):
+            new = observe(new_found, max_python_files=max_python_files, census=census)
         if old.status == new.status == "absent":
             raise ConfigError(
                 f"Neither comparison tree contains the selected scopes: "

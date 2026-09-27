@@ -897,12 +897,18 @@ class _AdkAgentBinding:
     tool_issues: dict[str, str] = field(default_factory=dict)
     #: Why this agent's tool list is incomplete, when it is.
     issues: list[str] = field(default_factory=list)
+    #: Every ``(tool, locator)`` one construction of this name asked to bind,
+    #: bound before or not, while ``extract`` reads that construction (#876
+    #: review); None between constructions.
+    recording: list[tuple[str, str | None]] | None = field(default=None, repr=False)
 
     def bind(
         self, tool_name: str, locator: str | None = None, location: str | None = None
     ) -> bool:
         """Add one tool to this agent; return False if it was already bound."""
 
+        if self.recording is not None:
+            self.recording.append((tool_name, locator))
         if tool_name in self.tool_names or tool_name in self.duplicated:
             return False
         self.tool_names.append(tool_name)
@@ -1024,8 +1030,9 @@ class _PythonAdkExtractor:
         # ordinal within one agent's tool list, never a line number.
         self.inline_slot_counts: dict[str, int] = {}
         self.agent_bindings: dict[str, _AdkAgentBinding] = {}
-        #: ``agent name -> {id(call): line}`` for every construction site.
-        self.agent_sites: dict[str, dict[int, int]] = {}
+        #: ``agent name -> {id(call): (line, signature)}`` for every construction
+        #: site with a literal tool list; equal signatures bind the same (#876).
+        self.agent_sites: dict[str, dict[int, tuple[int, object]]] = {}
         # Reasons this module's tool surface was not proven complete (#393).
         # Empty at the end of ``extract`` is what earns ``SURFACE_ENUMERATED``.
         self.surface_gaps: list[str] = []
@@ -1073,7 +1080,9 @@ class _PythonAdkExtractor:
                     "tool_count": tool_count,
                 }
             )
+            handoffs_at = len(self.artifacts.sub_agents)
             self._record_agent_callbacks_plugins_subagents(call, agent_name)
+            handoffs = self.artifacts.sub_agents[handoffs_at:]
             if not isinstance(tools_expr, (ast.List, ast.Tuple)):
                 if tools_expr is not None:
                     self._surface_warning(
@@ -1091,10 +1100,10 @@ class _PythonAdkExtractor:
                     )
                 continue
             binding = self._binding_for(agent_name, call)
-            for item in tools_expr.elts:
-                loaded_sources.extend(
-                    self._extract_tool_expr(item, tools, agent_name, binding)
-                )
+            loaded_sources.extend(
+                self._read_construction(call, agent_name, binding, tools_expr, tools, handoffs)
+            )
+        self._record_duplicate_constructions()
         self._record_agent_subclasses()
         self._resolve_extraction_evidence(warnings_before, loaded_sources)
         return [
@@ -1108,38 +1117,121 @@ class _PythonAdkExtractor:
             *loaded_sources,
         ]
 
+    def _read_construction(
+        self,
+        call: ast.Call,
+        agent_name: str,
+        binding: _AdkAgentBinding,
+        tools_expr: ast.List | ast.Tuple,
+        tools: list[Tool],
+        handoffs: list[dict[str, Any]],
+    ) -> list[LoadedToolSource]:
+        """Read one construction's tools, and note what it binds as its site.
+
+        Every construction of one name shares a binding, so a second one's
+        tools are recorded as it asks for them, bound before or not. A site is
+        comparable only when it was read cleanly — every tool a definition, no
+        warning, no new issue, no toolset, no ``**`` and no unresolved or
+        dynamic handoff; any other site differs from every site (#876 review).
+        """
+
+        warnings_at = len(self.artifacts.warnings)
+        state_at = (list(binding.issues), dict(binding.tool_issues), set(binding.duplicated))
+        binding.recording = []
+        loaded: list[LoadedToolSource] = []
+        try:
+            for item in tools_expr.elts:
+                loaded.extend(self._extract_tool_expr(item, tools, agent_name, binding))
+        finally:
+            recorded, binding.recording = binding.recording, None
+        clean = (
+            not loaded
+            and all(locator is not None for _, locator in recorded or ())
+            and len(self.artifacts.warnings) == warnings_at
+            and (list(binding.issues), dict(binding.tool_issues), set(binding.duplicated))
+            == state_at
+            and not call.args
+            and all(keyword.arg is not None for keyword in call.keywords)
+            and all(
+                handoff.get("sub_agent_count") is not None
+                and not handoff.get("unresolved_sub_agents")
+                for handoff in handoffs
+            )
+        )
+        signature: object = (
+            (
+                frozenset(recorded or ()),
+                tuple(sorted(name for handoff in handoffs for name in handoff["sub_agents"])),
+            )
+            if clean
+            else call
+        )
+        self.agent_sites.setdefault(agent_name, {})[id(call)] = (call.lineno, signature)
+        return loaded
+
+    def _record_duplicate_constructions(self) -> None:
+        """Name an agent whose constructions in this module differ (#876).
+
+        The binding graph merges every construction of one name, so which one
+        binds which tool is not established. Constructions that bind exactly
+        the same definitions and handoffs, each read cleanly, are one agent
+        (#876 review): ``root_agent`` and a builder returning its twin.
+        """
+
+        for agent_name, sites in self.agent_sites.items():
+            if len(sites) < 2 or len({signature for _, signature in sites.values()}) == 1:
+                continue
+            lines = ", ".join(str(line) for line in sorted(line for line, _ in sites.values()))
+            reason = (
+                f"Google ADK agent {agent_name!r} is constructed more than once in "
+                f"{self.source_ref} (lines {lines}); its tools are not attributed to "
+                "either construction."
+            )
+            self._surface_warning(reason, SURFACE_GAP_DUPLICATE_AGENT_NAME)
+            self.agent_bindings[agent_name].issues.append(reason)
+
     def _record_agent_subclasses(self) -> None:
-        """Name each class deriving from an ADK agent class (#876; ported from PR #880).
+        """Name each class deriving from an ADK agent class this module uses (#876).
 
         ``extract`` reads every ``Agent(...)`` call; an instance of a subclass
         is not one, so its wiring is a named limit rather than silently absent.
-        A base is ADK's only while its root name is bound by nothing but an
-        import, as ``_framework_symbol_is_proven`` requires of a call.
+        A class this module never names again — no call, ``partial`` or other
+        reference beyond being a deeper subclass's base, and no decorator that
+        could build it — is no agent here (#876 review); a module that imports
+        it is named by the comparison's census instead, as for an SDK subclass.
         """
 
-        for node in ast.walk(self.tree):
-            if not isinstance(node, ast.ClassDef):
+        subclasses = adk_agent_subclasses(self.tree, self.aliases, self.name_bindings)
+        if not subclasses:
+            return
+        # A deeper subclass's base names its parent without building it; the
+        # deeper class is itself counted by its own uses.
+        bases = {
+            id(base)
+            for node in ast.walk(self.tree)
+            if isinstance(node, ast.ClassDef) and node.name in subclasses
+            for base in node.bases
+        }
+        referenced = {
+            node.id
+            for node in ast.walk(self.tree)
+            if isinstance(node, ast.Name)
+            and isinstance(node.ctx, ast.Load)
+            and id(node) not in bases
+        }
+        decorated = {
+            node.name
+            for node in ast.walk(self.tree)
+            if isinstance(node, ast.ClassDef) and node.decorator_list
+        }
+        for name, line in sorted(subclasses.items(), key=lambda item: item[1]):
+            if name not in referenced and name not in decorated:
                 continue
-            for base in node.bases:
-                expression = base.value if isinstance(base, ast.Subscript) else base
-                root = expression
-                while isinstance(root, ast.Attribute):
-                    root = root.value
-                if (
-                    isinstance(root, ast.Name)
-                    and _qualified_name(expression, self.aliases) in AGENT_CLASS_NAMES
-                    and all(
-                        isinstance(binding, ast.alias)
-                        for binding in self.name_bindings.get(root.id, [])
-                    )
-                ):
-                    self._surface_warning(
-                        f"Google ADK agent class {node.name!r} at {self.source_ref}:"
-                        f"{node.lineno} derives from an agent class; agents built from it "
-                        "are not read.",
-                        SURFACE_GAP_AGENT_SUBCLASS,
-                    )
-                    break
+            self._surface_warning(
+                f"Google ADK agent class {name!r} at {self.source_ref}:{line} derives "
+                "from an agent class; agents built from it are not read.",
+                SURFACE_GAP_AGENT_SUBCLASS,
+            )
 
     def _surface_warning(self, message: str, reason: str) -> None:
         """Report a construct that leaves part of this module's surface unknown."""
@@ -1445,18 +1537,6 @@ class _PythonAdkExtractor:
                 source_pointer=f"{self.source_ref}:{call.lineno}",
             )
             self.agent_bindings[agent_name] = binding
-        sites = self.agent_sites.setdefault(agent_name, {})
-        if id(call) not in sites:
-            sites[id(call)] = call.lineno
-            if len(sites) == 2:
-                lines = ", ".join(str(line) for line in sorted(sites.values()))
-                reason = (
-                    f"Google ADK agent {agent_name!r} is constructed more than once in "
-                    f"{self.source_ref} (lines {lines}); its tools are not attributed to "
-                    "either construction."
-                )
-                self._surface_warning(reason, SURFACE_GAP_DUPLICATE_AGENT_NAME)
-                binding.issues.append(reason)
         return binding
 
     def _binding_observations(self) -> list[AgentBindingObservation]:
@@ -2838,6 +2918,51 @@ def _qualified_name(node: ast.AST, aliases: dict[str, str]) -> str | None:
         prefix = _qualified_name(node.value, aliases)
         return f"{prefix}.{node.attr}" if prefix else node.attr
     return None
+
+
+def adk_agent_subclasses(
+    tree: ast.Module,
+    aliases: dict[str, str] | None = None,
+    name_bindings: dict[str, list[ast.AST]] | None = None,
+) -> dict[str, int]:
+    """Classes deriving from a Google ADK agent class, by name, with their line (#876).
+
+    Transitively within the module: ``class Deeper(Helper)`` is one too. A
+    base is ADK's only while its root name is bound by nothing but an import,
+    as ``_framework_symbol_is_proven`` requires of a call.
+    """
+
+    aliases = _import_aliases(tree) if aliases is None else aliases
+    name_bindings = _name_binding_occurrences(tree) if name_bindings is None else name_bindings
+    classes = [node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
+    found: dict[str, int] = {}
+    grown = True
+    while grown:
+        grown = False
+        for node in classes:
+            if node.name in found:
+                continue
+            for base in node.bases:
+                expression = base.value if isinstance(base, ast.Subscript) else base
+                root = expression
+                while isinstance(root, ast.Attribute):
+                    root = root.value
+                if isinstance(expression, ast.Name) and expression.id in found:
+                    derives = True
+                else:
+                    derives = (
+                        isinstance(root, ast.Name)
+                        and _qualified_name(expression, aliases) in AGENT_CLASS_NAMES
+                        and all(
+                            isinstance(binding, ast.alias)
+                            for binding in name_bindings.get(root.id, [])
+                        )
+                    )
+                if derives:
+                    found[node.name] = node.lineno
+                    grown = True
+                    break
+    return found
 
 
 def _simple_target_name(targets: list[ast.expr]) -> str | None:
