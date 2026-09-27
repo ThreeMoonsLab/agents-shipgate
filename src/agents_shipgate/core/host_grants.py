@@ -65,7 +65,7 @@ from agents_shipgate.core.instruction_structure import (
 )
 from agents_shipgate.core.jsonc import is_vscode_mcp_path, loads_jsonc
 from agents_shipgate.core.permission_lattice import (
-    parse_rule,
+    permission_pairing_group,
     scoped_risk,
     subsumes,
     whole_tool_risk,
@@ -5885,8 +5885,8 @@ def permission_rule_replacements(
     Only pairs within one host, source and disposition are considered. After
     setting aside moved rules, a single departure and arrival retain the
     existing lattice comparison (including whole-server MCP narrowings).
-    Otherwise count within each exact tool name: an unrelated Read arrival
-    cannot obscure a Bash replacement (#858). Several departures or arrivals
+    Count within each exact tool or bare MCP server: an unrelated Read
+    arrival cannot obscure a Bash replacement (#858). Several departures or arrivals
     for the same tool remain ambiguous; neither order nor likeness chooses a
     pair. A pair the lattice cannot decide leaves the add/remove signals as
     the whole answer.
@@ -5898,8 +5898,8 @@ def permission_rule_replacements(
     `Bash(git log *)` out of `deny` in the same edit that narrows
     `Bash(git status *)` to `Bash(git status --short *)` counted as a second
     arrival, and the narrower half was reported as a widening (#816). A rule
-    that moved out of `allow` is set aside only when another allow rule also
-    left; when it is the only one, it is the rule the arrival replaced.
+    that moved out of `allow` is set aside only when another allow rule in
+    its group also left; when it is the only one, it is the rule the arrival replaced.
     Identity is the exact rule text: nothing is paired by likeness.
     """
 
@@ -5940,19 +5940,21 @@ def permission_rule_replacements(
         only_arrived = [
             rule for rule in arrived if rule not in gone and (host, source, rule) not in moved
         ]
-        if len(only_gone) == 1 and len(only_arrived) == 1:
+        gone_by_group: dict[str, list[str]] = {}
+        arrived_by_group: dict[str, list[str]] = {}
+        for rules, grouped in ((left, gone_by_group), (only_arrived, arrived_by_group)):
+            for rule in rules:
+                grouped.setdefault(permission_pairing_group(rule), []).append(rule)
+        pairs = []
+        for group, group_left in sorted(gone_by_group.items()):
+            # An unrelated tool leaving must not hide this group's moved rule.
+            group_gone = [r for r in group_left if (host, source, r) not in moved] or group_left
+            group_arrived = arrived_by_group.get(group, [])
+            if len(group_gone) == 1 and len(group_arrived) == 1:
+                pairs.append((group_gone[0], group_arrived[0]))
+        if not pairs and len(only_gone) == 1 and len(only_arrived) == 1:
+            # Preserve the single cross-group comparison, including `*`.
             pairs = [(only_gone[0], only_arrived[0])]
-        else:
-            gone_by_tool: dict[str, list[str]] = {}
-            arrived_by_tool: dict[str, list[str]] = {}
-            for rules, grouped in ((only_gone, gone_by_tool), (only_arrived, arrived_by_tool)):
-                for rule in rules:
-                    grouped.setdefault(parse_rule(rule).tool, []).append(rule)
-            pairs = [
-                (gone_rules[0], arrived_rules[0])
-                for tool, gone_rules in sorted(gone_by_tool.items())
-                if len(gone_rules) == 1 and len(arrived_rules := arrived_by_tool.get(tool, [])) == 1
-            ]
         for before_rule, after_rule in pairs:
             if subsumes(after_rule, before_rule) is True:
                 direction: Literal["widened", "narrowed"] | None = "widened"

@@ -1059,3 +1059,104 @@ class TestOneMcpTool:
         assert payload["expansion_signals"] == []
         [row] = capability_diff_rows(payload)
         assert (row.direction, row.expands) == ("changed", False)
+
+
+@pytest.mark.parametrize(
+    ("before_allow", "after_allow", "after_deny", "old", "new", "direction"),
+    [
+        (
+            ["mcp__github__get_issue"],
+            ["mcp__github", "Read(src/**)"],
+            [],
+            "mcp__github__get_issue",
+            "mcp__github",
+            "widened",
+        ),
+        (
+            ["mcp__github"],
+            ["mcp__github__get_issue", "Read(src/**)"],
+            [],
+            "mcp__github",
+            "mcp__github__get_issue",
+            "narrowed",
+        ),
+        (
+            ["Bash(npm *)", "Read(src/**)"],
+            ["Bash(npm test *)", "Read(src/lib/**)"],
+            ["Bash(npm *)"],
+            "Bash(npm *)",
+            "Bash(npm test *)",
+            "narrowed",
+        ),
+        (
+            ["Bash(npm *)", "Read(src/**)"],
+            ["Bash(npm test *)"],
+            ["Bash(npm *)"],
+            "Bash(npm *)",
+            "Bash(npm test *)",
+            "narrowed",
+        ),
+    ],
+)
+def test_reviewed_replacement_shapes(
+    tmp_path, before_allow, after_allow, after_deny, old, new, direction
+):
+    from agents_shipgate.core.capability_diff_rows import capability_diff_rows, review_changes
+    from agents_shipgate.core.host_grants import permission_rule_replacements
+
+    before = TestMovedRulePairing._inventory(
+        tmp_path / "before", {"settings.json": {"allow": before_allow}}
+    )
+    after = TestMovedRulePairing._inventory(
+        tmp_path / "after", {"settings.json": {"allow": after_allow, "deny": after_deny}}
+    )
+    payload = _drift(before, after)
+    replacements = permission_rule_replacements(payload["changes"])
+    assert (old, new, direction) in [
+        (r.before_rule, r.after_rule, r.direction) for r in replacements
+    ]
+    changes = review_changes(capability_diff_rows(payload))
+    assert any(
+        c.before == f"allow: {old}"
+        and c.after == f"allow: {new}"
+        and c.direction == direction
+        and c.rows == 2
+        for c in changes
+    )
+    if direction == "narrowed":
+        assert not any(new in signal for signal in payload["expansion_signals"])
+    else:
+        assert f"permission_widened: claude-code:{old} -> {new}" in payload["expansion_signals"]
+
+
+@pytest.mark.parametrize(
+    "source,disposition,arrival,covered",
+    [
+        ("settings.json", "allow", "Bash(npm *)", True),
+        ("settings.local.json", "allow", "Bash(npm *)", False),
+        ("settings.json", "deny", "Bash(npm *)", False),
+        ("settings.json", "allow", "Bash(git *)", False),
+        ("settings.json", "allow", "Bash(n*m *)", False),
+    ],
+)
+def test_ambiguous_removal_wording_preserves_scope_and_signals(
+    tmp_path, source, disposition, arrival, covered
+):
+    from agents_shipgate.core.capability_diff_rows import capability_diff_rows, review_changes
+    from agents_shipgate.core.host_grants import permission_rule_replacements
+
+    before = TestMovedRulePairing._inventory(
+        tmp_path / "before", {"settings.json": {"allow": ["Bash(npm test *)"]}}
+    )
+    after = TestMovedRulePairing._inventory(
+        tmp_path / "after", {source: {disposition: [arrival, "Bash(git status)"]}}
+    )
+    payload = _drift(before, after)
+    assert permission_rule_replacements(payload["changes"]) == []
+    rows = capability_diff_rows(payload)
+    removed = next(r for r in rows if r.direction == "removed")
+    assert ("another added allow rule still covers its matches" in removed.why) is covered
+    assert len(review_changes(rows)) == 3
+    if covered:
+        assert len(payload["expansion_signals"]) == 2
+        assert sum(r.expands for r in rows) == 2

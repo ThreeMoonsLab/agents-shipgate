@@ -420,3 +420,83 @@ def test_a_whole_server_mcp_grant_still_blocks(tmp_path: Path) -> None:
     [row] = routes["diff"]["rows"]
     assert row["why"] == "matches every target of this kind, without a prompt"
     assert routes["drift"]["expansion_signals"] == ["wildcard_allow_added: claude-code:mcp__github__*"]
+
+
+@pytest.mark.parametrize(
+    ("base_allow", "head_allow", "head_deny", "old", "new", "direction"),
+    [
+        (
+            ["mcp__github__get_issue"],
+            ["mcp__github", "Read(src/**)"],
+            [],
+            "mcp__github__get_issue",
+            "mcp__github",
+            "widened",
+        ),
+        (
+            ["mcp__github"],
+            ["mcp__github__get_issue", "Read(src/**)"],
+            [],
+            "mcp__github",
+            "mcp__github__get_issue",
+            "narrowed",
+        ),
+        (
+            ["Bash(npm *)", "Read(src/**)"],
+            ["Bash(npm test *)", "Read(src/lib/**)"],
+            ["Bash(npm *)"],
+            "Bash(npm *)",
+            "Bash(npm test *)",
+            "narrowed",
+        ),
+        (
+            ["Bash(npm *)", "Read(src/**)"],
+            ["Bash(npm test *)"],
+            ["Bash(npm *)"],
+            "Bash(npm *)",
+            "Bash(npm test *)",
+            "narrowed",
+        ),
+    ],
+)
+def test_review_cases_agree_across_routes(
+    tmp_path, base_allow, head_allow, head_deny, old, new, direction
+):
+    routes = _routes(
+        _repository(
+            tmp_path,
+            {"permissions": {"allow": base_allow}},
+            {"permissions": {"allow": head_allow, "deny": head_deny}},
+        )
+    )
+    assert routes["diff"]["review"] == routes["verify"]["review"]
+    assert any(
+        c["before"] == f"allow: {old}"
+        and c["after"] == f"allow: {new}"
+        and c["direction"] == direction
+        for c in routes["diff"]["review"]["changes"]
+    )
+    assert _shape(routes["diff"]["rows"]) == _shape(routes["check"]["rows"])
+    if direction == "narrowed":
+        assert not any(new in signal for signal in routes["drift"]["expansion_signals"])
+    else:
+        assert (
+            f"permission_widened: claude-code:{old} -> {new}"
+            in routes["drift"]["expansion_signals"]
+        )
+
+
+def test_ambiguous_arrivals_do_not_claim_permission_loss(tmp_path):
+    routes = _routes(
+        _repository(
+            tmp_path,
+            {"permissions": {"allow": ["Bash(npm test *)"]}},
+            {"permissions": {"allow": ["Bash(npm *)", "Bash(git status)"]}},
+        )
+    )
+    assert routes["diff"]["review"] == routes["verify"]["review"]
+    assert routes["diff"]["review"]["summary"] == {"rows": 3, "changes": 3, "widenings": 2}
+    assert "removes a permission the agent previously had here" not in routes["text"]
+    assert "another added allow rule still covers its matches" in routes["text"]
+    assert len(routes["drift"]["expansion_signals"]) == 2
+    assert _shape(routes["diff"]["rows"]) == _shape(routes["check"]["rows"])

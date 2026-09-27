@@ -864,7 +864,7 @@ def test_a_comparison_read_back_from_json_prints_what_it_published(tmp_path: Pat
         "  runs without a prompt",
         f"- medium / removed — {SUBJECT}",
         "  Bash(npm test *) → —",
-        "  removes a permission the agent previously had here",
+        "  removes this allow rule; another added allow rule still covers its matches",
     ]
 
 

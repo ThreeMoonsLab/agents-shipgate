@@ -33,6 +33,7 @@ from agents_shipgate.core.host_grants import (
     AGENT_RULE_INPUTS,
     DETAIL_NOT_SHOWN,
     UNTRUSTED_INPUT_TRIGGERS,
+    PermissionRuleReplacement,
     agent_launch_key,
     agent_rule_gains,
     agent_rule_text,
@@ -47,6 +48,7 @@ from agents_shipgate.core.host_grants import (
     step_action_key,
 )
 from agents_shipgate.core.host_settings import rate_claude_setting, setting_value_text
+from agents_shipgate.core.permission_lattice import subsumes
 from agents_shipgate.schemas.capability_diff import CapabilityDiffRow as CapabilityDiffRow
 
 ABSENT = "—"
@@ -1301,6 +1303,7 @@ def _link_rows(
     rows: list[CapabilityDiffRow],
     changes: list[dict[str, Any]],
     views: list[_RowView],
+    replacements: list[PermissionRuleReplacement],
 ) -> list[_RowView]:
     """Join the rows of a replacement or move the engine established (#795).
 
@@ -1332,7 +1335,7 @@ def _link_rows(
         joined[second] = _RowView(before=views[second].before, after=views[second].after, link=link)
         linked.update((first, second))
 
-    for item in permission_rule_replacements(changes):
+    for item in replacements:
         gone = removals.get((item.host, item.source, "allow", item.before_rule))
         arrived = additions.get((item.host, item.source, "allow", item.after_rule))
         if gone is None or arrived is None:
@@ -1367,9 +1370,20 @@ def capability_diff_rows(
     """Every typed grant change in ``payload``, one row each."""
 
     expansions = set(payload.get("expansion_signals") or [])
+    replacements = permission_rule_replacements(payload.get("changes") or [])
+    arrived_allows: dict[tuple[str, str], list[str]] = {}
+    for change in payload.get("changes") or []:
+        grant = change.get("current")
+        if (
+            not change.get("baseline") and grant
+            and grant.get("kind") == "permission_rule"
+            and grant.get("disposition") == "allow"
+        ):
+            key = (grant["host"], grant.get("source", ""))
+            arrived_allows.setdefault(key, []).append(str(grant["rule"]))
     narrowed = {
         (item.host, item.source, item.after_rule)
-        for item in permission_rule_replacements(payload.get("changes") or [])
+        for item in replacements
         if item.direction == "narrowed"
     }
     rows: list[CapabilityDiffRow] = []
@@ -1421,6 +1435,16 @@ def capability_diff_rows(
             gone_secrets=gone_secrets, new_secrets=new_secrets,
             agent_reasons=agent_reasons,
         )
+        if (
+            direction == REMOVED and grant.get("kind") == "permission_rule"
+            and grant.get("disposition") == "allow"
+            and any(
+                subsumes(arrival, str(grant["rule"])) is True
+                for arrival in arrived_allows.get((grant["host"], grant.get("source", "")), [])
+            )
+        ):
+            # Wording only: ambiguity still forbids a pair or signal suppression.
+            why = "removes this allow rule; another added allow rule still covers its matches"
         row = CapabilityDiffRow(
             subject=_subject(grant),
             before=_grant_value(
@@ -1490,7 +1514,7 @@ def capability_diff_rows(
         # Redacted rules read alike, so a joined `allow: Bash(<redacted-arguments>)
         # → allow: Bash(<redacted-arguments>)` would show a change whose sides
         # look identical. Those routes keep the removal and addition as two rows.
-        views = _link_rows(rows, changes, views)
+        views = _link_rows(rows, changes, views, replacements)
     for row, view in zip(rows, views, strict=True):
         object.__setattr__(row, _VIEW, view)
     return sorted(
