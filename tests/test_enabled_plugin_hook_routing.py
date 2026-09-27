@@ -294,7 +294,7 @@ def test_the_issue_reproduction_routes_to_protected_surface_review(
     assert (claude["status"], claude["paths"]) == ("complete", [PLUGIN_HOOK])
     assert payload["input_coverage"] == "complete"
     # The rows are the host comparison's, unchanged by the route.
-    assert _rows(payload["rows"]) == [(f"claude-code {PLUGIN_HOOK}", "widened", True, "high")]
+    assert _rows(payload["rows"]) == [(f"claude-code {PLUGIN_HOOK}", "changed", False, "high")]
     _never_executed(root)
 
 
@@ -306,7 +306,7 @@ def test_every_check_format_carries_the_route(tmp_path: Path, fmt: str) -> None:
 
     assert result.exit_code == 0, result.output
     if fmt == "text":
-        assert f"high / widened — claude-code {PLUGIN_HOOK}" in result.output
+        assert f"high / changed — claude-code {PLUGIN_HOOK}" in result.output
         assert "Control: agent_action_required" in result.output
         assert "You may not: merge, report_complete" in result.output
         assert f"Still owed human review: {PROTECTED}" in result.output
@@ -317,7 +317,7 @@ def test_every_check_format_carries_the_route(tmp_path: Path, fmt: str) -> None:
         assert payload["control_state"] == "agent_action_required"
         assert payload["permissions"]["merge"] is False
         assert _rows(payload["capability_rows"]["rows"]) == [
-            (f"claude-code {PLUGIN_HOOK}", "widened", True, "high")
+            (f"claude-code {PLUGIN_HOOK}", "changed", False, "high")
         ]
     else:
         assert [(item["id"], item["path"]) for item in payload["violated_rules"]] == [
@@ -435,7 +435,7 @@ def test_an_enabled_plugins_inline_marketplace_hooks_are_routed(tmp_path: Path) 
     assert payload["decision"] == "require_review"
     assert _violations(payload) == [(PROTECTED, ".claude-plugin/marketplace.json", ROUTED_EVIDENCE)]
     assert _rows(payload["rows"]) == [
-        ("claude-code .claude-plugin/marketplace.json#plugins.demo", "widened", True, "high")
+        ("claude-code .claude-plugin/marketplace.json#plugins.demo", "changed", False, "high")
     ]
 
 
@@ -641,7 +641,7 @@ def test_inventory_diff_check_verify_and_the_pr_comment_agree(tmp_path: Path) ->
         {PLUGIN_HOOK: CHANGED_HOOK},
     )
     subject = f"claude-code {PLUGIN_HOOK}"
-    widened = (subject, "widened", True, "high")
+    changed = (subject, "changed", False, "high")
 
     # Inventory: the hook is one the host loads for this project.
     audit = runner.invoke(app, ["audit", "--host", "--workspace", str(root), "--json"])
@@ -653,14 +653,14 @@ def test_inventory_diff_check_verify_and_the_pr_comment_agree(tmp_path: Path) ->
     assert (grant["access"], grant["risk"]) == ("execute", "high")
     assert hook_loading_basis(grant) == "project_enabled_plugin"
 
-    # diff: the change widens what runs around the agent.
+    # diff: the loaded hook edit is visible without claiming a direction.
     diff = runner.invoke(app, ["diff", "--workspace", str(root), "--base", "main", "--json"])
     assert diff.exit_code == 0, diff.output
-    assert _rows(json.loads(diff.output)["rows"]) == [widened]
+    assert _rows(json.loads(diff.output)["rows"]) == [changed]
 
     # check: the same row, no longer under `allow`.
     payload = _payload(root)
-    assert _rows(payload["rows"]) == [widened]
+    assert _rows(payload["rows"]) == [changed]
     assert payload["decision"] == "require_review"
     assert payload["control"]["permissions"]["merge"] is False
 
@@ -671,12 +671,12 @@ def test_inventory_diff_check_verify_and_the_pr_comment_agree(tmp_path: Path) ->
     )
     assert result.exit_code == 0, result.output
     verifier = json.loads((root / "agents-shipgate-reports/verifier.json").read_text())
-    assert _rows(verifier["host_comparison"]["rows"]) == [widened]
+    assert _rows(verifier["host_comparison"]["rows"]) == [changed]
     assert verifier["can_merge_without_human"] is False
     assert verifier["control"]["permissions"]["merge"] is False
     comment = (root / "agents-shipgate-reports/pr-comment.md").read_text()
     assert f"` {subject} `" in comment
-    assert "` widened `" in comment
+    assert "` changed `" in comment
     _never_executed(root)
 
 

@@ -8,6 +8,12 @@ including which build provides which commands. A coding agent wants
 [`../AGENTS.md`](../AGENTS.md) and [`agents/README.md`](agents/README.md). The
 repository [`README.md`](../README.md) is the landing page that routes to both.
 
+[Three constructed host-review examples](examples/host-review/README.md) show
+shell permissions, a remote MCP declaration and workflow token permissions,
+with exact Git histories and captured output from released 1.1.0. The asset
+bundle includes a short demo and transcript; publication and reader observations
+remain separate, pending work.
+
 ## Concepts
 
 - [`overview.md`](overview.md) — one-page summary for developers, reviewers, and AI agents

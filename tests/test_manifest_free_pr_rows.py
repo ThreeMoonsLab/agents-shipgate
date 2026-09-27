@@ -491,10 +491,16 @@ def test_both_pr_styles_show_each_change_once(s1, style):
     comment = (s1 / "agents-shipgate-reports/pr-comment.md").read_text()
     assert "Head scan did not produce a report" not in comment
     assert "Merge verdict:" not in comment
+    facts, separator, guidance = comment.partition("Permission review guidance:")
+    assert separator
     for name in NAMES:
         # One line per name: an MCP entry may repeat its name in the command
         # its grant publishes (`postgres (command fixture-postgres)`, #795).
-        assert sum(name in line for line in comment.splitlines()) == 1, comment
+        # #839's separate question may name that same rule; it is not a row.
+        assert sum(name in line for line in facts.splitlines()) == 1, comment
+    assert "Should this source add the allow declaration Bash(*)" in guidance
+    assert "Should this source remove the deny declaration Bash(rm *)" in guidance
+    assert "current control permissions still apply" in guidance
 
 
 def test_untracked_host_change_remains_in_default_check(s1):

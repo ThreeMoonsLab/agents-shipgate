@@ -39,6 +39,7 @@ from agents_shipgate.core.host_grants import (
     agent_rule_text,
     checkout_ref_key,
     hook_loading_basis,
+    host_grant_direction_unknown,
     host_grant_expansion_signals,
     permission_rule_replacements,
     published_setting_value,
@@ -48,7 +49,12 @@ from agents_shipgate.core.host_grants import (
     step_action_key,
 )
 from agents_shipgate.core.host_settings import rate_claude_setting, setting_value_text
-from agents_shipgate.core.permission_lattice import permission_pairing_group, subsumes
+from agents_shipgate.core.permission_lattice import (
+    exec_equivalent_argument,
+    permission_pairing_group,
+    subsumes,
+)
+from agents_shipgate.core.permission_residual import residual_prefix_note
 from agents_shipgate.schemas.capability_diff import CapabilityDiffRow as CapabilityDiffRow
 
 ABSENT = "—"
@@ -557,6 +563,12 @@ ADDED = "added"
 REMOVED = "removed"
 WIDENED = "widened"
 CHANGED = "changed"
+#: The words a row's `why` ends with when the engine cannot establish which
+#: way an edit that may widen authority went (#820): an MCP or loaded-hook
+#: edit, an unestablished plugin enablement, or a setting no documented rule
+#: orders. The row is named, never silent, and the Claude Code Stop hook,
+#: which renders this text at install time, announces it beside widenings.
+DIRECTION_UNKNOWN = "authority direction is unknown"
 
 
 def _grant_value(
@@ -672,6 +684,8 @@ def _why(
             return f"a {condition} the agent is subject to"
         if direction == REMOVED:
             return "removes a permission the agent previously had here"
+        if exec_equivalent_argument(str(grant.get("rule") or "")) is not None:
+            return "reaches arbitrary code through a launcher, without a prompt"
         if wildcard and access == "admin":
             return "matches any command of this kind, without a prompt"
         if wildcard:
@@ -784,6 +798,24 @@ class _RowView:
 #: row exactly as before (#795), and equality ignores it. A row read back from
 #: JSON has no view and renders from its published values alone.
 _VIEW = "_review_view"
+
+
+def review_grant_evidence(
+    rows: Sequence[CapabilityDiffRow], indexes: Sequence[int],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None] | None:
+    """Reader identities for a proven review group, before serialization (#839).
+
+    Never recover these from display labels. The comparison serializes the
+    guidance derived here; plain reloaded rows have no raw evidence.
+    """
+    evidence = [getattr(rows[index], "_grant_evidence", None) for index in indexes]
+    if not evidence or any(item is None for item in evidence):
+        return None
+    before = [item[0] for item in evidence if item[0] is not None]
+    after = [item[1] for item in evidence if item[1] is not None]
+    if len(before) > 1 or len(after) > 1:
+        return None
+    return (before[0] if before else None, after[0] if after else None)
 
 
 @dataclass(frozen=True)
@@ -1379,7 +1411,8 @@ def _link_rows(
 
 
 def capability_diff_rows(
-    payload: dict[str, Any], *, redact_permission_arguments: bool = False
+    payload: dict[str, Any], *, redact_permission_arguments: bool = False,
+    current_grants: Sequence[dict[str, Any]] = (),
 ) -> list[CapabilityDiffRow]:
     """Every typed grant change in ``payload``, one row each."""
 
@@ -1421,7 +1454,9 @@ def capability_diff_rows(
         else:
             direction = CHANGED
         # Classify original typed evidence; redaction affects display values only.
-        expands = bool(expansions.intersection(host_grant_expansion_signals([change])))
+        expands = bool(expansions.intersection(host_grant_expansion_signals(
+            [change], comparison_changes=payload.get("changes") or [],
+        )))
         # The public signal text has no source. An identical rule added in
         # another file must not mark this source's decided narrowing (#858).
         if (
@@ -1454,6 +1489,24 @@ def capability_diff_rows(
             gone_secrets=gone_secrets, new_secrets=new_secrets,
             agent_reasons=agent_reasons,
         )
+        kind = grant.get("kind")
+        if (
+            kind == "plugin_or_app" and after_grant is not None
+            and not str(after_grant.get("name", "")).startswith("marketplace:")
+        ):
+            if after_grant.get("enabled") is False:
+                why = "declares this plugin or app disabled"
+            elif expands:
+                why = "enables this plugin or app"
+        if not expands and host_grant_direction_unknown(
+            change, comparison_changes=payload.get("changes") or [],
+        ):
+            # Named as such, never silent, and never assumed to narrow (#820).
+            if kind == "mcp_server":
+                why = "MCP edit"
+            elif kind == "hook" and hook_loading_basis(grant) == "host_configuration":
+                why = "hook edit"
+            why += f"; {DIRECTION_UNKNOWN}"
         if (
             direction == REMOVED and grant.get("kind") == "permission_rule"
             and grant.get("disposition") == "allow"
@@ -1467,6 +1520,15 @@ def capability_diff_rows(
         ):
             # Wording only: ambiguity still forbids a pair or signal suppression.
             why = "removes this allow rule; another added allow rule still covers its matches"
+        # The examples spell out the rule's prefix, which a route that
+        # redacts rule arguments must not print beside the redacted rule.
+        note = (
+            None
+            if redact_permission_arguments
+            else residual_prefix_note(after_grant, current_grants)
+        )
+        if note:
+            why = f"{why}; {note}"
         if grant.get("kind") == "mcp_server" and (note := _mcp_source_note(before_grant, after_grant)):
             why = f"{why}; {note}"
         row = CapabilityDiffRow(
@@ -1531,6 +1593,9 @@ def capability_diff_rows(
             )
         else:
             view = _RowView(before=row.before, after=row.after)
+        # Kept with the row through sorting, never emitted as row fields.
+        # Only the bounded advisory projection is serialized by the comparator.
+        object.__setattr__(row, "_grant_evidence", (before_grant, after_grant))
         rows.append(row)
         views.append(view)
         changes.append(change)

@@ -678,6 +678,12 @@ allow rule that is `*`, a bare tool name, or a wildcard-shaped rule such as
 wildcard tool permissions over execution, network access or writes; scope the
 rule to specific commands.
 
+A documented [arbitrary-code launcher prefix](engineering/exec-equivalent-permissions.md)
+followed by ` *` or `:*`, such as `Bash(python3 -c *)` or `Bash(npx *)`,
+also follows this critical/block route (#824), and so does a rule wider than
+one, such as `Bash(python3 *)` or `Bash(npx*)`. Exact commands do not enter
+that tier. This rating does not change rule containment or deny precedence.
+
 An MCP rule that names tools within one server, such as
 `mcp__github__get_issue`, is scoped: it raises
 `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED`. `mcp__github` and

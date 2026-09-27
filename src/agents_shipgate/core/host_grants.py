@@ -66,6 +66,7 @@ from agents_shipgate.core.instruction_structure import (
 from agents_shipgate.core.jsonc import is_vscode_mcp_path, loads_jsonc
 from agents_shipgate.core.mcp_launch_source import launch_source_pin
 from agents_shipgate.core.permission_lattice import (
+    exec_equivalent_argument,
     permission_pairing_group,
     scoped_risk,
     subsumes,
@@ -1060,7 +1061,8 @@ def _vscode_mcp_extras(
             grants.append(_setting_grant(
                 host="vscode", scope=scope, source=source, kind="sandbox",
                 setting=f"servers.{name}.sandboxEnabled", value=enabled,
-                access="admin" if enabled is False else "unknown", risk="high",
+                access="admin" if enabled is False and _transport_hint(server) == "stdio" else "unknown",
+                risk="high",
             ))
         if "envFile" in server:
             issues.append(_inventory_issue(
@@ -1431,7 +1433,7 @@ def _claude_grants(data: Any, *, scope: HostScope, source: str) -> list[dict[str
                     host="claude-code", scope=scope, source=source, kind="plugin_or_app",
                     identity=str(name), config={"enabled": enabled}, access="execute", risk="high",
                 ),
-                "name": str(name), "enabled": bool(enabled),
+                "name": str(name), "enabled": enabled if isinstance(enabled, bool) else None,
             })
     # `enabledPlugins` entries install from these, so a marketplace added or
     # re-pointed changes what an enabled plugin runs (#720). Named with a
@@ -1496,7 +1498,9 @@ def _codex_grants(data: Any, *, scope: HostScope, source: str) -> list[dict[str,
     apps = data.get("apps")
     if isinstance(apps, dict):
         for name, config in sorted(apps.items()):
-            enabled = config.get("enabled") if isinstance(config, dict) else None
+            # Codex documents `apps.<id>.enabled` as defaulting to true, so a
+            # declared app table without the key is enabled (#820).
+            enabled = config.get("enabled", True) if isinstance(config, dict) else None
             grants.append({
                 **_grant_base(
                     host="codex", scope=scope, source=source, kind="plugin_or_app",
@@ -5770,7 +5774,207 @@ def _diff_host_coverage(
     return changes
 
 
-def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
+def _setting_predecessor(after: dict, changes: list[dict]) -> dict | None:
+    """The one same-source setting value an added value replaced, else ``None``.
+
+    A setting's grant identity includes its value, so an edit is a removal and
+    an addition. With no removed value, or several, what came before is not
+    established, and the addition is read as a new declaration (#820).
+    """
+
+    if after.get("host") == "claude-code" and after.get("setting") in CLAUDE_LIST_SETTINGS:
+        # Each named server is a separate grant, not a scalar replacement.
+        return None
+    candidates = [
+        old for change in changes
+        if (old := change.get("baseline")) is not None and change.get("current") is None
+        and all(old.get(key) == after.get(key) for key in ("host", "source", "kind", "setting"))
+    ]
+    return candidates[0] if len(candidates) == 1 else None
+
+
+#: The Claude Code permission modes each documented mode can widen to
+#: (code.claude.com/docs/en/permissions#permission-modes). `auto` and
+#: `acceptEdits` are not ordered against each other.
+_CLAUDE_WIDER_MODES: dict[str, frozenset[str]] = {
+    "default": frozenset({"acceptEdits", "auto", "bypassPermissions"}),
+    "dontAsk": frozenset({"default", "acceptEdits", "auto", "bypassPermissions"}),
+    "plan": frozenset({"default", "acceptEdits", "auto", "bypassPermissions"}),
+    "acceptEdits": frozenset({"bypassPermissions"}),
+    "auto": frozenset({"bypassPermissions"}),
+    "bypassPermissions": frozenset(),
+}
+#: Documented switches and the value that permits more (#820). Claude Code's
+#: settings and sandboxing references: the project MCP and bypass-mode
+#: prompts, disabling the sandbox, its unsandboxed-command escape hatch,
+#: prompt-free sandboxed Bash, and the nested sandbox that "considerably
+#: weakens security". Codex's config reference: `workspace-write` networking,
+#: and keeping `/tmp` and `$TMPDIR` writable.
+_WIDENING_SWITCHES: dict[tuple[str, str], bool] = {
+    ("claude-code", "enableAllProjectMcpServers"): True,
+    ("claude-code", "skipDangerousModePermissionPrompt"): True,
+    ("claude-code", "sandbox.enabled"): False,
+    ("claude-code", "sandbox.allowUnsandboxedCommands"): True,
+    ("claude-code", "sandbox.autoAllowBashIfSandboxed"): True,
+    ("claude-code", "sandbox.enableWeakerNestedSandbox"): True,
+    ("codex", "sandbox_workspace_write.network_access"): True,
+    ("codex", "sandbox_workspace_write.exclude_slash_tmp"): False,
+    ("codex", "sandbox_workspace_write.exclude_tmpdir_env_var"): False,
+}
+#: Lists each entry of which permits something: a command run outside the
+#: Claude Code sandbox, or a directory Codex's `workspace-write` may write.
+_PERMITTING_LISTS = frozenset({
+    ("claude-code", "sandbox.excludedCommands"),
+    ("codex", "sandbox_workspace_write.writable_roots"),
+})
+_CODEX_SANDBOX_MODES = {"read-only": 0, "workspace-write": 1, "danger-full-access": 2}
+#: Codex `web_search`: `cached` has no external web access, `indexed` reaches
+#: it only through the search index, and `live` is unrestricted retrieval.
+_CODEX_WEB_SEARCH = {"disabled": 0, "cached": 1, "indexed": 2, "live": 3}
+
+
+def _setting_direction(before: dict | None, after: dict) -> bool | None:
+    """Whether a documented rule says this value widens: ``True``, ``False`` or ``None`` (#820).
+
+    ``None`` means no rule decides; the row says its direction is not
+    established, and nothing is ranked by severity. ``before`` is the value
+    this one replaced. When it is absent, ambiguous or not a documented value,
+    it is not a host default: only an explicitly permissive value widens, so a
+    typo or an unknown mode cannot hide `bypassPermissions` arriving.
+    """
+
+    host, setting = str(after.get("host")), str(after.get("setting"))
+    old = published_setting_value(before) if before is not None else None
+    new = published_setting_value(after)
+    switch = _WIDENING_SWITCHES.get((host, setting))
+    if switch is not None:
+        if new is switch:
+            return not (isinstance(old, bool) and old is switch)
+        return False if isinstance(new, bool) else None
+    if (host, setting) in _PERMITTING_LISTS:
+        if not isinstance(new, list):
+            return None
+        previous = old if isinstance(old, list) else []
+        return any(entry not in previous for entry in new)
+    if host in {"claude-code", "vscode"} and setting == "sandbox.network":
+        # Each `allowedDomains` entry is a domain sandboxed commands may reach;
+        # the object's other keys are not ordered here.
+        old_network = old if isinstance(old, dict) else {}
+        if not isinstance(new, dict):
+            return None
+        domains, previous = new.get("allowedDomains", []), old_network.get("allowedDomains", [])
+        if not isinstance(domains, list) or not isinstance(previous, list):
+            return None
+        if any(domain not in previous for domain in domains):
+            return True
+        new_rest, old_rest = ({**network, "allowedDomains": None} for network in (new, old_network))
+        return False if new_rest == old_rest else None
+    if host == "claude-code":
+        if setting == "defaultMode":
+            if not isinstance(new, str) or new not in _CLAUDE_WIDER_MODES:
+                return None
+            if not isinstance(old, str) or old not in _CLAUDE_WIDER_MODES:
+                return new in {"acceptEdits", "auto", "bypassPermissions"}
+            if new in _CLAUDE_WIDER_MODES[old]:
+                return True
+            return False if old in _CLAUDE_WIDER_MODES[new] else None
+        if setting == "enabledMcpjsonServers":
+            if before is not None:
+                return False  # The same named entry: nothing is approved anew.
+            return True if isinstance(new, str) and new.strip() else None
+        if setting == "disableBypassPermissionsMode":
+            return False if new == "disable" else None
+        if setting in {"allowManagedPermissionRulesOnly", "allowManagedHooksOnly"}:
+            # Restrictions, and only from managed settings: neither value grants.
+            return False if isinstance(new, bool) else None
+    elif host == "codex":
+        # learn.chatgpt.com/docs/config-file/config-reference. `never`
+        # auto-rejects escalations, so approval_policy is NOT ranked here.
+        for name, order, introduced in (
+            ("sandbox_mode", _CODEX_SANDBOX_MODES, {"danger-full-access": True, "read-only": False}),
+            ("web_search", _CODEX_WEB_SEARCH, {"live": True, "cached": False, "disabled": False}),
+        ):
+            if setting != name:
+                continue
+            if not isinstance(new, str) or new not in order:
+                return None
+            if isinstance(old, str) and old in order:
+                return order[new] > order[old]
+            return introduced.get(new)
+    elif host == "vscode" and setting.startswith("servers.") and setting.endswith(".sandboxEnabled"):
+        # VS Code documents this only for local stdio servers; the reader
+        # assigns admin access only when that transport is established.
+        if new is True:
+            return False
+        return True if new is False and after.get("access") == "admin" else None
+    return None
+
+
+def _setting_change_direction(change: dict, comparison_changes: list[dict]) -> bool | None:
+    """:func:`_setting_direction` of one added or changed setting grant, in its comparison."""
+
+    before, after = change.get("baseline"), change["current"]
+    previous = before if before is not None else _setting_predecessor(after, comparison_changes)
+    return _setting_direction(previous, after)
+
+
+def _hook_handler_count(grant: dict) -> int | None:
+    """How many handlers a hook grant declares (#819), or ``None`` where it does not say."""
+
+    handlers, omitted = grant.get("handlers"), grant.get("omitted_handlers")
+    if not isinstance(handlers, list) or isinstance(omitted, bool) or not isinstance(omitted, int):
+        return None
+    return len(handlers) + omitted
+
+
+def _hook_handlers_grew(before: dict, after: dict) -> bool:
+    """One event declares more handlers than it did: a hook was added to it (#820)."""
+
+    old, new = _hook_handler_count(before), _hook_handler_count(after)
+    return old is not None and new is not None and new > old
+
+
+def host_grant_direction_unknown(
+    change: dict[str, Any], *, comparison_changes: list[dict[str, Any]] | None = None,
+) -> bool:
+    """An edit that may widen authority, where no documented rule decides whether it does (#820).
+
+    Named, never silent: the row says its direction is unknown, and the Claude
+    Code Stop hook announces it beside the widenings. ``False`` for an
+    expansion, for a direction a rule settles (a disabled plugin, a more
+    restrictive mode), for a removal, for a re-read of the same
+    configuration, and for a hook nothing loads (#714). A hook or MCP edit is
+    never assumed to narrow.
+    """
+
+    before, after = change.get("baseline"), change.get("current")
+    if after is None or (before is not None and before.get("config_sha256") == after.get("config_sha256")):
+        return False
+    if host_grant_expansion_signals([change], comparison_changes=comparison_changes):
+        return False
+    kind = after.get("kind")
+    if kind == "mcp_server":
+        return before is not None
+    if kind == "hook":
+        return before is not None and hook_loading_basis(after) in LOADED_HOOK_BASES
+    if kind == "plugin_or_app":
+        return after.get("enabled") is not False
+    if kind in {"permission_mode", "sandbox"}:
+        context = [change] if comparison_changes is None else comparison_changes
+        return _setting_change_direction(change, context) is None
+    return False
+
+
+def host_grant_expansion_signals(
+    changes: list[dict[str, Any]], *, comparison_changes: list[dict[str, Any]] | None = None,
+) -> list[str]:
+    """Expansion evidence for these changes, with setting replacement context.
+
+    Row projection asks about one change at a time; the full comparison is
+    needed because setting identities include values, making an edit two rows.
+    """
+
+    context = changes if comparison_changes is None else comparison_changes
     widened, narrowed_rules = _permission_direction_signals(changes)
     signals: list[str] = list(widened)
     for change in changes:
@@ -5783,7 +5987,10 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
         kind = after.get("kind")
         prefix = "added" if before is None else "changed"
         if kind == "mcp_server":
-            signals.append(f"mcp_server_{prefix}: {after['host']}:{after['server']}")
+            # Launch fields (#819) describe the edit, not what arbitrary
+            # server code/arguments will do. Neither wider nor narrower.
+            if before is None:
+                signals.append(f"mcp_server_{prefix}: {after['host']}:{after['server']}")
         elif kind == "permission_rule" and after.get("disposition") == "allow":
             if (after["host"], after.get("source", ""), str(after["rule"])) in narrowed_rules:
                 # The narrower half of a replacement. This list is an
@@ -5801,6 +6008,16 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
                 # it narrower now removes nothing and adds nothing; the row
                 # stays, as a change without an expansion signal.
                 continue
+            if (
+                before is not None
+                and exec_equivalent_argument(str(after.get("rule") or "")) is not None
+                and before.get("rule") == after.get("rule")
+                and before.get("config_sha256") is not None
+                and before.get("config_sha256") == after.get("config_sha256")
+            ):
+                # #824 re-rates a saved declaration; unchanged bytes do not
+                # grant new authority merely because this engine rates higher.
+                continue
             marker = "wildcard_allow" if after.get("wildcard") else "allow_rule"
             signals.append(f"{marker}_{prefix}: {after['host']}:{after['rule']}")
         elif kind == "hook":
@@ -5809,12 +6026,18 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
             # that this repository's project settings enable from an
             # in-repository marketplace. A hook nothing selects, or one a
             # plugin selects without that enablement, is still a row, never
-            # an expansion (#714). Read from the current grant only, so a
-            # baseline that recorded such a file as `execute` does not report
-            # a widening when it is re-read.
-            if hook_loading_basis(after) in LOADED_HOOK_BASES:
+            # an expansion (#714). A loaded hook's command/matcher/timeout
+            # edit alone establishes no direction (#820). Its loading basis
+            # becoming established is still a gain in declared execution, and
+            # so is one more handler on an event that already had some: hook
+            # grants are one per event, so that added hook is a `changed` one.
+            if hook_loading_basis(after) in LOADED_HOOK_BASES and (
+                before is None
+                or hook_loading_basis(before) in {"declared_only", "plugin_selected"}
+                or _hook_handlers_grew(before, after)
+            ):
                 signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
-        elif kind in {"permission_mode", "sandbox", "additional_path", "plugin_or_app"}:
+        elif kind in {"permission_mode", "sandbox"}:
             if (
                 kind in {"permission_mode", "sandbox"}
                 and before is not None
@@ -5826,6 +6049,21 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
                 # `medium`. The file permits nothing new, so the row stays as
                 # a change without an expansion signal, as #816 did for rules.
                 continue
+            if _setting_change_direction(change, context) is True:
+                signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
+        elif kind == "plugin_or_app":
+            if before is not None and before.get("config_sha256") == after.get("config_sha256"):
+                continue  # The same declaration, read again: nothing enabled anew.
+            # A marketplace added or re-pointed changes what the plugins
+            # enabled from it install and run (#720); it carries no `enabled`.
+            # Otherwise only enablement gains: a plugin or app enabled where
+            # it was absent, disabled, or not established as enabled.
+            marketplace = after.get("host") == "claude-code" and str(after.get("name", "")).startswith("marketplace:")
+            if marketplace or (
+                after.get("enabled") is True and (before is None or before.get("enabled") is not True)
+            ):
+                signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
+        elif kind == "additional_path" and before is None:
             signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
         elif kind == "workflow":
             previous = before or {}
@@ -6188,13 +6426,28 @@ def render_host_audit_markdown(
         # warning names the wildcards whose tool class earned a severity;
         # the low-risk ones are still listed above, just not shouted (#657).
         notable = [grant for grant in wildcard_rules if grant.get("risk") != "low"]
-        if notable:
+        # A launcher rule is not wildcard-shaped, but the check blocks it
+        # through the same rule, so the line that names that rule counts it
+        # (#824).
+        launchers = [
+            grant
+            for grant in by_kind.get("permission_rule", [])
+            if grant.get("disposition") == "allow"
+            and not grant.get("wildcard")
+            and exec_equivalent_argument(str(grant.get("rule") or "")) is not None
+        ]
+        if notable or launchers:
             lines.append("")
             quiet = len(wildcard_rules) - len(notable)
             lines.append(
-                f"⚠ {len(notable)} wildcard allow rule(s) above low risk; "
+                f"⚠ {len(notable) + len(launchers)} wildcard allow rule(s) above low risk; "
                 "verification reports "
                 "`SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW`."
+                + (
+                    f" {len(launchers)} of them reach arbitrary code through a launcher."
+                    if launchers
+                    else ""
+                )
                 + (
                     f" {quiet} further wildcard rule(s) are read-only and listed above."
                     if quiet
@@ -6269,6 +6522,7 @@ __all__ = [
     "hook_loading_basis",
     "host_audit_inventory",
     "host_comparison_baseline",
+    "host_grant_direction_unknown",
     "host_grant_expansion_signals",
     "host_grants_sha256",
     "inventory_is_complete",
