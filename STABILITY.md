@@ -301,6 +301,18 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="workflow-access-label-859"></a>
+
+## Migration Note: Unreleased — workflow values label aggregate access (#859)
+
+Workflow row `before` and `after` values now begin with `access: read`,
+`access: write` or the other recorded access value, instead of an unlabelled
+word. Individual token scopes still follow with their job and scope names.
+The same row projection feeds diff text/JSON, verifier comparisons and check.
+This is a display-value change only: direction, severity, `why`, `expands`,
+control and grant evidence are unchanged. Historical artifacts retain their
+published values; no schema changes.
+
 <a id="partial-host-comparison-808"></a>
 
 ## Migration Note: Unreleased — a plugin directory that cannot be compared no longer hides the rest (verifier `0.21`, capability diff `0.4`, contract v41, #808)

@@ -583,7 +583,8 @@ def _grant_value(
 
         return _safe_rule(str(grant.get("rule") or ""))
     if kind == "workflow":
-        parts = [str(grant.get("access") or "")]
+        access = str(grant.get("access") or "")
+        parts = [f"access: {access}"] if access else []
         if grant.get("write_all"):
             parts.append("write-all")
         if "permission_contexts" in grant:
