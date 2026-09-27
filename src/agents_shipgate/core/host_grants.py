@@ -66,6 +66,7 @@ from agents_shipgate.core.instruction_structure import (
 from agents_shipgate.core.jsonc import is_vscode_mcp_path, loads_jsonc
 from agents_shipgate.core.mcp_launch_source import launch_source_pin
 from agents_shipgate.core.permission_lattice import (
+    permission_pairing_group,
     scoped_risk,
     subsumes,
     whole_tool_risk,
@@ -5784,7 +5785,7 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
         if kind == "mcp_server":
             signals.append(f"mcp_server_{prefix}: {after['host']}:{after['server']}")
         elif kind == "permission_rule" and after.get("disposition") == "allow":
-            if (after["host"], str(after["rule"])) in narrowed_rules:
+            if (after["host"], after.get("source", ""), str(after["rule"])) in narrowed_rules:
                 # The narrower half of a replacement. This list is an
                 # expansion channel — `preflight` prefixes it with
                 # "Expansion signals:" and the drift markdown prints every
@@ -5875,7 +5876,7 @@ class PermissionRuleReplacement:
 
 def _permission_direction_signals(
     changes: list[dict[str, Any]],
-) -> tuple[list[str], set[tuple[str, str]]]:
+) -> tuple[list[str], set[tuple[str, str, str]]]:
     """The expansion signals and narrowed rules of :func:`permission_rule_replacements`."""
 
     replacements = permission_rule_replacements(changes)
@@ -5889,7 +5890,10 @@ def _permission_direction_signals(
     ]
     # A narrowing earns no entry in an expansion list. What it earns
     # is silence there, which is what the caller uses this set for.
-    narrowed = {(item.host, item.after_rule) for item in replacements if item.direction == "narrowed"}
+    narrowed = {
+        (item.host, item.source, item.after_rule)
+        for item in replacements if item.direction == "narrowed"
+    }
     return signals, narrowed
 
 
@@ -5903,12 +5907,14 @@ def permission_rule_replacements(
     shape as replacing it with `Bash(*)`. Set arithmetic cannot tell those
     apart; the lattice can, for the patterns it decides (#657).
 
-    Only pairs within one host, source and disposition are considered, and
-    only where exactly one rule left and one arrived: with several on each
-    side there is no evidence about which replaced which, and inventing a
-    pairing would be inventing the direction too. A pair the lattice cannot
-    decide produces nothing, which leaves the existing add/remove signals
-    as the whole answer.
+    Only pairs within one host, source and disposition are considered. After
+    setting aside moved rules, a single departure and arrival retain the
+    existing lattice comparison (including whole-server MCP narrowings).
+    Count within each exact tool or bare MCP server: an unrelated Read
+    arrival cannot obscure a Bash replacement (#858). Several departures or arrivals
+    for the same tool remain ambiguous; neither order nor likeness chooses a
+    pair. A pair the lattice cannot decide leaves the add/remove signals as
+    the whole answer.
 
     A rule whose identical text only moved to another disposition in the
     same host and source — `deny` to `allow`, say — replaced nothing, so a
@@ -5917,8 +5923,8 @@ def permission_rule_replacements(
     `Bash(git log *)` out of `deny` in the same edit that narrows
     `Bash(git status *)` to `Bash(git status --short *)` counted as a second
     arrival, and the narrower half was reported as a widening (#816). A rule
-    that moved out of `allow` is set aside only when another allow rule also
-    left; when it is the only one, it is the rule the arrival replaced.
+    that moved out of `allow` is set aside only when another allow rule in
+    its group also left; when it is the only one, it is the rule the arrival replaced.
     Identity is the exact rule text: nothing is paired by likeness.
     """
 
@@ -5959,22 +5965,35 @@ def permission_rule_replacements(
         only_arrived = [
             rule for rule in arrived if rule not in gone and (host, source, rule) not in moved
         ]
-        if len(only_gone) != 1 or len(only_arrived) != 1:
-            continue
-        before_rule, after_rule = only_gone[0], only_arrived[0]
-        if subsumes(after_rule, before_rule) is True:
-            direction: Literal["widened", "narrowed"] | None = "widened"
-        elif subsumes(before_rule, after_rule) is True:
-            direction = "narrowed"
-        else:
-            direction = None
-        if direction is not None:
-            replacements.append(
-                PermissionRuleReplacement(
-                    host=host, source=source, before_rule=before_rule,
-                    after_rule=after_rule, direction=direction,
+        gone_by_group: dict[str, list[str]] = {}
+        arrived_by_group: dict[str, list[str]] = {}
+        for rules, grouped in ((left, gone_by_group), (only_arrived, arrived_by_group)):
+            for rule in rules:
+                grouped.setdefault(permission_pairing_group(rule), []).append(rule)
+        pairs = []
+        for group, group_left in sorted(gone_by_group.items()):
+            # An unrelated tool leaving must not hide this group's moved rule.
+            group_gone = [r for r in group_left if (host, source, r) not in moved] or group_left
+            group_arrived = arrived_by_group.get(group, [])
+            if len(group_gone) == 1 and len(group_arrived) == 1:
+                pairs.append((group_gone[0], group_arrived[0]))
+        if not pairs and len(only_gone) == 1 and len(only_arrived) == 1:
+            # Preserve the single cross-group comparison, including `*`.
+            pairs = [(only_gone[0], only_arrived[0])]
+        for before_rule, after_rule in pairs:
+            if subsumes(after_rule, before_rule) is True:
+                direction: Literal["widened", "narrowed"] | None = "widened"
+            elif subsumes(before_rule, after_rule) is True:
+                direction = "narrowed"
+            else:
+                direction = None
+            if direction is not None:
+                replacements.append(
+                    PermissionRuleReplacement(
+                        host=host, source=source, before_rule=before_rule,
+                        after_rule=after_rule, direction=direction,
+                    )
                 )
-            )
     return replacements
 
 

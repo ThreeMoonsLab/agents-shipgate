@@ -382,13 +382,15 @@ def append_step_summary(output_dir: Path, values: dict[str, object]) -> None:
                 f"would_fail_ci=`{would_fail_ci}` "
                 f"(exit {clean(fail_policy.get('exit_code'))})\n"
             )
-        else:
+        elif summary:
             summary_file.write(f"- Status: `{clean(summary.get('status'))}`\n")
             summary_file.write(
                 f"- Critical: {clean(summary.get('critical_count', 0))} - "
                 f"High: {clean(summary.get('high_count', 0))} - "
                 f"Medium: {clean(summary.get('medium_count', 0))}\n"
             )
+        else:
+            summary_file.write("- Scan report: unavailable; no scan severity counts were computed.\n")
         if action_surface_diff.get("enabled"):
             summary_file.write(
                 "- Action Surface Diff: "
@@ -414,29 +416,21 @@ def append_step_summary(output_dir: Path, values: dict[str, object]) -> None:
             )
         elif tool_surface_diff.get("notes"):
             summary_file.write(f"- Tool-surface diff: {clean(tool_surface_diff.get('notes')[0])}\n")
-        summary_file.write(f"- Report JSON: `{clean(values.get('report_json'))}`\n")
-        if values.get("verifier_json"):
-            summary_file.write(f"- Verifier JSON: `{clean(values.get('verifier_json'))}`\n")
-        if values.get("verify_run_json"):
-            summary_file.write(f"- Verify-run JSON: `{clean(values.get('verify_run_json'))}`\n")
-        if values.get("agent_handoff_json"):
-            summary_file.write(
-                f"- Agent handoff JSON: `{clean(values.get('agent_handoff_json'))}`\n"
-            )
-        if values.get("pr_comment_markdown"):
-            summary_file.write(
-                f"- PR comment Markdown: `{clean(values.get('pr_comment_markdown'))}`\n"
-            )
-        if values.get("attestation_json"):
-            summary_file.write(f"- Attestation JSON: `{clean(values.get('attestation_json'))}`\n")
-        if values.get("org_evidence_bundle_json"):
-            summary_file.write(
-                f"- Org evidence bundle JSON: `{clean(values.get('org_evidence_bundle_json'))}`\n"
-            )
-        if values.get("host_grants_json"):
-            summary_file.write(f"- Host grants JSON: `{clean(values.get('host_grants_json'))}`\n")
-        if values.get("org_status_json"):
-            summary_file.write(f"- Org status JSON: `{clean(values.get('org_status_json'))}`\n")
+        artifacts = (
+            ("report_json", "Report JSON"),
+            ("verifier_json", "Verifier JSON"),
+            ("verify_run_json", "Verify-run JSON"),
+            ("agent_handoff_json", "Agent handoff JSON"),
+            ("pr_comment_markdown", "PR comment Markdown"),
+            ("attestation_json", "Attestation JSON"),
+            ("org_evidence_bundle_json", "Org evidence bundle JSON"),
+            ("host_grants_json", "Host grants JSON"),
+            ("org_status_json", "Org status JSON"),
+        )
+        for key, label in artifacts:
+            path = values.get(key)
+            if path and Path(str(path)).is_file():
+                summary_file.write(f"- {label}: `{clean(path)}`\n")
 
 
 def write_github_outputs(values: dict[str, object]) -> None:
