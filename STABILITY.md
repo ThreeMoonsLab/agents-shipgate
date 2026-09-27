@@ -338,6 +338,57 @@ raises no allow finding, where it previously raised
 `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` (review). `diff` still shows it as a
 removal and an addition.
 
+<a id="workflow-access-label-859"></a>
+
+## Migration Note: Unreleased — workflow values label aggregate access (#859)
+
+Workflow row `before` and `after` values now begin with `access: read`,
+`access: write` or the other recorded access value, instead of an unlabelled
+word. Individual token scopes still follow with their job and scope names.
+The same row projection feeds diff text/JSON, verifier comparisons and check.
+This is a display-value change only: direction, severity, `why`, `expands`,
+control and grant evidence are unchanged. Historical artifacts retain their
+published values; no schema changes.
+
+<a id="host-control-row-count-857"></a>
+
+## Migration Note: Unreleased — host control reasons count rows explicitly (#857)
+
+The host-only verifier headline and `control.reason` now say
+`N repository-declared host capability row(s)` instead of `change(s)`.
+The number is still the raw row count. A replacement can have two rows but
+one review change; the review summary continues to name both quantities.
+Partial-comparison reasons use `row(s)` too, and still name their coverage
+limits. No schema, decision, permission, next action or merge authority changes.
+
+<a id="permission-replacements-858"></a>
+
+## Migration Note: Unreleased — unrelated tools do not obscure permission replacements (#858)
+
+Permission replacement selection still stays within one host, source and
+disposition and uses the existing lattice. After setting aside moved rules,
+the existing single-pair comparison is retained, including whole-server MCP
+narrowings. When there are multiple candidates, exactly one departure and
+arrival per case-sensitive tool name or bare MCP server can now pair independently.
+Moved departures are set aside within that group, so another tool leaving
+does not hide a narrow-while-denying replacement. Multiple
+candidates for one tool remain unpaired; command arguments are never folded
+or matched by likeness. An unpaired removed allow row whose matches are
+still covered by an added allow rule in the same host and source says so,
+unless the same edit adds a deny or ask rule for that tool (or `*`) in the
+host, since those are evaluated before allow; this wording neither creates a
+pair nor suppresses an expansion signal.
+
+For `Bash(npm test *)` → `Bash(npm *)` plus `Read(src/**)`, the three raw rows
+stay, while `review` and text show two changes including the paired widening.
+Drift adds the existing `permission_widened` signal. A decided narrowing
+beside another tool's edit loses its spurious expansion signal; unrelated
+arrivals keep their own signals and review requirements. The same selector
+feeds `diff`, `verify` and `check`. A narrowing suppresses an add signal only
+in its own source; the same rule newly granted in another settings file keeps
+its signal. No schema, field, check ID or permission
+is added, and historical artifacts are not rewritten.
+
 <a id="partial-host-comparison-808"></a>
 
 ## Migration Note: Unreleased — a plugin directory that cannot be compared no longer hides the rest (verifier `0.21`, capability diff `0.4`, contract v41, #808)
@@ -383,7 +434,7 @@ is added.
 - **`comparison_status: partial`.** `incomparable_reasons` names which inventory is incomplete, exactly as the refusal would have (`base_inventory_incomplete`, `head_inventory_incomplete`, or both). `rows`, `review` and `unchanged_limits` are those of the comparison outside the withheld directories, built by the comparator a comparable result uses. It is never a complete comparison and never a no-change answer.
 - **`coverage.items[].scope`.** Reserved and always `null` in verifier `0.20`. Now the withheld directory, on each `blocking_limit` item of a partial comparison and on those only: every blocking item of a partial comparison names one, and blocking limits still rank first inside the same cap of ten, so the first is always listed. The other items are what the comparison established outside the directories, in the existing order and wording, and a changed input no reader reads (#821) is still named, inside a withheld directory too. One status is narrower there: a changed `.claude/settings.json` or `.claude/settings.local.json` that gives no row of its own is `changed_without_rows`, never `changed_without_grant_change`, because those settings decide the loading basis of the hooks inside a withheld directory, which were not compared, so the data cannot show that no compared grant moved. Registering the repository as a marketplace for an enabled plugin whose manifest the head also breaks is the case: comparable, it gives a `widened` row on the plugin's hook file; partial, it gives no row and the settings file reads `changed, but no row is attributed to this path`. `scope` is `null` on every item of a comparable or incomparable comparison and on every other status, and never names the repository root.
 - **Text.** `diff` opens with `Partial comparison against main (<sha>) -> working tree: head_inventory_incomplete`, then, before any row, `Not compared: plugins/demo, a plugin directory this entry could not read completely, so no change inside it is shown and nothing is claimed about it.` and `The changes below come only from sources outside it, so they are not the whole change; nothing here is a claim that the change is safe.` With no row, that last line reads `No static host-grant change was detected outside it. That is not a no-change answer for this change, and no verdict is implied.`, and `No static host-grant changes detected` is never printed. `verify --format text` and the manifest-free PR comment open with `Host capability comparison partial: head_inventory_incomplete` and the same two lines. The limit's item reads `plugins/demo/.claude-plugin/plugin.json (claude-code): parse_failed in head, so nothing in plugins/demo was compared`. The rows, their summary, the review question and the reproduction lines print as a comparable result prints them.
-- **Authority and routes do not move.** A partial comparison is not comparable, so every consumer that switches on `comparison_status == "comparable"` reads it as it read the refusal. `verify`'s control state, permissions, next action (`audit --host`), merge verdict and exit code are the incomplete comparison's, and only its headline changes, to `Host comparison is partial: N repository-declared host capability change(s) outside what it could not compare, listed under host_comparison in verifier.json; review its input limits before interpreting changes.` The control envelope's `capability_rows` projects a partial comparison as `incomparable`, with its reasons and no rows, exactly as before: that block cannot name a directory, so its `reason`, which is that headline, points to the rows in `verifier.json`. `check` records no coverage, so it cannot name one either and refuses its comparison as `1.1.0` did; its decision and violations come from its own routing, so the #808 fixture still gives `require_review` with `HOST-PERMISSION-DENY-REMOVED` and no rows. The Stop hook still tells the agent to treat the change as unreviewed. `audit --host`, the inventory digests, saved host-grants baselines and drift payloads are unchanged (host-grants stays `0.6`), so a partial comparison never creates or satisfies a baseline. The host-config and cold-start benchmark replays reproduce their run-of-record scores. `minimum_control_contract_version` stays `21`.
+- **Authority and routes do not move.** A partial comparison is not comparable, so every consumer that switches on `comparison_status == "comparable"` reads it as it read the refusal. `verify`'s control state, permissions, next action (`audit --host`), merge verdict and exit code are the incomplete comparison's, and only its headline changes, to `Host comparison is partial: N repository-declared host capability row(s) outside what it could not compare, listed under host_comparison in verifier.json; review its input limits before interpreting changes.` The control envelope's `capability_rows` projects a partial comparison as `incomparable`, with its reasons and no rows, exactly as before: that block cannot name a directory, so its `reason`, which is that headline, points to the rows in `verifier.json`. `check` records no coverage, so it cannot name one either and refuses its comparison as `1.1.0` did; its decision and violations come from its own routing, so the #808 fixture still gives `require_review` with `HOST-PERMISSION-DENY-REMOVED` and no rows. The Stop hook still tells the agent to treat the change as unreviewed. `audit --host`, the inventory digests, saved host-grants baselines and drift payloads are unchanged (host-grants stays `0.6`), so a partial comparison never creates or satisfies a baseline. The host-config and cold-start benchmark replays reproduce their run-of-record scores. `minimum_control_contract_version` stays `21`.
 
 **Compatibility.** Verifier `0.21`, capability diff `0.4` and runtime contract v41 are unreleased, so they are extended in place. `comparison_status` is a closed enumeration, so a reader validating against the frozen [`docs/verifier-schema.v0.20.json`](docs/verifier-schema.v0.20.json) rejects `partial`; the current reader refuses a `0.20` artifact that claims a partial comparison or a `scope`. A consumer that treats every status but `comparable` as not comparable is unaffected. One that expected only `comparable` or `incomparable` should read `partial` as `incomparable` for any decision, and may read its rows as what is known outside the directories named.
 
