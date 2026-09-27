@@ -864,7 +864,7 @@ def test_a_comparison_read_back_from_json_prints_what_it_published(tmp_path: Pat
         "  runs without a prompt",
         f"- medium / removed — {SUBJECT}",
         "  Bash(npm test *) → —",
-        "  removes a permission the agent previously had here",
+        "  removes this allow rule; another added allow rule still covers its matches",
     ]
 
 
@@ -1164,3 +1164,28 @@ def test_a_reader_of_the_published_row_shape_still_validates_a_row(tmp_path: Pat
         assert HostComparison.model_validate({
             "comparison_status": "comparable", "head_kind": "worktree", "rows": [legacy],
         }).rows[0].disposition is None
+
+
+@pytest.mark.parametrize(
+    ("base_allow", "head_allow", "rows", "changes"),
+    [
+        (["Bash(npm test *)"], ["Bash(npm *)"], 2, 1),
+        ([], ["Bash(npm test *)"], 1, 1),
+        (["Bash(npm test *)"], ["Bash(npm test *)"], 0, 0),
+    ],
+)
+def test_control_reason_names_rows_without_recounting_review_changes(
+    tmp_path: Path, base_allow: list[str], head_allow: list[str], rows: int, changes: int,
+) -> None:
+    repo = _repository(
+        tmp_path,
+        {SETTINGS: {"permissions": {"allow": base_allow}}},
+        {SETTINGS: {"permissions": {"allow": head_allow}}, "README.md": "Fixture head revision.\n"},
+    )
+    _, _, verifier = _verify(repo, tmp_path / "out")
+    assert verifier["host_comparison"]["review"]["summary"]["rows"] == rows
+    assert verifier["host_comparison"]["review"]["summary"]["changes"] == changes
+    reason = verifier["control"]["reason"]
+    assert reason == verifier["headline"]
+    assert reason.startswith(f"{rows} repository-declared host capability row(s).")
+    assert "capability change(s)" not in reason
