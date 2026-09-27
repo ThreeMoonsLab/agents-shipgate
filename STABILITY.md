@@ -312,6 +312,34 @@ one review change; the review summary continues to name both quantities.
 Partial-comparison reasons use `row(s)` too, and still name their coverage
 limits. No schema, decision, permission, next action or merge authority changes.
 
+<a id="permission-replacements-858"></a>
+
+## Migration Note: Unreleased — unrelated tools do not obscure permission replacements (#858)
+
+Permission replacement selection still stays within one host, source and
+disposition and uses the existing lattice. After setting aside moved rules,
+the existing single-pair comparison is retained, including whole-server MCP
+narrowings. When there are multiple candidates, exactly one departure and
+arrival per case-sensitive tool name or bare MCP server can now pair independently.
+Moved departures are set aside within that group, so another tool leaving
+does not hide a narrow-while-denying replacement. Multiple
+candidates for one tool remain unpaired; command arguments are never folded
+or matched by likeness. An unpaired removed allow row whose matches are
+still covered by an added allow rule in the same host and source says so,
+unless the same edit adds a deny or ask rule for that tool (or `*`) in the
+host, since those are evaluated before allow; this wording neither creates a
+pair nor suppresses an expansion signal.
+
+For `Bash(npm test *)` → `Bash(npm *)` plus `Read(src/**)`, the three raw rows
+stay, while `review` and text show two changes including the paired widening.
+Drift adds the existing `permission_widened` signal. A decided narrowing
+beside another tool's edit loses its spurious expansion signal; unrelated
+arrivals keep their own signals and review requirements. The same selector
+feeds `diff`, `verify` and `check`. A narrowing suppresses an add signal only
+in its own source; the same rule newly granted in another settings file keeps
+its signal. No schema, field, check ID or permission
+is added, and historical artifacts are not rewritten.
+
 <a id="partial-host-comparison-808"></a>
 
 ## Migration Note: Unreleased — a plugin directory that cannot be compared no longer hides the rest (verifier `0.21`, capability diff `0.4`, contract v41, #808)

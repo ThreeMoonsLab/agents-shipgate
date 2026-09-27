@@ -27,6 +27,19 @@
   rows, so a two-row replacement no longer contradicts the review summary
   that correctly calls it one change. Partial comparisons use the same
   wording; decisions and control routes are unchanged. (#857)
+- An unrelated permission rule for another tool no longer splits a decided
+  replacement into separate review changes. Adding `Read(src/**)` beside
+  `Bash(npm test *)` → `Bash(npm *)` preserves the paired widening on the
+  shared diff, verifier and check routes. Multiple candidates for the same
+  tool or MCP server remain unpaired. MCP server replacements and
+  narrow-while-denying edits also retain their direction beside unrelated
+  tool changes. Unpaired removals no longer claim a permission loss when
+  an added allow rule in the same source decidedly covers them and no deny
+  or ask rule for that tool arrives in the same edit. (#858)
+- Fix a fail-open comparison where a narrowing in `settings.json` suppressed
+  the expansion signal and ⚠ for the same rule newly allowed in
+  `settings.local.json`. Suppression now stays within its source, restoring
+  that independent grant in `expansion_signals` and review widening counts. (#858)
 
 - Move the published-release pins, examples and adoption prompts to `v1.1.0` (contract 40) now that it is published, re-capture the README and quickstart `diff` answers from the published `1.1.0`, and re-measure the pilot ledger's Route H dry run on it. No schema or contract change. (#778)
 - A host comparison names the changed inputs it does not read, so a zero-row result is not read as covering them. (#821; slice 2 of #812)
