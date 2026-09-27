@@ -32,6 +32,16 @@ _RANK = {"none": 0, "read": 1, "write": 2}
 _WIDER_MODES = {"acceptEdits", "bypassPermissions", "auto"}
 
 
+def _handler_count(groups: Any) -> int:
+    """Handlers one hook event lists, or -1 when it is not the documented shape."""
+
+    if not isinstance(groups, list) or not all(
+        isinstance(group, dict) and isinstance(group.get("hooks"), list) for group in groups
+    ):
+        return -1
+    return sum(len(group["hooks"]) for group in groups)
+
+
 def _direct(change: dict[str, Any]) -> dict[str, Any]:
     kind, key, direction = change["kind"], change["key"], change["direction"]
     before, after = change.get("before"), change.get("after")
@@ -42,6 +52,15 @@ def _direct(change: dict[str, Any]) -> dict[str, Any]:
         verdict = "widening" if grows else "narrowing"
     elif kind in {"additional_path", "mcp_server", "hook"} and direction in {"added", "removed"}:
         verdict = "widening" if direction == "added" else "narrowing"
+    elif kind == "hook" and _handler_count(after) > _handler_count(before) >= 0:
+        # Claude Code runs every handler of every matcher group an event lists:
+        # one more handler on an event that already had some is an added hook.
+        verdict = "widening"
+    elif kind == "plugin" and key.startswith("marketplace:"):
+        # Enabled plugins install from a registered marketplace (#720): adding
+        # one widens what they may run; a re-pointed source is only `changed`.
+        if direction in {"added", "removed"}:
+            verdict = "widening" if direction == "added" else "narrowing"
     elif kind == "plugin":
         old = before.get("enabled") if isinstance(before, dict) else before
         new = after.get("enabled") if isinstance(after, dict) else after

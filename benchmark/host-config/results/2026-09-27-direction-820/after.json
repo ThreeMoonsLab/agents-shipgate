@@ -1,5 +1,5 @@
 {
-  "engine_distribution_sha256": "sha256:e8c671b492cdc388039cbca291c2c5d0b18807e3cb3d56829c791992e5e11a51",
+  "engine_distribution_sha256": "sha256:6bb6d1116024acfcfc1cd378e1498bd696a8b34757f1c690beba9d9c005e96eb",
   "totals": {
     "population": {
       "cases": 50,
@@ -7,23 +7,23 @@
       "incomparable_cases": 0,
       "unclassified_cases": 5,
       "rows": 84,
-      "marked_rows": 61,
-      "scored_marked_rows": 57,
+      "marked_rows": 62,
+      "scored_marked_rows": 58,
       "false_marked_rows": 0,
-      "expected_widenings": 60,
-      "marked_widenings_found": 59
+      "expected_widenings": 61,
+      "marked_widenings_found": 60
     },
     "control": {
-      "cases": 11,
-      "scored_cases": 11,
+      "cases": 12,
+      "scored_cases": 12,
       "incomparable_cases": 0,
       "unclassified_cases": 0,
-      "rows": 15,
-      "marked_rows": 5,
-      "scored_marked_rows": 5,
+      "rows": 16,
+      "marked_rows": 6,
+      "scored_marked_rows": 6,
       "false_marked_rows": 0,
-      "expected_widenings": 5,
-      "marked_widenings_found": 5
+      "expected_widenings": 6,
+      "marked_widenings_found": 6
     }
   },
   "records": [
@@ -595,11 +595,11 @@
       "incomparable_cases": 0,
       "unclassified_cases": 0,
       "rows": 2,
-      "marked_rows": 1,
-      "scored_marked_rows": 1,
+      "marked_rows": 2,
+      "scored_marked_rows": 2,
       "false_marked_rows": 0,
-      "expected_widenings": 1,
-      "marked_widenings_found": 1
+      "expected_widenings": 2,
+      "marked_widenings_found": 2
     },
     {
       "case": "openbootdotdev__openboot__pr136",
@@ -869,6 +869,20 @@
     },
     {
       "case": "addmcp",
+      "group": "control",
+      "cases": 1,
+      "scored_cases": 1,
+      "incomparable_cases": 0,
+      "unclassified_cases": 0,
+      "rows": 1,
+      "marked_rows": 1,
+      "scored_marked_rows": 1,
+      "false_marked_rows": 0,
+      "expected_widenings": 1,
+      "marked_widenings_found": 1
+    },
+    {
+      "case": "addhandler",
       "group": "control",
       "cases": 1,
       "scored_cases": 1,

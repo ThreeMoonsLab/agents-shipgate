@@ -1681,11 +1681,13 @@ def test_stop_hook_is_quiet_on_the_engines_declared_only_hook_row(tmp_path: Path
 
 
 @pytest.mark.parametrize("added", [False, True])
-def test_stop_hook_distinguishes_loaded_hook_addition_from_edit(tmp_path: Path, added: bool) -> None:
-    """#714/#820: new loaded hooks widen; an arbitrary command edit does not.
-
-    Drive the stop hook from the real engine's diff, preserving both the
-    widening announcement and silence for edits of unknown direction.
+def test_stop_hook_announces_a_loaded_hook_addition_and_names_an_edit(tmp_path: Path, added: bool) -> None:
+    """#714/#820: a hook a plugin selects, where the repository is its own
+    marketplace and its project settings enable the plugin, loads like a
+    settings hook. Adding it widens. Editing its command is not claimed as a
+    widening, but its direction is unknown, so the Stop hook still names it:
+    published 1.0.0 announced it, and #820 must not make it silent. The
+    payload comes from a real `diff`.
     """
 
     from typer.testing import CliRunner
@@ -1737,13 +1739,121 @@ def test_stop_hook_distinguishes_loaded_hook_addition_from_edit(tmp_path: Path, 
     result = _run_hook(hook_root, "verify", {}, diff_payload=json.dumps(payload))
 
     assert result.returncode == 0, result.stderr
-    if added:
-        message = json.loads(result.stdout)["systemMessage"]
-        assert "These rows widen what the agent can do" in message
-        assert "claude-code .claude/hooks/hooks.json" in message
-    else:
-        assert result.stdout.strip() == ""
+    message = json.loads(result.stdout)["systemMessage"]
+    assert "claude-code .claude/hooks/hooks.json" in message
+    assert ("These rows widen what the agent can do" in message) is added
+    assert ("their direction is not established" in message) is not added
     assert any(call[0] == "diff" for call in _cli_calls(hook_root))
+
+
+def _engine_payload(tmp_path: Path, path: str, before: dict | str, after: dict | str) -> dict:
+    """The real `diff --json` payload for one file edited from ``before`` to ``after``."""
+
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+
+    engine = tmp_path / "engine"
+    (engine / path).parent.mkdir(parents=True, exist_ok=True)
+    (engine / path).write_text(before if isinstance(before, str) else json.dumps(before), encoding="utf-8")
+    for args in (
+        ["init", "-q", "-b", "main"],
+        ["config", "user.email", "t@example.invalid"],
+        ["config", "user.name", "T"],
+        ["add", "-A"],
+        ["commit", "-qm", "base"],
+    ):
+        subprocess.run(["git", *args], cwd=engine, check=True, capture_output=True)
+    (engine / path).write_text(after if isinstance(after, str) else json.dumps(after), encoding="utf-8")
+    diff = CliRunner().invoke(app, ["diff", "--workspace", str(engine), "--base", "main", "--json"])
+    assert diff.exit_code == 0, diff.output
+    return json.loads(diff.output)
+
+
+def _guard(*commands: str) -> dict:
+    return {"hooks": {"PreToolUse": [
+        {"matcher": "Bash", "hooks": [{"type": "command", "command": command}]} for command in commands
+    ]}}
+
+
+@pytest.mark.parametrize(
+    "path,before,after,heading",
+    [
+        # A guard replaced by an approver: neither assumed wider nor narrower.
+        (".claude/settings.json", _guard("bin/guard.sh"), _guard("bin/approve-everything.sh"), "unknown"),
+        # One more handler on an event that already had one is an added hook.
+        (".claude/settings.json", _guard("bin/guard.sh"), _guard("bin/guard.sh", "bin/x.sh"), "widen"),
+        (
+            ".mcp.json",
+            {"mcpServers": {"db": {"command": "npx", "args": ["-y", "db-mcp@1", "--read-only"]}}},
+            {"mcpServers": {"db": {"command": "npx", "args": ["-y", "db-mcp@1"]}}},
+            "unknown",
+        ),
+        (".codex/config.toml", 'approval_policy = "untrusted"\n', 'approval_policy = "on-request"\n', "unknown"),
+        (".claude/settings.json", {"enabledPlugins": {"p@m": True}}, {"enabledPlugins": {"p@m": False}}, None),
+        (
+            ".claude/settings.json",
+            {"permissions": {"defaultMode": "bypassPermissions"}},
+            {"permissions": {"defaultMode": "default"}},
+            None,
+        ),
+    ],
+    ids=["hook-approver", "hook-second-handler", "mcp-read-only-removed", "codex-approval", "plugin-disabled", "mode-tightened"],
+)
+def test_stop_hook_names_rows_of_unknown_direction_apart_from_widenings(
+    tmp_path: Path, path: str, before: dict | str, after: dict | str, heading: str | None
+) -> None:
+    """#820: an edit whose direction the engine cannot establish is not a
+    widening, and it is not silent either. A settled tightening stays quiet.
+    The payload comes from a real `diff`."""
+
+    payload = _engine_payload(tmp_path, path, before, after)
+    assert payload["rows"]
+
+    hook_root = tmp_path / "hook"
+    hook_root.mkdir()
+    _host_diff_workspace(hook_root)
+    result = _run_hook(hook_root, "verify", {}, diff_payload=json.dumps(payload))
+
+    assert result.returncode == 0, result.stderr
+    if heading is None:
+        assert result.stdout.strip() == ""
+        return
+    message = json.loads(result.stdout)["systemMessage"]
+    assert ("These rows widen what the agent can do" in message) is (heading == "widen")
+    assert ("their direction is not established" in message) is (heading == "unknown")
+    assert "never a permission" in message
+
+
+def test_stop_hook_lists_widenings_and_unknown_directions_under_their_own_headings(tmp_path: Path) -> None:
+    from agents_shipgate.core.capability_diff_rows import DIRECTION_UNKNOWN
+
+    _host_diff_workspace(tmp_path)
+    unknown = {
+        **_WIDENING, "direction": "changed", "before": "PreToolUse", "after": "PreToolUse",
+        "severity": "high", "expands": False, "why": f"hook edit; {DIRECTION_UNKNOWN}",
+    }
+    settled = {
+        **_WIDENING, "after": "demo@local", "direction": "changed", "expands": False,
+        "why": "declares this plugin or app disabled",
+    }
+    payload = json.dumps({"comparison_status": "comparable", "rows": [_WIDENING, unknown, settled]})
+
+    message = json.loads(_run_hook(tmp_path, "verify", {}, diff_payload=payload).stdout)["systemMessage"]
+    widening, rest = message.split(
+        "These rows may change what the agent can do; their direction is not established:"
+    )
+    assert "These rows widen what the agent can do:" in widening and "Bash(*)" in widening
+    assert "PreToolUse -> PreToolUse" in rest and "Bash(*)" not in rest
+    assert "demo@local" not in message
+    # Announced once, like a widening.
+    assert _run_hook(tmp_path, "verify", {}, diff_payload=payload).stdout.strip() == ""
+
+
+def test_rendered_direction_unknown_words_match_the_engine(tmp_path: Path) -> None:
+    from agents_shipgate.core.capability_diff_rows import DIRECTION_UNKNOWN
+
+    assert _rendered_hook_namespace(tmp_path)["DIRECTION_UNKNOWN"] == DIRECTION_UNKNOWN
 
 
 def test_stop_hook_without_manifest_names_widening_rows_once(tmp_path: Path) -> None:
