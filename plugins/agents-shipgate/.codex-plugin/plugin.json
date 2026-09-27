@@ -1,7 +1,7 @@
 {
   "name": "agents-shipgate",
   "version": "1.1.0",
-  "description": "Run Agents Shipgate Tool-Use Readiness workflows from Codex.",
+  "description": "Review declared coding-agent configuration changes with Agents Shipgate; verify tool-using agent releases separately.",
   "author": {
     "name": "Three Moons Lab",
     "url": "https://threemoonslab.com/"
@@ -15,13 +15,16 @@
     "tool-use-readiness",
     "release-gate",
     "mcp",
-    "openapi"
+    "openapi",
+    "coding-agent-config",
+    "permission-changes",
+    "workflow-permissions"
   ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Agents Shipgate",
-    "shortDescription": "Run Tool-Use Readiness release gates from Codex.",
-    "longDescription": "Agents Shipgate teaches Codex how to detect, install, verify, and summarize deterministic Tool-Use Readiness release gates for tool-using AI agent repositories. The plugin supplies workflow instructions; the scanner runs through the agents-shipgate CLI installed in the local environment.",
+    "shortDescription": "Review declared host changes and agent releases.",
+    "longDescription": "Review PR changes to declared coding-agent permissions, MCP bindings, hooks and workflow permissions with agents-shipgate diff. This static host comparison needs no manifest, policy, saved baseline or skill; it names coverage limits and implies no verdict. Agents Shipgate teaches Codex how to detect, install, verify, and summarize deterministic Tool-Use Readiness release gates for tool-using AI agent repositories. The plugin supplies workflow instructions; the scanner runs through the agents-shipgate CLI installed in the local environment.",
     "developerName": "Three Moons Lab",
     "category": "Developer Tools",
     "capabilities": [

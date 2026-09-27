@@ -4,12 +4,12 @@
     "name": "Three Moons Lab",
     "email": "help@threemoonslab.com"
   },
-  "description": "Agents Shipgate — the deterministic merge gate for AI-generated agent capability changes. Skill-only plugin: workflows for shipgate check, agents-shipgate verify, and shipgate audit --host; the scanner runs through the agents-shipgate CLI installed locally.",
+  "description": "Agents Shipgate — the deterministic merge gate for AI-generated agent capability changes. Review PR changes to declared coding-agent permissions, MCP bindings, hooks and workflow permissions with agents-shipgate diff. This static host comparison needs no manifest, policy, saved baseline or skill; it names coverage limits and implies no verdict. Optional workflow instructions use the agents-shipgate CLI installed locally.",
   "plugins": [
     {
       "name": "agents-shipgate",
       "source": "./plugins/claude-code",
-      "description": "Run Agents Shipgate Tool-Use Readiness workflows from Claude Code: detect whether Shipgate applies, bootstrap the advisory gate, verify agent-capability PRs, and triage findings without fabricating human approval. Requires the agents-shipgate CLI (pipx install agents-shipgate; the bundled skill names the runtime contract its setup route needs, and `agents-shipgate contract --json` reports the one you have).",
+      "description": "Review PR changes to declared coding-agent permissions, MCP bindings, hooks and workflow permissions with agents-shipgate diff. This static host comparison needs no manifest, policy, saved baseline or skill; it names coverage limits and implies no verdict. Tool-Use Readiness release verification is a separate workflow for repositories with a declared tool surface. Requires the agents-shipgate CLI (pipx install agents-shipgate); no hook is enabled by this metadata.",
       "version": "1.1.0",
       "author": {
         "name": "Three Moons Lab",
@@ -24,7 +24,10 @@
         "tool-use-readiness",
         "release-gate",
         "mcp-security",
-        "policy-as-code"
+        "policy-as-code",
+        "coding-agent-config",
+        "permission-changes",
+        "workflow-permissions"
       ],
       "category": "security",
       "strict": true
