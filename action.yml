@@ -357,6 +357,7 @@ runs:
           python "${GITHUB_ACTION_PATH}/scripts/install_action_engine.py"
         elif [ -n "${SHIPGATE_VERSION}" ]; then
           python -P -m pip install "agents-shipgate==${SHIPGATE_VERSION}"
+          python "${GITHUB_ACTION_PATH}/scripts/action_engine_identity.py"
         else
           python -P -m pip install "${GITHUB_ACTION_PATH}"
         fi

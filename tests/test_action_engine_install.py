@@ -273,11 +273,18 @@ def test_install_step_runs_pip_and_not_the_pull_requests_pip(
     result = _run_step(checkout, "Install Agents Shipgate", env)
 
     assert not (checkout["markers"] / "workspace-pip").exists(), "the PR's pip/ ran"
+    assert not (checkout["markers"] / "workspace-agents_shipgate").exists(), "the PR's engine ran"
     assert result.returncode == 0, result.stdout + result.stderr
     calls = (checkout["markers"] / "trusted-pip").read_text(encoding="utf-8").splitlines()
     assert len(calls) == 1, calls
     argv = json.loads(calls[0])
     assert argv[0] == "install" and argv[-1].endswith(target), argv
+    if route == "version":
+        from agents_shipgate.core.verification_identity import _engine_distribution_sha256
+
+        assert f"verification_identity.engine_distribution_sha256={_engine_distribution_sha256()}" in result.stdout
+    else:
+        assert "verification_identity.engine_distribution_sha256=" not in result.stdout
 
 
 @_BASH_STEPS

@@ -79,6 +79,27 @@ For reproducible CI, pin both the action and the underlying CLI:
     shipgate_version: "1.1.0"
 ```
 
+On current source, a `shipgate_version` install logs
+`verification_identity.engine_distribution_sha256=sha256:…`, using the same
+installed-package content identity that verification records. This is **not**
+the wheel archive's SHA-256: ZIP metadata and packaging can change a wheel hash
+without changing its installed contents. Compare the log with
+`engine.engine_distribution_sha256` in `verification-plan.json` (also
+`plan.engine.engine_distribution_sha256` in `verify-run.json`) from a local
+verifier run using the same installed wheel, or run this with that wheel's interpreter
+outside an unrelated source checkout:
+
+```sh
+python -P -c 'from agents_shipgate.core.verification_identity import _engine_distribution_sha256; print(_engine_distribution_sha256())'
+```
+
+The script-path invocation and pip's `-P` keep the PR checkout from
+impersonating the engine.
+This logging change is not present in historical Action tags such as `v1.1.0`;
+use the immutable Action commit containing it until it is released. The
+`shipgate_wheel`/`shipgate_wheel_sha256` route still verifies the supplied wheel
+archive bytes as before. No extra report or release verdict is introduced.
+
 When `shipgate_version` is empty the action installs the CLI from the action source — convenient for local action development, less reproducible for CI.
 
 `shipgate_version` pins the `agents-shipgate` package only; pip resolves its dependencies when the job runs. A tag such as `v1.1.0` can be moved, so the hardened form replaces it with the commit it names and keeps the tag as a comment — see *What runs* under [Host-only advisory PR review](#host-only-advisory-pr-review).
