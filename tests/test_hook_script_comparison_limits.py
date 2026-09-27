@@ -168,14 +168,68 @@ def test_an_ignored_linked_script_withholds_only_its_own_bytes(tmp_path):
     assert "Bash(*)" in text
 
 
-def test_a_script_missing_on_both_sides_is_withheld_not_refused(tmp_path):
+def test_a_script_absent_on_both_sides_stays_comparable_and_is_named_unchanged(tmp_path):
+    """A script in neither commit cannot have been changed by the change (#702 review).
+
+    Real repositories and the #660 cold-start cases, which vendor only the
+    settings file, reference scripts that exist on neither side.
+    """
+
     root = _repo(tmp_path, {SETTINGS: _hooks('"${CLAUDE_PROJECT_DIR}/build/hook"')})
     _write(root, {SETTINGS: _hooks('"${CLAUDE_PROJECT_DIR}/build/hook"', permissions={"allow": ["Bash(*)"]})})
+    data = _diff(root, "--json")
+    assert data["comparison_status"] == "comparable"
+    assert [row["after"] for row in data["rows"]] == ["Bash(*)"]
+    [limit] = data["unchanged_limits"]
+    assert (limit["source"], limit["limit"]) == ("build/hook", "unreadable")
+    assert "missing_input" in limit["detail"]
+    assert _items(data, status="blocking_limit") == []
+
+    # The same from committed trees.
+    _git(root, "add", "-A")
+    _git(root, "commit", "-qm", "widen")
+    result = CliRunner().invoke(app, [
+        "verify", "--workspace", str(root), "--base", "main", "--head", "HEAD", "--json",
+    ])
+    assert result.exit_code in (0, 10, 20), result.output
+    comparison = json.loads(result.stdout)["host_comparison"]
+    assert comparison["comparison_status"] == "comparable"
+    assert [limit["source"] for limit in comparison["unchanged_limits"]] == ["build/hook"]
+
+
+def test_a_script_present_on_one_side_only_is_still_withheld(tmp_path):
+    """An ignored or untracked file in the working tree is absent from the base tree."""
+
+    root = _repo(tmp_path, {SETTINGS: _hooks('"${CLAUDE_PROJECT_DIR}/build/hook"'), ".gitignore": "build/\n"})
+    _write(root, {
+        "build/hook": "#!/bin/sh\n",
+        SETTINGS: _hooks('"${CLAUDE_PROJECT_DIR}/build/hook"', permissions={"allow": ["Bash(*)"]}),
+    })
     data = _diff(root, "--json")
     assert data["comparison_status"] == "partial"
     assert [row["after"] for row in data["rows"]] == ["Bash(*)"]
     [limit] = _items(data, status="blocking_limit")
-    assert (limit["scope"], limit["side"]) == ("build/hook", "both")
+    assert (limit["scope"], limit["side"]) == ("build/hook", "base")
+
+
+def test_a_script_behind_a_gitlink_is_not_absent(tmp_path):
+    """An unpopulated submodule leaves the script missing on both sides, not absent."""
+
+    from agents_shipgate.cli.verify.git import tree_path_absent
+
+    root = _repo(tmp_path, {SETTINGS: _hooks('"${CLAUDE_PROJECT_DIR}/tools/hooks/start.sh"')})
+    oid = _git(root, "rev-parse", "HEAD").strip()
+    _git(root, "update-index", "--add", "--cacheinfo", f"160000,{oid},tools/hooks")
+    _git(root, "commit", "-qm", "gitlink")
+    _git(root, "branch", "-f", "main", "HEAD")
+    (root / "tools/hooks").mkdir(parents=True)
+    _write(root, {SETTINGS: _hooks('"${CLAUDE_PROJECT_DIR}/tools/hooks/start.sh"', permissions={"allow": ["Bash(*)"]})})
+    assert not tree_path_absent(root, "main", None, "tools/hooks/start.sh")
+    assert not tree_path_absent(root, "main", "HEAD", "tools/hooks/start.sh")
+    assert tree_path_absent(root, "main", None, "tools/other/start.sh")
+    data = _diff(root, "--json")
+    assert data["comparison_status"] == "partial"
+    assert [item["scope"] for item in _items(data, status="blocking_limit")] == ["tools/hooks/start.sh"]
 
 
 @_LINKS

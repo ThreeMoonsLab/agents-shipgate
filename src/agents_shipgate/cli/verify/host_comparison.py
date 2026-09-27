@@ -17,6 +17,7 @@ from agents_shipgate.cli.verify.git import (
     merge_base_sha,
     require_merge_base_sha,
     shallow_merge_base_is_proven,
+    tree_path_absent,
     tree_sha,
 )
 from agents_shipgate.core.boundary_diff import BoundaryInputIssue
@@ -156,6 +157,9 @@ def compare_host_refs(
         def identities(paths):
             return blob_path_identities(workspace, base_commit, compared_head, paths)
 
+        def absent(path: str) -> bool:
+            return tree_path_absent(workspace, base_commit, compared_head, path)
+
         def changed_inputs() -> ChangedInputs:
             """The change's own paths, without this run's output directory (#821)."""
 
@@ -187,6 +191,7 @@ def compare_host_refs(
             redact_permission_arguments=redact_permission_arguments,
             unchanged=unchanged,
             identities=identities,
+            absent=absent,
             coverage=coverage,
             changed_inputs=changed_inputs() if coverage else None,
             # A plugin directory a limit is bounded by is left uncompared and

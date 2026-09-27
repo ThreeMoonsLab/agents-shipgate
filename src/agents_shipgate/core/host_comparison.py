@@ -69,7 +69,10 @@ UNCHANGED_LIMIT_ISSUE_KINDS = frozenset({"unsupported", "parse_failed"})
 
 
 def unchanged_limits(
-    before: dict[str, Any], after: dict[str, Any], unchanged: Callable[[str], bool]
+    before: dict[str, Any],
+    after: dict[str, Any],
+    unchanged: Callable[[str], bool],
+    absent: Callable[[str], bool] | None = None,
 ) -> list[dict[str, str]] | None:
     """The limits both inventories share and the change did not touch, or ``None``.
 
@@ -77,6 +80,10 @@ def unchanged_limits(
     such a limit: an issue only one side has, an issue of another kind, a
     source that changed or whose identity cannot be proven, or a host whose
     coverage differs between the two sides.
+
+    ``absent`` answers whether nothing is at a repository path on either side;
+    it only lets a selected hook script both sides report missing be named
+    (#702), and anything short of proof is ``False``.
     """
 
     def blocking(inventory: dict[str, Any]) -> dict[tuple[str, str, str], dict[str, Any]]:
@@ -96,8 +103,8 @@ def unchanged_limits(
         if key in scripts:
             # A selected hook script both sides failed to read alike (#702):
             # unchanged exactly when the file the host would run is, through
-            # any in-tree link on its path (#822).
-            if not unchanged(scripts[key]):
+            # any in-tree link on its path (#822), or when it is on neither.
+            if not _script_unchanged(*scripts[key], unchanged, absent):
                 return None
         elif kind not in UNCHANGED_LIMIT_ISSUE_KINDS or not unchanged(source):
             return None
@@ -152,37 +159,67 @@ def _script_limit_keys(inventory: dict[str, Any]) -> dict[tuple[str, str, str], 
     }
 
 
-def _same_script_limits(before: dict[str, Any], after: dict[str, Any]) -> dict[tuple[str, str, str], str]:
-    """Script limit issues both sides raise for the same script with the same limit, to its path."""
+def _same_script_limits(
+    before: dict[str, Any], after: dict[str, Any]
+) -> dict[tuple[str, str, str], tuple[str, str]]:
+    """Script limit issues both sides raise for the same script with the same limit, to ``(path, limit)``."""
 
     base, head = _script_limit_keys(before), _script_limit_keys(after)
     base_limits, head_limits = hook_dependency_limits(before), hook_dependency_limits(after)
     return {
-        key: script[1]
+        key: (script[1], base_limits[script])
         for key, script in base.items()
-        if head.get(key) == script and base_limits.get(script) == head_limits.get(script)
+        if head.get(key) == script
+        and script in base_limits
+        and base_limits.get(script) == head_limits.get(script)
     }
 
 
+def _script_unchanged(
+    path: str,
+    limit: str,
+    unchanged: Callable[[str], bool] | None,
+    absent: Callable[[str], bool] | None,
+) -> bool:
+    """Whether a script limit both sides share is proven not to hide a change (#702).
+
+    The file the host would run is the same on both sides, or, where both
+    sides found it missing, nothing is at its path on either side: a script
+    in neither commit cannot have been changed by the change. A script
+    present on one side only, as an ignored or untracked file or behind a
+    gitlink, is not.
+    """
+
+    if unchanged is not None and unchanged(path):
+        return True
+    return limit == "missing_input" and absent is not None and absent(path)
+
+
 def _withheld_scripts(
-    before: dict[str, Any], after: dict[str, Any], unchanged: Callable[[str], bool] | None
+    before: dict[str, Any],
+    after: dict[str, Any],
+    unchanged: Callable[[str], bool] | None,
+    absent: Callable[[str], bool] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[tuple[str, str], str]] | None:
     """Both inventories without the bytes of each script a limit leaves unproven (#702 review).
 
     A selected hook script either side could not read is compared no further,
-    unless both sides carry the same limit on it and ``unchanged`` proves the
-    file the host would run unchanged, which :func:`unchanged_limits` names.
+    unless both sides carry the same limit on it and :func:`_script_unchanged`
+    proves it hides no change, which :func:`unchanged_limits` names.
     Only that script's bytes are withheld: its declaring hook, and every other
     grant, is still compared. Returns both inventories and ``{(side, issue
     id): the script's path}``, or ``None`` when no script is withheld.
     """
 
     base, head = hook_dependency_issues(before), hook_dependency_issues(after)
-    shared = set(_same_script_limits(before, after).values())
+    shared = dict(_same_script_limits(before, after).values())
     withheld = {
         script
         for script in {*base.values(), *head.values()}
-        if not (unchanged is not None and script[1] in shared and unchanged(script[1]))
+        if not (
+            script[1] in shared
+            and _script_unchanged(script[1], shared[script[1]], unchanged, absent)
+        )
     }
     if not withheld:
         return None
@@ -872,6 +909,7 @@ def _retained_comparison(
     after: dict[str, Any],
     scopes: PluginScopes | None,
     unchanged: Callable[[str], bool] | None,
+    absent: Callable[[str], bool] | None = None,
 ) -> _Retained | None:
     """What a refused comparison can still compare, or ``None`` (#808, #702).
 
@@ -881,12 +919,12 @@ def _retained_comparison(
     must be one ``unchanged`` proves, as on a comparable comparison.
     """
 
-    withheld = _withheld_scripts(before, after, unchanged)
+    withheld = _withheld_scripts(before, after, unchanged, absent)
     scripts: dict[tuple[str, str], str] = {}
     if withheld is not None:
         before, after, scripts = withheld
     if scopes is not None:
-        plugins = _independent_of_plugin_scopes(before, after, scopes, unchanged)
+        plugins = _independent_of_plugin_scopes(before, after, scopes, unchanged, absent)
         if plugins is not None:
             return replace(
                 plugins,
@@ -897,7 +935,9 @@ def _retained_comparison(
         return None
     limits: list[dict[str, str]] | None = []
     if not (inventory_is_complete(before) and inventory_is_complete(after)):
-        limits = unchanged_limits(before, after, unchanged) if unchanged is not None else None
+        limits = (
+            unchanged_limits(before, after, unchanged, absent) if unchanged is not None else None
+        )
     if limits is None:
         return None
     return _Retained(
@@ -915,6 +955,7 @@ def _independent_of_plugin_scopes(
     after: dict[str, Any],
     scopes: PluginScopes,
     unchanged: Callable[[str], bool] | None,
+    absent: Callable[[str], bool] | None = None,
 ) -> _Retained | None:
     """The comparison outside the plugin directories its limits are bounded by, or ``None`` (#808).
 
@@ -1009,7 +1050,9 @@ def _independent_of_plugin_scopes(
         # Whatever remains incomplete must be a limit both sides share on a
         # source the change did not touch, proven exactly as #721 proves one.
         limits = (
-            unchanged_limits(rest_before, rest_after, unchanged) if unchanged is not None else None
+            unchanged_limits(rest_before, rest_after, unchanged, absent)
+            if unchanged is not None
+            else None
         )
     if limits is None:
         return None
@@ -1039,8 +1082,15 @@ def compare_host_inventories(
     coverage: bool = True,
     changed_inputs: ChangedInputs | None = None,
     plugin_scopes: PluginScopes | None = None,
+    absent: Callable[[str], bool] | None = None,
 ) -> HostComparison:
     """Compare two inventories, refusing unless every limit is proven unchanged.
+
+    ``absent`` answers whether nothing is at one repository path on either
+    side, through no gitlink, link or file on the way (#702); anything short
+    of proof is ``False``. It lets a selected hook script both sides report
+    missing be named in ``unchanged_limits``, since a script in neither
+    commit cannot have been changed; without it such a script is withheld.
 
     ``unchanged`` answers whether one repository-relative source is identical
     on both sides, and for a source reached through an in-tree link, that the
@@ -1085,14 +1135,16 @@ def compare_host_inventories(
     read_after = after
     after = _script_differences_not_shown(before, after, identities)
     if not (inventory_is_complete(before) and inventory_is_complete(after)):
-        shared = unchanged_limits(before, after, unchanged) if unchanged is not None else None
+        shared = (
+            unchanged_limits(before, after, unchanged, absent) if unchanged is not None else None
+        )
         if shared is None:
             if not inventory_is_complete(before):
                 reasons.append("base_inventory_incomplete")
             if not inventory_is_complete(after):
                 reasons.append("head_inventory_incomplete")
             if coverage:
-                retained = _retained_comparison(before, after, plugin_scopes, unchanged)
+                retained = _retained_comparison(before, after, plugin_scopes, unchanged, absent)
         else:
             limits = shared
     baseline_file = base_commit or "compared input"

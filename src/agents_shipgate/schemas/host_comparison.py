@@ -17,7 +17,8 @@ class HostComparisonLimit(BaseModel):
     Named rather than dropped: rows exclude it, and the comparison makes no
     claim about it. ``unreadable`` is only a selected hook script both sides
     failed to read alike, whose file the host would run Git proves unchanged
-    through any in-tree link on its path (#702).
+    through any in-tree link on its path, or which Git proves is on neither
+    side (#702).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -142,7 +143,8 @@ class HostComparisonCoverageItem(BaseModel):
       that comparison did not compare because of this issue (#808): the
       plugin directory the issue is bounded by, or a withheld plugin
       directory that holds it. For a selected hook script either side could
-      not read (#702), unless both read it alike and it is proven unchanged,
+      not read (#702), unless both read it alike and it is proven unchanged
+      or on neither side,
       ``scope`` is the script's own path, equal to ``source``: only its bytes
       were not compared, and the hook declaring it still was.
     - ``changed_not_read``: a path in the comparison's own changed-file set

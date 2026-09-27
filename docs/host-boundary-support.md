@@ -542,12 +542,15 @@ Missing, linked, nonregular, oversized and unreadable inputs retain explicit
 limits, each a blocking `unreadable` issue on the script's own path, and cost
 that script only. Where both sides carry the same limit and Git proves the
 file the host would run unchanged, through any in-tree link on the way, the
-limit is named in `unchanged_limits` and the comparison stays comparable.
+limit is named in `unchanged_limits` and the comparison stays comparable. So
+is a script both sides report missing when Git proves nothing at its path on
+either side, through no gitlink, link or file on the way, and nothing staged
+there: a script in neither commit cannot have been changed by the change.
 Otherwise the comparison is `partial`: the script's bytes are withheld on both
 sides, its `blocking_limit` coverage item names it as `source` and `scope`,
-and every hook and other grant is still compared. A script ignored by Git, one
-missing on both sides, one inside a submodule or one behind a link leaving the
-repository is such a limit. Working-tree bytes that differ from the base only
+and every hook and other grant is still compared. A script ignored by Git or
+untracked on one side only, one inside a submodule or one behind a link
+leaving the repository is such a limit. Working-tree bytes that differ from the base only
 as an `eol=crlf` attribute or `core.autocrlf` can make them are not a row;
 the script is `unchanged_not_proven`.
 

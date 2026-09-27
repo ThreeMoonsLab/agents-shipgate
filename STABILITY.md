@@ -322,8 +322,10 @@ A script this entry could not read costs that script, never the comparison.
 Its limit is a blocking `unreadable` issue on the script's own path. When both
 sides carry the same limit and Git proves the file the host would run
 unchanged, through any in-tree link on its path, it is named in
-`unchanged_limits` (`limit: unreadable`) and the comparison stays comparable.
-Otherwise only its bytes are withheld: the comparison is `partial`, its
+`unchanged_limits` (`limit: unreadable`) and the comparison stays comparable,
+as it is for a script both sides report missing that Git proves is on neither
+side (no gitlink, link or file on the way, nothing staged there): a script in
+neither commit cannot have been changed. Otherwise only its bytes are withheld: the comparison is `partial`, its
 `blocking_limit` coverage item names the script as both `source` and `scope`,
 and every hook and other grant is still compared. A script whose working-tree
 bytes differ from the base only as `eol=crlf` or `core.autocrlf` can make
