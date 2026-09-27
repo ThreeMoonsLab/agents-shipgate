@@ -2010,3 +2010,145 @@ def test_such_a_helper_handed_another_object_is_nothing(repo):
     result = _reset_elsewhere(repo, "", {"helpers.py": _HELPERS, "rows.py": module})
     assert result["comparison_status"] == "compared", result["head"]["limits"]
     assert _pairs(result) == [("plant_agent", "send_image", "added")]
+
+
+# ---------------------------------------------------------------------------
+# #876 review, round 23: the helper is followed from a module that does not
+# import the SDK, through a class or `self`, with a list of agents, through an
+# alias inside it, whatever the call order; reading an agent's attributes
+# through such a helper is not a change.
+
+_PATCHER = (
+    "class Patcher:\n    @staticmethod\n    def apply(agent, overrides):\n"
+    "        for key, value in overrides.items():\n            setattr(agent, key, value)\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("wiring", "extra"),
+    [
+        (
+            "from agent import plant_agent, quote\nfrom helpers import apply\n\napply(plant_agent, {'tools': [quote]})\n",
+            {"helpers.py": _HELPERS},
+        ),
+        (
+            "from agent import plant_agent, quote\nfrom helpers import Patcher\n\nPatcher.apply(plant_agent, {'tools': [quote]})\n",
+            {"helpers.py": _PATCHER},
+        ),
+    ],
+    ids=["function", "static-method"],
+)
+def test_a_helper_call_in_a_module_without_the_sdk_is_followed(repo, wiring, extra):
+    base = commit(
+        repo,
+        {"agent.py": _agents(_PLANT.replace("TOOLS", "[quote]")), "wiring.py": wiring, **extra},
+    )
+    head = commit(repo, {"agent.py": _agents(_PLANT.replace("TOOLS", "[quote, send_image]"))})
+    assert _pairs(run(repo, base, head)) == [("plant_agent", "send_image", "not_established")]
+
+
+@pytest.mark.parametrize(
+    "reset",
+    [
+        _PATCHER + "\n\nPatcher.apply(plant_agent, {'tools': [quote]})\n",
+        "class Patcher:\n    @classmethod\n    def apply(cls, agent, overrides):\n"
+        "        for key, value in overrides.items():\n            setattr(agent, key, value)\n\n\n"
+        "Patcher.apply(plant_agent, {'tools': [quote]})\n",
+        "class Setup:\n    def _apply(self, agent, overrides):\n        for key, value in overrides.items():\n"
+        "            setattr(agent, key, value)\n\n    def run(self):\n        self._apply(plant_agent, {'tools': [quote]})\n\n\n"
+        "Setup().run()\n",
+        "\n\ndef apply_all(agents, overrides):\n    for agent in agents:\n        for key, value in overrides.items():\n"
+        "            setattr(agent, key, value)\n\n\napply_all([plant_agent], {'tools': [quote]})\n",
+        "\n\ndef apply(agent, overrides):\n    target = agent\n    for key, value in overrides.items():\n"
+        "        setattr(target, key, value)\n\n\napply(plant_agent, {'tools': [quote]})\n",
+        "\n\ndef clear_lists(agent):\n    for key, value in vars(agent).items():\n        if isinstance(value, list):\n"
+        "            value.clear()\n\n\nclear_lists(plant_agent)\n",
+        "\n\ndef clear_lists(agent):\n    [value.clear() for value in agent.__dict__.values() if isinstance(value, list)]\n\n\n"
+        "clear_lists(plant_agent)\n",
+    ],
+    ids=[
+        "static-method",
+        "class-method",
+        "self-method",
+        "list-of-agents",
+        "alias-inside",
+        "namespace-items-cleared",
+        "namespace-values-cleared",
+    ],
+)
+def test_a_helper_reached_through_a_class_a_list_or_an_alias_is_followed(repo, reset):
+    assert _pairs(_reset_elsewhere(repo, reset)) == [("plant_agent", "send_image", "not_established")]
+
+
+def test_which_call_comes_first_does_not_change_the_answer(repo):
+    helpers = (
+        "\n\ndef configure(agent, config):\n    for key, value in config.items():\n        setattr(agent, key, value)\n"
+        "    configure_children(agent, config)\n\n\ndef configure_children(agent, config):\n"
+        "    for sub in config.get('children', []):\n        configure(agent, sub)\n"
+    )
+    reset = (
+        helpers + "\n\nclass Other:\n    pass\n\n\nconfigure(Other(), {})\n"
+        "configure_children(plant_agent, {'children': [{'tools': [quote]}]})\n"
+    )
+    assert _pairs(_reset_elsewhere(repo, reset)) == [("plant_agent", "send_image", "not_established")]
+
+
+@pytest.mark.parametrize(
+    "reset",
+    [
+        "\n\nclass Snapshot:\n    pass\n\n\ndef copy_attrs(target, source):\n    for key, value in vars(source).items():\n"
+        "        setattr(target, key, value)\n\n\ncopy_attrs(Snapshot(), plant_agent)\n",
+        "\n\ndef describe(obj):\n    return {key: repr(value) for key, value in vars(obj).items()}\n\n\ndescribe(plant_agent)\n",
+        "\n\ndef f0(agent):\n    f1(agent)\n\n\ndef f1(agent):\n    f2(agent)\n\n\ndef f2(agent):\n    f3(agent)\n\n\n"
+        "def f3(agent):\n    f4(agent)\n\n\ndef f4(agent):\n    print(agent.name)\n\n\nf0(plant_agent)\n",
+    ],
+    ids=["copy-from-the-agent", "describe", "long-read-only-chain"],
+)
+def test_reading_an_agent_through_a_helper_is_not_a_change(repo, reset):
+    result = _reset_elsewhere(repo, reset)
+    assert result["comparison_status"] == "compared", result["head"]["limits"]
+    assert _pairs(result) == [("plant_agent", "send_image", "added")]
+
+
+@pytest.mark.parametrize(
+    ("helper", "name", "call"),
+    [
+        (
+            "def copy_attrs(dst, src):\n    for key, value in vars(src).items():\n        setattr(dst, key, value)\n",
+            "copy_attrs",
+            "class Snapshot:\n    pass\n\n\ncopy_attrs(Snapshot(), plant_agent)\n",
+        ),
+        (
+            "def describe(obj):\n    return {key: repr(value) for key, value in vars(obj).items()}\n",
+            "describe",
+            "DESCRIPTION = describe(plant_agent)\n",
+        ),
+    ],
+    ids=["copy-from-the-agent", "describe"],
+)
+def test_reading_an_agent_through_another_modules_helper_is_not_a_change(repo, helper, name, call):
+    wiring = f"from agent import plant_agent\nfrom helpers import {name}\n\n\n{call}"
+    base = commit(
+        repo,
+        {"agent.py": _agents(_PLANT.replace("TOOLS", "[quote]")), "helpers.py": helper, "wiring.py": wiring},
+    )
+    head = commit(repo, {"agent.py": _agents(_PLANT.replace("TOOLS", "[quote, send_image]"))})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "compared", result["head"]["limits"]
+    assert _pairs(result) == [("plant_agent", "send_image", "added")]
+
+
+def test_another_modules_helper_clearing_the_agents_lists_is_followed(repo):
+    helper = (
+        "def clear_lists(agent):\n    for key, value in vars(agent).items():\n        if isinstance(value, list):\n"
+        "            value.clear()\n"
+    )
+    base = commit(repo, {"agent.py": _agents(_PLANT.replace("TOOLS", "[quote]")), "helpers.py": helper})
+    head = commit(
+        repo,
+        {
+            "agent.py": _agents(_PLANT.replace("TOOLS", "[quote, send_image]")),
+            "wiring.py": "from agent import plant_agent\nfrom helpers import clear_lists\n\nclear_lists(plant_agent)\n",
+        },
+    )
+    assert _pairs(run(repo, base, head)) == [("plant_agent", "send_image", "not_established")]

@@ -761,10 +761,40 @@ def _extract_agent_bindings(
                     return True
             return False
 
+        rewires: dict[tuple[int, int], Callable[[], bool]] = {}
         for receiver, site, strict, via_unresolved in _capability_changes(
-            tree, scopes=scopes, callees=module_callees
+            tree, scopes=scopes, callees=module_callees, rewires=rewires
         ):
             owner = values.owner(receiver, site)
+            check = rewires.get((id(receiver), id(site)))
+            if check is not None:
+                # A call that may hand an agent to a function rewriting it:
+                # only for an agent the file names or imports, or a builder's
+                # result — never a value merely held in some container — and
+                # only when the function does rewrite it (#876 review).
+                if owner is None:
+                    continue
+                direct = (
+                    isinstance(owner, str)
+                    or scope_imported(receiver, site)
+                    or agent_home(receiver, site) is not None
+                )
+                unknown: list[tuple[ast.expr, ast.AST]] = []
+                held = values.agent_like(receiver, site, unknown=unknown) if not direct else None
+                members = [
+                    (member, where)
+                    for member, where in unknown
+                    if scope_imported(member, where) or agent_home(member, where) is not None
+                ]
+                if not (direct or held or members) or not check():
+                    continue
+                if direct:
+                    record_change(owner, site, receiver=receiver)
+                for item in sorted(held or ()):
+                    record_change(item, site, receiver=receiver)
+                for member, where in members:
+                    record_change(True, site, receiver=member, lookup=where)
+                continue
             owners: list[str | bool | None] = [owner]
             if owner is not None and not isinstance(owner, str):
                 # A receiver the reader cannot name may still be one of the
@@ -1048,6 +1078,7 @@ def _capability_changes(
     *,
     scopes: ScopeIndex | None = None,
     callees: ModuleCallees | None = None,
+    rewires: dict[tuple[int, int], Callable[[], bool]] | None = None,
 ) -> list[tuple[ast.expr, ast.AST, bool, bool]]:
     """``(receiver, site, strict)`` wherever a module may change an object's capability list.
 
@@ -1443,6 +1474,54 @@ def _capability_changes(
         )
 
     rewired: dict[tuple[int, str], bool] = {}
+    in_progress: set[tuple[int, str]] = set()
+    #: Whether a computation read an answer still in progress (a cycle): its
+    #: own answer is then not final, and not kept (#876 review).
+    provisional: list[bool] = []
+
+    def rewire_target(
+        call: ast.Call, position: int | None, keyword: str | None, within: ModuleCallees
+    ) -> tuple[ast.FunctionDef | ast.AsyncFunctionDef, str, ModuleCallees] | None:
+        """``parameter_of``, and also a method reached through its class
+        (``Patcher.apply(...)``, a static or class method) or ``self``."""
+
+        target = parameter_of(call, position, keyword, within)
+        if target is not None or not isinstance(call.func, ast.Attribute):
+            return target
+        func = call.func
+        found: tuple[ast.ClassDef, ModuleCallees] | None = None
+        skip = 0
+        if isinstance(func.value, ast.Name) and func.value.id in {"self", "cls"}:
+            current = within.scopes.parents.get(call)
+            while current is not None and not isinstance(current, ast.ClassDef):
+                current = within.scopes.parents.get(current)
+            if isinstance(current, ast.ClassDef):
+                found, skip = (current, within), 1
+        else:
+            found = within._class(func.value, call)
+        if found is None:
+            return None
+        cls, inner = found
+        method = next(
+            (
+                item
+                for item in cls.body
+                if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef) and item.name == func.attr
+            ),
+            None,
+        )
+        if method is None:
+            return None
+        decorators = {dotted_name(decorator) for decorator in method.decorator_list}
+        if "staticmethod" in decorators:
+            skip = 0
+        elif "classmethod" in decorators:
+            skip = 1
+        positional = [*method.args.posonlyargs, *method.args.args][skip:]
+        if position is not None:
+            return (method, positional[position].arg, inner) if position < len(positional) else None
+        names = {arg.arg for arg in [*positional, *method.args.kwonlyargs]}
+        return (method, str(keyword), inner) if keyword in names else None
 
     def parameter_rewired(
         function: ast.FunctionDef | ast.AsyncFunctionDef,
@@ -1451,7 +1530,8 @@ def _capability_changes(
         depth: int = 0,
     ) -> bool:
         """Whether a function rewrites the attributes of what its parameter
-        ``name`` holds by a name computed at run time or through its namespace
+        ``name`` holds — or of a member of it, through a loop or a plain alias
+        — by a name computed at run time or through its namespace
         (``setattr(agent, key, value)`` over overrides, ``vars(agent)[k] = v``,
         ``agent.__setattr__``), or sets one of its capabilities by name, or hands
         it to a function that does — resolved in the function's own module
@@ -1460,55 +1540,135 @@ def _capability_changes(
         key = (id(function), name)
         if key in rewired:
             return rewired[key]
-        if depth > 3:
+        if key in in_progress:
+            if provisional:
+                provisional[-1] = True
+            return False
+        if depth > 8:
             return True
-        rewired[key] = False
-        found = False
+        # ``target = agent``, ``for agent in agents``: the same objects.
+        aliases = {name}
+        grown = True
+        while grown:
+            grown = False
+            for node in ast.walk(function):
+                bound: list[ast.expr] = []
+                if isinstance(node, ast.For | ast.AsyncFor | ast.comprehension) and isinstance(node.iter, ast.Name) and node.iter.id in aliases:
+                    bound = [node.target]
+                elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Name) and node.value.id in aliases:
+                    bound = list(node.targets)
+                for item in bound:
+                    if isinstance(item, ast.Name) and item.id not in aliases:
+                        aliases.add(item.id)
+                        grown = True
 
         def spells(node: ast.AST | None) -> bool:
-            return isinstance(node, ast.Name) and node.id == name
+            return isinstance(node, ast.Name) and node.id in aliases
 
-        for node in ast.walk(function):
-            if isinstance(node, ast.Call):
-                func = node.func
-                first = node.args[0] if node.args else None
-                second = node.args[1] if len(node.args) > 1 else None
-                if isinstance(func, ast.Name) and func.id in {"setattr", "delattr"} and spells(first) and not names_other(second):
-                    found = True
-                elif isinstance(func, ast.Attribute) and func.attr in {"__setattr__", "__delattr__"} and (
-                    spells(func.value) or spells(first)
-                ):
-                    found = True
-                elif (
-                    isinstance(func, ast.Attribute)
-                    and func.attr in {"update", "setdefault", "pop", "popitem", "clear", "items", "values"}
-                    and (spells(namespace_of(func.value)))
-                ):
-                    found = True
-                else:
-                    arguments = [(index, None, arg) for index, arg in enumerate(node.args)] + [
-                        (None, item.arg, item.value) for item in node.keywords if item.arg
-                    ]
-                    for position, keyword, value in arguments:
-                        if spells(value):
-                            target = parameter_of(node, position, keyword, within)
-                            if target is not None and parameter_rewired(*target, depth=depth + 1):
-                                found = True
-                                break
-            elif isinstance(node, ast.Assign | ast.AugAssign | ast.Delete):
-                targets = node.targets if isinstance(node, ast.Assign | ast.Delete) else [node.target]
-                found = any(
-                    isinstance(item, ast.Subscript)
-                    and spells(namespace_of(item.value))
-                    and not names_other(item.slice)
-                    for item in targets
-                )
-            if found:
-                break
-        rewired[key] = found
+        def iterated_changed(call: ast.Call) -> bool:
+            """``for key, value in vars(agent).items(): value.clear()``: an
+            attribute changed in place in the loop. Reading or copying the
+            attributes (``repr(value)``, ``setattr(other, key, value)``) is not.
+            Read in the function's own module, whichever module calls it."""
+
+            parents = within.scopes.parents
+            loop = parents.get(call)
+            if not (isinstance(loop, ast.For | ast.AsyncFor | ast.comprehension) and loop.iter is call):
+                return not _read_only_use(call, parents, lambda *_: False)
+            target = loop.target
+            if isinstance(call.func, ast.Attribute) and call.func.attr == "items":
+                if not (isinstance(target, ast.Tuple | ast.List) and len(target.elts) == 2):
+                    return True
+                target = target.elts[1]
+            if not isinstance(target, ast.Name):
+                return True
+            body: list[ast.AST] = (
+                [*loop.body, *loop.orelse] if isinstance(loop, ast.For | ast.AsyncFor) else [parents.get(loop) or loop]
+            )
+            for statement in body:
+                for inner in ast.walk(statement):
+                    if (
+                        isinstance(inner, ast.Call)
+                        and isinstance(inner.func, ast.Attribute)
+                        and inner.func.attr in _LIST_MUTATORS
+                        and isinstance(inner.func.value, ast.Name)
+                        and inner.func.value.id == target.id
+                    ):
+                        return True
+                    if isinstance(inner, ast.AugAssign) and isinstance(inner.target, ast.Name) and inner.target.id == target.id:
+                        return True
+                    if (
+                        isinstance(inner, ast.Subscript)
+                        and not isinstance(inner.ctx, ast.Load)
+                        and isinstance(inner.value, ast.Name)
+                        and inner.value.id == target.id
+                    ):
+                        return True
+            return False
+
+        in_progress.add(key)
+        provisional.append(False)
+        found = False
+        try:
+            for node in ast.walk(function):
+                if isinstance(node, ast.Call):
+                    func = node.func
+                    first = node.args[0] if node.args else None
+                    second = node.args[1] if len(node.args) > 1 else None
+                    if isinstance(func, ast.Name) and func.id in {"setattr", "delattr"} and spells(first) and not names_other(second):
+                        found = True
+                    elif isinstance(func, ast.Attribute) and func.attr in {"__setattr__", "__delattr__"} and (
+                        spells(func.value) or spells(first)
+                    ):
+                        found = True
+                    elif (
+                        isinstance(func, ast.Attribute)
+                        and func.attr in {"update", "setdefault", "pop", "popitem", "clear"}
+                        and spells(namespace_of(func.value))
+                    ):
+                        found = True
+                    elif (
+                        isinstance(func, ast.Attribute)
+                        and func.attr in {"items", "values"}
+                        and spells(namespace_of(func.value))
+                        and iterated_changed(node)
+                    ):
+                        found = True
+                    else:
+                        arguments = [(index, None, arg) for index, arg in enumerate(node.args)] + [
+                            (None, item.arg, item.value) for item in node.keywords if item.arg
+                        ]
+                        for position, keyword, value in arguments:
+                            if spells(value):
+                                target = rewire_target(node, position, keyword, within)
+                                if target is not None and parameter_rewired(*target, depth=depth + 1):
+                                    found = True
+                                    break
+                elif isinstance(node, ast.Assign | ast.AugAssign | ast.Delete):
+                    targets = node.targets if isinstance(node, ast.Assign | ast.Delete) else [node.target]
+                    found = any(
+                        isinstance(item, ast.Subscript)
+                        and spells(namespace_of(item.value))
+                        and not names_other(item.slice)
+                        for item in targets
+                    )
+                if found:
+                    break
+        finally:
+            in_progress.discard(key)
+            tainted = provisional.pop()
+        if tainted and not found:
+            if provisional:
+                provisional[-1] = True
+        else:
+            rewired[key] = found
         return found
 
     changes: list[tuple[ast.expr, ast.AST, bool, bool]] = []
+    #: ``(argument, call, check)``: a call that may hand an agent to a function
+    #: rewriting it; a change only if ``check()`` — resolved last, and only
+    #: for an argument the caller counts (#876 review).
+    candidates: list[tuple[ast.expr, ast.Call, Callable[[], bool]]] = []
     #: Changes by a name computed at run time or through a namespace: on a
     #: parameter, followed to the module's calls (a list handed on is not —
     #: another library's read of it is the reader's boundary).
@@ -1556,12 +1716,19 @@ def _capability_changes(
                 (None, item.arg, item.value) for item in node.keywords if item.arg
             ]
             for position, keyword, value in arguments:
-                if not isinstance(value, ast.Name | ast.Attribute | ast.Subscript | ast.Call):
-                    continue
-                target = parameter_of(node, position, keyword, callees)
-                if target is not None and parameter_rewired(*target):
-                    changes.append((value, node, True, False))
-                    dynamic.add(id(node))
+                # ``apply_all([plant_agent], overrides)``: each member.
+                receivers = list(value.elts) if isinstance(value, ast.List | ast.Tuple | ast.Set) else [value]
+                for receiver in receivers:
+                    if isinstance(receiver, ast.Starred):
+                        receiver = receiver.value
+                    if not isinstance(receiver, ast.Name | ast.Attribute | ast.Subscript | ast.Call):
+                        continue
+
+                    def check(node: ast.Call = node, position: int | None = position, keyword: str | None = keyword) -> bool:
+                        target = rewire_target(node, position, keyword, callees)
+                        return target is not None and parameter_rewired(*target)
+
+                    candidates.append((receiver, node, check))
             if (
                 isinstance(func, ast.Attribute)
                 and func.attr in _LIST_MUTATORS
@@ -1657,9 +1824,20 @@ def _capability_changes(
                 and changed_by_call(call, spelling)
             )
             changes.append((node.value, node, not changed, not changed and unresolved_call(node)))
-    return changes + _through_call_sites(
-        tree, scopes, [change for change in changes if id(change[1]) in dynamic]
-    )
+    followed = _through_call_sites(tree, scopes, [change for change in changes if id(change[1]) in dynamic])
+    # A candidate that is also a change on its own (``setattr(agent, key,
+    # value)``: its argument and call) is that change, not a candidate.
+    real = {(id(receiver), id(site)) for receiver, site, _, _ in changes}
+    for receiver, site, check in candidates:
+        if (id(receiver), id(site)) in real:
+            continue
+        if rewires is None:
+            if not check():
+                continue
+        else:
+            rewires[(id(receiver), id(site))] = check
+        changes.append((receiver, site, True, False))
+    return changes + followed
 
 
 def _through_call_sites(
@@ -1675,6 +1853,13 @@ def _through_call_sites(
         node.name: node for node in tree.body if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
     }
     followed: list[tuple[ast.expr, ast.AST, bool, bool]] = []
+    if not changes:
+        return followed
+    calls: dict[str, list[ast.Call]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in functions:
+            calls.setdefault(node.func.id, []).append(node)
+    seen: set[tuple[int, str]] = set()
     for receiver, site, strict, _ in changes:
         if not strict or not isinstance(receiver, ast.Name):
             continue
@@ -1686,11 +1871,12 @@ def _through_call_sites(
         function = scopes.parents.get(arguments) if arguments is not None else None
         if not isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef) or functions.get(function.name) is not function:
             continue
+        if (id(function), parameter.arg) in seen:
+            continue
+        seen.add((id(function), parameter.arg))
         positional = [*function.args.posonlyargs, *function.args.args]
         position = next((index for index, item in enumerate(positional) if item is parameter), None)
-        for node in ast.walk(tree):
-            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == function.name):
-                continue
+        for node in calls.get(function.name, []):
             supplied = next((item.value for item in node.keywords if item.arg == parameter.arg), None)
             if supplied is None and position is not None and position < len(node.args):
                 supplied = node.args[position]
@@ -2844,8 +3030,21 @@ def census_module(
     # value proven not to be an agent is left out (#876 review).
     # A Google ADK source constructs its own agents, and its reader does not
     # follow a change to them after construction, so it is read like one.
+    # ``apply(plant_agent, overrides)`` with ``plant_agent`` imported: a
+    # helper may rewrite it (#876 review).
+    hands_scope_names = imports_scope and any(
+        isinstance(node, ast.Call)
+        and any(
+            _root_name(item) in scope_names
+            for arg in [*node.args, *(keyword.value for keyword in node.keywords)]
+            for item in (arg.elts if isinstance(arg, ast.List | ast.Tuple | ast.Set) else [arg])
+        )
+        for node in ast.walk(tree)
+    )
     wants_changes = (
-        not read_as_sdk and touches_capabilities and (imports_scope or read_as_adk)
+        not read_as_sdk
+        and (touches_capabilities or hands_scope_names)
+        and (imports_scope or read_as_adk)
     )
     if not wants_copies and not wants_changes:
         return ModuleCensus([], [], subclasses, **identifiers_of)
@@ -2880,6 +3079,7 @@ def census_module(
                     return ((statement.module or "").rsplit(".", 1)[-1], item.node.name)
             return None
 
+        rewires: dict[tuple[int, int], Callable[[], bool]] = {}
         changes = sorted(
             {
                 (site.lineno, constructor(receiver, site))  # type: ignore[attr-defined]
@@ -2895,6 +3095,7 @@ def census_module(
                         module=module,
                         registry=callee_registry,
                     ),
+                    rewires=rewires,
                 )
                 if (owner := values.owner(receiver, site)) is not None
                 # Handed on: counted for an agent the module builds, one it
@@ -2906,6 +3107,7 @@ def census_module(
                     or via_unresolved
                     or bool(_roots(_through_loops(receiver, site, scopes, bindings)) & scope_names)
                 )
+                and ((id(receiver), id(site)) not in rewires or rewires[(id(receiver), id(site))]())
             },
             key=lambda item: item[0],
         )

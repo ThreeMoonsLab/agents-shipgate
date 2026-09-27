@@ -175,10 +175,15 @@ agents' rows in the file stand:
   `operator.attrgetter("tools")(agent)`) on an agent the file can name or
   imports from the scope, or gets from another file's builder, including one
   handed to a function that changes its parameter this way (`apply(agent,
-  overrides)`, imported, a method, or through another function; not through
+  overrides)`, called from any file that imports the agent, whether it
+  imports the SDK or not; imported, a static, class or `self` method, through
+  another function, over a list of agents or an alias inside it, or clearing
+  the lists it iterates from `vars(agent).items()`; not through
   `functools.partial`, `*args`, `**kwargs` or a default) — on any other
   object, like `setattr(record, field, value)`, `return getattr(module,
-  name)` or copying `vars(args)`, it is the object's own business. An
+  name)` or copying `vars(args)`, it is the object's own business, and a
+  function that only reads the agent's attributes (`describe(agent)`,
+  copying them onto another object) does not change it. An
   index into a list of agents is any member, since the list can be reordered. A change qualifies both sides: a binding
   the constructor makes is not established on the side where the list it is
   in is reset, emptied or replaced after construction either
