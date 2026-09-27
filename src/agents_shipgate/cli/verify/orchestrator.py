@@ -6983,7 +6983,7 @@ def run_preview(
                 why="The checkout is shallow. Run git fetch --unshallow (or use fetch-depth: 0 in CI), then rerun the same comparison.",
             )
         headline = (
-            f"{len(host_comparison.rows)} repository-declared host capability change(s). "
+            f"{len(host_comparison.rows)} repository-declared host capability row(s). "
             "Advisory comparison only; no application release policy configured."
             if host_comparison.comparison_status == "comparable"
             # Partial (#808): the rows are known, the comparison is not whole,
@@ -6991,7 +6991,7 @@ def run_preview(
             # they are published: the control envelope's `capability_rows`
             # projects a partial comparison as incomparable, with none.
             else f"Host comparison is partial: {len(host_comparison.rows)} repository-declared "
-            "host capability change(s) outside what it could not compare, listed under "
+            "host capability row(s) outside what it could not compare, listed under "
             "host_comparison in verifier.json; review its input limits before interpreting changes."
             if host_comparison.comparison_status == "partial"
             else "Host comparison is incomplete; review its input limits before interpreting changes."

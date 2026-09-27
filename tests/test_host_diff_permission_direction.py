@@ -339,6 +339,36 @@ TEXT = {
 }
 
 
+# #858: an arrival for another tool must not split the npm replacement.
+CASES["unrelated_read_added"] = (
+    {"permissions": {"allow": ["Bash(npm test *)"]}},
+    {"permissions": {"allow": ["Bash(npm *)", "Read(src/**)"]}},
+    [
+        ("added", "Bash(npm *)", True),
+        ("added", "Read(src/**)", True),
+        ("removed", "Bash(npm test *)", False),
+    ],
+    2,
+    "require_review",
+    ["SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED"],
+    [
+        "allow_rule_added: claude-code:Bash(npm *)",
+        "allow_rule_added: claude-code:Read(src/**)",
+        "permission_widened: claude-code:Bash(npm test *) -> Bash(npm *)",
+    ],
+)
+TEXT["unrelated_read_added"] = (2, 2)
+
+
+def test_unrelated_read_preserves_shared_review_pair(tmp_path: Path) -> None:
+    base, head, *_ = CASES["unrelated_read_added"]
+    routes = _routes(_repository(tmp_path, base, head))
+    review = routes["diff"]["review"]
+    assert review == routes["verify"]["review"]
+    assert "allow: Bash(npm test *) → allow: Bash(npm *)" in routes["text"]
+    assert "removes a permission the agent previously had here" not in routes["text"]
+
+
 @pytest.mark.parametrize("name", list(CASES))
 def test_every_route_reads_the_same_direction(tmp_path: Path, name: str) -> None:
     base, head, rows, warnings, decision, violations, signals = CASES[name]
@@ -390,3 +420,107 @@ def test_a_whole_server_mcp_grant_still_blocks(tmp_path: Path) -> None:
     [row] = routes["diff"]["rows"]
     assert row["why"] == "matches every target of this kind, without a prompt"
     assert routes["drift"]["expansion_signals"] == ["wildcard_allow_added: claude-code:mcp__github__*"]
+
+
+@pytest.mark.parametrize(
+    ("base_allow", "head_allow", "head_deny", "old", "new", "direction"),
+    [
+        (
+            ["mcp__github__get_issue"],
+            ["mcp__github", "Read(src/**)"],
+            [],
+            "mcp__github__get_issue",
+            "mcp__github",
+            "widened",
+        ),
+        (
+            ["mcp__github"],
+            ["mcp__github__get_issue", "Read(src/**)"],
+            [],
+            "mcp__github",
+            "mcp__github__get_issue",
+            "narrowed",
+        ),
+        (
+            ["Bash(npm *)", "Read(src/**)"],
+            ["Bash(npm test *)", "Read(src/lib/**)"],
+            ["Bash(npm *)"],
+            "Bash(npm *)",
+            "Bash(npm test *)",
+            "narrowed",
+        ),
+        (
+            ["Bash(npm *)", "Read(src/**)"],
+            ["Bash(npm test *)"],
+            ["Bash(npm *)"],
+            "Bash(npm *)",
+            "Bash(npm test *)",
+            "narrowed",
+        ),
+    ],
+)
+def test_review_cases_agree_across_routes(
+    tmp_path, base_allow, head_allow, head_deny, old, new, direction
+):
+    routes = _routes(
+        _repository(
+            tmp_path,
+            {"permissions": {"allow": base_allow}},
+            {"permissions": {"allow": head_allow, "deny": head_deny}},
+        )
+    )
+    assert routes["diff"]["review"] == routes["verify"]["review"]
+    assert any(
+        c["before"] == f"allow: {old}"
+        and c["after"] == f"allow: {new}"
+        and c["direction"] == direction
+        for c in routes["diff"]["review"]["changes"]
+    )
+    assert _shape(routes["diff"]["rows"]) == _shape(routes["check"]["rows"])
+    if direction == "narrowed":
+        assert not any(new in signal for signal in routes["drift"]["expansion_signals"])
+    else:
+        assert (
+            f"permission_widened: claude-code:{old} -> {new}"
+            in routes["drift"]["expansion_signals"]
+        )
+
+
+def test_ambiguous_arrivals_do_not_claim_permission_loss(tmp_path):
+    routes = _routes(
+        _repository(
+            tmp_path,
+            {"permissions": {"allow": ["Bash(npm test *)"]}},
+            {"permissions": {"allow": ["Bash(npm *)", "Bash(git status)"]}},
+        )
+    )
+    assert routes["diff"]["review"] == routes["verify"]["review"]
+    assert routes["diff"]["review"]["summary"] == {"rows": 3, "changes": 3, "widenings": 2}
+    assert "removes a permission the agent previously had here" not in routes["text"]
+    assert "another added allow rule still covers its matches" in routes["text"]
+    assert len(routes["drift"]["expansion_signals"]) == 2
+    assert _shape(routes["diff"]["rows"]) == _shape(routes["check"]["rows"])
+
+
+@pytest.mark.parametrize(
+    "restriction",
+    [
+        {"deny": ["Bash(npm test:*)"]},
+        {"ask": ["Bash(npm test:*)"]},
+        {"deny": ["*"]},
+    ],
+)
+def test_an_arriving_deny_or_ask_rule_withholds_the_covered_wording(tmp_path, restriction):
+    # Deny and ask are evaluated before allow, so the added allow rule no
+    # longer shows that the removed rule's matches are still granted.
+    routes = _routes(
+        _repository(
+            tmp_path,
+            {"permissions": {"allow": ["Bash(npm test *)"]}},
+            {"permissions": {"allow": ["Bash(npm *)", "Bash(git status)"], **restriction}},
+        )
+    )
+    assert "still covers its matches" not in routes["text"]
+    assert not any(
+        "still covers its matches" in row["why"] for row in routes["diff"]["rows"]
+    )
