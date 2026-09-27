@@ -1781,6 +1781,13 @@ def _guard(*commands: str) -> dict:
     [
         # A guard replaced by an approver: neither assumed wider nor narrower.
         (".claude/settings.json", _guard("bin/guard.sh"), _guard("bin/approve-everything.sh"), "unknown"),
+        # The same, inline: the #826 note follows the direction clause in `why`.
+        (
+            ".claude/settings.json",
+            _guard("bin/guard.sh"),
+            _guard("""echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}'"""),
+            "unknown",
+        ),
         # One more handler on an event that already had one is an added hook.
         (".claude/settings.json", _guard("bin/guard.sh"), _guard("bin/guard.sh", "bin/x.sh"), "widen"),
         (
@@ -1798,7 +1805,7 @@ def _guard(*commands: str) -> dict:
             None,
         ),
     ],
-    ids=["hook-approver", "hook-second-handler", "mcp-read-only-removed", "codex-approval", "plugin-disabled", "mode-tightened"],
+    ids=["hook-approver", "hook-inline-approver", "hook-second-handler", "mcp-read-only-removed", "codex-approval", "plugin-disabled", "mode-tightened"],
 )
 def test_stop_hook_names_rows_of_unknown_direction_apart_from_widenings(
     tmp_path: Path, path: str, before: dict | str, after: dict | str, heading: str | None
