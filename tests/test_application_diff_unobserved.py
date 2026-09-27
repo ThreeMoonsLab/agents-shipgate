@@ -1657,3 +1657,83 @@ def test_the_changed_agents_file_is_named(repo):
         and "the agents constructed in agent.py are not established" in limit
         for limit in result["head"]["limits"]
     ), result["head"]["limits"]
+
+
+# ---------------------------------------------------------------------------
+# #876 review, round 18: a container holding another file's agent beside the
+# file's own routes the change to both; a change after construction on the
+# side a binding is observed on qualifies it there too, for the list it
+# changes; a logger adapter is a logger.
+
+_PLANT = 'plant_agent = Agent(name="Plant", tools=TOOLS)\n'
+
+
+@pytest.mark.parametrize(
+    "reset",
+    [
+        "AGENTS = [manager, plant_agent]\nfor each in AGENTS:\n    each.tools = [quote]\n",
+        "AGENTS = [manager, plant_agent]\nAGENTS[1].tools = [quote]\n",
+        "REGISTRY = {'m': manager, 'p': plant_agent}\nREGISTRY['p'].tools = [quote]\n",
+    ],
+    ids=["loop", "subscript", "dict"],
+)
+def test_a_container_of_another_files_agent_limits_it_where_it_is_built(repo, reset):
+    manager = (
+        "from agents import Agent\nfrom agent import plant_agent, quote\n\n"
+        'manager = Agent(name="Manager", tools=[quote])\n' + reset
+    )
+    base = commit(repo, {"agent.py": _agents(_PLANT.replace("TOOLS", "[quote]")), "manager.py": manager})
+    head = commit(repo, {"agent.py": _agents(_PLANT.replace("TOOLS", "[quote, send_image]"))})
+    result = run(repo, base, head)
+    assert _pairs(result) == [("plant_agent", "send_image", "not_established")]
+    assert any("agent.py" in reason for reason in result["rows"][0]["uncertainty"]["head"])
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "candidate", "side"),
+    [
+        (
+            _PLANT.replace("TOOLS", "[quote]"),
+            _PLANT.replace("TOOLS", "[quote, send_image]") + "plant_agent.tools = [quote]\n",
+            "added",
+            "head",
+        ),
+        (
+            _PLANT.replace("TOOLS", "[quote, send_image]") + "plant_agent.tools = [quote]\n",
+            _PLANT.replace("TOOLS", "[quote]"),
+            "removed",
+            "base",
+        ),
+    ],
+    ids=["reset-in-the-head", "reset-in-the-base"],
+)
+def test_a_change_after_construction_qualifies_the_side_it_is_on(repo, before, after, candidate, side):
+    result = _compare(repo, before, after)
+    assert _pairs(result) == [("plant_agent", "send_image", "not_established")]
+    (row,) = result["rows"]
+    assert row["candidate_change"] == candidate
+    assert any("changed after construction" in reason for reason in row["uncertainty"][side])
+
+
+def test_a_handoff_change_does_not_qualify_the_tools_the_constructor_binds(repo):
+    """Wiring handoffs after construction — two agents that hand off to each
+    other — leaves the tools the constructor binds in the head established."""
+
+    plant = 'billing = Agent(name="billing")\n' + _PLANT
+    result = _compare(
+        repo,
+        plant.replace("TOOLS", "[quote]"),
+        plant.replace("TOOLS", "[quote, send_image]") + "plant_agent.handoffs = [billing]\n",
+    )
+    assert _pairs(result) == [("plant_agent", "send_image", "added")]
+
+
+def test_a_logger_adapter_is_a_logger(repo):
+    handler = (
+        "import logging\n\nlog = logging.LoggerAdapter(logging.getLogger(__name__), {})\n\n\n"
+        "def handle(request):\n    log.info('tools %s', request.tools)\n"
+    )
+    before = 'main_agent = Agent(name="Main", tools=[quote])\n' + handler
+    result = _compare(repo, before, before.replace("tools=[quote]", "tools=[quote, send_image]"))
+    assert result["comparison_status"] == "compared", result["head"]["limits"]
+    assert _pairs(result) == [("main_agent", "send_image", "added")]

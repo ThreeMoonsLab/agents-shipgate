@@ -707,6 +707,11 @@ class AgentBindingObservation(BaseModel):
     tools_complete: bool = True
     handoffs_complete: bool = True
     issues: list[str] = Field(default_factory=list)
+    #: ``capability -> why`` for lists changed after the agent is constructed
+    #: (``tools``, ``handoffs``, ``mcp_servers``; ``*`` when the reader cannot
+    #: tell which), so what the constructor binds is not established on that
+    #: side either (#876 review).
+    changed_after_construction: dict[str, str] = Field(default_factory=dict)
 
 
 class SourceSurfaceOmission(BaseModel):

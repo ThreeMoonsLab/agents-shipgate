@@ -160,7 +160,15 @@ agents' rows in the file stand:
   another file constructs — a name imported from it (`from app.plant import
   plant_agent`), or bound to what its function returns (`support = build()`
   with `build` returning `Agent(...)`) — is a limit on that file's agents;
-  anything else may be any agent, in any file, and is a limit on every agent;
+  anything else may be any agent, in any file, and is a limit on every agent.
+  A container holding the file's own agents beside another value (`[manager,
+  plant_agent]` with `plant_agent` imported) limits each: the file's by name,
+  the other where it is built or everywhere. A change qualifies both sides: a
+  binding the constructor makes is not established on the side where the list
+  it is in is changed after construction either (`plant_agent.tools =
+  [quote]` in the head of a change that adds `send_image` to the
+  constructor), while a change to an agent's `handoffs` leaves the tools it is
+  constructed with established there;
 - a copy that passes its own `tools`, `handoffs` or `mcp_servers`
   (`agent.clone(tools=...)`, `dataclasses.replace(agent, tools=...)`,
   `copy.replace(...)`), wherever the original came from, unless the original
@@ -380,7 +388,8 @@ body's own list, or the module's. It is read only when that scope binds it
 once, to a literal list, and every use of that binding in the file only reads
 it: iterated, indexed, compared, tested, formatted, spread (`[*TOOLS, x]`),
 handed to a read-only builtin, a standard-library reader (`json.dumps`) or a
-logger's method — each proven by its binding, so a `print` imported from the
+logger's method (on `logging`, or on what `getLogger()`, `getChild()` or a
+`LoggerAdapter` returns) — each proven by its binding, so a `print` imported from the
 application or an `.info()` on its own object is not one — to an agent's (or a copy's)
 own `tools=`, or to a function whose every use of that parameter is such a
 read. A list method, `+=`, a `global` or `nonlocal` rebinding, a subscript

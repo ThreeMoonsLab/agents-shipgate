@@ -85,6 +85,12 @@ class Observations:
     submodules: dict[str, str] = field(default_factory=dict)
     #: Links under the scope that resolve to nothing in the tree.
     unresolved_links: list[str] = field(default_factory=list)
+    #: ``(source, agent, capabilities, why)`` for lists changed after an agent
+    #: is constructed; ``None`` source or agent reaches every file or agent,
+    #: ``*`` every capability (#876 review). Not published.
+    changes: list[tuple[str | None, str | None, frozenset[str], str]] = field(
+        default_factory=list
+    )
     #: Test files under the scope, which never establish the application
     #: (#876): a test double's agent is not the application's agent.
     excluded_tests: list[str] = field(default_factory=list)
@@ -126,6 +132,26 @@ class Observations:
             ):
                 reasons.append(gap["reason"])
         return sorted(set(reasons))
+
+    def presence_gaps(self, key: tuple[str, str, str]) -> list[str]:
+        """Changes after construction that may undo a binding this side's
+        constructor makes (#876 review): a list reset in another file, or in
+        the same one."""
+
+        capability = "handoffs" if key[2].startswith("handoff:") else "tools"
+        return sorted(
+            {
+                why
+                for source, agent, kinds, why in self.changes
+                if (source is None or key[0] == source or key[0].startswith(source + "/"))
+                and agent in (None, key[1])
+                and (
+                    "*" in kinds
+                    or capability in kinds
+                    or (capability == "tools" and "mcp_servers" in kinds)
+                )
+            }
+        )
 
     def tool_gaps(self, key: tuple[str, str, str]) -> list[str]:
         """Gaps naming this one binding, which even a present binding carries."""
@@ -534,11 +560,13 @@ def observe(
         ]
         if changes:
             # The object may be any agent, in any file (#876 review).
-            result.gap(
+            message = (
                 f"An object's tools, handoffs, MCP servers or sub-agents are changed at "
                 f"{path}:{changes[0]}, in a module the comparison does not read for "
                 "that; agents it reaches are not established."
             )
+            result.gap(message)
+            result.changes.append((None, None, frozenset({"*"}), message))
     for defining, census in sorted(censuses.items()):
         for name, line in sorted(census.subclasses.items()):
             # A package that re-exports the class (``from app.core import *``)
@@ -668,6 +696,10 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
             path = _source_path(root, observation.source)
             constructed.add((path, observation.agent))
             handoff_targets.update((path, name) for name in observation.handoff_names)
+            for capability, why in observation.changed_after_construction.items():
+                result.changes.append(
+                    (_source_path(root, observation.source), observation.agent, frozenset({capability}), why)
+                )
             if not observation.tools_complete or not observation.handoffs_complete:
                 for message in observation.issues or ["Incomplete observed binding list."]:
                     result.gap(
@@ -702,8 +734,10 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
                     result.gap(warning, source=source.path)
                 elif evidence.recovery.reason == "sdk_capability_change_elsewhere":
                     result.gap(warning, source=evidence.path)
+                    result.changes.append((evidence.path, None, frozenset({"*"}), warning))
                 else:
                     result.gap(warning)
+                    result.changes.append((None, None, frozenset({"*"}), warning))
                 attributed.add(warning)
         for omission in item.omissions:
             result.gap(f"Omitted source surface: {omission}", source=source.path)
@@ -919,14 +953,14 @@ def compare(
             reasons = base.absence_gaps(key, target_moves)
             if reasons:
                 uncertainty["base"] = reasons
-            present = head.tool_gaps(key)
+            present = sorted(set(head.tool_gaps(key)) | set(head.presence_gaps(key)))
             if present:
                 uncertainty["head"] = present
         elif after is None:
             reasons = head.absence_gaps(key)
             if reasons:
                 uncertainty["head"] = reasons
-            present = base.tool_gaps(key)
+            present = sorted(set(base.tool_gaps(key)) | set(base.presence_gaps(key)))
             if present:
                 uncertainty["base"] = present
         else:

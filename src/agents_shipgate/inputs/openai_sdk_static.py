@@ -544,7 +544,10 @@ def _extract_agent_bindings(
         # the reader cannot identify may be any agent, here or elsewhere; one
         # it can prove is not an agent is nothing (#876 review).
         unattributed = False
-        limited: set[str] = set()
+        #: ``agent -> reason`` of the agents a change here limits, and the
+        #: ``(agent, capability)`` pairs already recorded.
+        limited: dict[str, str] = {}
+        limited_kinds: set[tuple[str, str]] = set()
         #: Other files whose agents a change here already limits.
         homes: set[str] = set()
         module_callees = ModuleCallees(
@@ -620,7 +623,10 @@ def _extract_agent_bindings(
             site: ast.AST,
             *,
             receiver: ast.expr | None = None,
-            limited: set[str] = limited,
+            lookup: ast.AST | None = None,
+            limited: dict[str, str] = limited,
+            limited_kinds: set[tuple[str, str]] = limited_kinds,
+            scopes: ScopeIndex = scopes,
             homes: set[str] = homes,
             source_ref: str = source_ref,
             list_holders: dict[Any, set[str]] = list_holders,
@@ -629,11 +635,13 @@ def _extract_agent_bindings(
         ) -> None:
             nonlocal unattributed
             # One limit per agent, and one for the file: the first site names it.
-            if owner is None or (owner is True and unattributed) or owner in limited:
+            if owner is None or (owner is True and unattributed):
                 return
             pointer = f"{source_ref}:{site.lineno}"  # type: ignore[attr-defined]
             if owner is True:
-                home = agent_home(receiver, site)
+                # ``lookup``: where a container member is written, which is
+                # where its name is bound.
+                home = agent_home(receiver, lookup or site)
                 if home is not None:
                     path, what = home
                     if path not in homes:
@@ -657,13 +665,20 @@ def _extract_agent_bindings(
                 )
                 return
             assert isinstance(owner, str)
-            limited.add(owner)
-            reason = (
-                f"OpenAI Agents SDK agent {owner!r} has its tools, handoffs or MCP "
-                f"servers changed after construction at {pointer}, which this reader "
-                "does not follow."
-            )
-            warnings.append(reason)
+            # Which list changed: a change to ``handoffs`` does not make what
+            # the constructor binds as ``tools`` uncertain (#876 review).
+            kind = _changed_capability(receiver, site, scopes)
+            if (owner, kind) in limited_kinds:
+                return
+            limited_kinds.add((owner, kind))
+            reason = limited.get(owner)
+            if reason is None:
+                reason = limited[owner] = (
+                    f"OpenAI Agents SDK agent {owner!r} has its tools, handoffs or MCP "
+                    f"servers changed after construction at {pointer}, which this reader "
+                    "does not follow."
+                )
+                warnings.append(reason)
             # Changed in place (not re-assigned): every agent built from the same
             # list object holds the change too (#876 review).
             reached = {owner}
@@ -677,6 +692,7 @@ def _extract_agent_bindings(
                     observation.handoffs_complete = False
                     if reason not in observation.issues:
                         observation.issues.append(reason)
+                    observation.changed_after_construction.setdefault(kind, reason)
 
         def scope_imported(
             receiver: ast.expr,
@@ -713,9 +729,14 @@ def _extract_agent_bindings(
                 # A receiver the reader cannot name may still be one of the
                 # file's own agents, held in its containers: the change is a
                 # limit on those (#876 review).
-                held = values.agent_like(receiver, site)
-                if held:
-                    owners = list(sorted(held))
+                unknown: list[tuple[ast.expr, ast.AST]] = []
+                held = values.agent_like(receiver, site, unknown=unknown)
+                if held or unknown:
+                    owners = list(sorted(held or ()))
+                    # A member that may be another file's agent is limited
+                    # where it comes from, or everywhere (#876 review).
+                    for element, where in unknown:
+                        record_change(True, site, receiver=element, lookup=where)
                 elif (
                     strict
                     and held is None
@@ -1833,6 +1854,25 @@ def _literal_data(value: ast.expr) -> bool:
     )
 
 
+def _changed_capability(receiver: ast.expr | None, site: ast.AST, scopes: ScopeIndex) -> str:
+    """The capability list a change reaches — ``tools``, ``handoffs`` or
+    ``mcp_servers`` — or ``*`` when it cannot be told (#876 review)."""
+
+    parent = scopes.parents.get(receiver) if receiver is not None else None
+    if isinstance(parent, ast.Attribute) and parent.value is receiver:
+        return parent.attr if parent.attr in _CAPABILITY_KEYWORDS else "*"
+    if (
+        isinstance(parent, ast.Call)
+        and len(parent.args) >= 2
+        and parent.args[0] is receiver
+        and isinstance(parent.args[1], ast.Constant)
+        and parent.args[1].value in _CAPABILITY_KEYWORDS
+    ):
+        # ``getattr(agent, "tools")``, ``setattr(agent, "handoffs", ...)``.
+        return str(parent.args[1].value)
+    return "*"
+
+
 def _returns_agent(
     function: ast.FunctionDef | ast.AsyncFunctionDef, sdk_names: _SdkNames, scopes: ScopeIndex
 ) -> bool:
@@ -1991,19 +2031,28 @@ class _AgentValues:
                 return False
         return None
 
-    def agent_like(self, receiver: ast.expr, site: ast.AST, depth: int = 0) -> set[str] | None:
+    def agent_like(
+        self,
+        receiver: ast.expr,
+        site: ast.AST,
+        depth: int = 0,
+        unknown: list[tuple[ast.expr, ast.AST]] | None = None,
+    ) -> set[str] | None:
         """The file's agents a receiver ``owner`` cannot name may be, or None.
 
         An item of a container that holds one (``AGENTS[0]``), a loop variable
         over such a container, or a class attribute bound to one (#876
         review). The set names the agents it can be, empty when they are not
         named; another library's ``request`` is none of these (None).
+        ``unknown`` collects the members that may be agents the file does not
+        construct — ``plant_agent`` imported beside its own ``manager`` — which
+        the caller limits where they come from (#876 review).
         """
 
         if depth > 3:
             return None
         if isinstance(receiver, ast.Subscript):
-            return self._agents_in(receiver.value, site, depth + 1)
+            return self._agents_in(receiver.value, site, depth + 1, unknown)
         if isinstance(receiver, ast.Attribute) and isinstance(receiver.value, ast.Name):
             holder = self.value_of(receiver.value.id, site)
             cls = self.class_nodes.get(receiver.value.id)
@@ -2030,13 +2079,19 @@ class _AgentValues:
             held: set[str] | None = None
             for loop in loops:
                 if isinstance(loop, ast.For | ast.AsyncFor):
-                    agents = self._agents_in(loop.iter, loop, depth + 1)
+                    agents = self._agents_in(loop.iter, loop, depth + 1, unknown)
                     if agents is not None:
                         held = (held or set()) | agents
             return held
         return None
 
-    def _agents_in(self, container: ast.expr, site: ast.AST, depth: int) -> set[str] | None:
+    def _agents_in(
+        self,
+        container: ast.expr,
+        site: ast.AST,
+        depth: int,
+        unknown: list[tuple[ast.expr, ast.AST]] | None = None,
+    ) -> set[str] | None:
         """The agents a container holds, at any depth: its literal items, what is
         put into it (``append``, an item store, ``setdefault``, ``update``), a
         comprehension over one, ``+`` of two, a slice, an iteration wrapper
@@ -2054,13 +2109,28 @@ class _AgentValues:
 
         def add(item: ast.expr, where: ast.AST) -> None:
             nonlocal found
-            if self.is_agent(item, where) is True:
+            verdict = self.is_agent(item, where)
+            if verdict is True:
                 found = found or set()
                 identity = self._identity(item, where)
                 if identity is not None:
                     found.add(identity)
-            elif isinstance(item, ast.List | ast.Tuple | ast.Set | ast.Dict | ast.Name | ast.Call):
-                merge(self._agents_in(item, where, depth + 1))
+                return
+            inner = (
+                self._agents_in(item, where, depth + 1, unknown)
+                if isinstance(item, ast.List | ast.Tuple | ast.Set | ast.Dict | ast.Name | ast.Call)
+                else None
+            )
+            merge(inner)
+            if (
+                verdict is None
+                and inner is None
+                and unknown is not None
+                and isinstance(item, ast.Name | ast.Attribute | ast.Subscript | ast.Call)
+            ):
+                # Not a container of the file's agents, and not proven to be no
+                # agent: it may be one another file constructs.
+                unknown.append((item, where))
 
         if isinstance(container, ast.Name):
             for node in self._appends.get(container.id, []):
@@ -2075,7 +2145,7 @@ class _AgentValues:
                 ] or [item.statement for item in self.module_bindings.get(container.id, [])]
                 for loop in loops:
                     if isinstance(loop, ast.For | ast.AsyncFor):
-                        merge(self._agents_in(loop.iter, loop, depth + 1))
+                        merge(self._agents_in(loop.iter, loop, depth + 1, unknown))
                 return found
             container = value
         if isinstance(container, ast.List | ast.Tuple | ast.Set):
@@ -2085,26 +2155,26 @@ class _AgentValues:
             for item in container.values:
                 add(item, site)
         elif isinstance(container, ast.BinOp):
-            merge(self._agents_in(container.left, site, depth + 1))
-            merge(self._agents_in(container.right, site, depth + 1))
+            merge(self._agents_in(container.left, site, depth + 1, unknown))
+            merge(self._agents_in(container.right, site, depth + 1, unknown))
         elif isinstance(container, ast.Subscript):
             # ``AGENTS[1:]``, or ``GROUPS["x"]`` of a container of containers.
-            merge(self._agents_in(container.value, site, depth + 1))
+            merge(self._agents_in(container.value, site, depth + 1, unknown))
         elif isinstance(container, ast.ListComp | ast.SetComp | ast.GeneratorExp | ast.DictComp):
             for generator in container.generators:
-                merge(self._agents_in(generator.iter, site, depth + 1))
+                merge(self._agents_in(generator.iter, site, depth + 1, unknown))
         elif isinstance(container, ast.Call):
             name = dotted_name(container.func)
             if isinstance(container.func, ast.Attribute) and container.func.attr in {"values", "items", "copy"}:
                 # ``REG.values()`` / ``REG.items()`` of a dict of agents.
-                merge(self._agents_in(container.func.value, site, depth + 1))
+                merge(self._agents_in(container.func.value, site, depth + 1, unknown))
             elif name in _ITERATION_WRAPPERS:
                 for arg in container.args:
-                    merge(self._agents_in(arg, site, depth + 1))
+                    merge(self._agents_in(arg, site, depth + 1, unknown))
             elif isinstance(container.func, ast.Name) and container.func.id in self.functions:
                 for node in ast.walk(self.functions[container.func.id]):
                     if isinstance(node, ast.Return) and node.value is not None:
-                        merge(self._agents_in(node.value, node, depth + 1))
+                        merge(self._agents_in(node.value, node, depth + 1, unknown))
         return found
 
     @property
@@ -2621,12 +2691,17 @@ def _leaves_arguments_alone(call: ast.Call, bindings_at: BindingsAt) -> bool:
         # ``logging.info(...)``.
         return isinstance(statement, ast.Import) and node.name == "logging" and receiver.id == "logging"
     value = getattr(statement, "value", None)
-    # ``logger = logging.getLogger(__name__)``.
+    # ``logger = logging.getLogger(__name__)``, a ``LoggerAdapter`` over one,
+    # or a child logger (#876 review).
     return (
         isinstance(statement, ast.Assign | ast.AnnAssign)
         and isinstance(value, ast.Call)
-        and (reference_spelling(value.func) or "").rsplit(".", 1)[-1] in {"getLogger", "get_logger"}
+        and (reference_spelling(value.func) or "").rsplit(".", 1)[-1] in _LOGGER_FACTORIES
     )
+
+
+#: Calls whose result is a logger.
+_LOGGER_FACTORIES = frozenset({"getLogger", "get_logger", "getChild", "LoggerAdapter"})
 
 
 def _parameter_left_alone(
