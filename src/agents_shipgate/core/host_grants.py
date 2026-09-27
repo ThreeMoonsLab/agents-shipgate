@@ -64,6 +64,7 @@ from agents_shipgate.core.instruction_structure import (
     unresolved_reason_is_invalid_syntax,
 )
 from agents_shipgate.core.jsonc import is_vscode_mcp_path, loads_jsonc
+from agents_shipgate.core.mcp_launch_source import launch_source_pin
 from agents_shipgate.core.permission_lattice import (
     scoped_risk,
     subsumes,
@@ -999,6 +1000,27 @@ def _mcp_launch_args(config: dict[str, Any]) -> tuple[str | None, str | None]:
     return None, redacted_config_sha256(args)
 
 
+def _mcp_launch_source(config: dict[str, Any]) -> dict[str, Any] | None:
+    if _transport_hint(config) != "stdio" or "url" in config:
+        return None
+    args = config.get("args")
+    redacted = _redact_secret_values(args)
+    command = config.get("command")
+    fact = launch_source_pin(command, args)
+    if fact is None:
+        return None
+    pin, index = fact
+    if args[index] != redacted[index] and not args[index].startswith("git+"):
+        return None
+    # Git URLs never publish their path/ref. The bounded parser establishes
+    # only pin state from a credential-free literal URL before path redaction;
+    # interpreting <redacted-path> as a real ref would invent mutability.
+    # Reuse #819's exact publication gate. Bare names and Git URLs remain
+    # withheld even when their pin state can be established.
+    shown = _published_package_index(args, redacted)
+    return {"pin": pin, "package": args[index] if shown == index else None}
+
+
 #: VS Code's prompted-input reference, e.g. `"API_KEY": "${input:apiKey}"`.
 _VSCODE_INPUT_REF = re.compile(r"\$\{input:([^}]+)\}")
 #: The documented top level of `.vscode/mcp.json` (#731). Anything else is not
@@ -1088,6 +1110,7 @@ def _mcp_grants(
             "header_keys": sorted(str(key) for key in headers),
             "package": package,
             "args_sha256": args_sha256,
+            "launch_source": _mcp_launch_source(config),
         })
     return grants
 
@@ -5608,11 +5631,13 @@ def diff_host_grants(baseline: dict[str, Any], current: dict[str, Any]) -> list[
 #: the digest does. Grant equality and the inventory digests leave them out:
 #: a change is still a row, through ``config_sha256``, and a ``0.6`` grant,
 #: which has none of them, compares equal to its ``0.7`` reading of the same
-#: configuration. A saved baseline holds none of them
+#: configuration. #825's source pin classification is display-only too; its
+#: Git-ref fact may describe bytes omitted by URL-path redaction, and never
+#: creates a row by itself. A saved baseline holds none of them
 #: (:func:`build_host_grants_baseline`).
 DISPLAY_ONLY_GRANT_FIELDS: dict[str, frozenset[str]] = {
     "hook": frozenset({"handlers", "omitted_handlers"}),
-    "mcp_server": frozenset({"package", "args_sha256"}),
+    "mcp_server": frozenset({"package", "args_sha256", "launch_source"}),
 }
 
 

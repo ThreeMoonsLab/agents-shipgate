@@ -301,6 +301,26 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="mcp-launch-source-825"></a>
+
+## Migration Note: Unreleased — mutable MCP launch source notes (#825)
+
+Host-grants 0.7 / contract 41 are extended in place. MCP inventory grants add
+optional `launch_source`: `null` when not established, otherwise a `pin` of
+`pinned` or `mutable` plus nullable `package`. The latter passes the existing
+#819 publication gate. Saved baselines omit this display-only fact; grant
+comparison and inventory digests exclude it. Historical baseline absence
+establishes no prior pin, and creates no synthetic change.
+
+The existing row `why` appends a mutable-source note for an added or changed
+MCP declaration recognized by the [bounded launcher grammar](docs/engineering/mcp-launch-source-notes.md).
+A pinned-to-mutable transition names both sides only when both are established.
+Pinned, removed, unknown/dynamic/wrapped and remote URL sources get no note.
+Diff text/JSON, check, verifier host comparison and PR comments share it.
+Direction, expands, severity, expansion signals and check/control decisions
+are unchanged. There is no new check ID, row field or schema discriminator.
+The note says mutable, not unsafe; it is not an actionability or outreach claim.
+
 <a id="partial-host-comparison-808"></a>
 
 ## Migration Note: Unreleased — a plugin directory that cannot be compared no longer hides the rest (verifier `0.21`, capability diff `0.4`, contract v41, #808)

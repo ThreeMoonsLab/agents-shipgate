@@ -927,6 +927,19 @@ _PRINTABLE_URL = re.compile(r"(?:https?|wss?|sse)://[^\s/?#@]+(?:/|/<redacted-pa
 _URL_NOT_SHOWN = "not shown"
 
 
+def _mcp_source_note(before: dict[str, Any] | None, after: dict[str, Any] | None) -> str | None:
+    source = (after or {}).get("launch_source")
+    if not source or source.get("pin") != "mutable":
+        return None
+    old = (before or {}).get("launch_source") or {}
+    def label(value: dict[str, Any]) -> str:
+        package = value.get("package")
+        return f" ({published_workflow_label(str(package))})" if package else ""
+    if old.get("pin") == "pinned":
+        return f"launch source moved from pinned{label(old)} to mutable{label(source)}"
+    return f"launch source is mutable{label(source)}"
+
+
 def _mcp_endpoint(grant: dict[str, Any]) -> str | None:
     """The grant's published endpoint as text may print it, or ``None`` when it has none.
 
@@ -1407,6 +1420,8 @@ def capability_diff_rows(
             gone_secrets=gone_secrets, new_secrets=new_secrets,
             agent_reasons=agent_reasons,
         )
+        if grant.get("kind") == "mcp_server" and (note := _mcp_source_note(before_grant, after_grant)):
+            why = f"{why}; {note}"
         row = CapabilityDiffRow(
             subject=_subject(grant),
             before=_grant_value(
