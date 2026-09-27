@@ -699,32 +699,6 @@ def test_identical_constructions_of_one_identity_are_one_agent(repo):
     assert _pairs(result) == [("agent", "send_image", "added")]
 
 
-def test_many_module_lists_are_read_in_linear_time(tmp_path):
-    import time
-
-    from agents_shipgate.inputs.openai_sdk_static import load_openai_sdk_static_tools
-    from agents_shipgate.schemas.manifest import ToolSourceConfig
-
-    def fastest(count: int) -> float:
-        lines = [TOOLS, "from agents import Agent\n"]
-        for index in range(count):
-            lines.append(f"t_{index} = [quote]\na_{index} = Agent(name='A_{index}', tools=t_{index})\n")
-        path = tmp_path / f"big_{count}.py"
-        path.write_text("".join(lines))
-        source = ToolSourceConfig(id="sdk", type="openai_agents_sdk", path=path.name)
-        best = float("inf")
-        for _ in range(3):
-            started = time.perf_counter()
-            load_openai_sdk_static_tools(source, None, tmp_path)
-            best = min(best, time.perf_counter() - started)
-        return best
-
-    small, large = fastest(100), fastest(1000)
-    # Ten times the lists may cost about ten times as much, never the hundred
-    # times a rescan of the file per list cost (41 s at 1,500 lists).
-    assert large < max(small * 40, 1.0)
-
-
 # ---------------------------------------------------------------------------
 # #876 review, round 3: reads that change nothing, uses spelled only in text,
 # and identities that must survive a rename.

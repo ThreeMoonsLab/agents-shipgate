@@ -257,3 +257,42 @@ def test_scenarios_scale_sublinearly(perf_session: None, tmp_path: Path) -> None
         "    python scripts/run_benchmarks.py --scenario large --json\n"
         "and look for a phase whose share of total time grew vs. small.\n"
     )
+
+
+_SDK_TOOL = '''from agents import function_tool
+@function_tool
+def quote(item: str) -> str:
+    return item
+'''
+
+
+@pytest.mark.perf
+def test_sdk_reader_reads_many_module_lists_without_a_rescan(tmp_path: Path) -> None:
+    """The OpenAI Agents SDK reader must not rescan its file per tool list (#876).
+
+    A rescan per list was quadratic: 41 s at 1,500 lists. Here, not in the
+    parallel correctness gate, because it is a wall-clock ratio and a loaded
+    xdist worker once measured 51x for what reads 27-31x alone (1.0-1.2 s at
+    1,000 lists, 0.03-0.04 s at 100, the same on main). A rescan is ~100x and
+    ~18 s at 1,000 lists, so 60x with a 2 s floor still fails it.
+    """
+
+    from agents_shipgate.inputs.openai_sdk_static import load_openai_sdk_static_tools
+    from agents_shipgate.schemas.manifest import ToolSourceConfig
+
+    def fastest(count: int) -> float:
+        lines = [_SDK_TOOL, "from agents import Agent\n"]
+        for index in range(count):
+            lines.append(f"t_{index} = [quote]\na_{index} = Agent(name='A_{index}', tools=t_{index})\n")
+        path = tmp_path / f"big_{count}.py"
+        path.write_text("".join(lines))
+        source = ToolSourceConfig(id="sdk", type="openai_agents_sdk", path=path.name)
+        best = float("inf")
+        for _ in range(3):
+            started = time.perf_counter()
+            load_openai_sdk_static_tools(source, None, tmp_path)
+            best = min(best, time.perf_counter() - started)
+        return best
+
+    small, large = fastest(100), fastest(1000)
+    assert large < max(small * 60, 2.0), (small, large)
