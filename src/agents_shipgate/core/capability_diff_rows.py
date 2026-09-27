@@ -1412,7 +1412,13 @@ def capability_diff_rows(
             gone_secrets=gone_secrets, new_secrets=new_secrets,
             agent_reasons=agent_reasons,
         )
-        note = residual_prefix_note(after_grant, current_grants)
+        # The examples spell out the rule's prefix, which a route that
+        # redacts rule arguments must not print beside the redacted rule.
+        note = (
+            None
+            if redact_permission_arguments
+            else residual_prefix_note(after_grant, current_grants)
+        )
         if note:
             why = f"{why}; {note}"
         row = CapabilityDiffRow(

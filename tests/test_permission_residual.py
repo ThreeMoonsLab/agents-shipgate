@@ -31,7 +31,10 @@ def test_documented_prefix_forms(suffix):
     note = residual_prefix_note(grant(f"Bash(git push{suffix})"), denies(
         f"Bash(git push --force{suffix})", f"Bash(git push -f{suffix})"))
     assert note
-    for text in ["--delete", "origin :main", "origin +main", "--force-with-lease", "--mirror"]:
+    for text in [
+        "--delete", "origin :main", "origin +main", "--force-with-lease", "--mirror",
+        "origin main --force",
+    ]:
         assert text in note
     assert "may still apply" in note
     assert "allowed without a prompt" not in note
@@ -68,6 +71,26 @@ def test_empty_scope_other_host_and_disposition():
 def test_examples_are_filtered_against_all_denies():
     note = residual_prefix_note(grant("Bash(git push *)"), denies("Bash(git push --delete *)"))
     assert note and "--delete" not in note and "origin :main" in note
+
+
+def test_a_flag_after_the_remote_is_gated_like_every_example():
+    note = residual_prefix_note(grant("Bash(git push *)"), denies("Bash(git push origin *)"))
+    assert note and "origin main --force" not in note and "--delete origin main" in note
+    note = residual_prefix_note(grant("Bash(git push origin *)"), denies("Bash(git push origin main *)"))
+    assert note and "origin main --force" not in note and "origin +main" in note
+
+
+def test_routes_that_redact_rule_arguments_omit_the_note():
+    from agents_shipgate.core.capability_diff_rows import capability_diff_rows
+
+    allow = {**grant("Bash(git push *)"), "risk": "medium", "access": "execute", "wildcard": False}
+    head = [allow, *denies("Bash(git push --force *)")]
+    payload = {"changes": [{"baseline": None, "current": allow}], "expansion_signals": []}
+    (shown,) = capability_diff_rows(payload, current_grants=head)
+    (redacted,) = capability_diff_rows(payload, redact_permission_arguments=True, current_grants=head)
+    assert "origin :main" in shown.why
+    assert redacted.after == "Bash(<redacted-arguments>)"
+    assert "deny prefixes" not in redacted.why and "git push" not in redacted.why
 
 
 def test_documented_word_boundary_bare_command_and_flag_order():
@@ -114,3 +137,7 @@ def test_real_routes_use_unchanged_head_denies_and_preserve_decisions(tmp_path):
     assert row["why"] in invoke("diff", "--base", "main")
     comment = (repo / "agents-shipgate-reports/pr-comment.md").read_text()
     assert "deny prefixes in this source" in comment
+    check_text = invoke("check", "--agent", "codex", "--base", "main", "--format", "agent-boundary-json")
+    check = json.loads(check_text)
+    assert check["rows"] and all("deny prefixes" not in r["why"] for r in check["rows"])
+    assert "origin :main" not in check_text

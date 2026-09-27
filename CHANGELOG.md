@@ -2,10 +2,6 @@
 
 ## Unreleased
 
-### Residual permission-prefix explanation
-
-- A changed Claude Code `git push` prefix allow now names documented command forms that the narrower deny prefixes in the same source do not cover. The shared CLI/JSON/PR explanation considers unchanged head denies too, declines unsupported shapes and preserves all direction, severity and gate decisions. It does not claim those commands will execute without prompting. (#829)
-
 ### Application comparison without prior setup
 
 - Add `diff --application` for OpenAI Agents SDK and Google ADK source-observed per-agent wiring, with exact base/head refs and independently selected scopes. No manifest, saved baseline or authored declarations are needed. The advisory `application_comparison_schema_version: "0.1"` result records before/after evidence, scoped coverage gaps and explicit uncertain candidates; it supplies no release verdict or merge permission. Includes scoped Git materialization, partial-clone recovery, and definition lookup using reader-resolved Python symbols and locations. See [application comparison](docs/application-comparison.md). (#871)
@@ -27,6 +23,7 @@
 
 ### Changes
 
+- A changed Claude Code `git push` prefix allow now names documented command forms that the narrower deny prefixes in the same source do not cover, including a flag placed after the remote (`git push origin main --force`). The shared CLI/JSON/PR explanation considers unchanged head denies too, declines unsupported shapes and preserves all direction, severity and gate decisions; `check`, whose rows redact rule arguments, omits it. It does not claim those commands will execute without prompting. (#829)
 - Rate documented arbitrary-code Bash launcher prefixes with trailing wildcards as critical/admin, and any Bash allow rule the lattice decides is wider than one (`Bash(python3 *)`, `Bash(npx*)`), so widening a rule cannot lower its rating; route newly granted forms through the existing wildcard block check, and count them in the `audit --host` Markdown warning. Show them in check evidence in table text only; exact commands and containment comparisons stay unchanged. `check` no longer reports respelling a Bash rule (`Bash(npx:*)` to `Bash(npx *)`) as a new grant (#824).
 - Move the published-release pins, examples and adoption prompts to `v1.1.0` (contract 40) now that it is published, re-capture the README and quickstart `diff` answers from the published `1.1.0`, and re-measure the pilot ledger's Route H dry run on it. No schema or contract change. (#778)
 - A host comparison names the changed inputs it does not read, so a zero-row result is not read as covering them. (#821; slice 2 of #812)

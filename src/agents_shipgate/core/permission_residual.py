@@ -24,14 +24,18 @@ from agents_shipgate.core.permission_lattice import subsumes
 _PREFIX = re.compile(r"Bash\((git push(?: [A-Za-z0-9_./:+=-]+)*)(?: \*|:\*)\)")
 
 # git-push documents --delete / empty-source refspecs, forced +refspecs,
-# conditional --force-with-lease, and forced/deleted mirrored refs. These
-# examples describe requests, not successful updates or runtime authorization.
+# conditional --force-with-lease, and forced/deleted mirrored refs. #829 also
+# names a flag placed after the remote, which a prefix deny on `--force`
+# never matches as text (matcher evidence, not a claim about Git's option
+# parsing). These examples describe requests, not successful updates or
+# runtime authorization.
 _EXAMPLES = (
     "git push --delete origin main",
     "git push origin :main",
     "git push origin +main",
     "git push --force-with-lease origin main",
     "git push --mirror origin",
+    "git push origin main --force",
 )
 
 

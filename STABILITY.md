@@ -7,7 +7,9 @@ host comparison row `why` text for supported Claude Code `git push` allows.
 It reads all compared head deny rules in that source, including unchanged
 ones, and lists only fixed documented examples outside every deny prefix.
 Unknown, compound, equal, broader or unrelated deny shapes withhold the note.
-CLI, JSON and PR review explanations use the same rows. No field, schema,
+CLI, JSON and PR review explanations use the same rows; `check`, whose rows
+redact rule arguments, omits the note, since its examples would spell out the
+redacted prefix. No field, schema,
 direction, expansion, severity, check decision or authority changes. The note
 describes pattern coverage, not runtime approval; other rules still apply.
 
