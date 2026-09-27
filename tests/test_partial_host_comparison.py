@@ -646,7 +646,9 @@ def test_verify_control_is_the_incomplete_comparisons(tmp_path: Path) -> None:
     assert verifier["merge_verdict"] == "unknown" and not verifier["can_merge_without_human"]
     assert control["next_action"]["kind"] == "discover"
     assert "audit --host" in control["next_action"]["command"]
-    assert verifier["headline"].startswith("Host comparison is partial: 1 repository-declared")
+    assert verifier["headline"].startswith(
+        "Host comparison is partial: 1 repository-declared host capability row(s)"
+    )
     # The envelope's reason is that headline, and points to where the rows are.
     assert envelope["reason"] == verifier["headline"]
     assert "listed under host_comparison in verifier.json" in envelope["reason"]

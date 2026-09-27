@@ -24,6 +24,39 @@
 ### Changes
 
 - Compare exact repository script bytes for supported, selected Claude Code and Codex hook executable references. A script-only edit produces an attributable hook row without asserting a permission expansion; `check` routes the dependency for review from either compared revision. The documented shell spellings resolve (`"$CLAUDE_PROJECT_DIR"/path`, `"${CLAUDE_PROJECT_DIR}"/path`, the variable and path quoted together, or unquoted with a plain path, and `CLAUDE_PLUGIN_ROOT` alike in a plugin's hooks). A script this entry cannot read withholds only its own bytes: an unchanged shared limit is an `unchanged_limits` entry, and any other makes the comparison `partial` with every grant still compared. A script whose working-tree bytes differ only by a checkout's line-ending conversion is `unchanged_not_proven`, not a row. A selected hook whose script is not resolved (an interpreter wrapper, a relative path, a conditional expansion, a compound command or a malformed group) is named as a `script_not_resolved` coverage item while the change could touch it, never a row. A pre-#702 baseline is incomparable only for a hook that now binds a script. Verification binds ignored inputs and missing-path observations, and refuses current authority for unsafe reads. Mode-only changes and recursive dependencies are not compared. (#702)
+- Version-based Action installs log the existing installed engine content
+  digest, including host-only runs. It can be compared with a local verifier's
+  `engine_distribution_sha256`; it is not the wheel ZIP hash. An engine that
+  cannot compute it, such as any release before `1.0.0`, logs a warning and
+  the install continues. The explicit wheel-and-hash install route is
+  unchanged. (#855)
+- The PR-comment fallback uses separated Markdown paragraphs and headings,
+  so fork reviews render correctly in the job summary after a 403 or 404.
+  Successful comment updates and error handling are unchanged. (#856)
+- Host-only Action summaries no longer invent empty scan status or zero scan
+  severity counts. Artifact links name only existing files, and annotation
+  metadata omits `source_report` when no scan report was produced. (#854)
+- Workflow comparison values label their aggregate access (for example,
+  `access: write`) so it is not mistaken for an individual token scope.
+  Direction, severity, explanation and widening signals are unchanged. (#859)
+- Host-only verifier headlines and `control.reason` label their raw count as
+  rows, so a two-row replacement no longer contradicts the review summary
+  that correctly calls it one change. Partial comparisons use the same
+  wording; decisions and control routes are unchanged. (#857)
+- An unrelated permission rule for another tool no longer splits a decided
+  replacement into separate review changes. Adding `Read(src/**)` beside
+  `Bash(npm test *)` → `Bash(npm *)` preserves the paired widening on the
+  shared diff, verifier and check routes. Multiple candidates for the same
+  tool or MCP server remain unpaired. MCP server replacements and
+  narrow-while-denying edits also retain their direction beside unrelated
+  tool changes. Unpaired removals no longer claim a permission loss when
+  an added allow rule in the same source decidedly covers them and no deny
+  or ask rule for that tool arrives in the same edit. (#858)
+- Fix a fail-open comparison where a narrowing in `settings.json` suppressed
+  the expansion signal and ⚠ for the same rule newly allowed in
+  `settings.local.json`. Suppression now stays within its source, restoring
+  that independent grant in `expansion_signals` and review widening counts. (#858)
+
 - Move the published-release pins, examples and adoption prompts to `v1.1.0` (contract 40) now that it is published, re-capture the README and quickstart `diff` answers from the published `1.1.0`, and re-measure the pilot ledger's Route H dry run on it. No schema or contract change. (#778)
 - A host comparison names the changed inputs it does not read, so a zero-row result is not read as covering them. (#821; slice 2 of #812)
   - **The problem.** A pull request that added a Cursor plugin's `mcp.json`, removed a `beforeShellExecution` guard from `.cursor/hooks.json`, gave a dotfiles package's `claude/.claude/settings.json` `Bash(*)`, or moved a marketplace plugin's pinned `sha` printed `No static host-grant changes detected`, as a docs-only change does. Re-running a 23-PR public corpus after #812 found 11 of 23 pull requests were such coverage gaps: 0 of the 9 comparable zero-row results named the changed relevant file, and 4 of them named a file the pull request did not touch while omitting the one it did.
