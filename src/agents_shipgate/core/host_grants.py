@@ -65,6 +65,7 @@ from agents_shipgate.core.instruction_structure import (
 )
 from agents_shipgate.core.jsonc import is_vscode_mcp_path, loads_jsonc
 from agents_shipgate.core.permission_lattice import (
+    exec_equivalent_argument,
     permission_pairing_group,
     scoped_risk,
     subsumes,
@@ -5982,6 +5983,16 @@ def host_grant_expansion_signals(
                 # it narrower now removes nothing and adds nothing; the row
                 # stays, as a change without an expansion signal.
                 continue
+            if (
+                before is not None
+                and exec_equivalent_argument(str(after.get("rule") or "")) is not None
+                and before.get("rule") == after.get("rule")
+                and before.get("config_sha256") is not None
+                and before.get("config_sha256") == after.get("config_sha256")
+            ):
+                # #824 re-rates a saved declaration; unchanged bytes do not
+                # grant new authority merely because this engine rates higher.
+                continue
             marker = "wildcard_allow" if after.get("wildcard") else "allow_rule"
             signals.append(f"{marker}_{prefix}: {after['host']}:{after['rule']}")
         elif kind == "hook":
@@ -6390,13 +6401,28 @@ def render_host_audit_markdown(
         # warning names the wildcards whose tool class earned a severity;
         # the low-risk ones are still listed above, just not shouted (#657).
         notable = [grant for grant in wildcard_rules if grant.get("risk") != "low"]
-        if notable:
+        # A launcher rule is not wildcard-shaped, but the check blocks it
+        # through the same rule, so the line that names that rule counts it
+        # (#824).
+        launchers = [
+            grant
+            for grant in by_kind.get("permission_rule", [])
+            if grant.get("disposition") == "allow"
+            and not grant.get("wildcard")
+            and exec_equivalent_argument(str(grant.get("rule") or "")) is not None
+        ]
+        if notable or launchers:
             lines.append("")
             quiet = len(wildcard_rules) - len(notable)
             lines.append(
-                f"⚠ {len(notable)} wildcard allow rule(s) above low risk; "
+                f"⚠ {len(notable) + len(launchers)} wildcard allow rule(s) above low risk; "
                 "verification reports "
                 "`SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW`."
+                + (
+                    f" {len(launchers)} of them reach arbitrary code through a launcher."
+                    if launchers
+                    else ""
+                )
                 + (
                     f" {quiet} further wildcard rule(s) are read-only and listed above."
                     if quiet

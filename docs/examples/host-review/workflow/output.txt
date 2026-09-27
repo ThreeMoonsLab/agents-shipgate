@@ -1,0 +1,16 @@
+Agent capability diff  54c0a9578668acbc2cc447fb65ab1de108c0679f (54c0a957) -> working tree
+
+⚠ high  widened  github .github/workflows/example.yml
+                read, inspect: contents: read, on: pull_request → write, inspect: contents: write, on: pull_request
+                grants write permissions to workflow jobs
+
+1 change(s), 1 widening what the agent may do (⚠).
+Static configuration only: this is what the files permit, not what the agent did. No verdict is implied.
+
+What this run established:
+  only sources this entry read or tried to read are listed, so this is not the whole change: a changed file it does not read is absent
+  .github/workflows/example.yml (github): compared; 1 row
+
+Review question: Does the team intend this declared capability change?
+Compared: base 54c0a957 → working tree at HEAD 9dda3647, agents-shipgate 1.1.0.
+Reproduce in that working tree: agents-shipgate diff --base 54c0a9578668acbc2cc447fb65ab1de108c0679f

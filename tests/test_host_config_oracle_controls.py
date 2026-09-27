@@ -206,3 +206,25 @@ def test_direction_score_rejects_false_markers_and_missing_positive_markers():
 def test_direction_oracle_distinguishes_disabling_from_enabling(before, after, direction):
     result = expected.expected(KIND, json.dumps(before), json.dumps(after))
     assert [change["semantic_direction"] for change in result["changes"]] == [direction]
+
+
+@pytest.mark.parametrize("rule,rating", [
+    ("Bash(python3 -c *)", "critical"),
+    ("Bash(npx:*)", "critical"),
+    ("Bash(python3 *)", "critical"),
+    ("Bash(python3:*)", "critical"),
+    ("Bash(npx*)", "critical"),
+    ("Bash(n*)", "critical"),
+    ("Bash(sudo *)", "critical"),
+    ("Bash(n:*)", "medium"),
+    ("Bash(npx a*)", "medium"),
+    ("Bash(python3 -c foo *)", "medium"),
+    ("Bash(p* -c *)", "medium"),
+    ("Bash(npx prettier --check .)", "medium"),
+    ("Bash(npm test *)", "medium"),
+    ("Bash(find *)", "medium"),
+    ("Read(**)", None),
+    ("Bash(*)", None),
+])
+def test_exec_rating_oracle_is_separate_from_direction(rule, rating):
+    assert expected.scoped_bash_rating(rule) == rating

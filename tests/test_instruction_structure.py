@@ -43,6 +43,56 @@ def test_skill_body_prose_compares_without_command_mention_heuristic():
     assert _same_structure(_skill(), _skill("```sh\necho example\n```"))
 
 
+@pytest.mark.parametrize("value", ["true", "42", "{catalog: {internal: true}, versions: [1, 2]}"])
+def test_free_form_skill_metadata_retains_values_and_prose_boundary(value):
+    before = _skill(fields=f"metadata:\n  data: {value}\n")
+    result = classify_instruction(".claude/skills/demo/SKILL.md", before)
+    assert result.status == "structured"
+    assert _same_structure(before, before + "More guidance.\n")
+    # A metadata edit remains a structural edit; it is neither dropped nor
+    # stringified into an equivalent declaration.
+    quoted = _skill(fields=f"metadata:\n  data: '{value}'\n")
+    assert not _same_structure(before, quoted)
+    assert not _same_structure(before, _skill())
+
+
+@pytest.mark.parametrize(("value", "changed"), [
+    ("[a, b]", "[a]"), ("internal", "external"), ("true", "'true'"), ("[]", "{}"),
+])
+def test_non_map_metadata_is_digested_as_written(value, changed):
+    """Claude Code drops a non-map `metadata` and grants nothing from it (#848).
+
+    Read like an undocumented key (#730): the skill is structured, prose still
+    proves unchanged structure, and any change to the value is a change.
+    """
+
+    before = _skill(fields=f"metadata: {value}\n")
+    result = classify_instruction(".claude/skills/demo/SKILL.md", before)
+    assert result.status == "structured"
+    assert _same_structure(before, before + "More guidance.\n")
+    assert not _same_structure(before, _skill(fields=f"metadata: {changed}\n"))
+    assert not _same_structure(before, _skill())
+
+
+@pytest.mark.parametrize(("value", "reason"), [
+    # A key that is not a string, which the digest would write as one: `true`
+    # and 'True', in one map or across a change, would read as the same key.
+    # At the top of the map, nested, inside a list, and in a non-map value.
+    ("{true: a, 'True': b}", "frontmatter_invalid_structure"),
+    ("{nested: {true: a, 'True': b}}", "frontmatter_invalid_structure"),
+    ("{items: [{false: value}]}", "frontmatter_invalid_structure"),
+    ("[{1: integer}]", "frontmatter_invalid_structure"),
+    # A control, refused before the key check: `1` and '1' have the same
+    # scalar text, which the duplicate-key check already refuses.
+    ("{nested: {1: integer, '1': text}}", "frontmatter_ambiguous_keys"),
+])
+def test_metadata_keys_the_digest_would_collapse_remain_unresolved(value, reason):
+    result = classify_instruction(
+        ".claude/skills/demo/SKILL.md", _skill(fields=f"metadata: {value}\n"),
+    )
+    assert (result.status, result.reason) == ("unresolved", reason)
+
+
 @pytest.mark.parametrize("field", [
     "allowed-tools: Bash(*)\n",
     "hooks:\n  PreToolUse:\n    - hooks:\n        - type: command\n          command: ./audit.sh\n",

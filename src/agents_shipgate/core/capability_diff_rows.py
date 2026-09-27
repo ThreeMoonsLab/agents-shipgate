@@ -49,7 +49,12 @@ from agents_shipgate.core.host_grants import (
     step_action_key,
 )
 from agents_shipgate.core.host_settings import rate_claude_setting, setting_value_text
-from agents_shipgate.core.permission_lattice import permission_pairing_group, subsumes
+from agents_shipgate.core.permission_lattice import (
+    exec_equivalent_argument,
+    permission_pairing_group,
+    subsumes,
+)
+from agents_shipgate.core.permission_residual import residual_prefix_note
 from agents_shipgate.schemas.capability_diff import CapabilityDiffRow as CapabilityDiffRow
 
 ABSENT = "—"
@@ -679,6 +684,8 @@ def _why(
             return f"a {condition} the agent is subject to"
         if direction == REMOVED:
             return "removes a permission the agent previously had here"
+        if exec_equivalent_argument(str(grant.get("rule") or "")) is not None:
+            return "reaches arbitrary code through a launcher, without a prompt"
         if wildcard and access == "admin":
             return "matches any command of this kind, without a prompt"
         if wildcard:
@@ -1373,7 +1380,8 @@ def _link_rows(
 
 
 def capability_diff_rows(
-    payload: dict[str, Any], *, redact_permission_arguments: bool = False
+    payload: dict[str, Any], *, redact_permission_arguments: bool = False,
+    current_grants: Sequence[dict[str, Any]] = (),
 ) -> list[CapabilityDiffRow]:
     """Every typed grant change in ``payload``, one row each."""
 
@@ -1481,6 +1489,15 @@ def capability_diff_rows(
         ):
             # Wording only: ambiguity still forbids a pair or signal suppression.
             why = "removes this allow rule; another added allow rule still covers its matches"
+        # The examples spell out the rule's prefix, which a route that
+        # redacts rule arguments must not print beside the redacted rule.
+        note = (
+            None
+            if redact_permission_arguments
+            else residual_prefix_note(after_grant, current_grants)
+        )
+        if note:
+            why = f"{why}; {note}"
         row = CapabilityDiffRow(
             subject=_subject(grant),
             before=_grant_value(

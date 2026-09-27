@@ -1,0 +1,29 @@
+blob
+mark :1
+data 18
+{"mcpServers":{}}
+
+reset refs/heads/main
+commit refs/heads/main
+mark :2
+author fixture <fixture@example.invalid> 1790507899 -0700
+committer fixture <fixture@example.invalid> 1790507899 -0700
+data 17
+constructed base
+M 100644 :1 .mcp.json
+
+blob
+mark :3
+data 81
+{"mcpServers":{"docs":{"type":"http","url":"https://docs.example.invalid/mcp"}}}
+
+commit refs/heads/change
+mark :4
+author fixture <fixture@example.invalid> 1790507899 -0700
+committer fixture <fixture@example.invalid> 1790507899 -0700
+data 19
+constructed change
+from :2
+M 100644 :3 .mcp.json
+
+done

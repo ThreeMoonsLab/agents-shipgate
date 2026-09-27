@@ -1,0 +1,32 @@
+{
+  "base_commit": "7a401ae9c08d66dc72755890fbd3535ddcb50918",
+  "base_ref": "7a401ae9c08d66dc72755890fbd3535ddcb50918",
+  "capability_diff_schema_version": "0.3",
+  "comparison_status": "incomparable",
+  "coverage": {
+    "items": [
+      {
+        "detail": "static parser rejected this json file (JSONDecodeError)",
+        "hosts": [
+          "claude-code"
+        ],
+        "limit": "parse_failed",
+        "rows": 0,
+        "scope": null,
+        "side": "head",
+        "source": ".claude/settings.json",
+        "status": "blocking_limit"
+      }
+    ],
+    "omitted_items": 0,
+    "read_sources_only": true
+  },
+  "incomparable_reasons": [
+    "head_inventory_incomplete"
+  ],
+  "review": null,
+  "rows": [],
+  "static_analysis_only": true,
+  "unchanged_limits": [],
+  "workspace": "/private/tmp/shipgate-798-cards/shell/repo"
+}

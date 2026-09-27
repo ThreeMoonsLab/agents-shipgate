@@ -290,3 +290,40 @@ def expected(kind: str, before_text: str | None, after_text: str | None) -> dict
 if __name__ == "__main__":
     print(json.dumps(expected(sys.argv[1], Path(sys.argv[2]).read_text() if sys.argv[2] != "-" else None,
                               Path(sys.argv[3]).read_text() if sys.argv[3] != "-" else None), indent=2))
+
+
+# Separate rating oracle for #824. Not imported from the engine; its scope is
+# documented in docs/engineering/exec-equivalent-permissions.md. This oracle
+# was authored after engine-output exposure, not independently human-labelled.
+_EXEC_LAUNCHERS = {
+    "python -c", "python3 -c", "node -e", "node --eval", "node -p", "node --print",
+    "ruby -e", "perl -e", "perl -E", "php -r", "bash -c", "sh -c", "zsh -c", "pwsh -c",
+    "eval", "npx", "bunx", "pnpm dlx", "pnpm exec", "uvx", "uv run", "uv tool run",
+    "pipx run", "docker exec", "docker run", "xargs", "env", "sudo",
+}
+
+
+def scoped_bash_rating(rule: str) -> str | None:
+    """Expected rating only for closed, non-whole Bash declarations.
+
+    Critical when the declaration admits a launcher followed by any payload
+    the caller picks: its text, up to one trailing `*` (a trailing `:*` read
+    as ` *`), starts every `<launcher> <payload>` command. That covers the
+    launcher's own `Bash(npx *)` and anything wider (`Bash(npx*)`,
+    `Bash(python3 *)`); a pattern with any other glob syntax is not scored as
+    critical. Stated from the command strings, not from engine containment.
+    """
+    if not rule.startswith("Bash(") or not rule.endswith(")"):
+        return None
+    argument = rule[5:-1]
+    if not argument or argument.startswith("*"):
+        return None
+    command = argument[:-2]
+    if argument.endswith(":*") and command.strip() and command == command.rstrip():
+        argument = command + " *"
+    head = argument[:-1]
+    if argument.endswith("*") and not set("*[]?{}") & set(head):
+        for launcher in _EXEC_LAUNCHERS:
+            if all(f"{launcher} {payload}".startswith(head) for payload in ("a", "b")):
+                return "critical"
+    return "medium"
