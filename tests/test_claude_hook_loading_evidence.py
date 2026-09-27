@@ -953,9 +953,9 @@ def test_a_plugin_the_project_settings_enable_from_the_repository_is_loaded(
 
     assert (grant["access"], grant["risk"]) == ("execute", "high")
     assert hook_loading_basis(grant) == "project_enabled_plugin"
-    assert payload["expansion_signals"] == ["hook_changed: claude-code:.claude/hooks/hooks.json"]
+    assert payload["expansion_signals"] == []
     assert [(row.subject, row.direction, row.expands, row.severity) for row in rows] == [
-        ("claude-code .claude/hooks/hooks.json", "widened", True, "high")
+        ("claude-code .claude/hooks/hooks.json", "changed", False, "high")
     ]
     assert rows[0].why.startswith(LOADED_WHY)
     assert ENABLED_WHY in rows[0].why
@@ -1227,24 +1227,24 @@ def test_the_drift_gate_exits_20_once_on_a_published_1_0_0_baseline(tmp_path: Pa
     _never_executed(root)
 
 
-def test_diff_marks_an_enabled_plugin_hook_change_as_widening_as_1_0_0_did(tmp_path: Path) -> None:
+def test_diff_keeps_an_enabled_plugin_hook_edit_without_claiming_a_direction(tmp_path: Path) -> None:
     root = _repository(tmp_path, _self_enabled(), {".claude/hooks/hooks.json": CHANGED_HOOK})
 
     text = runner.invoke(app, ["diff", "--workspace", str(root), "--base", "main"])
     data = runner.invoke(app, ["diff", "--workspace", str(root), "--base", "main", "--json"])
 
     assert text.exit_code == 0, text.output
-    # Published 1.0.0 printed exactly this line for the same change.
-    assert "⚠ high  widened  claude-code .claude/hooks/hooks.json" in text.output
-    assert "1 widening what the agent may do" in text.output
+    # #820 corrects the widening claim while retaining the loaded hook row.
+    assert "high  changed  claude-code .claude/hooks/hooks.json" in text.output
+    assert "⚠" not in text.output
     payload = json.loads(data.output)
     assert [
         (row["subject"], row["direction"], row["expands"], row["severity"]) for row in payload["rows"]
-    ] == [("claude-code .claude/hooks/hooks.json", "widened", True, "high")]
+    ] == [("claude-code .claude/hooks/hooks.json", "changed", False, "high")]
     _never_executed(root)
 
 
-def test_verify_publishes_the_enabled_plugin_hook_as_widening(tmp_path: Path) -> None:
+def test_verify_publishes_the_enabled_plugin_hook_edit_as_changed(tmp_path: Path) -> None:
     root = _repository(
         tmp_path,
         {**_self_enabled(), ".gitignore": "agents-shipgate-reports/\n"},
@@ -1261,27 +1261,27 @@ def test_verify_publishes_the_enabled_plugin_hook_as_widening(tmp_path: Path) ->
     assert [
         (row["subject"], row["direction"], row["expands"], row["severity"])
         for row in verifier["host_comparison"]["rows"]
-    ] == [("claude-code .claude/hooks/hooks.json", "widened", True, "high")]
+    ] == [("claude-code .claude/hooks/hooks.json", "changed", False, "high")]
     comment = (root / "agents-shipgate-reports/pr-comment.md").read_text()
     assert "claude-code .claude/hooks/hooks.json" in comment
-    assert "widened" in comment
+    assert "changed" in comment
 
 
 @pytest.mark.parametrize("fmt", ["text", "agent-boundary-json", "agent-control-json"])
-def test_check_orders_the_enabled_plugin_hook_as_an_expansion(tmp_path: Path, fmt: str) -> None:
+def test_check_retains_review_of_the_enabled_plugin_hook_without_expansion(tmp_path: Path, fmt: str) -> None:
     root = _repository(tmp_path, _self_enabled(), {".claude/hooks/hooks.json": CHANGED_HOOK})
 
     result = _check(root, fmt)
 
     assert result.exit_code == 0, result.output
     if fmt == "text":
-        assert "high / widened — claude-code .claude/hooks/hooks.json" in result.output
+        assert "high / changed — claude-code .claude/hooks/hooks.json" in result.output
         return
     payload = json.loads(result.output)
     assert payload["decision"] == "require_review"
     rows = payload["rows"] if fmt == "agent-boundary-json" else payload["capability_rows"]["rows"]
     assert [(row["direction"], row["expands"], row["severity"]) for row in rows] == [
-        ("widened", True, "high")
+        ("changed", False, "high")
     ]
 
 

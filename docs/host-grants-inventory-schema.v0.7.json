@@ -519,6 +519,31 @@
           ],
           "default": null
         },
+        "decision_limit": {
+          "anyOf": [
+            {
+              "const": "script_or_command_behavior_not_read",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision Limit"
+        },
+        "inline_allow": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inline Allow"
+        },
         "matcher": {
           "anyOf": [
             {
@@ -806,6 +831,37 @@
       "title": "HostInventoryIssueV2",
       "type": "object"
     },
+    "HostMcpLaunchSourceV7": {
+      "additionalProperties": false,
+      "properties": {
+        "package": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Package"
+        },
+        "pin": {
+          "enum": [
+            "pinned",
+            "mutable"
+          ],
+          "title": "Pin",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pin"
+      ],
+      "title": "HostMcpLaunchSourceV7",
+      "type": "object"
+    },
     "HostMcpServerGrantV7": {
       "additionalProperties": false,
       "properties": {
@@ -884,6 +940,17 @@
           "default": "mcp_server",
           "title": "Kind",
           "type": "string"
+        },
+        "launch_source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostMcpLaunchSourceV7"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "package": {
           "anyOf": [

@@ -58,6 +58,68 @@ def presented_changes(comparison: HostComparison) -> list[ReviewChange]:
     ]
 
 
+def permission_guidance_lines(
+    comparison: HostComparison, *, markdown: bool = False, max_chars: int = 2400,
+) -> list[str]:
+    """Bounded published guidance, after facts, coverage and authority (#839).
+
+    Whole items only: an output bound must never cut a condition off its choice.
+    Older artifacts get a limit, not questions reconstructed from their labels.
+    """
+    if not comparison.rows or comparison.comparison_status == "incomparable":
+        return []
+    review = comparison.review
+    # A comparison that recorded guidance sets the field on every change, `null`
+    # where the change is not a supported shell case; an artifact from before
+    # #839 has no such field. Only that one is a limit worth a line: a fresh
+    # comparison whose permission rows are all non-shell (`allow: Read(src/**)`,
+    # `deny: WebFetch`) has nothing to say here.
+    recorded = review is not None and sorted(
+        index for item in review.changes for index in item.row_indexes
+    ) == list(range(len(comparison.rows))) and all(
+        "guidance" in item.model_fields_set for item in review.changes
+    )
+    if not recorded:
+        if not any(row.disposition for row in comparison.rows):
+            return []
+        line = "Specific permission guidance unavailable: this artifact records no supported raw rule evidence."
+        return [line] if len(line) <= max_chars else []
+    items = [(index + 1, item.guidance) for index, item in enumerate(review.changes)
+             if item.guidance is not None]
+    if not items:
+        return []
+    boundary = (
+        "Conditional review choices only; current control permissions still apply. "
+        "A PR note grants no authority."
+    )
+    lines = ["Permission review guidance:", boundary]
+    shown = 0
+    def omitted(count):
+        return f"{count} guidance item(s) omitted; see review.changes[].guidance in JSON (verifier.json for PR evidence)."
+    for index, guidance in items[:2]:
+        assert guidance is not None
+        block = [f"- Change {index}: " + _text(guidance.source or "evidence unavailable", markdown=markdown)]
+        if guidance.question:
+            block.append("  Question: " + _text(guidance.question, markdown=markdown))
+        block.extend("  Limit: " + _text(value, markdown=markdown) for value in guidance.limitations)
+        block.extend("  Choice: " + _text(value, markdown=markdown) for value in guidance.choices)
+        block.append("  Advisory next actor: " + _text(guidance.next_actor, markdown=markdown))
+        if guidance.verification:
+            block.append("  Verification: " + _text(guidance.verification, markdown=markdown))
+        remainder = len(items) - shown - 1
+        candidate = [*lines, *block, *([omitted(remainder)] if remainder else [])]
+        if len("\n".join(candidate)) > max_chars:
+            break
+        lines.extend(block)
+        shown += 1
+    if shown < len(items):
+        lines.append(omitted(len(items) - shown))
+    if len("\n".join(lines)) <= max_chars:
+        return lines
+    line = omitted(len(items))
+    return [line] if len(line) <= max_chars else []
+
+
 #: The label on the provenance line where the comparison was refused (#812
 #: follow-up). A refused result opens with `Cannot compare against main: …`,
 #: so reading `Compared: base … → working tree …` four lines below it reads as
@@ -736,6 +798,7 @@ def host_comparison_lines(
     coverage_max_chars: int | None = None,
     entry_max_chars: int | None = None,
     entry_note: bool = True,
+    guidance_max_chars: int = 0,
 ) -> list[str]:
     """The host comparison a reviewer reads, coverage block included.
 
@@ -860,4 +923,7 @@ def host_comparison_lines(
             # Ends the list: a following line would otherwise continue its last item.
             lines.append("")
         lines.extend(tail)
+    guidance = permission_guidance_lines(comparison, markdown=markdown, max_chars=guidance_max_chars)
+    if guidance:
+        lines.extend(["", *guidance])
     return lines

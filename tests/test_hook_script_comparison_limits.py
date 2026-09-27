@@ -378,6 +378,8 @@ def test_verify_publishes_the_script_evidence_a_0_20_verifier_cannot_claim(tmp_p
         legacy["host_comparison"]["coverage"].pop(key)
     for entry in legacy["host_comparison"]["coverage"]["items"]:
         entry.pop("candidate")
+    for change in legacy["host_comparison"]["review"]["changes"]:
+        change.pop("guidance", None)  # #839's field, which 0.20 also cannot carry
     with pytest.raises(ValueError, match="hook script dependencies"):
         VerifierArtifact.model_validate(legacy)
 

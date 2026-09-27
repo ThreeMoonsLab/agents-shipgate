@@ -670,6 +670,13 @@ class HostHookHandlerV7(BaseModel):
     command: HostHookCommandV7 | None = None
     # `bool` first: pydantic's lax `int` would otherwise read `true` as `1`.
     timeout: bool | int | float | str | None = None
+    # #826: literal declaration facts only; false is not proof of no approval.
+    # Present only on a Claude Code PreToolUse handler, the one the reader
+    # examines: absent means not examined, never "read, no allow".
+    inline_allow: bool | None = Field(default=None, exclude_if=lambda value: value is None)
+    decision_limit: Literal["script_or_command_behavior_not_read"] | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
 
 
 #: Why a hook handler's script bytes were not established (#702): the
@@ -738,6 +745,13 @@ class HostHookGrantV7(HostHookComparisonV7):
     omitted_handlers: int = Field(default=0, ge=0)
 
 
+class HostMcpLaunchSourceV7(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pin: Literal["pinned", "mutable"]
+    package: str | None = Field(default=None, max_length=200)
+
+
 class HostMcpServerGrantV7(HostMcpServerGrantV2):
     #: The one argument published as written: the first that is a package
     #: specification of a strict shape (npm ``name@version`` or
@@ -753,6 +767,10 @@ class HostMcpServerGrantV7(HostMcpServerGrantV2):
     #: Both members are always present in a ``0.7`` inventory grant; a saved
     #: baseline holds neither.
     args_sha256: str | None = Field(pattern=r"^[0-9a-f]{64}$")
+    #: Optional display fact from bounded, redacted launcher arguments (#825).
+    #: Omitted from saved baselines and grant/digest equality, like package.
+    launch_source: HostMcpLaunchSourceV7 | None = None
+
 
 
 # v0.7 reads how a coding agent is launched inside a job (#823). The v0.6

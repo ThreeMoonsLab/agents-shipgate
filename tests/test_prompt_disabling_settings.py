@@ -299,7 +299,11 @@ def test_every_surface_gives_a_setting_one_rating(tmp_path: Path, case: str) -> 
     text = _run(["diff", *workspace, "--base", "main"])
     for cell, severity in rows:
         assert cell in text
-        assert f"⚠ {severity}" in text
+        assert severity in text
+        if cell == "defaultMode: dontAsk":
+            assert not next(row for row in diff["rows"] if row["after"] == cell)["expands"]
+        else:
+            assert f"⚠ {severity}" in text
 
     # check: the violations, at the same rating, in every maintained format.
     boundary = json.loads(_run([*check, "agent-boundary-json"]))

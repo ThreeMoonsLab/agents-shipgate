@@ -2604,6 +2604,17 @@
           "title": "Expands",
           "type": "boolean"
         },
+        "guidance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PermissionReviewGuidance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "row_indexes": {
           "items": {
             "type": "integer"
@@ -2944,6 +2955,148 @@
         "required_reviewers"
       ],
       "title": "NoHumanReview",
+      "type": "object"
+    },
+    "PermissionReviewGuidance": {
+      "additionalProperties": false,
+      "description": "Advisory human choices, never control or authority (#839).\n\nRule identities come from reader facts. Null evidence means unavailable,\nnever an absent declaration; `case` distinguishes that from an addition.\nEnclosing comparison refs and coverage apply to every item.",
+      "properties": {
+        "after_disposition": {
+          "anyOf": [
+            {
+              "enum": [
+                "allow",
+                "deny"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After Disposition"
+        },
+        "after_rule": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After Rule"
+        },
+        "before_disposition": {
+          "anyOf": [
+            {
+              "enum": [
+                "allow",
+                "deny"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Before Disposition"
+        },
+        "before_rule": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Before Rule"
+        },
+        "case": {
+          "enum": [
+            "allow_widened",
+            "allow_narrowed",
+            "disposition_moved",
+            "declaration_added",
+            "declaration_removed",
+            "unavailable"
+          ],
+          "title": "Case",
+          "type": "string"
+        },
+        "choices": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 3,
+          "title": "Choices",
+          "type": "array"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "title": "Limitations",
+          "type": "array"
+        },
+        "next_actor": {
+          "const": "declaration owner to be assigned",
+          "default": "declaration owner to be assigned",
+          "title": "Next Actor",
+          "type": "string"
+        },
+        "question": {
+          "anyOf": [
+            {
+              "maxLength": 1200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Question"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "verification": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verification"
+        }
+      },
+      "required": [
+        "case"
+      ],
+      "title": "PermissionReviewGuidance",
       "type": "object"
     },
     "PolicyPredicateEvidence": {

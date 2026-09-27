@@ -447,6 +447,7 @@ def run_capability_diff(
         return 0
     from agents_shipgate.report.host_comparison import (
         comparison_reference_lines,
+        permission_guidance_lines,
         presented_changes,
         review_question,
     )
@@ -472,6 +473,8 @@ def run_capability_diff(
         typer.echo("")
     typer.echo(review_question(changes))
     for line in comparison_reference_lines(comparison):
+        typer.echo(line)
+    for line in permission_guidance_lines(comparison):
         typer.echo(line)
     return 0
 

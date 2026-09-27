@@ -1,0 +1,9 @@
+Cannot compare against 7a401ae9c08d66dc72755890fbd3535ddcb50918: head_inventory_incomplete
+This is an input limit, not a finding about the change. Nothing below is a claim that the change is safe.
+
+What this run established:
+  only sources this entry read or tried to read are listed, so this is not the whole change: a changed file it does not read is absent
+  .claude/settings.json (claude-code): parse_failed in head, so the head inventory is incomplete
+
+Inputs: base 7a401ae9 → working tree at HEAD 90b944c6, agents-shipgate 1.1.0.
+Reproduce in that working tree: agents-shipgate diff --base 7a401ae9c08d66dc72755890fbd3535ddcb50918

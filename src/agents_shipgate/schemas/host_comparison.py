@@ -309,6 +309,41 @@ class HostComparisonCoverage(BaseModel):
         return self
 
 
+class PermissionReviewGuidance(BaseModel):
+    """Advisory human choices, never control or authority (#839).
+
+    Rule identities come from reader facts. Null evidence means unavailable,
+    never an absent declaration; `case` distinguishes that from an addition.
+    Enclosing comparison refs and coverage apply to every item.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    case: Literal[
+        "allow_widened", "allow_narrowed", "disposition_moved",
+        "declaration_added", "declaration_removed", "unavailable",
+    ]
+    source: str | None = Field(default=None, max_length=512)
+    before_rule: str | None = Field(default=None, max_length=512)
+    after_rule: str | None = Field(default=None, max_length=512)
+    before_disposition: Literal["allow", "deny"] | None = None
+    after_disposition: Literal["allow", "deny"] | None = None
+    question: str | None = Field(default=None, max_length=1200)
+    choices: list[str] = Field(default_factory=list, max_length=3)
+    limitations: list[str] = Field(default_factory=list, min_length=1, max_length=3)
+    next_actor: Literal["declaration owner to be assigned"] = "declaration owner to be assigned"
+    verification: str | None = None
+
+    @model_validator(mode="after")
+    def conditional_choices(self):
+        if self.case == "unavailable":
+            if self.question is not None or self.choices or self.verification is not None:
+                raise ValueError("unavailable evidence cannot carry a specific choice")
+        elif not self.source or not self.question or not self.choices or not self.verification:
+            raise ValueError("a specific choice requires its evidence and verification target")
+        return self
+
+
 class HostComparisonReviewChange(BaseModel):
     """One change exactly as the text prints it, referring to the rows it stands for (#795).
 
@@ -345,6 +380,7 @@ class HostComparisonReviewChange(BaseModel):
     #: expansion. The count a reader sees is this one, per change, not the
     #: per-row ``expands``: a joined pair is one widening printed once.
     expands: bool = False
+    guidance: PermissionReviewGuidance | None = None
 
     @model_validator(mode="after")
     def change_shape(self):

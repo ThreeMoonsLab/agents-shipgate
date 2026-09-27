@@ -1,0 +1,172 @@
+{
+  "engine_distribution_sha256": "sha256:0748dd9be209be000e5336c926cbde7aee8038c5096d372edbe166819f287e72",
+  "totals": {
+    "population": {
+      "cases": 10,
+      "scored_rules": 97,
+      "expected_critical": 1,
+      "marked_critical": 0,
+      "true_critical": 0,
+      "false_critical": 0,
+      "missed_critical": 1,
+      "missing_rules": 0,
+      "correct_ratings": 96
+    },
+    "control": {
+      "cases": 1,
+      "scored_rules": 88,
+      "expected_critical": 70,
+      "marked_critical": 0,
+      "true_critical": 0,
+      "false_critical": 0,
+      "missed_critical": 70,
+      "missing_rules": 0,
+      "correct_ratings": 18
+    }
+  },
+  "records": [
+    {
+      "case": "33cn__chain33__pr1360",
+      "group": "population",
+      "cases": 1,
+      "scored_rules": 45,
+      "expected_critical": 0,
+      "marked_critical": 0,
+      "true_critical": 0,
+      "false_critical": 0,
+      "missed_critical": 0,
+      "missing_rules": 0,
+      "correct_ratings": 45
+    },
+    {
+      "case": "LFDT-Lineth__lineth-monorepo__pr2881",
+      "group": "population",
+      "cases": 1,
+      "scored_rules": 0,
+      "expected_critical": 0,
+      "marked_critical": 0,
+      "true_critical": 0,
+      "false_critical": 0,
+      "missed_critical": 0,
+      "missing_rules": 0,
+      "correct_ratings": 0
+    },
+    {
+      "case": "MetaMask__metamask-mobile__pr29139",
+      "group": "population",
+      "cases": 1,
+      "scored_rules": 0,
+      "expected_critical": 0,
+      "marked_critical": 0,
+      "true_critical": 0,
+      "false_critical": 0,
+      "missed_critical": 0,
+      "missing_rules": 0,
+      "correct_ratings": 0
+    },
+    {
+      "case": "abap2UI5__abap2UI5__pr2509",
+      "group": "population",
+      "cases": 1,
+      "scored_rules": 22,
+      "expected_critical": 0,
+      "marked_critical": 0,
+      "true_critical": 0,
+      "false_critical": 0,
+      "missed_critical": 0,
+      "missing_rules": 0,
+      "correct_ratings": 22
+    },
+    {
+      "case": "bencherdev__bencher__pr673",
+      "group": "population",
+      "cases": 1,
+      "scored_rules": 0,
+      "expected_critical": 0,
+      "marked_critical": 0,
+      "true_critical": 0,
+      "false_critical": 0,
+      "missed_critical": 0,
+      "missing_rules": 0,
+      "correct_ratings": 0
+    },
+    {
+      "case": "dataplat__dbatools__pr10346",
+      "group": "population",
+      "cases": 1,
+      "scored_rules": 0,
+      "expected_critical": 0,
+      "marked_critical": 0,
+      "true_critical": 0,
+      "false_critical": 0,
+      "missed_critical": 0,
+      "missing_rules": 0,
+      "correct_ratings": 0
+    },
+    {
+      "case": "near__nearcore__pr15295",
+      "group": "population",
+      "cases": 1,
+      "scored_rules": 0,
+      "expected_critical": 0,
+      "marked_critical": 0,
+      "true_critical": 0,
+      "false_critical": 0,
+      "missed_critical": 0,
+      "missing_rules": 0,
+      "correct_ratings": 0
+    },
+    {
+      "case": "open-learning-exchange__myplanet__pr16644",
+      "group": "population",
+      "cases": 1,
+      "scored_rules": 0,
+      "expected_critical": 0,
+      "marked_critical": 0,
+      "true_critical": 0,
+      "false_critical": 0,
+      "missed_critical": 0,
+      "missing_rules": 0,
+      "correct_ratings": 0
+    },
+    {
+      "case": "pegasi-ai__reins__pr65",
+      "group": "population",
+      "cases": 1,
+      "scored_rules": 0,
+      "expected_critical": 0,
+      "marked_critical": 0,
+      "true_critical": 0,
+      "false_critical": 0,
+      "missed_critical": 0,
+      "missing_rules": 0,
+      "correct_ratings": 0
+    },
+    {
+      "case": "wormhole-foundation__wormhole-connect__pr3857",
+      "group": "population",
+      "cases": 1,
+      "scored_rules": 30,
+      "expected_critical": 1,
+      "marked_critical": 0,
+      "true_critical": 0,
+      "false_critical": 0,
+      "missed_critical": 1,
+      "missing_rules": 0,
+      "correct_ratings": 29
+    },
+    {
+      "case": "launcher-controls",
+      "group": "control",
+      "cases": 1,
+      "scored_rules": 88,
+      "expected_critical": 70,
+      "marked_critical": 0,
+      "true_critical": 0,
+      "false_critical": 0,
+      "missed_critical": 70,
+      "missing_rules": 0,
+      "correct_ratings": 18
+    }
+  ]
+}

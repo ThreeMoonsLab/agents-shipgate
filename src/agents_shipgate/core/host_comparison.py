@@ -15,6 +15,7 @@ from agents_shipgate.core.capability_diff_rows import (
     CapabilityDiffRow,
     capability_diff_rows,
     review_changes,
+    review_grant_evidence,
     review_question,
 )
 from agents_shipgate.core.hook_script_reference import NO_REPOSITORY_REFERENCE_LIMITS
@@ -37,6 +38,7 @@ from agents_shipgate.core.host_grants import (
     without_hook_dependency_bytes,
     without_host_sources,
 )
+from agents_shipgate.core.permission_review import permission_review_guidance
 from agents_shipgate.core.unread_inputs import (
     ChangedInputs,
     UnreadDiscovery,
@@ -1240,7 +1242,11 @@ def compare_host_inventories(
     rows = (
         []
         if refused
-        else capability_diff_rows(payload, redact_permission_arguments=redact_permission_arguments)
+        else capability_diff_rows(
+            payload,
+            redact_permission_arguments=redact_permission_arguments,
+            current_grants=(retained.after if retained is not None else after).get("grants", []),
+        )
     )
     return HostComparison(
         comparison_status=(
@@ -1265,7 +1271,21 @@ def compare_host_inventories(
             None
             if refused
             else host_comparison_review(
-                rows, base_commit=base_commit, head_kind=head_kind, head_commit=head_commit
+                rows, base_commit=base_commit, head_kind=head_kind, head_commit=head_commit,
+                before_grants=before.get("grants", []),
+                after_grants=after.get("grants", []),
+                redacted=redact_permission_arguments,
+                incomplete_context=bool(
+                    reasons or limits
+                    or (established is not None and (
+                        established.unread_candidates_not_examined
+                        or established.omitted_items
+                        or any(
+                            "claude-code" in item.hosts and item.status == "changed_not_read"
+                            for item in established.items
+                        )
+                    ))
+                ),
             )
         ),
     )
@@ -1302,6 +1322,10 @@ def host_comparison_review(
     base_commit: str | None,
     head_kind: str,
     head_commit: str | None,
+    before_grants: Sequence[dict[str, Any]] | None = None,
+    after_grants: Sequence[dict[str, Any]] | None = None,
+    redacted: bool = False,
+    incomplete_context: bool = False,
 ) -> HostComparisonReview:
     """What the text says about these rows, as data (#795).
 
@@ -1328,6 +1352,16 @@ def host_comparison_review(
                 change=change.change,
                 why=change.why,
                 expands=change.expands,
+                guidance=(
+                    permission_review_guidance(
+                        *evidence, relation=change.direction,
+                        before_grants=before_grants, after_grants=after_grants,
+                        redacted=redacted, incomplete_context=incomplete_context,
+                    )
+                    if before_grants is not None and after_grants is not None
+                    and (evidence := review_grant_evidence(rows, change.row_indexes)) is not None
+                    else None
+                ),
             )
             for change in changes
         ],

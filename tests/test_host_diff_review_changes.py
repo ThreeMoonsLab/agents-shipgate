@@ -301,7 +301,8 @@ def test_identical_rule_text_joins_as_a_move_only_once_in_one_source(
     repo = _repository(tmp_path, base, head)
 
     text, payload = _diff(repo)
-    lines = [" ".join(line.split()) for line in text.splitlines()]
+    # The established table precedes #839's separately labelled advisory detail.
+    lines = [" ".join(line.split()) for line in text.split("Permission review guidance:")[0].splitlines()]
     printed = sorted(
         (lines[index], lines[index + 1])
         for index, line in enumerate(lines)
@@ -383,7 +384,7 @@ def test_an_mcp_launch_change_names_its_published_difference(tmp_path: Path) -> 
     )
 
     text, payload = _diff(repo)
-    assert _table_entry(text, "⚠ high widened claude-code .mcp.json")[1] == change
+    assert _table_entry(text, "high changed claude-code .mcp.json")[1] == change
     assert [(row["before"], row["after"]) for row in payload["rows"]] == [("gh", "gh")]
 
     block, summary, _ = _verify(repo, tmp_path / "out")
@@ -429,7 +430,7 @@ def test_an_mcp_change_outside_the_published_fields_says_it_is_not_shown(tmp_pat
     )
 
     text, _ = _diff(repo)
-    assert _table_entry(text, "⚠ high widened claude-code .mcp.json")[1] == _unshown("docs", "npx")
+    assert _table_entry(text, "high changed claude-code .mcp.json")[1] == _unshown("docs", "npx")
     assert "docs → docs" not in text and "secret-internal" not in text
 
 
@@ -476,7 +477,7 @@ def test_a_command_whose_path_changes_but_name_does_not_is_never_called_unchange
     assert changed == expected
     assert _table_entry(text, "⚠ high added claude-code .mcp.json")[1] == added
     assert sorted((row["direction"], row["after"]) for row in payload["rows"]) == [
-        ("added", "billing"), ("widened", "gh"), ("widened", "node"),
+        ("added", "billing"), ("changed", "gh"), ("changed", "node"),
     ]
 
     block, summary, _ = _verify(repo, tmp_path / "out")
@@ -498,7 +499,7 @@ def test_an_mcp_url_change_outside_the_published_fields_names_what_was_compared(
     )
 
     text, _ = _diff(repo)
-    assert _table_entry(text, "⚠ high widened claude-code .mcp.json")[1] == (
+    assert _table_entry(text, "high changed claude-code .mcp.json")[1] == (
         "remote: no difference in the url https://mcp.example.com/<redacted-path>, env key "
         "names or header key names; the change is in a detail this output does not show, "
         "such as the URL's query or another setting"
@@ -724,7 +725,8 @@ def test_references_name_the_compared_commits_and_a_command_that_reproduces_them
         f"Reproduce in that working tree: {command}",
     ]
     text, _ = _diff(repo)
-    assert text.rstrip().splitlines()[-3:] == [question, *worktree[-2:]]
+    assert text.split("Permission review guidance:")[0].rstrip().splitlines()[-3:] == [question, *worktree[-2:]]
+    assert "Question: Does this task need" in text
 
 
 @pytest.mark.parametrize(
