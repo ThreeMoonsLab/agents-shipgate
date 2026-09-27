@@ -141,11 +141,14 @@ agents' rows in the file stand:
   capability keyword (`client.create(tools=request.tools)`) is a read under
   the same rule. `getattr(x, "tools")` is `x.tools`, and `svc.app.tools` after
   `import svc.app.tools` is that module, and `getattr(config.tools, "flag")`
-  reads a flag. Not followed: a library that keeps the list and later calls
-  back into the application's code that changes it, a string naming the
-  application's code for a library to import (`"app.hooks:add_image"`), and a
-  list put into a container first and spread into the call (`wrap(**opts)`).
-  On
+  reads a flag. Two things are trusted, not proven: a parameter's annotation
+  (`hook: str` is data, whatever a caller passes), and the other attributes
+  of the object the list came from (`agent.on_start` beside `agent.tools` is
+  data). Not followed: a library that keeps the list and later calls back into
+  the application's code that changes it, a string naming the application's
+  code for a library to import (`"app.hooks:add_image"`, or a library value
+  built from one), and a list put into a container first and spread into the
+  call (`wrap(**opts)`). On
   any other value — a request object, another library's model — a handle only
   read or handed on, like `payload["tools"] = request.tools`, is nothing. The
   changed value is read in
