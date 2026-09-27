@@ -1281,3 +1281,83 @@ def test_a_parameters_list_handed_to_an_unresolved_call_limits_the_file(repo, he
     result = _compare(repo, body.replace("BODY", "pass"), body.replace("BODY", "lst.append(send_image)"))
     assert result["comparison_status"] == "partial"
     assert any("cannot identify" in limit for limit in result["head"]["limits"])
+
+
+# ---------------------------------------------------------------------------
+# #876 review, round 12: any value the reader cannot name — a factory's
+# result, a service's agent, ``self.agent`` — handed to the application's own
+# code that is not read limits the file, in a module read as an SDK source or
+# not; another library's function is not the application's code.
+
+INHERITED = (
+    "class Base:\n    def add(self, lst):\n        BODY\n\n    def install(self, tools):\n"
+    "        lst = tools\n        BODY\n\n\nclass H(Base):\n    pass\n\n\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("wiring", "extra"),
+    [
+        ("from factory import build\n\nbot = build()\nH().add(bot.tools)\n", True),
+        (
+            "class Service:\n    def __init__(self):\n        self.agent = Agent(name='Svc', tools=[quote])\n\n\n"
+            "svc = Service()\nH().add(svc.agent.tools)\n",
+            False,
+        ),
+        (
+            "class Svc:\n    def __init__(self, agent):\n        self.agent = agent\n\n"
+            "    def setup(self):\n        H().add(self.agent.tools)\n\n\nSvc(quote_agent).setup()\n",
+            False,
+        ),
+        ("def setup(agent):\n    H().install(tools=agent.tools)\n\n\nsetup(quote_agent)\n", False),
+    ],
+    ids=["imported-factory-result", "service-holding-an-agent", "self-agent-from-a-parameter", "capability-keyword"],
+)
+def test_any_value_handed_to_unread_application_code_limits_the_file(repo, wiring, extra):
+    body = 'quote_agent = Agent(name="Quote", tools=[quote])\n' + INHERITED + wiring
+    files = {"factory.py": 'from agent import Agent, quote\n\n\ndef build():\n    return Agent(name="Built", tools=[quote])\n'} if extra else {}
+    base = commit(repo, {**files, "agent.py": _agents(body.replace("BODY", "pass"))})
+    head = commit(repo, {"agent.py": _agents(body.replace("BODY", "lst.append(send_image)"))})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert any("cannot identify" in limit for limit in result["head"]["limits"]), result["head"]["limits"]
+
+
+@pytest.mark.parametrize(
+    "wiring",
+    [
+        "def attach(agent):\n    H().add(agent.tools)\n",
+        "from factory import build\n\nbot = build()\nH().add(bot.tools)\n",
+    ],
+    ids=["parameter", "factory-result"],
+)
+def test_a_module_that_does_not_import_the_sdk_follows_the_same_rule(repo, wiring):
+    files = {
+        "factory.py": 'from agent import Agent, quote\n\n\ndef build():\n    return Agent(name="Built", tools=[quote])\n',
+        "agent.py": _agents('quote_agent = Agent(name="Quote", tools=[quote])\n'),
+    }
+    module = "from agent import send_image\n\n\n" + INHERITED + wiring
+    base = commit(repo, {**files, "wiring.py": module.replace("BODY", "pass")})
+    head = commit(repo, {"wiring.py": module.replace("BODY", "lst.append(send_image)")})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert any("wiring.py" in gap["reason"] for gap in result["head"]["coverage_gaps"])
+
+
+@pytest.mark.parametrize(
+    "handler",
+    [
+        "from somelib import validate\n\n\ndef handle(request):\n    validate(request.tools)\n",
+        "from pydantic import TypeAdapter\n\nADAPTER = TypeAdapter(list)\n\n\n"
+        "def handle(request):\n    return ADAPTER.validate_python(request.tools)\n",
+        "def handle(client, request):\n    return client.chat.completions.create(model='m', tools=request.tools)\n",
+        "class Handler:\n    def log(self, tools):\n        return len(tools)\n\n"
+        "    def handle(self, request):\n        return self.log(request.tools)\n",
+    ],
+    ids=["third-party-function", "third-party-instance", "api-payload", "own-method-that-reads"],
+)
+def test_a_request_handed_to_another_library_is_not_a_limit(repo, handler):
+    before = 'main_agent = Agent(name="Main", tools=[quote])\n' + handler
+    result = _compare(repo, before, before.replace("tools=[quote]", "tools=[quote, send_image]"))
+    assert result["comparison_status"] == "compared", result["head"]["limits"]
+    assert _pairs(result) == [("main_agent", "send_image", "added")]

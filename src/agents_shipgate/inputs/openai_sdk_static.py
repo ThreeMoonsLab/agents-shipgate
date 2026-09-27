@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import builtins
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -640,12 +641,13 @@ def _extract_agent_bindings(
                     strict
                     and held is None
                     and not scope_imported(receiver, site)
-                    and not (via_unresolved and _parameter_root(receiver, site, scopes))
+                    and not via_unresolved
                 ):
                     # Handed on, not changed in view: followed that far only
                     # for the file's agents, one imported from the scope, or a
-                    # parameter handed to a call nothing can resolve — its
-                    # callers may pass any agent (#876 review).
+                    # value handed to the application's own code that is not
+                    # read — a parameter, a factory's result, ``self.agent``
+                    # may be any agent (#876 review).
                     continue
             for item in owners:
                 record_change(item, site)
@@ -1088,22 +1090,27 @@ def _capability_changes(
         return False
 
     def unresolved_call(node: ast.expr) -> bool:
-        """Whether ``node`` is handed positionally (or under a keyword that is
-        not a capability) to a call nothing can resolve: a method of an
-        inherited class, a dispatch table, a ``partial`` (#876 review)."""
+        """Whether ``node`` is handed to a call that is not read to leave it
+        alone and is not another library's: a method of an inherited class, a
+        dispatch table, a ``partial``, a method of an unknown object (#876
+        review). ``validate(request.tools)`` or ``client.create(tools=...)``
+        with ``client = OpenAI()`` hands it to code outside the scope, which
+        this reader never reads — the same boundary as any other library."""
 
         parent = scopes.parents.get(node)
         keyword: str | None = None
         if isinstance(parent, ast.keyword):
-            if parent.arg in capabilities:
-                # ``client.create(tools=request.tools)``: an API payload.
-                return False
             keyword = parent.arg
             parent = scopes.parents.get(parent)
+            if keyword in capabilities and isinstance(parent, ast.Call) and not callees.inside(parent):
+                # ``client.create(tools=request.tools)``: an API payload,
+                # unless the call is the application's own code.
+                return False
         if (
             not isinstance(parent, ast.Call)
             or parent.func is node
             or _leaves_arguments_alone(parent)
+            or callees.outside(parent)
         ):
             return False
         position = next((index for index, arg in enumerate(parent.args) if arg is node), None)
@@ -1305,7 +1312,20 @@ class ModuleCallees:
         """``H().add(...)``, or ``obj.add(...)`` with ``obj = H()``: the method of a
         class the module defines or imports, ``self`` not supplied."""
 
+        found = self._receiver_class(func, call)
+        return self._method_of(*found, name=func.attr) if found is not None else None
+
+    def _receiver_class(
+        self, func: ast.Attribute, call: ast.Call
+    ) -> tuple[ast.ClassDef, ModuleCallees] | None:
+        """The class a method call's receiver is an instance of, when the module
+        defines or imports it: ``H()``, ``obj`` with ``obj = H()``, or ``self``
+        (the enclosing class)."""
+
         owner = func.value
+        if isinstance(owner, ast.Name) and owner.id == "self":
+            cls = self._enclosing_class(call)
+            return (cls, self) if cls is not None else None
         maker: ast.expr | None = None
         if isinstance(owner, ast.Call):
             maker = owner.func
@@ -1313,17 +1333,74 @@ class ModuleCallees:
             value = self._value_of(owner.id, call)
             if isinstance(value, ast.Call):
                 maker = value.func
-        if maker is None:
-            return None
-        found = self._class(maker, call)
-        if found is None:
-            return None
-        cls, callees = found
+        return self._class(maker, call) if maker is not None else None
+
+    def inside(self, call: ast.Call) -> bool:
+        """Whether a call names the application's own code: a function the
+        module defines or imports from the scope, or a method of a class it
+        does, found or inherited (#876 review)."""
+
+        if self(call) is not None:
+            return True
+        return isinstance(call.func, ast.Attribute) and self._receiver_class(call.func, call) is not None
+
+    @staticmethod
+    def _method_of(cls: ast.ClassDef, callees: ModuleCallees, name: str) -> Callee | None:
         for item in cls.body:
-            if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef) and item.name == func.attr:
+            if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef) and item.name == name:
                 static = any(dotted_name(decorator) == "staticmethod" for decorator in item.decorator_list)
                 return Callee(item, callees, 0 if static else 1)
         return None
+
+    def _enclosing_class(self, node: ast.AST) -> ast.ClassDef | None:
+        current = self.scopes.parents.get(node)
+        while current is not None and not isinstance(current, ast.Module):
+            if isinstance(current, ast.ClassDef):
+                return current
+            current = self.scopes.parents.get(current)
+        return None
+
+    def outside(self, call: ast.Call, depth: int = 0) -> bool:
+        """Whether the function a call names is another library's: reached
+        from a name imported from outside the read scope (``validate``,
+        ``ADAPTER.validate_python`` with ``ADAPTER = TypeAdapter(...)``), or a
+        builtin. A parameter, a local value of unknown origin, or the scope's
+        own code is not (#876 review)."""
+
+        root: ast.AST = call.func
+        while isinstance(root, ast.Attribute | ast.Subscript | ast.Call):
+            root = root.func if isinstance(root, ast.Call) else root.value
+        if not isinstance(root, ast.Name) or depth > 3 or self.resolver is None or self.module is None:
+            return False
+        found = self.scopes.enclosing_bindings(call, root.id)
+        if found:
+            if len(found) != 1:
+                return False
+            node: ast.AST = found[0]
+            statement = self.scopes.statement_of(node)
+            if isinstance(node, ast.alias) and isinstance(statement, ast.Import | ast.ImportFrom):
+                resolution = self.resolver.resolve_local_import(self.module, statement, node, root.id)
+                return resolution.reason in _OUTSIDE_THE_SCOPE
+        else:
+            bindings = self.bindings.get(root.id, [])
+            if not bindings:
+                # A builtin, unless a wildcard import could bind the name.
+                return root.id in _BUILTINS and not any(
+                    isinstance(item, ast.alias) and item.name == "*" for item in self.scopes.parents
+                )
+            if len(bindings) != 1 or not bindings[0].top_level:
+                return False
+            node, statement = bindings[0].node, bindings[0].statement
+            if isinstance(node, ast.alias):
+                return self.resolver.resolve(self.module, root.id).reason in _OUTSIDE_THE_SCOPE
+        if (
+            isinstance(statement, ast.Assign | ast.AnnAssign)
+            and _assignment_target(statement) == root.id
+            and isinstance(statement.value, ast.Call)
+        ):
+            # ``client = OpenAI()``: an instance of another library's class.
+            return self.outside(statement.value, depth + 1)
+        return False
 
     def _value_of(self, name: str, site: ast.AST) -> ast.expr | None:
         found = self.scopes.enclosing_bindings(site, name)
@@ -1400,17 +1477,6 @@ def _roots(expr: ast.AST) -> set[str]:
     return set()
 
 
-def _parameter_root(receiver: ast.expr, site: ast.AST, scopes: ScopeIndex) -> bool:
-    """Whether a receiver is reached from a function's parameter (``agent.tools``
-    in ``def setup(agent)``), other than a method's own ``self`` / ``cls``."""
-
-    root = _root_name(receiver)
-    if root is None or root in {"self", "cls"}:
-        return False
-    found = scopes.enclosing_bindings(site, root)
-    return len(found) == 1 and isinstance(found[0], ast.arg)
-
-
 def _through_loops(
     receiver: ast.expr, site: ast.AST, scopes: ScopeIndex, bindings: dict[str, list[Any]]
 ) -> ast.expr:
@@ -1434,6 +1500,7 @@ def _through_loops(
 
 #: Resolution outcomes that mean the name is not the scope's own code.
 _OUTSIDE_THE_SCOPE = frozenset({"module_not_found", "outside_scope"})
+_BUILTINS = frozenset(dir(builtins))
 
 
 def _root_name(node: ast.AST) -> str | None:
@@ -1876,9 +1943,10 @@ def census_module(
 
     A copy of a value not proven to be something else, a change to the
     capability list of an object this module imports from the scope
-    (``agent.quote_agent.tools.append(...)``), and SDK ``Agent`` subclasses.
-    A change on a local object or a parameter of a module that never imports
-    the SDK is left out: it is almost always another library's ``.tools``. A
+    (``agent.quote_agent.tools.append(...)``) or of any value it hands to the
+    application's own code that is not read, and SDK ``Agent`` subclasses. A
+    list only handed on in a module that imports nothing from the scope is
+    left out: it is almost always another library's ``.tools``. A
     module read as an SDK source is read for its copies and changes by the
     reader itself, so only its subclasses and identifiers are collected here.
 
@@ -1987,7 +2055,7 @@ def census_module(
         changes = sorted(
             {
                 (site.lineno, constructor(receiver, site))  # type: ignore[attr-defined]
-                for receiver, site, strict, _ in _capability_changes(
+                for receiver, site, strict, via_unresolved in _capability_changes(
                     tree,
                     _CENSUS_CAPABILITIES,
                     scopes=scopes,
@@ -2001,11 +2069,13 @@ def census_module(
                     ),
                 )
                 if (owner := values.owner(receiver, site)) is not None
-                # Handed on: counted for an agent the module builds or one it
-                # imports from the scope, never another library's object.
+                # Handed on: counted for an agent the module builds, one it
+                # imports from the scope, or any value handed to the
+                # application's own code that is not read (#876 review).
                 and (
                     not strict
                     or isinstance(owner, str)
+                    or via_unresolved
                     or bool(_roots(_through_loops(receiver, site, scopes, bindings)) & scope_names)
                 )
             },

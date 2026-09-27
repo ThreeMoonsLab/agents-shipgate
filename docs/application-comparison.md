@@ -110,12 +110,19 @@ agents' rows in the file stand:
   level or inside the function), or a method of a class it defines or imports
   (`H().add(...)`, `holder.add(...)`), that changes the list it is given
   (`add_image(x.tools)` with `add_image` appending, directly or through the
-  helper's own inner calls) changes it, and one that only reads it reads it. In
-  a file that builds SDK agents, a parameter's list handed positionally to a call
-  that cannot be resolved — an inherited method, `super()`, a dispatch table, an
-  instance held on `self` — or that hands it on again out of view is a limit on
-  the file: its callers may pass any agent. A capability keyword to an API call
-  (`client.create(tools=request.tools)`) stays a read. On
+  helper's own inner calls) changes it, and one that only reads it reads it
+  (`self.log(x.tools)` reads the enclosing class's own method). Any value the
+  reader cannot name — a parameter, a factory's result (`bot = build()`), an
+  agent a service holds (`svc.agent`, `self.agent`) — whose list is handed to
+  the application's own code that is not read to leave it alone (an inherited
+  method, `super()`, a dispatch table, a method of an unknown object, one that
+  hands it on again out of view) is a limit on the file, and in a module that
+  is not read as an SDK source too: it may be any agent. A call into another
+  library — a function or an instance's method imported from outside the scope
+  (`validate(request.tools)`, `ADAPTER.validate_python(...)` with `ADAPTER =
+  TypeAdapter(...)`), or a builtin — is the reader's boundary, as it is for
+  every library, and a capability keyword (`client.create(tools=request.tools)`)
+  stays a read unless the call is the application's own. On
   any other value — a request object, another library's model — a handle only
   read or handed on, like `payload["tools"] = request.tools`, is nothing. The
   changed value is read in
