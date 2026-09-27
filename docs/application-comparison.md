@@ -179,7 +179,12 @@ agents' rows in the file stand:
   list(tools)`, `getattr(agent, cap).clear()`), called from any file that
   imports the agent, whether it imports the SDK or not, and however the
   value is spelled there (an alias, a loop variable, a starred member, a
-  container of agents, a builder's result); the function is imported, a
+  container of agents, an agent of a module imported by name, what a
+  function returning an agent it constructs gives back) — never a record a
+  function returns, an attribute read off an agent (`plant_agent.name`), or
+  a name imported from the scope that is plainly no agent (a literal, an
+  instance of a class the scope defines that is not an `Agent` subclass); the
+  function is imported, a
   static, class or `self` method, one a base class defines, `super()`'s, a
   constructor's `__init__`, or one reached through another function, and
   its parameter may be a list of agents, looped over directly, through

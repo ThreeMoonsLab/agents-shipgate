@@ -2306,3 +2306,72 @@ def test_a_cycle_of_helpers_is_answered_once(repo):
     assert _pairs(_reset_elsewhere(repo, rewriting + "\n\nf5(plant_agent, 3)\n")) == [
         ("plant_agent", "send_image", "not_established")
     ]
+
+
+# ---------------------------------------------------------------------------
+# #876 review, round 25: the census counts what may be the scope's agent — not
+# any scope function's result, a derived attribute or a proven non-agent —
+# and the lists of a namespace collected before they are cleared.
+
+
+@pytest.mark.parametrize(
+    ("wiring", "extra"),
+    [
+        (
+            "from agent import plant_agent\nfrom crud import get_item\n\n\ndef update_item(item_id, data):\n"
+            "    item = get_item(item_id)\n    for key, value in data.items():\n        setattr(item, key, value)\n",
+            {"crud.py": "class Item:\n    pass\n\n\ndef get_item(item_id):\n    return Item()\n"},
+        ),
+        (
+            "from agent import plant_agent\nfrom config import settings\nfrom helpers import apply\n\napply(settings, {'debug': True})\n",
+            {"config.py": "class Settings:\n    debug = False\n\n\nsettings = Settings()\n", "helpers.py": _HELPERS},
+        ),
+        (
+            "from agent import plant_agent\nfrom helpers import apply\n\nlabel = plant_agent.name\napply(label, {'upper': True})\n",
+            {"helpers.py": _HELPERS},
+        ),
+    ],
+    ids=["crud-record", "config-object", "derived-attribute"],
+)
+def test_the_census_does_not_count_what_is_plainly_not_an_agent(repo, wiring, extra):
+    result = _wired(repo, wiring, extra)
+    assert result["comparison_status"] == "compared", result["head"]["limits"]
+    assert _pairs(result) == [("plant_agent", "send_image", "added")]
+
+
+def test_the_census_counts_an_agent_of_a_module_imported_by_name(repo):
+    wiring = "from agent import quote\nimport agent as plant\nfrom helpers import apply\n\napply(plant.plant_agent, {'tools': [quote]})\n"
+    assert _pairs(_wired(repo, wiring, {"helpers.py": _HELPERS})) == [("plant_agent", "send_image", "not_established")]
+    wiring = "from pkg import plant\nfrom pkg.plant import quote\nfrom helpers import apply\n\napply(plant.plant_agent, {'tools': [quote]})\n"
+    agent = _agents(_PLANT)
+    base = commit(
+        repo,
+        {"pkg/__init__.py": "", "pkg/plant.py": agent.replace("TOOLS", "[quote]"), "wiring.py": wiring, "helpers.py": _HELPERS},
+    )
+    head = commit(repo, {"pkg/plant.py": agent.replace("TOOLS", "[quote, send_image]")})
+    assert _pairs(run(repo, base, head)) == [("plant_agent", "send_image", "not_established")]
+
+
+@pytest.mark.parametrize(
+    "reset",
+    [
+        "LISTS = [value for value in vars(plant_agent).values() if isinstance(value, list)]\nfor each in LISTS:\n    each.clear()\n",
+        "\n\ndef clear_lists(agent):\n    bucket = []\n    for key, value in vars(agent).items():\n        bucket.append(value)\n"
+        "    for each in bucket:\n        if isinstance(each, list):\n            each.clear()\n\n\nclear_lists(plant_agent)\n",
+    ],
+    ids=["collected-then-cleared", "stored-then-cleared"],
+)
+def test_the_lists_of_a_namespace_collected_then_cleared_are_changed(repo, reset):
+    assert _pairs(_reset_elsewhere(repo, reset)) == [("plant_agent", "send_image", "not_established")]
+
+
+def test_a_method_of_a_generic_base_is_followed(repo):
+    helpers = (
+        "from typing import Generic, TypeVar\n\nT = TypeVar('T')\n\n\nclass Base(Generic[T]):\n"
+        "    def _apply(self, agent, overrides):\n        for key, value in overrides.items():\n            setattr(agent, key, value)\n"
+    )
+    reset = (
+        "from helpers import Base\n\n\nclass Setup(Base[int]):\n    def run(self):\n"
+        f"        self._apply(plant_agent, {_RESET})\n\n\nSetup().run()\n"
+    )
+    assert _pairs(_reset_elsewhere(repo, reset, {"helpers.py": helpers})) == [("plant_agent", "send_image", "not_established")]

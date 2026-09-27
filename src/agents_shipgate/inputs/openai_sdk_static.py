@@ -1536,6 +1536,9 @@ def _capability_changes(
                 if defined:
                     return defined[-1], inner
             for base in cls.bases:
+                if isinstance(base, ast.Subscript):
+                    # ``class Setup(Base[int])``.
+                    base = base.value
                 resolved = inner._class(base, cls) if isinstance(base, ast.Name) else None
                 if resolved is not None and (result := method_in(*resolved, True, depth + 1)) is not None:
                     return result
@@ -1684,8 +1687,15 @@ def _capability_changes(
                             found = True
                 if found:
                     break
-        finally:
-            low = lows.pop()
+        except BaseException:
+            # Nothing it read stays open to answer False later (#876 review).
+            lows.pop()
+            at = pending.index(key)
+            for item in pending[at:]:
+                index_of.pop(item, None)
+            del pending[at:]
+            raise
+        low = lows.pop()
         at = pending.index(key)
         if found:
             # Final; whatever read this answer while it was open is not, and
@@ -1972,6 +1982,10 @@ class ModuleCallees:
         self.module = module
         self.registry = registry if registry is not None else {}
         self._cache: dict[str, Callee | None] = {}
+        #: A function-local import's callee, by the import and the spelling.
+        self._local_cache: dict[tuple[int, str], Callee | None] = {}
+        #: A module-level class name's class (#876 review: read once).
+        self._class_cache: dict[str, tuple[ast.ClassDef, ModuleCallees] | None] = {}
 
     def __call__(self, call: ast.Call) -> Callee | None:
         func = call.func
@@ -2011,6 +2025,12 @@ class ModuleCallees:
     def _local_import(self, found: list[ast.AST], spelling: str) -> Callee | None:
         if len(found) != 1 or not isinstance(found[0], ast.alias):
             return None
+        key = (id(found[0]), spelling)
+        if key not in self._local_cache:
+            self._local_cache[key] = self._read_local_import(found, spelling)
+        return self._local_cache[key]
+
+    def _read_local_import(self, found: list[ast.AST], spelling: str) -> Callee | None:
         if self.resolver is None or self.module is None:
             return None
         statement = self.scopes.statement_of(found[0])
@@ -2281,6 +2301,16 @@ class ModuleCallees:
     def _class(self, maker: ast.expr, site: ast.AST, depth: int = 0) -> tuple[ast.ClassDef, ModuleCallees] | None:
         if not isinstance(maker, ast.Name) or depth > 3 or self.scopes.enclosing_bindings(site, maker.id):
             return None
+        if depth == 0:
+            # Module-level: the same for every site that does not bind it.
+            if maker.id not in self._class_cache:
+                self._class_cache[maker.id] = self._module_class(maker, site)
+            return self._class_cache[maker.id]
+        return self._module_class(maker, site, depth)
+
+    def _module_class(
+        self, maker: ast.Name, site: ast.AST, depth: int = 0
+    ) -> tuple[ast.ClassDef, ModuleCallees] | None:
         found = self.bindings.get(maker.id, [])
         if len(found) != 1 or not found[0].top_level:
             return None
@@ -2451,14 +2481,39 @@ def _iterated_value_changed(
     def spells(node: ast.AST | None) -> bool:
         return isinstance(node, ast.Name) and node.id in names
 
+    if isinstance(loop, ast.comprehension):
+        # ``[v for v in vars(agent).values()]`` collects the lists themselves:
+        # what is done with them is out of view (#876 review).
+        collector = parents.get(loop)
+        elements = (
+            [collector.elt]
+            if isinstance(collector, ast.ListComp | ast.SetComp | ast.GeneratorExp)
+            else [collector.key, collector.value]
+            if isinstance(collector, ast.DictComp)
+            else []
+        )
+        if any(spells(element) for element in elements):
+            return True
     for statement in body:
         for inner in ast.walk(statement):
+            if isinstance(inner, ast.Assign) and spells(inner.value) and not all(
+                isinstance(target, ast.Name) for target in inner.targets
+            ):
+                # ``store[key] = value``: kept where it can be changed later.
+                return True
             if isinstance(inner, ast.Call):
                 if (
                     isinstance(inner.func, ast.Attribute)
                     and inner.func.attr in _LIST_MUTATORS
                     and spells(inner.func.value)
                 ):
+                    return True
+                if (
+                    isinstance(inner.func, ast.Attribute)
+                    and inner.func.attr in {"append", "extend", "insert", "add", "appendleft", "setdefault", "update"}
+                    and any(spells(arg) for arg in inner.args)
+                ):
+                    # ``bucket.append(value)``: kept, then changed through it.
                     return True
                 arguments = [(index, None, arg) for index, arg in enumerate(inner.args)] + [
                     (None, item.arg, item.value) for item in inner.keywords if item.arg
@@ -3253,30 +3308,115 @@ def census_module(
                     return ((statement.module or "").rsplit(".", 1)[-1], item.node.name)
             return None
 
-        def counted(receiver: ast.expr, site: ast.AST, depth: int = 0) -> bool:
-            """A value reached from a name the module imports from the scope:
-            through loops, a literal member, a plain alias or the result of a
-            function it imports from the scope (#876 review)."""
+        census_callees = ModuleCallees(
+            tree,
+            scopes,
+            bindings,
+            resolver=resolver if module is not None else None,
+            module=module,
+            registry=callee_registry,
+        )
+        #: Names the module binds by importing a module (``import app.plant as
+        #: plant``): an attribute of one is that module's object.
+        module_names = {
+            alias.asname or alias.name.split(".", 1)[0]
+            for node in tree.body
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        }
 
-            if depth > 4:
+        def names_module(name: str) -> bool:
+            """``import app.plant as plant`` or ``from app import plant``."""
+
+            if name in module_names:
+                return True
+            if resolver is None or module is None:
                 return False
-            if isinstance(receiver, ast.Starred):
-                receiver = receiver.value
-            if _roots(_through_loops(receiver, site, scopes, bindings)) & scope_names:
+            try:
+                steps = resolver.resolve(module, name).steps
+            except Exception:  # noqa: BLE001 - not proven
+                return False
+            return bool(steps) and steps[-1].get("binding") == "submodule"
+
+        def builds_agent(call: ast.Call) -> bool:
+            """``build_plant()``: a function that returns an agent it constructs."""
+
+            callee = census_callees(call)
+            home = callee.callees.module if callee is not None else None
+            return (
+                callee is not None
+                and home is not None
+                and _returns_agent(callee.function, _SdkNames(home.tree), callee.callees.scopes)
+            )
+
+        def not_an_agent(name: str) -> bool:
+            """A name imported from the scope whose value is plainly no agent:
+            a literal, or an instance of a class the scope defines that does
+            not subclass ``Agent`` (``settings = Settings()``) (#876 review)."""
+
+            if resolver is None or module is None:
+                return False
+            try:
+                resolution = resolver.resolve(module, name)
+            except Exception:  # noqa: BLE001 - not proven
+                return False
+            value, home = resolution.value, resolution.module
+            if value is None or home is None:
+                return False
+            if isinstance(value, ast.Constant | ast.JoinedStr):
                 return True
-            if isinstance(receiver, ast.List | ast.Tuple | ast.Set):
-                return any(counted(item, site, depth + 1) for item in receiver.elts)
-            unknown: list[tuple[ast.expr, ast.AST]] = []
-            values.agent_like(receiver, site, unknown=unknown)
-            if any(counted(member, where, depth + 1) for member, where in unknown):
-                return True
-            if isinstance(receiver, ast.Name):
-                value = values.value_of(receiver.id, site)
-                if isinstance(value, ast.Call):
-                    return isinstance(value.func, ast.Name) and value.func.id in scope_names
-                if value is not None and value is not receiver:
-                    return counted(value, site, depth + 1)
-            return False
+            if not isinstance(value, ast.Call) or not isinstance(value.func, ast.Name):
+                return False
+            sdk_names = _SdkNames(home.tree)
+            if _denotes_agent(sdk_names, value):
+                return False
+            found = census_callees.for_module(home)._class(value.func, value)
+            return found is not None and not any(_denotes_agent(sdk_names, base) for base in found[0].bases)
+
+        counted_answers: dict[tuple[int, int], bool] = {}
+
+        def counted(receiver: ast.expr, site: ast.AST, depth: int = 0, seen: frozenset[int] = frozenset()) -> bool:
+            """A value that may be an agent the scope defines: a name the module
+            imports from the scope — not one proven no agent — or an item of
+            one, a module attribute through ``import``, reached through loops,
+            literal members, plain aliases, or a function that returns an agent
+            it constructs; never an attribute derived from one
+            (``plant_agent.name``) (#876 review)."""
+
+            key = (id(receiver), id(site))
+            if key in counted_answers:
+                return counted_answers[key]
+            if depth > 4 or id(receiver) in seen:
+                return False
+            seen = seen | {id(receiver)}
+            answer = False
+            item = receiver.value if isinstance(receiver, ast.Starred) else receiver
+            through = _through_loops(item, site, scopes, bindings)
+            if isinstance(through, ast.Attribute):
+                root = _root_name(through)
+                spelling = dotted_name(through)
+                answer = (
+                    root in scope_names
+                    and names_module(root)
+                    and not (spelling is not None and not_an_agent(spelling))
+                )
+            elif isinstance(through, ast.Name | ast.Subscript) and (roots := _roots(through) & scope_names):
+                answer = not all(not_an_agent(name) for name in roots)
+            elif isinstance(item, ast.List | ast.Tuple | ast.Set):
+                answer = any(counted(member, site, depth + 1, seen) for member in item.elts)
+            else:
+                unknown: list[tuple[ast.expr, ast.AST]] = []
+                values.agent_like(item, site, unknown=unknown)
+                answer = any(counted(member, where, depth + 1, seen) for member, where in unknown)
+                if not answer and isinstance(item, ast.Name):
+                    value = values.value_of(item.id, site)
+                    if isinstance(value, ast.Call):
+                        answer = builds_agent(value)
+                    elif value is not None and value is not item:
+                        answer = counted(value, site, depth + 1, seen)
+            if depth == 0:
+                counted_answers[key] = answer
+            return answer
 
         rewires: dict[tuple[int, int], Callable[[], bool]] = {}
         changes = sorted(
@@ -3286,18 +3426,14 @@ def census_module(
                     tree,
                     _CENSUS_CAPABILITIES,
                     scopes=scopes,
-                    callees=ModuleCallees(
-                        tree,
-                        scopes,
-                        bindings,
-                        resolver=resolver if module is not None else None,
-                        module=module,
-                        registry=callee_registry,
-                    ),
+                    callees=census_callees,
                     rewires=rewires,
                 )
+                # A candidate's helper is resolved first: most are a library's,
+                # and cheap to rule out (#876 review).
+                if ((id(receiver), id(site)) not in rewires or rewires[(id(receiver), id(site))]())
                 # A container of agents handed to a helper has no owner itself.
-                if ((owner := values.owner(receiver, site)) is not None or (id(receiver), id(site)) in rewires)
+                and ((owner := values.owner(receiver, site)) is not None or (id(receiver), id(site)) in rewires)
                 # Handed on: counted for an agent the module builds, one it
                 # imports from the scope, or any value handed to the
                 # application's own code that is not read (#876 review).
@@ -3307,7 +3443,6 @@ def census_module(
                     or via_unresolved
                     or counted(receiver, site)
                 )
-                and ((id(receiver), id(site)) not in rewires or rewires[(id(receiver), id(site))]())
             },
             key=lambda item: item[0],
         )
