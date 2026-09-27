@@ -841,6 +841,7 @@ def _capability_changes(
     """
 
     scopes = scopes or ScopeIndex(tree)
+    bindings_at = _bindings_at(scopes, _module_bindings(tree)[0])
 
     def changed_handle(statement: ast.stmt) -> bool:
         target = _assignment_target(statement) if isinstance(statement, ast.Assign | ast.AnnAssign) else None
@@ -853,7 +854,7 @@ def _capability_changes(
             if not isinstance(node, ast.Name) or node.id != target or node is defining:
                 continue
             if not isinstance(node.ctx, ast.Load) or not _read_only_use(
-                node, scopes.parents, lambda call, *_: _leaves_arguments_alone(call)
+                node, scopes.parents, lambda call, *_: _leaves_arguments_alone(call, bindings_at)
             ):
                 return True
         return False
