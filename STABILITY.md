@@ -2,6 +2,15 @@
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
+Unreleased #829 adds a source-local residual-prefix explanation to the existing
+host comparison row `why` text for supported Claude Code `git push` allows.
+It reads all compared head deny rules in that source, including unchanged
+ones, and lists only fixed documented examples outside every deny prefix.
+Unknown, compound, equal, broader or unrelated deny shapes withhold the note.
+CLI, JSON and PR review explanations use the same rows. No field, schema,
+direction, expansion, severity, check decision or authority changes. The note
+describes pattern coverage, not runtime approval; other rules still apply.
+
 Unreleased, runtime contract v41: a host comparison names the changed inputs it
 does not read (#821). Verifier `0.21` and capability diff `0.4` add a
 `changed_not_read` coverage item, with the `candidate` rule that named it, for
