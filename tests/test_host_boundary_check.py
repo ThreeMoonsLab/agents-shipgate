@@ -363,7 +363,7 @@ def test_unclassified_settings_change_fails_closed(tmp_path: Path) -> None:
     old_text = json.dumps(
         {
             "permissions": {"allow": ["Bash(*)"], "deny": ["WebFetch"]},
-            "hooks": {"PreToolUse": [{"type": "command", "command": "./pre.sh"}]},
+            "hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": "./pre.sh"}]}]},
             "model": "old",
         },
         indent=2,
@@ -371,7 +371,7 @@ def test_unclassified_settings_change_fails_closed(tmp_path: Path) -> None:
     new_text = json.dumps(
         {
             "permissions": {"allow": ["Bash(*)"], "deny": ["WebFetch"]},
-            "hooks": {"PreToolUse": [{"type": "command", "command": "./pre.sh"}]},
+            "hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": "./pre.sh"}]}]},
             "model": "new",
         },
         indent=2,

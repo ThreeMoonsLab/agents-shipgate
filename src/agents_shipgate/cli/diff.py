@@ -22,7 +22,6 @@ import typer
 
 from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.agent_control_envelope import single_line_text
-from agents_shipgate.core.boundary_registry import is_boundary_surface_path
 from agents_shipgate.core.capability_diff_rows import (
     ABSENT,
     ReviewChange,
@@ -308,18 +307,19 @@ def run_capability_diff(
             PromisedObjectsMissingError,
             archive_fetched_tree,
         )
+        from agents_shipgate.cli.verify.host_tree import materialize_host_tree
 
         base_tree = Path(scratch) / "base"
         base_tree.mkdir()
         try:
-            archive_fetched_tree(
-                workspace, base_commit, base_tree, scope=is_boundary_surface_path
+            base_tree = materialize_host_tree(
+                workspace, base_commit, base_tree, archive=archive_fetched_tree,
             )
         except PromisedObjectsMissingError:
             # The head is the working tree, so the base is the only side that
             # reads objects. Any other archive failure is raised as it was.
             _refuse_objects_missing(workspace, base_ref, base_commit)
-        base_snapshot = build_host_boundary_snapshot(base_tree, cache=HostStaticParseCache())
+        base_snapshot = build_host_boundary_snapshot(base_tree, cache=HostStaticParseCache(reference_workspace=workspace))
         base_inventory = base_snapshot.inventory
 
     from agents_shipgate.cli.verify.changed_inputs import comparison_changed_inputs

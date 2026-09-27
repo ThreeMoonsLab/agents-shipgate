@@ -301,6 +301,32 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="hook-script-dependencies-702"></a>
+
+## Migration Note: Unreleased — selected hook script dependencies (#702)
+
+Host-grants `0.7` adds `script_inputs` to hook comparison facts and
+`hook_script` artifacts to the inventory and drift shapes. A supported direct
+executable reference binds the repository file's bytes, digest and size;
+selection remains host configuration or a project-enabled plugin. A script
+edit keeps the declaration digest unchanged and produces one attributed hook
+row, without a new permission expansion signal. The local boundary gate
+routes the selected dependency for review using both compared revisions.
+
+Baselines retain these comparison facts. A repository hook baseline without
+`script_inputs` is incomparable (`baseline_hook_script_inputs_unavailable`),
+not evidence that the old script was empty or unchanged. Recreate such a
+baseline only through the existing reviewed baseline workflow. Display-only
+handler detail remains excluded from baselines.
+
+Verifier `0.21` worktree comparisons add `input_script_blobs`,
+`input_script_absent_paths` and `input_script_unconfirmable_paths` when needed.
+These bind consumed bytes and missing path components even when Git ignores
+them. Current control refuses changed dependencies or any unconfirmable read.
+Committed comparisons bind the immutable Git tree instead. No released schema
+changes, new check ID, runtime execution or script semantic interpretation is
+introduced. See the [supported reference shapes and limits](docs/host-boundary-support.md#hook-script-dependencies).
+
 <a id="partial-host-comparison-808"></a>
 
 ## Migration Note: Unreleased — a plugin directory that cannot be compared no longer hides the rest (verifier `0.21`, capability diff `0.4`, contract v41, #808)

@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agents_shipgate.schemas.capability_diff import CapabilityDiffRow
 from agents_shipgate.schemas.current_control import CurrentControlWorkspaceIdentity
+from agents_shipgate.schemas.verification_identity import VerificationBlob
 
 
 class HostComparisonLimit(BaseModel):
@@ -406,6 +407,10 @@ class HostComparison(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     input_identity: CurrentControlWorkspaceIdentity | None = None
+    # Worktree scripts can be gitignored, so Git's overlay is not their identity.
+    input_script_blobs: list[VerificationBlob] = Field(default_factory=list, exclude_if=lambda value: not value)
+    input_script_absent_paths: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
+    input_script_unconfirmable_paths: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
     comparison_status: Literal["comparable", "partial", "incomparable"]
     incomparable_reasons: list[str] = Field(default_factory=list)
     base_commit: str | None = None

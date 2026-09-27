@@ -37,6 +37,7 @@ from agents_shipgate.core.host_grants import (
     agent_rule_gains,
     agent_rule_text,
     checkout_ref_key,
+    hook_dependency_only_change,
     hook_loading_basis,
     host_grant_expansion_signals,
     permission_rule_replacements,
@@ -1233,6 +1234,24 @@ def _handler_changes(before: list[dict[str, Any]], after: list[dict[str, Any]]) 
     return parts
 
 
+def _hook_dependency_change(before: dict[str, Any], after: dict[str, Any]) -> str:
+    old = {item["handler"]: item for item in before.get("script_inputs") or []}
+    new = {item["handler"]: item for item in after.get("script_inputs") or []}
+    parts = []
+    for index in sorted(set(old) | set(new)):
+        left, right = old.get(index, {}), new.get(index, {})
+        if left == right:
+            continue
+        path = published_workflow_label(str(right.get("path") or left.get("path") or "unresolved path"))
+        def digest(item):
+            return str(item.get("sha256") or item.get("limit") or "not read")[:64]
+        parts.append(f"script {path} bytes {digest(left)} → {digest(right)}")
+    shown = "; ".join(parts[:3])
+    if len(parts) > 3:
+        shown += f"; {len(parts) - 3} more dependency changes"
+    return shown
+
+
 def _hook_change(event: str, before: dict[str, Any], after: dict[str, Any]) -> str | None:
     """What differs between two readings of one hook event, in its published handlers (#819).
 
@@ -1254,6 +1273,8 @@ def _hook_change(event: str, before: dict[str, Any], after: dict[str, Any]) -> s
     it (#819 review, cycle 5).
     """
 
+    if hook_dependency_only_change(before, after):
+        return f"{event}: {_hook_dependency_change(before, after)}"
     if "handlers" not in before or "handlers" not in after:
         return None
     old, new = before["handlers"], after["handlers"]
@@ -1407,6 +1428,12 @@ def capability_diff_rows(
             gone_secrets=gone_secrets, new_secrets=new_secrets,
             agent_reasons=agent_reasons,
         )
+        if hook_dependency_only_change(before_grant, after_grant):
+            why = (
+                f"{_hook_dependency_change(before_grant, after_grant)}; "
+                f"declaration unchanged, selected by {hook_loading_basis(after_grant)}; "
+                "compares file bytes only, not permissions or runtime behavior"
+            )
         row = CapabilityDiffRow(
             subject=_subject(grant),
             before=_grant_value(

@@ -777,3 +777,20 @@ def test_a_0_20_verifier_cannot_claim_a_partial_comparison(tmp_path: Path) -> No
     legacy["host_comparison"]["comparison_status"] = "incomparable"
     with pytest.raises(ValueError, match="partial host comparison"):
         VerifierArtifact.model_validate(legacy)
+
+
+def test_selected_script_in_withheld_plugin_prevents_independent_rows(tmp_path):
+    hook = {"SessionStart": [{"hooks": [
+        {"type": "command", "command": '"${CLAUDE_PROJECT_DIR}/plugins/demo/guard.sh"'},
+    ]}]}
+    root = _repository(
+        tmp_path,
+        {MANIFEST: PLUGIN, HOOK_FILE: HOOK, "plugins/demo/guard.sh": "before",
+         SETTINGS: {**BASE_SETTINGS, "hooks": hook}},
+        {MANIFEST: BROKEN, SETTINGS: {**DENY_DROPPED, "hooks": hook}},
+    )
+    result = CliRunner().invoke(app, ["diff", "--workspace", str(root), "--base", "main", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["comparison_status"] == "incomparable"
+    assert payload["rows"] == []

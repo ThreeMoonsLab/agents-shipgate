@@ -1164,6 +1164,8 @@ def _legacy_baseline(inventory: dict) -> dict:
         **baseline["inventory"],
         "grants": [compared_grant(grant) for grant in baseline["inventory"]["grants"]],
     }
+    for grant in snapshot["grants"]:
+        grant.pop("script_inputs", None)  # This reader did not exist in 0.6.
     legacy = {
         "host_grants_schema_version": "0.6",
         "scope": baseline["scope"],
@@ -1178,30 +1180,34 @@ def test_the_detail_is_left_out_of_equality_and_the_inventory_digest(tmp_path: P
     _write(root, SETTINGS, _hooks("Edit", "bin/lint.sh", 10))
     _write(root, ".mcp.json", _server("-y", "example-mcp-server@1.2.3"))
     inventory = _inventory(root)
-    legacy = _legacy_baseline(inventory)
+    baseline = build_host_grants_baseline(inventory)
 
-    # No detail member survives in the legacy snapshot, and the digest is the same.
-    for grant in legacy["inventory"]["grants"]:
+    # No detail member survives in the baseline snapshot, and the digest is the same.
+    for grant in baseline["inventory"]["grants"]:
         assert not DISPLAY_ONLY_GRANT_FIELDS.get(grant["kind"], frozenset()).intersection(grant)
-    assert legacy["inventory_sha256"] == build_host_grants_baseline(inventory)["inventory_sha256"]
+    assert baseline["inventory_sha256"] == build_host_grants_baseline(inventory)["inventory_sha256"]
 
-    drift = build_host_drift_payload(baseline=legacy, inventory=inventory, baseline_file="b.json")
+    drift = build_host_drift_payload(baseline=baseline, inventory=inventory, baseline_file="b.json")
     assert (drift["comparison_status"], drift["has_drift"], drift["changes"]) == ("comparable", False, [])
     assert drift["incomparable_reasons"] == []
     assert drift["baseline_sha256"] == drift["current_sha256"]
 
     # A change is still a row, through `config_sha256`.
     _write(root, SETTINGS, _hooks("Edit|Write", "bin/lint.sh", 10))
-    changed = build_host_drift_payload(baseline=legacy, inventory=_inventory(root), baseline_file="b.json")
+    changed = build_host_drift_payload(baseline=baseline, inventory=_inventory(root), baseline_file="b.json")
     assert [change["current"]["kind"] for change in changed["changes"]] == ["hook"]
     assert changed["expansion_signals"] == ["hook_changed: claude-code:.claude/settings.json"]
-    # A legacy side names no field difference it cannot show: the event, as before.
+    # A saved side names no field difference it cannot show: the event, as before.
     [row] = capability_diff_rows(changed)
     [presented] = review_changes([row])
     assert (presented.before, presented.after, presented.change) == ("PostToolUse", "PostToolUse", None)
 
 
-def test_a_0_6_baseline_stays_comparable_and_may_be_re_saved(tmp_path: Path) -> None:
+def test_a_0_6_hook_baseline_requires_dependency_evidence_before_comparison(tmp_path: Path) -> None:
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+
     root = tmp_path / "repo"
     _write(root, SETTINGS, _hooks("Edit", "bin/lint.sh", 10))
     _write(root, ".mcp.json", _server("-y", "example-mcp-server@1.2.3"))
@@ -1210,17 +1216,20 @@ def test_a_0_6_baseline_stays_comparable_and_may_be_re_saved(tmp_path: Path) -> 
     path.write_text(json.dumps(_legacy_baseline(_inventory(root)), indent=2, sort_keys=True) + "\n")
     assert load_host_grants_baseline(path)["host_grants_schema_version"] == "0.6"
 
-    drift = json.loads(_invoke([
+    result = CliRunner().invoke(app, [
         "audit", "--host", "--workspace", str(root), "--drift", "--fail-on-drift", "--json",
-    ]))
-    assert (drift["comparison_status"], drift["has_drift"]) == ("comparable", False)
+    ])
+    assert result.exit_code == 20
+    drift = json.loads(result.stdout)
+    assert (drift["comparison_status"], drift["has_drift"]) == ("incomparable", None)
+    assert "baseline_hook_script_inputs_unavailable" in drift["incomparable_reasons"]
 
     saved = json.loads(_invoke(["audit", "--host", "--workspace", str(root), "--save-baseline", "--json"]))
     assert saved["status"] == "updated"
     resaved = json.loads(path.read_text())
     assert resaved["host_grants_schema_version"] == "0.7"
-    # The re-saved grants are the `0.6` ones: only the version moved.
-    assert resaved["inventory"] == json.loads(json.dumps(_legacy_baseline(_inventory(root))))["inventory"]
+    # Explicitly re-saving captures current comparison facts, not old silence.
+    assert resaved == build_host_grants_baseline(_inventory(root))
 
 
 def test_an_older_baseline_is_still_refused_on_save(tmp_path: Path) -> None:

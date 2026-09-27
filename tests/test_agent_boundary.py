@@ -1306,8 +1306,11 @@ def test_check_authorizes_a_verify_command_for_its_own_target(tmp_path: Path) ->
 
 
 def test_check_verify_command_preserves_the_evaluated_ref_range(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # This is a command-quoting unit test with deliberately invalid Git refs.
+    # Selection from real compared trees is covered by hook routing tests.
+    monkeypatch.setattr("agents_shipgate.cli.agent_result.enabled_plugin_hook_evidence", lambda **kwargs: (None, None, []))
     (tmp_path / "new-gate.yml").write_text(_MCP_MANIFEST, encoding="utf-8")
     result = build_agent_boundary_result(
         agent="codex",
@@ -1434,8 +1437,10 @@ def test_undeclared_recovery_commands_preserve_the_requested_workspace(
 
 
 def test_ref_range_undeclared_discovery_never_targets_the_current_checkout(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Synthetic refs isolate the discovery command's checkout constraint.
+    monkeypatch.setattr("agents_shipgate.cli.agent_result.enabled_plugin_hook_evidence", lambda **kwargs: (None, None, []))
     (tmp_path / "custom-gate.yml").write_text(_MCP_MANIFEST, encoding="utf-8")
 
     result = build_agent_boundary_result(

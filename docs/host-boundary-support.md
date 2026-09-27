@@ -58,10 +58,12 @@ the changed inputs the candidate rules at the end of this section name (#821):
   It runs inside the calling job, with that job's `permissions` and secrets, so
   adding a `run:` step to `.github/actions/<name>/action.yml` adds a command
   holding the caller's scopes. Only the workflow file is read (#701).
-- **A script a hook command runs** (for example
-  `.claude/hooks/session-start`). The hook entry is read; the file it executes
-  is not, so editing the script changes what runs without changing the hook
-  (#702).
+- **A script outside the supported hook reference shapes** (for example a
+  relative `.claude/hooks/session-start`, a wrapper's argument, or a dynamic
+  shell expression). A filename alone establishes neither selection nor the
+  host's working directory. Selected literal references in the
+  [bounded script comparison](#hook-script-dependencies) below are read;
+  the remaining scripts are still unread (#702).
 - **The path of a remote MCP server's URL.** The host and query are compared
   and the path is not, because a webhook-style path can itself be the secret.
   Changing `/read` to `/admin` on the same host produces no row (#772).
@@ -490,7 +492,7 @@ a tag or digest) and a digest of the rest, so a version pin moving to
 `@latest` reads `package example-mcp-server@1.2.3 → example-mcp-server@latest`
 and any other argument edit `launch arguments changed` with both digests. The
 detail is a display of the declaration, never an input to the comparison: the
-command is not resolved or run, the script it names is not read (#702), and
+command is not run, and
 the digests are of the configuration as `config_sha256`'s input holds it. A
 value that input already redacts, such as the value after `--token`,
 `--api-key` or `--password`, a `--password=…` value, an `X-Api-Key:` header
@@ -501,6 +503,40 @@ reaches the committed file. A hook declaration outside the documented shape
 publishes no handlers, and its row says the matcher, command and timeout are
 not shown; when only one side is outside it, the row names that side and lists
 the other side's handlers.
+
+<a id="hook-script-dependencies"></a>
+
+Selected hook executables have a separate, bounded byte comparison (#702).
+For Claude Code, a direct executable anchored by `CLAUDE_PROJECT_DIR`, or by
+`CLAUDE_PLUGIN_ROOT` with an independently established selected plugin root,
+can name an exact repository file. Supported shell references use whole
+double-quoted placeholders; the documented explicit argument-list form can
+use the placeholder in its executable field. Both Claude Code and Codex can
+name an absolute executable inside the original workspace. Historical trees
+retain that original path namespace. Relative paths, bare PATH commands,
+wrappers, compound commands, conditional expansions such as `${VAR:-.}` and
+unsupported command overrides do not establish a dependency. No environment
+variable is read and no command runs.
+
+Only selected repository hooks bind scripts: host configuration or a plugin
+the project enables. A declared-only plugin hook does not become selected
+because its script exists. Each supported reference reads at most 1 MiB of
+raw bytes through the bounded host reader, with at most 256 handlers examined
+per event independently of the 16-handler display limit, without following links or
+interpreting script behavior. Missing, linked, nonregular, oversized and
+unreadable inputs retain explicit limits. Changes to captured bytes produce
+one row on the declaring hook, naming its event, loading basis, script path
+and before/after digests. A script-only edit does not assert a permission
+expansion. `check` routes the selected file for review on either side of the
+change, with separate host attribution.
+
+These dependency facts are comparison inputs and survive in a baseline;
+older repository-hook baselines without them are incomparable. They differ from the
+display-only handler detail above. Worktree verification binds successful
+reads and missing-path observations, including ignored paths, so a later
+change invalidates current control. An unsafe read cannot establish current
+control. This compares declared source bytes, not installed plugin bytes,
+session activation, recursive dependencies or runtime behavior.
 
 A hook row states its loading basis (#714). Parsing a hook file proves the
 file exists, not that a host loads it, so hooks are published four ways:

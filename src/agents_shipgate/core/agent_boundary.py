@@ -205,6 +205,11 @@ def evaluate_agent_boundary(
         for path in changed_files
         if is_enabled_plugin_hook_source(path, plugin_hooks.sources)
     )
+    script_hosts: dict[str, list[str]] = {}
+    changed_set = set(changed_files)
+    for host, path in sorted(plugin_hooks.scripts):
+        if path in changed_set:
+            script_hosts.setdefault(path, []).append(host)
     # A changed hook file such a plugin selects under a name the reader does
     # not follow, or in a directory the walk skips, holds hooks the host
     # loads and nothing here read (#809). That is input this check could not
@@ -356,6 +361,7 @@ def evaluate_agent_boundary(
         policy_path=policy_path,
         workspace=workspace,
         plugin_hook_paths=plugin_hook_paths,
+        script_hosts=script_hosts,
         evaluated_paths={
             *instruction_structure_unchanged,
             *host_settings_narrowed,
@@ -520,6 +526,7 @@ def evaluate_agent_boundary(
                     else set()
                 ),
                 *({"claude-code"} if plugin_hook_paths or plugin_unread_paths else set()),
+                *(host for hosts in script_hosts.values() for host in hosts),
             }
         )
     )
@@ -529,6 +536,7 @@ def evaluate_agent_boundary(
         issues=issue_codes,
         invocation_shared_paths=invocation_shared_paths,
         plugin_hook_paths=plugin_hook_paths | plugin_unread_paths,
+        script_hosts=script_hosts,
     )
     input_coverage: Literal["complete", "partial", "unknown"] = (
         "partial"
@@ -1061,6 +1069,7 @@ def _coverage_for(
     issues: list[str],
     invocation_shared_paths: set[str] | None = None,
     plugin_hook_paths: frozenset[str] = frozenset(),
+    script_hosts: dict[str, list[str]] | None = None,
 ) -> list[BoundaryHostCoverage]:
     # A path is partially covered only when its content was not read. A kind
     # the publication predicate counts as read is never unread here, so a
@@ -1085,6 +1094,11 @@ def _coverage_for(
         if adapter.id == "claude_code" and plugin_hook_paths:
             # Routed from loading evidence, not a registry name (#809).
             paths = sorted({*paths, *plugin_hook_paths})
+        if adapter.id != "shared" and script_hosts:
+            paths = sorted({*paths, *(
+                path for path, hosts in script_hosts.items()
+                if set(hosts) & set(adapter.hosts)
+            )})
         if any(path in failure_paths for path in paths) or (paths and issues):
             status = "partial"
         elif paths and adapter.experimental:
@@ -1184,6 +1198,7 @@ def _with_unclassified_protected_changes(
     policy_path: Path | None = None,
     workspace: Path | None = None,
     plugin_hook_paths: frozenset[str] = frozenset(),
+    script_hosts: dict[str, list[str]] | None = None,
 ) -> list[AgentResultViolatedRule]:
     covered = {item.path for item in violations if item.path}
     additions: list[AgentResultViolatedRule] = []
@@ -1191,7 +1206,7 @@ def _with_unclassified_protected_changes(
         normalized = path.replace("\\", "/")
         if (
             normalized in covered
-            or normalized in evaluated_paths
+            or (normalized in evaluated_paths and normalized not in (script_hosts or {}))
             or not (
                 is_agent_boundary_path(normalized)
                 or trust_root_class_for(normalized) is not None
@@ -1199,6 +1214,7 @@ def _with_unclassified_protected_changes(
                 # is a hook the host loads, wherever the plugin keeps it
                 # (#809); `plugin_hook_paths` already holds both facts.
                 or normalized in plugin_hook_paths
+                or normalized in (script_hosts or {})
                 # The manifest this invocation loaded is a protected surface
                 # whatever it is called: a repository run with
                 # ``--config new-gate.yml`` otherwise got ``allow`` and no
@@ -1278,6 +1294,11 @@ def _with_unclassified_protected_changes(
                     **(
                         {"hook_loading_basis": "project_enabled_plugin"}
                         if enabled_plugin_hook
+                        else {}
+                    ),
+                    **(
+                        {"hook_script_hosts": script_hosts[normalized]}
+                        if script_hosts and normalized in script_hosts
                         else {}
                     ),
                 },

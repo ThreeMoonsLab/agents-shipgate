@@ -37,6 +37,8 @@ from agents_shipgate.core.boundary_registry import (
     is_explicit_boundary_file_path,
     is_hook_declaration_file_name,
 )
+from agents_shipgate.core.hook_script_capture import capture_hook_script
+from agents_shipgate.core.hook_script_reference import MAX_HOOK_SCRIPT_HANDLERS, hook_script_reference
 from agents_shipgate.core.host_boundary import (
     _is_wildcard_allow,
     _is_write,
@@ -147,6 +149,9 @@ class HostStaticParseCache:
 
     max_entries: int = MAX_HOST_STATIC_ENTRIES
     max_total_bytes: int = MAX_HOST_STATIC_TOTAL_BYTES
+    reference_workspace: Path | None = None
+    hook_script_reads: dict[str, dict[str, Any]] = field(default_factory=dict)
+    hook_script_absences: set[str] = field(default_factory=set)
     _reads: dict[tuple[str, str], tuple[str | None, str | None]] = field(
         default_factory=dict
     )
@@ -374,9 +379,9 @@ class HostBoundarySnapshot:
 
 @dataclass(frozen=True)
 class EnabledPluginHookFiles:
-    """The files holding hooks of a plugin the project settings enable (#809).
+    """Selected plugin hook declarations and host executable references.
 
-    The two private snapshot facts, gathered across the sides of a change a
+    Private snapshot facts, gathered across the sides of a change a
     caller could read, so `check` and `verify` decide from the same evidence.
     """
 
@@ -386,17 +391,28 @@ class EnabledPluginHookFiles:
     #: Files such a plugin selects whose hooks the reader did not read
     #: (``HostBoundarySnapshot.enabled_plugin_unread_hook_files``).
     unread: frozenset[str] = frozenset()
+    #: Selected literal executable references, identified separately per host.
+    scripts: frozenset[tuple[str, str]] = frozenset()
 
     @classmethod
     def of(cls, snapshot: HostBoundarySnapshot) -> EnabledPluginHookFiles:
         return cls(
             sources=snapshot.enabled_plugin_hook_sources,
             unread=snapshot.enabled_plugin_unread_hook_files,
+            scripts=frozenset(
+                (grant["host"], entry["path"])
+                for grant in snapshot.inventory["grants"]
+                if grant.get("kind") == "hook"
+                and hook_loading_basis(grant) in {"host_configuration", "project_enabled_plugin"}
+                for entry in grant.get("script_inputs") or []
+                if entry.get("path") and entry.get("basis")
+            ),
         )
 
     def union(self, other: EnabledPluginHookFiles) -> EnabledPluginHookFiles:
         return EnabledPluginHookFiles(
-            sources=self.sources | other.sources, unread=self.unread | other.unread
+            sources=self.sources | other.sources, unread=self.unread | other.unread,
+            scripts=self.scripts | other.scripts,
         )
 
 
@@ -3754,7 +3770,9 @@ def _collect_file(
     artifacts: list[dict[str, Any]], grants: list[dict[str, Any]], issues: list[dict[str, Any]],
     resolved_through: tuple[str, ...] = (),
     hook_basis: HookLoadingBasis = "host_configuration",
+    plugin_root: str | None = None,
 ) -> Any:
+    first_grant = len(grants)
     if kind == "instructions":
         text, error = cache.read(path, containment_root=containment_root)
         if error:
@@ -3876,7 +3894,89 @@ def _collect_file(
         grants.extend(_claude_grants(data, scope=scope, source=source))
     elif host == "cursor":
         grants.extend(_cursor_grants(data, scope=scope, source=source))
+    _bind_hook_scripts(
+        data=data, grants=grants[first_grant:], root=containment_root,
+        cache=cache, issues=issues, artifacts=artifacts, plugin_root=plugin_root,
+    )
     return data
+
+
+def _bind_hook_scripts(
+    *, data: Any, grants: list[dict[str, Any]], root: Path,
+    cache: HostStaticParseCache, issues: list[dict[str, Any]],
+    artifacts: list[dict[str, Any]],
+    plugin_root: str | None = None,
+) -> None:
+    """Attach bounded direct dependencies to selected repository hook grants."""
+    hooks = data.get("hooks") if isinstance(data, dict) else None
+    if not isinstance(hooks, dict):
+        return
+    for grant in grants:
+        if grant.get("kind") != "hook" or grant.get("scope") != "repository":
+            continue
+        event = grant["event"]
+        groups = hooks.get(event)
+        entries: list[dict[str, Any]] = []
+        grant["script_inputs"] = entries
+        if not isinstance(groups, list):
+            entries.append({"handler": 0, "limit": "unsupported_hook_shape"})
+            groups = []
+        index = 0
+        for group in groups:
+            handlers = group.get("hooks") if isinstance(group, dict) else None
+            if not isinstance(handlers, list):
+                entries.append({"handler": index, "limit": "unsupported_hook_shape"})
+                break
+            for handler in handlers:
+                if index >= MAX_HOOK_SCRIPT_HANDLERS:
+                    entries.append({"handler": index, "limit": "handler_bound_exceeded"})
+                    break
+                ordinal = index
+                index += 1
+                if not isinstance(handler, dict) or handler.get("type") != "command":
+                    continue
+                if hook_loading_basis(grant) not in {"host_configuration", "project_enabled_plugin"}:
+                    entries.append({"handler": ordinal, "limit": "hook_selection_not_established"})
+                    continue
+                ref = hook_script_reference(
+                    handler, host=grant["host"],
+                    workspace_path=str(cache.reference_workspace or root), plugin_root=plugin_root,
+                )
+                entry: dict[str, Any] = {"handler": ordinal, "path": ref.path, "basis": ref.basis, "limit": ref.limit}
+                if ref.path is not None:
+                    shown = public_host_path(ref.path)
+                    if shown != ref.path:
+                        entry.update(path=shown, limit="redacted_dependency_path")
+                    else:
+                        if ref.path not in cache.hook_script_reads:
+                            cache.hook_script_reads[ref.path] = capture_hook_script(
+                                cache.reader_for(root), ref.path, absent_paths=cache.hook_script_absences,
+                            )
+                        entry.update(cache.hook_script_reads[ref.path])
+                    if entry.get("limit"):
+                        issues.append(_inventory_issue(
+                            kind="unreadable", host=grant["host"], source=grant["source"],
+                            message=f"Hook {event} selected dependency {shown}: {entry['limit']}; script bytes were not established.",
+                            blocking=True,
+                        ))
+                    if not any(item["host"] == grant["host"] and item["path"] == shown and item["kind"] == "hook_script" for item in artifacts):
+                        artifacts.append(_artifact(
+                            host=grant["host"], scope="repository", source=shown, kind="hook_script",
+                            status="failed" if entry.get("limit") else "parsed",
+                            data={"sha256": entry.get("sha256"), "size_bytes": entry.get("size_bytes")},
+                        ))
+                entries.append(entry)
+            if entries and entries[-1].get("limit") == "handler_bound_exceeded":
+                break
+        if (
+            hook_loading_basis(grant) in {"host_configuration", "project_enabled_plugin"}
+            and any(entry.get("limit") == "handler_bound_exceeded" for entry in entries)
+        ):
+            issues.append(_inventory_issue(
+                kind="unsupported", host=grant["host"], source=grant["source"],
+                message=f"Hook {event} executable dependencies were not fully examined: handler bound {MAX_HOOK_SCRIPT_HANDLERS} exceeded.",
+                blocking=True,
+            ))
 
 
 def _claude_plugin_hook_issue(*, source: str, message: str, blocking: bool) -> dict[str, Any]:
@@ -4328,10 +4428,15 @@ def _resolve_claude_plugin_hooks(
         enabled_here = plugin_root.casefold() in enabled_roots
         if enabled_here:
             result.enabled_inline.add(selector.split("#", 1)[0])
-        grants.extend(_hooks_grants(
+        inline_grants = _hooks_grants(
             {"hooks": declared}, host="claude-code", scope="repository", source=selector,
             basis="project_enabled_plugin" if enabled_here else "plugin_selected",
-        ))
+        )
+        _bind_hook_scripts(
+            data={"hooks": declared}, grants=inline_grants, root=root,
+            cache=cache, issues=issues, artifacts=artifacts, plugin_root=plugin_root,
+        )
+        grants.extend(inline_grants)
     result.enabled = {
         hook_file for hook_file, roots in roots_by_file.items() if roots & enabled_roots
     }
@@ -4985,6 +5090,8 @@ def build_host_boundary_snapshot(
     root = workspace.resolve()
     home = Path.home().resolve()
     cache = cache or HostStaticParseCache()
+    if cache.reference_workspace is None:
+        cache.reference_workspace = root
     artifacts: list[dict[str, Any]] = []
     grants: list[dict[str, Any]] = []
     issues: list[dict[str, Any]] = []
@@ -5073,6 +5180,7 @@ def build_host_boundary_snapshot(
             containment_root=root, cache=cache,
             artifacts=artifacts, grants=grants, issues=issues,
             resolved_through=resolved_through, hook_basis=hook_basis,
+            plugin_root=(next(iter(selection.roots[source])) if len(selection.roots.get(source, ())) == 1 else None),
         )
         if hook_basis in {"plugin_selected", "project_enabled_plugin"}:
             note_unusable_selected_hooks(data, source=source)
@@ -5087,6 +5195,7 @@ def build_host_boundary_snapshot(
             hook_basis=(
                 "project_enabled_plugin" if source in selection.enabled else "plugin_selected"
             ),
+            plugin_root=(next(iter(selection.roots[source])) if len(selection.roots.get(source, ())) == 1 else None),
         )
         # Read only because a plugin selects it, so its read limits are
         # plugin-reference limits. A registered hook path above keeps the
@@ -5627,6 +5736,17 @@ def compared_grant(grant: dict[str, Any] | None) -> dict[str, Any] | None:
     return {key: value for key, value in grant.items() if key not in hidden}
 
 
+def hook_dependency_only_change(before: dict | None, after: dict | None) -> bool:
+    """Script bytes are compared evidence, never newly granted authority."""
+    if not before or not after or before.get("kind") != "hook" or after.get("kind") != "hook":
+        return False
+    return (
+        before.get("script_inputs") != after.get("script_inputs")
+        and {k: v for k, v in compared_grant(before).items() if k != "script_inputs"}
+        == {k: v for k, v in compared_grant(after).items() if k != "script_inputs"}
+    )
+
+
 def _same_workflow_grant(before: dict | None, after: dict | None) -> bool:
     if any(
         not grant or grant.get("kind") != "workflow" or "permission_contexts" not in grant
@@ -5786,7 +5906,7 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
             # an expansion (#714). Read from the current grant only, so a
             # baseline that recorded such a file as `execute` does not report
             # a widening when it is re-read.
-            if hook_loading_basis(after) in LOADED_HOOK_BASES:
+            if hook_loading_basis(after) in LOADED_HOOK_BASES and not hook_dependency_only_change(before, after):
                 signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
         elif kind in {"permission_mode", "sandbox", "additional_path", "plugin_or_app"}:
             if (
@@ -6013,6 +6133,12 @@ def build_host_drift_payload(
     *, baseline: dict[str, Any], inventory: dict[str, Any], baseline_file: str
 ) -> dict[str, Any]:
     reasons: list[str] = []
+    if any(
+        grant.get("kind") == "hook" and grant.get("scope") == "repository"
+        and grant.get("script_inputs") is None
+        for grant in (baseline.get("inventory") or {}).get("grants", [])
+    ):
+        reasons.append("baseline_hook_script_inputs_unavailable")
     if baseline.get("host_grants_schema_version") == "0.1":
         reasons.append("baseline_schema_v0.1_lacks_typed_grants_and_scope")
     elif baseline.get("host_grants_schema_version") not in _COMPARABLE_BASELINE_SCHEMA_VERSIONS:

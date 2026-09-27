@@ -1165,65 +1165,39 @@ def test_the_published_1_0_0_baseline_is_what_1_0_0_read(tmp_path: Path) -> None
     assert _workspace(tmp_path, _self_enabled()).joinpath(".claude/hooks/hooks.json").exists()
 
 
-def test_a_1_0_0_baseline_of_an_enabled_plugin_hook_drifts_once_with_no_grant_change(
-    tmp_path: Path,
-) -> None:
-    """Against a baseline published 1.0.0 actually saved, this reader drifts
-    once. The hook grant is untouched — 1.0.0's `execute`/`high`, same
-    identity, no typed change and no expansion signal — but the plugin
-    manifest that selects it is a newly read artifact and a newly observed
-    source, so `--fail-on-drift` exits 20 until the baseline is re-saved."""
-
+def test_a_1_0_0_hook_baseline_cannot_establish_script_dependency_drift(tmp_path: Path) -> None:
+    """#702: preserve the historical fixture, but do not invent bytes it never read."""
     root = _workspace(tmp_path, _self_enabled())
-    baseline = _published_1_0_0_baseline()
     current = _inventory(root)
-
     payload = build_host_drift_payload(
-        baseline=baseline, inventory=current, baseline_file="b"
+        baseline=_published_1_0_0_baseline(), inventory=current, baseline_file="b"
     )
-
-    assert payload["comparison_status"] == "comparable"
-    assert payload["has_drift"] is True
-    assert payload["changes"] == []
-    assert payload["expansion_signals"] == []
+    assert payload["comparison_status"] == "incomparable"
+    assert "baseline_hook_script_inputs_unavailable" in payload["incomparable_reasons"]
+    assert payload["changes"] == [] and payload["expansion_signals"] == []
     assert capability_diff_rows(payload) == []
-    assert [
-        (change["baseline"], change["current"]["path"]) for change in payload["artifact_changes"]
-    ] == [(None, ".claude-plugin/plugin.json")]
-    [coverage] = payload["coverage_changes"]
-    assert coverage["current"]["host"] == "claude-code"
-    assert set(coverage["current"]["sources_observed"]) - set(
-        coverage["baseline"]["sources_observed"]
-    ) == {".claude-plugin/plugin.json"}
-    # The grant the manifest selects is byte-identical on both sides.
-    recorded = [grant for grant in baseline["inventory"]["grants"] if grant["kind"] == "hook"]
-    read_now = [grant for grant in current["grants"] if grant["kind"] == "hook"]
-    assert [(g["grant_id"], g["access"], g["risk"]) for g in read_now] == [
-        (g["grant_id"], g["access"], g["risk"]) for g in recorded
-    ]
+    # A new observed baseline is comparable and unchanged, without execution.
+    refreshed = build_host_drift_payload(
+        baseline=build_host_grants_baseline(current), inventory=current, baseline_file="new"
+    )
+    assert refreshed["comparison_status"] == "comparable"
+    assert refreshed["has_drift"] is False
     _never_executed(root)
 
 
-def test_the_drift_gate_exits_20_once_on_a_published_1_0_0_baseline(tmp_path: Path) -> None:
-    """The documented upgrade effect, through the gate a scheduled workflow
-    runs: exit 20, zero typed grant changes, and the added artifact and
-    observed source to read in `--json`."""
-
+def test_the_drift_gate_names_unread_script_evidence_on_a_published_1_0_0_baseline(tmp_path: Path) -> None:
     root = _workspace(tmp_path, _self_enabled())
     _write(root, ".agents-shipgate/host-grants.json", PUBLISHED_1_0_0_BASELINE.read_text("utf-8"))
-
     gate = runner.invoke(
         app, ["audit", "--host", "--workspace", str(root), "--drift", "--fail-on-drift"]
     )
     data = runner.invoke(app, ["audit", "--host", "--workspace", str(root), "--drift", "--json"])
-
     assert gate.exit_code == 20, gate.output
-    assert "**Drift detected** — 0 typed grant change(s)." in gate.output
+    assert "**Incomparable**" in gate.output
+    assert "baseline_hook_script_inputs_unavailable" in gate.output
     payload = json.loads(data.output)
     assert payload["changes"] == [] and payload["expansion_signals"] == []
-    assert [change["current"]["path"] for change in payload["artifact_changes"]] == [
-        ".claude-plugin/plugin.json"
-    ]
+    assert "baseline_hook_script_inputs_unavailable" in payload["incomparable_reasons"]
     _never_executed(root)
 
 

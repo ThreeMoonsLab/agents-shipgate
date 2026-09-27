@@ -410,6 +410,10 @@ def _no_grant_change_shown(
         return True
     before, after = changes[0].get("baseline"), changes[0].get("current")
     present = [artifact for artifact in (before, after) if artifact is not None]
+    if any(artifact.get("kind") == "hook_script" for artifact in present):
+        # Its comparison is on the declaring hook's row, as plugin selection
+        # changes are on selected hooks. Zero rows here proves no absence.
+        return False
     if not present or any(artifact.get("parse_status") != "parsed" for artifact in present):
         return False
     if before is None or after is None:
@@ -645,8 +649,8 @@ def _independent_of_plugin_scopes(
     from, never off directory names alone. A plugin-reference limit can hide
     only what that plugin's references select, and a reference is followed
     only inside its plugin directory (#714), so what it hides is published
-    under that directory. In this entry's repository scope every other grant
-    is read from its own file alone. Two edges leave a plugin directory, and
+    under that directory. Hook grants may also read a selected executable.
+    Three edges can cross a plugin directory, and
     either one refuses retention, because a row outside the directory would
     then depend on what is inside it:
 
@@ -655,7 +659,9 @@ def _independent_of_plugin_scopes(
       directory holding them withholds nothing independently;
     - a marketplace entry outside a withheld directory can declare inline
       hooks for the plugin inside it, and those grants are published under
-      the marketplace.
+      the marketplace;
+    - a selected hook and its script bytes can lie on opposite sides of the
+      withheld boundary, so neither half is independent of the other.
 
     ``None`` — refuse as before — whenever independence is not established:
     a blocking limit that is not a plugin reference and not an unchanged
@@ -701,6 +707,14 @@ def _independent_of_plugin_scopes(
 
     if any(withheld(settings) for settings in _CLAUDE_PROJECT_SETTINGS_SOURCES):
         return None
+    for inventory in (before, after):
+        for grant in inventory.get("grants", []):
+            for entry in grant.get("script_inputs") or []:
+                path = entry.get("path")
+                if path and withheld(str(grant.get("source", ""))) != withheld(path):
+                    # Script bytes are comparison inputs of their declaring
+                    # hook. Neither half is independent across this boundary.
+                    return None
     for facts in scopes:
         for source, root in facts.inline_roots.items():
             # The whole source: its member only extends the marketplace's path.

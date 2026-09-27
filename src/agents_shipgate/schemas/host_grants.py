@@ -672,7 +672,25 @@ class HostHookHandlerV7(BaseModel):
     timeout: bool | int | float | str | None = None
 
 
-class HostHookGrantV7(HostHookGrantV2):
+class HostHookScriptInputV7(BaseModel):
+    """A direct executable reference and its byte reading, never script semantics."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    handler: int = Field(ge=0)
+    path: str | None = None
+    basis: Literal["project_root_placeholder", "plugin_root_placeholder", "absolute_workspace_path"] | None = None
+    sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    size_bytes: int | None = Field(default=None, ge=0)
+    limit: str | None = None
+
+
+class HostHookComparisonV7(HostHookGrantV2):
+    # None is historical absence, not evidence that no dependency was selected.
+    script_inputs: list[HostHookScriptInputV7] | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
+class HostHookGrantV7(HostHookComparisonV7):
     #: Every handler the event declares, in file order, at most a bounded
     #: number; ``omitted_handlers`` counts the rest. ``None`` when the event's
     #: value is not a list of matcher groups each holding a ``hooks`` list of
@@ -937,7 +955,7 @@ HostBaselineGrantV7 = Annotated[
     HostMcpServerGrantV2
     | HostPermissionRuleGrantV2
     | HostPermissionModeGrantV2
-    | HostHookGrantV2
+    | HostHookComparisonV7
     | HostSandboxGrantV2
     | HostAdditionalPathGrantV2
     | HostPluginGrantV2
@@ -949,14 +967,27 @@ HostBaselineGrantV7 = Annotated[
 ]
 
 
+class HostArtifactV7(HostArtifactV4):
+    kind: Literal["config", "mcp", "hooks", "workflow", "instructions", "requirements", "hook_script"]
+
+
+class HostArtifactChangeV7(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    artifact_id: str
+    baseline: HostArtifactV7 | None = None
+    current: HostArtifactV7 | None = None
+
+
 class HostGrantsInventoryV7(HostGrantsInventoryV6):
     host_grants_inventory_schema_version: Literal["0.7"] = "0.7"
     grants: list[HostGrantV7] = Field(default_factory=list)
+    artifacts: list[HostArtifactV7] = Field(default_factory=list)
 
 
 class HostGrantsNormalizedSnapshotV7(HostGrantsNormalizedSnapshotV6):
     # Saved baselines keep workflow evidence but omit display-only hook/MCP fields.
     grants: list[HostBaselineGrantV7] = Field(default_factory=list)
+    artifacts: list[HostArtifactV7] = Field(default_factory=list)
 
 
 class HostGrantsBaselineV7(HostGrantsBaselineV6):
@@ -966,6 +997,7 @@ class HostGrantsBaselineV7(HostGrantsBaselineV6):
 
 class HostGrantsDriftV7(HostGrantsDriftV6):
     host_grants_schema_version: Literal["0.7"] = "0.7"
+    artifact_changes: list[HostArtifactChangeV7] = Field(default_factory=list)
 
 
 class HostGrantsInventoryArtifactV7(RootModel[HostGrantsInventoryV7]):

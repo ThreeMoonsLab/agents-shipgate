@@ -1,6 +1,6 @@
 {
   "$defs": {
-    "HostArtifactChangeV2": {
+    "HostArtifactChangeV7": {
       "additionalProperties": false,
       "properties": {
         "artifact_id": {
@@ -10,34 +10,124 @@
         "baseline": {
           "anyOf": [
             {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/$defs/HostArtifactV7"
             },
             {
               "type": "null"
             }
           ],
-          "default": null,
-          "title": "Baseline"
+          "default": null
         },
         "current": {
           "anyOf": [
             {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/$defs/HostArtifactV7"
             },
             {
               "type": "null"
             }
           ],
-          "default": null,
-          "title": "Current"
+          "default": null
         }
       },
       "required": [
         "artifact_id"
       ],
-      "title": "HostArtifactChangeV2",
+      "title": "HostArtifactChangeV7",
+      "type": "object"
+    },
+    "HostArtifactV7": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "host": {
+          "enum": [
+            "codex",
+            "claude-code",
+            "cursor",
+            "vscode",
+            "github"
+          ],
+          "title": "Host",
+          "type": "string"
+        },
+        "instruction_structure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InstructionStructureEvidence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "kind": {
+          "enum": [
+            "config",
+            "mcp",
+            "hooks",
+            "workflow",
+            "instructions",
+            "requirements",
+            "hook_script"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "parse_status": {
+          "enum": [
+            "parsed",
+            "failed",
+            "unsupported"
+          ],
+          "title": "Parse Status",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "redacted_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Redacted Sha256"
+        },
+        "resolved_through": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Resolved Through",
+          "type": "array"
+        },
+        "scope": {
+          "enum": [
+            "repository",
+            "local_static"
+          ],
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "host",
+        "scope",
+        "path",
+        "kind",
+        "parse_status"
+      ],
+      "title": "HostArtifactV7",
       "type": "object"
     },
     "HostCoverageChangeV2": {
@@ -132,7 +222,7 @@
       "properties": {
         "artifact_changes": {
           "items": {
-            "$ref": "#/$defs/HostArtifactChangeV2"
+            "$ref": "#/$defs/HostArtifactChangeV7"
           },
           "title": "Artifact Changes",
           "type": "array"
@@ -307,6 +397,48 @@
         "blocking"
       ],
       "title": "HostInventoryIssueV2",
+      "type": "object"
+    },
+    "InstructionStructureEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "profile": {
+          "title": "Profile",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "status": {
+          "enum": [
+            "guidance",
+            "structured",
+            "unresolved"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "profile",
+        "status",
+        "reason"
+      ],
+      "title": "InstructionStructureEvidence",
       "type": "object"
     }
   },

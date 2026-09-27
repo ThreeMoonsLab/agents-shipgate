@@ -22,14 +22,13 @@ from agents_shipgate.cli.verify.git import (
 from agents_shipgate.core.boundary_diff import BoundaryInputIssue
 from agents_shipgate.core.boundary_registry import (
     is_boundary_surface_path,
-    is_claude_plugin_reference_path,
-    is_enabled_plugin_hook_source,
 )
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.host_comparison import compare_host_inventories
 from agents_shipgate.core.host_grants import (
     EnabledPluginHookFiles,
     HostBoundarySnapshot,
+    HostStaticParseCache,
     build_host_boundary_snapshot,
     without_host_issues,
 )
@@ -134,16 +133,14 @@ def compare_host_refs(
         before.mkdir()
         # The host comparison reads host surface only, so it archives host
         # surface only: the same scope the live reader uses (#686, #688).
-        archive_tree(
-            workspace, base_commit, before, scope=is_boundary_surface_path
-        )
+        from agents_shipgate.cli.verify.host_tree import materialize_host_tree
+
+        before = materialize_host_tree(workspace, base_commit, before, archive=archive_tree)
         after = workspace
         if head is not None:
             after = Path(scratch) / "head"
             after.mkdir()
-            archive_tree(
-                workspace, head_commit, after, scope=is_boundary_surface_path
-            )
+            after = materialize_host_tree(workspace, head_commit, after, archive=archive_tree)
         # Removing a configured gate, or selecting a historical head containing
         # one, is not first adoption. Leave the existing verifier route intact.
         if require_unconfigured and (
@@ -168,8 +165,8 @@ def compare_host_refs(
                 return ChangedInputs(paths=None)
             return comparison_changed_inputs(workspace, base_commit, compared_head, exclude=exclude)
 
-        base_snapshot = build_host_boundary_snapshot(before)
-        head_snapshot = build_host_boundary_snapshot(after)
+        base_snapshot = build_host_boundary_snapshot(before, cache=HostStaticParseCache(reference_workspace=workspace))
+        head_snapshot = build_host_boundary_snapshot(after, cache=HostStaticParseCache(reference_workspace=workspace))
         base_inventory = base_snapshot.inventory
         head_inventory = head_snapshot.inventory
         if exclude_plugin_reference_limits:
@@ -195,6 +192,22 @@ def compare_host_refs(
         if identity() != captured_identity:
             raise ValueError("Host comparison inputs moved during the run")
         result.input_identity = captured_identity
+        if head is None:
+            from agents_shipgate.schemas.verification_identity import VerificationBlob
+
+            result.input_script_blobs = [
+                VerificationBlob(
+                    path=path, sha256="sha256:" + facts["sha256"],
+                    size_bytes=facts["size_bytes"], source="worktree",
+                )
+                for path, facts in sorted(head_snapshot.cache.hook_script_reads.items())
+                if facts.get("sha256") is not None
+            ]
+            result.input_script_absent_paths = sorted(head_snapshot.cache.hook_script_absences)
+            result.input_script_unconfirmable_paths = sorted(
+                path for path, facts in head_snapshot.cache.hook_script_reads.items()
+                if facts.get("limit") not in {None, "missing_input"}
+            )
         result_coverage = result.coverage
         mentions_unread = result_coverage is not None and (
             not result_coverage.read_sources_only
@@ -261,7 +274,7 @@ def enabled_plugin_hook_evidence(
     base: str | None,
     head: str | None = None,
 ) -> tuple[HostBoundarySnapshot | None, EnabledPluginHookFiles | None, list[BoundaryInputIssue]]:
-    """Which changed files hold an enabled plugin's hooks, on both sides (#809).
+    """Selected plugin declarations and executable dependencies on both sides.
 
     `check` and `verify` both call this, so the boundary decision each
     publishes for one change is made from the same evidence. Returns
@@ -278,22 +291,22 @@ def enabled_plugin_hook_evidence(
     with no commit to compare (a provided diff) passes no ``base``, and only
     the tree it evaluates is read.
 
-    Nothing is archived unless a changed path is one the plugin hook reader
-    opens, so a change to no plugin file costs nothing here, and the base is
-    not archived once the head already routes every such path. A side that
-    cannot be read is an input issue on each such path rather than a guess:
-    whether an enabled plugin loads hooks from it is not established.
+    A script can have any filename, so both declaration trees are read for
+    every nonempty change. Only boundary declarations are archived here:
+    lexical references establish selection, while the comparison separately
+    captures executable bytes. Both sides matter even when the head already
+    selects a path, since another host may have selected it only at the base.
+    An unreadable side leaves selection unestablished rather than guessed.
     """
 
-    candidates = sorted(path for path in changed_files if is_claude_plugin_reference_path(path))
+    # Executables may have any repository filename. Read both declaration
+    # trees before ruling out a changed file as a selected dependency.
+    candidates = sorted(set(changed_files))
     if not candidates or not base:
         return None, None, []
 
     snapshot: HostBoundarySnapshot | None = None
     files = EnabledPluginHookFiles()
-
-    def all_routed() -> bool:
-        return all(is_enabled_plugin_hook_source(path, files.sources) for path in candidates)
 
     try:
         if head_is_worktree:
@@ -306,26 +319,26 @@ def enabled_plugin_hook_evidence(
             files = files.union(EnabledPluginHookFiles.of(snapshot))
         else:
             head_ref = head or "HEAD"
-            # The head first: when it routes every candidate, the base adds nothing.
+            # Preserve each host's selection from both declaration trees.
             commits = [commit_sha(workspace, head_ref), merge_base_sha(workspace, base, head_ref)]
         for commit in commits:
-            if all_routed():
-                break
             if commit is None:
                 raise ValueError("a compared commit is not available locally")
             with tempfile.TemporaryDirectory(prefix="shipgate-plugin-hooks-") as scratch:
                 tree = Path(scratch) / "tree"
                 archive_tree(workspace, commit, tree, scope=is_boundary_surface_path)
-                files = files.union(EnabledPluginHookFiles.of(build_host_boundary_snapshot(tree)))
+                files = files.union(EnabledPluginHookFiles.of(build_host_boundary_snapshot(
+                    tree, cache=HostStaticParseCache(reference_workspace=workspace),
+                )))
     except (OSError, RuntimeError, ValueError, ConfigError):
         return snapshot, None, [
             BoundaryInputIssue(
                 code="host_inventory_unreadable",
                 path=path,
                 message=(
-                    "The plugin configuration of a compared commit could not be read, so "
-                    "whether a plugin this repository's project settings enable loads hooks "
-                    "from this file is not established."
+                    "The hook configuration of a compared commit could not be read, so "
+                    "whether this file declares selected plugin hooks or is a selected "
+                    "hook executable is not established."
                 ),
             )
             for path in candidates

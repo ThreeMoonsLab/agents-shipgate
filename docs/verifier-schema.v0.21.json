@@ -2257,6 +2257,27 @@
           ],
           "default": null
         },
+        "input_script_absent_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Input Script Absent Paths",
+          "type": "array"
+        },
+        "input_script_blobs": {
+          "items": {
+            "$ref": "#/$defs/VerificationBlob"
+          },
+          "title": "Input Script Blobs",
+          "type": "array"
+        },
+        "input_script_unconfirmable_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Input Script Unconfirmable Paths",
+          "type": "array"
+        },
         "paths": {
           "items": {
             "type": "string"
@@ -3502,6 +3523,56 @@
         "type"
       ],
       "title": "SourceReference",
+      "type": "object"
+    },
+    "VerificationBlob": {
+      "additionalProperties": false,
+      "properties": {
+        "git_blob_oid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Git Blob Oid"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "source": {
+          "enum": [
+            "git_blob",
+            "worktree",
+            "generated",
+            "external_input",
+            "artifact"
+          ],
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes",
+        "source"
+      ],
+      "title": "VerificationBlob",
       "type": "object"
     },
     "VerifierCapabilityChange": {
