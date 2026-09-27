@@ -125,11 +125,13 @@ agents' rows in the file stand:
   monorepo and a namespace package included), or a name bound once to an
   instance of one (`client = OpenAI()`) — and every other argument of every
   call on the way is inert: a literal, a container or comprehension of data,
-  another capability list, a read of a parameter's attribute (`req.messages`),
-  a name bound once to data (`MODEL`, a local `messages` list), a parameter
-  annotated with a builtin data type (`strict: bool`), another library's or
-  the standard library's value (`os.environ["KEY"]`), or a builtin or library
-  call on data (`types.Content(role="user", parts=[...])`). Anything else —
+  another capability list, a read of the attributes of the object the list
+  came from (`req.messages` beside `req.tools`), a name bound once to data
+  (`MODEL`, a local `messages` list), a parameter annotated with scalar data
+  (`strict: bool`, `names: list[str]`; a bare `list` or `dict` says nothing of
+  what it holds), another library's or the standard library's value
+  (`os.environ["KEY"]`, never `sys.modules` or `importlib`), or a builtin or
+  library call on data (`types.Content(role="user", parts=[...])`). Anything else —
   a lambda, a function, a method, an instance, a callback parameter, a
   dispatch table, `self`, an unannotated parameter — may be the application's
   own code the library calls with the list, so it is not a read, and neither
@@ -138,9 +140,12 @@ agents' rows in the file stand:
   or a caller supplies (`self.client`, a parameter, however annotated). A
   capability keyword (`client.create(tools=request.tools)`) is a read under
   the same rule. `getattr(x, "tools")` is `x.tools`, and `svc.app.tools` after
-  `import svc.app.tools` is that module. A library that keeps the list and
-  later calls back into the application's code that changes it is not
-  followed. On
+  `import svc.app.tools` is that module, and `getattr(config.tools, "flag")`
+  reads a flag. Not followed: a library that keeps the list and later calls
+  back into the application's code that changes it, a string naming the
+  application's code for a library to import (`"app.hooks:add_image"`), and a
+  list put into a container first and spread into the call (`wrap(**opts)`).
+  On
   any other value — a request object, another library's model — a handle only
   read or handed on, like `payload["tools"] = request.tools`, is nothing. The
   changed value is read in

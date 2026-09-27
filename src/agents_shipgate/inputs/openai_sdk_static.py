@@ -925,6 +925,12 @@ def _capability_changes(
 
     scopes = scopes or ScopeIndex(tree)
     callees = callees or ModuleCallees(tree, scopes, _module_bindings(tree)[0])
+    # A reader is proven by its binding in the module the call is written in.
+    reads_at = _bindings_at(callees.scopes, callees.bindings)
+
+    def left_alone(target: tuple[ast.FunctionDef | ast.AsyncFunctionDef, str, ModuleCallees]) -> bool:
+        function, name, inner = target
+        return _parameter_left_alone(function, name, _bindings_at(inner.scopes, inner.bindings))
 
     def parameter_of(
         call: ast.Call, position: int | None, keyword: str | None, within: ModuleCallees
@@ -995,12 +1001,12 @@ def _capability_changes(
         return False
 
     def call_reads(call: ast.Call, position: int | None, keyword: str | None) -> bool:
-        if _leaves_arguments_alone(call):
+        if _leaves_arguments_alone(call, reads_at):
             return True
         # A function the module defines or imports whose every use of that
         # parameter reads it.
         target = parameter_of(call, position, keyword, callees)
-        return target is not None and _parameter_left_alone(target[0], target[1])
+        return target is not None and left_alone(target)
 
     def read_only(node: ast.expr) -> bool:
         return _read_only_use(node, scopes.parents, call_reads)
@@ -1109,7 +1115,7 @@ def _capability_changes(
         if (
             not isinstance(parent, ast.Call)
             or parent.func is node
-            or _leaves_arguments_alone(parent)
+            or _leaves_arguments_alone(parent, reads_at)
             or callees.library_read(parent, node)
         ):
             return False
@@ -1117,7 +1123,7 @@ def _capability_changes(
         target = parameter_of(parent, position, keyword, callees)
         # Unresolved, or resolved to a function that hands it on again out of
         # view (``super().add(lst)``): not established either way.
-        return target is None or not _parameter_left_alone(target[0], target[1])
+        return target is None or not left_alone(target)
 
     def handle_escapes(statement: ast.Assign | ast.AnnAssign, depth: int = 0) -> tuple[bool, bool]:
         """Whether a handle on the list is kept anywhere but a plain name, or used
@@ -1395,9 +1401,12 @@ class ModuleCallees:
                 root = root.value
             else:
                 root = root.value
+        # ``create(model=req.model, tools=req.tools)``: what else it is handed
+        # from the object the list came from is that object's data.
+        roots = frozenset({owner} if handed is not None and (owner := _root_name(handed)) else ())
         for item in calls:
             for arg in [*item.args, *(keyword.value for keyword in item.keywords)]:
-                if arg is not handed and not self._inert(arg, call):
+                if arg is not handed and not self._inert(arg, call, roots=roots):
                     return False
         if not isinstance(root, ast.Name):
             return False
@@ -1450,7 +1459,12 @@ class ModuleCallees:
         return ("stdlib" if stdlib else "repository"), resolution
 
     def _inert(
-        self, expr: ast.AST, site: ast.AST, depth: int = 0, local: frozenset[str] = frozenset()
+        self,
+        expr: ast.AST,
+        site: ast.AST,
+        depth: int = 0,
+        local: frozenset[str] = frozenset(),
+        roots: frozenset[str] = frozenset(),
     ) -> bool:
         """Whether an argument is data a library can only read: a literal, a
         container or comprehension of data, a capability list, a read of a
@@ -1460,7 +1474,7 @@ class ModuleCallees:
 
         if depth > 6:
             return False
-        inert = lambda item, names=local: self._inert(item, site, depth + 1, names)  # noqa: E731
+        inert = lambda item, names=local: self._inert(item, site, depth + 1, names, roots)  # noqa: E731
         if isinstance(expr, ast.Constant):
             return True
         if isinstance(expr, ast.JoinedStr):
@@ -1507,9 +1521,13 @@ class ModuleCallees:
             if not isinstance(root, ast.Name) or root.id in {"self", "cls"}:
                 return False
             binding = self._binding(root.id, site) if root.id not in local else None
-            if root.id in local or (binding is not None and isinstance(binding[0], ast.arg)):
-                # ``req.messages``: a read of what the caller passed.
+            if root.id in local:
                 return True
+            if binding is not None and isinstance(binding[0], ast.arg):
+                # ``req.messages`` beside ``req.tools``: the request's own
+                # data. Another parameter's attribute (``svc.attach``) may be
+                # a bound method of the application's (#876 review).
+                return root.id in roots or _data_annotation(binding[0].annotation)
             return inert(root)
         if isinstance(expr, ast.Name):
             if expr.id in local:
@@ -1527,7 +1545,9 @@ class ModuleCallees:
                     return False
                 origin, resolution = self._origin(node, statement, expr.id, site)
                 if origin in {"library", "stdlib"}:
-                    return True
+                    # ``os.environ``, never ``sys.modules`` or ``importlib``:
+                    # those reach the application's own modules.
+                    return _import_top(node, statement) not in _DYNAMIC_MODULES
                 return resolution.value is not None and _literal_data(resolution.value)
             if isinstance(statement, ast.Assign | ast.AnnAssign) and statement.value is not None:
                 if _assignment_target(statement) != expr.id:
@@ -1557,6 +1577,9 @@ class ModuleCallees:
                 and self.resolver is not None
                 and self.module is not None
                 and self._origin(node, statement, root.id, site)[0] in {"library", "stdlib"}
+                # ``importlib.import_module("app.x")`` returns the
+                # application's own module.
+                and _import_top(node, statement) not in _DYNAMIC_MODULES
             )
         return False
 
@@ -1671,21 +1694,39 @@ _DATA_BUILTINS = frozenset(
     {"dict", "list", "tuple", "set", "frozenset", "str", "int", "float", "bool", "bytes",
      "len", "sorted", "min", "max", "sum", "abs", "repr", "round", "range", "zip", "enumerate"}
 )
-#: Parameter annotations that name builtin data.
-_DATA_TYPES = frozenset(
-    {"str", "int", "float", "bool", "bytes", "dict", "list", "tuple", "set", "frozenset", "None"}
+#: Parameter annotations that name builtin scalar data.
+_DATA_TYPES = frozenset({"str", "int", "float", "bool", "bytes", "None"})
+#: Builtin containers: data only when their items are (``list[str]``).
+_CONTAINER_TYPES = frozenset({"list", "dict", "tuple", "set", "frozenset"})
+#: Standard-library modules whose values can reach the application's own code:
+#: a dynamic import, the module table, a frame, a partial.
+_DYNAMIC_MODULES = frozenset(
+    {"importlib", "pkgutil", "runpy", "sys", "builtins", "inspect", "operator", "functools", "types", "gc", "ctypes"}
 )
 
 
+def _import_top(node: ast.alias, statement: ast.Import | ast.ImportFrom) -> str:
+    dotted = (statement.module or "") if isinstance(statement, ast.ImportFrom) else node.name
+    return dotted.split(".", 1)[0]
+
+
 def _data_annotation(annotation: ast.expr | None) -> bool:
-    """``str``, ``list[dict]``, ``int | None``, ``Optional[str]``: builtin data."""
+    """``str``, ``list[dict[str, str]]``, ``int | None``, ``Optional[str]``:
+    builtin data. A bare ``list`` or ``dict`` says nothing of what it holds
+    (#876 review)."""
 
     if annotation is None:
         return False
     if isinstance(annotation, ast.Constant):
-        return annotation.value is None or (
-            isinstance(annotation.value, str) and annotation.value in _DATA_TYPES
-        )
+        if annotation.value is None:
+            return True
+        if isinstance(annotation.value, str):
+            try:
+                parsed = ast.parse(annotation.value, mode="eval").body
+            except (SyntaxError, ValueError, RecursionError):
+                return False
+            return not isinstance(parsed, ast.Constant) and _data_annotation(parsed)
+        return False
     if isinstance(annotation, ast.Name):
         return annotation.id in _DATA_TYPES
     if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
@@ -1694,8 +1735,11 @@ def _data_annotation(annotation: ast.expr | None) -> bool:
         spelling = reference_spelling(annotation.value) or ""
         inner = annotation.slice
         items = list(inner.elts) if isinstance(inner, ast.Tuple) else [inner]
-        if spelling.rsplit(".", 1)[-1] in {"Optional", "Union"} or spelling in _DATA_TYPES:
-            return all(_data_annotation(item) or isinstance(item, ast.Constant) for item in items)
+        if spelling.rsplit(".", 1)[-1] in {"Optional", "Union"} or spelling in _CONTAINER_TYPES:
+            return all(
+                _data_annotation(item) or (isinstance(item, ast.Constant) and item.value is Ellipsis)
+                for item in items
+            )
     return False
 
 
@@ -2441,6 +2485,19 @@ def _leaves_arguments_alone(call: ast.Call, bindings_at: BindingsAt) -> bool:
             return not rest and not statement.level and f"{statement.module}.{node.name}" in _READ_ONLY_CALLS
         # ``import json`` then ``json.dumps``.
         return bool(rest) and isinstance(statement, ast.Import) and node.name == head and node.asname is None
+    if (
+        name in {"getattr", "hasattr"}
+        and not bindings_at(name, call)
+        and len(call.args) in {2, 3}
+        and not call.keywords
+        and isinstance(call.args[1], ast.Constant)
+        and isinstance(call.args[1].value, str)
+        and not call.args[1].value.startswith("__")
+        and call.args[1].value not in _LIST_MUTATORS | {"sort", "reverse"}
+        and all(isinstance(item, ast.Constant) for item in call.args[2:])
+    ):
+        # ``getattr(config.tools, "enabled", True)``: reads a plain attribute.
+        return True
     if not (isinstance(call.func, ast.Attribute) and call.func.attr in _LOG_METHODS):
         return False
     receiver = call.func.value

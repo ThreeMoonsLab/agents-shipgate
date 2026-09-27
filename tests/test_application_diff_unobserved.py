@@ -1538,3 +1538,46 @@ def test_a_namespace_package_on_another_path_entry_is_the_repositorys(repo):
     head = commit(repo, {"libs/sharedns/registry.py": helper.replace("BODY", "lst.append(len)")})
     result = run(repo, base, head, "--scope", "services/app")
     assert result["comparison_status"] == "partial"
+
+
+# ---------------------------------------------------------------------------
+# #876 review, round 16: the data channels are narrow — only the list's own
+# object's attributes, scalar-annotated parameters, and no dynamic import.
+
+@pytest.mark.parametrize(
+    "use",
+    [
+        "from somelib import wrap\n\n\nclass Svc:\n    def attach(self, lst):\n        add_image(lst)\n\n\n"
+        "def setup(agent, svc=Svc()):\n    wrap(svc.attach, agent.tools)\n",
+        "from somelib import wrap\n\n\ndef setup(agent, hooks: list = [add_image]):\n    wrap(hooks, agent.tools)\n",
+        "from somelib import wrap\n\n\ndef setup(agent, extra: dict = {'callback': add_image}):\n    wrap(agent.tools, **extra)\n",
+        "from somelib import wrap\n\n\ndef setup(agent, hooks: list = [add_image]):\n    wrap([h for h in hooks], agent.tools)\n",
+        "import importlib\n\nfrom somelib import wrap\n\n\ndef setup(agent):\n"
+        "    mod = importlib.import_module('agent')\n    wrap(mod.add_image, agent.tools)\n",
+        "import sys\n\nfrom somelib import wrap\n\n\ndef setup(agent):\n    wrap(sys.modules['agent'].add_image, agent.tools)\n",
+    ],
+    ids=["another-parameters-method", "bare-list-parameter", "bare-dict-parameter",
+         "comprehension-over-a-parameter", "dynamic-import", "module-table"],
+)
+def test_a_channel_that_can_carry_the_applications_code_is_not_data(repo, use):
+    body = 'quote_agent = Agent(name="Quote", tools=[quote])\n' + ADD_IMAGE_HELPER + use + "\n\nsetup(quote_agent)\n"
+    result = _compare(repo, body.replace("BODY", "pass"), body.replace("BODY", "lst.append(send_image)"))
+    assert result["comparison_status"] == "partial", result["rows"]
+
+
+@pytest.mark.parametrize(
+    "handler",
+    [
+        "from openai import OpenAI\n\nclient = OpenAI()\n\n\ndef handle(req):\n"
+        "    return client.chat.completions.create(model=req.model, messages=req.messages, tools=req.tools)\n",
+        "from somelib import validate\n\n\ndef handle(req, names: list[str] | None = None):\n"
+        "    return validate(req.tools, names=names)\n",
+        "def handle(config):\n    return getattr(config.tools, 'task_steps_manager_enabled', True)\n",
+    ],
+    ids=["the-requests-own-data", "annotated-list-of-strings", "config-flag-read"],
+)
+def test_the_lists_own_objects_data_is_still_a_read(repo, handler):
+    before = 'main_agent = Agent(name="Main", tools=[quote])\n' + handler
+    result = _compare(repo, before, before.replace("tools=[quote]", "tools=[quote, send_image]"))
+    assert result["comparison_status"] == "compared", result["head"]["limits"]
+    assert _pairs(result) == [("main_agent", "send_image", "added")]
