@@ -1,0 +1,64 @@
+{
+  "base_commit": "f68ee4d7d46650ea13cfd3448fd65aca08ffcac0",
+  "base_ref": "f68ee4d7d46650ea13cfd3448fd65aca08ffcac0",
+  "capability_diff_schema_version": "0.3",
+  "comparison_status": "comparable",
+  "coverage": {
+    "items": [
+      {
+        "detail": null,
+        "hosts": [
+          "claude-code"
+        ],
+        "limit": null,
+        "rows": 1,
+        "scope": null,
+        "side": "both",
+        "source": ".mcp.json",
+        "status": "compared"
+      }
+    ],
+    "omitted_items": 0,
+    "read_sources_only": true
+  },
+  "incomparable_reasons": [],
+  "review": {
+    "changes": [
+      {
+        "after": "docs (url https://docs.example.invalid/<redacted-path>)",
+        "before": "\u2014",
+        "change": null,
+        "direction": "added",
+        "expands": true,
+        "row_indexes": [
+          0
+        ],
+        "severity": "high",
+        "subject": "claude-code .mcp.json",
+        "why": "an MCP tool surface the agent may call has changed"
+      }
+    ],
+    "question": "Review question: Does the team intend this declared capability change?",
+    "reproduce_command": "agents-shipgate diff --base f68ee4d7d46650ea13cfd3448fd65aca08ffcac0",
+    "summary": {
+      "changes": 1,
+      "rows": 1,
+      "widenings": 1
+    }
+  },
+  "rows": [
+    {
+      "after": "docs",
+      "before": "\u2014",
+      "direction": "added",
+      "disposition": null,
+      "expands": true,
+      "severity": "high",
+      "subject": "claude-code .mcp.json",
+      "why": "an MCP tool surface the agent may call has changed"
+    }
+  ],
+  "static_analysis_only": true,
+  "unchanged_limits": [],
+  "workspace": "/private/tmp/shipgate-798-cards/mcp/repo"
+}

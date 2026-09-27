@@ -21,7 +21,30 @@ The current-control envelope supplies operational permissions and the next
 action; verifier, handoff, PR and report surfaces project the same decision.
 Execution success is not merge authority.
 
-## Lead wedge (focus)
+## Selected execution — 2026-09-24
+
+The owner selected the **application-agent PR proof sprint** (#868) as primary,
+with bounded host reliability maintenance. Accountable owner: Pengfei Hu
+(`pengfei-threemoonslab`); current technical execution: Codex.
+[Days 1–5 evidence and ordered backlog](docs/research/application-days1-5/README.md)
+records released/main reproductions and the #580/#655 comparison design.
+Weeks 2–3 implement paired inputs, then per-agent wiring; deeper readers follow
+reproduced gaps. #610 remains a reproduced contract defect; #787 is the selected
+recipe repair. #795/#812/#780/#369 retain their exact residual acceptance.
+
+This selection supersedes the scheduling and recruitment instructions in the
+September 14 historical plan below. #830 and external-outreach holds remain;
+Oct 14 / Nov 13 / Dec 13 are evidence checkpoints, not release promises.
+No ten-case value, external adoption or qualification claim is made.
+
+Status as of 2026-09-27: #870 closed #787; #871 merged `diff --application`
+(not yet released), an advisory application comparison with its own JSON
+schema; #873 closed #580, #877 extended its reach and #879 closed #864. #868,
+#655, #867, #865, #866, #610, #795, #812, #780, #369 and #830 remain open.
+
+<a id="lead-wedge-focus"></a>
+
+## Historical lead wedge (September 14 focus)
 
 Two surfaces share one engine: **(A)** tool-surface readiness for agent builders,
 and **(B)** repository-declared host configuration, MCP bindings, permissions,
@@ -40,7 +63,9 @@ blocking CI. Organization-wide adoption must be demonstrated. New surface
 follows the [non-goals](#explicit-non-goals) and
 [`CONTRIBUTING.md`](CONTRIBUTING.md#surface-discipline).
 
-## Post-1.0 adoption (plan of record, 2026-09-14)
+<a id="post-10-adoption-plan-of-record-2026-09-14"></a>
+
+## Historical post-1.0 adoption (2026-09-14; superseded above)
 
 **Adoption > completeness.** `v1.0.0` is published on PyPI and GitHub from
 `bace7c1871834e0b3eb98e6f60c0627725c53a59`, and #777 moved the pins to it.

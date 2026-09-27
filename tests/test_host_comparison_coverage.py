@@ -147,6 +147,84 @@ def _items(coverage: dict) -> list[tuple]:
     ]
 
 
+@pytest.mark.parametrize("value", ["true", "42", "{catalog: {internal: true}, versions: [1, 2]}"])
+def test_free_form_skill_metadata_keeps_permission_widening_and_coverage(tmp_path, value):
+    skill = ".claude/skills/demo/SKILL.md"
+    repo = _repository(tmp_path, {
+        SETTINGS: {"permissions": {"allow": ["Bash(npm test *)"]}},
+    })
+    _write(repo, SETTINGS, {"permissions": {"allow": ["Bash(npm *)"]}})
+    _write(repo, skill, f"---\nname: demo\ndescription: A skill.\nmetadata:\n  data: {value}\n---\n")
+    _commit(repo, "widen and add skill metadata")
+    text, payload, _comparison, _comment = _all_routes(repo, tmp_path)
+    assert payload["comparison_status"] == "comparable"
+    assert payload["incomparable_reasons"] == []
+    assert any(row["expands"] and row["subject"] == f"claude-code {SETTINGS}" for row in payload["rows"])
+    assert "Bash(npm *)" in text
+    item, = [item for item in payload["coverage"]["items"] if item["source"] == skill]
+    assert item["status"] == "compared" and item["limit"] is None
+    assert item["side"] == "head" and item["rows"] == 1
+    assert f"  {skill} (claude-code): read in head only; 1 row" in _block(text)
+
+
+@pytest.mark.parametrize("value", ["[a, b]", "internal", "true"])
+def test_non_map_skill_metadata_keeps_permission_widening_and_coverage(tmp_path, value):
+    """#848: Claude Code drops a non-map `metadata`; it no longer refuses the rest."""
+
+    skill = ".claude/skills/demo/SKILL.md"
+    repo = _repository(tmp_path, {
+        SETTINGS: {"permissions": {"allow": ["Bash(npm test *)"]}},
+    })
+    _write(repo, SETTINGS, {"permissions": {"allow": ["Bash(npm *)"]}})
+    _write(repo, skill, f"---\nname: demo\ndescription: A skill.\nmetadata: {value}\n---\n")
+    _commit(repo, "widen and add non-map skill metadata")
+    text, payload, _comparison, _comment = _all_routes(repo, tmp_path)
+    assert payload["comparison_status"] == "comparable"
+    assert payload["incomparable_reasons"] == [] and payload["unchanged_limits"] == []
+    assert any(row["expands"] and row["subject"] == f"claude-code {SETTINGS}" for row in payload["rows"])
+    assert "Bash(npm *)" in text
+    item, = [item for item in payload["coverage"]["items"] if item["source"] == skill]
+    assert item["status"] == "compared" and item["limit"] is None
+    assert item["side"] == "head" and item["rows"] == 1
+    assert f"  {skill} (claude-code): read in head only; 1 row" in _block(text)
+
+
+def test_a_non_map_skill_metadata_change_is_a_visible_change(tmp_path):
+    """Digested as written, like an undocumented key (#730), so an edit is a row."""
+
+    skill = ".claude/skills/demo/SKILL.md"
+    repo = _repository(tmp_path, {skill: "---\nname: demo\ndescription: A skill.\nmetadata: [a]\n---\nBody.\n"})
+    _write(repo, skill, "---\nname: demo\ndescription: A skill.\nmetadata: [a, b]\n---\nBody.\n")
+    _commit(repo, "edit non-map skill metadata")
+    text, payload, _comparison, _comment = _all_routes(repo, tmp_path)
+    assert payload["comparison_status"] == "comparable"
+    assert [(row["subject"], row["direction"]) for row in payload["rows"]] == [
+        (f"claude-code {skill}", "changed"),
+    ]
+    item, = [item for item in payload["coverage"]["items"] if item["source"] == skill]
+    assert (item["status"], item["side"], item["rows"], item["limit"]) == ("compared", "both", 1, None)
+    assert f"  {skill} (claude-code): compared; 1 row" in _block(text)
+
+
+@pytest.mark.parametrize("header", [
+    "---\nmetadata: {internal: true}\n",
+    "---\nmetadata: [unclosed\n---\n",
+    "---\n- not\n- a mapping\n---\n",
+])
+def test_malformed_skill_frontmatter_still_refuses_alongside_widening(tmp_path, header):
+    skill = ".claude/skills/demo/SKILL.md"
+    repo = _repository(tmp_path)
+    _write(repo, SETTINGS, WIDENED)
+    _write(repo, skill, header)
+    _commit(repo, "widen beside malformed skill")
+    text, payload, _comparison, _comment = _all_routes(repo, tmp_path)
+    assert payload["comparison_status"] == "incomparable"
+    assert payload["rows"] == []
+    item, = [item for item in payload["coverage"]["items"] if item["source"] == skill]
+    assert item["status"] == "blocking_limit" and item["limit"] == "unsupported"
+    assert any(skill in line and "unsupported" in line for line in _block(text))
+
+
 def _raw_block(text: str) -> list[str]:
     """The coverage block of a `diff` text output, heading and boundary included."""
 
@@ -787,7 +865,7 @@ def test_a_settings_change_moves_no_compared_grant_only_while_no_hook_loading_ba
 
 # --- incomparable: each blocking source and its kind, refusal unchanged ------
 
-SKILL = "---\nname: demo\ndescription: d\nmetadata:\n  version: 2\n---\nbody\n"
+SKILL = "---\nname: demo\ndescription: d\nmetadata:\n  1: internal\n---\nbody\n"
 
 
 def _directory_link(repo: Path) -> None:
@@ -1686,9 +1764,10 @@ def test_the_list_cannot_exceed_its_cap() -> None:
 #: A skill this bounded profile refuses although its YAML is legal: `effort`
 #: has a documented value set and `extreme` is not in it.
 UNSUPPORTED_SKILL = "---\nname: {name}\ndescription: A skill.\neffort: extreme\n---\n\nBody.\n"
-#: Refused by a structural type check: `metadata` is documented as a mapping of
-#: strings, and this one's value is a number. The file itself parses.
-STRUCTURAL_SKILL = "---\nname: {name}\ndescription: A skill.\nmetadata:\n  owner: 7\n---\n\nBody.\n"
+#: Refused by a structural type check: a `metadata` key is a number, which
+#: the digest could not tell from the string "7". Free-form values, and a
+#: `metadata` that is not a map, are read as written after #848. The file parses.
+STRUCTURAL_SKILL = "---\nname: {name}\ndescription: A skill.\nmetadata:\n  7: owner\n---\n\nBody.\n"
 #: Refused because the file's own text does not parse: the fence never closes.
 UNPARSED_SKILL = "---\nname: {name}\ndescription: A skill.\n\nBody.\n"
 #: Legal YAML whose top level is a sequence, not a mapping. `yaml.safe_load`

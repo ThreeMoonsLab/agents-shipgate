@@ -1,0 +1,13 @@
+diff --git a/.github/workflows/example.yml b/.github/workflows/example.yml
+index c1aa10e..54c0fab 100644
+--- a/.github/workflows/example.yml
++++ b/.github/workflows/example.yml
+@@ -1,7 +1,7 @@
+ name: Example
+ on: [pull_request]
+ permissions:
+-  contents: read
++  contents: write
+ jobs:
+   inspect:
+     runs-on: ubuntu-latest

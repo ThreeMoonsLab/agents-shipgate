@@ -1,14 +1,15 @@
 name: Agents Shipgate
 description: >-
   The deterministic merge gate for AI-generated agent capability changes.
-  Verifies PRs that change MCP, OpenAPI, OpenAI Agents SDK, Anthropic,
-  Google ADK, LangChain, CrewAI, OpenAI API, Codex config, Codex plugin, n8n,
-  and Conductor OSS workflow JSON
-  artifacts. Writes verifier.json, report.json, pr-comment.md, capability
-  lock/diff review artifacts, and SARIF before your agent-capability change
-  lands. Local-first and
-  static-by-default. Audited exceptions are pinned per call site in
-  tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS. Apache-2.0.
+  Review PR changes to declared coding-agent settings, MCP bindings, hooks
+  and workflow permissions without a manifest or saved baseline. Separately,
+  verify declared application-agent tool surfaces from MCP, OpenAPI,
+  OpenAI Agents SDK, Anthropic, Google ADK, LangChain, CrewAI, OpenAI API,
+  Codex config, Codex plugin, n8n, and Conductor OSS workflow JSON artifacts.
+  Host comparisons are
+  static and advisory, name coverage limits, and imply no verdict. Verification
+  artifacts and the configured release gate retain their own control rules.
+  Local-first and static-by-default. Apache-2.0.
 author: ThreeMoonsLab
 
 branding:
@@ -357,6 +358,7 @@ runs:
           python "${GITHUB_ACTION_PATH}/scripts/install_action_engine.py"
         elif [ -n "${SHIPGATE_VERSION}" ]; then
           python -P -m pip install "agents-shipgate==${SHIPGATE_VERSION}"
+          python "${GITHUB_ACTION_PATH}/scripts/action_engine_identity.py"
         else
           python -P -m pip install "${GITHUB_ACTION_PATH}"
         fi
@@ -611,8 +613,9 @@ runs:
               'Read the review below in the workflow summary. No authenticated decision is recorded; ' +
               'the verifier gate and current control still apply.';
             core.warning(limitation);
-            await core.summary.addHeading('Agents Shipgate: PR publication unavailable', 2)
-              .addRaw(limitation, true).addRaw(body, true).write();
+            await core.summary.addRaw(
+              `## Agents Shipgate: PR publication unavailable\n\n${limitation}\n\n${body}\n`
+            ).write();
           }
 
     - name: Build Agents Shipgate check-run payload

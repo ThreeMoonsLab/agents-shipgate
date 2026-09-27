@@ -128,6 +128,20 @@ def _mcp_parts(token: str) -> tuple[str, str | None] | None:
     return server, (tool if separator else None)
 
 
+def permission_pairing_group(raw: str) -> str:
+    """Exact tool or bare MCP server used to count replacement candidates.
+
+    This selects candidates only; ``subsumes`` still decides their direction.
+    Arguments and ambiguous server spellings never broaden the grouping.
+    """
+
+    rule = parse_rule(raw)
+    parts = _mcp_parts(rule.tool) if rule.argument is None else None
+    if parts is not None and _plain_segment(parts[0]):
+        return f"mcp__{parts[0]}"
+    return rule.tool
+
+
 def _plain_segment(text: str) -> bool:
     return bool(text) and "*" not in text and _decidable(text)
 
