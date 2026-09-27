@@ -47,6 +47,8 @@ Compared: base 54c0a957 → working tree at HEAD 9dda3647, agents-shipgate 1.1.0
 Reproduce in that working tree: agents-shipgate diff --base 54c0a9578668acbc2cc447fb65ab1de108c0679f
 ```
 
+The leading `read`/`write` is the workflow's aggregate token access; #859 tracks labelling it.
+
 ## Review question
 
 Does this workflow need a write-capable contents token? The owner can explain intentional scope in the existing PR discussion or choose a revised declaration and compare it again. Neither this question nor a PR note grants approval or merge authority.

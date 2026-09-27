@@ -3,7 +3,7 @@
 - [Claude shell rule](shell/card.md)
 - [Remote MCP declaration](mcp/card.md)
 - [Workflow token permissions](workflow/card.md)
-- [60-second HTML demonstration](demo.html), [transcript](transcript.md), [PNG still](still.png) and [SVG source](still.svg)
+- [60-second HTML demonstration](demo.html) (github.com shows its source; open the file locally or serve it to play it), [transcript](transcript.md), [PNG still](still.png) and [SVG source](still.svg)
 - [Captured provenance](provenance.json)
 
 The examples are constructed. The released 1.1.0 wheel (contract 40) was freshly installed into a temporary target; existing environment dependencies were reused. No manifest, policy, baseline, legacy skill, CI installation or account was used for comparison. No hook, workflow or MCP endpoint was executed.
@@ -23,7 +23,7 @@ git checkout change
 agents-shipgate diff --base main
 ```
 
-All three exports were imported into fresh local repositories and their base/head commit IDs matched provenance.json exactly. The demo JavaScript passed a syntax check. The SVG was rendered with a static image renderer and the resulting PNG was visually inspected for readability and clipping. HTML/browser playback remains unverified; review it before publication.
+All three exports were imported into fresh local repositories and their base/head commit IDs matched provenance.json exactly. The captured JSON `workspace` and the provenance `imported_module` are temporary paths on the capture machine; a replay reports its own paths there, which is not a mismatch. The demo JavaScript passed a syntax check. The SVG was rendered with a static image renderer and the resulting PNG was visually inspected for readability and clipping. HTML/browser playback remains unverified; review it before publication.
 
 ## Compare the malformed-source control
 

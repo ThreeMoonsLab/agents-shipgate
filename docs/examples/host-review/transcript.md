@@ -24,7 +24,7 @@ Actual output from the released 1.1.0 wheel, contract 40. This is a constructed 
 
 Keep the coverage limit beside the claim.
 
-This comparison read .claude/settings.json. It does not establish runtime behavior or every permission layer. An unread source is not a no-change result.
+This comparison read .claude/settings.json. It does not establish runtime behavior or every permission layer. An unread source is not a no-change result. If the head settings are replaced with bytes that cannot be parsed, the answer is a refusal, not 'no change':
 
 ## 48–60 seconds
 
