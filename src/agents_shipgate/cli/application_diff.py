@@ -679,19 +679,15 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
                     )
                 attributed.add(warning)
     result.handoff_only |= handoff_targets - constructed
-    try:
-        tools, warnings = _build_canonical_tools(loaded)
-    except InputParseError as exc:
-        if exc.details.get("failure") != DUPLICATE_TOOL_IN_SOURCE:
-            raise
-        # One file's duplicate is a limit on that file, not a refusal of every
-        # other agent in the scope (#876).
-        result.gap(
-            f"{source.path} defines the tool {exc.details.get('tool_name')!r} more "
-            "than once, so the agents it constructs are not compared.",
-            source=source.path,
-        )
-        return
+    # One identity a reader observed at more than one construction site. The
+    # reader already names it as incomplete; a tool both sites bind the same
+    # way is one binding of it, not an ambiguous one (#876 review).
+    sites: dict[tuple[str, str], int] = {}
+    for item in loaded:
+        for observation in item.binding_observations:
+            site = (_source_path(root, observation.source), observation.agent)
+            sites[site] = sites.get(site, 0) + 1
+    tools, warnings = _canonical_tools(result, source, loaded)
     for warning in warnings:
         result.gap(warning, source=source.path)
     graph, _ = resolve_agent_binding_graph(None, tools, bag, loaded)
@@ -742,17 +738,7 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
         binding_key = (*key, tool.name)
         if binding_key in ambiguous_bindings:
             continue
-        if binding_key in result.bindings:
-            result.gap(
-                f"Ambiguous tool identity: {binding_key}",
-                source=key[0],
-                agent=key[1],
-                tool=tool.name,
-            )
-            result.bindings.pop(binding_key)
-            ambiguous_bindings.add(binding_key)
-            continue
-        result.bindings[binding_key] = {
+        binding = {
             "agent": key[1],
             "agent_source": key[0],
             "tool": tool.name,
@@ -765,6 +751,24 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
             "evidence_basis": edge.provenance_kind,
             **_import_path(tool, key[0]),
         }
+        if binding_key in result.bindings:
+            if sites.get(key, 0) > 1 and _meaning(result.bindings[binding_key]) == _meaning(
+                binding
+            ):
+                # Both constructions of one merged identity bind this callable
+                # identically: a true binding of that identity, kept beside the
+                # gap that already names its constructions.
+                continue
+            result.gap(
+                f"Ambiguous tool identity: {binding_key}",
+                source=key[0],
+                agent=key[1],
+                tool=tool.name,
+            )
+            result.bindings.pop(binding_key)
+            ambiguous_bindings.add(binding_key)
+            continue
+        result.bindings[binding_key] = binding
     for edge in graph.handoff_edges:
         source, target = agent_keys[edge.source_agent_id], agent_keys[edge.target_agent_id]
         if source in ambiguous_agents or target in ambiguous_agents:
@@ -779,6 +783,43 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
             "binding_location": edge.source_pointer,
             "evidence_basis": edge.provenance_kind,
         }
+
+
+def _canonical_tools(
+    result: Observations, source: ToolSourceConfig, loaded: list[Any]
+) -> tuple[list[Any], list[str]]:
+    """Build one source's catalog; a tool name defined twice is a limit on that name.
+
+    The catalog refuses a duplicate definition, which is right for a reviewed
+    manifest and wrong here: one file defining `_tool` twice refused every
+    other agent's comparison (#876). The name is dropped from this source's
+    tools and binding observations, so no agent binds either definition, and
+    it is a gap over every binding of that name in this file; the agents'
+    other tools are still compared. Ported from PR #880.
+    """
+
+    while True:
+        try:
+            return _build_canonical_tools(loaded)
+        except InputParseError as exc:
+            if exc.details.get("failure") != DUPLICATE_TOOL_IN_SOURCE:
+                raise
+            name = exc.details.get("tool_name")
+            before = sum(len(item.tools) for item in loaded)
+            for item in loaded:
+                item.tools = [tool for tool in item.tools if tool.name != name]
+                for observation in item.binding_observations:
+                    observation.tool_names = [n for n in observation.tool_names if n != name]
+                    observation.tool_locators.pop(name, None)
+                    observation.tool_issues.pop(name, None)
+            if not isinstance(name, str) or sum(len(item.tools) for item in loaded) == before:
+                raise
+            result.gap(
+                f"{source.path} defines the tool {name!r} more than once; which "
+                "definition an agent binds is not established.",
+                source=source.path,
+                tool=name,
+            )
 
 
 def _reconcile_submodules(base: Observations, head: Observations) -> None:

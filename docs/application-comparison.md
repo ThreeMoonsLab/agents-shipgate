@@ -85,9 +85,10 @@ agents' rows in the file stand:
 - one identity constructed at more than one site in a file with different
   tools or handoffs (two `return Agent(name="Quote", ...)` branches, or a
   literal `name` equal to another agent's variable) — the binding graph would
-  merge them, so the tools are attributed to neither; constructions that bind
-  exactly the same tools and handoffs are one agent. The same holds for a
-  Google ADK agent name;
+  merge them, so which construction binds which tool is not established;
+  constructions that bind exactly the same tools and handoffs are one agent.
+  A tool every such construction binds identically is still a row of that
+  agent, beside the limit. The same holds for a Google ADK agent name;
 - a construction with `**` keyword unpacking or positional arguments after its
   name, which can carry `tools` or `handoffs`;
 - an agent whose `tools`, `handoffs` or `mcp_servers` are changed after
@@ -155,8 +156,10 @@ a parse failure) are not the application's gaps. A product module that only
 looks like a test is excluded too, which the printed list makes visible; the
 import resolver still follows a tool the application imports from such a file.
 
-A file that defines one tool name twice is a named limit on that file, and the
-agents it constructs are not compared; every other file in the scope still is.
+A file that defines one tool name twice is a named limit on that name in that
+file: no agent binds either definition, so every binding of the name there is
+`not_established`, while the file's other tools, and every other file in the
+scope, are still compared.
 
 Framework identity follows the import, not the spelling. `Agent` and
 `function_tool` are the OpenAI Agents SDK's only when imported from the absolute

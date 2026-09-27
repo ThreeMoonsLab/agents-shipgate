@@ -152,6 +152,27 @@ def test_a_duplicate_tool_in_application_code_limits_only_that_file(repo):
     )
 
 
+def test_a_duplicate_tool_limits_only_that_name_in_its_file(repo):
+    # Review of #876: the whole file was dropped, so another agent the same
+    # file builds lost its rows. Only the duplicated name is uncertain.
+    duplicated = _agents(
+        "@function_tool\ndef dup(q: str) -> str:\n    return q\n"
+        "@function_tool\ndef dup(q: str) -> str:\n    return q + q\n"
+        'other = Agent(name="other", tools=[dup])\n'
+        'second = Agent(name="second", tools=TOOLS)\n'
+    )
+    base = commit(repo, {"other.py": duplicated.replace("TOOLS", "[quote]")})
+    head = commit(repo, {"other.py": duplicated.replace("TOOLS", "[quote, send_image]")})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert _pairs(result) == [("second", "send_image", "added")]
+    assert {
+        (g["source"], g["agent"], g["tool"])
+        for g in result["head"]["coverage_gaps"]
+        if "defines the tool" in g["reason"]
+    } == {("other.py", None, "dup")}
+
+
 def test_a_livekit_agent_subclass_is_not_the_sdk(repo):
     livekit = (
         "from livekit.agents import Agent\n"
@@ -237,6 +258,27 @@ def test_one_identity_constructed_twice_is_not_merged(repo):
         body.replace("PREMIUM", "[quote]").replace("FREE", "[send_image]"),
     )
     assert result["comparison_status"] == "partial"
+    assert any("constructed more than once" in limit for limit in result["head"]["limits"])
+
+
+def test_a_tool_both_constructions_bind_is_kept(repo):
+    # tensorflow#128063: a root agent and a builder share one `name=` and both
+    # bind `details`. That binding is true of either construction; it was
+    # dropped as an ambiguous identity. The agent stays named as incomplete.
+    body = (
+        "def make_root():\n"
+        '    return Agent(name="reviewer", tools=[quote, send_image])\n'
+        "def make_review_agent():\n"
+        '    return Agent(name="reviewer", tools=[quote])\n'
+    )
+    base = commit(repo, {"README.md": "empty"})
+    head = commit(repo, {"agent.py": _agents(body)})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert sorted(_pairs(result)) == [
+        ("reviewer", "quote", "added"),
+        ("reviewer", "send_image", "added"),
+    ]
     assert any("constructed more than once" in limit for limit in result["head"]["limits"])
 
 
