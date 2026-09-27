@@ -483,6 +483,8 @@ def pr(tmp_path):
 
 
 def _assert_the_row(row: dict) -> None:
+    assert row["before"].startswith("access: read, ")
+    assert row["after"].startswith("access: read, ")
     assert row["subject"] == f"github {SOURCE}"
     assert f"test/steps[0]: uses actions/checkout@{PINNED}" in row["before"]
     assert "test/steps[0]: uses actions/checkout@main" in row["after"]
@@ -501,6 +503,7 @@ def test_diff_names_the_change_in_json_and_text(pr):
     assert "actions/checkout@main" in text.output and "test/steps[0]" in text.output
     assert "⚠" not in text.output
     assert "1 change(s)." in text.output
+    assert text.output.count("access: read, ") == 2
 
 
 def test_diff_is_quiet_for_the_same_commit(pr):
@@ -960,3 +963,23 @@ def test_the_documented_migration_from_a_legacy_baseline_holding_a_workflow(tmp_
     after = json.loads(CliRunner().invoke(app, [*audit, "--drift", "--json"]).stdout)
     assert (after["comparison_status"], after["has_drift"]) == ("comparable", False)
     assert path.with_name("host-grants.v0.5.json").read_text() == original
+
+
+def test_write_access_is_labelled_when_only_the_action_ref_changes(tmp_path):
+    permissions = {"contents": "read", "pull-requests": "write"}
+    repo = _repo(tmp_path, {SOURCE: _yaml({"uses": "actions/checkout@v4"}, permissions=permissions)})
+    _write(repo, {SOURCE: _yaml({"uses": f"actions/checkout@{PINNED}"}, permissions=permissions)})
+    payload = _diff(repo)
+    row, = payload["rows"]
+    assert row["before"].startswith("access: write, ")
+    assert row["after"].startswith("access: write, ")
+    assert row["direction"] == "changed" and row["expands"] is False
+    assert "action reference changed (test/steps[0])" in row["why"]
+    assert "adds no scope" in row["why"]
+
+    result = CliRunner().invoke(app, ["diff", "--workspace", str(repo), "--base", "main"])
+    assert result.exit_code == 0, result.output
+    assert result.output.count("access: write, ") == 2
+    verified = CliRunner().invoke(app, ["verify", "--preview", "--workspace", str(repo), "--base", "main", "--json"])
+    assert verified.exit_code == 0, verified.output
+    assert json.loads(verified.output)["host_comparison"]["rows"] == payload["rows"]
