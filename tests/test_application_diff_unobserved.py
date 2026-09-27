@@ -1351,13 +1351,25 @@ def test_a_module_that_does_not_import_the_sdk_follows_the_same_rule(repo, wirin
         "from pydantic import TypeAdapter\n\nADAPTER = TypeAdapter(list)\n\n\n"
         "def handle(request):\n    return ADAPTER.validate_python(request.tools)\n",
         "def handle(client, request):\n    return client.chat.completions.create(model='m', tools=request.tools)\n",
-        "class Handler:\n    def log(self, tools):\n        return len(tools)\n\n"
-        "    def handle(self, request):\n        return self.log(request.tools)\n",
     ],
-    ids=["third-party-function", "third-party-instance", "api-payload", "own-method-that-reads"],
+    ids=["third-party-function", "third-party-instance", "api-payload"],
 )
 def test_a_request_handed_to_another_library_is_not_a_limit(repo, handler):
     before = 'main_agent = Agent(name="Main", tools=[quote])\n' + handler
     result = _compare(repo, before, before.replace("tools=[quote]", "tools=[quote, send_image]"))
     assert result["comparison_status"] == "compared", result["head"]["limits"]
     assert _pairs(result) == [("main_agent", "send_image", "added")]
+
+
+def test_a_method_called_on_self_is_whichever_the_instance_has(repo):
+    """The base's ``register`` only reads; the subclass's appends."""
+
+    body = (
+        'quote_agent = Agent(name="Quote", tools=[quote])\n\n\n'
+        "class BaseRunner:\n    def setup(self, agent):\n        self.register(agent.tools)\n\n"
+        "    def register(self, tools):\n        return len(tools)\n\n\n"
+        "class Runner(BaseRunner):\n    def register(self, tools):\n        BODY\n\n\n"
+        "Runner().setup(quote_agent)\n"
+    )
+    result = _compare(repo, body.replace("BODY", "pass"), body.replace("BODY", "tools.append(send_image)"))
+    assert result["comparison_status"] == "partial"

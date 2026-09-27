@@ -1312,6 +1312,10 @@ class ModuleCallees:
         """``H().add(...)``, or ``obj.add(...)`` with ``obj = H()``: the method of a
         class the module defines or imports, ``self`` not supplied."""
 
+        if isinstance(func.value, ast.Name) and func.value.id == "self":
+            # A subclass may override it: ``self.register(x)`` in a base class
+            # runs whichever ``register`` the instance has (#876 review).
+            return None
         found = self._receiver_class(func, call)
         return self._method_of(*found, name=func.attr) if found is not None else None
 

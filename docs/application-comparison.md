@@ -110,8 +110,9 @@ agents' rows in the file stand:
   level or inside the function), or a method of a class it defines or imports
   (`H().add(...)`, `holder.add(...)`), that changes the list it is given
   (`add_image(x.tools)` with `add_image` appending, directly or through the
-  helper's own inner calls) changes it, and one that only reads it reads it
-  (`self.log(x.tools)` reads the enclosing class's own method). Any value the
+  helper's own inner calls) changes it, and one that only reads it reads it;
+  `self.register(x.tools)` is never resolved, since a subclass may override
+  it. Any value the
   reader cannot name — a parameter, a factory's result (`bot = build()`), an
   agent a service holds (`svc.agent`, `self.agent`) — whose list is handed to
   the application's own code that is not read to leave it alone (an inherited
