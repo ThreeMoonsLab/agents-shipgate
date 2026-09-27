@@ -1935,8 +1935,9 @@ _APPLY = "\n\ndef apply(agent, overrides):\n    for key, value in overrides.item
         "for name, value in vars(plant_agent).items():\n    if isinstance(value, list):\n        value.clear()\n",
         "import operator\n\noperator.attrgetter('tools')(plant_agent).clear()\n",
         "plant_agent.__getattribute__('tools').clear()\n",
+        "object.__getattribute__(plant_agent, 'tools').clear()\n",
     ],
-    ids=["helper-setattr-overrides", "namespace-items", "attrgetter", "getattribute"],
+    ids=["helper-setattr-overrides", "namespace-items", "attrgetter", "getattribute", "unbound-getattribute"],
 )
 def test_a_change_the_helper_or_spelling_hides_is_still_a_change(repo, reset):
     assert _pairs(_reset_elsewhere(repo, reset)) == [("plant_agent", "send_image", "not_established")]
@@ -1962,5 +1963,50 @@ def test_a_helper_changing_its_own_agents_by_computed_name_is_followed_in_the_fi
 )
 def test_a_computed_name_change_on_another_object_stays_nothing(repo, module):
     result = _reset_elsewhere(repo, "", {"helpers.py": module})
+    assert result["comparison_status"] == "compared", result["head"]["limits"]
+    assert _pairs(result) == [("plant_agent", "send_image", "added")]
+
+
+# ---------------------------------------------------------------------------
+# #876 review, round 22: a function that rewrites its parameter's attributes
+# is followed wherever the reader resolves its calls — an imported helper, a
+# method, a chain — and a builder's result passed to it is that builder's
+# agent. The same helper handed any other object is nothing.
+
+_HELPERS = "\n\ndef apply(agent, overrides):\n    for key, value in overrides.items():\n        setattr(agent, key, value)\n"
+
+
+@pytest.mark.parametrize(
+    ("reset", "extra"),
+    [
+        ("from helpers import apply\n\napply(plant_agent, {'tools': [quote]})\n", {"helpers.py": _HELPERS}),
+        (
+            "class Service:\n    def apply(self, agent, overrides):\n        for key, value in overrides.items():\n"
+            "            setattr(agent, key, value)\n\n\nService().apply(plant_agent, {'tools': [quote]})\n",
+            {},
+        ),
+        (
+            "from helpers import apply\n\n\ndef outer(agent):\n    apply(agent, {'tools': [quote]})\n\n\nouter(plant_agent)\n",
+            {"helpers.py": _HELPERS},
+        ),
+    ],
+    ids=["imported-helper", "method", "two-hops"],
+)
+def test_a_helper_rewriting_its_parameter_is_followed_where_it_resolves(repo, reset, extra):
+    assert _pairs(_reset_elsewhere(repo, reset, extra)) == [("plant_agent", "send_image", "not_established")]
+
+
+def test_a_builders_result_handed_to_such_a_helper_is_that_builders_agent(repo):
+    builder = 'def build():\n    return Agent(name="Plant", tools=TOOLS)\n'
+    wiring = "from agents import Runner\nfrom agent import build, quote\nfrom helpers import apply\n\napply(build(), {'tools': [quote]})\n"
+    base = commit(repo, {"agent.py": _agents(builder.replace("TOOLS", "[quote]")), "helpers.py": _HELPERS, "wiring.py": wiring})
+    head = commit(repo, {"agent.py": _agents(builder.replace("TOOLS", "[quote, send_image]"))})
+    result = run(repo, base, head)
+    assert _pairs(result) == [("Plant", "send_image", "not_established")]
+
+
+def test_such_a_helper_handed_another_object_is_nothing(repo):
+    module = "from agents import Runner\nfrom helpers import apply\n\n\nclass Row:\n    pass\n\n\napply(Row(), {'name': 'x'})\n"
+    result = _reset_elsewhere(repo, "", {"helpers.py": _HELPERS, "rows.py": module})
     assert result["comparison_status"] == "compared", result["head"]["limits"]
     assert _pairs(result) == [("plant_agent", "send_image", "added")]

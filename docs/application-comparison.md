@@ -173,8 +173,10 @@ agents' rows in the file stand:
   by a name computed at run time (`setattr(agent, key, value)`,
   `getattr(agent, cap).clear()`, `vars(agent).items()`,
   `operator.attrgetter("tools")(agent)`) on an agent the file can name or
-  imports from the scope, including one the module passes to a helper that
-  changes its parameter this way (`apply(agent, overrides)`) — on any other
+  imports from the scope, or gets from another file's builder, including one
+  handed to a function that changes its parameter this way (`apply(agent,
+  overrides)`, imported, a method, or through another function; not through
+  `functools.partial`, `*args`, `**kwargs` or a default) — on any other
   object, like `setattr(record, field, value)`, `return getattr(module,
   name)` or copying `vars(args)`, it is the object's own business. An
   index into a list of agents is any member, since the list can be reordered. A change qualifies both sides: a binding

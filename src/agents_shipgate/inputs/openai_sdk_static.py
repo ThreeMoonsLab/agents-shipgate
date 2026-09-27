@@ -578,20 +578,29 @@ def _extract_agent_bindings(
             plant_agent``), or bound to what its function returns (``support =
             build(...)`` with ``build`` returning ``Agent(...)``)."""
 
-            if module is None or not isinstance(receiver, ast.Name):
+            if module is None:
                 return None
-            name = receiver.id
-            local = scopes.enclosing_bindings(site, name)
-            if local:
-                if len(local) != 1:
-                    return None
-                node: ast.AST = local[0]
-                statement = scopes.statement_of(node)
+            node: ast.AST | None
+            statement: ast.AST | None
+            if isinstance(receiver, ast.Call):
+                # ``apply(build(), ...)``: what another file's builder returns.
+                name, local, node = "_", [], None
+                statement = ast.Assign(targets=[ast.Name(id=name, ctx=ast.Store())], value=receiver)
+            elif isinstance(receiver, ast.Name):
+                name = receiver.id
+                local = scopes.enclosing_bindings(site, name)
+                if local:
+                    if len(local) != 1:
+                        return None
+                    node = local[0]
+                    statement = scopes.statement_of(node)
+                else:
+                    found = tool_lists.module_bindings.get(name, [])
+                    if len(found) != 1:
+                        return None
+                    node, statement = found[0].node, found[0].statement
             else:
-                found = tool_lists.module_bindings.get(name, [])
-                if len(found) != 1:
-                    return None
-                node, statement = found[0].node, found[0].statement
+                return None
             if isinstance(node, ast.alias):
                 if not isinstance(statement, ast.Import | ast.ImportFrom):
                     return None
@@ -774,6 +783,7 @@ def _extract_agent_bindings(
                     and held is None
                     and not scope_imported(receiver, site)
                     and not via_unresolved
+                    and agent_home(receiver, site) is None
                 ):
                     # Handed on, not changed in view: followed that far only
                     # for the file's agents, one imported from the scope, or a
@@ -1358,6 +1368,16 @@ def _capability_changes(
             return node.func.value
         if (
             isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"__getattribute__", "__getattr__"}
+            and len(node.args) == 2
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value in capabilities
+        ):
+            # ``object.__getattribute__(agent, "tools")``: the unbound form.
+            return node.args[0]
+        if (
+            isinstance(node, ast.Call)
             and isinstance(node.func, ast.Call)
             and (reference_spelling(node.func.func) or "").rsplit(".", 1)[-1] == "attrgetter"
             and len(node.func.args) == 1
@@ -1422,6 +1442,72 @@ def _capability_changes(
             and call.func is method
         )
 
+    rewired: dict[tuple[int, str], bool] = {}
+
+    def parameter_rewired(
+        function: ast.FunctionDef | ast.AsyncFunctionDef,
+        name: str,
+        within: ModuleCallees,
+        depth: int = 0,
+    ) -> bool:
+        """Whether a function rewrites the attributes of what its parameter
+        ``name`` holds by a name computed at run time or through its namespace
+        (``setattr(agent, key, value)`` over overrides, ``vars(agent)[k] = v``,
+        ``agent.__setattr__``), or sets one of its capabilities by name, or hands
+        it to a function that does — resolved in the function's own module
+        (#876 review)."""
+
+        key = (id(function), name)
+        if key in rewired:
+            return rewired[key]
+        if depth > 3:
+            return True
+        rewired[key] = False
+        found = False
+
+        def spells(node: ast.AST | None) -> bool:
+            return isinstance(node, ast.Name) and node.id == name
+
+        for node in ast.walk(function):
+            if isinstance(node, ast.Call):
+                func = node.func
+                first = node.args[0] if node.args else None
+                second = node.args[1] if len(node.args) > 1 else None
+                if isinstance(func, ast.Name) and func.id in {"setattr", "delattr"} and spells(first) and not names_other(second):
+                    found = True
+                elif isinstance(func, ast.Attribute) and func.attr in {"__setattr__", "__delattr__"} and (
+                    spells(func.value) or spells(first)
+                ):
+                    found = True
+                elif (
+                    isinstance(func, ast.Attribute)
+                    and func.attr in {"update", "setdefault", "pop", "popitem", "clear", "items", "values"}
+                    and (spells(namespace_of(func.value)))
+                ):
+                    found = True
+                else:
+                    arguments = [(index, None, arg) for index, arg in enumerate(node.args)] + [
+                        (None, item.arg, item.value) for item in node.keywords if item.arg
+                    ]
+                    for position, keyword, value in arguments:
+                        if spells(value):
+                            target = parameter_of(node, position, keyword, within)
+                            if target is not None and parameter_rewired(*target, depth=depth + 1):
+                                found = True
+                                break
+            elif isinstance(node, ast.Assign | ast.AugAssign | ast.Delete):
+                targets = node.targets if isinstance(node, ast.Assign | ast.Delete) else [node.target]
+                found = any(
+                    isinstance(item, ast.Subscript)
+                    and spells(namespace_of(item.value))
+                    and not names_other(item.slice)
+                    for item in targets
+                )
+            if found:
+                break
+        rewired[key] = found
+        return found
+
     changes: list[tuple[ast.expr, ast.AST, bool, bool]] = []
     #: Changes by a name computed at run time or through a namespace: on a
     #: parameter, followed to the module's calls (a list handed on is not —
@@ -1462,6 +1548,20 @@ def _capability_changes(
                         changes.append((receiver, item, True, via_unresolved))
         elif isinstance(node, ast.Call):
             func = node.func
+            # ``apply(plant_agent, overrides)`` with ``apply`` — here, imported,
+            # a method, or a chain — rewriting its parameter's attributes: a
+            # change on the argument, counted for an agent the file can name,
+            # imports, or gets from another file's builder (#876 review).
+            arguments = [(index, None, arg) for index, arg in enumerate(node.args)] + [
+                (None, item.arg, item.value) for item in node.keywords if item.arg
+            ]
+            for position, keyword, value in arguments:
+                if not isinstance(value, ast.Name | ast.Attribute | ast.Subscript | ast.Call):
+                    continue
+                target = parameter_of(node, position, keyword, callees)
+                if target is not None and parameter_rewired(*target):
+                    changes.append((value, node, True, False))
+                    dynamic.add(id(node))
             if (
                 isinstance(func, ast.Attribute)
                 and func.attr in _LIST_MUTATORS
