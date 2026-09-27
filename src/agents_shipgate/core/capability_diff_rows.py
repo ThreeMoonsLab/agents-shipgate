@@ -878,7 +878,7 @@ def review_question(changes: Sequence[ReviewChange]) -> str:
 
     Where a change joins rows, the question names the row count too: the
     control headline beside it in `verify` and the PR comment counts rows
-    (`8 repository-declared host capability change(s)`), and `diff`'s summary
+    (`8 repository-declared host capability row(s)`), and `diff`'s summary
     already says `from 8 rows`.
 
     It lives beside :func:`review_changes` because it is one of the facts the
