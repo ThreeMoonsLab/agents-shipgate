@@ -1737,3 +1737,98 @@ def test_a_logger_adapter_is_a_logger(repo):
     result = _compare(repo, before, before.replace("tools=[quote]", "tools=[quote, send_image]"))
     assert result["comparison_status"] == "compared", result["head"]["limits"]
     assert _pairs(result) == [("main_agent", "send_image", "added")]
+
+
+# ---------------------------------------------------------------------------
+# #876 review, round 19: a list changed by a name computed at run time, or
+# through the agent's namespace, is changed; a container of another file's
+# agents is followed through ``+``, comprehensions and wrappers; the side a
+# binding is observed on honours a moved file; an ``append``, an unrelated
+# list's change, or a container member that is plainly no agent qualifies
+# nothing.
+
+_MANAGER = "from agents import Agent\nfrom agent import plant_agent, quote\n\n" 'manager = Agent(name="Manager", tools=[quote])\n'
+
+
+def _reset_elsewhere(repo, reset: str, extra: dict | None = None):
+    base = commit(
+        repo,
+        {"agent.py": _agents(_PLANT.replace("TOOLS", "[quote]")), "manager.py": _MANAGER, **(extra or {})},
+    )
+    head = commit(
+        repo,
+        {"agent.py": _agents(_PLANT.replace("TOOLS", "[quote, send_image]")), "manager.py": _MANAGER + reset},
+    )
+    return run(repo, base, head)
+
+
+@pytest.mark.parametrize(
+    "reset",
+    [
+        "for key, value in {'tools': [quote]}.items():\n    setattr(plant_agent, key, value)\n",
+        "name = 'tools'\nsetattr(plant_agent, name, [quote])\n",
+        "for capability in ('tools',):\n    getattr(plant_agent, capability).clear()\n",
+        "vars(plant_agent)['tools'] = [quote]\n",
+        "plant_agent.__dict__['tools'] = [quote]\n",
+        "plant_agent.__dict__.update({'tools': [quote]})\n",
+    ],
+    ids=["setattr-overrides", "setattr-computed", "getattr-computed", "vars", "dunder-dict", "dict-update"],
+)
+def test_a_list_changed_by_a_computed_name_is_changed(repo, reset):
+    result = _reset_elsewhere(repo, reset)
+    assert _pairs(result) == [("plant_agent", "send_image", "not_established")]
+
+
+@pytest.mark.parametrize(
+    "agents",
+    ["[manager] + OTHERS", "[manager] + [each for each in OTHERS]", "[manager] + list(OTHERS)"],
+    ids=["plus", "comprehension", "wrapper"],
+)
+def test_another_files_agents_in_a_combined_container_are_limited(repo, agents):
+    registry = "from agent import plant_agent\n\nOTHERS = [plant_agent]\n"
+    reset = f"from registry import OTHERS\n\nAGENTS = {agents}\nfor each in AGENTS:\n    each.tools = [quote]\n"
+    result = _reset_elsewhere(repo, reset, {"registry.py": registry})
+    assert _pairs(result) == [("plant_agent", "send_image", "not_established")]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "PIPELINE = [manager, print]\nPIPELINE[0].tools.append(quote)\n",
+        "import logging\n\nPARTS = [manager, logging.getLogger(__name__)]\nPARTS[0].tools.append(quote)\n",
+        "plant_agent.tools.append(quote)\n",
+        "plant_agent.handoffs = []\n",
+        "plant_agent.mcp_servers = []\n",
+    ],
+    ids=["builtin-member", "logger-member", "append", "handoffs", "mcp-servers"],
+)
+def test_a_change_that_cannot_undo_the_constructor_qualifies_nothing(repo, change):
+    result = _reset_elsewhere(repo, change)
+    assert _pairs(result) == [("plant_agent", "send_image", "added")]
+
+
+def test_the_observed_side_honours_a_moved_file(repo):
+    tools = TOOLS.replace("@function_tool\ndef send_image", "@function_tool OVERRIDE\ndef send_image")
+    plant = "from agents import Agent\nfrom tools import quote, send_image\n\nplant_agent = Agent(name='Plant', tools=[quote, send_image])\n"
+    manager = "from agents import Agent\nfrom {home} import plant_agent\nfrom tools import quote\n\n"
+    base = commit(
+        repo,
+        {
+            "tools.py": tools.replace(" OVERRIDE", ""),
+            "plant.py": plant,
+            "manager.py": manager.format(home="plant") + "plant_agent.tools = [quote]\n",
+        },
+    )
+    head = commit(
+        repo,
+        {
+            "tools.py": tools.replace(" OVERRIDE", "(name_override='send_photo')"),
+            "plant.py": None,
+            "garden.py": plant,
+            "manager.py": manager.format(home="garden"),
+        },
+    )
+    result = run(repo, base, head)
+    rows = {(row["tool"], row["change"]) for row in result["rows"] if row["agent"] == "plant_agent"}
+    assert ("send_image", "removed") not in rows, result["rows"]
+    assert ("send_image", "not_established") in rows, result["rows"]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import builtins
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ from typing import Any, ClassVar, Literal, NamedTuple
 from agents_shipgate.core.domain import (
     AgentBindingObservation,
     AuthInfo,
+    CapabilityChangeObservation,
     LoadedToolSource,
     Tool,
     ToolkitScopeBound,
@@ -110,6 +112,7 @@ def load_openai_sdk_static_tools(
         recovery_evidence,
         imported_tools,
         imported_guards,
+        capability_changes,
     ) = _extract_agent_bindings(tools, python_files, source, base_dir)
     tools = [*tools, *imported_tools]
     guard_dependencies = [*guard_dependencies, *imported_guards]
@@ -121,6 +124,7 @@ def load_openai_sdk_static_tools(
         binding_observations=binding_observations,
         warnings=[*_toolkit_binding_warnings(toolkit_bounds), *binding_warnings],
         recovery_evidence=recovery_evidence,
+        capability_changes=capability_changes,
         guard_dependencies=guard_dependencies,
     )
 
@@ -208,6 +212,7 @@ def _extract_agent_bindings(
     warnings: list[str] = []
     observations: list[AgentBindingObservation] = []
     recovery_evidence: list[SourceRecoveryEvidence] = []
+    capability_changes: list[CapabilityChangeObservation] = []
     tool_by_name = {tool.name: tool for tool in tools}
     tool_by_name.update(
         {
@@ -544,6 +549,7 @@ def _extract_agent_bindings(
         # the reader cannot identify may be any agent, here or elsewhere; one
         # it can prove is not an agent is nothing (#876 review).
         unattributed = False
+        first_unattributed = [""]
         #: ``agent -> reason`` of the agents a change here limits, and the
         #: ``(agent, capability)`` pairs already recorded.
         limited: dict[str, str] = {}
@@ -626,6 +632,7 @@ def _extract_agent_bindings(
             lookup: ast.AST | None = None,
             limited: dict[str, str] = limited,
             limited_kinds: set[tuple[str, str]] = limited_kinds,
+            first_unattributed: list[str] = first_unattributed,
             scopes: ScopeIndex = scopes,
             homes: set[str] = homes,
             source_ref: str = source_ref,
@@ -635,33 +642,55 @@ def _extract_agent_bindings(
         ) -> None:
             nonlocal unattributed
             # One limit per agent, and one for the file: the first site names it.
-            if owner is None or (owner is True and unattributed):
+            if owner is None:
                 return
             pointer = f"{source_ref}:{site.lineno}"  # type: ignore[attr-defined]
+            removes, in_place = _change_effect(site)
             if owner is True:
                 # ``lookup``: where a container member is written, which is
                 # where its name is bound.
                 home = agent_home(receiver, lookup or site)
+                capability = "*" if lookup is not None else _changed_capability(receiver, site, scopes)
                 if home is not None:
                     path, what = home
+                    warning = (
+                        f"OpenAI Agents SDK tools, handoffs or MCP servers of {what} are "
+                        f"changed after construction at {pointer}, which this reader does "
+                        f"not follow; the agents constructed in {path} are not established."
+                    )
                     if path not in homes:
                         homes.add(path)
-                        unread(
-                            f"OpenAI Agents SDK tools, handoffs or MCP servers of {what} are "
-                            f"changed after construction at {pointer}, which this reader does "
-                            f"not follow; the agents constructed in {path} are not established.",
-                            pointer,
-                            "sdk_capability_change_elsewhere",
-                            path=path,
+                        unread(warning, pointer, "sdk_capability_change_elsewhere", path=path)
+                    # Every change, so the comparison knows each list it reaches.
+                    capability_changes.append(
+                        CapabilityChangeObservation(
+                            warning=next(
+                                (item.warning for item in capability_changes if item.home == path),
+                                warning,
+                            ),
+                            home=path,
+                            capability=capability,
+                            in_place=in_place,
+                            removes=removes,
                         )
+                    )
                     return
-                unattributed = True
-                unread(
+                warning = (
                     f"OpenAI Agents SDK tools, handoffs or MCP servers are changed at "
                     f"{pointer} on a value this reader cannot identify; any agent it may "
-                    f"be, constructed in {source_ref} or in another file, is not established.",
-                    pointer,
-                    "sdk_capability_change_unattributed",
+                    f"be, constructed in {source_ref} or in another file, is not established."
+                )
+                if not unattributed:
+                    unattributed = True
+                    unread(warning, pointer, "sdk_capability_change_unattributed")
+                    first_unattributed[0] = warning
+                capability_changes.append(
+                    CapabilityChangeObservation(
+                        warning=first_unattributed[0],
+                        capability=capability,
+                        in_place=in_place,
+                        removes=removes,
+                    )
                 )
                 return
             assert isinstance(owner, str)
@@ -692,7 +721,9 @@ def _extract_agent_bindings(
                     observation.handoffs_complete = False
                     if reason not in observation.issues:
                         observation.issues.append(reason)
-                    observation.changed_after_construction.setdefault(kind, reason)
+                    if removes:
+                        # An ``append`` cannot undo what the constructor binds.
+                        observation.changed_after_construction.setdefault(kind, reason)
 
         def scope_imported(
             receiver: ast.expr,
@@ -801,6 +832,7 @@ def _extract_agent_bindings(
         recovery_evidence,
         imports.new_tools,
         imports.new_guards,
+        capability_changes,
     )
 
 
@@ -1288,12 +1320,50 @@ def _capability_changes(
             return node.args[0]
         return None
 
+    def namespace_of(node: ast.AST) -> ast.expr | None:
+        """``x`` of ``vars(x)`` or ``x.__dict__``: its attributes by name."""
+
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "vars"
+            and len(node.args) == 1
+        ):
+            return node.args[0]
+        if isinstance(node, ast.Attribute) and node.attr == "__dict__":
+            return node.value
+        return None
+
+    def names_other(key: ast.AST | None) -> bool:
+        """Whether a spelled-out attribute name is not a capability."""
+
+        return isinstance(key, ast.Constant) and key.value not in capabilities
+
+    def mutated_in_place(node: ast.AST) -> bool:
+        """``x.tools`` as the receiver of ``x.tools.append(...)``: that call is the
+        change, recorded with what it does."""
+
+        method = scopes.parents.get(node)
+        call = scopes.parents.get(method) if method is not None else None
+        return (
+            isinstance(method, ast.Attribute)
+            and method.attr in _LIST_MUTATORS
+            and isinstance(call, ast.Call)
+            and call.func is method
+        )
+
     changes: list[tuple[ast.expr, ast.AST, bool, bool]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign | ast.AugAssign | ast.AnnAssign | ast.Delete):
             targets = node.targets if isinstance(node, ast.Assign | ast.Delete) else [node.target]
             for target in targets:
                 if isinstance(target, ast.Subscript):
+                    owner = namespace_of(target.value)
+                    if owner is not None and not names_other(target.slice):
+                        # ``vars(agent)["tools"] = ...``, ``agent.__dict__[k] = ...``:
+                        # the list reached by name (#876 review).
+                        changes.append((owner, node, False, False))
+                        continue
                     target = target.value
                 if isinstance(target, ast.Attribute | ast.Call) and (receiver := access(target)) is not None:
                     changes.append((receiver, node, False, False))
@@ -1321,6 +1391,24 @@ def _capability_changes(
             elif reflective(node, frozenset({"setattr", "delattr"})):
                 changes.append((node.args[0], node, False, False))
             elif (
+                isinstance(func, ast.Name)
+                and func.id in {"setattr", "delattr", "getattr"}
+                and len(node.args) >= 2
+                and not isinstance(node.args[1], ast.Constant)
+                and (func.id != "getattr" or not read_only(node))
+            ):
+                # ``setattr(agent, key, value)`` over overrides, or
+                # ``getattr(agent, cap).clear()``: any capability, by a name
+                # computed at run time (#876 review).
+                changes.append((node.args[0], node, False, False))
+            elif (
+                isinstance(func, ast.Attribute)
+                and func.attr in {"update", "setdefault", "pop", "popitem", "clear", "__setitem__", "__delitem__"}
+                and (owner := namespace_of(func.value)) is not None
+            ):
+                # ``agent.__dict__.update(overrides)``.
+                changes.append((owner, node, False, False))
+            elif (
                 reflective(node, frozenset({"getattr"}))
                 and not read_only(node)
                 and alias_statement(node) is None
@@ -1333,6 +1421,7 @@ def _capability_changes(
             and access(node) is not None
             and not read_only(node)
             and alias_statement(node) is None
+            and not mutated_in_place(node)
         ):
             # ``helper(agent.tools)``, ``d = {"t": agent.tools}``, ``return
             # agent.tools``, ``(t := agent.tools)``: out of view from here —
@@ -1854,6 +1943,25 @@ def _literal_data(value: ast.expr) -> bool:
     )
 
 
+def _change_effect(site: ast.AST) -> tuple[bool, bool]:
+    """``(removes, in_place)`` of a capability change: whether it can remove or
+    replace a binding the constructor made, and whether it changes the list
+    object itself rather than giving the agent a new one (#876 review)."""
+
+    if isinstance(site, ast.Call):
+        func = site.func
+        name = func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else None
+        if name in {"append", "extend", "insert"}:
+            return False, True
+        if name in {"setattr", "delattr"}:
+            return True, False
+        return True, True
+    if isinstance(site, ast.AugAssign):
+        # ``x.tools += [y]`` extends the list in place; ``*=`` can empty it.
+        return not isinstance(site.op, ast.Add), True
+    return True, not _reassigns(site)
+
+
 def _changed_capability(receiver: ast.expr | None, site: ast.AST, scopes: ScopeIndex) -> str:
     """The capability list a change reaches — ``tools``, ``handoffs`` or
     ``mcp_servers`` — or ``*`` when it cannot be told (#876 review)."""
@@ -2052,6 +2160,20 @@ class _AgentValues:
         if depth > 3:
             return None
         if isinstance(receiver, ast.Subscript):
+            held = receiver.value
+            if isinstance(held, ast.Name):
+                held = self.value_of(held.id, site) or held
+            index = receiver.slice
+            if (
+                isinstance(held, ast.List | ast.Tuple)
+                and isinstance(index, ast.Constant)
+                and isinstance(index.value, int)
+                and not any(isinstance(item, ast.Starred) for item in held.elts)
+                and -len(held.elts) <= index.value < len(held.elts)
+                and not self._appends.get(receiver.value.id if isinstance(receiver.value, ast.Name) else "")
+            ):
+                # ``PIPELINE[0]`` of a literal list nothing adds to: that member.
+                return self._agents_in(ast.List(elts=[held.elts[index.value]]), site, depth + 1, unknown)
             return self._agents_in(receiver.value, site, depth + 1, unknown)
         if isinstance(receiver, ast.Attribute) and isinstance(receiver.value, ast.Name):
             holder = self.value_of(receiver.value.id, site)
@@ -2122,15 +2244,18 @@ class _AgentValues:
                 else None
             )
             merge(inner)
-            if (
-                verdict is None
-                and inner is None
-                and unknown is not None
-                and isinstance(item, ast.Name | ast.Attribute | ast.Subscript | ast.Call)
-            ):
+            if verdict is None and inner is None and unknown is not None and self._may_be_agent(item, where):
                 # Not a container of the file's agents, and not proven to be no
                 # agent: it may be one another file constructs.
                 unknown.append((item, where))
+
+        def part(expr: ast.expr, where: ast.AST) -> None:
+            # A container within: ``OTHERS`` in ``[manager] + OTHERS`` may hold
+            # another file's agents even when it holds none of this one's.
+            inner = self._agents_in(expr, where, depth + 1, unknown)
+            merge(inner)
+            if inner is None and unknown is not None and self._may_be_agent(expr, where):
+                unknown.append((expr, where))
 
         if isinstance(container, ast.Name):
             for node in self._appends.get(container.id, []):
@@ -2155,27 +2280,53 @@ class _AgentValues:
             for item in container.values:
                 add(item, site)
         elif isinstance(container, ast.BinOp):
-            merge(self._agents_in(container.left, site, depth + 1, unknown))
-            merge(self._agents_in(container.right, site, depth + 1, unknown))
+            part(container.left, site)
+            part(container.right, site)
         elif isinstance(container, ast.Subscript):
             # ``AGENTS[1:]``, or ``GROUPS["x"]`` of a container of containers.
-            merge(self._agents_in(container.value, site, depth + 1, unknown))
+            part(container.value, site)
         elif isinstance(container, ast.ListComp | ast.SetComp | ast.GeneratorExp | ast.DictComp):
             for generator in container.generators:
-                merge(self._agents_in(generator.iter, site, depth + 1, unknown))
+                part(generator.iter, site)
         elif isinstance(container, ast.Call):
             name = dotted_name(container.func)
             if isinstance(container.func, ast.Attribute) and container.func.attr in {"values", "items", "copy"}:
                 # ``REG.values()`` / ``REG.items()`` of a dict of agents.
-                merge(self._agents_in(container.func.value, site, depth + 1, unknown))
+                part(container.func.value, site)
             elif name in _ITERATION_WRAPPERS:
                 for arg in container.args:
-                    merge(self._agents_in(arg, site, depth + 1, unknown))
+                    part(arg, site)
             elif isinstance(container.func, ast.Name) and container.func.id in self.functions:
                 for node in ast.walk(self.functions[container.func.id]):
                     if isinstance(node, ast.Return) and node.value is not None:
                         merge(self._agents_in(node.value, node, depth + 1, unknown))
         return found
+
+    def _may_be_agent(self, expr: ast.expr, site: ast.AST) -> bool:
+        """Whether a container member may be an agent the file does not
+        construct: not a function, class or lambda, a logger, a builtin's
+        result or a literal (#876 review)."""
+
+        if isinstance(expr, ast.Name):
+            found = self.scopes.enclosing_bindings(site, expr.id)
+            nodes = found or [item.node for item in self.module_bindings.get(expr.id, [])]
+            if nodes and all(isinstance(node, _SCOPE_NODES) for node in nodes):
+                return False
+            value = self.value_of(expr.id, site)
+            if value is not None:
+                expr = value
+        if isinstance(expr, ast.Lambda | ast.Constant | ast.JoinedStr) or self.is_agent(expr, site) is False:
+            return False
+        if isinstance(expr, ast.Call):
+            spelling = reference_spelling(expr.func) or ""
+            if spelling.rsplit(".", 1)[-1] in _LOGGER_FACTORIES or (
+                isinstance(expr.func, ast.Name)
+                and expr.func.id in _BUILTIN_NAMES
+                and not self.scopes.enclosing_bindings(site, expr.func.id)
+                and not self.module_bindings.get(expr.func.id)
+            ):
+                return False
+        return isinstance(expr, ast.Name | ast.Attribute | ast.Subscript | ast.Call)
 
     @property
     def _appends(self) -> dict[str, list[ast.expr]]:
@@ -2624,15 +2775,13 @@ BindingsAt = Callable[[str, ast.AST], list[tuple[ast.AST, ast.AST | None]]]
 
 
 def _bindings_at(scopes: ScopeIndex, module_bindings: dict[str, list[Any]]) -> BindingsAt:
-    # ``from helpers import *`` may bind any name: none is proven unbound.
-    star = any(isinstance(node, ast.alias) and node.name == "*" for node in scopes.parents)
-
     def found(name: str, site: ast.AST) -> list[tuple[ast.AST, ast.AST | None]]:
         local = scopes.enclosing_bindings(site, name)
         if local:
             return [(item, scopes.statement_of(item)) for item in local]
         module = [(item.node, item.statement) for item in module_bindings.get(name, [])]
-        return module or ([(site, None)] if star else [])
+        # ``from helpers import *`` may bind any name: none is proven unbound.
+        return module or ([(site, None)] if scopes.star_import else [])
 
     return found
 
@@ -2699,6 +2848,9 @@ def _leaves_arguments_alone(call: ast.Call, bindings_at: BindingsAt) -> bool:
         and (reference_spelling(value.func) or "").rsplit(".", 1)[-1] in _LOGGER_FACTORIES
     )
 
+
+#: Builtins a container member may be the result of, none of them an agent.
+_BUILTIN_NAMES = frozenset(dir(builtins))
 
 #: Calls whose result is a logger.
 _LOGGER_FACTORIES = frozenset({"getLogger", "get_logger", "getChild", "LoggerAdapter"})

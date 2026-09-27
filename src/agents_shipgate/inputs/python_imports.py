@@ -2679,6 +2679,17 @@ class ScopeIndex:
             child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)
         }
         self._scopes: dict[int, tuple[dict[str, ast.AST], set[str]]] = {}
+        self._star: bool | None = None
+
+    @property
+    def star_import(self) -> bool:
+        """Whether the module has a ``from … import *``, which may bind any name."""
+
+        if self._star is None:
+            self._star = any(
+                isinstance(node, ast.alias) and node.name == "*" for node in self.parents
+            )
+        return self._star
 
     def enclosing_binding(self, node: ast.AST, name: str) -> ast.AST | None:
         """The nearest enclosing non-module binding of ``name`` visible at ``node``.

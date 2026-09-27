@@ -162,13 +162,20 @@ agents' rows in the file stand:
   with `build` returning `Agent(...)`) — is a limit on that file's agents;
   anything else may be any agent, in any file, and is a limit on every agent.
   A container holding the file's own agents beside another value (`[manager,
-  plant_agent]` with `plant_agent` imported) limits each: the file's by name,
-  the other where it is built or everywhere. A change qualifies both sides: a
-  binding the constructor makes is not established on the side where the list
-  it is in is changed after construction either (`plant_agent.tools =
-  [quote]` in the head of a change that adds `send_image` to the
-  constructor), while a change to an agent's `handoffs` leaves the tools it is
-  constructed with established there;
+  plant_agent]` with `plant_agent` imported, also through `+`, a
+  comprehension or `list(...)`) limits each: the file's by name, the other
+  where it is built or everywhere; a member that is plainly no agent (a
+  function, a class, a logger, a builtin's result, a literal) is not one, and
+  `PIPELINE[0]` of a literal list is only that member. A list reached by a
+  name computed at run time (`setattr(agent, key, value)`, `getattr(agent,
+  cap).clear()`) or through the agent's namespace (`vars(agent)[...]`,
+  `agent.__dict__`) is changed too. A change qualifies both sides: a binding
+  the constructor makes is not established on the side where the list it is
+  in is reset, emptied or replaced after construction either
+  (`plant_agent.tools = [quote]` in the head of a change that adds
+  `send_image` to the constructor, in the file or another, moved or not),
+  while an `append`, or a change to an agent's `handoffs` or `mcp_servers`,
+  leaves the tools it is constructed with established there;
 - a copy that passes its own `tools`, `handoffs` or `mcp_servers`
   (`agent.clone(tools=...)`, `dataclasses.replace(agent, tools=...)`,
   `copy.replace(...)`), wherever the original came from, unless the original

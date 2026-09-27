@@ -684,6 +684,27 @@ class AgentRemoteBinding(BaseModel):
 ANY_TOOL = "*"
 
 
+class CapabilityChangeObservation(BaseModel):
+    """A change to a capability list after construction that no agent of the
+    file it is written in carries (#876 review): one on an agent another file
+    constructs, or on a value the reader cannot identify. Internal: the
+    comparison scopes the warning by it; never published."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: The limit's text, as the reader warns it.
+    warning: str
+    #: The file whose agents it reaches; None for every file.
+    home: str | None = None
+    #: ``tools``, ``handoffs``, ``mcp_servers``, or ``*`` when it cannot be told.
+    capability: str = "*"
+    #: Whether it changes the list object itself, which other holders see.
+    in_place: bool = True
+    #: Whether it can remove or replace a binding the constructor made (an
+    #: ``append`` cannot).
+    removes: bool = True
+
+
 class AgentBindingObservation(BaseModel):
     """One framework parser's normalized, agent-level binding observation."""
 
@@ -766,6 +787,11 @@ class LoadedToolSource(BaseModel):
     # Explanatory loader evidence, separate from actual surface omissions.
     recovery_evidence: list[SourceRecoveryEvidence] = Field(
         default_factory=list, exclude_if=lambda value: not value
+    )
+    # Changes after construction the SDK reader could not carry on one of the
+    # file's own agents (#876 review); read by the comparison, never published.
+    capability_changes: list[CapabilityChangeObservation] = Field(
+        default_factory=list, exclude=True
     )
     # Entries this source dropped. Empty for every adapter that has not been
     # taught to record them, which is why the exclusion ledger reports what it

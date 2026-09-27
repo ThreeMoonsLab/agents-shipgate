@@ -50,9 +50,6 @@ from agents_shipgate.inputs.python_imports import (
 from agents_shipgate.schemas.manifest import ToolSourceConfig
 
 SUPPORTED = frozenset({"openai_agents_sdk", "google_adk"})
-#: Recovery reasons whose limit reaches past the file the change is written in:
-#: the file of the agent changed, or every agent.
-_CHANGE_REACH = frozenset({"sdk_capability_change_elsewhere", "sdk_capability_change_unattributed"})
 SCHEMA_VERSION = "0.1"
 MAX_PYTHON_BYTES = 2_000_000
 
@@ -133,25 +130,26 @@ class Observations:
                 reasons.append(gap["reason"])
         return sorted(set(reasons))
 
-    def presence_gaps(self, key: tuple[str, str, str]) -> list[str]:
+    def presence_gaps(
+        self, key: tuple[str, str, str], moves: dict[str, str] | None = None
+    ) -> list[str]:
         """Changes after construction that may undo a binding this side's
         constructor makes (#876 review): a list reset in another file, or in
-        the same one."""
+        the same one. A change to ``mcp_servers`` does not unbind a function
+        tool the constructor lists."""
 
         capability = "handoffs" if key[2].startswith("handoff:") else "tools"
-        return sorted(
-            {
-                why
-                for source, agent, kinds, why in self.changes
-                if (source is None or key[0] == source or key[0].startswith(source + "/"))
+        found = set()
+        for source, agent, kinds, why in self.changes:
+            if source is not None:
+                source = (moves or {}).get(source, source)
+            if (
+                (source is None or key[0] == source or key[0].startswith(source + "/"))
                 and agent in (None, key[1])
-                and (
-                    "*" in kinds
-                    or capability in kinds
-                    or (capability == "tools" and "mcp_servers" in kinds)
-                )
-            }
-        )
+                and ("*" in kinds or capability in kinds)
+            ):
+                found.add(why)
+        return sorted(found)
 
     def tool_gaps(self, key: tuple[str, str, str]) -> list[str]:
         """Gaps naming this one binding, which even a present binding carries."""
@@ -722,22 +720,17 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
                 attributed.add(message)
         # A change to an agent another file constructs limits that file; one
         # on a value the reader cannot identify may be any agent (#876 review).
-        reach = {
-            evidence.warning: evidence
-            for evidence in item.recovery_evidence
-            if evidence.recovery.reason in _CHANGE_REACH
-        }
+        for change in item.capability_changes:
+            if change.warning not in attributed:
+                result.gap(change.warning, source=change.home)
+            if change.removes:
+                result.changes.append(
+                    (change.home, None, frozenset({change.capability}), change.warning)
+                )
+        attributed.update(change.warning for change in item.capability_changes)
         for warning in item.warnings:
             if warning not in attributed:
-                evidence = reach.get(warning)
-                if evidence is None:
-                    result.gap(warning, source=source.path)
-                elif evidence.recovery.reason == "sdk_capability_change_elsewhere":
-                    result.gap(warning, source=evidence.path)
-                    result.changes.append((evidence.path, None, frozenset({"*"}), warning))
-                else:
-                    result.gap(warning)
-                    result.changes.append((None, None, frozenset({"*"}), warning))
+                result.gap(warning, source=source.path)
                 attributed.add(warning)
         for omission in item.omissions:
             result.gap(f"Omitted source surface: {omission}", source=source.path)
@@ -960,7 +953,7 @@ def compare(
             reasons = head.absence_gaps(key)
             if reasons:
                 uncertainty["head"] = reasons
-            present = sorted(set(base.tool_gaps(key)) | set(base.presence_gaps(key)))
+            present = sorted(set(base.tool_gaps(key)) | set(base.presence_gaps(key, target_moves)))
             if present:
                 uncertainty["base"] = present
         else:
