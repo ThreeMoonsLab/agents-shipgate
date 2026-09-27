@@ -23,7 +23,7 @@
 
 ### Changes
 
-- Skill frontmatter `metadata` maps now preserve boolean, numeric, list and nested values instead of refusing the entire host comparison. Claude Code documents a free-form map; this static structure reader does not validate portability to hosts that require string values. Metadata changes remain in the structure digest, and malformed frontmatter, ambiguous YAML and maps with non-string keys still refuse. A permission widening beside such metadata is now visible in text and JSON, with matching coverage. See the [migration note](STABILITY.md#skill-metadata-848). (#848)
+- Skill frontmatter `metadata` no longer refuses the entire host comparison. A map's boolean, numeric, list and nested values are preserved, and a `metadata` that is not a map, which Claude Code drops, is digested as written, as an undocumented key is (#730). Claude Code documents a free-form map; this static structure reader does not validate portability to hosts that require string values. Metadata changes remain in the structure digest, and malformed frontmatter, ambiguous YAML and a metadata key that is not a string, at any depth, still refuse. A permission widening beside such metadata is now visible in text and JSON, with matching coverage. See the [migration note](STABILITY.md#skill-metadata-848). (#848)
 
 - Move the published-release pins, examples and adoption prompts to `v1.1.0` (contract 40) now that it is published, re-capture the README and quickstart `diff` answers from the published `1.1.0`, and re-measure the pilot ledger's Route H dry run on it. No schema or contract change. (#778)
 - A host comparison names the changed inputs it does not read, so a zero-row result is not read as covering them. (#821; slice 2 of #812)
@@ -167,8 +167,8 @@
 
 - An unchanged instruction file or plugin manifest reached through an in-tree
   link no longer refuses the whole host comparison. A `SKILL.md` whose
-  `metadata` holds a non-string value, which this entry cannot resolve, is
-  named as an unchanged limit when the change leaves it alone (#721). Read
+  `metadata` has a key that is not a string, which this entry cannot resolve,
+  is named as an unchanged limit when the change leaves it alone (#721). Read
   through `.claude/skills -> ../.agents/skills`, a per-skill link or a file
   link, the same untouched file made `diff`, `verify` and the manifest-free PR
   comment print `Cannot compare against HEAD~1: base_inventory_incomplete;
@@ -191,9 +191,10 @@
     same file; a link replaced by a directory holding the same bytes, or the
     reverse; and every link the reader does not read through (dangling,
     looping, absolute, escaping, past eight links, or inside a linked
-    directory), which stays `unreadable` and is never an unchanged limit. The
-    metadata value is not coerced: `internal: true` stays an `unsupported`
-    structure (#811).
+    directory), which stays `unreadable` and is never an unchanged limit.
+    Metadata is not coerced: the key `1` is not read as the string `"1"`, so
+    it stays an `unsupported` structure, and the value `internal: true` is read
+    as written, with no limit (#811, #848).
   - **A plugin manifest behind a link.** The same proof covers a
     plugin-reference limit, such as a `parse_failed`
     `plugins/demo/.claude-plugin/plugin.json` that is a file link to

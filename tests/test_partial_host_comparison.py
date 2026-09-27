@@ -500,9 +500,9 @@ def test_an_unchanged_limit_of_the_rest_is_still_named(tmp_path: Path) -> None:
 
 # --- independence not established: refused exactly as before --------------------
 
-#: A skill with non-map metadata remains outside this
-#: bounded profile, so its structure is not established.
-UNRESOLVED_SKILL = "---\nname: review\ndescription: d\nmetadata: []\n---\n{body}\n"
+#: A skill whose `metadata` has a key that is not a string remains outside
+#: this bounded profile after #848, so its structure is not established.
+UNRESOLVED_SKILL = "---\nname: review\ndescription: d\nmetadata:\n  1: internal\n---\n{body}\n"
 #: A plugin directory named like a GitHub token, which every path publishes redacted.
 REDACTED_MANIFEST = "plugins/ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8/.claude-plugin/plugin.json"
 

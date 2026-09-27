@@ -158,7 +158,7 @@ def _digest(value: object) -> str:
 
 
 def _metadata_keys_are_strings(value: object) -> bool:
-    """Keep free-form metadata lossless through the JSON digest (#848)."""
+    """Keep free-form metadata, a map or not, lossless through the JSON digest (#848)."""
 
     if isinstance(value, dict):
         return all(
@@ -211,9 +211,12 @@ def _valid_metadata(metadata: dict, known: frozenset[str]) -> bool:
             # Claude Code documents a free-form map, not the portable Agent
             # Skills spec's map<string, string>. Read values without coercion;
             # this projection is not a portable-skill conformance validator.
+            # Claude Code drops a value that is not a map and grants nothing
+            # from it, so that value is digested as written, like an
+            # undocumented key (#730): a change to it stays a change.
             # String keys at every depth prevent _json_ready from collapsing
-            # distinct YAML keys (e.g. 1 and "1") into one JSON member.
-            if not isinstance(value, dict) or not _metadata_keys_are_strings(value):
+            # distinct YAML keys (e.g. true and "True") into one JSON member.
+            if not _metadata_keys_are_strings(value):
                 return False
         elif not isinstance(value, str):
             return False

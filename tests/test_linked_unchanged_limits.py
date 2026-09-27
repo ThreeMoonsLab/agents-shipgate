@@ -1,9 +1,9 @@
 """#822: an unchanged limit reached through an in-tree link is named, not a veto.
 
-A `SKILL.md` whose `metadata` is not a map is an `unsupported`
-limit this entry cannot resolve. Untouched by a change, it is named as an
-unchanged limit and the rest is compared (#721). Reached through an in-tree
-link the reader reads through (#700) — `.claude/skills -> ../.agents/skills`,
+A `SKILL.md` whose `metadata` has a key that is not a string is an
+`unsupported` limit this entry cannot resolve. Untouched by a change, it is
+named as an unchanged limit and the rest is compared (#721). Reached through
+an in-tree link the reader reads through (#700) — `.claude/skills -> ../.agents/skills`,
 or a per-skill link — the same untouched file refused the whole comparison
 instead, hiding a removed `deny` rule beside it: the unchanged proof asked
 whether the link-resolved path was a regular file in Git, and a path through a
@@ -15,9 +15,9 @@ link component) and the file it lands on (its blob) are both unchanged.
 Anything else still refuses: a skill added or edited behind the link, the link
 retargeted or its text rewritten, a link replaced by a directory or the
 reverse, and every link the reader does not read through (dangling, looping,
-external, escaping, past the hop bound). The metadata value is never coerced:
-`metadata: []` stays an `unsupported` structure. Boolean map values are
-read without coercion after #848.
+external, escaping, past the hop bound). Metadata is never coerced: the key
+`1` is not read as the string "1", so it stays an `unsupported` structure, and
+a boolean value is read as written after #848.
 
 The same proof decides which shared plugin-reference limits `check` leaves
 out of its comparison (#714). A `parse_failed` `plugin.json` behind a file
@@ -51,12 +51,12 @@ pytestmark = pytest.mark.skipif(os.name == "nt", reason="symbolic link fixtures"
 SETTINGS = ".claude/settings.json"
 BASE_SETTINGS = {"permissions": {"allow": ["Read"], "deny": ["Bash(curl *)"]}}
 DENY_DROPPED = {"permissions": {"allow": ["Read"]}}
-#: Non-map metadata keeps the linked unresolved-structure tests meaningful
-#: after #848 made the original boolean metadata map readable.
-SKILL = "---\nname: review\ndescription: Review a change.\nmetadata: []\n---\nReview the diff.\n"
+#: A metadata key that is not a string, which this entry's bounded profile
+#: still does not accept after #848, so the structure is unresolved.
+SKILL = "---\nname: review\ndescription: Review a change.\nmetadata:\n  1: internal\n---\nReview the diff.\n"
 #: The original issue fixture is now readable without changing its value.
-BOOLEAN_SKILL = SKILL.replace("metadata: []", "metadata: {internal: true}")
-STRING_SKILL = SKILL.replace("metadata: []", 'metadata: {internal: "true"}')
+BOOLEAN_SKILL = SKILL.replace("1: internal", "internal: true")
+STRING_SKILL = SKILL.replace("1: internal", 'internal: "true"')
 SOURCE = ".claude/skills/review/SKILL.md"
 DENY_REMOVED = [("claude-code .claude/settings.json", "Bash(curl *)", "removed")]
 NOT_COMPARED = "Not compared: unchanged in this change and not read, so no claim is made about them:"
