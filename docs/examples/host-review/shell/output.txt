@@ -1,0 +1,16 @@
+Agent capability diff  7a401ae9c08d66dc72755890fbd3535ddcb50918 (7a401ae9) -> working tree
+
+⚠ medium  widened  claude-code .claude/settings.json
+                  allow: Bash(npm test *) → allow: Bash(npm *)
+                  the new rule matches everything the old rule matched; runs without a prompt
+
+1 change(s) from 2 rows, 1 widening what the agent may do (⚠).
+Static configuration only: this is what the files permit, not what the agent did. No verdict is implied.
+
+What this run established:
+  only sources this entry read or tried to read are listed, so this is not the whole change: a changed file it does not read is absent
+  .claude/settings.json (claude-code): compared; 2 rows
+
+Review question: Does the team intend this declared capability change (from 2 rows)?
+Compared: base 7a401ae9 → working tree at HEAD 90b944c6, agents-shipgate 1.1.0.
+Reproduce in that working tree: agents-shipgate diff --base 7a401ae9c08d66dc72755890fbd3535ddcb50918

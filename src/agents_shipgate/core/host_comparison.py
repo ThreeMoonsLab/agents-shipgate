@@ -861,7 +861,11 @@ def compare_host_inventories(
     rows = (
         []
         if refused
-        else capability_diff_rows(payload, redact_permission_arguments=redact_permission_arguments)
+        else capability_diff_rows(
+            payload,
+            redact_permission_arguments=redact_permission_arguments,
+            current_grants=(retained.after if retained is not None else after).get("grants", []),
+        )
     )
     return HostComparison(
         comparison_status=(

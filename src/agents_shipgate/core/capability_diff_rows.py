@@ -33,6 +33,7 @@ from agents_shipgate.core.host_grants import (
     AGENT_RULE_INPUTS,
     DETAIL_NOT_SHOWN,
     UNTRUSTED_INPUT_TRIGGERS,
+    PermissionRuleReplacement,
     agent_launch_key,
     agent_rule_gains,
     agent_rule_text,
@@ -48,6 +49,12 @@ from agents_shipgate.core.host_grants import (
     step_action_key,
 )
 from agents_shipgate.core.host_settings import rate_claude_setting, setting_value_text
+from agents_shipgate.core.permission_lattice import (
+    exec_equivalent_argument,
+    permission_pairing_group,
+    subsumes,
+)
+from agents_shipgate.core.permission_residual import residual_prefix_note
 from agents_shipgate.schemas.capability_diff import CapabilityDiffRow as CapabilityDiffRow
 
 ABSENT = "—"
@@ -590,7 +597,8 @@ def _grant_value(
 
         return _safe_rule(str(grant.get("rule") or ""))
     if kind == "workflow":
-        parts = [str(grant.get("access") or "")]
+        access = str(grant.get("access") or "")
+        parts = [f"access: {access}"] if access else []
         if grant.get("write_all"):
             parts.append("write-all")
         if "permission_contexts" in grant:
@@ -676,6 +684,8 @@ def _why(
             return f"a {condition} the agent is subject to"
         if direction == REMOVED:
             return "removes a permission the agent previously had here"
+        if exec_equivalent_argument(str(grant.get("rule") or "")) is not None:
+            return "reaches arbitrary code through a launcher, without a prompt"
         if wildcard and access == "admin":
             return "matches any command of this kind, without a prompt"
         if wildcard:
@@ -903,7 +913,7 @@ def review_question(changes: Sequence[ReviewChange]) -> str:
 
     Where a change joins rows, the question names the row count too: the
     control headline beside it in `verify` and the PR comment counts rows
-    (`8 repository-declared host capability change(s)`), and `diff`'s summary
+    (`8 repository-declared host capability row(s)`), and `diff`'s summary
     already says `from 8 rows`.
 
     It lives beside :func:`review_changes` because it is one of the facts the
@@ -1326,6 +1336,7 @@ def _link_rows(
     rows: list[CapabilityDiffRow],
     changes: list[dict[str, Any]],
     views: list[_RowView],
+    replacements: list[PermissionRuleReplacement],
 ) -> list[_RowView]:
     """Join the rows of a replacement or move the engine established (#795).
 
@@ -1357,7 +1368,7 @@ def _link_rows(
         joined[second] = _RowView(before=views[second].before, after=views[second].after, link=link)
         linked.update((first, second))
 
-    for item in permission_rule_replacements(changes):
+    for item in replacements:
         gone = removals.get((item.host, item.source, "allow", item.before_rule))
         arrived = additions.get((item.host, item.source, "allow", item.after_rule))
         if gone is None or arrived is None:
@@ -1387,11 +1398,33 @@ def _link_rows(
 
 
 def capability_diff_rows(
-    payload: dict[str, Any], *, redact_permission_arguments: bool = False
+    payload: dict[str, Any], *, redact_permission_arguments: bool = False,
+    current_grants: Sequence[dict[str, Any]] = (),
 ) -> list[CapabilityDiffRow]:
     """Every typed grant change in ``payload``, one row each."""
 
     expansions = set(payload.get("expansion_signals") or [])
+    replacements = permission_rule_replacements(payload.get("changes") or [])
+    arrived_allows: dict[tuple[str, str], list[str]] = {}
+    # Deny and ask rules are evaluated before allow in every settings file,
+    # so one arriving for the same tool may take the matches away (#858).
+    arrived_restrictions: dict[str, set[str]] = {}
+    for change in payload.get("changes") or []:
+        grant = change.get("current")
+        if not grant or grant.get("kind") != "permission_rule":
+            continue
+        if not change.get("baseline") and grant.get("disposition") == "allow":
+            key = (grant["host"], grant.get("source", ""))
+            arrived_allows.setdefault(key, []).append(str(grant["rule"]))
+        elif grant.get("disposition") in {"deny", "ask"}:
+            arrived_restrictions.setdefault(grant["host"], set()).add(
+                permission_pairing_group(str(grant["rule"])).lower()
+            )
+    narrowed = {
+        (item.host, item.source, item.after_rule)
+        for item in replacements
+        if item.direction == "narrowed"
+    }
     rows: list[CapabilityDiffRow] = []
     views: list[_RowView] = []
     changes: list[dict[str, Any]] = []
@@ -1411,6 +1444,15 @@ def capability_diff_rows(
         expands = bool(expansions.intersection(host_grant_expansion_signals(
             [change], comparison_changes=payload.get("changes") or [],
         )))
+        # The public signal text has no source. An identical rule added in
+        # another file must not mark this source's decided narrowing (#858).
+        if (
+            after_grant and after_grant.get("kind") == "permission_rule"
+            and after_grant.get("disposition") == "allow"
+            and (after_grant["host"], after_grant.get("source", ""), str(after_grant["rule"]))
+            in narrowed
+        ):
+            expands = False
         if direction == CHANGED and expands:
             direction = WIDENED
         gone_steps, new_steps = _step_action_changes(before_grant, after_grant)
@@ -1452,6 +1494,28 @@ def capability_diff_rows(
             elif kind == "hook" and hook_loading_basis(grant) == "host_configuration":
                 why = "hook edit"
             why += f"; {DIRECTION_UNKNOWN}"
+        if (
+            direction == REMOVED and grant.get("kind") == "permission_rule"
+            and grant.get("disposition") == "allow"
+            and any(
+                subsumes(arrival, str(grant["rule"])) is True
+                for arrival in arrived_allows.get((grant["host"], grant.get("source", "")), [])
+            )
+            and not arrived_restrictions.get(grant["host"], set()).intersection(
+                {permission_pairing_group(str(grant["rule"])).lower(), "*"}
+            )
+        ):
+            # Wording only: ambiguity still forbids a pair or signal suppression.
+            why = "removes this allow rule; another added allow rule still covers its matches"
+        # The examples spell out the rule's prefix, which a route that
+        # redacts rule arguments must not print beside the redacted rule.
+        note = (
+            None
+            if redact_permission_arguments
+            else residual_prefix_note(after_grant, current_grants)
+        )
+        if note:
+            why = f"{why}; {note}"
         row = CapabilityDiffRow(
             subject=_subject(grant),
             before=_grant_value(
@@ -1524,7 +1588,7 @@ def capability_diff_rows(
         # Redacted rules read alike, so a joined `allow: Bash(<redacted-arguments>)
         # → allow: Bash(<redacted-arguments>)` would show a change whose sides
         # look identical. Those routes keep the removal and addition as two rows.
-        views = _link_rows(rows, changes, views)
+        views = _link_rows(rows, changes, views, replacements)
     for row, view in zip(rows, views, strict=True):
         object.__setattr__(row, _VIEW, view)
     return sorted(

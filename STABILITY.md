@@ -2,6 +2,17 @@
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
+Unreleased #829 adds a source-local residual-prefix explanation to the existing
+host comparison row `why` text for supported Claude Code `git push` allows.
+It reads all compared head deny rules in that source, including unchanged
+ones, and lists only fixed documented examples outside every deny prefix.
+Unknown, compound, equal, broader or unrelated deny shapes withhold the note.
+CLI, JSON and PR review explanations use the same rows; `check`, whose rows
+redact rule arguments, omits the note, since its examples would spell out the
+redacted prefix. No field, schema,
+direction, expansion, severity, check decision or authority changes. The note
+describes pattern coverage, not runtime approval; other rules still apply.
+
 Unreleased, runtime contract v41: a host comparison names the changed inputs it
 does not read (#821). Verifier `0.21` and capability diff `0.4` add a
 `changed_not_read` coverage item, with the `candidate` rule that named it, for
@@ -424,6 +435,130 @@ marker is not the control signal, and removing one grants no merge authority.
 The [direction benchmark](benchmark/host-config/direction-replay-820.md) records
 before/after counts separately from the historical row-presence scores.
 
+
+<a id="exec-equivalent-permissions-824"></a>
+
+## Migration Note: Unreleased — arbitrary-code launcher allow rules (#824)
+
+Host-grants 0.7 / contract 41 are extended in place. The documented
+[launcher table](docs/engineering/exec-equivalent-permissions.md) rates exact
+Bash launcher prefixes followed by ` *` or `:*` as `admin`/`critical`, previously
+`execute`/`medium`. It covers interpreter and shell eval flags, package/environment
+runners, Docker exec/run, `sudo` and argument forwarders. A Bash allow rule the
+containment lattice decides is wider than one of those rules is rated the same, so
+`Bash(python3 *)`, `Bash(docker *)`, `Bash(uv *)`, `Bash(npx*)` and `Bash(n*)` are
+`admin`/`critical` too, previously `execute`/`medium`: widening a rule can no
+longer lower its rating. Exact commands, rules that are not wider (`Bash(n *)`,
+`Bash(npm *)`) and unlisted forms retain their prior ratings. Ask and deny ratings
+remain `none`/`low`.
+
+Rows say “reaches arbitrary code through a launcher, without a prompt”. Diff,
+host audit, check rows, verifier host comparison and PR comments agree, and the
+`audit --host` Markdown line that names
+`SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` counts these rules and says how many
+reach a launcher. Check shows these rules in evidence and rows in table text
+(`Bash(npx *)`, `Bash(python3 *)`), while all other operands remain redacted. No
+field or schema discriminator is added; the `wildcard` field is unchanged.
+
+A newly granted tier rule uses the existing critical/block
+`SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` route instead of the
+require-review `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` route. No check ID
+is added or removed. The containment lattice and expansion signals are unchanged:
+a review rating is not an assertion that the rule matches every Bash command,
+bypasses a sandbox or overrides deny/ask precedence. Re-rating an unchanged
+saved launcher declaration from an older baseline creates no expansion signal.
+`check` no longer treats respelling a Bash rule as a new grant: replacing
+`Bash(npx:*)` with `Bash(npx *)`, or `Bash(npm test:*)` with `Bash(npm test *)`,
+raises no allow finding, where it previously raised
+`SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` (review). `diff` still shows it as a
+removal and an addition.
+
+
+<a id="skill-metadata-848"></a>
+
+## Migration Note: Unreleased — free-form skill metadata (#848)
+
+In 1.1.0 (contract 40), a skill with `metadata: {internal: true}` made the
+whole host comparison incomparable. The same happened for integer and nested
+metadata values, and for a `metadata` that is not a map (`metadata: [a, b]`,
+`metadata: internal`, `metadata: true`), hiding a fully readable permission
+widening in another file. The shared skill structure projection now reads
+these values without converting them to strings. Text and JSON compare the
+skill and retain the unrelated rows; no new schema or control state is
+introduced in contract 41.
+
+This follows [Claude Code's frontmatter reference](https://code.claude.com/docs/en/skills#frontmatter-reference),
+which documents a free-form metadata map and does not use its contents to
+grant authority. It is not a claim of portable skill validity: the
+[Agent Skills specification](https://agentskills.io/specification#metadata-field)
+requires string values. All metadata remains in the structure digest, so
+changing a value still changes the declaration; a prose-only edit can prove
+unchanged structure. Existing string-only metadata digests are unchanged.
+
+Claude Code documents that it drops a `metadata` value that is not a map.
+This reader does not drop it: the value is digested as written, as an
+undocumented key is (#730), so it is read with no limit and a change to it,
+including from a map to a list or back, is still a changed skill.
+
+The bounded reader still refuses an unterminated fence, invalid YAML,
+non-mapping frontmatter, aliases, tags, duplicate keys and unencodable values.
+It requires string keys at every depth of `metadata`, map or not, preventing
+distinct YAML keys (`true` and `'True'`) from collapsing into one JSON digest
+member, so a metadata key YAML reads as a number, date, boolean or null
+(`1:`, `2026-01-29:`, `on:`) still refuses. No declared tool or hook is
+ignored.
+
+<a id="workflow-access-label-859"></a>
+
+## Migration Note: Unreleased — workflow values label aggregate access (#859)
+
+Workflow row `before` and `after` values now begin with `access: read`,
+`access: write` or the other recorded access value, instead of an unlabelled
+word. Individual token scopes still follow with their job and scope names.
+The same row projection feeds diff text/JSON, verifier comparisons and check.
+This is a display-value change only: direction, severity, `why`, `expands`,
+control and grant evidence are unchanged. Historical artifacts retain their
+published values; no schema changes.
+
+<a id="host-control-row-count-857"></a>
+
+## Migration Note: Unreleased — host control reasons count rows explicitly (#857)
+
+The host-only verifier headline and `control.reason` now say
+`N repository-declared host capability row(s)` instead of `change(s)`.
+The number is still the raw row count. A replacement can have two rows but
+one review change; the review summary continues to name both quantities.
+Partial-comparison reasons use `row(s)` too, and still name their coverage
+limits. No schema, decision, permission, next action or merge authority changes.
+
+<a id="permission-replacements-858"></a>
+
+## Migration Note: Unreleased — unrelated tools do not obscure permission replacements (#858)
+
+Permission replacement selection still stays within one host, source and
+disposition and uses the existing lattice. After setting aside moved rules,
+the existing single-pair comparison is retained, including whole-server MCP
+narrowings. When there are multiple candidates, exactly one departure and
+arrival per case-sensitive tool name or bare MCP server can now pair independently.
+Moved departures are set aside within that group, so another tool leaving
+does not hide a narrow-while-denying replacement. Multiple
+candidates for one tool remain unpaired; command arguments are never folded
+or matched by likeness. An unpaired removed allow row whose matches are
+still covered by an added allow rule in the same host and source says so,
+unless the same edit adds a deny or ask rule for that tool (or `*`) in the
+host, since those are evaluated before allow; this wording neither creates a
+pair nor suppresses an expansion signal.
+
+For `Bash(npm test *)` → `Bash(npm *)` plus `Read(src/**)`, the three raw rows
+stay, while `review` and text show two changes including the paired widening.
+Drift adds the existing `permission_widened` signal. A decided narrowing
+beside another tool's edit loses its spurious expansion signal; unrelated
+arrivals keep their own signals and review requirements. The same selector
+feeds `diff`, `verify` and `check`. A narrowing suppresses an add signal only
+in its own source; the same rule newly granted in another settings file keeps
+its signal. No schema, field, check ID or permission
+is added, and historical artifacts are not rewritten.
+
 <a id="partial-host-comparison-808"></a>
 
 ## Migration Note: Unreleased — a plugin directory that cannot be compared no longer hides the rest (verifier `0.21`, capability diff `0.4`, contract v41, #808)
@@ -469,7 +604,7 @@ is added.
 - **`comparison_status: partial`.** `incomparable_reasons` names which inventory is incomplete, exactly as the refusal would have (`base_inventory_incomplete`, `head_inventory_incomplete`, or both). `rows`, `review` and `unchanged_limits` are those of the comparison outside the withheld directories, built by the comparator a comparable result uses. It is never a complete comparison and never a no-change answer.
 - **`coverage.items[].scope`.** Reserved and always `null` in verifier `0.20`. Now the withheld directory, on each `blocking_limit` item of a partial comparison and on those only: every blocking item of a partial comparison names one, and blocking limits still rank first inside the same cap of ten, so the first is always listed. The other items are what the comparison established outside the directories, in the existing order and wording, and a changed input no reader reads (#821) is still named, inside a withheld directory too. One status is narrower there: a changed `.claude/settings.json` or `.claude/settings.local.json` that gives no row of its own is `changed_without_rows`, never `changed_without_grant_change`, because those settings decide the loading basis of the hooks inside a withheld directory, which were not compared, so the data cannot show that no compared grant moved. Registering the repository as a marketplace for an enabled plugin whose manifest the head also breaks is the case: comparable, it gives a `widened` row on the plugin's hook file; partial, it gives no row and the settings file reads `changed, but no row is attributed to this path`. `scope` is `null` on every item of a comparable or incomparable comparison and on every other status, and never names the repository root.
 - **Text.** `diff` opens with `Partial comparison against main (<sha>) -> working tree: head_inventory_incomplete`, then, before any row, `Not compared: plugins/demo, a plugin directory this entry could not read completely, so no change inside it is shown and nothing is claimed about it.` and `The changes below come only from sources outside it, so they are not the whole change; nothing here is a claim that the change is safe.` With no row, that last line reads `No static host-grant change was detected outside it. That is not a no-change answer for this change, and no verdict is implied.`, and `No static host-grant changes detected` is never printed. `verify --format text` and the manifest-free PR comment open with `Host capability comparison partial: head_inventory_incomplete` and the same two lines. The limit's item reads `plugins/demo/.claude-plugin/plugin.json (claude-code): parse_failed in head, so nothing in plugins/demo was compared`. The rows, their summary, the review question and the reproduction lines print as a comparable result prints them.
-- **Authority and routes do not move.** A partial comparison is not comparable, so every consumer that switches on `comparison_status == "comparable"` reads it as it read the refusal. `verify`'s control state, permissions, next action (`audit --host`), merge verdict and exit code are the incomplete comparison's, and only its headline changes, to `Host comparison is partial: N repository-declared host capability change(s) outside what it could not compare, listed under host_comparison in verifier.json; review its input limits before interpreting changes.` The control envelope's `capability_rows` projects a partial comparison as `incomparable`, with its reasons and no rows, exactly as before: that block cannot name a directory, so its `reason`, which is that headline, points to the rows in `verifier.json`. `check` records no coverage, so it cannot name one either and refuses its comparison as `1.1.0` did; its decision and violations come from its own routing, so the #808 fixture still gives `require_review` with `HOST-PERMISSION-DENY-REMOVED` and no rows. The Stop hook still tells the agent to treat the change as unreviewed. `audit --host`, the inventory digests, saved host-grants baselines and drift payloads are unchanged (host-grants stays `0.6`), so a partial comparison never creates or satisfies a baseline. The host-config and cold-start benchmark replays reproduce their run-of-record scores. `minimum_control_contract_version` stays `21`.
+- **Authority and routes do not move.** A partial comparison is not comparable, so every consumer that switches on `comparison_status == "comparable"` reads it as it read the refusal. `verify`'s control state, permissions, next action (`audit --host`), merge verdict and exit code are the incomplete comparison's, and only its headline changes, to `Host comparison is partial: N repository-declared host capability row(s) outside what it could not compare, listed under host_comparison in verifier.json; review its input limits before interpreting changes.` The control envelope's `capability_rows` projects a partial comparison as `incomparable`, with its reasons and no rows, exactly as before: that block cannot name a directory, so its `reason`, which is that headline, points to the rows in `verifier.json`. `check` records no coverage, so it cannot name one either and refuses its comparison as `1.1.0` did; its decision and violations come from its own routing, so the #808 fixture still gives `require_review` with `HOST-PERMISSION-DENY-REMOVED` and no rows. The Stop hook still tells the agent to treat the change as unreviewed. `audit --host`, the inventory digests, saved host-grants baselines and drift payloads are unchanged (host-grants stays `0.6`), so a partial comparison never creates or satisfies a baseline. The host-config and cold-start benchmark replays reproduce their run-of-record scores. `minimum_control_contract_version` stays `21`.
 
 **Compatibility.** Verifier `0.21`, capability diff `0.4` and runtime contract v41 are unreleased, so they are extended in place. `comparison_status` is a closed enumeration, so a reader validating against the frozen [`docs/verifier-schema.v0.20.json`](docs/verifier-schema.v0.20.json) rejects `partial`; the current reader refuses a `0.20` artifact that claims a partial comparison or a `scope`. A consumer that treats every status but `comparable` as not comparable is unaffected. One that expected only `comparable` or `incomparable` should read `partial` as `incomparable` for any decision, and may read its rows as what is known outside the directories named.
 
@@ -874,7 +1009,7 @@ reader reads an in-tree link at a boundary path through to its target
 ([#700](#link-read-through-at-boundary-paths-contract-v39-700)),
 but the unchanged proof accepted only a file at its own path, so a limit on a
 file read through a link refused the whole comparison. With a skill whose
-`metadata.internal` is `true`, which this entry's bounded profile does not
+`metadata` has the key `1`, which this entry's bounded profile does not
 accept, and a change that only drops `deny: Bash(curl *)` from
 `.claude/settings.json`:
 
@@ -915,10 +1050,11 @@ accept, and a change that only drops `deny: Bash(curl *)` from
   copy, or rewritten to land on the same file (`../../skills/review` to
   `../../skills/./review`), a link replaced by a directory holding the same
   bytes or the reverse, and any later link of a chain retargeted.
-- **Not coerced.** The metadata value is not reinterpreted: `internal: true`
-  is still an unresolved structure, `unsupported`, published with the same
-  `detail` as at a direct path. `internal: "true"` was and is read, with no
-  limit.
+- **Not coerced.** Metadata is not reinterpreted: the key `1` is not read as
+  the string `"1"`, so it is still an unresolved structure, `unsupported`,
+  published with the same `detail` as at a direct path. Since
+  [#848](#skill-metadata-848), `internal: true` is read as written, with no
+  limit, as `internal: "true"` was and is; the two digest apart.
 - **Who reads the proof.** One function answers it for every consumer, so they
   move together: `unchanged_limits` in `diff --json` and `verifier.json`; the
   `Not compared: unchanged in this change and not read` list of `diff`,

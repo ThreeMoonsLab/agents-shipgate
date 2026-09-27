@@ -57,3 +57,10 @@ After an engine change that moves a replayed outcome, re-record in the same chan
 ```bash
 python benchmark/host-config/replay.py --record
 ```
+
+## Exec-equivalent rating replay (#824)
+
+The [rating replay](exec-rating-824.md) scores scoped Bash declarations at the
+frozen settings heads separately from row-presence/direction metrics. Its oracle
+was authored after engine-output exposure by the same coding agent; it has no
+independent human labels. Historical direction scores and populations are unchanged.
