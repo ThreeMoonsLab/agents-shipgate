@@ -157,6 +157,19 @@ def _digest(value: object) -> str:
     return "sha256:" + hashlib.sha256(encoded.encode()).hexdigest()
 
 
+def _metadata_keys_are_strings(value: object) -> bool:
+    """Keep free-form metadata lossless through the JSON digest (#848)."""
+
+    if isinstance(value, dict):
+        return all(
+            isinstance(key, str) and _metadata_keys_are_strings(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return all(_metadata_keys_are_strings(item) for item in value)
+    return True
+
+
 def _valid_metadata(metadata: dict, known: frozenset[str]) -> bool:
     for key, value in metadata.items():
         if key not in known:
@@ -195,9 +208,12 @@ def _valid_metadata(metadata: dict, known: frozenset[str]) -> bool:
             if not _valid_hooks(value):
                 return False
         elif key == "metadata":
-            if not isinstance(value, dict) or not all(
-                isinstance(k, str) and isinstance(v, str) for k, v in value.items()
-            ):
+            # Claude Code documents a free-form map, not the portable Agent
+            # Skills spec's map<string, string>. Read values without coercion;
+            # this projection is not a portable-skill conformance validator.
+            # String keys at every depth prevent _json_ready from collapsing
+            # distinct YAML keys (e.g. 1 and "1") into one JSON member.
+            if not isinstance(value, dict) or not _metadata_keys_are_strings(value):
                 return False
         elif not isinstance(value, str):
             return False

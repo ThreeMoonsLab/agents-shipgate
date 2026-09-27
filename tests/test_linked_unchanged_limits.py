@@ -1,6 +1,6 @@
 """#822: an unchanged limit reached through an in-tree link is named, not a veto.
 
-A `SKILL.md` whose `metadata` holds a non-string value is an `unsupported`
+A `SKILL.md` whose `metadata` is not a map is an `unsupported`
 limit this entry cannot resolve. Untouched by a change, it is named as an
 unchanged limit and the rest is compared (#721). Reached through an in-tree
 link the reader reads through (#700) — `.claude/skills -> ../.agents/skills`,
@@ -16,7 +16,8 @@ Anything else still refuses: a skill added or edited behind the link, the link
 retargeted or its text rewritten, a link replaced by a directory or the
 reverse, and every link the reader does not read through (dangling, looping,
 external, escaping, past the hop bound). The metadata value is never coerced:
-`internal: true` stays an `unsupported` structure (#811).
+`metadata: []` stays an `unsupported` structure. Boolean map values are
+read without coercion after #848.
 
 The same proof decides which shared plugin-reference limits `check` leaves
 out of its comparison (#714). A `parse_failed` `plugin.json` behind a file
@@ -50,11 +51,12 @@ pytestmark = pytest.mark.skipif(os.name == "nt", reason="symbolic link fixtures"
 SETTINGS = ".claude/settings.json"
 BASE_SETTINGS = {"permissions": {"allow": ["Read"], "deny": ["Bash(curl *)"]}}
 DENY_DROPPED = {"permissions": {"allow": ["Read"]}}
-#: The issue's skill: `metadata.internal` is a boolean, which this entry's
-#: bounded profile does not accept, so the structure is unresolved.
-SKILL = "---\nname: review\ndescription: Review a change.\nmetadata:\n  internal: true\n---\nReview the diff.\n"
-#: The issue's control: the same value as a string is accepted.
-STRING_SKILL = SKILL.replace("internal: true", 'internal: "true"')
+#: Non-map metadata keeps the linked unresolved-structure tests meaningful
+#: after #848 made the original boolean metadata map readable.
+SKILL = "---\nname: review\ndescription: Review a change.\nmetadata: []\n---\nReview the diff.\n"
+#: The original issue fixture is now readable without changing its value.
+BOOLEAN_SKILL = SKILL.replace("metadata: []", "metadata: {internal: true}")
+STRING_SKILL = SKILL.replace("metadata: []", 'metadata: {internal: "true"}')
 SOURCE = ".claude/skills/review/SKILL.md"
 DENY_REMOVED = [("claude-code .claude/settings.json", "Bash(curl *)", "removed")]
 NOT_COMPARED = "Not compared: unchanged in this change and not read, so no claim is made about them:"
@@ -245,17 +247,23 @@ def test_the_proof_holds_between_commits_and_against_the_working_tree(
 
 
 def test_a_metadata_value_is_never_coerced(tmp_path: Path) -> None:
-    """#811: a boolean stays an unsupported structure through a link, and the
-    string the issue used as its control reads as supported, with no limit."""
+    """#848: both the original boolean and its string control are readable."""
 
-    boolean = _layout(tmp_path / "boolean", "directory-link")
+    boolean = _repository(
+        tmp_path / "boolean",
+        {".agents/skills/review/SKILL.md": BOOLEAN_SKILL},
+        {".claude/skills": "../.agents/skills"},
+    )
     string = _repository(
         tmp_path / "string",
         {".agents/skills/review/SKILL.md": STRING_SKILL},
         {".claude/skills": "../.agents/skills"},
     )
 
-    assert ("claude-code", SOURCE, "unsupported") in _limits(_diff(boolean))
+    read = _diff(boolean)
+    assert read["comparison_status"] == "comparable"
+    assert read["unchanged_limits"] == []
+    assert _rows(read) == DENY_REMOVED
     controlled = _diff(string)
     assert controlled["comparison_status"] == "comparable"
     assert controlled["unchanged_limits"] == []

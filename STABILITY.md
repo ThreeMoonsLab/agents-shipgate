@@ -301,6 +301,32 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="skill-metadata-848"></a>
+
+## Migration Note: Unreleased — free-form skill metadata (#848)
+
+In 1.1.0 (contract 40), a skill with `metadata: {internal: true}` made the
+whole host comparison incomparable. The same happened for integer and nested
+metadata values, hiding a fully readable permission widening in another file.
+The shared skill structure projection now reads these map values without
+converting them to strings. Text and JSON compare the skill and retain the
+unrelated rows; no new schema or control state is introduced in contract 41.
+
+This follows [Claude Code's frontmatter reference](https://code.claude.com/docs/en/skills#frontmatter-reference),
+which documents a free-form metadata map and does not use its contents to
+grant authority. It is not a claim of portable skill validity: the
+[Agent Skills specification](https://agentskills.io/specification#metadata-field)
+requires string values. All metadata remains in the structure digest, so
+changing a value still changes the declaration; a prose-only edit can prove
+unchanged structure. Existing string-only metadata digests are unchanged.
+
+The bounded reader still refuses an unterminated fence, invalid YAML,
+non-mapping frontmatter, aliases, tags, duplicate keys and unencodable values.
+It requires string keys at every depth of the metadata map, preventing distinct
+YAML keys from collapsing into one JSON digest member. A non-map `metadata`
+value remains unsupported; the reader does not silently drop it even though
+Claude Code documents doing so. No declared tool or hook is ignored.
+
 <a id="partial-host-comparison-808"></a>
 
 ## Migration Note: Unreleased — a plugin directory that cannot be compared no longer hides the rest (verifier `0.21`, capability diff `0.4`, contract v41, #808)

@@ -43,6 +43,28 @@ def test_skill_body_prose_compares_without_command_mention_heuristic():
     assert _same_structure(_skill(), _skill("```sh\necho example\n```"))
 
 
+@pytest.mark.parametrize("value", ["true", "42", "{catalog: {internal: true}, versions: [1, 2]}"])
+def test_free_form_skill_metadata_retains_values_and_prose_boundary(value):
+    before = _skill(fields=f"metadata:\n  data: {value}\n")
+    result = classify_instruction(".claude/skills/demo/SKILL.md", before)
+    assert result.status == "structured"
+    assert _same_structure(before, before + "More guidance.\n")
+    # A metadata edit remains a structural edit; it is neither dropped nor
+    # stringified into an equivalent declaration.
+    quoted = _skill(fields=f"metadata:\n  data: '{value}'\n")
+    assert not _same_structure(before, quoted)
+    assert not _same_structure(before, _skill())
+
+
+@pytest.mark.parametrize("value", [
+    "[]", "true", "{nested: {1: integer, '1': text}}", "{items: [{false: value}]}",
+])
+def test_metadata_non_maps_and_lossy_keys_remain_unresolved(value):
+    assert classify_instruction(
+        ".claude/skills/demo/SKILL.md", _skill(fields=f"metadata: {value}\n"),
+    ).status == "unresolved"
+
+
 @pytest.mark.parametrize("field", [
     "allowed-tools: Bash(*)\n",
     "hooks:\n  PreToolUse:\n    - hooks:\n        - type: command\n          command: ./audit.sh\n",
