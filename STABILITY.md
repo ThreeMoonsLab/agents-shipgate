@@ -303,6 +303,26 @@ the Action tag) for reproducible CI.
 
 <a id="partial-host-comparison-808"></a>
 
+## Migration Note: Unreleased — unrelated tools do not obscure permission replacements (#858)
+
+Permission replacement selection still stays within one host, source and
+disposition and uses the existing lattice. After setting aside moved rules,
+the existing single-pair comparison is retained, including whole-server MCP
+narrowings. When there are multiple candidates, exactly one departure and
+arrival per case-sensitive tool name can now pair independently. Multiple
+candidates for one tool remain unpaired; command arguments are never folded
+or matched by likeness.
+
+For `Bash(npm test *)` → `Bash(npm *)` plus `Read(src/**)`, the three raw rows
+stay, while `review` and text show two changes including the paired widening.
+Drift adds the existing `permission_widened` signal. A decided narrowing
+beside another tool's edit loses its spurious expansion signal; unrelated
+arrivals keep their own signals and review requirements. The same selector
+feeds `diff`, `verify` and `check`. A narrowing suppresses an add signal only
+in its own source; the same rule newly granted in another settings file keeps
+its signal. No schema, field, check ID or permission
+is added, and historical artifacts are not rewritten.
+
 ## Migration Note: Unreleased — a plugin directory that cannot be compared no longer hides the rest (verifier `0.21`, capability diff `0.4`, contract v41, #808)
 
 A pull request that broke one plugin manifest — `plugins/demo/.claude-plugin/plugin.json`

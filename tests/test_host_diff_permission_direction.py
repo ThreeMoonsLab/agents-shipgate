@@ -339,6 +339,36 @@ TEXT = {
 }
 
 
+# #858: an arrival for another tool must not split the npm replacement.
+CASES["unrelated_read_added"] = (
+    {"permissions": {"allow": ["Bash(npm test *)"]}},
+    {"permissions": {"allow": ["Bash(npm *)", "Read(src/**)"]}},
+    [
+        ("added", "Bash(npm *)", True),
+        ("added", "Read(src/**)", True),
+        ("removed", "Bash(npm test *)", False),
+    ],
+    2,
+    "require_review",
+    ["SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED"],
+    [
+        "allow_rule_added: claude-code:Bash(npm *)",
+        "allow_rule_added: claude-code:Read(src/**)",
+        "permission_widened: claude-code:Bash(npm test *) -> Bash(npm *)",
+    ],
+)
+TEXT["unrelated_read_added"] = (2, 2)
+
+
+def test_unrelated_read_preserves_shared_review_pair(tmp_path: Path) -> None:
+    base, head, *_ = CASES["unrelated_read_added"]
+    routes = _routes(_repository(tmp_path, base, head))
+    review = routes["diff"]["review"]
+    assert review == routes["verify"]["review"]
+    assert "allow: Bash(npm test *) → allow: Bash(npm *)" in routes["text"]
+    assert "removes a permission the agent previously had here" not in routes["text"]
+
+
 @pytest.mark.parametrize("name", list(CASES))
 def test_every_route_reads_the_same_direction(tmp_path: Path, name: str) -> None:
     base, head, rows, warnings, decision, violations, signals = CASES[name]

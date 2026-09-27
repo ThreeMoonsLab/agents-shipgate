@@ -1367,6 +1367,11 @@ def capability_diff_rows(
     """Every typed grant change in ``payload``, one row each."""
 
     expansions = set(payload.get("expansion_signals") or [])
+    narrowed = {
+        (item.host, item.source, item.after_rule)
+        for item in permission_rule_replacements(payload.get("changes") or [])
+        if item.direction == "narrowed"
+    }
     rows: list[CapabilityDiffRow] = []
     views: list[_RowView] = []
     changes: list[dict[str, Any]] = []
@@ -1384,6 +1389,15 @@ def capability_diff_rows(
             direction = CHANGED
         # Classify original typed evidence; redaction affects display values only.
         expands = bool(expansions.intersection(host_grant_expansion_signals([change])))
+        # The public signal text has no source. An identical rule added in
+        # another file must not mark this source's decided narrowing (#858).
+        if (
+            after_grant and after_grant.get("kind") == "permission_rule"
+            and after_grant.get("disposition") == "allow"
+            and (after_grant["host"], after_grant.get("source", ""), str(after_grant["rule"]))
+            in narrowed
+        ):
+            expands = False
         if direction == CHANGED and expands:
             direction = WIDENED
         gone_steps, new_steps = _step_action_changes(before_grant, after_grant)

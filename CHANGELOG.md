@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- An unrelated permission rule for another tool no longer splits a decided
+  replacement into separate review changes. Adding `Read(src/**)` beside
+  `Bash(npm test *)` → `Bash(npm *)` preserves the paired widening on the
+  shared diff, verifier and check routes. Multiple candidates for the same
+  tool remain unpaired. (#858)
+
 ### Application comparison without prior setup
 
 - Add `diff --application` for OpenAI Agents SDK and Google ADK source-observed per-agent wiring, with exact base/head refs and independently selected scopes. No manifest, saved baseline or authored declarations are needed. The advisory `application_comparison_schema_version: "0.1"` result records before/after evidence, scoped coverage gaps and explicit uncertain candidates; it supplies no release verdict or merge permission. Includes scoped Git materialization, partial-clone recovery, and definition lookup using reader-resolved Python symbols and locations. See [application comparison](docs/application-comparison.md). (#871)

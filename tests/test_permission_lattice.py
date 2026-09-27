@@ -210,20 +210,30 @@ def test_a_narrowing_is_still_visible_as_a_change(tmp_path: Path) -> None:
     assert payload["expansion_signals"] == []
 
 
-def test_several_rules_changing_at_once_claims_no_direction(tmp_path: Path) -> None:
-    """Two out and two in is no evidence about which replaced which.
+def test_several_rules_for_one_tool_claim_no_direction(tmp_path: Path) -> None:
+    """Two out and two in for one tool cannot establish replacements.
 
     Pairing them by position would be inventing the direction, so the
     lattice is not consulted and the add signals stand alone.
     """
 
-    before = _claude_inventory(tmp_path / "before", ("Bash(npm *)", "Read(src/**)"))
-    after = _claude_inventory(tmp_path / "after", ("Bash(npm test:*)", "Read(**)"))
+    before = _claude_inventory(tmp_path / "before", ("Bash(npm *)", "Bash(git status *)"))
+    after = _claude_inventory(tmp_path / "after", ("Bash(npm test:*)", "Bash(git *)"))
 
     signals = _drift(before, after)["expansion_signals"]
 
     assert not [item for item in signals if item.startswith("permission_widened:")]
-    assert any("Read(**)" in item for item in signals)
+    assert any("Bash(git *)" in item for item in signals)
+
+
+def test_each_tool_can_have_one_decided_replacement(tmp_path: Path) -> None:
+    before = _claude_inventory(tmp_path / "before", ("Bash(npm *)", "Read(src/**)"))
+    after = _claude_inventory(tmp_path / "after", ("Bash(npm test:*)", "Read(**)"))
+
+    assert _drift(before, after)["expansion_signals"] == [
+        "permission_widened: claude-code:Read(src/**) -> Read(**)",
+        "wildcard_allow_added: claude-code:Read(**)",
+    ]
 
 
 #: The configuration #657 measured the noise on: an ordinary, carefully
@@ -946,6 +956,28 @@ class TestMovedRulePairing:
 
         assert "allow_rule_added: claude-code:Bash(git status --short *)" in signals
         assert "deny_rule_removed: claude-code:Bash(git log *)" in signals
+
+    def test_a_narrowing_never_silences_an_addition_in_another_source(self, tmp_path: Path) -> None:
+        from agents_shipgate.core.capability_diff_rows import capability_diff_rows
+
+        before = self._inventory(
+            tmp_path / "before", {"settings.json": {"allow": ["Bash(npm *)"]}},
+        )
+        after = self._inventory(
+            tmp_path / "after",
+            {
+                "settings.json": {"allow": ["Bash(npm test *)", "Read(src/**)"]},
+                "settings.local.json": {"allow": ["Bash(npm test *)"]},
+            },
+        )
+
+        payload = _drift(before, after)
+        assert "allow_rule_added: claude-code:Bash(npm test *)" in payload["expansion_signals"]
+        rows = [row for row in capability_diff_rows(payload) if row.after == "Bash(npm test *)"]
+        assert {row.subject: row.expands for row in rows} == {
+            "claude-code .claude/settings.json": False,
+            "claude-code .claude/settings.local.json": True,
+        }
 
 
 class TestOneMcpTool:
