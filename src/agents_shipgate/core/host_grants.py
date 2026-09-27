@@ -38,7 +38,10 @@ from agents_shipgate.core.boundary_registry import (
     is_hook_declaration_file_name,
 )
 from agents_shipgate.core.hook_script_capture import capture_hook_script
-from agents_shipgate.core.hook_script_reference import MAX_HOOK_SCRIPT_HANDLERS, hook_script_reference
+from agents_shipgate.core.hook_script_reference import (
+    MAX_HOOK_SCRIPT_HANDLERS,
+    hook_script_reference,
+)
 from agents_shipgate.core.host_boundary import (
     _is_wildcard_allow,
     _is_write,
