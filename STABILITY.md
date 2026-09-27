@@ -314,8 +314,10 @@ Moved departures are set aside within that group, so another tool leaving
 does not hide a narrow-while-denying replacement. Multiple
 candidates for one tool remain unpaired; command arguments are never folded
 or matched by likeness. An unpaired removed allow row whose matches are
-still covered by an added allow rule in the same host and source says so;
-this wording neither creates a pair nor suppresses an expansion signal.
+still covered by an added allow rule in the same host and source says so,
+unless the same edit adds a deny or ask rule for that tool (or `*`) in the
+host, since those are evaluated before allow; this wording neither creates a
+pair nor suppresses an expansion signal.
 
 For `Bash(npm test *)` → `Bash(npm *)` plus `Read(src/**)`, the three raw rows
 stay, while `review` and text show two changes including the paired widening.

@@ -24,7 +24,8 @@
   tool or MCP server remain unpaired. MCP server replacements and
   narrow-while-denying edits also retain their direction beside unrelated
   tool changes. Unpaired removals no longer claim a permission loss when
-  an added allow rule in the same source decidedly covers them. (#858)
+  an added allow rule in the same source decidedly covers them and no deny
+  or ask rule for that tool arrives in the same edit. (#858)
 - Fix a fail-open comparison where a narrowing in `settings.json` suppressed
   the expansion signal and ⚠ for the same rule newly allowed in
   `settings.local.json`. Suppression now stays within its source, restoring

@@ -500,3 +500,27 @@ def test_ambiguous_arrivals_do_not_claim_permission_loss(tmp_path):
     assert "another added allow rule still covers its matches" in routes["text"]
     assert len(routes["drift"]["expansion_signals"]) == 2
     assert _shape(routes["diff"]["rows"]) == _shape(routes["check"]["rows"])
+
+
+@pytest.mark.parametrize(
+    "restriction",
+    [
+        {"deny": ["Bash(npm test:*)"]},
+        {"ask": ["Bash(npm test:*)"]},
+        {"deny": ["*"]},
+    ],
+)
+def test_an_arriving_deny_or_ask_rule_withholds_the_covered_wording(tmp_path, restriction):
+    # Deny and ask are evaluated before allow, so the added allow rule no
+    # longer shows that the removed rule's matches are still granted.
+    routes = _routes(
+        _repository(
+            tmp_path,
+            {"permissions": {"allow": ["Bash(npm test *)"]}},
+            {"permissions": {"allow": ["Bash(npm *)", "Bash(git status)"], **restriction}},
+        )
+    )
+    assert "still covers its matches" not in routes["text"]
+    assert not any(
+        "still covers its matches" in row["why"] for row in routes["diff"]["rows"]
+    )

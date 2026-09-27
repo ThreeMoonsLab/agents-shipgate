@@ -48,7 +48,7 @@ from agents_shipgate.core.host_grants import (
     step_action_key,
 )
 from agents_shipgate.core.host_settings import rate_claude_setting, setting_value_text
-from agents_shipgate.core.permission_lattice import subsumes
+from agents_shipgate.core.permission_lattice import permission_pairing_group, subsumes
 from agents_shipgate.schemas.capability_diff import CapabilityDiffRow as CapabilityDiffRow
 
 ABSENT = "—"
@@ -1372,15 +1372,20 @@ def capability_diff_rows(
     expansions = set(payload.get("expansion_signals") or [])
     replacements = permission_rule_replacements(payload.get("changes") or [])
     arrived_allows: dict[tuple[str, str], list[str]] = {}
+    # Deny and ask rules are evaluated before allow in every settings file,
+    # so one arriving for the same tool may take the matches away (#858).
+    arrived_restrictions: dict[str, set[str]] = {}
     for change in payload.get("changes") or []:
         grant = change.get("current")
-        if (
-            not change.get("baseline") and grant
-            and grant.get("kind") == "permission_rule"
-            and grant.get("disposition") == "allow"
-        ):
+        if not grant or grant.get("kind") != "permission_rule":
+            continue
+        if not change.get("baseline") and grant.get("disposition") == "allow":
             key = (grant["host"], grant.get("source", ""))
             arrived_allows.setdefault(key, []).append(str(grant["rule"]))
+        elif grant.get("disposition") in {"deny", "ask"}:
+            arrived_restrictions.setdefault(grant["host"], set()).add(
+                permission_pairing_group(str(grant["rule"])).lower()
+            )
     narrowed = {
         (item.host, item.source, item.after_rule)
         for item in replacements
@@ -1441,6 +1446,9 @@ def capability_diff_rows(
             and any(
                 subsumes(arrival, str(grant["rule"])) is True
                 for arrival in arrived_allows.get((grant["host"], grant.get("source", "")), [])
+            )
+            and not arrived_restrictions.get(grant["host"], set()).intersection(
+                {permission_pairing_group(str(grant["rule"])).lower(), "*"}
             )
         ):
             # Wording only: ambiguity still forbids a pair or signal suppression.
