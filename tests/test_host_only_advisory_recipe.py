@@ -304,6 +304,15 @@ def test_the_action_steps_give_distinct_advisory_answers(
     assert run.exit_code == "0"
     assert run.verifier is not None and run.comment is not None
 
+    step_summary = (tmp_path / "step-summary").read_text()
+    assert "Status:" not in step_summary
+    assert "Critical:" not in step_summary and "High: 0" not in step_summary
+    reports = pull_request_clone / _inputs()["output_dir"]
+    annotations = json.loads((reports / "check-annotations.json").read_text())
+    assert "source_report" not in annotations
+    for path in re.findall(r"^- (?:[^:]+ JSON|PR comment Markdown): `([^`]+)`", step_summary, re.M):
+        assert (pull_request_clone / path).is_file()
+
     comparison = run.verifier["host_comparison"]
     rows = comparison["rows"]
     summary = _summary(run.comment)

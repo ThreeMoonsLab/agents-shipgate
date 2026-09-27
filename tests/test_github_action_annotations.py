@@ -62,6 +62,7 @@ def test_annotations_select_source_backed_blockers_and_review_items(
 
     payload = build_annotations(output_dir, limit=10)
 
+    assert payload["source_report"] == str(output_dir / "report.json")
     assert payload["pr_projection_schema_version"] == "0.1"
     assert payload["source_verifier"].endswith("verifier.json")
     assert [item["check_id"] for item in payload["annotations"]] == [
