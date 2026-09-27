@@ -131,6 +131,13 @@ in a string is not. Each is a limit on the module where it appears. The scope's
 own package path counts as the scope (`from svc.app.x import …` under
 `--scope svc/app`).
 
+The Google ADK reader reads each `Agent(...)` / `LlmAgent(...)` call, not a
+subclass's constructor. A class deriving from an ADK agent class (`class
+Helper(LlmAgent)`, its base imported from `google.adk`) is therefore a named
+limit on the module that defines it, whether its instances are built there or
+in another module, and that module's tool surface is not reported as
+enumerated to `scan` either.
+
 Not read at all: an `Agent` re-exported through a project module,
 `functools.partial(Agent, ...)`, or a subclass defined outside the scope.
 

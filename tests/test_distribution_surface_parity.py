@@ -176,6 +176,12 @@ SURFACES: tuple[Surface, ...] = (
         ("src/agents_shipgate/cli/application_diff.py",),
         # Advisory source-wiring comparison, not host drift or an engine verdict.
         # No release permission, declared authority, pin or root reachability claim.
+        # Its per-side `excluded_tests` list (#876) names test files the
+        # comparison did not read, a path fact about its own inputs, and its
+        # unread-construction limits (an SDK construction it cannot read, an
+        # ADK agent subclass) only turn `compared` into `partial`; neither
+        # restates an engine answer, so neither adds a claim.
+        # `tests/test_application_diff_unobserved.py` holds both.
         {},
     ),
     Surface(
