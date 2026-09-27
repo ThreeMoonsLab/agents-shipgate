@@ -359,10 +359,12 @@ def _git_layout(workspace: Path, commit: str, scope: str) -> RepositoryLayout:
             names: set[str] = set()
             for raw in (output or b"").split(b"\0"):
                 path = PurePosixPath(raw.decode("utf-8", errors="replace"))
-                if path.name == "__init__.py" and path.parent.name:
-                    names.add(path.parent.name)
-                elif path.suffix == ".py":
-                    names.add(path.stem)
+                if path.suffix == ".py":
+                    # Every directory holding Python may be imported as a
+                    # package, a namespace one included (PEP 420).
+                    names.update(path.parent.parts)
+                    if path.name != "__init__.py":
+                        names.add(path.stem)
             held.append(frozenset(names) if output is not None else None)
         found = held[0]
         return found is None or name in found

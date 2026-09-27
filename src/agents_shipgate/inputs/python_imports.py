@@ -103,10 +103,10 @@ class RepositoryLayout:
     #: The text of one repository file outside the scope, or None: what the
     #: packages enclosing the scope run first (#879 review).
     read: Callable[[str], str | None] = lambda path: None
-    #: Whether any directory in the repository holds a module or regular
-    #: package of that name, wherever it is put on the path (``libs/shared``
-    #: in a monorepo); True when the repository is too large to tell (#876
-    #: review).
+    #: Whether any directory in the repository holds a module or package of
+    #: that name — a namespace one included — wherever it is put on the path
+    #: (``libs/shared`` in a monorepo); True when the repository is too large
+    #: to tell (#876 review).
     holds: Callable[[str], bool] = lambda name: True
 
 
@@ -191,11 +191,12 @@ def _disk_layout(scope_root: Path) -> RepositoryLayout | None:
                 if seen > MAX_REPOSITORY_NAMES:
                     held.append(None)
                     break
-                for filename in filenames:
-                    if filename == "__init__.py":
-                        names.add(Path(directory).name)
-                    elif filename.endswith(".py"):
-                        names.add(filename[:-3])
+                python = [filename for filename in filenames if filename.endswith(".py")]
+                if python:
+                    # Every directory holding Python may be imported as a
+                    # package, a namespace one included (PEP 420).
+                    names.update(Path(directory).relative_to(root).parts)
+                names.update(filename[:-3] for filename in python if filename != "__init__.py")
             else:
                 held.append(frozenset(names))
         found = held[0]

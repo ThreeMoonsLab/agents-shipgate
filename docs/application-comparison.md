@@ -119,20 +119,28 @@ agents' rows in the file stand:
   method, `super()`, a dispatch table, a method of an unknown object, one that
   hands it on again out of view) is a limit on the file, and in a module that
   is not read as an SDK source too: it may be any agent. A call into another
-  library is the reader's boundary, as it is for every library: a function or
-  an instance's method (`client = OpenAI()`) reached from a package the
-  repository holds nowhere — on no path entry, `libs/shared` of a monorepo
-  included — and handed none of the application's own callables by any call
-  on the way (a function, lambda, bound method or class attribute of its own,
-  `partial(add_image, …)`, `wrap(self.add_image)`, or a name bound to one).
-  A builtin or the standard library (`list.extend(x.tools, …)`,
-  `operator.iadd`), the repository's own code, and an object a subclass or a
-  caller supplies (`self.client`, a parameter, however annotated) are not
-  another library; a capability keyword (`client.create(tools=request.tools)`)
-  is a read only when the call is another library's. `getattr(x, "tools")` is
-  `x.tools`, and `svc.app.tools` after `import svc.app.tools` is that module. A
-  library that keeps the list and later calls back into the application's
-  code that changes it is not followed. On
+  library is the reader's boundary, as it is for every library, only when the
+  call hands it nothing but data. The function is another library's — reached
+  from a package the repository holds on no path entry (`libs/shared` of a
+  monorepo and a namespace package included), or a name bound once to an
+  instance of one (`client = OpenAI()`) — and every other argument of every
+  call on the way is inert: a literal, a container or comprehension of data,
+  another capability list, a read of a parameter's attribute (`req.messages`),
+  a name bound once to data (`MODEL`, a local `messages` list), a parameter
+  annotated with a builtin data type (`strict: bool`), another library's or
+  the standard library's value (`os.environ["KEY"]`), or a builtin or library
+  call on data (`types.Content(role="user", parts=[...])`). Anything else —
+  a lambda, a function, a method, an instance, a callback parameter, a
+  dispatch table, `self`, an unannotated parameter — may be the application's
+  own code the library calls with the list, so it is not a read, and neither
+  is a call through a builtin or the standard library (`list.extend(x.tools,
+  …)`, `operator.iadd`), the repository's own code, or an object a subclass
+  or a caller supplies (`self.client`, a parameter, however annotated). A
+  capability keyword (`client.create(tools=request.tools)`) is a read under
+  the same rule. `getattr(x, "tools")` is `x.tools`, and `svc.app.tools` after
+  `import svc.app.tools` is that module. A library that keeps the list and
+  later calls back into the application's code that changes it is not
+  followed. On
   any other value — a request object, another library's model — a handle only
   read or handed on, like `payload["tools"] = request.tools`, is nothing. The
   changed value is read in

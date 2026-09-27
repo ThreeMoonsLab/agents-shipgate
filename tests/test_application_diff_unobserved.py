@@ -1351,7 +1351,7 @@ def test_a_module_that_does_not_import_the_sdk_follows_the_same_rule(repo, wirin
         "from somelib import validate\n\n\ndef handle(request):\n    validate(request.tools)\n",
         "from pydantic import TypeAdapter\n\nADAPTER = TypeAdapter(list)\n\n\n"
         "def handle(request):\n    return ADAPTER.validate_python(request.tools)\n",
-        "from openai import AsyncOpenAI\n\nclient = AsyncOpenAI()\n\n\ndef handle(request, model):\n"
+        "from openai import AsyncOpenAI\n\nclient = AsyncOpenAI()\n\n\ndef handle(request, model: str):\n"
         "    return client.chat.completions.create(model=model, tools=request.tools)\n",
     ],
     ids=["third-party-function", "third-party-instance", "api-payload"],
@@ -1477,5 +1477,64 @@ def test_the_repositorys_code_on_another_path_entry_is_not_another_library(repo)
         "libs/shared/registry.py": helper.replace("BODY", "pass"),
     })
     head = commit(repo, {"libs/shared/registry.py": helper.replace("BODY", "lst.append(len)")})
+    result = run(repo, base, head, "--scope", "services/app")
+    assert result["comparison_status"] == "partial"
+
+
+# ---------------------------------------------------------------------------
+# #876 review, round 15: another library's call is a read only when every
+# other argument on the way is inert data; anything unrecognised may be the
+# application's own callable.
+
+@pytest.mark.parametrize(
+    "use",
+    [
+        "from somelib import wrap\n\nHANDLERS = {'img': add_image}\n\n\ndef setup(agent):\n    wrap(HANDLERS['img'], agent.tools)\n",
+        "from somelib import wrap\n\n\ndef setup(agent):\n    wrap([add_image], agent.tools)\n",
+        "from somelib import wrap\n\n\ndef setup(agent):\n    wrap(hooks={'on_start': add_image}, lst=agent.tools)\n",
+        "from somelib import wrap\n\n\ndef setup(agent, cb=add_image):\n    wrap(cb, agent.tools)\n",
+        "from somelib import wrap\n\n\ndef setup(agent):\n    for fn in (add_image,):\n        wrap(fn, agent.tools)\n",
+        "from somelib import wrap\n\n\nclass Adder:\n    def __call__(self, lst):\n        add_image(lst)\n\n\n"
+        "def setup(agent):\n    wrap(Adder(), agent.tools)\n",
+        "from somelib import wrap\n\n\ndef setup(agent):\n    wrap(add_image.__call__, agent.tools)\n",
+    ],
+    ids=["dispatch-table", "list-of-callables", "dict-of-hooks", "callback-parameter", "loop-bound",
+         "instance-of-an-app-class", "function-attribute"],
+)
+def test_a_library_handed_anything_but_data_is_not_a_read(repo, use):
+    body = 'quote_agent = Agent(name="Quote", tools=[quote])\n' + ADD_IMAGE_HELPER + use + "\n\nsetup(quote_agent)\n"
+    result = _compare(repo, body.replace("BODY", "pass"), body.replace("BODY", "lst.append(send_image)"))
+    assert result["comparison_status"] == "partial", result["rows"]
+
+
+@pytest.mark.parametrize(
+    "handler",
+    [
+        "from openai import OpenAI\n\nMODEL = 'gpt-4o'\nclient = OpenAI()\n\n\ndef handle(req):\n"
+        "    messages = [{'role': 'user', 'content': req.text}]\n"
+        "    return client.chat.completions.create(model=MODEL, messages=messages, tools=req.tools, temperature=0.2)\n",
+        "from somelib import validate\n\n\ndef handle(req, strict: bool = True):\n    return validate(req.tools, strict=strict)\n",
+        "import os\n\nfrom openai import OpenAI\n\nclient = OpenAI(api_key=os.environ.get('KEY'))\n\n\n"
+        "def handle(req):\n    return client.responses.create(input=f'{req.text}', tools=req.tools)\n",
+    ],
+    ids=["client-with-local-data", "annotated-flag", "client-built-from-the-environment"],
+)
+def test_a_library_handed_only_data_is_a_read(repo, handler):
+    before = 'main_agent = Agent(name="Main", tools=[quote])\n' + handler
+    result = _compare(repo, before, before.replace("tools=[quote]", "tools=[quote, send_image]"))
+    assert result["comparison_status"] == "compared", result["head"]["limits"]
+    assert _pairs(result) == [("main_agent", "send_image", "added")]
+
+
+def test_a_namespace_package_on_another_path_entry_is_the_repositorys(repo):
+    """PEP 420: ``libs/sharedns/`` without ``__init__.py`` is still held."""
+
+    helper = "def register_defaults(lst):\n    BODY\n"
+    agent = _agents(
+        'quote_agent = Agent(name="Quote", tools=[quote])\nfrom sharedns.registry import register_defaults\n\n\n'
+        "def setup(agent):\n    register_defaults(agent.tools)\n\n\nsetup(quote_agent)\n"
+    )
+    base = commit(repo, {"services/app/agent.py": agent, "libs/sharedns/registry.py": helper.replace("BODY", "pass")})
+    head = commit(repo, {"libs/sharedns/registry.py": helper.replace("BODY", "lst.append(len)")})
     result = run(repo, base, head, "--scope", "services/app")
     assert result["comparison_status"] == "partial"

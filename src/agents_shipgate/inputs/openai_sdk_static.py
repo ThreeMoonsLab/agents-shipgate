@@ -1102,7 +1102,7 @@ def _capability_changes(
         if isinstance(parent, ast.keyword):
             keyword = parent.arg
             parent = scopes.parents.get(parent)
-            if keyword in capabilities and isinstance(parent, ast.Call) and callees.outside(parent):
+            if keyword in capabilities and isinstance(parent, ast.Call) and callees.library_read(parent, node):
                 # ``client.create(tools=request.tools)`` with ``client =
                 # OpenAI()``: another library's API payload.
                 return False
@@ -1110,7 +1110,7 @@ def _capability_changes(
             not isinstance(parent, ast.Call)
             or parent.func is node
             or _leaves_arguments_alone(parent)
-            or callees.outside(parent)
+            or callees.library_read(parent, node)
         ):
             return False
         position = next((index for index, arg in enumerate(parent.args) if arg is node), None)
@@ -1370,16 +1370,16 @@ class ModuleCallees:
                 return Callee(item, callees, 0 if static else 1)
         return None
 
-    def outside(self, call: ast.Call, depth: int = 0) -> bool:
-        """Whether the function a call names is another library's: reached
-        from a name imported from a package the repository holds nowhere
-        (``validate``, or ``ADAPTER.validate_python`` with ``ADAPTER =
-        TypeAdapter(...)``), and handed none of the application's own
-        callables by any call on the way (``partial(add_image, ...)``,
-        ``wrap(self.add_image)(x)``). A builtin or the standard library
-        (``list.extend``, ``operator.iadd``), a parameter or ``self`` object,
-        a local value of unknown origin, and the repository's own code are not
-        (#876 review)."""
+    def library_read(self, call: ast.Call, handed: ast.AST | None = None, depth: int = 0) -> bool:
+        """Whether handing a list to ``call`` is another library's read.
+
+        The function is another library's — reached from a name imported
+        from a package the repository holds nowhere (``validate``), or a name
+        bound once to an instance of one (``client = OpenAI()``) — and every
+        other argument of every call on the way is inert data (#876 review).
+        An argument this reader does not know to be data may be the
+        application's own callable or object, which the library could call
+        with the list; so anything unrecognised is not a read."""
 
         if depth > 3 or self.resolver is None or self.module is None:
             return False
@@ -1389,14 +1389,16 @@ class ModuleCallees:
             if isinstance(root, ast.Call):
                 calls.append(root)
                 root = root.func
+            elif isinstance(root, ast.Subscript):
+                if not self._inert(root.slice, call):
+                    return False
+                root = root.value
             else:
                 root = root.value
-        if any(
-            self._app_callable(arg, call)
-            for item in calls
-            for arg in [*item.args, *(keyword.value for keyword in item.keywords)]
-        ):
-            return False
+        for item in calls:
+            for arg in [*item.args, *(keyword.value for keyword in item.keywords)]:
+                if arg is not handed and not self._inert(arg, call):
+                    return False
         if not isinstance(root, ast.Name):
             return False
         binding = self._binding(root.id, call)
@@ -1414,7 +1416,7 @@ class ModuleCallees:
             # Never ``self.client`` or a parameter, whatever it is annotated:
             # a subclass or a caller may put the application's own object
             # there.
-            return self.outside(statement.value, depth + 1)
+            return self.library_read(statement.value, None, depth + 1)
         return False
 
     def _binding(self, name: str, site: ast.AST) -> tuple[ast.AST, ast.AST | None] | None:
@@ -1427,12 +1429,6 @@ class ModuleCallees:
         if len(bindings) != 1 or not bindings[0].top_level:
             return None
         return bindings[0].node, bindings[0].statement
-
-    def _bindings_of(self, name: str, site: ast.AST) -> list[tuple[ast.AST, ast.AST | None]]:
-        found = self.scopes.enclosing_bindings(site, name)
-        if found:
-            return [(item, self.scopes.statement_of(item)) for item in found]
-        return [(item.node, item.statement) for item in self.bindings.get(name, [])]
 
     def _origin(
         self, node: ast.alias, statement: ast.Import | ast.ImportFrom, spelling: str, site: ast.AST
@@ -1453,85 +1449,119 @@ class ModuleCallees:
         stdlib = not getattr(statement, "level", 0) and top in sys.stdlib_module_names
         return ("stdlib" if stdlib else "repository"), resolution
 
-    def _app_callable(self, expr: ast.expr, site: ast.AST, depth: int = 0) -> bool:
-        """Whether an argument may be the application's own callable: a lambda,
-        a function of the module or one it imports from its own code, a bound
-        method or class attribute of its own (``self.add_image``,
-        ``Utils.add_image``, ``obj.add`` with ``obj = H()``), a call handed
-        one (``partial(add_image)``), or a name bound to any of these (#876
-        review). A parameter or other value is data."""
+    def _inert(
+        self, expr: ast.AST, site: ast.AST, depth: int = 0, local: frozenset[str] = frozenset()
+    ) -> bool:
+        """Whether an argument is data a library can only read: a literal, a
+        container or comprehension of data, a capability list, a read of a
+        parameter's attribute (``req.messages``), a name bound once to data, a
+        parameter annotated with a builtin data type, another library's or a
+        builtin's value, or a builtin or library call on data (#876 review)."""
 
-        if depth > 4:
+        if depth > 6:
+            return False
+        inert = lambda item, names=local: self._inert(item, site, depth + 1, names)  # noqa: E731
+        if isinstance(expr, ast.Constant):
             return True
-        if isinstance(expr, ast.Lambda):
-            return True
+        if isinstance(expr, ast.JoinedStr):
+            return all(inert(item) for item in expr.values)
+        if isinstance(expr, ast.FormattedValue):
+            return inert(expr.value)
+        if isinstance(expr, ast.List | ast.Tuple | ast.Set):
+            return all(inert(item) for item in expr.elts)
+        if isinstance(expr, ast.Dict):
+            return all(inert(item) for item in [*(key for key in expr.keys if key is not None), *expr.values])
         if isinstance(expr, ast.Starred):
-            return self._app_callable(expr.value, site, depth + 1)
-        if isinstance(expr, ast.Call):
-            return any(
-                self._app_callable(arg, site, depth + 1)
-                for arg in [*expr.args, *(keyword.value for keyword in expr.keywords)]
-            )
-        if isinstance(expr, ast.Attribute):
-            root: ast.AST = expr
+            return inert(expr.value)
+        if isinstance(expr, ast.BinOp):
+            return inert(expr.left) and inert(expr.right)
+        if isinstance(expr, ast.UnaryOp):
+            return inert(expr.operand)
+        if isinstance(expr, ast.BoolOp):
+            return all(inert(item) for item in expr.values)
+        if isinstance(expr, ast.Compare):
+            return inert(expr.left) and all(inert(item) for item in expr.comparators)
+        if isinstance(expr, ast.IfExp):
+            return inert(expr.test) and inert(expr.body) and inert(expr.orelse)
+        if isinstance(expr, ast.ListComp | ast.SetComp | ast.GeneratorExp | ast.DictComp):
+            names = set(local)
+            for generator in expr.generators:
+                if not inert(generator.iter, frozenset(names)):
+                    return False
+                names |= {node.id for node in ast.walk(generator.target) if isinstance(node, ast.Name)}
+                if not all(inert(item, frozenset(names)) for item in generator.ifs):
+                    return False
+            parts = [expr.key, expr.value] if isinstance(expr, ast.DictComp) else [expr.elt]
+            return all(inert(item, frozenset(names)) for item in parts)
+        if isinstance(expr, ast.Attribute) and expr.attr in _CENSUS_CAPABILITIES:
+            # The list handed on, or another capability list read.
+            return True
+        if isinstance(expr, ast.Attribute | ast.Subscript):
+            if isinstance(expr, ast.Subscript) and not inert(expr.slice):
+                return False
+            root: ast.AST = expr.value
             while isinstance(root, ast.Attribute | ast.Subscript):
+                if isinstance(root, ast.Subscript) and not inert(root.slice):
+                    return False
+                root = root.value
+            if not isinstance(root, ast.Name) or root.id in {"self", "cls"}:
+                return False
+            binding = self._binding(root.id, site) if root.id not in local else None
+            if root.id in local or (binding is not None and isinstance(binding[0], ast.arg)):
+                # ``req.messages``: a read of what the caller passed.
+                return True
+            return inert(root)
+        if isinstance(expr, ast.Name):
+            if expr.id in local:
+                return True
+            binding = self._binding(expr.id, site)
+            if binding is None:
+                # A builtin (``key=str``), unless the name is bound where
+                # this reader cannot tell which binding holds.
+                return expr.id in _BUILTIN_NAMES and not self._bound_anywhere(expr.id, site)
+            node, statement = binding
+            if isinstance(node, ast.arg):
+                return _data_annotation(node.annotation)
+            if isinstance(node, ast.alias) and isinstance(statement, ast.Import | ast.ImportFrom):
+                if self.resolver is None or self.module is None:
+                    return False
+                origin, resolution = self._origin(node, statement, expr.id, site)
+                if origin in {"library", "stdlib"}:
+                    return True
+                return resolution.value is not None and _literal_data(resolution.value)
+            if isinstance(statement, ast.Assign | ast.AnnAssign) and statement.value is not None:
+                if _assignment_target(statement) != expr.id:
+                    return False
+                return inert(statement.value)
+            return False
+        if isinstance(expr, ast.Call):
+            if not all(inert(item) for item in [*expr.args, *(keyword.value for keyword in expr.keywords)]):
+                return False
+            func = expr.func
+            if isinstance(func, ast.Name) and func.id in _DATA_BUILTINS and not self._bound_anywhere(func.id, site):
+                return True
+            root = func
+            while isinstance(root, ast.Attribute):
                 root = root.value
             if not isinstance(root, ast.Name):
                 return False
-            if root.id in {"self", "cls"}:
-                return True
-            spelling = reference_spelling(expr)
-            for node, statement in self._bindings_of(root.id, site):
-                if isinstance(node, ast.ClassDef):
-                    return True
-                if isinstance(node, ast.alias) and isinstance(statement, ast.Import | ast.ImportFrom):
-                    if spelling is not None and self._own_function(node, statement, spelling, site):
-                        return True
-                elif isinstance(statement, ast.Assign | ast.AnnAssign) and statement.value is not None:
-                    value = statement.value
-                    if isinstance(value, ast.Call) and self._own_class(value.func, site):
-                        return True  # ``obj = H()``: its methods are the application's
-                    if isinstance(value, ast.Name | ast.Attribute) and self._app_callable(value, site, depth + 1):
-                        return True
-            return False
-        if isinstance(expr, ast.Name):
-            for node, statement in self._bindings_of(expr.id, site):
-                if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                    return True
-                if isinstance(node, ast.alias) and isinstance(statement, ast.Import | ast.ImportFrom):
-                    if self._own_function(node, statement, expr.id, site):
-                        return True
-                elif (
-                    isinstance(statement, ast.Assign | ast.AnnAssign)
-                    and statement.value is not None
-                    and self._app_callable(statement.value, site, depth + 1)
-                ):
-                    return True
+            binding = self._binding(root.id, site)
+            if binding is None:
+                return False
+            node, statement = binding
+            # ``types.Content(role="user", parts=[...])``: another library's
+            # value built from data.
+            return (
+                isinstance(node, ast.alias)
+                and isinstance(statement, ast.Import | ast.ImportFrom)
+                and self.resolver is not None
+                and self.module is not None
+                and self._origin(node, statement, root.id, site)[0] in {"library", "stdlib"}
+            )
         return False
 
-    def _own_function(
-        self, node: ast.alias, statement: ast.Import | ast.ImportFrom, spelling: str, site: ast.AST
-    ) -> bool:
-        if self.resolver is None or self.module is None:
-            return False
-        origin, resolution = self._origin(node, statement, spelling, site)
-        # Code the repository holds outside the scope cannot be read: it may
-        # be a function.
-        return origin == "repository" or (origin == "scope" and resolution.resolved)
-
-    def _own_class(self, maker: ast.expr, site: ast.AST) -> bool:
-        """Whether ``maker`` names a class of the module or the repository."""
-
-        if isinstance(maker, ast.Name) and self._class(maker, site) is not None:
-            return True
-        spelling = reference_spelling(maker)
-        if spelling is None:
-            return False
-        for node, statement in self._bindings_of(spelling.split(".", 1)[0], site):
-            if isinstance(node, ast.alias) and isinstance(statement, ast.Import | ast.ImportFrom):
-                if self._origin(node, statement, spelling, site)[0] in {"scope", "repository"}:
-                    return True
-        return False
+    def _bound_anywhere(self, name: str, site: ast.AST) -> bool:
+        return bool(self.scopes.enclosing_bindings(site, name)) or name in self.bindings
 
     def _value_of(self, name: str, site: ast.AST) -> ast.expr | None:
         found = self.scopes.enclosing_bindings(site, name)
@@ -1631,6 +1661,53 @@ def _through_loops(
 
 #: Resolution outcomes that mean the name is not the scope's own code.
 _OUTSIDE_THE_SCOPE = frozenset({"module_not_found", "outside_scope"})
+#: Builtin names that are values a library may only read (``key=str``).
+_BUILTIN_NAMES = frozenset(
+    {"str", "int", "float", "bool", "bytes", "dict", "list", "tuple", "set", "frozenset",
+     "len", "sorted", "min", "max", "sum", "abs", "repr", "id", "type", "object"}
+)
+#: Builtin calls that build data from data.
+_DATA_BUILTINS = frozenset(
+    {"dict", "list", "tuple", "set", "frozenset", "str", "int", "float", "bool", "bytes",
+     "len", "sorted", "min", "max", "sum", "abs", "repr", "round", "range", "zip", "enumerate"}
+)
+#: Parameter annotations that name builtin data.
+_DATA_TYPES = frozenset(
+    {"str", "int", "float", "bool", "bytes", "dict", "list", "tuple", "set", "frozenset", "None"}
+)
+
+
+def _data_annotation(annotation: ast.expr | None) -> bool:
+    """``str``, ``list[dict]``, ``int | None``, ``Optional[str]``: builtin data."""
+
+    if annotation is None:
+        return False
+    if isinstance(annotation, ast.Constant):
+        return annotation.value is None or (
+            isinstance(annotation.value, str) and annotation.value in _DATA_TYPES
+        )
+    if isinstance(annotation, ast.Name):
+        return annotation.id in _DATA_TYPES
+    if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
+        return _data_annotation(annotation.left) and _data_annotation(annotation.right)
+    if isinstance(annotation, ast.Subscript):
+        spelling = reference_spelling(annotation.value) or ""
+        inner = annotation.slice
+        items = list(inner.elts) if isinstance(inner, ast.Tuple) else [inner]
+        if spelling.rsplit(".", 1)[-1] in {"Optional", "Union"} or spelling in _DATA_TYPES:
+            return all(_data_annotation(item) or isinstance(item, ast.Constant) for item in items)
+    return False
+
+
+def _literal_data(value: ast.expr) -> bool:
+    """A module constant spelled only with literals: ``MODEL = "gpt-4o"``."""
+
+    return all(
+        isinstance(node, ast.Constant | ast.List | ast.Tuple | ast.Set | ast.Dict | ast.JoinedStr
+                   | ast.FormattedValue | ast.BinOp | ast.UnaryOp | ast.operator | ast.unaryop
+                   | ast.expr_context)
+        for node in ast.walk(value)
+    )
 
 
 def _root_name(node: ast.AST) -> str | None:
