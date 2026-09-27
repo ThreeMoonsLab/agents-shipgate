@@ -1917,3 +1917,50 @@ def test_a_dynamic_lookup_or_store_on_another_object_is_not_a_change(repo, modul
     result = _reset_elsewhere(repo, "", {"helpers.py": module})
     assert result["comparison_status"] == "compared", result["head"]["limits"]
     assert _pairs(result) == [("plant_agent", "send_image", "added")]
+
+
+# ---------------------------------------------------------------------------
+# #876 review, round 21: a computed-name change on a parameter is followed to
+# the module's calls of the function; `vars(x).items()` hands out the lists;
+# `attrgetter` and `__getattribute__` are `getattr`. Copying a namespace, or a
+# helper called only with other objects, is nothing.
+
+_APPLY = "\n\ndef apply(agent, overrides):\n    for key, value in overrides.items():\n        setattr(agent, key, value)\n\n\n"
+
+
+@pytest.mark.parametrize(
+    "reset",
+    [
+        _APPLY + "apply(plant_agent, {'tools': [quote]})\n",
+        "for name, value in vars(plant_agent).items():\n    if isinstance(value, list):\n        value.clear()\n",
+        "import operator\n\noperator.attrgetter('tools')(plant_agent).clear()\n",
+        "plant_agent.__getattribute__('tools').clear()\n",
+    ],
+    ids=["helper-setattr-overrides", "namespace-items", "attrgetter", "getattribute"],
+)
+def test_a_change_the_helper_or_spelling_hides_is_still_a_change(repo, reset):
+    assert _pairs(_reset_elsewhere(repo, reset)) == [("plant_agent", "send_image", "not_established")]
+
+
+def test_a_helper_changing_its_own_agents_by_computed_name_is_followed_in_the_file(repo):
+    result = _compare(
+        repo,
+        _PLANT.replace("TOOLS", "[quote]"),
+        _PLANT.replace("TOOLS", "[quote, send_image]") + _APPLY + "apply(plant_agent, {'tools': [quote]})\n",
+    )
+    assert _pairs(result) == [("plant_agent", "send_image", "not_established")]
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        "from agents import Runner\n\n\nclass Cfg:\n    pass\n" + _APPLY + "apply(Cfg(), {'timeout': 3})\n",
+        "from agents import Runner\n\n\nclass Runtime:\n    def reset(self, candidate):\n"
+        "        vars(self.args).update(vars(candidate))\n",
+    ],
+    ids=["helper-called-with-another-object", "namespace-copy"],
+)
+def test_a_computed_name_change_on_another_object_stays_nothing(repo, module):
+    result = _reset_elsewhere(repo, "", {"helpers.py": module})
+    assert result["comparison_status"] == "compared", result["head"]["limits"]
+    assert _pairs(result) == [("plant_agent", "send_image", "added")]

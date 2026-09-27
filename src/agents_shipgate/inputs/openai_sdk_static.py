@@ -1346,6 +1346,27 @@ def _capability_changes(
             return node.value
         if isinstance(node, ast.Call) and reflective(node, frozenset({"getattr"})):
             return node.args[0]
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"__getattribute__", "__getattr__"}
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value in capabilities
+        ):
+            # ``agent.__getattribute__("tools")`` is ``agent.tools`` (#876 review).
+            return node.func.value
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Call)
+            and (reference_spelling(node.func.func) or "").rsplit(".", 1)[-1] == "attrgetter"
+            and len(node.func.args) == 1
+            and isinstance(node.func.args[0], ast.Constant)
+            and node.func.args[0].value in capabilities
+            and len(node.args) == 1
+        ):
+            # ``operator.attrgetter("tools")(agent)``.
+            return node.args[0]
         return None
 
     def namespace_of(node: ast.AST) -> ast.expr | None:
@@ -1382,6 +1403,10 @@ def _capability_changes(
                 return True
             if parent.attr == "get" and isinstance(call, ast.Call) and call.args:
                 return names_other(call.args[0])
+            if parent.attr in {"items", "values"}:
+                # ``for name, value in vars(agent).items(): value.clear()``:
+                # the attributes themselves, the lists among them (#876 review).
+                return False
         return isinstance(node, ast.expr) and read_only(node)
 
     def mutated_in_place(node: ast.AST) -> bool:
@@ -1398,6 +1423,10 @@ def _capability_changes(
         )
 
     changes: list[tuple[ast.expr, ast.AST, bool, bool]] = []
+    #: Changes by a name computed at run time or through a namespace: on a
+    #: parameter, followed to the module's calls (a list handed on is not —
+    #: another library's read of it is the reader's boundary).
+    dynamic: set[int] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign | ast.AugAssign | ast.AnnAssign | ast.Delete):
             targets = node.targets if isinstance(node, ast.Assign | ast.Delete) else [node.target]
@@ -1410,6 +1439,7 @@ def _capability_changes(
                         # name, as ``setattr`` is.
                         computed = not isinstance(target.slice, ast.Constant)
                         changes.append((owner, node, computed, False))
+                        dynamic.add(id(node))
                         continue
                     target = target.value
                 if isinstance(target, ast.Attribute | ast.Call) and (receiver := access(target)) is not None:
@@ -1458,6 +1488,7 @@ def _capability_changes(
                 changes.append(
                     (node.args[0], node, not in_view, not in_view and unresolved_call(node))
                 )
+                dynamic.add(id(node))
             elif (
                 isinstance(func, ast.Attribute)
                 and func.attr in {"update", "setdefault", "pop", "popitem", "clear", "__setitem__", "__delitem__"}
@@ -1465,6 +1496,7 @@ def _capability_changes(
             ):
                 # ``agent.__dict__.update(overrides)``: names from the data.
                 changes.append((owner, node, True, False))
+                dynamic.add(id(node))
             elif (
                 reflective(node, frozenset({"getattr"}))
                 and not read_only(node)
@@ -1475,7 +1507,10 @@ def _capability_changes(
         if (owner := namespace_of(node)) is not None and not namespace_read(node):
             # ``d = agent.__dict__``, ``operator.setitem(vars(agent), ...)``:
             # its attributes, the lists among them, by any name (#876 review).
-            changes.append((owner, node, True, unresolved_call(node)))
+            # Counted for an agent the file names or imports: handing
+            # ``vars(args)`` to ``.update()`` copies it.
+            changes.append((owner, node, True, False))
+            dynamic.add(id(node))
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in {
             "__setattr__",
             "__delattr__",
@@ -1486,6 +1521,7 @@ def _capability_changes(
             key = node.args[1] if direct and len(node.args) > 1 else node.args[0] if node.args and not direct else None
             if not names_other(key):
                 changes.append((owner, node, not isinstance(key, ast.Constant), False))
+                dynamic.add(id(node))
         if (
             isinstance(node, ast.Name)
             and node.id in {"setattr", "delattr"}
@@ -1499,6 +1535,7 @@ def _capability_changes(
             for arg in [*call.args, *(item.value for item in call.keywords)]:  # type: ignore[attr-defined]
                 if arg is not node and isinstance(arg, ast.Name | ast.Attribute | ast.Subscript):
                     changes.append((arg, call, True, False))
+                    dynamic.add(id(call))
         if (
             isinstance(node, ast.Attribute)
             and isinstance(node.ctx, ast.Load)
@@ -1520,7 +1557,46 @@ def _capability_changes(
                 and changed_by_call(call, spelling)
             )
             changes.append((node.value, node, not changed, not changed and unresolved_call(node)))
-    return changes
+    return changes + _through_call_sites(
+        tree, scopes, [change for change in changes if id(change[1]) in dynamic]
+    )
+
+
+def _through_call_sites(
+    tree: ast.Module, scopes: ScopeIndex, changes: list[tuple[ast.expr, ast.AST, bool, bool]]
+) -> list[tuple[ast.expr, ast.AST, bool, bool]]:
+    """A change by a computed name or through a namespace (``setattr(agent, key,
+    value)`` over overrides) on a parameter of a module-level function is one on
+    each argument the module's own calls of it pass (``apply(plant_agent,
+    ...)``), counted by the same rule: for an agent the file names or imports
+    (#876 review)."""
+
+    functions = {
+        node.name: node for node in tree.body if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    followed: list[tuple[ast.expr, ast.AST, bool, bool]] = []
+    for receiver, site, strict, _ in changes:
+        if not strict or not isinstance(receiver, ast.Name):
+            continue
+        found = scopes.enclosing_bindings(site, receiver.id)
+        if len(found) != 1 or not isinstance(found[0], ast.arg):
+            continue
+        parameter = found[0]
+        arguments = scopes.parents.get(parameter)
+        function = scopes.parents.get(arguments) if arguments is not None else None
+        if not isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef) or functions.get(function.name) is not function:
+            continue
+        positional = [*function.args.posonlyargs, *function.args.args]
+        position = next((index for index, item in enumerate(positional) if item is parameter), None)
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == function.name):
+                continue
+            supplied = next((item.value for item in node.keywords if item.arg == parameter.arg), None)
+            if supplied is None and position is not None and position < len(node.args):
+                supplied = node.args[position]
+            if isinstance(supplied, ast.Name | ast.Attribute | ast.Subscript):
+                followed.append((supplied, node, True, False))
+    return followed
 
 
 class Callee(NamedTuple):

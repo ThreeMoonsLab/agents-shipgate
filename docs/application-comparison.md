@@ -171,9 +171,12 @@ agents' rows in the file stand:
   `object.__setattr__`, `operator.setitem(vars(agent), …)`,
   `functools.partial(setattr, agent)`) is changed too, and so is one reached
   by a name computed at run time (`setattr(agent, key, value)`,
-  `getattr(agent, cap).clear()`) on an agent the file can name or imports
-  from the scope — on any other object, like `setattr(record, field, value)`
-  or `return getattr(module, name)`, it is the object's own business. An
+  `getattr(agent, cap).clear()`, `vars(agent).items()`,
+  `operator.attrgetter("tools")(agent)`) on an agent the file can name or
+  imports from the scope, including one the module passes to a helper that
+  changes its parameter this way (`apply(agent, overrides)`) — on any other
+  object, like `setattr(record, field, value)`, `return getattr(module,
+  name)` or copying `vars(args)`, it is the object's own business. An
   index into a list of agents is any member, since the list can be reordered. A change qualifies both sides: a binding
   the constructor makes is not established on the side where the list it is
   in is reset, emptied or replaced after construction either
