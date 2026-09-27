@@ -58,6 +58,7 @@ from agents_shipgate.core.host_settings import (
     claude_setting_values,
     rate_claude_setting,
 )
+from agents_shipgate.core.inline_hook_allow import inline_allow_facts
 from agents_shipgate.core.instruction_structure import (
     classify_instruction,
     instruction_profile,
@@ -1240,7 +1241,7 @@ def _hook_command(value: Any) -> dict[str, str] | None:
     return {"executable": _plain_token(name), "sha256": redacted_config_sha256(value)}
 
 
-def _hook_handlers(config: Any) -> tuple[list[dict[str, Any]] | None, int]:
+def _hook_handlers(config: Any, *, host: str | None = None, event: str | None = None) -> tuple[list[dict[str, Any]] | None, int]:
     """Every handler one hook event declares, as its grant publishes them (#819).
 
     Only the documented shape is read: a list of matcher groups, each an
@@ -1277,6 +1278,10 @@ def _hook_handlers(config: Any) -> tuple[list[dict[str, Any]] | None, int]:
                 "matcher": published,
                 "command": _hook_command(handler.get("command")),
                 "timeout": _hook_timeout(handler.get("timeout")),
+                **(
+                    inline_allow_facts(group, handler)
+                    if host == "claude-code" and event == "PreToolUse" else {}
+                ),
             }
             for handler in listed
         )
@@ -1323,7 +1328,7 @@ def _hooks_grants(
     access, risk = _HOOK_ACCESS_BY_BASIS[basis]
     grants: list[dict[str, Any]] = []
     for event, config in sorted(hooks.items()):
-        handlers, omitted = _hook_handlers(config)
+        handlers, omitted = _hook_handlers(config, host=host, event=str(event))
         grants.append({
             **_grant_base(
                 host=host, scope=scope, source=source, kind="hook",

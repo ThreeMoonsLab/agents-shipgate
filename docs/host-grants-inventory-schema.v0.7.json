@@ -503,6 +503,24 @@
           ],
           "default": null
         },
+        "decision_limit": {
+          "anyOf": [
+            {
+              "const": "script_or_command_behavior_not_read",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision Limit"
+        },
+        "inline_allow": {
+          "default": false,
+          "title": "Inline Allow",
+          "type": "boolean"
+        },
         "matcher": {
           "anyOf": [
             {

@@ -213,6 +213,8 @@ def test_the_grants_publish_the_detail_the_rows_render(tmp_path: Path) -> None:
         "matcher": "Edit|Write",
         "command": {"executable": "lint.sh", "sha256": redacted_config_sha256("bin/lint.sh --fix")},
         "timeout": 30,
+        "inline_allow": False,
+        "decision_limit": None,
     }]
     assert hook["omitted_handlers"] == 0
     # The digest is of the command as `config_sha256`'s input holds it: here,

@@ -2,6 +2,15 @@
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
+Unreleased #826 extends host inventory `0.7` and runtime contract `41` in
+place with display-only hook handler fields `inline_allow` (default false)
+and `decision_limit` (default null). A supported literal PreToolUse allow
+adds an explanation to a current broad-matcher Claude Code hook row;
+unsupported script/command behavior is named in handler metadata. These
+fields do not participate in baseline identity, direction, severity,
+widening or control decisions. Released schemas are unchanged. See the
+[grammar and limits](docs/engineering/inline-hook-allow-notes.md).
+
 Unreleased, runtime contract v41: a host comparison names the changed inputs it
 does not read (#821). Verifier `0.21` and capability diff `0.4` add a
 `changed_not_read` coverage item, with the `candidate` rule that named it, for

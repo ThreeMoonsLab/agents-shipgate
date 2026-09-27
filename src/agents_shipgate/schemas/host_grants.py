@@ -670,6 +670,9 @@ class HostHookHandlerV7(BaseModel):
     command: HostHookCommandV7 | None = None
     # `bool` first: pydantic's lax `int` would otherwise read `true` as `1`.
     timeout: bool | int | float | str | None = None
+    # #826: literal declaration facts only; false is not proof of no approval.
+    inline_allow: bool = False
+    decision_limit: Literal["script_or_command_behavior_not_read"] | None = None
 
 
 class HostHookGrantV7(HostHookGrantV2):

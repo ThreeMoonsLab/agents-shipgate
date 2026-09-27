@@ -927,6 +927,24 @@ _PRINTABLE_URL = re.compile(r"(?:https?|wss?|sse)://[^\s/?#@]+(?:/|/<redacted-pa
 _URL_NOT_SHOWN = "not shown"
 
 
+def _inline_allow_note(grant: dict[str, Any] | None) -> str | None:
+    if (
+        not grant or grant.get("host") != "claude-code" or grant.get("event") != "PreToolUse"
+        or hook_loading_basis(grant) not in {"host_configuration", "project_enabled_plugin"}
+    ):
+        return None
+    matchers = sorted({
+        published_workflow_label(str(handler.get("matcher") or "all"))
+        for handler in grant.get("handlers") or [] if handler.get("inline_allow") is True
+    })
+    if not matchers:
+        return None
+    shown = ", ".join(matchers[:3])
+    if len(matchers) > 3:
+        shown += f" (+{len(matchers) - 3} more)"
+    return f"inline allow auto-approves matched tool calls without a prompt (matcher {shown}); host exceptions and deny/ask rules still apply"
+
+
 def _mcp_endpoint(grant: dict[str, Any]) -> str | None:
     """The grant's published endpoint as text may print it, or ``None`` when it has none.
 
@@ -1407,6 +1425,8 @@ def capability_diff_rows(
             gone_secrets=gone_secrets, new_secrets=new_secrets,
             agent_reasons=agent_reasons,
         )
+        if grant.get("kind") == "hook" and (note := _inline_allow_note(after_grant)):
+            why = f"{why}; {note}"
         row = CapabilityDiffRow(
             subject=_subject(grant),
             before=_grant_value(
