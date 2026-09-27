@@ -12,6 +12,7 @@ from agents_shipgate.core.boundary_registry import (
 )
 from agents_shipgate.core.capability_diff_rows import (
     ReviewChange,
+    hook_script_named_by,
     review_changes,
     review_question,
 )
@@ -206,11 +207,22 @@ def partial_scopes(comparison: HostComparison) -> tuple[list[str], bool]:
     coverage = comparison.coverage
     if comparison.comparison_status != "partial" or coverage is None:
         return [], False
-    scopes = sorted({item.scope for item in coverage.items if item.scope is not None})
+    scopes = sorted(
+        {item.scope for item in coverage.items if item.scope is not None and not _script_scope(item)}
+    )
     hidden = bool(coverage.omitted_items) and bool(coverage.items) and (
         coverage.items[-1].status == "blocking_limit"
     )
     return scopes, hidden
+
+
+def _partial_script_scopes(comparison: HostComparison) -> list[str]:
+    """Hook scripts a partial comparison did not compare the bytes of (#702)."""
+
+    coverage = comparison.coverage
+    if comparison.comparison_status != "partial" or coverage is None:
+        return []
+    return sorted({str(item.scope) for item in coverage.items if _script_scope(item)})
 
 
 def partial_scope_lines(comparison: HostComparison, *, markdown: bool = False) -> list[str]:
@@ -223,8 +235,27 @@ def partial_scope_lines(comparison: HostComparison, *, markdown: bool = False) -
     """
 
     scopes, hidden = partial_scopes(comparison)
+    scripts = _partial_script_scopes(comparison)
     if not scopes:
-        return []
+        if not scripts:
+            return []
+        # Only hook scripts were withheld (#702): every grant was compared.
+        names = ", ".join(_text(script, markdown=markdown) for script in scripts)
+        plural = len(scripts) > 1
+        what = "hook scripts" if plural else "a hook script"
+        it = "them" if plural else "it"
+        return [
+            f"Not compared: the bytes of {names}, {what} this entry could not read on both "
+            f"sides alike, so a change to {it} is not shown and nothing is claimed about "
+            f"{it}. Every hook and other grant was compared.",
+            (
+                "The changes below are not the whole change; nothing here is a claim that "
+                "the change is safe."
+                if comparison.rows
+                else "No static host-grant change was detected. That is not a no-change answer "
+                "for this change, and no verdict is implied."
+            ),
+        ]
     plural = len(scopes) > 1 or hidden
     names = ", ".join(_text(scope, markdown=markdown) for scope in scopes)
     it = "them" if plural else "it"
@@ -242,6 +273,12 @@ def partial_scope_lines(comparison: HostComparison, *, markdown: bool = False) -
         f"Not compared: {named}, so no change inside {it} is shown "
         f"and nothing is claimed about {it}."
     ]
+    if scripts:
+        lines.append(
+            "Nor the bytes of "
+            + ", ".join(_text(script, markdown=markdown) for script in scripts)
+            + ", hook scripts this entry could not read on both sides alike."
+        )
     if comparison.rows:
         lines.append(
             f"The changes below come only from sources outside {it}, so they are not the "
@@ -291,6 +328,10 @@ _WORKFLOW_UNREAD_TEXT = (
 )
 
 
+#: A script's name, by extension, as hook scripts are commonly spelled (#702).
+_SCRIPT_NAME = re.compile(r"\.(?:sh|bash|zsh|py|js|mjs|cjs|ts|rb|pl|ps1)$", re.IGNORECASE)
+
+
 def _redacted_values_note(source: str) -> str:
     """The note on what is not compared, only for a file that can hold it (#812 review cycle 5).
 
@@ -300,11 +341,12 @@ def _redacted_values_note(source: str) -> str:
     file it could not prove unchanged. A workflow's note names what its grant
     does not read instead (#823). The kind is the one the inventory gives the
     file's path when it reads it; a path redacted past recognition keeps the
-    note.
+    note. Nor for a file named as a script, which the inventory reads only as
+    a hook's bytes (#702): no value in it is redacted.
     """
 
     kind = _source_kind(source)
-    if kind == "instructions":
+    if kind == "instructions" or _SCRIPT_NAME.search(source):
         return ""
     return f" {_WORKFLOW_UNREAD_TEXT if kind == 'workflow' else _REDACTED_VALUES}"
 
@@ -348,10 +390,27 @@ def _unread_item_text(item: HostComparisonCoverageItem, *, markdown: bool) -> st
     return f"{change}, not read by this entry: {what}; no row, and loading is not established"
 
 
-def coverage_item_text(item: HostComparisonCoverageItem, *, markdown: bool = False) -> str:
-    """One item's finding, in words a reviewer reads without the schema (#812)."""
+def _script_scope(item: HostComparisonCoverageItem) -> bool:
+    """A partial comparison's withheld hook script, whose scope is its own path (#702)."""
+
+    return item.status == "blocking_limit" and item.scope is not None and item.scope == item.source
+
+
+def coverage_item_text(
+    item: HostComparisonCoverageItem, *, markdown: bool = False, named_by_row: bool = False
+) -> str:
+    """One item's finding, in words a reviewer reads without the schema (#812).
+
+    ``named_by_row``: a hook row names this changed script (#702), so its
+    change is shown there rather than nowhere.
+    """
 
     if item.status == "blocking_limit":
+        if _script_scope(item):
+            return (
+                f"{item.limit} {_SIDE_SCOPE[item.side]}, so this hook script's bytes were "
+                "not compared; the hook that runs it was"
+            )
         if item.scope is not None:
             # A partial comparison (#808): the limit cost that directory only.
             return (
@@ -361,6 +420,12 @@ def coverage_item_text(item: HostComparisonCoverageItem, *, markdown: bool = Fal
         return f"{item.limit} {_SIDE_LIMIT[item.side]}"
     if item.status == "changed_not_read":
         return _unread_item_text(item, markdown=markdown)
+    if item.status == "script_not_resolved":
+        where = "" if item.side == "both" else f"in {item.side} only, "
+        return (
+            f"{where}a hook it declares runs a script this entry does not resolve, so a "
+            f"change to that script is not shown: {_text(item.detail or '', markdown=markdown)}"
+        )
     if item.status == "changed_without_grant_change":
         # One side only is an added or removed file: it declares no compared grant.
         change = (
@@ -374,6 +439,8 @@ def coverage_item_text(item: HostComparisonCoverageItem, *, markdown: bool = Fal
             "no grant this entry compares changed, but the file was not proven "
             f"unchanged{_redacted_values_note(item.source)}"
         )
+    elif item.status == "changed_without_rows" and named_by_row:
+        finding = "changed; the row of the hook that runs it names this script"
     elif item.status == "changed_without_rows":
         finding = "changed, but no row is attributed to this path"
     elif item.rows:
@@ -474,7 +541,7 @@ def coverage_lines(
     item_lines = [
         f"{bullet}{_text(item.source, markdown=markdown)} "
         f"({', '.join(single_line_text(host) for host in item.hosts)}): "
-        f"{coverage_item_text(item, markdown=markdown)}"
+        f"{coverage_item_text(item, markdown=markdown, named_by_row=any(hook_script_named_by(row, item.source) for row in comparison.rows))}"
         for item in coverage.items
         if not _quiet(item)
     ]

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from agents_shipgate.core.boundary_registry import (
@@ -17,19 +17,24 @@ from agents_shipgate.core.capability_diff_rows import (
     review_changes,
     review_question,
 )
+from agents_shipgate.core.hook_script_reference import NO_REPOSITORY_REFERENCE_LIMITS
 from agents_shipgate.core.host_grants import (
     _CLAUDE_PROJECT_SETTINGS_SOURCES,
     _PATH_REDACTION_MARKER,
+    LOADED_HOOK_BASES,
     PluginScopeFacts,
     _issue_source_label,
     build_host_comparison_payload,
     build_host_drift_payload,
+    hook_dependency_issues,
+    hook_dependency_limits,
     hook_loading_basis,
     host_comparison_baseline,
     host_grants_sha256,
     inventory_is_complete,
     normalized_host_grants,
     public_host_path,
+    without_hook_dependency_bytes,
     without_host_sources,
 )
 from agents_shipgate.core.unread_inputs import (
@@ -84,10 +89,17 @@ def unchanged_limits(
     base_issues, head_issues = blocking(before), blocking(after)
     if set(base_issues) != set(head_issues):
         return None
+    scripts = _same_script_limits(before, after)
     limits: list[dict[str, str]] = []
     for key in sorted(base_issues):
         kind, host, source = key
-        if kind not in UNCHANGED_LIMIT_ISSUE_KINDS or not unchanged(source):
+        if key in scripts:
+            # A selected hook script both sides failed to read alike (#702):
+            # unchanged exactly when the file the host would run is, through
+            # any in-tree link on its path (#822).
+            if not unchanged(scripts[key]):
+                return None
+        elif kind not in UNCHANGED_LIMIT_ISSUE_KINDS or not unchanged(source):
             return None
         limits.append(
             {"host": host, "limit": kind, "source": source, "detail": str(head_issues[key]["message"])}
@@ -129,6 +141,208 @@ def unchanged_limits(
     return limits
 
 
+def _script_limit_keys(inventory: dict[str, Any]) -> dict[tuple[str, str, str], tuple[str, str]]:
+    """Each selected hook script limit issue, by its issue key, to ``(host, path)`` (#702)."""
+
+    ids = hook_dependency_issues(inventory)
+    return {
+        (str(issue["kind"]), str(issue["host"]), str(issue["source"])): ids[str(issue["issue_id"])]
+        for issue in inventory.get("issues", [])
+        if str(issue.get("issue_id")) in ids
+    }
+
+
+def _same_script_limits(before: dict[str, Any], after: dict[str, Any]) -> dict[tuple[str, str, str], str]:
+    """Script limit issues both sides raise for the same script with the same limit, to its path."""
+
+    base, head = _script_limit_keys(before), _script_limit_keys(after)
+    base_limits, head_limits = hook_dependency_limits(before), hook_dependency_limits(after)
+    return {
+        key: script[1]
+        for key, script in base.items()
+        if head.get(key) == script and base_limits.get(script) == head_limits.get(script)
+    }
+
+
+def _withheld_scripts(
+    before: dict[str, Any], after: dict[str, Any], unchanged: Callable[[str], bool] | None
+) -> tuple[dict[str, Any], dict[str, Any], dict[tuple[str, str], str]] | None:
+    """Both inventories without the bytes of each script a limit leaves unproven (#702 review).
+
+    A selected hook script either side could not read is compared no further,
+    unless both sides carry the same limit on it and ``unchanged`` proves the
+    file the host would run unchanged, which :func:`unchanged_limits` names.
+    Only that script's bytes are withheld: its declaring hook, and every other
+    grant, is still compared. Returns both inventories and ``{(side, issue
+    id): the script's path}``, or ``None`` when no script is withheld.
+    """
+
+    base, head = hook_dependency_issues(before), hook_dependency_issues(after)
+    shared = set(_same_script_limits(before, after).values())
+    withheld = {
+        script
+        for script in {*base.values(), *head.values()}
+        if not (unchanged is not None and script[1] in shared and unchanged(script[1]))
+    }
+    if not withheld:
+        return None
+    scope_of = {
+        (side, issue_id): script[1]
+        for side, ids in (("base", base), ("head", head))
+        for issue_id, script in ids.items()
+        if script in withheld
+    }
+    return (
+        without_hook_dependency_bytes(
+            before, issue_ids={key[1] for key in scope_of if key[0] == "base"}, dependencies=withheld
+        ),
+        without_hook_dependency_bytes(
+            after, issue_ids={key[1] for key in scope_of if key[0] == "head"}, dependencies=withheld
+        ),
+        scope_of,
+    )
+
+
+def _script_differences_not_shown(
+    before: dict[str, Any], after: dict[str, Any], identities: IdentityAnswers | None
+) -> dict[str, Any]:
+    """``after``, reading as ``before`` each script whose bytes differ only as a checkout may make them.
+
+    Script bytes are captured raw: the base from its Git blob, a working tree
+    from the file a checkout wrote, which ``eol=crlf`` or ``core.autocrlf``
+    converts (#702 review). A difference ``identities`` neither shows nor
+    rules out is then no row, and coverage asks the same question again and
+    names the script ``unchanged_not_proven``. Only the comparison reads the
+    result; the published inventory digests are of what was read.
+    """
+
+    def readings(inventory: dict[str, Any]) -> dict[tuple[str, str], tuple[Any, Any]]:
+        return {
+            (str(grant["host"]), str(entry["path"])): (entry.get("sha256"), entry.get("size_bytes"))
+            for grant in inventory.get("grants", [])
+            if grant.get("kind") == "hook"
+            for entry in grant.get("script_inputs") or []
+            if entry.get("path") and entry.get("sha256")
+        }
+
+    base, head = readings(before), readings(after)
+    differing = {key for key in base.keys() & head.keys() if base[key] != head[key]}
+    if identities is None or not differing:
+        return after
+    answers = identities(sorted({path for _host, path in differing}))
+    unproven = {key for key in differing if answers.get(key[1]) is None}
+    if not unproven:
+        return after
+    base_artifacts = {
+        (str(item["host"]), str(item["path"])): item
+        for item in before.get("artifacts", [])
+        if item.get("kind") == "hook_script"
+    }
+
+    def entry_as_base(host: str, entry: dict[str, Any]) -> dict[str, Any]:
+        key = (host, str(entry.get("path")))
+        if key not in unproven or not entry.get("sha256"):
+            return entry
+        sha256, size_bytes = base[key]
+        return {**entry, "sha256": sha256, "size_bytes": size_bytes}
+
+    return {
+        **after,
+        "grants": [
+            {
+                **grant,
+                "script_inputs": [
+                    entry_as_base(str(grant["host"]), entry) for entry in grant["script_inputs"]
+                ],
+            }
+            if grant.get("kind") == "hook" and grant.get("script_inputs")
+            else grant
+            for grant in after.get("grants", [])
+        ],
+        "artifacts": [
+            base_artifacts.get((str(item["host"]), str(item["path"])), item)
+            if item.get("kind") == "hook_script" and (str(item["host"]), str(item["path"])) in unproven
+            else item
+            for item in after.get("artifacts", [])
+        ],
+    }
+
+
+#: Unresolved references that establish no repository file (#702): a bare
+#: command with no path-shaped argument, an absolute path outside the
+#: workspace, or a hook no host is established to load.
+_NO_SCRIPT_TO_NAME = NO_REPOSITORY_REFERENCE_LIMITS | {"hook_selection_not_established"}
+#: How many unresolved handlers one coverage item's detail names.
+_UNRESOLVED_NAMED = 3
+
+
+def _unresolved_script_facts(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    changed_inputs: ChangedInputs | None,
+) -> dict[tuple[str, str, str, str | None], dict[str, Any]]:
+    """Selected hooks whose script this entry could not resolve, as coverage facts (#702).
+
+    One ``script_not_resolved`` item per declaring file, side and host: a
+    hook the host loads names a command, such as an interpreter wrapper or a
+    conditional expansion, whose script this entry does not follow, so a
+    change to that script would show nowhere. Named only while the change
+    could touch it: the changed-file set could not be listed, or it holds the
+    declaring file or a file no reader of this entry read. Never a row, a
+    widening or a limit.
+    """
+
+    paths = None if changed_inputs is None else changed_inputs.paths
+    read = _read_by_entry(before, after)
+    files: dict[str, set[str]] = {}
+    for inventory in (before, after):
+        for artifact in inventory.get("artifacts", []):
+            files.setdefault(str(artifact["host"]), set()).add(str(artifact["path"]))
+    found: dict[tuple[str, str], dict[str, set[str]]] = {}
+    for side, inventory in (("base", before), ("head", after)):
+        for grant in inventory.get("grants", []):
+            if grant.get("kind") != "hook" or hook_loading_basis(grant) not in LOADED_HOOK_BASES:
+                continue
+            for entry in grant.get("script_inputs") or []:
+                limit = entry.get("limit")
+                if entry.get("path") or not limit or limit in _NO_SCRIPT_TO_NAME:
+                    continue
+                where = (
+                    str(grant["event"])
+                    if limit in {"unsupported_hook_shape", "handler_bound_exceeded"}
+                    else f"{grant['event']} handler {entry['handler']}"
+                )
+                host = str(grant["host"])
+                key = (host, _file_of(str(grant["source"]), files.get(host, set())))
+                found.setdefault(key, {}).setdefault(f"{where} ({limit})", set()).add(side)
+    facts: dict[tuple[str, str, str, str | None], dict[str, Any]] = {}
+    for (host, source), named in sorted(found.items()):
+        touched = paths is None or any(
+            public_host_path(path) == source or not read(path) for path in paths
+        )
+        if not touched:
+            continue
+        sides = set().union(*named.values())
+        side = "both" if sides == {"base", "head"} else next(iter(sides))
+        shown = sorted(named)
+        detail = "; ".join(shown[:_UNRESOLVED_NAMED])
+        if len(shown) > _UNRESOLVED_NAMED:
+            detail += f"; {len(shown) - _UNRESOLVED_NAMED} more"
+        item = facts.setdefault(
+            (source, "script_not_resolved", side, detail),
+            {
+                "source": source,
+                "hosts": set(),
+                "side": side,
+                "status": "script_not_resolved",
+                "rows": 0,
+                "detail": detail,
+            },
+        )
+        item["hosts"].add(host)
+    return facts
+
+
 #: Coverage order (#812): what refused the comparison, then a changed input no
 #: reader of this entry read (#821), then changes no row
 #: describes, then sources only one side published, then sources not proven
@@ -146,7 +360,7 @@ def unchanged_limits(
 #: name, and after it every remaining field an item's identity is keyed by in
 #: :func:`_group_coverage` — side, limit and status — so no two items can tie
 #: and the same two inventories always publish the same list.
-def _coverage_rank(item: dict[str, Any]) -> tuple[int, int, str, str, str, str]:
+def _coverage_rank(item: dict[str, Any]) -> tuple[int, int, str, str, str, str, str]:
     limit = item.get("limit")
     if item["status"] == "blocking_limit":
         rank = 0
@@ -156,7 +370,10 @@ def _coverage_rank(item: dict[str, Any]) -> tuple[int, int, str, str, str, str]:
         # this entry compared. A refused comparison publishes only its limits
         # beside it, which stay first.
         rank = 1
-    elif item["status"] in {"changed_without_grant_change", "changed_without_rows"}:
+    elif item["status"] in {
+        "changed_without_grant_change", "changed_without_rows", "script_not_resolved"
+    }:
+        # A script no row can show (#702) is read with the changes no row shows.
         rank = 2
     elif item["side"] != "both":
         rank = 3
@@ -195,6 +412,8 @@ def _coverage_rank(item: dict[str, Any]) -> tuple[int, int, str, str, str, str]:
         item["side"],
         str(limit if limit is not None else item.get("candidate")),
         item["status"],
+        # A `script_not_resolved` item (#702) is keyed on its detail too.
+        str(item.get("detail") or ""),
     )
 
 
@@ -525,6 +744,13 @@ def _compared_facts(
     for change in payload.get("artifact_changes") or []:
         artifact = change.get("current") or change.get("baseline")
         if artifact:
+            if artifact.get("kind") == "hook_script" and None in (
+                change.get("baseline"),
+                change.get("current"),
+            ):
+                # A script only one side's hooks select (#702): that side read
+                # it, and the selection change is the declaring hook's row.
+                continue
             key = (str(artifact["host"]), str(artifact["path"]))
             changed.setdefault(key, []).append(change)
     base, head = observed(before), observed(after)
@@ -633,8 +859,55 @@ class _Retained:
     after: dict[str, Any]
     #: The unchanged limits of what remains.
     limits: list[dict[str, str]]
-    #: ``{(side, issue id): the directory it left uncompared}``.
+    #: ``{(side, issue id): the directory it left uncompared}``, or for a
+    #: withheld hook script, that script's path (#702).
     scope_of: dict[tuple[str, str], str]
+    #: Whether a withheld directory can hold hooks whose loading basis the
+    #: project settings decide; not when only hook scripts are withheld.
+    hooks_withheld: bool = True
+
+
+def _retained_comparison(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    scopes: PluginScopes | None,
+    unchanged: Callable[[str], bool] | None,
+) -> _Retained | None:
+    """What a refused comparison can still compare, or ``None`` (#808, #702).
+
+    First each selected hook script a limit leaves unproven is withheld
+    (:func:`_withheld_scripts`), then any plugin directory a limit is bounded
+    by (:func:`_independent_of_plugin_scopes`). Every other blocking limit
+    must be one ``unchanged`` proves, as on a comparable comparison.
+    """
+
+    withheld = _withheld_scripts(before, after, unchanged)
+    scripts: dict[tuple[str, str], str] = {}
+    if withheld is not None:
+        before, after, scripts = withheld
+    if scopes is not None:
+        plugins = _independent_of_plugin_scopes(before, after, scopes, unchanged)
+        if plugins is not None:
+            return replace(
+                plugins,
+                scopes=tuple(sorted({*plugins.scopes, *scripts.values()})),
+                scope_of={**scripts, **plugins.scope_of},
+            )
+    if not scripts:
+        return None
+    limits: list[dict[str, str]] | None = []
+    if not (inventory_is_complete(before) and inventory_is_complete(after)):
+        limits = unchanged_limits(before, after, unchanged) if unchanged is not None else None
+    if limits is None:
+        return None
+    return _Retained(
+        scopes=tuple(sorted(set(scripts.values()))),
+        before=before,
+        after=after,
+        limits=limits,
+        scope_of=scripts,
+        hooks_withheld=False,
+    )
 
 
 def _independent_of_plugin_scopes(
@@ -807,6 +1080,10 @@ def compare_host_inventories(
     reasons: list[str] = []
     limits: list[dict[str, str]] = []
     retained: _Retained | None = None
+    # The digests are of what each side read; the comparison reads a script
+    # whose bytes differ only as a checkout may make them as unchanged (#702).
+    read_after = after
+    after = _script_differences_not_shown(before, after, identities)
     if not (inventory_is_complete(before) and inventory_is_complete(after)):
         shared = unchanged_limits(before, after, unchanged) if unchanged is not None else None
         if shared is None:
@@ -814,8 +1091,8 @@ def compare_host_inventories(
                 reasons.append("base_inventory_incomplete")
             if not inventory_is_complete(after):
                 reasons.append("head_inventory_incomplete")
-            if coverage and plugin_scopes is not None:
-                retained = _independent_of_plugin_scopes(before, after, plugin_scopes, unchanged)
+            if coverage:
+                retained = _retained_comparison(before, after, plugin_scopes, unchanged)
         else:
             limits = shared
     baseline_file = base_commit or "compared input"
@@ -863,13 +1140,20 @@ def compare_host_inventories(
                     payload,
                     limits,
                     identities,
-                    hooks_withheld=True,
+                    hooks_withheld=retained.hooks_withheld,
                 ),
+                **_unresolved_script_facts(retained.before, retained.after, changed_inputs),
             },
             unread,
         )
     else:
-        established = _compared_coverage(before, after, payload, limits, identities, unread)
+        established = _group_coverage(
+            {
+                **_compared_facts(before, after, payload, limits, identities),
+                **_unresolved_script_facts(before, after, changed_inputs),
+            },
+            unread,
+        )
     rows = (
         []
         if refused
@@ -884,7 +1168,7 @@ def compare_host_inventories(
         head_commit=head_commit,
         head_kind=head_kind,
         base_inventory_sha256=host_grants_sha256(normalized_host_grants(before)),
-        head_inventory_sha256=host_grants_sha256(normalized_host_grants(after)),
+        head_inventory_sha256=host_grants_sha256(normalized_host_grants(read_after)),
         paths=sorted(
             {item["path"] for inventory in (before, after) for item in inventory["artifacts"]}
         ),

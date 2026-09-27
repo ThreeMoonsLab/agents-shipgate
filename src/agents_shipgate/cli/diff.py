@@ -312,14 +312,17 @@ def run_capability_diff(
         base_tree = Path(scratch) / "base"
         base_tree.mkdir()
         try:
-            base_tree = materialize_host_tree(
+            base_tree, base_snapshot = materialize_host_tree(
                 workspace, base_commit, base_tree, archive=archive_fetched_tree,
             )
         except PromisedObjectsMissingError:
             # The head is the working tree, so the base is the only side that
             # reads objects. Any other archive failure is raised as it was.
             _refuse_objects_missing(workspace, base_ref, base_commit)
-        base_snapshot = build_host_boundary_snapshot(base_tree, cache=HostStaticParseCache(reference_workspace=workspace))
+        if base_snapshot is None:
+            base_snapshot = build_host_boundary_snapshot(
+                base_tree, cache=HostStaticParseCache(reference_workspace=workspace)
+            )
         base_inventory = base_snapshot.inventory
 
     from agents_shipgate.cli.verify.changed_inputs import comparison_changed_inputs

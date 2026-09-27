@@ -1166,6 +1166,7 @@ def _legacy_baseline(inventory: dict) -> dict:
     }
     for grant in snapshot["grants"]:
         grant.pop("script_inputs", None)  # This reader did not exist in 0.6.
+    snapshot["artifacts"] = [item for item in snapshot["artifacts"] if item["kind"] != "hook_script"]
     legacy = {
         "host_grants_schema_version": "0.6",
         "scope": baseline["scope"],
@@ -1203,18 +1204,42 @@ def test_the_detail_is_left_out_of_equality_and_the_inventory_digest(tmp_path: P
     assert (presented.before, presented.after, presented.change) == ("PostToolUse", "PostToolUse", None)
 
 
-def test_a_0_6_hook_baseline_requires_dependency_evidence_before_comparison(tmp_path: Path) -> None:
-    from typer.testing import CliRunner
-
-    from agents_shipgate.cli.main import app
-
+def test_a_0_6_baseline_stays_comparable_and_may_be_re_saved(tmp_path: Path) -> None:
     root = tmp_path / "repo"
+    # A relative script path binds no dependency (#702), so a baseline that
+    # never read scripts loses nothing here.
     _write(root, SETTINGS, _hooks("Edit", "bin/lint.sh", 10))
     _write(root, ".mcp.json", _server("-y", "example-mcp-server@1.2.3"))
     path = root / ".agents-shipgate/host-grants.json"
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps(_legacy_baseline(_inventory(root)), indent=2, sort_keys=True) + "\n")
     assert load_host_grants_baseline(path)["host_grants_schema_version"] == "0.6"
+
+    drift = json.loads(_invoke([
+        "audit", "--host", "--workspace", str(root), "--drift", "--fail-on-drift", "--json",
+    ]))
+    assert (drift["comparison_status"], drift["has_drift"]) == ("comparable", False)
+
+    saved = json.loads(_invoke(["audit", "--host", "--workspace", str(root), "--save-baseline", "--json"]))
+    assert saved["status"] == "updated"
+    resaved = json.loads(path.read_text())
+    assert resaved["host_grants_schema_version"] == "0.7"
+    # Re-saving records the current comparison facts, the unresolved
+    # reference's limit among them; nothing else moved.
+    assert resaved == build_host_grants_baseline(_inventory(root))
+
+
+def test_a_0_6_hook_baseline_is_incomparable_only_where_a_script_is_bound(tmp_path: Path) -> None:
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+
+    root = tmp_path / "repo"
+    _write(root, SETTINGS, _hooks("Edit", '"${CLAUDE_PROJECT_DIR}/bin/lint.sh"', 10))
+    _write(root, "bin/lint.sh", "#!/bin/sh\n")
+    path = root / ".agents-shipgate/host-grants.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(_legacy_baseline(_inventory(root)), indent=2, sort_keys=True) + "\n")
 
     result = CliRunner().invoke(app, [
         "audit", "--host", "--workspace", str(root), "--drift", "--fail-on-drift", "--json",
@@ -1223,13 +1248,6 @@ def test_a_0_6_hook_baseline_requires_dependency_evidence_before_comparison(tmp_
     drift = json.loads(result.stdout)
     assert (drift["comparison_status"], drift["has_drift"]) == ("incomparable", None)
     assert "baseline_hook_script_inputs_unavailable" in drift["incomparable_reasons"]
-
-    saved = json.loads(_invoke(["audit", "--host", "--workspace", str(root), "--save-baseline", "--json"]))
-    assert saved["status"] == "updated"
-    resaved = json.loads(path.read_text())
-    assert resaved["host_grants_schema_version"] == "0.7"
-    # Explicitly re-saving captures current comparison facts, not old silence.
-    assert resaved == build_host_grants_baseline(_inventory(root))
 
 
 def test_an_older_baseline_is_still_refused_on_save(tmp_path: Path) -> None:

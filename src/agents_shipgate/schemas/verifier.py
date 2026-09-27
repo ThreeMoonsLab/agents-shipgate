@@ -822,6 +822,22 @@ class VerifierArtifact(BaseModel):
                 # comparison it could not complete (#808), so a partial one,
                 # or a limit naming a scope, is not that build's output.
                 raise ValueError("Legacy verifier cannot claim a partial host comparison")
+            if isinstance(comparison, dict) and (
+                any(key.startswith("input_script_") for key in comparison)
+                or any(
+                    isinstance(limit, dict) and limit.get("limit") == "unreadable"
+                    for limit in comparison.get("unchanged_limits") or []
+                )
+                or (
+                    isinstance(coverage, dict)
+                    and any(
+                        isinstance(item, dict) and item.get("status") == "script_not_resolved"
+                        for item in coverage.get("items") or []
+                    )
+                )
+            ):
+                # `0.20` never read a hook's script (#702).
+                raise ValueError("Legacy verifier cannot claim hook script dependencies")
             # Its coverage reads as it was published: every item a read
             # source, and the search for unread inputs not recorded.
             return {**normalized, "verifier_schema_version": "0.21"}

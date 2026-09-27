@@ -135,12 +135,13 @@ def compare_host_refs(
         # surface only: the same scope the live reader uses (#686, #688).
         from agents_shipgate.cli.verify.host_tree import materialize_host_tree
 
-        before = materialize_host_tree(workspace, base_commit, before, archive=archive_tree)
+        before, base_read = materialize_host_tree(workspace, base_commit, before, archive=archive_tree)
         after = workspace
+        head_read = None
         if head is not None:
             after = Path(scratch) / "head"
             after.mkdir()
-            after = materialize_host_tree(workspace, head_commit, after, archive=archive_tree)
+            after, head_read = materialize_host_tree(workspace, head_commit, after, archive=archive_tree)
         # Removing a configured gate, or selecting a historical head containing
         # one, is not first adoption. Leave the existing verifier route intact.
         if require_unconfigured and (
@@ -165,8 +166,12 @@ def compare_host_refs(
                 return ChangedInputs(paths=None)
             return comparison_changed_inputs(workspace, base_commit, compared_head, exclude=exclude)
 
-        base_snapshot = build_host_boundary_snapshot(before, cache=HostStaticParseCache(reference_workspace=workspace))
-        head_snapshot = build_host_boundary_snapshot(after, cache=HostStaticParseCache(reference_workspace=workspace))
+        base_snapshot = base_read or build_host_boundary_snapshot(
+            before, cache=HostStaticParseCache(reference_workspace=workspace)
+        )
+        head_snapshot = head_read or build_host_boundary_snapshot(
+            after, cache=HostStaticParseCache(reference_workspace=workspace)
+        )
         base_inventory = base_snapshot.inventory
         head_inventory = head_snapshot.inventory
         if exclude_plugin_reference_limits:
@@ -291,19 +296,24 @@ def enabled_plugin_hook_evidence(
     with no commit to compare (a provided diff) passes no ``base``, and only
     the tree it evaluates is read.
 
-    A script can have any filename, so both declaration trees are read for
+    A script can have any filename, so the head's declarations are read for
     every nonempty change. Only boundary declarations are archived here:
     lexical references establish selection, while the comparison separately
-    captures executable bytes. Both sides matter even when the head already
-    selects a path, since another host may have selected it only at the base.
-    An unreadable side leaves selection unestablished rather than guessed.
+    captures executable bytes. The base matters even when the head already
+    selects a path, since another host may have selected it only at the
+    base, so it is read too whenever the change touches a boundary surface.
+    A change that touches none leaves every declaration byte-identical, so
+    the base selects exactly what the head does and is not archived again
+    (#702 review). An unreadable side leaves selection unestablished rather
+    than guessed.
     """
 
-    # Executables may have any repository filename. Read both declaration
-    # trees before ruling out a changed file as a selected dependency.
+    # Executables may have any repository filename. Read the declarations
+    # before ruling out a changed file as a selected dependency.
     candidates = sorted(set(changed_files))
     if not candidates or not base:
         return None, None, []
+    declarations_changed = any(is_boundary_surface_path(path) for path in candidates)
 
     snapshot: HostBoundarySnapshot | None = None
     files = EnabledPluginHookFiles()
@@ -314,13 +324,15 @@ def enabled_plugin_hook_evidence(
                 commit_sha(workspace, "HEAD")
                 if base == "HEAD"
                 else merge_base_sha(workspace, base, "HEAD")
-            ]
+            ] if declarations_changed else []
             snapshot = build_host_boundary_snapshot(workspace, scope="repository")
             files = files.union(EnabledPluginHookFiles.of(snapshot))
         else:
             head_ref = head or "HEAD"
             # Preserve each host's selection from both declaration trees.
-            commits = [commit_sha(workspace, head_ref), merge_base_sha(workspace, base, head_ref)]
+            commits = [commit_sha(workspace, head_ref)]
+            if declarations_changed:
+                commits.append(merge_base_sha(workspace, base, head_ref))
         for commit in commits:
             if commit is None:
                 raise ValueError("a compared commit is not available locally")

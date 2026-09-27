@@ -16,6 +16,13 @@ def reference(command, *, host="claude-code", plugin_root=None, **fields):
 @pytest.mark.parametrize("command,fields", [
     ('"${CLAUDE_PROJECT_DIR}/scripts/guard.sh"', {}),
     ('"${CLAUDE_PROJECT_DIR}/scripts/guard.sh" --check', {}),
+    # The documented shell spellings (#702 review): quoted alone, quoted with
+    # the tail, and unquoted with a plain tail, braced or not.
+    ('"${CLAUDE_PROJECT_DIR}"/scripts/guard.sh', {}),
+    ('"$CLAUDE_PROJECT_DIR"/scripts/guard.sh --check', {}),
+    ('"$CLAUDE_PROJECT_DIR/scripts/guard.sh"', {}),
+    ("${CLAUDE_PROJECT_DIR}/scripts/guard.sh", {}),
+    ("$CLAUDE_PROJECT_DIR/scripts/guard.sh --check", {}),
     ("${CLAUDE_PROJECT_DIR}/scripts/guard.sh", {"args": []}),
     ("${CLAUDE_PROJECT_DIR}/scripts/guard.sh", {"args": ["--check"]}),
 ])
@@ -28,12 +35,55 @@ def test_explicit_project_anchor_is_independent_of_caller_environment(command, f
 
 
 @pytest.mark.parametrize("root", ["plugins/demo", ""])
-def test_plugin_anchor_requires_selection_evidence(root):
-    command = '"${CLAUDE_PLUGIN_ROOT}/scripts/guard.sh"'
+@pytest.mark.parametrize("command", [
+    '"${CLAUDE_PLUGIN_ROOT}/scripts/guard.sh"', '"${CLAUDE_PLUGIN_ROOT}"/scripts/guard.sh',
+    '"$CLAUDE_PLUGIN_ROOT"/scripts/guard.sh', "$CLAUDE_PLUGIN_ROOT/scripts/guard.sh",
+])
+def test_plugin_anchor_requires_selection_evidence(root, command):
     assert reference(command).limit == "plugin_root_not_established"
     result = reference(command, plugin_root=root)
     assert result.path == (root + "/" if root else "") + "scripts/guard.sh"
     assert result.basis == "plugin_root_placeholder"
+
+
+@pytest.mark.parametrize("command,limit", [
+    # Unquoted tails with shell metacharacters, another variable, a partial
+    # name, literal quoting and a concatenation the grammar does not read.
+    ("$CLAUDE_PROJECT_DIR/scripts/*.sh", "unsupported_shell_command"),
+    ("${CLAUDE_PROJECT_DIR}/scripts/guard.sh;true", "unsupported_shell_command"),
+    ('"$CLAUDE_PROJECT_DIRX"/scripts/guard.sh', "unsupported_shell_command"),
+    ("'$CLAUDE_PROJECT_DIR'/scripts/guard.sh", "unsupported_shell_command"),
+    ("'$CLAUDE_PROJECT_DIR/scripts/guard.sh'", "unexpanded_path_placeholder"),
+    ('"${CLAUDE_PROJECT_DIR}"/scripts/"guard.sh"', "unsupported_shell_command"),
+    ('"$HOME"/scripts/guard.sh', "unsupported_shell_command"),
+    ("$HOME/scripts/guard.sh", "unsupported_shell_command"),
+    # A wrapper runs a script this grammar does not follow; a bare command
+    # with no path- or script-shaped argument names no repository file.
+    ('python3 "$CLAUDE_PROJECT_DIR"/.claude/hooks/check.py', "interpreter_wrapper"),
+    ("bash guard.sh", "interpreter_wrapper"),
+    ("npx prettier --write .", "path_lookup"),
+    ("true", "path_lookup"),
+])
+def test_other_spellings_keep_a_precise_limit(command, limit):
+    result = reference(command, plugin_root="plugins/demo")
+    assert (result.path, result.limit) == (None, limit)
+
+
+def test_exec_form_substitutes_braced_placeholders_only():
+    assert reference("$CLAUDE_PROJECT_DIR/scripts/guard.sh", args=[]).limit == "dynamic_or_conditional_path"
+    wrapped = reference("node", args=["${CLAUDE_PLUGIN_ROOT}/scripts/format.js", "--fix"])
+    assert wrapped.limit == "interpreter_wrapper"
+
+
+def test_every_reference_limit_is_a_published_limit():
+    from typing import get_args
+
+    from agents_shipgate.core.hook_script_reference import ReferenceLimit
+    from agents_shipgate.schemas.host_grants import HostHookScriptInputV7, HostHookScriptLimitV7
+
+    assert set(get_args(ReferenceLimit)) <= set(get_args(HostHookScriptLimitV7))
+    with pytest.raises(ValueError):
+        HostHookScriptInputV7(handler=0, limit="an unregistered reason")
 
 
 @pytest.mark.parametrize("host", ["claude-code", "codex"])

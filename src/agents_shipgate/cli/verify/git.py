@@ -2327,8 +2327,16 @@ def archive_tree(
     *,
     scope: Callable[[str], bool] | None = None,
     record_gitlinks: bool = False,
+    rescope: Callable[[Path], tuple[Path, Callable[[str], bool]] | None] | None = None,
 ) -> dict[str, str]:
     """Materialize exact Git blobs without export-ignore or substitutions.
+
+    ``rescope``, with a ``scope``, is called with the materialized tree and
+    may name a second, empty destination and a wider scope: the same
+    verified object store then materializes that one too, so a reader that
+    learns from the first tree which further paths it needs (#702) does not
+    copy and verify the object graph twice. The gitlinks returned are the
+    last tree's.
 
     ``scope`` narrows the materialized tree to the paths a reader will
     actually open, plus every symlink — a linked directory is what can
@@ -2370,11 +2378,25 @@ def archive_tree(
             git_dir=git_dir,
             tree=tree if scope is not None else None,
         )
-        return _materialize_isolated_tree(
+        gitlinks = _materialize_isolated_tree(
             git_dir,
             tree=tree,
             destination=destination,
             scope=scope,
+            record_gitlinks=record_gitlinks,
+        )
+        wider = rescope(destination) if rescope is not None and scope is not None else None
+        if wider is None:
+            return gitlinks
+        again, wider_scope = wider
+        again.mkdir(parents=True, exist_ok=True)
+        if any(again.iterdir()):
+            raise ConfigError("Git archive destination must be empty")
+        return _materialize_isolated_tree(
+            git_dir,
+            tree=tree,
+            destination=again,
+            scope=wider_scope,
             record_gitlinks=record_gitlinks,
         )
 
@@ -3219,6 +3241,7 @@ def archive_fetched_tree(
     *,
     scope: Callable[[str], bool] | None = None,
     record_gitlinks: bool = False,
+    rescope: Callable[[Path], tuple[Path, Callable[[str], bool]] | None] | None = None,
 ) -> dict[str, str]:
     """:func:`archive_tree`, naming a partial clone's unfetched objects as such.
 
@@ -3234,7 +3257,8 @@ def archive_fetched_tree(
 
     try:
         return archive_tree(
-            workspace, commit, destination, scope=scope, record_gitlinks=record_gitlinks
+            workspace, commit, destination, scope=scope, record_gitlinks=record_gitlinks,
+            rescope=rescope,
         )
     except (ConfigError, subprocess.CalledProcessError) as exc:
         if promised_objects_missing(workspace, commit):

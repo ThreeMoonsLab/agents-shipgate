@@ -308,24 +308,51 @@ the Action tag) for reproducible CI.
 Host-grants `0.7` adds `script_inputs` to hook comparison facts and
 `hook_script` artifacts to the inventory and drift shapes. A supported direct
 executable reference binds the repository file's bytes, digest and size;
-selection remains host configuration or a project-enabled plugin. A script
-edit keeps the declaration digest unchanged and produces one attributed hook
-row, without a new permission expansion signal. The local boundary gate
-routes the selected dependency for review using both compared revisions.
+selection remains host configuration or a project-enabled plugin. The shell
+spellings the hooks documentation uses resolve: `"$CLAUDE_PROJECT_DIR"/path`,
+`"${CLAUDE_PROJECT_DIR}"/path`, the variable and path in one pair of double
+quotes, and either unquoted with a path free of shell metacharacters, and the
+same for `CLAUDE_PLUGIN_ROOT` in a plugin's hooks. A script edit keeps the
+declaration digest unchanged and produces one attributed hook row, without a
+new permission expansion signal. The local boundary gate routes the selected
+dependency for review; it reads the base's declarations only when the change
+touches a declaration, since otherwise both sides select alike.
 
-Baselines retain these comparison facts. A repository hook baseline without
-`script_inputs` is incomparable (`baseline_hook_script_inputs_unavailable`),
-not evidence that the old script was empty or unchanged. Recreate such a
-baseline only through the existing reviewed baseline workflow. Display-only
-handler detail remains excluded from baselines.
+A script this entry could not read costs that script, never the comparison.
+Its limit is a blocking `unreadable` issue on the script's own path. When both
+sides carry the same limit and Git proves the file the host would run
+unchanged, through any in-tree link on its path, it is named in
+`unchanged_limits` (`limit: unreadable`) and the comparison stays comparable.
+Otherwise only its bytes are withheld: the comparison is `partial`, its
+`blocking_limit` coverage item names the script as both `source` and `scope`,
+and every hook and other grant is still compared. A script whose working-tree
+bytes differ from the base only as `eol=crlf` or `core.autocrlf` can make
+them is no row and reads `unchanged_not_proven`. A mode-only change, such as
+`chmod +x`, is not compared.
+
+Verifier `0.21` and capability diff `0.4` add a `script_not_resolved`
+coverage item: a hook a host loads for this project runs a command whose
+script this entry does not resolve (an interpreter wrapper, a relative path,
+a conditional expansion such as `${VAR:-.}`, a compound command or a malformed
+group), named with each handler and its reason while the change could touch
+it. It is never a row, a widening or a limit. `script_inputs[].limit` is a
+closed list.
+
+Baselines retain these comparison facts. A pre-#702 baseline stays comparable
+unless one of its repository hooks now binds a script: then it is incomparable
+(`baseline_hook_script_inputs_unavailable`), not evidence that the old script
+was empty or unchanged. A hook whose entries hold limits only compares as
+before. Recreate such a baseline only through the existing reviewed baseline
+workflow. Display-only handler detail remains excluded from baselines.
 
 Verifier `0.21` worktree comparisons add `input_script_blobs`,
 `input_script_absent_paths` and `input_script_unconfirmable_paths` when needed.
 These bind consumed bytes and missing path components even when Git ignores
 them. Current control refuses changed dependencies or any unconfirmable read.
-Committed comparisons bind the immutable Git tree instead. No released schema
-changes, new check ID, runtime execution or script semantic interpretation is
-introduced. See the [supported reference shapes and limits](docs/host-boundary-support.md#hook-script-dependencies).
+Committed comparisons bind the immutable Git tree instead. A `0.20` verifier
+claiming any of these is refused. No released schema changes, new check ID,
+runtime execution or script semantic interpretation is introduced. See the
+[supported reference shapes and limits](docs/host-boundary-support.md#hook-script-dependencies).
 
 <a id="partial-host-comparison-808"></a>
 
@@ -419,7 +446,7 @@ Host-grants `0.6` shipped in 1.1.0, so this mints host-grants inventory, baselin
 
 **Compatibility.**
 - **A committed `0.4`, `0.5` or `0.6` baseline holding a workflow grant** is loaded but incomparable: it never read agent launches or checkout refs, so its silence is not evidence that none changed. `audit --host --drift` reports `comparison_status: incomparable` with `baseline_workflow_agent_launches_unavailable` among `incomparable_reasons` (beside the #771 and #693 reasons for a `0.4`/`0.5` one), `has_drift: null` and `next_action: null`, and exits `20` under `--fail-on-drift`; `preflight` raises a `high`, `actor: human` `host_grant_drift` signal naming it. To migrate, follow [the #771 steps](#workflow-step-action-references-contract-v40-771) from a checkout of the reviewed default branch, keeping the old file as `host-grants.v0.6.json`: review `audit --host`, move the baseline aside, `audit --host --save-baseline`, and confirm drift is comparable with `has_drift: false`.
-- **A `0.4`–`0.6` baseline with no workflow grant** stays comparable for drift. `audit --host --save-baseline` may replace a `0.6` baseline with no workflow grant, preserving #819’s display-only compatibility. A `0.6` baseline holding a workflow grant, and every older baseline, is refused with `unsupported_baseline_schema`; move it aside after review and re-save.
+- **A `0.4`–`0.6` baseline with no workflow grant** stays comparable for drift. `audit --host --save-baseline` may replace a `0.6` baseline with no workflow grant, preserving #819’s display-only compatibility. A `0.6` baseline holding a workflow grant, and every older baseline, is refused with `unsupported_baseline_schema`; move it aside after review and re-save. The one exception is #702's: a repository hook whose current reading binds a selected script names `baseline_hook_script_inputs_unavailable`, since that baseline never read the script's bytes; see [its migration note](#hook-script-dependencies-702).
 - **Git-backed `diff`, `check` and manifest-free `verify`** read both refs with the current reader and need no migration. Their rows keep their shape, and this change moves neither verifier `0.21` nor capability diff `0.4`, which are #821's. What changes is values: a workflow row can now be `widened` for an agent launch, its `before`/`after` cells list changed launches and checkout refs, and the `why` of every workflow row whose workflow runs an agent gains the note, so a consumer that matches `why` text exactly sees new text. No check id is added or removed, and `check` decides as before.
 - **Validators pinned to the `0.6` schemas** reject a `0.7` inventory, baseline or drift payload.
 - **`minimum_control_contract_version`** stays `21`.
@@ -510,7 +537,7 @@ baselines** below):
 - **The PR comment.** Its 6,000-character bound cuts at the first line that does not fit, so long entries could hide the rows after them, the coverage block, the change count, the review question, the reproduction and the advisory. The lines `1.1.0` printed get their room first: the coverage block is given the room the other lines leave with every entry in its shortest form (below), which is at least the room `1.1.0`'s lines left it, and the agent instruction block is chosen on those lines too, so the entries get only what is left. The first of these that fits is printed: every entry whole; every longer entry cut to the widest length of at least 60 characters at which the comment fits, ending in `…`; entries in their shortest form, longest first, down to every one that has one; and that without the line below. An entry's shortest form is, for a field-level difference, the difference cut after the name it opens with (`PreToolUse: …`, `docs: …`), and for an added or removed grant its row's own `before → after` (`(absent) → PreToolUse`); it is printed only where it is the shorter. A permission rule's entry and a joined change have none: they are never shortened. No entry in its shortest form is longer than the one `1.1.0` printed for the same row — a hook's read `PreToolUse → PreToolUse`, an MCP server's its name and at least one difference, an added hook its row — so wherever `1.1.0`'s own lines fit, every one of them is kept, entries aside. One line after the rows, not one per entry, reads ``Some entries are shortened here to fit; `verifier.json` holds each entry whole.``; it is left out only where it does not fit beside every other line. When not even the last fits, the bound cuts the rest, as it cut `1.1.0`'s, and the line naming what was cut is as long as `1.1.0`'s. `verifier.json` and every other route keep every entry whole. A comment written without a readiness report points to `verifier.json` when it omits detail (``- … more human summary detail omitted; see `verifier.json`.``), since that route writes no `report.md`.
 
 **Compatibility.**
-- **A committed `0.6` baseline without workflow grants** stays comparable. #823 requires review and replacement of older workflow baselines, which never read agent launches. Drift reads its grants without the new members and reports what contract v40 reported, with no new row, expansion signal or incomparable reason. `audit --host --save-baseline` may now replace it and reports `status: updated`, with no move-aside step. A baseline older than `0.6` is still refused with `unsupported_baseline_schema`, as the [#771 note](#workflow-step-action-references-contract-v40-771) describes.
+- **A committed `0.6` baseline without workflow grants** stays comparable. #823 requires review and replacement of older workflow baselines, which never read agent launches. Drift reads its grants without the new members and reports what contract v40 reported, with no new row, expansion signal or incomparable reason. `audit --host --save-baseline` may now replace it and reports `status: updated`, with no move-aside step. A baseline older than `0.6` is still refused with `unsupported_baseline_schema`, as the [#771 note](#workflow-step-action-references-contract-v40-771) describes. The one exception is #702's: a repository hook whose current reading binds a selected script names `baseline_hook_script_inputs_unavailable`, since that baseline never read the script's bytes; see [its migration note](#hook-script-dependencies-702).
 - **Git-backed `diff`, `check` and manifest-free `verify`** read both sides with the current reader and need no migration.
 - **Validators pinned to the `0.6` schemas** reject a `0.7` inventory, baseline or drift payload. The `0.6` schema files stay published.
 - **Verifier `0.21`, capability diff `0.4` (both moved by #821 in the same contract), `shipgate.agent_boundary_result/v3` and `minimum_control_contract_version` `21`** do not move for it.
@@ -1249,7 +1276,7 @@ No schema, contract or `minimum_control_contract_version` moves. What changes is
 - **Identity is unchanged.** `grant_id` and `config_sha256` do not depend on the basis, so the same file is the same grant before and after. An inline marketplace hook's `source` is `<marketplace>#plugins.<name>`.
 - **Enablement is read only where the repository proves it.** A `github`, `git`, `url` or `settings` marketplace source, an absolute, home-relative or escaping path, a plugin the marketplace does not list, and a value other than `true` leave the plugin's hooks at `execute`/`medium`. The `<marketplace>` in an `enabledPlugins` key matches the `extraKnownMarketplaces` key that registers the marketplace or the registered `marketplace.json`'s own `name`; neither is documented as the one Claude Code matches, so both are read, and the `name` alone never registers a marketplace. A `true` in either project settings file counts even when the other sets `false`, because a `false` in `.claude/settings.local.json` is one machine's opt-out. That file is usually uncommitted, but Claude Code reads it whenever it exists, so reading it errs toward showing the hook. User settings, installation state and workspace trust are never read.
 - **The basis is read only from these exact pairs.** A plugin hook's `source` is a hook file, a manifest or a marketplace entry, never a settings layer, which separates it from a settings hook with the same pair. A hook-file grant with none of the plugin pairs was recorded without a basis and is not described as selected. `1.0.0` recorded every hook file as `execute`/`high`, the enabled-plugin pair, and no field can tell them apart without a schema change. The engine reads a basis only from the current side of a change, and a removal row, the only row built from a baseline's grant, names no basis. So nothing a `1.0.0` baseline holds is described as selected or enabled.
-- **A saved baseline that recorded an unselected hook file as `execute`/`high`** stays comparable. Drift reports one `changed` grant for each of its events, with no expansion signal, so `--fail-on-drift` exits `20` once. Review the row, then move the old file aside (`git mv .agents-shipgate/host-grants.json .agents-shipgate/host-grants.v0.5.json`) and re-save the baseline: `--save-baseline` refuses to overwrite any baseline older than `0.6`, including every baseline `1.0.0` wrote. Nothing is hidden, and nothing is reported as a widening. Separately, #771 makes a `0.4` or `0.5` baseline holding a workflow grant incomparable; see [its migration note](#workflow-step-action-references-contract-v40-771).
+- **A saved baseline that recorded an unselected hook file as `execute`/`high`** stays comparable. Drift reports one `changed` grant for each of its events, with no expansion signal, so `--fail-on-drift` exits `20` once. Review the row, then move the old file aside (`git mv .agents-shipgate/host-grants.json .agents-shipgate/host-grants.v0.5.json`) and re-save the baseline: `--save-baseline` refuses to overwrite any baseline older than `0.6`, including every baseline `1.0.0` wrote. Nothing is hidden, and nothing is reported as a widening. Separately, #771 makes a `0.4` or `0.5` baseline holding a workflow grant incomparable; see [its migration note](#workflow-step-action-references-contract-v40-771). The one exception is #702's: a repository hook whose current reading binds a selected script names `baseline_hook_script_inputs_unavailable`, since that baseline never read the script's bytes; see [its migration note](#hook-script-dependencies-702).
 - **Plugin manifests, marketplaces and the hook files they select are newly read.** A manifest or marketplace enters the inventory only when it declares `hooks`, and only that member is digested, so a version bump is not drift. Every repository that has one drifts once against a `1.0.0` baseline, because that manifest or marketplace is a new artifact and a new observed source. Two shapes:
   - **A hook file `1.0.0` never read** — one a plugin selects outside the Claude Code registry paths, such as `plugins/demo/hooks/hooks.json` — is also a new grant. It carries a `hook_added` expansion signal only where the project settings enable the plugin, because such a hook was loaded all along.
   - **A hook file `1.0.0` did read**, such as a `.claude/hooks/hooks.json` an enabled plugin selects, keeps `1.0.0`'s `execute`/`high` and the same `grant_id`. The grant does not change, so `--fail-on-drift` exits `20` reporting **0 typed grant change(s)**, with no rows and no expansion signal. The added artifact and observed source are in `artifact_changes` and `coverage_changes` in `audit --host --drift --json`; the Markdown summary counts typed grant changes only.

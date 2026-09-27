@@ -672,6 +672,42 @@ class HostHookHandlerV7(BaseModel):
     timeout: bool | int | float | str | None = None
 
 
+#: Why a hook handler's script bytes were not established (#702): the
+#: reference grammar's reasons (``core.hook_script_reference.ReferenceLimit``),
+#: the event's shape and handler bound, an unselected hook, and the byte
+#: reader's limits on an established path.
+HostHookScriptLimitV7 = Literal[
+    "unsupported_host",
+    "not_command_handler",
+    "unsupported_command_shape",
+    "platform_command_override",
+    "unsupported_shell",
+    "unsupported_exec_form",
+    "unsupported_shell_command",
+    "dynamic_command_argument",
+    "unexpanded_path_placeholder",
+    "unsupported_path_placeholder",
+    "plugin_root_not_established",
+    "unsupported_or_escaping_path",
+    "dynamic_or_conditional_path",
+    "working_directory_not_established",
+    "interpreter_wrapper",
+    "path_lookup",
+    "external_executable",
+    "unsupported_hook_shape",
+    "handler_bound_exceeded",
+    "hook_selection_not_established",
+    "redacted_dependency_path",
+    "escaping_path",
+    "missing_input",
+    "symlink_input",
+    "non_regular_input",
+    "oversized_input",
+    "unsafe_or_unreadable_input",
+    "unreadable_input",
+]
+
+
 class HostHookScriptInputV7(BaseModel):
     """A direct executable reference and its byte reading, never script semantics."""
 
@@ -682,7 +718,7 @@ class HostHookScriptInputV7(BaseModel):
     basis: Literal["project_root_placeholder", "plugin_root_placeholder", "absolute_workspace_path"] | None = None
     sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     size_bytes: int | None = Field(default=None, ge=0)
-    limit: str | None = None
+    limit: HostHookScriptLimitV7 | None = None
 
 
 class HostHookComparisonV7(HostHookGrantV2):

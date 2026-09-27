@@ -1234,18 +1234,53 @@ def _handler_changes(before: list[dict[str, Any]], after: list[dict[str, Any]]) 
     return parts
 
 
+def _changed_hook_scripts(
+    before: dict[str, Any], after: dict[str, Any]
+) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
+    """Each selected script whose reading differs, with both readings, once per path (#702).
+
+    Only for a dependency-only change, whose declaration is identical on both
+    sides, so the entries pair by position: a malformed group's entry can
+    share a handler number with the handler after it.
+    """
+
+    changed: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
+    old, new = before.get("script_inputs") or [], after.get("script_inputs") or []
+    for index in range(max(len(old), len(new))):
+        left = old[index] if index < len(old) else {}
+        right = new[index] if index < len(new) else {}
+        if left != right:
+            path = published_workflow_label(
+                str(right.get("path") or left.get("path") or "unresolved path")
+            )
+            changed.setdefault(path, (left, right))
+    return [(path, left, right) for path, (left, right) in changed.items()]
+
+
+def hook_script_named_by(row: CapabilityDiffRow, path: str) -> bool:
+    """Whether a dependency-only hook row names this script as changed (#702).
+
+    The coverage text reads it, so a changed script whose change is on the
+    declaring hook's row is not described as a change no row shows.
+    """
+
+    if not row.why.startswith(_HOOK_SCRIPT_WHY):
+        return False
+    named = row.why.split(";", 1)[0][len(_HOOK_SCRIPT_WHY):].strip()
+    return path in named.split(", ")
+
+
+_HOOK_SCRIPT_WHY = "selected script bytes changed:"
+
+
 def _hook_dependency_change(before: dict[str, Any], after: dict[str, Any]) -> str:
-    old = {item["handler"]: item for item in before.get("script_inputs") or []}
-    new = {item["handler"]: item for item in after.get("script_inputs") or []}
-    parts = []
-    for index in sorted(set(old) | set(new)):
-        left, right = old.get(index, {}), new.get(index, {})
-        if left == right:
-            continue
-        path = published_workflow_label(str(right.get("path") or left.get("path") or "unresolved path"))
-        def digest(item):
-            return str(item.get("sha256") or item.get("limit") or "not read")[:64]
-        parts.append(f"script {path} bytes {digest(left)} → {digest(right)}")
+    def digest(item: dict[str, Any]) -> str:
+        return str(item.get("sha256") or item.get("limit") or "not read")[:64]
+
+    parts = [
+        f"script {path} bytes {digest(left)} → {digest(right)}"
+        for path, left, right in _changed_hook_scripts(before, after)
+    ]
     shown = "; ".join(parts[:3])
     if len(parts) > 3:
         shown += f"; {len(parts) - 3} more dependency changes"
@@ -1429,8 +1464,12 @@ def capability_diff_rows(
             agent_reasons=agent_reasons,
         )
         if hook_dependency_only_change(before_grant, after_grant):
+            # The digests are the change cell (`_hook_change`); the why names
+            # the scripts once, so the text does not print them twice.
+            scripts = [path for path, _left, _right in _changed_hook_scripts(before_grant, after_grant)]
+            named = ", ".join(scripts[:3]) + (f", {len(scripts) - 3} more" if len(scripts) > 3 else "")
             why = (
-                f"{_hook_dependency_change(before_grant, after_grant)}; "
+                f"{_HOOK_SCRIPT_WHY} {named}; "
                 f"declaration unchanged, selected by {hook_loading_basis(after_grant)}; "
                 "compares file bytes only, not permissions or runtime behavior"
             )
