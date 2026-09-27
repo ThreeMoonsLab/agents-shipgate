@@ -3,6 +3,13 @@
 Status: selected implementation design, 2026-09-24; **not a shipped API**.
 This settles the Days 1–5 input contract before Weeks 2–3 implementation.
 
+> **Status as of 2026-09-27: superseded in part.** #871 implemented part of
+> this design as a new `diff --application` flag with its own advisory JSON
+> schema (merged, not yet released), not through the existing capability
+> projection named below. #873 (closing #580), #877 and #879 (closing #864)
+> followed. See `docs/application-comparison.md` for the implemented
+> behavior; this page remains the 2026-09-24 design record.
+
 ## User outcome
 
 From a fresh unconfigured repository and precise PR refs, show what changed in

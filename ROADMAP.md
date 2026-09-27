@@ -37,6 +37,13 @@ September 14 historical plan below. #830 and external-outreach holds remain;
 Oct 14 / Nov 13 / Dec 13 are evidence checkpoints, not release promises.
 No ten-case value, external adoption or qualification claim is made.
 
+Status as of 2026-09-27: #870 closed #787; #871 merged `diff --application`
+(not yet released), an advisory application comparison with its own JSON
+schema; #873 closed #580, #877 extended its reach and #879 closed #864. #868,
+#655, #867, #865, #866, #610, #795, #812, #780, #369 and #830 remain open.
+
+<a id="lead-wedge-focus"></a>
+
 ## Historical lead wedge (September 14 focus)
 
 Two surfaces share one engine: **(A)** tool-surface readiness for agent builders,
@@ -55,6 +62,8 @@ Qualified behavior, tolerable noise and a usable human decision path precede
 blocking CI. Organization-wide adoption must be demonstrated. New surface
 follows the [non-goals](#explicit-non-goals) and
 [`CONTRIBUTING.md`](CONTRIBUTING.md#surface-discipline).
+
+<a id="post-10-adoption-plan-of-record-2026-09-14"></a>
 
 ## Historical post-1.0 adoption (2026-09-14; superseded above)
 

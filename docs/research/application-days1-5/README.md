@@ -33,6 +33,12 @@ valid; #853 merged, removing its source-pin caveat. #854–#859 retain their own
 observed defects. Hosted runs do not demonstrate external adoption (#571).
 This phase selects and reconciles those residuals; it does not claim they shipped.
 
+Status as of 2026-09-27 (the table above is the 2026-09-24 snapshot): #787 was
+closed by #870, #580 by #873 and #864 by #879. #871 merged `diff --application`
+(not yet released), a new flag with its own advisory JSON schema; #873, #877
+and #879 extended it. #868, #655, #867, #865, #866, #610, #795, #812, #780 and
+#369 remain open.
+
 ## Engines and method
 
 - Release: PyPI `agents-shipgate==1.1.0`, contract 40, Python 3.13.11.
@@ -69,7 +75,7 @@ an application-agent capability change.
 
 ### Reproduction
 
-Use each record's public PR repository and pinned refs from `replay.csv` / 
+Use each record's public PR repository and pinned refs from `replay.csv` /
 `fresh-adoption.json`. In a disposable clone, fetch the refs before analysis,
 checkout the head, and verify `git merge-base BASE HEAD`. Then run, separately
 with the release console script and the source checkout's `./shipgate`:
