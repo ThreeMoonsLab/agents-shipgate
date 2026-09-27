@@ -1289,9 +1289,12 @@ def _route_host_diff(
     listed = [row for row in payload.get("rows") or [] if isinstance(row, dict)]
     rows = [row for row in listed if row.get("expands") is True]
     # #820: an edit the engine cannot order is not a widening, and not silent.
+    # The marker is one `; ` clause of `why`; later notes (#825, #826) may
+    # follow it, so it is matched as a clause, not as the ending.
     unknown = [
         row for row in listed
-        if row.get("expands") is not True and str(row.get("why") or "").endswith(DIRECTION_UNKNOWN)
+        if row.get("expands") is not True
+        and DIRECTION_UNKNOWN in str(row.get("why") or "").split("; ")
     ]
     if not rows and not unknown:
         return 0
