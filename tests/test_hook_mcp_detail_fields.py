@@ -272,14 +272,18 @@ def test_several_handlers_name_which_one_changed(tmp_path: Path) -> None:
         *hooks(5)["hooks"]["PreToolUse"],
         {"matcher": "Write", "hooks": [{"type": "command", "command": "bin/scan.sh"}]},
     ]}}
-    for name, head, change in (
-        ("timeout", hooks(50), "PreToolUse: handler 2 timeout 5 → 50"),
-        ("added", added, f"PreToolUse: +handler (matcher Write, command scan.sh {_digest('bin/scan.sh')})"),
+    for name, head, header, change in (
+        ("timeout", hooks(50), HOOK_HEADER, "PreToolUse: handler 2 timeout 5 → 50"),
+        # One more handler on the event is an added hook, so it widens (#820).
+        (
+            "added", added, "⚠ high widened claude-code .claude/settings.json",
+            f"PreToolUse: +handler (matcher Write, command scan.sh {_digest('bin/scan.sh')})",
+        ),
     ):
         (tmp_path / name).mkdir()
         repo = _repository(tmp_path / name, {SETTINGS: hooks(5)}, {SETTINGS: head})
         text, _ = _diff(repo)
-        assert _table_entry(text, HOOK_HEADER)[1] == change, name
+        assert _table_entry(text, header)[1] == change, name
 
 
 #: What a reorder says: equal published handlers never establish equal

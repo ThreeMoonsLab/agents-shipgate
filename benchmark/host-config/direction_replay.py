@@ -31,6 +31,11 @@ CONTROLS = {
     "unsandbox": (SETTINGS, {"sandbox": {"enabled": True}}, {"sandbox": {"enabled": False}}),
     "addhook": (SETTINGS, {}, HOOK),
     "addmcp": (".mcp.json", {}, MCP),
+    # A second handler on an event that already had one (#820 review).
+    "addhandler": (SETTINGS, HOOK, {"hooks": {"PostToolUse": [
+        *HOOK["hooks"]["PostToolUse"],
+        {"matcher": "*", "hooks": [{"type": "command", "command": "bin/audit.sh"}]},
+    ]}}),
 }
 
 

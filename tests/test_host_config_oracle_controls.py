@@ -189,6 +189,19 @@ def test_direction_score_rejects_false_markers_and_missing_positive_markers():
     ({"enabledPlugins": {"demo": False}}, {"enabledPlugins": {"demo": True}}, "widening"),
     ({}, {"sandbox": {"enabled": False}}, "widening"),
     ({"sandbox": {"enabled": False}}, {"sandbox": {"enabled": True}}, "narrowing"),
+    # A marketplace registered anew widens what enabled plugins run (#720).
+    ({}, {"extraKnownMarketplaces": {"m": {"source": {"source": "directory", "path": "."}}}}, "widening"),
+    # One more handler on an event that already had one is an added hook.
+    (
+        {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "a"}]}]}},
+        {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "a"}, {"type": "command", "command": "b"}]}]}},
+        "widening",
+    ),
+    (
+        {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "a"}]}]}},
+        {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "b"}]}]}},
+        "changed",
+    ),
 ])
 def test_direction_oracle_distinguishes_disabling_from_enabling(before, after, direction):
     result = expected.expected(KIND, json.dumps(before), json.dumps(after))

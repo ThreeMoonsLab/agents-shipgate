@@ -9,7 +9,7 @@ import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
-from agents_shipgate.core.capability_diff_rows import capability_diff_rows
+from agents_shipgate.core.capability_diff_rows import DIRECTION_UNKNOWN, capability_diff_rows
 from agents_shipgate.core.host_grants import (
     _claude_grants,
     _codex_grants,
@@ -79,9 +79,14 @@ def test_mcp_argument_change_is_not_inferred_as_widening_or_narrowing(host):
     ("sandbox_mode", "danger-full-access", "workspace-write", False),
     ("sandbox_mode", "workspace-write", "danger-full-access", True),
     ("sandbox_mode", "read-only", "workspace-write", True),
-    ("sandbox_mode", "custom", "danger-full-access", False),
+    # An undocumented predecessor is not a host default: full access arriving
+    # widens as it does from nothing (#820 review).
+    ("sandbox_mode", "custom", "danger-full-access", True),
+    ("sandbox_mode", "workspace_write", "danger-full-access", True),
     ("approval_policy", "on-request", "never", False),
-    ("web_search", "cached", "live", False),
+    # `cached` has no external web access; `live` is unrestricted retrieval.
+    ("web_search", "cached", "live", True),
+    ("web_search", "live", "cached", False),
 ])
 def test_codex_settings_are_not_ranked_by_risk(setting, before, after, expands):
     _, signals, rows = _compare(_codex_grants, {setting: before}, {setting: after}, ".codex/config.toml")
@@ -183,15 +188,178 @@ def test_vscode_sandbox_direction_requires_the_documented_stdio_transport(server
     assert any(row.expands for row in rows) is expands
 
 
-def test_ambiguous_setting_predecessors_do_not_invent_a_default():
+def test_ambiguous_setting_predecessors_fall_back_to_a_new_declaration():
+    """Two values left, so neither is the one replaced: the arrival is read as
+    a new declaration, and `bypassPermissions` declared anew widens (#820 review)."""
+
     old = _claude_grants({"permissions": {"defaultMode": "default"}}, scope="repository", source=SETTINGS)
     old += _claude_grants({"permissions": {"defaultMode": "plan"}}, scope="repository", source=SETTINGS)
     new = _claude_grants({"permissions": {"defaultMode": "bypassPermissions"}}, scope="repository", source=SETTINGS)
     changes = diff_host_grants({"grants": old}, {"grants": new})
-    assert host_grant_expansion_signals(changes) == []
+    assert host_grant_expansion_signals(changes) == [f"permission_mode_added: claude-code:{SETTINGS}"]
 
 
 @pytest.mark.parametrize("value", ["False", "false", 0, None])
 def test_sandbox_disable_requires_a_boolean_not_a_lookalike(value):
     _, signals, rows = _compare(_claude_grants, {"sandbox": {"enabled": True}}, {"sandbox": {"enabled": value}})
     assert rows and not signals and not any(row.expands for row in rows)
+
+
+def _cursor(data, **kwargs):
+    from agents_shipgate.core.host_grants import _cursor_grants
+
+    return _cursor_grants(data, **kwargs)
+
+
+def _vscode(data, **kwargs):
+    from agents_shipgate.core.host_grants import _vscode_mcp_extras
+
+    return _mcp_grants(data, host="vscode", **kwargs) + _vscode_mcp_extras(data, **kwargs)[0]
+
+
+def _handlers(*groups):
+    return {"hooks": {"PostToolUse": [
+        {"matcher": matcher, "hooks": [{"type": "command", "command": command}]} for matcher, command in groups
+    ]}}
+
+
+@pytest.mark.parametrize("before,after,expands", [
+    # Hook grants are one per event, so a hook added to an event that already
+    # had one is a `changed` grant; one more declared handler is still an
+    # added hook (#820 review).
+    (_handlers(("Edit", "bin/lint.sh")), _handlers(("Edit", "bin/lint.sh"), ("*", "bin/x.sh")), True),
+    (_handlers(("Edit", "bin/lint.sh"), ("*", "bin/x.sh")), _handlers(("Edit", "bin/lint.sh")), False),
+    (_handlers(("Bash", "bin/guard.sh")), _handlers(("Bash", "bin/approve-everything.sh")), False),
+    (_handlers(("Edit", "bin/lint.sh")), _handlers(("*", "bin/lint.sh")), False),
+])
+def test_an_added_handler_on_an_existing_event_widens(before, after, expands):
+    changes, signals, rows = _compare(_claude_grants, before, after)
+    assert [change["current"]["kind"] for change in changes] == ["hook"]
+    assert bool(signals) is expands
+    [row] = rows
+    assert (row.direction, row.expands) == (("widened", True) if expands else ("changed", False))
+    # Neither a removed handler nor an edit is assumed to narrow.
+    assert row.why.endswith(DIRECTION_UNKNOWN) is not expands
+
+
+_TEAM = {"source": {"source": "github", "repo": "acme/plugins"}}
+_FORK = {"source": {"source": "github", "repo": "attacker/plugins"}}
+
+
+@pytest.mark.parametrize("before,after,direction", [
+    ({}, {"extraKnownMarketplaces": {"acme": _TEAM}}, "added"),
+    (
+        {"enabledPlugins": {"p@acme": True}, "extraKnownMarketplaces": {"acme": _TEAM}},
+        {"enabledPlugins": {"p@acme": True}, "extraKnownMarketplaces": {"acme": _FORK}},
+        "widened",
+    ),
+])
+def test_a_marketplace_added_or_repointed_still_expands(before, after, direction):
+    """#720 shipped this: what the enabled plugins install and run changes."""
+
+    _, signals, rows = _compare(_claude_grants, before, after)
+    assert signals
+    assert [(row.direction, row.expands, row.why) for row in rows] == [
+        (direction, True, "changes a plugin_or_app grant")
+    ]
+
+
+@pytest.mark.parametrize("app,expands", [
+    ({"default_tools_enabled": True}, True),  # `enabled` defaults to true.
+    ({"enabled": True}, True),
+    ({"enabled": False}, False),
+])
+def test_a_codex_app_declared_without_enabled_is_enabled(app, expands):
+    _, signals, rows = _compare(_codex_grants, {}, {"apps": {"docs": app}}, ".codex/config.toml")
+    assert bool(signals) is expands
+    assert [row.expands for row in rows] == [expands]
+
+
+def test_rereading_an_app_whose_enablement_was_not_recorded_does_not_widen():
+    """A baseline saved before `enabled` defaulted to true re-reads as enabled."""
+
+    current = _codex_grants(
+        {"apps": {"docs": {"default_tools_enabled": True}}}, scope="repository", source=".codex/config.toml",
+    )
+    saved = [{**grant, "enabled": None} for grant in current]
+    changes = diff_host_grants({"grants": saved}, {"grants": current})
+    assert changes and host_grant_expansion_signals(changes) == []
+    assert not any(row.why.endswith(DIRECTION_UNKNOWN) for row in capability_diff_rows({"changes": changes}))
+
+
+@pytest.mark.parametrize("reader,source,before,after,expands", [
+    # Claude Code sandboxing reference: commands run outside the sandbox,
+    # prompt-free sandboxed Bash, and a nested sandbox that weakens security.
+    (_claude_grants, SETTINGS, {"sandbox": {"enabled": True}},
+     {"sandbox": {"enabled": True, "excludedCommands": ["docker"]}}, True),
+    (_claude_grants, SETTINGS, {"sandbox": {"excludedCommands": ["docker"]}},
+     {"sandbox": {"excludedCommands": ["docker", "curl"]}}, True),
+    (_claude_grants, SETTINGS, {"sandbox": {"excludedCommands": ["docker", "curl"]}},
+     {"sandbox": {"excludedCommands": ["docker"]}}, False),
+    (_claude_grants, SETTINGS, {"sandbox": {"enabled": True}},
+     {"sandbox": {"enabled": True, "autoAllowBashIfSandboxed": True}}, True),
+    (_claude_grants, SETTINGS, {"sandbox": {"autoAllowBashIfSandboxed": True}},
+     {"sandbox": {"autoAllowBashIfSandboxed": False}}, False),
+    (_claude_grants, SETTINGS, {"sandbox": {"enabled": True}},
+     {"sandbox": {"enabled": True, "enableWeakerNestedSandbox": True}}, True),
+    (_claude_grants, SETTINGS, {"sandbox": {"network": {"allowedDomains": ["a.example"]}}},
+     {"sandbox": {"network": {"allowedDomains": ["*"]}}}, True),
+    (_claude_grants, SETTINGS, {"sandbox": {"network": {"allowedDomains": ["a.example", "b.example"]}}},
+     {"sandbox": {"network": {"allowedDomains": ["a.example"]}}}, False),
+    # Codex config reference: `writable_roots` adds writable directories.
+    (_codex_grants, ".codex/config.toml", {}, {"sandbox_workspace_write": {"writable_roots": ["/"]}}, True),
+    (_codex_grants, ".codex/config.toml", {"sandbox_workspace_write": {"writable_roots": ["/tmp/a", "/tmp/b"]}},
+     {"sandbox_workspace_write": {"writable_roots": ["/tmp/a"]}}, False),
+    # VS Code's MCP sandbox takes the same `network.allowedDomains`.
+    (_vscode, ".vscode/mcp.json", {"servers": {}, "sandbox": {"network": {"allowedDomains": ["a.example"]}}},
+     {"servers": {}, "sandbox": {"network": {"allowedDomains": ["*"]}}}, True),
+])
+def test_documented_sandbox_loosenings_widen_and_their_reverse_is_settled(reader, source, before, after, expands):
+    _, signals, rows = _compare(reader, before, after, source)
+    assert bool(signals) is expands
+    assert any(row.expands for row in rows) is expands
+    assert not any(row.why.endswith(DIRECTION_UNKNOWN) for row in rows)
+
+
+@pytest.mark.parametrize("before", [
+    {"permissions": {"defaultMode": "delegate"}},
+    {"permissions": {"defaultMode": "Default"}},
+])
+def test_an_undocumented_mode_does_not_hide_bypass_permissions(before):
+    _, signals, rows = _compare(_claude_grants, before, {"permissions": {"defaultMode": "bypassPermissions"}})
+    assert signals == [f"permission_mode_added: claude-code:{SETTINGS}"]
+    assert [row.after for row in rows if row.expands] == ["defaultMode: bypassPermissions"]
+
+
+@pytest.mark.parametrize("reader,source,before,after", [
+    (_codex_grants, ".codex/config.toml", {"approval_policy": "untrusted"}, {"approval_policy": "on-request"}),
+    (_codex_grants, ".codex/config.toml", {}, {"sandbox_mode": "workspace-write"}),
+    (_cursor, ".cursor/cli.json", {"sandbox": True}, {"sandbox": False}),
+    (_claude_grants, SETTINGS, {"disableAllHooks": True}, {"disableAllHooks": False}),
+    (_claude_grants, SETTINGS, {"permissions": {"defaultMode": "acceptEdits"}}, {"permissions": {"defaultMode": "auto"}}),
+    (_claude_grants, SETTINGS, {"sandbox": {"enabled": True}}, {"sandbox": {"enabled": "false"}}),
+    (_vscode, ".vscode/mcp.json", {"servers": {}, "sandbox": {"network": {"allowUnixSockets": ["/a"]}}},
+     {"servers": {}, "sandbox": {"network": {"allowUnixSockets": ["/b"]}}}),
+    (_claude_grants, SETTINGS, {"enabledPlugins": {"p@m": True}}, {"enabledPlugins": {"p@m": "yes"}}),
+])
+def test_an_edit_no_rule_orders_is_named_as_unknown(reader, source, before, after):
+    """#820 acceptance: not a widening, still a row, and named as such."""
+
+    _, signals, rows = _compare(reader, before, after, source)
+    assert not signals and not any(row.expands for row in rows)
+    arrived = [row for row in rows if row.direction != "removed"]
+    assert arrived and all(row.why.endswith(f"; {DIRECTION_UNKNOWN}") for row in arrived)
+    assert not any(row.why.endswith(DIRECTION_UNKNOWN) for row in rows if row.direction == "removed")
+
+
+@pytest.mark.parametrize("before,after", [
+    ({"permissions": {"defaultMode": "default"}}, {"permissions": {"defaultMode": "dontAsk"}}),
+    ({"permissions": {"defaultMode": "bypassPermissions"}}, {"permissions": {"defaultMode": "default"}}),
+    ({"sandbox": {"enabled": False}}, {"sandbox": {"enabled": True}}),
+    ({"enabledPlugins": {"p@m": True}}, {"enabledPlugins": {"p@m": False}}),
+    ({}, {"permissions": {"disableBypassPermissionsMode": "disable"}}),
+])
+def test_a_settled_tightening_is_neither_a_widening_nor_unknown(before, after):
+    _, signals, rows = _compare(_claude_grants, before, after)
+    assert not signals
+    assert not any(row.expands or row.why.endswith(DIRECTION_UNKNOWN) for row in rows)

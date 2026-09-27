@@ -13,6 +13,7 @@ import typer
 from agents_shipgate.checks.verify import TRUST_ROOT_SURFACES
 from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS
+from agents_shipgate.core.capability_diff_rows import DIRECTION_UNKNOWN
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.trust_roots import inspect_lexical_path_identity
 
@@ -482,8 +483,10 @@ def _hook_script_text() -> str:
         indent=4,
     )
     host_config = json.dumps(host_config_change_patterns(), indent=4)
-    return _HOOK_SCRIPT_TEMPLATE.replace("__PROTECTED_SURFACES_JSON__", surfaces).replace(
-        "__HOST_CONFIG_SURFACES_JSON__", host_config
+    return (
+        _HOOK_SCRIPT_TEMPLATE.replace("__PROTECTED_SURFACES_JSON__", surfaces)
+        .replace("__HOST_CONFIG_SURFACES_JSON__", host_config)
+        .replace("__DIRECTION_UNKNOWN_JSON__", json.dumps(DIRECTION_UNKNOWN))
     )
 
 
@@ -558,6 +561,11 @@ PROTECTED_SURFACES = __PROTECTED_SURFACES_JSON__
 # Rendered at install time from agents_shipgate.core.boundary_registry: the
 # host-configuration files and workflows `shipgate diff` compares (#661).
 HOST_CONFIG_SURFACES = __HOST_CONFIG_SURFACES_JSON__
+
+# Rendered at install time from agents_shipgate.core.capability_diff_rows: the
+# words a `diff` row's `why` ends with when the engine cannot establish which
+# way an edit that may widen authority went (#820).
+DIRECTION_UNKNOWN = __DIRECTION_UNKNOWN_JSON__
 
 
 def main() -> int:
@@ -1232,8 +1240,10 @@ def _route_host_diff(
 ) -> int:
     """Compare changed host configuration and speak only about widening (#661).
 
-    Quiet for a covered comparison with no row marked `expands`. Rows that
-    widen what the agent can do are named once: the announcement is bound to
+    Quiet for a covered comparison with no row marked `expands` and none whose
+    direction the engine could not establish (#820). Rows that widen what the
+    agent can do, and apart from them rows of unknown direction, such as a
+    hook command or MCP argument edit, are named once: the announcement is bound to
     the change's snapshot signature, the base and the rows, so an unchanged
     repeat stays quiet and any change is announced again. An incomparable,
     unparsed or unavailable comparison is never quiet. A row is a description,
@@ -1276,29 +1286,43 @@ def _route_host_diff(
             + (f" ({reasons})" if reasons else "")
             + f". Treat it as unreviewed and run `{manual}`.",
         )
-    rows = [row for row in payload.get("rows") or [] if isinstance(row, dict) and row.get("expands") is True]
-    if not rows:
+    listed = [row for row in payload.get("rows") or [] if isinstance(row, dict)]
+    rows = [row for row in listed if row.get("expands") is True]
+    # #820: an edit the engine cannot order is not a widening, and not silent.
+    unknown = [
+        row for row in listed
+        if row.get("expands") is not True and str(row.get("why") or "").endswith(DIRECTION_UNKNOWN)
+    ]
+    if not rows and not unknown:
         return 0
     digest = hashlib.sha256(
-        json.dumps([signature, base, rows], sort_keys=True).encode("utf-8")
+        json.dumps([signature, base, rows, *([unknown] if unknown else [])], sort_keys=True).encode("utf-8")
     ).hexdigest()
     state = _read_state(root)
     if state.get("last_host_diff_announcement") == digest:
         return 0
     state["last_host_diff_announcement"] = digest
     _write_state(root, state)
-    lines = [
-        f"- {row.get('subject')}: {row.get('before')} -> {row.get('after')} ({row.get('why')})"
-        for row in rows[:_MAX_ANNOUNCED_HOST_ROWS]
-    ]
-    if len(rows) > _MAX_ANNOUNCED_HOST_ROWS:
-        lines.append(f"- and {len(rows) - _MAX_ANNOUNCED_HOST_ROWS} more; run `{manual}`")
+
+    def lines(selected: list[dict[str, Any]]) -> str:
+        quoted = [
+            f"- {row.get('subject')}: {row.get('before')} -> {row.get('after')} ({row.get('why')})"
+            for row in selected[:_MAX_ANNOUNCED_HOST_ROWS]
+        ]
+        if len(selected) > _MAX_ANNOUNCED_HOST_ROWS:
+            quoted.append(f"- and {len(selected) - _MAX_ANNOUNCED_HOST_ROWS} more; run `{manual}`")
+        return "\n".join(quoted) + "\n"
+
     return _speak(
         collect,
         "Agents Shipgate compared the host configuration this change edits. "
-        "These rows widen what the agent can do:\n"
-        + "\n".join(lines)
-        + "\nQuote them to the user and in the pull request body. A row is a "
+        + (f"These rows widen what the agent can do:\n{lines(rows)}" if rows else "")
+        + (
+            "These rows may change what the agent can do; their direction is "
+            f"not established:\n{lines(unknown)}"
+            if unknown else ""
+        )
+        + "Quote them to the user and in the pull request body. A row is a "
         "description, never a permission.",
     )
 

@@ -9,21 +9,21 @@
       "rows": 84,
       "marked_rows": 69,
       "scored_marked_rows": 65,
-      "false_marked_rows": 8,
-      "expected_widenings": 60,
-      "marked_widenings_found": 59
+      "false_marked_rows": 7,
+      "expected_widenings": 61,
+      "marked_widenings_found": 60
     },
     "control": {
-      "cases": 11,
-      "scored_cases": 11,
+      "cases": 12,
+      "scored_cases": 12,
       "incomparable_cases": 0,
       "unclassified_cases": 0,
-      "rows": 15,
-      "marked_rows": 11,
-      "scored_marked_rows": 11,
+      "rows": 16,
+      "marked_rows": 12,
+      "scored_marked_rows": 12,
       "false_marked_rows": 6,
-      "expected_widenings": 5,
-      "marked_widenings_found": 5
+      "expected_widenings": 6,
+      "marked_widenings_found": 6
     }
   },
   "records": [
@@ -597,9 +597,9 @@
       "rows": 2,
       "marked_rows": 2,
       "scored_marked_rows": 2,
-      "false_marked_rows": 1,
-      "expected_widenings": 1,
-      "marked_widenings_found": 1
+      "false_marked_rows": 0,
+      "expected_widenings": 2,
+      "marked_widenings_found": 2
     },
     {
       "case": "openbootdotdev__openboot__pr136",
@@ -869,6 +869,20 @@
     },
     {
       "case": "addmcp",
+      "group": "control",
+      "cases": 1,
+      "scored_cases": 1,
+      "incomparable_cases": 0,
+      "unclassified_cases": 0,
+      "rows": 1,
+      "marked_rows": 1,
+      "scored_marked_rows": 1,
+      "false_marked_rows": 0,
+      "expected_widenings": 1,
+      "marked_widenings_found": 1
+    },
+    {
+      "case": "addhandler",
       "group": "control",
       "cases": 1,
       "scored_cases": 1,

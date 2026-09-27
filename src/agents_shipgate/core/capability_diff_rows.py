@@ -38,6 +38,7 @@ from agents_shipgate.core.host_grants import (
     agent_rule_text,
     checkout_ref_key,
     hook_loading_basis,
+    host_grant_direction_unknown,
     host_grant_expansion_signals,
     permission_rule_replacements,
     published_setting_value,
@@ -555,6 +556,12 @@ ADDED = "added"
 REMOVED = "removed"
 WIDENED = "widened"
 CHANGED = "changed"
+#: The words a row's `why` ends with when the engine cannot establish which
+#: way an edit that may widen authority went (#820): an MCP or loaded-hook
+#: edit, an unestablished plugin enablement, or a setting no documented rule
+#: orders. The row is named, never silent, and the Claude Code Stop hook,
+#: which renders this text at install time, announces it beside widenings.
+DIRECTION_UNKNOWN = "authority direction is unknown"
 
 
 def _grant_value(
@@ -1409,21 +1416,24 @@ def capability_diff_rows(
             gone_secrets=gone_secrets, new_secrets=new_secrets,
             agent_reasons=agent_reasons,
         )
-        if direction == CHANGED and grant.get("kind") == "mcp_server":
-            why = "MCP edit; authority direction is unknown"
-        if direction == CHANGED and grant.get("kind") == "hook":
-            if hook_loading_basis(grant) == "host_configuration":
-                why = "hook edit; authority direction is unknown"
-            else:
-                why += "; authority direction is unknown"
-        if grant.get("kind") == "plugin_or_app" and after_grant is not None:
-            enabled = after_grant.get("enabled")
-            if enabled is False:
+        kind = grant.get("kind")
+        if (
+            kind == "plugin_or_app" and after_grant is not None
+            and not str(after_grant.get("name", "")).startswith("marketplace:")
+        ):
+            if after_grant.get("enabled") is False:
                 why = "declares this plugin or app disabled"
             elif expands:
                 why = "enables this plugin or app"
-            else:
-                why += "; the direction of authority change is not established"
+        if not expands and host_grant_direction_unknown(
+            change, comparison_changes=payload.get("changes") or [],
+        ):
+            # Named as such, never silent, and never assumed to narrow (#820).
+            if kind == "mcp_server":
+                why = "MCP edit"
+            elif kind == "hook" and hook_loading_basis(grant) == "host_configuration":
+                why = "hook edit"
+            why += f"; {DIRECTION_UNKNOWN}"
         row = CapabilityDiffRow(
             subject=_subject(grant),
             before=_grant_value(
