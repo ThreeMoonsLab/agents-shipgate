@@ -2,6 +2,17 @@
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
+Unreleased #829 adds a source-local residual-prefix explanation to the existing
+host comparison row `why` text for supported Claude Code `git push` allows.
+It reads all compared head deny rules in that source, including unchanged
+ones, and lists only fixed documented examples outside every deny prefix.
+Unknown, compound, equal, broader or unrelated deny shapes withhold the note.
+CLI, JSON and PR review explanations use the same rows; `check`, whose rows
+redact rule arguments, omits the note, since its examples would spell out the
+redacted prefix. No field, schema,
+direction, expansion, severity, check decision or authority changes. The note
+describes pattern coverage, not runtime approval; other rules still apply.
+
 Unreleased, runtime contract v41: a host comparison names the changed inputs it
 does not read (#821). Verifier `0.21` and capability diff `0.4` add a
 `changed_not_read` coverage item, with the `candidate` rule that named it, for
@@ -300,6 +311,222 @@ from the shipped `v0.15.0` contract are in
 the Action tag) for reproducible CI.
 
 ---
+
+<a id="mcp-launch-source-825"></a>
+
+## Migration Note: Unreleased — mutable MCP launch source notes (#825)
+
+Host-grants 0.7 / contract 41 are extended in place. MCP inventory grants add
+optional `launch_source`: `null` when not established, otherwise a `pin` of
+`pinned` or `mutable` plus nullable `package`. The latter passes the existing
+#819 publication gate. Saved baselines omit this display-only fact; grant
+comparison and inventory digests exclude it. Historical baseline absence
+establishes no prior pin, and creates no synthetic change.
+
+The existing row `why` appends a mutable-source note for an added or changed
+MCP declaration recognized by the [bounded launcher grammar](docs/engineering/mcp-launch-source-notes.md).
+A pinned-to-mutable transition names both sides only when both are established.
+Pinned, removed, unknown/dynamic/wrapped and remote URL sources get no note.
+Diff text/JSON, check, verifier host comparison and PR comments share it.
+Direction, expands, severity, expansion signals and check/control decisions
+are unchanged. There is no new check ID, row field or schema discriminator.
+The note says mutable, not unsafe; it is not an actionability or outreach claim.
+
+<a id="permission-review-guidance-839"></a>
+
+## Migration Note: Unreleased — conditional shell-permission review guidance (#839)
+
+The existing maintained `review.changes[]` gains optional `guidance`: a bounded
+projection of raw Claude Code shell-rule evidence, a specific intent question,
+conditional human choices, limitations, an advisory owner and a declaration
+comparison target. It neither decides nor grants authority. Redacted,
+unsupported, conflicting or incomplete evidence withholds specific choices;
+legacy payloads are never interpreted by parsing their display cells.
+CLI and PR output render the same published projection after existing facts,
+coverage and authority. Whole-item bounds retain an omitted count and the JSON
+evidence pointer. Existing rows, inventory digests and control are unchanged.
+
+Verifier `0.21`, capability diff `0.4` and runtime contract v41 are unreleased
+and extended in place. The frozen `0.20` schema stays unchanged; a payload
+claiming that version cannot carry `guidance`. Current readers accept missing
+guidance as unrecorded, not as proof that no review is needed; a recorded
+`guidance: null` is a change that is not a supported shell case, and prints
+nothing. See the
+[case mapping and limitations](docs/engineering/permission-review-guidance.md).
+
+<a id="grant-direction-820"></a>
+
+## Migration Note: Unreleased — changed grants are not automatically widenings (#820)
+
+Host-grants `0.7` and contract 41 are extended in place. The issue originally
+named unreleased `0.6`/40; those shipped in 1.1.0 and remain frozen. No field,
+schema discriminator, check ID or severity changes here.
+
+Previously every added or changed MCP server, loaded hook, plugin, permission
+mode or sandbox setting emitted an expansion signal. A guard added to a hook,
+an MCP `--read-only` argument, disabling a plugin, changing `bypassPermissions`
+to `default`, and enabling the sandbox therefore all got widening markers.
+Now only a documented gain does:
+
+- A new MCP server or a new loaded hook. That includes a hook whose declaration
+  gains established loading from a previously declared-only or selected
+  plugin, and one more handler on an event that already had one: hook grants
+  are one per event, so that added hook is a `changed` grant whose #819
+  handler count grows. Other command, matcher, timeout, package, argument and
+  endpoint changes remain visible using #819's fields. They establish neither
+  widening nor narrowing.
+- A plugin or app enabled when newly declared, or where it was disabled or its
+  enablement was not established. Codex documents `apps.<id>.enabled` as
+  defaulting to `true`, so an app table without the key is enabled. A Claude
+  Code marketplace added to or re-pointed in `extraKnownMarketplaces` still
+  expands, as #720 shipped: the enabled plugins install from it. Disabling a
+  plugin, adding it disabled, or changing an already-enabled app's other
+  configuration establishes no gain. Non-boolean Claude Code enablement is now
+  unknown (`enabled: null`), not coerced to true. The nullable field and
+  configuration digest already exist.
+- A documented less restrictive Claude Code mode. `default`, `dontAsk` and
+  `plan` can widen to modes that permit more actions; `bypassPermissions` can
+  widen from the other known modes. `auto` and `acceptEdits` are not ordered
+  against each other. A newly declared `acceptEdits`, `auto` or
+  `bypassPermissions` is explicitly permissive; a newly declared `default`,
+  `dontAsk` or `plan` is not an expansion.
+- A new named project MCP approval or an explicit switch enabling all project
+  MCP servers or skipping the bypass-mode confirmation. Disabling those
+  switches does not expand. These are typed booleans, not string lookalikes.
+- Loosening a documented sandbox control. For Claude Code: disabling the
+  sandbox, permitting unsandboxed commands, `autoAllowBashIfSandboxed: true`,
+  `enableWeakerNestedSandbox: true`, a new `excludedCommands` entry, or a new
+  `network.allowedDomains` entry (including `*`). For VS Code `mcp.json`:
+  disabling a stdio server's sandbox, or a new `sandbox.network.allowedDomains`
+  entry. For Codex: known sandbox modes are ordered `read-only` <
+  `workspace-write` < `danger-full-access`, and adding explicit full access or
+  widening that order expands; so do enabling `workspace-write` networking,
+  keeping `/tmp` or `$TMPDIR` writable, a new `writable_roots` entry, and a
+  `web_search` mode ordered `disabled` < `cached` < `indexed` < `live` that
+  rises, or `live` declared anew.
+
+A replaced value that is absent, ambiguous (several values of the setting left)
+or not a documented value is not a host default: the arrival is read as a new
+declaration, so a typo, an undocumented mode such as `delegate`, or two
+predecessors cannot hide `bypassPermissions` or `danger-full-access` arriving.
+
+The rules follow the hosts' [permission-mode](https://code.claude.com/docs/en/permissions#permission-modes),
+[settings](https://code.claude.com/docs/en/settings),
+[sandboxing](https://code.claude.com/docs/en/sandboxing),
+[VS Code MCP sandbox](https://code.visualstudio.com/docs/agents/reference/mcp-configuration#sandbox-configuration), and
+[Codex configuration](https://learn.chatgpt.com/docs/config-file/config-reference)
+references. They compare declared facts, not runtime behavior or effective
+session defaults. In particular Codex `approval_policy: never` is not treated
+as bypassing its sandbox. Removing a setting does not invent its replacement.
+
+**An edit whose direction is not established is named, not silent.** A
+same-identity MCP or loaded-hook edit with no gain, a plugin or app whose
+enablement is not established, and an added setting value no rule above orders
+(Codex `approval_policy`, a Cursor `cli.json` setting, `disableAllHooks`,
+`acceptEdits` ↔ `auto`, a string lookalike, and so on) is a row with
+`expands: false` whose `why` ends `authority direction is unknown`. The Claude
+Code Stop hook announces those rows once, under their own heading, beside the
+widenings it already announced. A settled tightening (a disabled plugin, a
+more restrictive mode, an enabled sandbox, a smaller list) and an edit to a
+hook nothing loads (#714) stay quiet.
+
+`mcp_server_changed` is no longer emitted for arbitrary server edits.
+`hook_changed` requires a gain in established loading or declared handlers. The existing
+`plugin_or_app_*`, `permission_mode_*`, and `sandbox_*` strings remain, but
+only for the gains above. A same-identity edit with no gain is `changed` with
+`expands: false`.
+Settings whose identity includes their value keep their removed/added rows.
+Each arrival is evaluated against its own host, source and setting, so a
+tightening cannot inherit another setting's widening marker in the same file.
+
+Three reader corrections re-read unchanged files differently, so a baseline
+saved before this change can show a `changed` row without a new expansion
+signal after upgrading: a Claude Code non-boolean `enabledPlugins` value
+publishes `enabled: null` instead of `true`, a Codex app without `enabled`
+publishes `true` instead of `null`, and a VS Code `sandboxEnabled: false` on a
+server whose stdio transport is not established publishes `access: unknown`
+instead of `admin`. Save the baseline again to clear them.
+
+`diff`, verifier host comparisons, PR comments, `check` rows, drift and
+preflight use the same expansion evidence. **Check decisions are unchanged:**
+the existing rules still review hook/MCP edits and permission settings at their
+documented severity, even when direction is unknown or tightening. A widening
+marker is not the control signal, and removing one grants no merge authority.
+The [direction benchmark](benchmark/host-config/direction-replay-820.md) records
+before/after counts separately from the historical row-presence scores.
+
+
+<a id="exec-equivalent-permissions-824"></a>
+
+## Migration Note: Unreleased — arbitrary-code launcher allow rules (#824)
+
+Host-grants 0.7 / contract 41 are extended in place. The documented
+[launcher table](docs/engineering/exec-equivalent-permissions.md) rates exact
+Bash launcher prefixes followed by ` *` or `:*` as `admin`/`critical`, previously
+`execute`/`medium`. It covers interpreter and shell eval flags, package/environment
+runners, Docker exec/run, `sudo` and argument forwarders. A Bash allow rule the
+containment lattice decides is wider than one of those rules is rated the same, so
+`Bash(python3 *)`, `Bash(docker *)`, `Bash(uv *)`, `Bash(npx*)` and `Bash(n*)` are
+`admin`/`critical` too, previously `execute`/`medium`: widening a rule can no
+longer lower its rating. Exact commands, rules that are not wider (`Bash(n *)`,
+`Bash(npm *)`) and unlisted forms retain their prior ratings. Ask and deny ratings
+remain `none`/`low`.
+
+Rows say “reaches arbitrary code through a launcher, without a prompt”. Diff,
+host audit, check rows, verifier host comparison and PR comments agree, and the
+`audit --host` Markdown line that names
+`SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` counts these rules and says how many
+reach a launcher. Check shows these rules in evidence and rows in table text
+(`Bash(npx *)`, `Bash(python3 *)`), while all other operands remain redacted. No
+field or schema discriminator is added; the `wildcard` field is unchanged.
+
+A newly granted tier rule uses the existing critical/block
+`SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` route instead of the
+require-review `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` route. No check ID
+is added or removed. The containment lattice and expansion signals are unchanged:
+a review rating is not an assertion that the rule matches every Bash command,
+bypasses a sandbox or overrides deny/ask precedence. Re-rating an unchanged
+saved launcher declaration from an older baseline creates no expansion signal.
+`check` no longer treats respelling a Bash rule as a new grant: replacing
+`Bash(npx:*)` with `Bash(npx *)`, or `Bash(npm test:*)` with `Bash(npm test *)`,
+raises no allow finding, where it previously raised
+`SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` (review). `diff` still shows it as a
+removal and an addition.
+
+
+<a id="skill-metadata-848"></a>
+
+## Migration Note: Unreleased — free-form skill metadata (#848)
+
+In 1.1.0 (contract 40), a skill with `metadata: {internal: true}` made the
+whole host comparison incomparable. The same happened for integer and nested
+metadata values, and for a `metadata` that is not a map (`metadata: [a, b]`,
+`metadata: internal`, `metadata: true`), hiding a fully readable permission
+widening in another file. The shared skill structure projection now reads
+these values without converting them to strings. Text and JSON compare the
+skill and retain the unrelated rows; no new schema or control state is
+introduced in contract 41.
+
+This follows [Claude Code's frontmatter reference](https://code.claude.com/docs/en/skills#frontmatter-reference),
+which documents a free-form metadata map and does not use its contents to
+grant authority. It is not a claim of portable skill validity: the
+[Agent Skills specification](https://agentskills.io/specification#metadata-field)
+requires string values. All metadata remains in the structure digest, so
+changing a value still changes the declaration; a prose-only edit can prove
+unchanged structure. Existing string-only metadata digests are unchanged.
+
+Claude Code documents that it drops a `metadata` value that is not a map.
+This reader does not drop it: the value is digested as written, as an
+undocumented key is (#730), so it is read with no limit and a change to it,
+including from a map to a list or back, is still a changed skill.
+
+The bounded reader still refuses an unterminated fence, invalid YAML,
+non-mapping frontmatter, aliases, tags, duplicate keys and unencodable values.
+It requires string keys at every depth of `metadata`, map or not, preventing
+distinct YAML keys (`true` and `'True'`) from collapsing into one JSON digest
+member, so a metadata key YAML reads as a number, date, boolean or null
+(`1:`, `2026-01-29:`, `on:`) still refuses. No declared tool or hook is
+ignored.
 
 <a id="workflow-access-label-859"></a>
 
@@ -819,7 +1046,7 @@ reader reads an in-tree link at a boundary path through to its target
 ([#700](#link-read-through-at-boundary-paths-contract-v39-700)),
 but the unchanged proof accepted only a file at its own path, so a limit on a
 file read through a link refused the whole comparison. With a skill whose
-`metadata.internal` is `true`, which this entry's bounded profile does not
+`metadata` has the key `1`, which this entry's bounded profile does not
 accept, and a change that only drops `deny: Bash(curl *)` from
 `.claude/settings.json`:
 
@@ -860,10 +1087,11 @@ accept, and a change that only drops `deny: Bash(curl *)` from
   copy, or rewritten to land on the same file (`../../skills/review` to
   `../../skills/./review`), a link replaced by a directory holding the same
   bytes or the reverse, and any later link of a chain retargeted.
-- **Not coerced.** The metadata value is not reinterpreted: `internal: true`
-  is still an unresolved structure, `unsupported`, published with the same
-  `detail` as at a direct path. `internal: "true"` was and is read, with no
-  limit.
+- **Not coerced.** Metadata is not reinterpreted: the key `1` is not read as
+  the string `"1"`, so it is still an unresolved structure, `unsupported`,
+  published with the same `detail` as at a direct path. Since
+  [#848](#skill-metadata-848), `internal: true` is read as written, with no
+  limit, as `internal: "true"` was and is; the two digest apart.
 - **Who reads the proof.** One function answers it for every consumer, so they
   move together: `unchanged_limits` in `diff --json` and `verifier.json`; the
   `Not compared: unchanged in this change and not read` list of `diff`,

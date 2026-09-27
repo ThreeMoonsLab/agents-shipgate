@@ -34,6 +34,36 @@ _spec.loader.exec_module(cold)
 WORKFLOW_KIND = ".github/workflows/"
 
 
+def direction_counts(record: dict[str, Any]) -> dict[str, int]:
+    """Score the widening claim separately from merely naming a change (#820).
+
+    Keep the historic row/recall scores unchanged. Unknown scopes and failed
+    comparisons are counted explicitly, never credited as correct negatives.
+    Workflow attribution remains file-level, as in the original scorer.
+    """
+
+    payload = record.get("payload") or {}
+    expectation = record.get("expectation") or {}
+    comparable = record.get("stop_point") == "comparison_comparable"
+    supported = expectation.get("scope") == "supported"
+    rows = [row for row in payload.get("rows", []) if str(row.get("subject", "")).endswith(" " + record["path"])]
+    marked = [row for row in rows if row.get("expands") is True]
+    widenings = [change for change in expectation.get("changes", []) if change.get("semantic_direction") == "widening"]
+
+    def matches(row, change):
+        return record["kind"] == WORKFLOW_KIND or cold._row_matches(row, change)
+
+    scored = comparable and supported
+    return {
+        "cases": 1, "scored_cases": int(scored), "incomparable_cases": int(not comparable),
+        "unclassified_cases": int(not supported), "rows": len(rows), "marked_rows": len(marked),
+        "scored_marked_rows": len(marked) if scored else 0,
+        "false_marked_rows": sum(not any(matches(row, change) for change in widenings) for row in marked) if scored else 0,
+        "expected_widenings": len(widenings) if supported else 0,
+        "marked_widenings_found": sum(any(matches(row, change) for row in marked) for change in widenings) if scored else 0,
+    }
+
+
 def score_record(record: dict[str, Any]) -> dict[str, Any]:
     """One case's outcome; the keys `scores.csv` and `replay.json` both publish."""
 

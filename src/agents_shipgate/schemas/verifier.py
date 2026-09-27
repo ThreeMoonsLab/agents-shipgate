@@ -792,6 +792,12 @@ class VerifierArtifact(BaseModel):
         legacy_version = normalized.get("verifier_schema_version")
         if legacy_version == "0.20":
             comparison = normalized.get("host_comparison")
+            review = comparison.get("review") if isinstance(comparison, dict) else None
+            if isinstance(review, dict) and any(
+                isinstance(change, dict) and "guidance" in change
+                for change in review.get("changes") or []
+            ):
+                raise ValueError("Legacy verifier cannot claim permission review guidance")
             coverage = comparison.get("coverage") if isinstance(comparison, dict) else None
             if isinstance(coverage, dict) and (
                 coverage.get("read_sources_only") is False

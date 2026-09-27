@@ -969,7 +969,7 @@ def test_clean_and_changed_v02_drift(tmp_path: Path) -> None:
     assert code == 0
     assert changed["has_drift"] is True
     assert changed["changes"]
-    assert "mcp_server_changed: claude-code:github" in changed["expansion_signals"]
+    assert "mcp_server_changed: claude-code:github" not in changed["expansion_signals"]
 
 
 def test_zero_grant_recognized_artifact_is_bound_into_drift(tmp_path: Path) -> None:
@@ -1182,7 +1182,7 @@ def test_toml_yaml_parser_errors_never_echo_source_lines(
     assert any(issue["kind"] == "parse_failed" for issue in inventory["issues"])
 
 
-def test_deny_removal_and_hook_change_are_expansion_signals(tmp_path: Path) -> None:
+def test_deny_removal_expands_but_hook_command_change_has_unknown_direction(tmp_path: Path) -> None:
     _seed_workspace(tmp_path)
     _save_baseline(tmp_path)
     path = tmp_path / ".claude/settings.json"
@@ -1192,7 +1192,7 @@ def test_deny_removal_and_hook_change_are_expansion_signals(tmp_path: Path) -> N
     path.write_text(json.dumps(data), encoding="utf-8")
     drift = _drift_json(tmp_path)[1]
     assert "deny_rule_removed: claude-code:WebFetch" in drift["expansion_signals"]
-    assert "hook_changed: claude-code:.claude/settings.json" in drift["expansion_signals"]
+    assert "hook_changed: claude-code:.claude/settings.json" not in drift["expansion_signals"]
 
 
 def test_legacy_v01_baseline_is_incomparable_advisory_and_strict_20(tmp_path: Path) -> None:

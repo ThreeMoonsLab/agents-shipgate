@@ -1,0 +1,9 @@
+name: Example
+on: [pull_request]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo example

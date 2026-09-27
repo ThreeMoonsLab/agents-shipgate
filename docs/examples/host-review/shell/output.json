@@ -1,0 +1,75 @@
+{
+  "base_commit": "7a401ae9c08d66dc72755890fbd3535ddcb50918",
+  "base_ref": "7a401ae9c08d66dc72755890fbd3535ddcb50918",
+  "capability_diff_schema_version": "0.3",
+  "comparison_status": "comparable",
+  "coverage": {
+    "items": [
+      {
+        "detail": null,
+        "hosts": [
+          "claude-code"
+        ],
+        "limit": null,
+        "rows": 2,
+        "scope": null,
+        "side": "both",
+        "source": ".claude/settings.json",
+        "status": "compared"
+      }
+    ],
+    "omitted_items": 0,
+    "read_sources_only": true
+  },
+  "incomparable_reasons": [],
+  "review": {
+    "changes": [
+      {
+        "after": "allow: Bash(npm *)",
+        "before": "allow: Bash(npm test *)",
+        "change": null,
+        "direction": "widened",
+        "expands": true,
+        "row_indexes": [
+          0,
+          1
+        ],
+        "severity": "medium",
+        "subject": "claude-code .claude/settings.json",
+        "why": "the new rule matches everything the old rule matched; runs without a prompt"
+      }
+    ],
+    "question": "Review question: Does the team intend this declared capability change (from 2 rows)?",
+    "reproduce_command": "agents-shipgate diff --base 7a401ae9c08d66dc72755890fbd3535ddcb50918",
+    "summary": {
+      "changes": 1,
+      "rows": 2,
+      "widenings": 1
+    }
+  },
+  "rows": [
+    {
+      "after": "Bash(npm *)",
+      "before": "\u2014",
+      "direction": "added",
+      "disposition": "allow",
+      "expands": true,
+      "severity": "medium",
+      "subject": "claude-code .claude/settings.json",
+      "why": "runs without a prompt"
+    },
+    {
+      "after": "\u2014",
+      "before": "Bash(npm test *)",
+      "direction": "removed",
+      "disposition": "allow",
+      "expands": false,
+      "severity": "medium",
+      "subject": "claude-code .claude/settings.json",
+      "why": "removes a permission the agent previously had here"
+    }
+  ],
+  "static_analysis_only": true,
+  "unchanged_limits": [],
+  "workspace": "/private/tmp/shipgate-798-cards/shell/repo"
+}

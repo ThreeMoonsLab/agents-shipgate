@@ -1045,6 +1045,10 @@ def test_a_v0_20_verifier_reads_with_the_search_not_recorded(tmp_path: Path) -> 
 
     legacy = json.loads(json.dumps(verifier))
     legacy["verifier_schema_version"] = "0.20"
+    # This test isolates unread-input compatibility; guidance was not a field
+    # in 0.20 either, and has its own rejection/round-trip tests (#839).
+    for change in legacy["host_comparison"]["review"]["changes"]:
+        change.pop("guidance", None)
     frozen = json.loads((ROOT / "docs/verifier-schema.v0.20.json").read_text(encoding="utf-8"))
     # A strict 0.20 reader rejects the new members: the reason the version moved.
     assert list(Draft202012Validator(frozen).iter_errors(legacy))

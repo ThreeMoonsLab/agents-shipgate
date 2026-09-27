@@ -500,9 +500,9 @@ def test_an_unchanged_limit_of_the_rest_is_still_named(tmp_path: Path) -> None:
 
 # --- independence not established: refused exactly as before --------------------
 
-#: The F2 skill shape #808 recorded: `metadata.internal: true` is outside this
-#: bounded profile, so its structure is not established.
-UNRESOLVED_SKILL = "---\nname: review\ndescription: d\nmetadata:\n  internal: true\n---\n{body}\n"
+#: A skill whose `metadata` has a key that is not a string remains outside
+#: this bounded profile after #848, so its structure is not established.
+UNRESOLVED_SKILL = "---\nname: review\ndescription: d\nmetadata:\n  1: internal\n---\n{body}\n"
 #: A plugin directory named like a GitHub token, which every path publishes redacted.
 REDACTED_MANIFEST = "plugins/ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8/.claude-plugin/plugin.json"
 
@@ -767,7 +767,9 @@ def test_a_0_20_verifier_cannot_claim_a_partial_comparison(tmp_path: Path) -> No
     frozen = json.loads((ROOT / "docs/verifier-schema.v0.20.json").read_text(encoding="utf-8"))
     legacy = json.loads(json.dumps(verifier))
     legacy["verifier_schema_version"] = "0.20"
-    # Without what #821 added in 0.21, so only the partial comparison differs.
+    # Without the other additions in 0.21, so only the partial comparison differs.
+    for change in legacy["host_comparison"]["review"]["changes"]:
+        change.pop("guidance", None)
     for key in ("unread_candidates", "unread_candidates_not_examined"):
         legacy["host_comparison"]["coverage"].pop(key)
     for item in legacy["host_comparison"]["coverage"]["items"]:

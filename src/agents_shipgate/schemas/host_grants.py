@@ -691,6 +691,13 @@ class HostHookGrantV7(HostHookGrantV2):
     omitted_handlers: int = Field(default=0, ge=0)
 
 
+class HostMcpLaunchSourceV7(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pin: Literal["pinned", "mutable"]
+    package: str | None = Field(default=None, max_length=200)
+
+
 class HostMcpServerGrantV7(HostMcpServerGrantV2):
     #: The one argument published as written: the first that is a package
     #: specification of a strict shape (npm ``name@version`` or
@@ -706,6 +713,10 @@ class HostMcpServerGrantV7(HostMcpServerGrantV2):
     #: Both members are always present in a ``0.7`` inventory grant; a saved
     #: baseline holds neither.
     args_sha256: str | None = Field(pattern=r"^[0-9a-f]{64}$")
+    #: Optional display fact from bounded, redacted launcher arguments (#825).
+    #: Omitted from saved baselines and grant/digest equality, like package.
+    launch_source: HostMcpLaunchSourceV7 | None = None
+
 
 
 # v0.7 reads how a coding agent is launched inside a job (#823). The v0.6

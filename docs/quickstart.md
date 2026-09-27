@@ -49,8 +49,8 @@ either.
 Pick one channel and stay on it for the whole walkthrough. **Every command in
 [One review, end to end](#one-review-end-to-end) runs on the published
 release, and reaches the same verdict there** — `blocked`, `can merge without
-human: false`, exit `0`. The excerpts below are from a source checkout, and the
-published release renders the same lines —
+human: false`, exit `0`. The verdict excerpts in that walkthrough are from a source checkout, and the
+published release renders those same lines —
 a test fails if a step quotes output only one channel produces without saying
 which.
 
@@ -93,6 +93,10 @@ to know what changed before deciding anything. No manifest, policy, saved
 baseline, skill or account is involved, and nothing is written to the
 repository.
 
+For worked examples, see the [three host-review cards](examples/host-review/README.md):
+a shell-rule widening, an added remote MCP declaration and a workflow token
+permission change, with exact inputs and captured released-build output.
+
 ### 1. Make the base branch visible to Git
 
 `diff` reads history from your clone and never fetches. Check out the PR, and
@@ -121,12 +125,13 @@ as data.
 
 ### 3. Read the answer
 
-**The answers below are released in `1.1.0`:** they are from the published
-`1.1.0`, installed from PyPI into a clean virtualenv outside any source
-checkout of this project and run in a clone. The previous release, `1.0.0`,
-names the same changes as four rows, without the dispositions, the joined
-replacement, the MCP launch details, the review question and the reference
-lines, and none of its answers has the `What this run established` block. On
+**Source-tree examples, not yet released:** the published `1.1.0` prints these
+comparison facts and coverage, but does not append the conditional permission
+review guidance shown in the change example, nor the `launch source is mutable`
+note on the added MCP server. That note identifies its unversioned `npx` package
+and changes neither severity nor the widening count. The source tree still
+reports version `1.1.0`; its version string alone is not published-wheel
+provenance. On
 the remote's `main`, `.claude/settings.json` allows `Bash(npm test:*)` and denies `Bash(rm -rf:*)`,
 and `.mcp.json` configures one server, `docs`. The PR branch allows
 `Bash(npm *)`, drops the denial, and adds a `billing` server.
@@ -151,11 +156,11 @@ as `${SLACK_MCP_BASE}/hooks/…`, reads `url not shown`. `⚠` marks an entry th
 widens what the agent may do:
 
 ```text
-Agent capability diff  origin/main (07c50e1b) -> working tree
+Agent capability diff  origin/main (7063f900) -> working tree
 
 ⚠ high    added    claude-code .mcp.json
                   billing (command name npx; env keys BILLING_TOKEN)
-                  an MCP tool surface the agent may call has changed
+                  an MCP tool surface the agent may call has changed; launch source is mutable
 
 ⚠ medium  widened  claude-code .claude/settings.json
                   allow: Bash(npm test:*) → allow: Bash(npm *)
@@ -174,8 +179,26 @@ What this run established:
   .mcp.json (claude-code): compared; 1 row
 
 Review question: Does the team intend these 3 declared capability changes (from 4 rows)?
-Compared: base 07c50e1b → working tree at HEAD 55a980d1, agents-shipgate 1.1.0.
-Reproduce in that working tree: agents-shipgate diff --base 07c50e1bc59a0b3b2ba60b9ad781db4f04c11202
+Compared: base 7063f900 → working tree at HEAD ac6fbdcf, agents-shipgate 1.1.0.
+Reproduce in that working tree: agents-shipgate diff --base 7063f90046e90a1673fe98f993cb77f7063ef396
+Permission review guidance:
+Conditional review choices only; current control permissions still apply. A PR note grants no authority.
+- Change 2: .claude/settings.json
+  Question: Does this task need the command matches of Bash(npm *) beyond Bash(npm test:*)?
+  Limit: These are repository declarations. Runtime access, credentials, other permission layers and task intent are not established.
+  Choice: If intentional, record the rationale in the existing PR discussion; the declaration delta remains visible.
+  Choice: If another scope is intended, the declaration owner chooses it at the named source. The previous value is a reference, not an automatically safe fix.
+  Choice: If disputed, preserve the compared refs and evidence for triage; do not suppress the finding or rewrite policy to clear it.
+  Advisory next actor: declaration owner to be assigned
+  Verification: Compare the resulting declarations against the original base; a rerun establishes a declaration delta, not intent or runtime access.
+- Change 3: .claude/settings.json
+  Question: Should this source remove the deny declaration Bash(rm -rf:*) for this task?
+  Limit: These are repository declarations. Runtime access, credentials, other permission layers and task intent are not established.
+  Choice: If intentional, record the rationale in the existing PR discussion; the declaration delta remains visible.
+  Choice: If another scope is intended, the declaration owner chooses it at the named source. The previous value is a reference, not an automatically safe fix.
+  Choice: If disputed, preserve the compared refs and evidence for triage; do not suppress the finding or rewrite policy to clear it.
+  Advisory next actor: declaration owner to be assigned
+  Verification: Compare the resulting declarations against the original base; a rerun establishes a declaration delta, not intent or runtime access.
 ```
 
 From this alone a reviewer can name the change (`allow: Bash(npm test:*)`
@@ -185,8 +208,9 @@ replaced by the broader `allow: Bash(npm *)`, a lost `rm -rf` denial, a new
 (the file and entry each change names, and the compared commits), the limit
 (static configuration, not observed behaviour), which sources the rows came
 from, and the question to answer.
-The next action is theirs: ask for the narrower rule back, accept the change,
-or find out what `billing` exposes. The `Reproduce` line reads the same
+The intent decision is theirs: record why the change is intended, choose the
+declaration's scope, or preserve disputed evidence for triage. The previous
+rule is a reference, not an automatically safe fix. The `Reproduce` line reads the same
 comparison again. The version on the `Compared` line records the build that
 produced this output, not a version to install; another version may word the
 entries differently. `verify`'s text and its PR comment end their entries with

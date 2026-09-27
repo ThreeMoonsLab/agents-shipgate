@@ -1,0 +1,7 @@
+diff --git a/.mcp.json b/.mcp.json
+index 8c3bf0d..9fa91e1 100644
+--- a/.mcp.json
++++ b/.mcp.json
+@@ -1 +1 @@
+-{"mcpServers":{}}
++{"mcpServers":{"docs":{"type":"http","url":"https://docs.example.invalid/mcp"}}}
