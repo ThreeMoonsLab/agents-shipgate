@@ -50,6 +50,9 @@ from agents_shipgate.inputs.python_imports import (
 from agents_shipgate.schemas.manifest import ToolSourceConfig
 
 SUPPORTED = frozenset({"openai_agents_sdk", "google_adk"})
+#: Recovery reasons whose limit reaches past the file the change is written in:
+#: the file of the agent changed, or every agent.
+_CHANGE_REACH = frozenset({"sdk_capability_change_elsewhere", "sdk_capability_change_unattributed"})
 SCHEMA_VERSION = "0.1"
 MAX_PYTHON_BYTES = 2_000_000
 
@@ -530,11 +533,11 @@ def observe(
             line for line, built in census.changes if not _plain_scope_class(built, censuses)
         ]
         if changes:
+            # The object may be any agent, in any file (#876 review).
             result.gap(
                 f"An object's tools, handoffs, MCP servers or sub-agents are changed at "
                 f"{path}:{changes[0]}, in a module the comparison does not read for "
-                "that; agents it reaches are not established.",
-                source=path,
+                "that; agents it reaches are not established."
             )
     for defining, census in sorted(censuses.items()):
         for name, line in sorted(census.subclasses.items()):
@@ -685,9 +688,22 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
                     tool=None if tool_name == ANY_TOOL else tool_name,
                 )
                 attributed.add(message)
+        # A change to an agent another file constructs limits that file; one
+        # on a value the reader cannot identify may be any agent (#876 review).
+        reach = {
+            evidence.warning: evidence
+            for evidence in item.recovery_evidence
+            if evidence.recovery.reason in _CHANGE_REACH
+        }
         for warning in item.warnings:
             if warning not in attributed:
-                result.gap(warning, source=source.path)
+                evidence = reach.get(warning)
+                if evidence is None:
+                    result.gap(warning, source=source.path)
+                elif evidence.recovery.reason == "sdk_capability_change_elsewhere":
+                    result.gap(warning, source=evidence.path)
+                else:
+                    result.gap(warning)
                 attributed.add(warning)
         for omission in item.omissions:
             result.gap(f"Omitted source surface: {omission}", source=source.path)

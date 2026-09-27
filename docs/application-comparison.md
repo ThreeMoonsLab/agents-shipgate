@@ -117,8 +117,8 @@ agents' rows in the file stand:
   agent a service holds (`svc.agent`, `self.agent`) — whose list is handed to
   the application's own code that is not read to leave it alone (an inherited
   method, `super()`, a dispatch table, a method of an unknown object, one that
-  hands it on again out of view) is a limit on the file, and in a module that
-  is not read as an SDK source too: it may be any agent. A call into another
+  hands it on again out of view) is a limit on every agent, and in a module
+  that is not read as an SDK source too: it may be any agent. A call into another
   library is the reader's boundary, as it is for every library, only when the
   call hands it nothing but data. The function is another library's — reached
   from a package the repository holds on no path entry (`libs/shared` of a
@@ -156,8 +156,11 @@ agents' rows in the file stand:
   same list object): an agent the reader constructed — directly, through
   `self.agent`, or through a module function that returns it — carries the
   limit; a value proven not to be an agent (`Settings()`, a literal,
-  `type(...)()`, the instance's own `self.tools`) carries nothing; anything
-  else is a limit on the file;
+  `type(...)()`, the instance's own `self.tools`) carries nothing; an agent
+  another file constructs — a name imported from it (`from app.plant import
+  plant_agent`), or bound to what its function returns (`support = build()`
+  with `build` returning `Agent(...)`) — is a limit on that file's agents;
+  anything else may be any agent, in any file, and is a limit on every agent;
 - a copy that passes its own `tools`, `handoffs` or `mcp_servers`
   (`agent.clone(tools=...)`, `dataclasses.replace(agent, tools=...)`,
   `copy.replace(...)`), wherever the original came from, unless the original

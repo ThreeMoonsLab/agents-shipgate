@@ -1581,3 +1581,79 @@ def test_the_lists_own_objects_data_is_still_a_read(repo, handler):
     result = _compare(repo, before, before.replace("tools=[quote]", "tools=[quote, send_image]"))
     assert result["comparison_status"] == "compared", result["head"]["limits"]
     assert _pairs(result) == [("main_agent", "send_image", "added")]
+
+
+# ---------------------------------------------------------------------------
+# #874 review, round 3, found in #876: a change on an agent another file
+# constructs, or on a value the reader cannot identify, limited only the file
+# the change is written in. The agent it changed kept an established row:
+# ``send_image`` read as ``added`` in the head, though the base had bound it
+# through the change.
+
+_IMPORTED_AGENT = 'quote_agent = Agent(name="Quote", tools=TOOLS)\n'
+_BUILDER = 'def build():\n    return Agent(name="Quote", tools=TOOLS)\n'
+
+
+@pytest.mark.parametrize(
+    ("defining", "changing", "agent"),
+    [
+        (
+            _IMPORTED_AGENT,
+            "from agents import Runner\nfrom agent import quote_agent, send_image\n\n"
+            "quote_agent.tools.append(send_image)\n",
+            "quote_agent",
+        ),
+        (
+            _BUILDER,
+            "from agents import Runner\nfrom agent import build, send_image\n\n"
+            "support = build()\nsupport.tools.append(send_image)\n",
+            "Quote",
+        ),
+        (
+            _IMPORTED_AGENT,
+            "from agents import Runner\nfrom agent import quote_agent, send_image\n\n\n"
+            "def extend(agent):\n    agent.tools.append(send_image)\n\n\nextend(quote_agent)\n",
+            "quote_agent",
+        ),
+        (
+            _BUILDER,
+            "from agent import build, send_image\n\n"
+            "support = build()\nsupport.tools.append(send_image)\n",
+            "Quote",
+        ),
+    ],
+    ids=["imported-agent", "imported-builders-result", "a-parameter", "outside-an-sdk-source"],
+)
+def test_a_change_on_another_files_agent_limits_that_agent(repo, defining, changing, agent):
+    base = commit(
+        repo,
+        {"agent.py": _agents(defining.replace("TOOLS", "[quote]")), "wiring.py": changing},
+    )
+    head = commit(
+        repo,
+        {"agent.py": _agents(defining.replace("TOOLS", "[quote, send_image]")), "wiring.py": None},
+    )
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert _pairs(result) == [(agent, "send_image", "not_established")]
+    (row,) = result["rows"]
+    assert row["candidate_change"] == "added"
+    assert any("wiring.py:" in reason for reason in row["uncertainty"]["base"])
+
+
+def test_the_changed_agents_file_is_named(repo):
+    body = _IMPORTED_AGENT.replace("TOOLS", "[quote]")
+    changing = (
+        "from agents import Runner\nfrom agent import quote_agent, send_image\n\n"
+        "quote_agent.tools.append(send_image)\n"
+    )
+    base = commit(repo, {"agent.py": _agents(body)})
+    head = commit(repo, {"agent.py": _agents(body), "wiring.py": changing})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert any(
+        "of 'quote_agent' (agent.py:" in limit
+        and "changed after construction at wiring.py:4" in limit
+        and "the agents constructed in agent.py are not established" in limit
+        for limit in result["head"]["limits"]
+    ), result["head"]["limits"]

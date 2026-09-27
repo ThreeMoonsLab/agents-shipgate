@@ -539,19 +539,93 @@ def _extract_agent_bindings(
         # constructed — ``agent.tools.append(x)``, ``self.agent.tools = [...]``,
         # ``setattr(agent, "tools", ...)``, a handle ``t = agent.tools`` — is a
         # limit on the agent the changed value is, read in the scope of the
-        # change. A value the reader cannot identify is a limit on the file;
-        # one it can prove is not an agent is nothing (#876 review).
+        # change. An agent imported from another file, or one another file's
+        # function returns, is a limit on that file's agents. Any other value
+        # the reader cannot identify may be any agent, here or elsewhere; one
+        # it can prove is not an agent is nothing (#876 review).
         unattributed = False
         limited: set[str] = set()
+        #: Other files whose agents a change here already limits.
+        homes: set[str] = set()
+        module_callees = ModuleCallees(
+            tree,
+            scopes,
+            tool_lists.module_bindings,
+            resolver=imports.resolver if module is not None else None,
+            module=module,
+            registry=imports.callees,
+        )
+
+        def agent_home(
+            receiver: ast.expr | None,
+            site: ast.AST,
+            *,
+            module: PythonModule | None = module,
+            scopes: ScopeIndex = scopes,
+            tool_lists: _ToolLists = tool_lists,
+            module_callees: ModuleCallees = module_callees,
+        ) -> tuple[str, str] | None:
+            """``(file, what)`` when the receiver is an agent another file of the
+            scope constructs: a name imported from it (``from app.plant import
+            plant_agent``), or bound to what its function returns (``support =
+            build(...)`` with ``build`` returning ``Agent(...)``)."""
+
+            if module is None or not isinstance(receiver, ast.Name):
+                return None
+            name = receiver.id
+            local = scopes.enclosing_bindings(site, name)
+            if local:
+                if len(local) != 1:
+                    return None
+                node: ast.AST = local[0]
+                statement = scopes.statement_of(node)
+            else:
+                found = tool_lists.module_bindings.get(name, [])
+                if len(found) != 1:
+                    return None
+                node, statement = found[0].node, found[0].statement
+            if isinstance(node, ast.alias):
+                if not isinstance(statement, ast.Import | ast.ImportFrom):
+                    return None
+                resolution = (
+                    imports.resolver.resolve_local_import(module, statement, node, name)
+                    if local
+                    else imports.resolver.resolve(module, name)
+                )
+                home, value = resolution.module, resolution.value
+                if (
+                    home is None
+                    or home.path == module.path
+                    or not isinstance(value, ast.Call)
+                    or not _denotes_agent(_SdkNames(home.tree), value)
+                ):
+                    return None
+                return home.ref, f"{name!r} ({home.ref}:{value.lineno})"
+            if not isinstance(statement, ast.Assign | ast.AnnAssign) or _assignment_target(
+                statement
+            ) != name or not isinstance(statement.value, ast.Call):
+                return None
+            callee = module_callees(statement.value)
+            home = callee.callees.module if callee is not None else None
+            if callee is None or home is None or home.path == module.path:
+                return None
+            if not _returns_agent(callee.function, _SdkNames(home.tree), callee.callees.scopes):
+                return None
+            return home.ref, (
+                f"the agent {callee.function.name!r} returns ({home.ref}:{callee.function.lineno})"
+            )
 
         def record_change(
             owner: str | bool | None,
             site: ast.AST,
             *,
+            receiver: ast.expr | None = None,
             limited: set[str] = limited,
+            homes: set[str] = homes,
             source_ref: str = source_ref,
             list_holders: dict[Any, set[str]] = list_holders,
             file_observations: list[AgentBindingObservation] = file_observations,
+            agent_home: Callable[..., tuple[str, str] | None] = agent_home,
         ) -> None:
             nonlocal unattributed
             # One limit per agent, and one for the file: the first site names it.
@@ -559,11 +633,25 @@ def _extract_agent_bindings(
                 return
             pointer = f"{source_ref}:{site.lineno}"  # type: ignore[attr-defined]
             if owner is True:
+                home = agent_home(receiver, site)
+                if home is not None:
+                    path, what = home
+                    if path not in homes:
+                        homes.add(path)
+                        unread(
+                            f"OpenAI Agents SDK tools, handoffs or MCP servers of {what} are "
+                            f"changed after construction at {pointer}, which this reader does "
+                            f"not follow; the agents constructed in {path} are not established.",
+                            pointer,
+                            "sdk_capability_change_elsewhere",
+                            path=path,
+                        )
+                    return
                 unattributed = True
                 unread(
                     f"OpenAI Agents SDK tools, handoffs or MCP servers are changed at "
-                    f"{pointer} on a value this reader cannot identify; the agents "
-                    f"constructed in {source_ref} are not established.",
+                    f"{pointer} on a value this reader cannot identify; any agent it may "
+                    f"be, constructed in {source_ref} or in another file, is not established.",
                     pointer,
                     "sdk_capability_change_unattributed",
                 )
@@ -617,16 +705,7 @@ def _extract_agent_bindings(
             return False
 
         for receiver, site, strict, via_unresolved in _capability_changes(
-            tree,
-            scopes=scopes,
-            callees=ModuleCallees(
-                tree,
-                scopes,
-                tool_lists.module_bindings,
-                resolver=imports.resolver if module is not None else None,
-                module=module,
-                registry=imports.callees,
-            ),
+            tree, scopes=scopes, callees=module_callees
         ):
             owner = values.owner(receiver, site)
             owners: list[str | bool | None] = [owner]
@@ -650,7 +729,7 @@ def _extract_agent_bindings(
                     # may be any agent (#876 review).
                     continue
             for item in owners:
-                record_change(item, site)
+                record_change(item, site, receiver=receiver)
         # One identity constructed twice in a file — ``if premium: return
         # Agent(name="Quote", ...)`` / ``else: return Agent(name="Quote", ...)``
         # — is merged by the binding graph into one agent. Its tools cannot be
@@ -1752,6 +1831,37 @@ def _literal_data(value: ast.expr) -> bool:
                    | ast.expr_context)
         for node in ast.walk(value)
     )
+
+
+def _returns_agent(
+    function: ast.FunctionDef | ast.AsyncFunctionDef, sdk_names: _SdkNames, scopes: ScopeIndex
+) -> bool:
+    """Whether every ``return`` of a function gives back an agent it constructs:
+    ``return Agent(...)``, or a name bound once in it to one."""
+
+    returns: list[ast.Return] = []
+    stack: list[ast.AST] = list(function.body)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, _SCOPE_NODES):
+            continue
+        if isinstance(node, ast.Return):
+            returns.append(node)
+        stack.extend(ast.iter_child_nodes(node))
+    for node in returns:
+        value = node.value
+        if isinstance(value, ast.Name):
+            found = scopes.enclosing_bindings(node, value.id)
+            statement = scopes.statement_of(found[0]) if len(found) == 1 else None
+            value = (
+                statement.value
+                if isinstance(statement, ast.Assign | ast.AnnAssign)
+                and _assignment_target(statement) == value.id
+                else None
+            )
+        if not isinstance(value, ast.Call) or not _denotes_agent(sdk_names, value):
+            return False
+    return bool(returns)
 
 
 def _root_name(node: ast.AST) -> str | None:
