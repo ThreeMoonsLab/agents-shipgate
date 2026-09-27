@@ -35,7 +35,7 @@ def build_annotations(output_dir: Path, *, limit: int = 50) -> dict[str, Any]:
     return {
         "annotation_schema_version": ANNOTATION_SCHEMA_VERSION,
         "pr_projection_schema_version": PR_PROJECTION_SCHEMA_VERSION,
-        "source_report": str(report_path),
+        **({"source_report": str(report_path)} if report_path.is_file() else {}),
         "source_verifier": str(verifier_path),
         "limit": normalized_limit,
         "annotations": annotations,
