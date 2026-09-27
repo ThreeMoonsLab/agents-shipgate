@@ -23,6 +23,7 @@ from agents_shipgate.cli.discovery.artifacts import _candidate_files, _skip_part
 from agents_shipgate.cli.scan.source_loading import _build_canonical_tools
 from agents_shipgate.cli.verify.git import (
     PromisedObjectsMissingError,
+    _run_git_bounded_output,
     archive_fetched_tree,
     commit_sha,
     ensure_git_workspace,
@@ -30,11 +31,13 @@ from agents_shipgate.cli.verify.git import (
 )
 from agents_shipgate.core.agent_bindings import resolve_agent_binding_graph
 from agents_shipgate.core.artifacts import ArtifactBag
+from agents_shipgate.core.domain import ANY_TOOL
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.privacy import sanitize_report_payload
 from agents_shipgate.core.verification_identity import build_engine_requirement
 from agents_shipgate.inputs.google_adk import load_google_adk_artifacts
 from agents_shipgate.inputs.openai_sdk_static import load_openai_sdk_static_tools
+from agents_shipgate.inputs.python_imports import RepositoryLayout, repository_layout
 from agents_shipgate.schemas.manifest import ToolSourceConfig
 
 SUPPORTED = frozenset({"openai_agents_sdk", "google_adk"})
@@ -108,6 +111,20 @@ class Observations:
             ):
                 reasons.append(gap["reason"])
         return sorted(set(reasons))
+
+    def tool_gaps(self, key: tuple[str, str, str]) -> list[str]:
+        """Gaps naming this one binding, which even a present binding carries."""
+
+        return sorted(
+            {
+                gap["reason"]
+                for gap in self.coverage_gaps
+                if gap["affects"] == "binding_presence"
+                and gap["tool"] == key[2]
+                and gap["agent"] in (None, key[1])
+                and (gap["source"] is None or key[0] == gap["source"])
+            }
+        )
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -188,6 +205,131 @@ def _definition(root: Path, tool: Any) -> dict[str, Any]:
             )
         ),
     }
+
+
+#: Bytes one repository-directory listing may take.
+_MAX_LAYOUT_LISTING_BYTES = 4 * 1024 * 1024
+
+
+#: The most blob bytes one batched read of a directory's modules holds.
+_MAX_LAYOUT_BATCH_BYTES = 16 * 1024 * 1024
+
+
+def _batch_blobs(workspace: Path, pending: list[tuple[str, str, int]]) -> dict[str, str]:
+    """``path -> text`` for ``(path, object, size)`` blobs, in bounded ``cat-file --batch``
+    reads; a blob a read does not return is simply absent."""
+
+    texts: dict[str, str] = {}
+    chunk: list[tuple[str, str, int]] = []
+    total = 0
+    for item in [*pending, None]:
+        if item is not None and (not chunk or total + item[2] <= _MAX_LAYOUT_BATCH_BYTES):
+            chunk.append(item)
+            total += item[2]
+            continue
+        output = _run_git_bounded_output(
+            workspace,
+            ["cat-file", "--batch"],
+            max_output_bytes=sum(size + 128 for _, _, size in chunk),
+            input=b"".join(oid.encode("ascii") + b"\n" for _, oid, _ in chunk),
+        ) if chunk else None
+        offset = 0
+        for name, oid, size in chunk if output is not None else []:
+            header_end = output.find(b"\n", offset)
+            if header_end < 0 or output[offset:header_end].split() != [
+                oid.encode("ascii"), b"blob", str(size).encode("ascii")
+            ]:
+                break
+            start = header_end + 1
+            texts[name] = output[start : start + size].decode("utf-8", errors="replace")
+            offset = start + size + 1
+        chunk, total = ([item], item[2]) if item is not None else ([], 0)
+    return texts
+
+
+def _git_layout(workspace: Path, commit: str, scope: str) -> RepositoryLayout:
+    """The commit's tree outside the scope, listed one directory at a time (#879 review)."""
+
+    listings: dict[str, tuple[frozenset[str], frozenset[str]] | None] = {}
+    #: ``path -> (object, size)`` of every regular ``.py`` file listed.
+    blobs: dict[str, tuple[str, int]] = {}
+    contents: dict[str, str | None] = {}
+    batched: set[str] = set()
+
+    def listing(path: str) -> tuple[frozenset[str], frozenset[str]] | None:
+        if path not in listings:
+            args = ["--literal-pathspecs", "ls-tree", "-z", "-l", commit]
+            if path:
+                args += ["--", f"{path}/"]
+            output = _run_git_bounded_output(
+                workspace, args, max_output_bytes=_MAX_LAYOUT_LISTING_BYTES
+            )
+            names: set[str] = set()
+            links: set[str] = set()
+            for raw in (output or b"").split(b"\0"):
+                if not raw or b"\t" not in raw:
+                    continue
+                meta, _, name_bytes = raw.partition(b"\t")
+                name = PurePosixPath(name_bytes.decode("utf-8", errors="replace")).name
+                names.add(name)
+                fields = meta.split()
+                if fields[:1] in ([b"120000"], [b"160000"]):
+                    # A symbolic link or a submodule: reachable, not read.
+                    links.add(name)
+                elif fields[:1] in ([b"100644"], [b"100755"]) and len(fields) == 4 and name.endswith(".py"):
+                    full = f"{path}/{name}" if path else name
+                    blobs[full] = (fields[2].decode("ascii"), int(fields[3]))
+            listings[path] = (frozenset(names), frozenset(links)) if names else None
+        return listings[path]
+
+    def entries(path: str) -> frozenset[str] | None:
+        found = listing(path)
+        return found[0] if found is not None else None
+
+    def links(path: str) -> frozenset[str]:
+        found = listing(path)
+        return found[1] if found is not None else frozenset()
+
+    def read(path: str) -> str | None:
+        """A regular ``.py`` file's text — never a link's target path — read
+        with its directory's other modules in one ``cat-file --batch``."""
+
+        if path in contents:
+            return contents[path]
+        directory = str(PurePosixPath(path).parent) if "/" in path else ""
+        listing(directory)
+        if path not in blobs:
+            # Missing, a link, a submodule, or not a regular file.
+            return None
+        if directory not in batched:
+            batched.add(directory)
+            pending = [
+                (name, *blobs[name])
+                for name in sorted(blobs)
+                if name not in contents
+                and (str(PurePosixPath(name).parent) if "/" in name else "") == directory
+                and blobs[name][1] <= _MAX_LAYOUT_LISTING_BYTES
+            ]
+            # One batch per directory only while it is small: a directory of
+            # generated or vendored modules is read file by file, as asked
+            # (#879 review).
+            if sum(size for _, _, size in pending) <= _MAX_LAYOUT_BATCH_BYTES:
+                for name, text in _batch_blobs(workspace, pending).items():
+                    contents[name] = text
+        if path not in contents:
+            oid, size = blobs[path]
+            output = (
+                _run_git_bounded_output(
+                    workspace, ["cat-file", "blob", oid], max_output_bytes=_MAX_LAYOUT_LISTING_BYTES
+                )
+                if size <= _MAX_LAYOUT_LISTING_BYTES
+                else None
+            )
+            # None: too large or unreadable; an empty file reads as "".
+            contents[path] = output.decode("utf-8", errors="replace") if output is not None else None
+        return contents[path]
+
+    return RepositoryLayout("" if scope in {"", "."} else scope, entries, links, read)
 
 
 def observe(
@@ -366,6 +508,18 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
                         agent=observation.agent,
                     )
                     attributed.add(message)
+            # A binding the reader made on a guess is reported, never as an
+            # established row: each tool the name may really be carries the
+            # reason on the side it is present, and the whole agent does when
+            # one of them cannot be named (#879 review).
+            for tool_name, message in observation.tool_issues.items():
+                result.gap(
+                    message,
+                    source=_source_path(root, observation.source),
+                    agent=observation.agent,
+                    tool=None if tool_name == ANY_TOOL else tool_name,
+                )
+                attributed.add(message)
         for warning in item.warnings:
             if warning not in attributed:
                 result.gap(warning, source=source.path)
@@ -373,9 +527,30 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
         for omission in item.omissions:
             result.gap(f"Omitted source surface: {omission}", source=source.path)
     if artifacts is not None:
+        # A tool reference the reader could not follow to a definition
+        # carries its agent and named reason beside the warning (#864): scope
+        # the gap to that agent and say why, rather than covering the file.
+        # One warning can stand for several agents: a module-level wrapper
+        # two agents share has one sentence. Every record gets its own gap, so
+        # no agent's uncertainty is carried by another's (#879 review).
+        unresolved: dict[str, list[dict[str, Any]]] = {}
+        for record in artifacts.unresolved_references:
+            if isinstance(record.get("warning"), str):
+                unresolved.setdefault(record["warning"], []).append(record)
         for warning in artifacts.warnings:
             if warning not in attributed:
-                result.gap(warning, source=source.path)
+                records = unresolved.get(warning)
+                if not records:
+                    result.gap(warning, source=source.path)
+                for record in records or []:
+                    detail = record["detail"]
+                    result.gap(
+                        warning
+                        if detail in warning
+                        else f"{warning} Not resolved because {detail}.",
+                        source=source.path,
+                        agent=record["agent_name"],
+                    )
                 attributed.add(warning)
     result.handoff_only |= handoff_targets - constructed
     tools, warnings = _build_canonical_tools(loaded)
@@ -450,6 +625,7 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
             "output_schema": tool.output_schema,
             "signature": tool.function_signature,
             "evidence_basis": edge.provenance_kind,
+            **_import_path(tool, key[0]),
         }
     for edge in graph.handoff_edges:
         source, target = agent_keys[edge.source_agent_id], agent_keys[edge.target_agent_id]
@@ -510,11 +686,31 @@ def _reconcile_unresolved_links(base: Observations, head: Observations) -> None:
                 side.gap(f"Linked input resolves outside the tree: {link}", source=link)
 
 
+def _import_path(tool: Any, agent_source: str) -> dict[str, Any]:
+    """How the agent's module reached a definition in another module (#864).
+
+    Each step names the module read, the line of the binding followed and that
+    module's digest. Evidence, not meaning: moving an import is not a change.
+    """
+    raw = tool.extraction.get("import_resolutions")
+    if not isinstance(raw, list):
+        return {}
+    paths = [
+        item
+        for item in raw
+        if isinstance(item, dict)
+        and item.get("steps")
+        and item["steps"][0].get("path") == agent_source
+    ]
+    return {"import_path": paths} if paths else {}
+
+
 def _meaning(binding: dict[str, Any]) -> dict[str, Any]:
     return {
         k: v
         for k, v in binding.items()
-        if k not in {"binding_location", "definition", "evidence_basis", "agent_source"}
+        if k
+        not in {"binding_location", "definition", "evidence_basis", "agent_source", "import_path"}
     } | {"implementation_sha256": binding.get("definition", {}).get("implementation_sha256")}
 
 
@@ -530,10 +726,16 @@ def compare(
             reasons = base.absence_gaps(key, target_moves)
             if reasons:
                 uncertainty["base"] = reasons
+            present = head.tool_gaps(key)
+            if present:
+                uncertainty["head"] = present
         elif after is None:
             reasons = head.absence_gaps(key)
             if reasons:
                 uncertainty["head"] = reasons
+            present = base.tool_gaps(key)
+            if present:
+                uncertainty["base"] = present
         else:
             before_meaning = _meaning(before)
             if "target_source" in before_meaning:
@@ -542,6 +744,10 @@ def compare(
             for side, value in (("base", before), ("head", after)):
                 if "definition" in value and value["definition"]["implementation_sha256"] is None:
                     uncertainty[side] = ["The bound callable's implementation could not be read."]
+            for side, observed in (("base", base), ("head", head)):
+                reasons = observed.tool_gaps(key)
+                if reasons:
+                    uncertainty.setdefault(side, []).extend(reasons)
             if before_meaning == _meaning(after) and not uncertainty:
                 continue
         candidate_change = kind
@@ -735,6 +941,25 @@ def _published_binding(binding: dict[str, Any] | None, scope: str) -> dict[str, 
     if "definition" in result:
         result["definition"] = dict(result["definition"])
         result["definition"]["source"] = _location(scope, result["definition"]["source"])
+    if "import_path" in result:
+        result["import_path"] = [
+            {
+                **item,
+                "steps": [
+                    {**step, "path": _location(scope, step["path"])} for step in item["steps"]
+                ],
+                "inputs": [
+                    {**entry, "path": _location(scope, entry["path"])}
+                    for entry in item.get("inputs", [])
+                ],
+                **(
+                    {"definition": _location(scope, item["definition"])}
+                    if "definition" in item
+                    else {}
+                ),
+            }
+            for item in result["import_path"]
+        ]
     return result
 
 
@@ -799,15 +1024,20 @@ def run_application_diff(
                 )
             except PromisedObjectsMissingError:
                 _refuse_objects_missing(workspace, ref, commit, side=side)
-        old = observe(
-            scratch / "base",
-            old_scope,
-            max_python_files=max_python_files,
-            gitlinks=gitlinks["base"],
-        )
-        new = observe(
-            scratch / "head", scope, max_python_files=max_python_files, gitlinks=gitlinks["head"]
-        )
+        # Each side's imports are read against its own commit's tree: the
+        # materialized scope alone cannot say whether ``from common.patches
+        # import ...`` is the application's code or an installed package.
+        with repository_layout(_git_layout(workspace, base_commit, old_scope)):
+            old = observe(
+                scratch / "base",
+                old_scope,
+                max_python_files=max_python_files,
+                gitlinks=gitlinks["base"],
+            )
+        with repository_layout(_git_layout(workspace, head_commit, scope)):
+            new = observe(
+                scratch / "head", scope, max_python_files=max_python_files, gitlinks=gitlinks["head"]
+            )
         if old.status == new.status == "absent":
             raise ConfigError(
                 f"Neither comparison tree contains the selected scopes: "
@@ -886,6 +1116,13 @@ def run_application_diff(
                         typer.echo(
                             f"    implementation: {_one_line(definition['source'])}:{definition['line']} ({str(definition['implementation_sha256'])[:12]})"
                         )
+                    for path in value.get("import_path", []):
+                        hops = " → ".join(
+                            f"{step['path']}:{step['line']}"
+                            for step in path["steps"]
+                            if step.get("line") is not None
+                        )
+                        typer.echo(f"    imported: {_one_line(hops)}")
             typer.echo(f"  {_one_line(row['why'])}")
             for side, reasons in row["uncertainty"].items():
                 for reason in reasons:

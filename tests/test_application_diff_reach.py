@@ -301,10 +301,10 @@ root_agent = adk.Agent(name="helper", tools=TOOLS)
     ]
 
 
-def test_adk_package_root_agent_with_sibling_tool_is_partial_not_absent(repo):
-    # The CubeSandbox#1508 shape itself: the tool comes from a sibling module,
-    # which the reader does not resolve yet (#864). The agent is established,
-    # so the result names that gap rather than "no supported agents".
+def test_adk_package_root_agent_with_sibling_tool_is_compared(repo):
+    # The CubeSandbox#1508 shape itself: the tool comes from a sibling module.
+    # Before #864 it was a named gap on an established agent; the reader now
+    # follows the import, so the binding is an established addition.
     tool = "def run_python_in_cube(code: str) -> str:\n    return code\n"
     agent = (
         "from google.adk import Agent\n"
@@ -316,15 +316,16 @@ def test_adk_package_root_agent_with_sibling_tool_is_partial_not_absent(repo):
         repo, {"examples/adk/agent.py": agent, "examples/adk/cube_code_tool.py": tool}
     )
     result = run(repo, base, head)
-    assert result["comparison_status"] == "partial"
+    assert result["comparison_status"] == "compared"
     assert [a["name"] for a in result["head"]["agents"]] == ["cube_code_agent"]
-    assert [(g["source"], g["reason"]) for g in result["head"]["coverage_gaps"]] == [
-        (
-            "examples/adk/agent.py",
-            "Google ADK agent 'cube_code_agent' references unresolved tool "
-            "'run_python_in_cube'.",
-        )
-    ]
+    assert result["head"]["coverage_gaps"] == []
+    (row,) = result["rows"]
+    assert (row["agent"], row["tool"], row["change"]) == (
+        "cube_code_agent",
+        "run_python_in_cube",
+        "added",
+    )
+    assert row["after"]["definition"]["source"] == "examples/adk/cube_code_tool.py"
 
 
 def test_recording_gitlinks_is_opt_in_at_the_materializer(repo, tmp_path_factory):
