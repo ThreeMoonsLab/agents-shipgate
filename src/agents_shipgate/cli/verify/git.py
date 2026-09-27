@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import threading
 import unicodedata
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -2326,20 +2326,30 @@ def archive_tree(
     destination: Path,
     *,
     scope: Callable[[str], bool] | None = None,
-) -> None:
+    record_gitlinks: bool = False,
+) -> dict[str, str]:
     """Materialize exact Git blobs without export-ignore or substitutions.
 
     ``scope`` narrows the materialized tree to the paths a reader will
     actually open, plus every symlink — a linked directory is what can
     conceal a scoped path from the reader, so the two sides must see the
-    same links. Without a scope every blob is written, which costs one
-    ``git cat-file`` per file: 1,168 subprocesses and 25 seconds on a 26 MB
-    repository whose host surface is four files (#686). A scoped archive
-    also packs the tree rather than the commit, so no history is walked.
+    same links. Without a scope every blob is written; that once cost one
+    ``git cat-file`` per file, 1,168 subprocesses and 25 seconds on a 26 MB
+    repository whose host surface is four files (#686), and blobs are now
+    read in a few bounded ``cat-file --batch`` processes instead. A scoped
+    archive also packs the tree rather than the commit, so no history is
+    walked.
 
     Scoping changes what is *materialized*, never what is *verified*: every
     blob written is still checked against its object ID, and the isolated
     store is still fsck'd, on the same terms as an unscoped archive.
+
+    A gitlink (a submodule's commit pointer) in scope is refused unless
+    ``record_gitlinks`` is set. Its content lives in another repository, so
+    no archive of this one can hold it. A caller whose reader treats an
+    unpopulated submodule as the empty directory a checkout leaves may opt in:
+    the gitlink is then materialized as that empty directory and returned
+    as ``{path: commit}``, so the caller can name what it did not read.
     """
 
     destination.mkdir(parents=True, exist_ok=True)
@@ -2360,8 +2370,12 @@ def archive_tree(
             git_dir=git_dir,
             tree=tree if scope is not None else None,
         )
-        _materialize_isolated_tree(
-            git_dir, tree=tree, destination=destination, scope=scope
+        return _materialize_isolated_tree(
+            git_dir,
+            tree=tree,
+            destination=destination,
+            scope=scope,
+            record_gitlinks=record_gitlinks,
         )
 
 
@@ -2449,7 +2463,8 @@ def _materialize_isolated_tree(
     tree: str,
     destination: Path,
     scope: Callable[[str], bool] | None = None,
-) -> None:
+    record_gitlinks: bool = False,
+) -> dict[str, str]:
     listing_args = ["ls-tree", "-r", "-z"]
     if scope is not None:
         listing_args.append("-t")
@@ -2458,6 +2473,7 @@ def _materialize_isolated_tree(
     entries: list[tuple[str, str, str]] = []
     links: list[tuple[str, str]] = []
     portable_paths: dict[str, str] = {}
+    gitlinks: dict[str, str] = {}
     #: Every entry's object type, in or out of scope, so a link's target type
     #: can be read from the tree rather than from what was materialized.
     tree_types: dict[str, str] = {}
@@ -2504,6 +2520,16 @@ def _materialize_isolated_tree(
                 raise ConfigError(f"Git tree path escapes destination: {path_text}")
             target.mkdir(parents=True, exist_ok=True)
             continue
+        if record_gitlinks and mode == "160000" and object_type == "commit":
+            # An unpopulated submodule: the directory a checkout leaves, with
+            # nothing written into it. What it would hold is not in this
+            # repository's object graph, and the caller names it as unread.
+            target = (root / path_text).resolve()
+            if target == root or root not in target.parents:
+                raise ConfigError(f"Git tree path escapes destination: {path_text}")
+            target.mkdir(parents=True, exist_ok=True)
+            gitlinks[path_text] = oid
+            continue
         if object_type != "blob" or mode == "160000" or (
             mode == "120000" and scope is None
         ):
@@ -2532,12 +2558,12 @@ def _materialize_isolated_tree(
 
     object_format = _run_git_dir(git_dir, ["rev-parse", "--show-object-format"]).stdout.strip()
     expected_digests: dict[str, str] = {}
-    for mode, oid, path_text in entries:
+    entry_blobs = _isolated_blobs(git_dir, [(oid, path_text) for _mode, oid, path_text in entries])
+    for (mode, oid, path_text), blob in zip(entries, entry_blobs, strict=True):
         target = (root / path_text).resolve()
         if target == root or root not in target.parents:
             raise ConfigError(f"Git tree path escapes destination: {path_text}")
         target.parent.mkdir(parents=True, exist_ok=True)
-        blob = _run_git_dir(git_dir, ["cat-file", "blob", oid], text=False).stdout
         if _git_object_id("blob", blob, algorithm=object_format) != oid:
             raise ConfigError(f"Git blob failed object-ID validation: {path_text}")
         target.write_bytes(blob)
@@ -2546,12 +2572,11 @@ def _materialize_isolated_tree(
             os.chmod(target, 0o755)
 
     link_texts: dict[str, str] = {}
-    for oid, path_text in links:
+    for (oid, path_text), blob in zip(links, _isolated_blobs(git_dir, links), strict=True):
         target = root / path_text
         if not _within(root, target.parent):
             raise ConfigError(f"Git tree path escapes destination: {path_text}")
         target.parent.mkdir(parents=True, exist_ok=True)
-        blob = _run_git_dir(git_dir, ["cat-file", "blob", oid], text=False).stdout
         if _git_object_id("blob", blob, algorithm=object_format) != oid:
             raise ConfigError(f"Git blob failed object-ID validation: {path_text}")
         # The link's own text is the blob. It may point anywhere, including
@@ -2576,6 +2601,104 @@ def _materialize_isolated_tree(
     }
     if materialized != expected_digests:
         raise ConfigError("Materialized Git tree differs from the verified object graph")
+    return gitlinks
+
+
+#: The most blob bytes one `cat-file --batch` read of an isolated store holds.
+#: A batch is buffered whole, so this bounds memory, not the tree: a larger
+#: tree takes more batches, and a single larger blob is read alone, as it was
+#: when every blob had a process of its own.
+_MAX_ISOLATED_BATCH_BYTES = 64 * 1024 * 1024
+
+
+def _isolated_blobs(git_dir: Path, wanted: Sequence[tuple[str, str]]) -> Iterator[bytes]:
+    """Each ``(object ID, path)`` blob's bytes from ``git_dir``, in order (#686 cost class).
+
+    One `cat-file` process per blob made a whole-tree archive cost a process
+    per file: 3,485 of them and 181 seconds for one side of a 3,485-blob
+    repository. Here one `cat-file --batch-check` types and sizes every object
+    first, so a missing object, or one that is not a blob, refuses before any
+    content is read; the content then comes from as few `cat-file --batch`
+    reads as :data:`_MAX_ISOLATED_BATCH_BYTES` allows.
+
+    Only the framing is checked here: every record must name the requested
+    object, as a blob of the size the check reported. The caller still hashes
+    each blob against its tree entry's object ID before writing it. ``path``
+    only names the entry in a refusal.
+    """
+
+    if not wanted:
+        return
+    paths: dict[str, str] = {}
+    for oid, path_text in wanted:
+        # The batch protocol reads one object name per line and resolves any
+        # revision syntax in it, so only a full object ID may be sent.
+        if not _GIT_OBJECT_RE.fullmatch(oid):
+            raise ConfigError(f"Git tree entry has a malformed object ID: {path_text}")
+        paths.setdefault(oid, path_text)
+    checked = _run_git_dir(
+        git_dir,
+        ["cat-file", "--batch-check"],
+        text=False,
+        input=b"".join(f"{oid}\n".encode("ascii") for oid in paths),
+    ).stdout
+    records = checked.split(b"\n")
+    if records.pop() != b"" or len(records) != len(paths):
+        raise ConfigError("Git object check returned a malformed response")
+    sizes: dict[str, int] = {}
+    for (oid, path_text), record in zip(paths.items(), records, strict=True):
+        fields = record.split(b" ")
+        if fields == [oid.encode("ascii"), b"missing"]:
+            raise ConfigError(f"Git object is missing from the verified object graph: {path_text}")
+        if len(fields) != 3 or fields[0] != oid.encode("ascii") or not fields[2].isdigit():
+            raise ConfigError(f"Git object check returned a malformed record: {path_text}")
+        if fields[1] != b"blob":
+            raise ConfigError(
+                f"Git tree entry is not a blob: {path_text} "
+                f"(type {fields[1].decode('ascii', errors='replace')})."
+            )
+        sizes[oid] = int(fields[2])
+
+    # Consecutive runs of the requested order, each within the byte bound;
+    # an object repeated inside a run is read once.
+    runs: list[list[str]] = [[]]
+    distinct: set[str] = set()
+    run_bytes = 0
+    for oid, _path_text in wanted:
+        if oid not in distinct:
+            if distinct and run_bytes + sizes[oid] > _MAX_ISOLATED_BATCH_BYTES:
+                runs.append([])
+                distinct, run_bytes = set(), 0
+            distinct.add(oid)
+            run_bytes += sizes[oid]
+        runs[-1].append(oid)
+    for run in runs:
+        requested = list(dict.fromkeys(run))
+        output = _run_git_dir(
+            git_dir,
+            ["cat-file", "--batch"],
+            text=False,
+            input=b"".join(f"{oid}\n".encode("ascii") for oid in requested),
+        ).stdout
+        contents: dict[str, bytes] = {}
+        offset = 0
+        for oid in requested:
+            size = sizes[oid]
+            header_end = output.find(b"\n", offset)
+            start = header_end + 1
+            end = start + size
+            if (
+                header_end < 0
+                or output[offset:header_end] != f"{oid} blob {size}".encode("ascii")
+                or output[end : end + 1] != b"\n"
+            ):
+                raise ConfigError(f"Git object read returned a malformed record: {paths[oid]}")
+            contents[oid] = output[start:end]
+            offset = end + 1
+        if offset != len(output):
+            raise ConfigError("Git object read returned more than was requested")
+        for oid in run:
+            yield contents[oid]
 
 
 #: How many links one resolution may pass through before it counts as unresolved.
@@ -2604,10 +2727,8 @@ def _scope_through_boundary_links(
 
     object_format = _run_git_dir(git_dir, ["rev-parse", "--show-object-format"]).stdout.strip()
     link_texts: dict[str, str] = {}
-    for mode, _object_type, oid, path_text in listed:
-        if mode != "120000":
-            continue
-        blob = _run_git_dir(git_dir, ["cat-file", "blob", oid], text=False).stdout
+    links = [(oid, path_text) for mode, _type, oid, path_text in listed if mode == "120000"]
+    for (oid, path_text), blob in zip(links, _isolated_blobs(git_dir, links), strict=True):
         if _git_object_id("blob", blob, algorithm=object_format) != oid:
             raise ConfigError(f"Git blob failed object-ID validation: {path_text}")
         link_texts[path_text] = blob.decode("utf-8", errors="strict")
@@ -2807,12 +2928,14 @@ def _run_git_dir(
     *,
     check: bool = True,
     text: bool = True,
+    input: bytes | None = None,
 ) -> subprocess.CompletedProcess:
     return _run_process(
         ["git", "--no-replace-objects", f"--git-dir={git_dir}", *args],
         capture_output=True,
         check=check,
         env=_git_object_environment(),
+        input=input,
         text=text,
         timeout=120,
     )
@@ -3095,22 +3218,29 @@ def archive_fetched_tree(
     destination: Path,
     *,
     scope: Callable[[str], bool] | None = None,
-) -> None:
+    record_gitlinks: bool = False,
+) -> dict[str, str]:
     """:func:`archive_tree`, naming a partial clone's unfetched objects as such.
 
     A blobless clone fails the object copy with a :class:`ConfigError`, and a
     treeless one fails the tree lookup before it with a
-    :class:`subprocess.CalledProcessError`. Either is re-raised unchanged
-    unless :func:`promised_objects_missing` says the clone was promised
-    objects it does not hold; then :class:`PromisedObjectsMissingError`, so a
-    caller can name the hydration instead of a traceback (#817).
+    :class:`subprocess.CalledProcessError`. Both become
+    :class:`PromisedObjectsMissingError` when :func:`promised_objects_missing`
+    proves the clone lacks promised objects, so a caller can name the
+    hydration instead of a traceback (#817). Other Git
+    process failures are normalized to ConfigError at this subprocess boundary,
+    so CLI callers need no process-execution import just to catch an error.
     """
 
     try:
-        archive_tree(workspace, commit, destination, scope=scope)
+        return archive_tree(
+            workspace, commit, destination, scope=scope, record_gitlinks=record_gitlinks
+        )
     except (ConfigError, subprocess.CalledProcessError) as exc:
         if promised_objects_missing(workspace, commit):
             raise PromisedObjectsMissingError(commit) from exc
+        if isinstance(exc, subprocess.CalledProcessError):
+            raise ConfigError(f"Could not materialize Git tree for {commit}: {exc}") from exc
         raise
 
 

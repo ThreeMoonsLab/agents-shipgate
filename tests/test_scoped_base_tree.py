@@ -154,6 +154,157 @@ class TestTheHistoryIsNotWalked:
         assert (out / ".claude" / "settings.json").is_file()
 
 
+def _cat_file_calls(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+    """Record every `cat-file` argv the materializer runs."""
+
+    from agents_shipgate.cli.verify import git
+
+    calls: list[list[str]] = []
+    original = git._run_process
+
+    def recording(cmd: list[str], **kwargs):
+        if "cat-file" in cmd:
+            calls.append(cmd[cmd.index("cat-file") :])
+        return original(cmd, **kwargs)
+
+    monkeypatch.setattr(git, "_run_process", recording)
+    return calls
+
+
+class TestBlobsAreReadInBatches:
+    """The #686 cost class, once the whole tree is materialized again.
+
+    One `cat-file blob` per file was 3,485 processes and 181 seconds for one
+    side of a 3,485-blob repository. The reads are batched; what each blob is
+    checked against before it is written is not.
+    """
+
+    def test_blob_reads_do_not_scale_with_the_file_count(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = _host_repo(tmp_path)
+        (root / ".claude" / "CLAUDE.md").write_text("# a\n", encoding="utf-8")
+        (root / "CLAUDE.md").symlink_to(".claude/CLAUDE.md")
+        _commit(root)
+        calls = _cat_file_calls(monkeypatch)
+
+        archive_tree(root, "HEAD", tmp_path / "whole", scope=lambda _path: True)
+
+        assert not [call for call in calls if "blob" in call]
+        # Blobs, then links for the scope, then links to recreate them: one
+        # type-and-size check and one content read each.
+        assert sorted(call[1] for call in calls) == ["--batch"] * 3 + ["--batch-check"] * 3
+        assert len(list((tmp_path / "whole" / "src").iterdir())) == 30
+        assert (tmp_path / "whole" / "CLAUDE.md").readlink().as_posix() == ".claude/CLAUDE.md"
+
+    def test_a_byte_bound_splits_reads_without_changing_the_tree(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Each batch is held in memory whole, so the bound is what keeps a
+        large tree from being held at once. Repeated content is still written
+        at every path that names it."""
+
+        from agents_shipgate.cli.verify import git
+
+        root = _host_repo(tmp_path)
+        (root / "big.bin").write_bytes(bytes(range(256)) * 4)
+        for index in range(3):
+            (root / f"copy{index}.txt").write_text("same\n", encoding="utf-8")
+        _commit(root)
+        archive_tree(root, "HEAD", tmp_path / "one-batch")
+        calls = _cat_file_calls(monkeypatch)
+        monkeypatch.setattr(git, "_MAX_ISOLATED_BATCH_BYTES", 16)
+
+        archive_tree(root, "HEAD", tmp_path / "many-batches")
+
+        assert sum(call[1] == "--batch" for call in calls) > 1
+
+        def files(where: Path) -> dict[str, bytes]:
+            return {
+                path.relative_to(where).as_posix(): path.read_bytes()
+                for path in where.rglob("*")
+                if path.is_file()
+            }
+
+        assert files(tmp_path / "many-batches") == files(tmp_path / "one-batch")
+        assert (tmp_path / "many-batches" / "big.bin").read_bytes() == bytes(range(256)) * 4
+
+    def test_a_blob_that_does_not_hash_to_its_entry_is_not_written(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from agents_shipgate.cli.verify import git
+
+        root = _host_repo(tmp_path)
+        _commit(root)
+        original = git._isolated_blobs
+
+        def tampered(git_dir: Path, wanted):
+            for (_oid, path_text), blob in zip(wanted, original(git_dir, wanted), strict=True):
+                yield b"tampered\n" if path_text == "README.md" else blob
+
+        monkeypatch.setattr(git, "_isolated_blobs", tampered)
+        out = tmp_path / "base"
+
+        with pytest.raises(ConfigError, match="object-ID validation: README.md"):
+            archive_tree(root, "HEAD", out)
+
+        assert not (out / "README.md").exists()
+
+    def test_a_missing_object_is_refused(self, tmp_path: Path) -> None:
+        from agents_shipgate.cli.verify.git import _isolated_blobs
+
+        root = _host_repo(tmp_path)
+        _commit(root)
+
+        with pytest.raises(ConfigError, match="missing .*: gone.txt"):
+            list(_isolated_blobs(root / ".git", [("0" * 40, "gone.txt")]))
+
+    def test_an_object_that_is_not_a_blob_is_refused(self, tmp_path: Path) -> None:
+        from agents_shipgate.cli.verify.git import _isolated_blobs
+
+        root = _host_repo(tmp_path)
+        _commit(root)
+        tree = _git(root, "rev-parse", "HEAD^{tree}")
+
+        with pytest.raises(ConfigError, match="not a blob: src .*type tree"):
+            list(_isolated_blobs(root / ".git", [(tree, "src")]))
+
+    @pytest.mark.parametrize("name", ["HEAD:README.md", "HEAD", "0" * 39, f"{'0' * 40}\n{'0' * 40}"])
+    def test_only_a_full_object_id_reaches_the_batch(self, tmp_path: Path, name: str) -> None:
+        """The batch resolves any revision expression it is given, so a name
+        that is not a full object ID would read something the tree never
+        named."""
+
+        from agents_shipgate.cli.verify.git import _isolated_blobs
+
+        root = _host_repo(tmp_path)
+        _commit(root)
+
+        with pytest.raises(ConfigError, match="malformed object ID: README.md"):
+            list(_isolated_blobs(root / ".git", [(name, "README.md")]))
+
+    def test_a_sha256_repository_is_read_the_same_way(self, tmp_path: Path) -> None:
+        root = tmp_path / "sha256"
+        initialized = subprocess.run(
+            ["git", "init", "--object-format=sha256", "-q", "-b", "main", str(root)],
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+        if initialized.returncode != 0:
+            pytest.skip(f"git cannot create a SHA-256 repository: {initialized.stderr.strip()}")
+        _git(root, "config", "user.email", "t@example.invalid")
+        _git(root, "config", "user.name", "T")
+        (root / "a.txt").write_text("a\n", encoding="utf-8")
+        (root / "b.txt").write_text("b\n", encoding="utf-8")
+        _commit(root)
+
+        archive_tree(root, "HEAD", tmp_path / "out")
+
+        assert (tmp_path / "out" / "a.txt").read_text(encoding="utf-8") == "a\n"
+        assert (tmp_path / "out" / "b.txt").read_text(encoding="utf-8") == "b\n"
+
+
 class TestSymlinks:
     def test_a_symlink_outside_the_surface_does_not_refuse_the_tree(
         self, tmp_path: Path

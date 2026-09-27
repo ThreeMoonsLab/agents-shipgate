@@ -172,6 +172,13 @@ SURFACES: tuple[Surface, ...] = (
         },
     ),
     Surface(
+        "application_diff",
+        ("src/agents_shipgate/cli/application_diff.py",),
+        # Advisory source-wiring comparison, not host drift or an engine verdict.
+        # No release permission, declared authority, pin or root reachability claim.
+        {},
+    ),
+    Surface(
         "capability_diff",
         (
             "src/agents_shipgate/cli/diff.py",
@@ -181,6 +188,7 @@ SURFACES: tuple[Surface, ...] = (
             "src/agents_shipgate/core/unread_inputs.py",
             "src/agents_shipgate/cli/verify/changed_inputs.py",
         ),
+        # Default host mode only; application_diff is registered separately.
         # No claims on purpose: this surface restates none of the engine's
         # answers. It projects the drift payload the engine produced, which
         # is why it cannot disagree with it. Its text joins only the rows the

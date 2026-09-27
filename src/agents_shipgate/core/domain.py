@@ -679,6 +679,11 @@ class AgentRemoteBinding(BaseModel):
     source_ref: str | None = None
 
 
+#: A ``tool_issues`` key for a guess whose real binding could be any of the
+#: agent's tools, not one this reader can name (#879 review).
+ANY_TOOL = "*"
+
+
 class AgentBindingObservation(BaseModel):
     """One framework parser's normalized, agent-level binding observation."""
 
@@ -689,6 +694,15 @@ class AgentBindingObservation(BaseModel):
     source: str
     source_pointer: str | None = None
     tool_names: list[str] = Field(default_factory=list)
+    #: ``tool_name -> native locator`` of the definition the reader resolved
+    #: the name to (#864). Two definitions may share a tool name in one source
+    #: — ``lookup`` in two modules, bound to two agents — and a name alone
+    #: cannot say which one this agent binds.
+    tool_locators: dict[str, str] = Field(default_factory=dict)
+    #: ``tool_name -> why`` for a tool bound on a guess: the reader named a
+    #: definition for it but could not establish that it is the one bound
+    #: (#879 review). The binding is reported, never as established.
+    tool_issues: dict[str, str] = Field(default_factory=dict)
     handoff_names: list[str] = Field(default_factory=list)
     tools_complete: bool = True
     handoffs_complete: bool = True

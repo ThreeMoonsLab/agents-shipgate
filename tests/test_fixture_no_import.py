@@ -383,6 +383,77 @@ def test_google_adk_adapter_does_not_import_user_module(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.parametrize("framework", ["google_adk", "openai_agents_sdk"])
+def test_imported_tool_modules_are_read_not_imported(
+    tmp_path: Path, framework: str
+) -> None:
+    """Following an agent's import to a sibling tool module (#864) reads it.
+
+    The tool module carries the load trap; the scan has to reach its
+    definition — so it was read — without that module entering
+    ``sys.modules``.
+    """
+    workspace = tmp_path / framework
+    if framework == "google_adk":
+        tool_module = f"""
+        {TRAP}
+
+
+        def lookup(case_id: str) -> dict:
+            \"\"\"Look up read-only case metadata.\"\"\"
+            return {{"case_id": case_id}}
+        """
+        agent = """
+        from google.adk.agents import LlmAgent
+
+        from . import case_tools
+
+        root_agent = LlmAgent(name="root_agent", tools=[case_tools.lookup])
+        """
+    else:
+        tool_module = f"""
+        from agents import function_tool
+
+        {TRAP}
+
+
+        @function_tool
+        def lookup(case_id: str) -> str:
+            \"\"\"Look up read-only case metadata.\"\"\"
+            return case_id
+        """
+        agent = """
+        from agents import Agent
+
+        from .case_tools import lookup
+
+        root_agent = Agent(name="root_agent", tools=[lookup])
+        """
+    _write(workspace / "app" / "__init__.py", "")
+    _write(workspace / "app" / "case_tools.py", tool_module)
+    _write(workspace / "app" / "agent.py", agent)
+    _write(
+        workspace / "shipgate.yaml",
+        f"""
+        version: "0.1"
+        project:
+          name: imported-tool-no-import
+        agent:
+          name: root-agent
+          declared_purpose:
+            - read case metadata
+        environment:
+          target: local
+        tool_sources:
+          - id: app
+            type: {framework}
+            path: app/agent.py
+        """,
+    )
+    report = _run_and_assert_no_import(workspace)
+    assert [row["name"] for row in report.tool_catalog] == ["lookup"]  # type: ignore[attr-defined]
+
+
 # --- Declarative adapters: sibling-trap pattern ----------------------------
 
 

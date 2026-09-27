@@ -1,0 +1,56 @@
+{
+  "constructed": true,
+  "package_version": "1.1.0",
+  "contract_version": "40",
+  "wheel_sha256": "038bdb4650d45d9c81996f60d33781b5671bfb57f006233f80e74db8a7377d33",
+  "imported_module": "/tmp/shipgate-798-installed/agents_shipgate/__init__.py",
+  "install": "fresh temporary target; existing Python virtualenv supplies dependencies",
+  "cases": [
+    {
+      "case": "shell",
+      "base": "7a401ae9c08d66dc72755890fbd3535ddcb50918",
+      "head": "90b944c6de46ebc25ba3361d898efaabd6b1dd8a",
+      "path": ".claude/settings.json",
+      "question": "Does this task need npm commands beyond tests?",
+      "rows": 2,
+      "comparison_status": "comparable"
+    },
+    {
+      "case": "mcp",
+      "base": "f68ee4d7d46650ea13cfd3448fd65aca08ffcac0",
+      "head": "fbb92d6a3891a5c8e16ee02c3be6facdc739ca11",
+      "path": ".mcp.json",
+      "question": "Should this repository declare a connection to this MCP endpoint?",
+      "rows": 1,
+      "comparison_status": "comparable"
+    },
+    {
+      "case": "workflow",
+      "base": "54c0a9578668acbc2cc447fb65ab1de108c0679f",
+      "head": "9dda36470fcb06801b7cae9bf1dccc6ed4135a1e",
+      "path": ".github/workflows/example.yml",
+      "question": "Does this workflow need a write-capable contents token?",
+      "rows": 1,
+      "comparison_status": "comparable"
+    }
+  ],
+  "malformed_source": {
+    "comparison_status": "incomparable",
+    "advisory_exit": 0,
+    "input": "shell/malformed-input.txt",
+    "source": ".claude/settings.json",
+    "modified_source_sha256": "d94369f560e33258400e3e856e3be50fc380a5e7aa493b7f974fd3eaf36fb555",
+    "base": "7a401ae9c08d66dc72755890fbd3535ddcb50918",
+    "head": "90b944c6de46ebc25ba3361d898efaabd6b1dd8a",
+    "head_kind": "worktree with the named source modified from head"
+  },
+  "publication": null,
+  "owner": null,
+  "channels": [],
+  "start_date": null,
+  "day_30_checkpoint": null,
+  "qualified_attempts_observed": 0,
+  "release_metadata_url": "https://pypi.org/pypi/agents-shipgate/1.1.0/json",
+  "wheel_url": "https://files.pythonhosted.org/packages/23/1b/bf582ce502c83da71c6382b2cfcce29173419d3343864e7ba6437770b793/agents_shipgate-1.1.0-py3-none-any.whl",
+  "wheel_uploaded_at": "2026-09-22T18:47:16.218697Z"
+}

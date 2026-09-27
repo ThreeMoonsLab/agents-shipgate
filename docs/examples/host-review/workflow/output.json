@@ -1,0 +1,64 @@
+{
+  "base_commit": "54c0a9578668acbc2cc447fb65ab1de108c0679f",
+  "base_ref": "54c0a9578668acbc2cc447fb65ab1de108c0679f",
+  "capability_diff_schema_version": "0.3",
+  "comparison_status": "comparable",
+  "coverage": {
+    "items": [
+      {
+        "detail": null,
+        "hosts": [
+          "github"
+        ],
+        "limit": null,
+        "rows": 1,
+        "scope": null,
+        "side": "both",
+        "source": ".github/workflows/example.yml",
+        "status": "compared"
+      }
+    ],
+    "omitted_items": 0,
+    "read_sources_only": true
+  },
+  "incomparable_reasons": [],
+  "review": {
+    "changes": [
+      {
+        "after": "write, inspect: contents: write, on: pull_request",
+        "before": "read, inspect: contents: read, on: pull_request",
+        "change": null,
+        "direction": "widened",
+        "expands": true,
+        "row_indexes": [
+          0
+        ],
+        "severity": "high",
+        "subject": "github .github/workflows/example.yml",
+        "why": "grants write permissions to workflow jobs"
+      }
+    ],
+    "question": "Review question: Does the team intend this declared capability change?",
+    "reproduce_command": "agents-shipgate diff --base 54c0a9578668acbc2cc447fb65ab1de108c0679f",
+    "summary": {
+      "changes": 1,
+      "rows": 1,
+      "widenings": 1
+    }
+  },
+  "rows": [
+    {
+      "after": "write, inspect: contents: write, on: pull_request",
+      "before": "read, inspect: contents: read, on: pull_request",
+      "direction": "widened",
+      "disposition": null,
+      "expands": true,
+      "severity": "high",
+      "subject": "github .github/workflows/example.yml",
+      "why": "grants write permissions to workflow jobs"
+    }
+  ],
+  "static_analysis_only": true,
+  "unchanged_limits": [],
+  "workspace": "/private/tmp/shipgate-798-cards/workflow/repo"
+}

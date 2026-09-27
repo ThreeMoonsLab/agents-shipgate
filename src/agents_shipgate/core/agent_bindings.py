@@ -86,6 +86,9 @@ class _RawToolEdge:
     source: str
     source_pointer: str | None
     complete: bool
+    #: The native locator of the definition the reader resolved this name to,
+    #: when it knows one. It only ever narrows a name match (#864).
+    tool_locator: str | None = None
 
 
 @dataclass(frozen=True)
@@ -100,7 +103,7 @@ class _RawHandoffEdge:
 
 
 def resolve_agent_binding_graph(
-    manifest: AgentsShipgateManifest,
+    manifest: AgentsShipgateManifest | None,
     tools: list[Tool],
     artifacts: ArtifactBag,
     loaded_sources: list[LoadedToolSource] | None = None,
@@ -109,6 +112,8 @@ def resolve_agent_binding_graph(
 
     Catalog membership is deliberately not evidence. Only reviewed manifest
     declarations and framework-specific structural observations create edges.
+    With ``manifest=None`` only reader observations contribute; callers may
+    compare per-agent wiring without supplying any reviewed declaration.
     """
 
     (
@@ -118,7 +123,7 @@ def resolve_agent_binding_graph(
         partials,
         invalid_annotations,
     ) = _observations(tools, artifacts, loaded_sources or [])
-    declarations = manifest.agent_bindings.declarations
+    declarations = manifest.agent_bindings.declarations if manifest is not None else []
     # A declaration may introduce an agent the extractors never saw — a
     # decorator-only repository has no agent object to observe. It must NOT
     # introduce a second node for one the extractors *did* see: the seeded
@@ -217,6 +222,20 @@ def resolve_agent_binding_graph(
                 or tool.annotations.get("n8n_workflow_id") == raw.source_id
             )
         ]
+        if raw.tool_locator is not None:
+            # The reader said which definition this agent binds: the locator
+            # names it exactly — module and tool name — so it is identity, not
+            # a name join (#879 review). It decides between same-named
+            # definitions, even when the edge's own source holds exactly one:
+            # ``lookup`` defined locally and ``tools.lookup`` imported under
+            # another name are two tools, and the catalog may have kept the
+            # imported one only in the source that read it natively. A locator
+            # no catalog tool carries leaves the name match as it was.
+            located = [tool for tool in matches if tool.native_locator == raw.tool_locator]
+            if not located:
+                located = [tool for tool in tools if tool.native_locator == raw.tool_locator]
+            if len(located) == 1:
+                matches = located
         if len(matches) != 1:
             issues.append(
                 AgentBindingIssue(
@@ -662,6 +681,7 @@ def _observations(
                         observation.source,
                         observation.source_pointer,
                         observation.tools_complete,
+                        observation.tool_locators.get(tool_name),
                     )
                 )
             for target_agent in observation.handoff_names:
@@ -932,7 +952,7 @@ def _selector_field(selector: Any, field: str) -> str | None:
 
 
 def _declared_source_surfaces(
-    manifest: AgentsShipgateManifest,
+    manifest: AgentsShipgateManifest | None,
 ) -> list[tuple[ToolSourceConfig, str, _AgentObservation]]:
     """Every ``tool_sources[]`` entry whose published surface is reviewed.
 
@@ -957,13 +977,13 @@ def _declared_source_surfaces(
                 tool_source_surface=True,
             ),
         )
-        for index, source in enumerate(manifest.tool_sources)
+        for index, source in enumerate(manifest.tool_sources if manifest is not None else [])
         if source.binding is not None
     ]
 
 
 def _select_root(
-    manifest: AgentsShipgateManifest,
+    manifest: AgentsShipgateManifest | None,
     agents: list[AgentBindingNode],
     raw_handoffs: list[_RawHandoffEdge],
     surface_agent_ids: frozenset[str] = frozenset(),
@@ -984,7 +1004,7 @@ def _select_root(
     either way.
     """
 
-    root_config = manifest.agent_bindings.root
+    root_config = manifest.agent_bindings.root if manifest is not None else None
     observed = [agent for agent in agents if agent.agent_id not in surface_agent_ids]
     surfaces = [agent for agent in agents if agent.agent_id in surface_agent_ids]
     candidates = observed
@@ -1003,9 +1023,9 @@ def _select_root(
             agent for agent in matches if agent.agent_id not in surface_agent_ids
         ]
         candidates = observed_matches or matches
-    elif manifest.agent.sdk and manifest.agent.sdk.object:
+    elif manifest is not None and manifest.agent.sdk and manifest.agent.sdk.object:
         candidates = [agent for agent in observed if agent.name == manifest.agent.sdk.object]
-    elif len(manifest.agent_bindings.declarations) == 1:
+    elif manifest is not None and len(manifest.agent_bindings.declarations) == 1:
         declared = manifest.agent_bindings.declarations[0].agent
         if declared == "root":
             if len(observed) == 1:

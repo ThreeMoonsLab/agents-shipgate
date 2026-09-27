@@ -256,6 +256,12 @@ class GoogleAdkArtifacts(BaseModel):
     plugins: list[dict[str, Any]] = Field(default_factory=list)
     sub_agents: list[dict[str, Any]] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    # Why a referenced tool name that the module imports did not resolve to a
+    # repository-local definition (#864): one record per unresolved-tool
+    # warning, carrying the agent, the reference and the named reason. Kept
+    # beside the warning rather than in it, because the warning's wording is
+    # a mechanism other code decodes.
+    unresolved_references: list[dict[str, Any]] = Field(default_factory=list)
 
     def surface_summary(self) -> dict[str, Any]:
         dynamic_toolsets = [
