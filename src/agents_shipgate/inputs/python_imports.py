@@ -1850,7 +1850,9 @@ def _hook_answers_submodule(module: PythonModule, name: str) -> bool:
             values = assigned.get(value.id, [])
             if len(values) == 1 and (
                 is_import(values[0])
-                or (isinstance(values[0], ast.alias) and value.id == name)
+                # ``from . import memory`` for ``memory``, never ``from .
+                # import alternate as memory`` (#879 review).
+                or (isinstance(values[0], ast.alias) and value.id == name and values[0].name == name)
             ):
                 continue
         return False

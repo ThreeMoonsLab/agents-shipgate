@@ -2300,3 +2300,98 @@ def test_a_logging_helper_reading_its_callers_frame_changes_nothing(repo, helper
     result = run(repo, base, head, "--scope", "svc/app")
     assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
     assert _rows(result) == [("x", "lookup", "added")]
+
+
+# ---------------------------------------------------------------------------
+# PR review (pengfei-threemoonslab, 2026-09-27): the resolved definition wins
+# over a same-named local one after source deduplication; a reader's name is
+# proven by its binding; a lazy hook's import names the submodule asked for.
+
+def test_scan_binds_the_located_definition_over_a_same_named_local_one(tmp_path):
+    (tmp_path / "tools.py").write_text(
+        "from agents import function_tool\n\n\n@function_tool\ndef lookup(q: str) -> str:\n    return q\n"
+    )
+    (tmp_path / "agent.py").write_text(
+        "from agents import Agent, function_tool\nfrom tools import lookup as shared_lookup\n\n\n"
+        "@function_tool\ndef lookup(q: str) -> str:\n    return q.upper()\n\n\n"
+        'local = Agent(name="local", tools=[lookup])\nremote = Agent(name="remote", tools=[shared_lookup])\n'
+    )
+    (tmp_path / "shipgate.yaml").write_text(
+        'version: "0.1"\nproject:\n  name: dedup\nagent:\n  name: remote\n'
+        "  declared_purpose:\n    - look things up\nenvironment:\n  target: local\n"
+        "tool_sources:\n  - id: sdk_agent\n    type: openai_agents_sdk\n    path: agent.py\n"
+        "  - id: sdk_tools\n    type: openai_agents_sdk\n    path: tools.py\n"
+    )
+    out = tmp_path / "reports"
+    result = CliRunner().invoke(
+        app, ["scan", "-c", str(tmp_path / "shipgate.yaml"), "--out", str(out), "--format", "json"]
+    )
+    assert result.exit_code == 0, result.output
+    report = json.loads((out / "report.json").read_text())
+    defined = {tool["tool_id"]: tool["source_ref"] for tool in report["tool_catalog"]}
+    facts = report["binding_surface_facts"]
+    names = {agent["agent_id"]: agent["name"] for agent in facts["agents"]}
+    bound = {names[edge["agent_id"]]: defined[edge["tool_id"]] for edge in facts["tool_edges"]}
+    assert bound == {"local": "agent.py", "remote": "tools.py"}
+
+
+@pytest.mark.parametrize(
+    ("helper", "use"),
+    [
+        (
+            "from tools import execute\n\n\ndef print(items):\n    items.append(execute)\n",
+            "from helpers import print\n",
+        ),
+        (
+            "from tools import execute\n\n\nclass Recorder:\n    def info(self, items):\n        items.append(execute)\n\n\n"
+            "log = Recorder()\n",
+            "from helpers import log\n",
+        ),
+        ("from tools import execute\n\n\ndef print(items):\n    items.append(execute)\n", "from helpers import *\n"),
+    ],
+    ids=["imported-print", "an-objects-info-method", "star-import"],
+)
+def test_a_reader_named_like_a_builtin_is_proven_by_its_binding(repo, helper, use):
+    tools = "from agents import function_tool\n\n\n@function_tool\ndef lookup(q: str) -> str:\n    return q\n\n\n@function_tool\ndef execute(q: str) -> str:\n    return q\n"
+    call = "log.info(TOOLS)\n" if "log" in use else "print(TOOLS)\n"
+    agent = "from agents import Agent\n" + use + "from tools import lookup\n\nTOOLS = [lookup]\nCALL" + "agent = Agent(name='a', tools=TOOLS)\n"
+    base = commit(repo, {"tools.py": tools, "helpers.py": helper, "agent.py": agent.replace("CALL", "")})
+    head = commit(repo, {"agent.py": agent.replace("CALL", call)})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial", result["rows"]
+
+
+@pytest.mark.parametrize(
+    ("reader", "established"),
+    [
+        ("print(TOOLS)\n", True),
+        ("import logging\n\nlogger = logging.getLogger(__name__)\nlogger.info(TOOLS)\n", True),
+        ("import json\n\njson.dumps(TOOLS)\n", True),
+    ],
+    ids=["builtin-print", "logger", "stdlib-json"],
+)
+def test_the_real_readers_still_read(repo, reader, established):
+    tools = "from agents import function_tool\n\n\n@function_tool\ndef lookup(q: str) -> str:\n    return q\n\n\n@function_tool\ndef execute(q: str) -> str:\n    return q\n"
+    agent = "from agents import Agent\nfrom tools import lookup, execute\n\nTOOLS = [lookup, BIND]\nREADER" + "agent = Agent(name='a', tools=TOOLS)\n"
+    base = commit(repo, {"tools.py": tools, "agent.py": agent.replace("BIND", "lookup").replace("READER", reader).replace("[lookup, lookup]", "[lookup]")})
+    head = commit(repo, {"agent.py": agent.replace("BIND", "execute").replace("READER", reader)})
+    result = run(repo, base, head)
+    assert (result["comparison_status"] == "compared") is established, result["head"]["limits"]
+    assert _rows(result) == [("agent", "execute", "added")]
+
+
+def test_a_lazy_hook_importing_another_submodule_under_the_name_is_not_the_idiom(repo):
+    files = {
+        "pkg/__init__.py": (
+            "def __getattr__(name):\n    if name == 'memory':\n        from . import alternate as memory\n"
+            "        return memory\n    raise AttributeError(name)\n"
+        ),
+        "pkg/memory.py": "def remember(q: str) -> str:\n    return q\n",
+        "pkg/alternate.py": "def remember(q: str) -> str:\n    return q\n",
+        "agent.py": LAZY_AGENT,
+    }
+    base = commit(repo, files)
+    head = commit(repo, {"pkg/alternate.py": "def remember(q: str) -> str:\n    return q.upper()\n"})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial"
+    assert _rows(result) == [("x", "remember", "not_established")]

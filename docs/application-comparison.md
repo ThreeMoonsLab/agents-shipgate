@@ -237,7 +237,9 @@ that binds `NAME` where the agent is constructed: a builder's own list, a class
 body's own list, or the module's. It is read only when that scope binds it
 once, to a literal list, and every use of that binding in the file only reads
 it: iterated, indexed, compared, tested, formatted, spread (`[*TOOLS, x]`),
-handed to a read-only builtin or logging method, to an agent's (or a copy's)
+handed to a read-only builtin, a standard-library reader (`json.dumps`) or a
+logger's method — each proven by its binding, so a `print` imported from the
+application or an `.info()` on its own object is not one — to an agent's (or a copy's)
 own `tools=`, or to a function whose every use of that parameter is such a
 read. A list method, `+=`, a `global` or `nonlocal` rebinding, a subscript
 store, a second name (also through `x or y`), a tuple, a return, `*args`, or anything

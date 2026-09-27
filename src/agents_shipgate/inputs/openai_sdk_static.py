@@ -548,18 +548,81 @@ _READ_ONLY_CALLS = frozenset(
 _LOG_METHODS = frozenset({"debug", "info", "warning", "error", "exception", "critical", "log"})
 
 
-def _leaves_arguments_alone(call: ast.Call) -> bool:
+#: ``(name, site) -> [(binding node, its statement)]``, empty when unbound.
+BindingsAt = Callable[[str, ast.AST], list[tuple[ast.AST, ast.AST | None]]]
+
+
+def _bindings_at(scopes: ScopeIndex, module_bindings: dict[str, list[Any]]) -> BindingsAt:
+    # ``from helpers import *`` may bind any name: none is proven unbound.
+    star = any(isinstance(node, ast.alias) and node.name == "*" for node in scopes.parents)
+
+    def found(name: str, site: ast.AST) -> list[tuple[ast.AST, ast.AST | None]]:
+        local = scopes.enclosing_bindings(site, name)
+        if local:
+            return [(item, scopes.statement_of(item)) for item in local]
+        module = [(item.node, item.statement) for item in module_bindings.get(name, [])]
+        return module or ([(site, None)] if star else [])
+
+    return found
+
+
+def _leaves_arguments_alone(call: ast.Call, bindings_at: BindingsAt) -> bool:
+    """Whether ``call`` is a builtin, a standard-library reader or a logging
+    method, which only read what they are handed.
+
+    The spelling proves nothing alone: a ``print`` imported from the
+    application's helpers, or an ``.info()`` on an object of its own, may
+    change the list (#879 review). A bare name is the builtin only when nothing
+    binds it, or the standard-library reader when it is imported from that
+    module; ``json.dumps`` only when ``json`` is the standard library's; a
+    logging method only on ``logging`` or a logger ``getLogger()`` returned.
+    """
+
     name = dotted_name(call.func)
     if name in _READ_ONLY_CALLS:
-        return True
-    return isinstance(call.func, ast.Attribute) and call.func.attr in _LOG_METHODS
+        head, _, rest = name.partition(".")
+        found = bindings_at(head, call)
+        if not found:
+            return not rest
+        if len(found) != 1:
+            return False
+        node, statement = found[0]
+        if not isinstance(node, ast.alias):
+            return False
+        if isinstance(statement, ast.ImportFrom):
+            # ``from pprint import pprint``.
+            return not rest and not statement.level and f"{statement.module}.{node.name}" in _READ_ONLY_CALLS
+        # ``import json`` then ``json.dumps``.
+        return bool(rest) and isinstance(statement, ast.Import) and node.name == head and node.asname is None
+    if not (isinstance(call.func, ast.Attribute) and call.func.attr in _LOG_METHODS):
+        return False
+    receiver = call.func.value
+    if not isinstance(receiver, ast.Name):
+        return False
+    found = bindings_at(receiver.id, call)
+    if len(found) != 1:
+        return False
+    node, statement = found[0]
+    if isinstance(node, ast.alias):
+        # ``logging.info(...)``.
+        return isinstance(statement, ast.Import) and node.name == "logging" and receiver.id == "logging"
+    value = getattr(statement, "value", None)
+    # ``logger = logging.getLogger(__name__)``.
+    return (
+        isinstance(statement, ast.Assign | ast.AnnAssign)
+        and isinstance(value, ast.Call)
+        and (reference_spelling(value.func) or "").rsplit(".", 1)[-1] in {"getLogger", "get_logger"}
+    )
 
 
-def _parameter_left_alone(function: ast.FunctionDef | ast.AsyncFunctionDef, name: str) -> bool:
+def _parameter_left_alone(
+    function: ast.FunctionDef | ast.AsyncFunctionDef, name: str, bindings_at: BindingsAt
+) -> bool:
     """Whether every use of parameter ``name`` in ``function`` only reads it.
 
     The same test as a module list's own uses, one level deep: handing it on
     to any call but a read-only builtin or logging method is not a read.
+    ``bindings_at`` answers for the function's own module.
     """
 
     parents = {child: node for node in ast.walk(function) for child in ast.iter_child_nodes(node)}
@@ -569,7 +632,9 @@ def _parameter_left_alone(function: ast.FunctionDef | ast.AsyncFunctionDef, name
         if isinstance(node, ast.Name) and node.id == name:
             if not isinstance(node.ctx, ast.Load):
                 return False
-            if not _read_only_use(node, parents, lambda call, *_: _leaves_arguments_alone(call)):
+            if not _read_only_use(
+                node, parents, lambda call, *_: _leaves_arguments_alone(call, bindings_at)
+            ):
                 return False
     return True
 
@@ -690,7 +755,7 @@ class _ToolLists:
     def _call_reads(self, call: ast.Call, position: int | None, keyword: str | None) -> bool:
         """Whether ``call`` only reads the list it is passed at ``position``/``keyword``."""
 
-        if _leaves_arguments_alone(call):
+        if _leaves_arguments_alone(call, _bindings_at(self.scopes, self.module_bindings)):
             return True
         if keyword in {"tools", "handoffs", "mcp_servers"} and (
             (
@@ -727,7 +792,11 @@ class _ToolLists:
             parameter = str(keyword)
         else:
             return False
-        return _parameter_left_alone(function, parameter)
+        defining = resolution.module
+        assert defining is not None
+        return _parameter_left_alone(
+            function, parameter, _bindings_at(ScopeIndex(defining.tree), defining.bindings)
+        )
 
     def _literal(self, name: str, node: ast.AST) -> ast.List | ast.Tuple | None | bool:
         """The one literal list ``name`` holds at ``node``.
