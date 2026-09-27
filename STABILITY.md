@@ -338,6 +338,40 @@ raises no allow finding, where it previously raised
 `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` (review). `diff` still shows it as a
 removal and an addition.
 
+<a id="skill-metadata-848"></a>
+
+## Migration Note: Unreleased — free-form skill metadata (#848)
+
+In 1.1.0 (contract 40), a skill with `metadata: {internal: true}` made the
+whole host comparison incomparable. The same happened for integer and nested
+metadata values, and for a `metadata` that is not a map (`metadata: [a, b]`,
+`metadata: internal`, `metadata: true`), hiding a fully readable permission
+widening in another file. The shared skill structure projection now reads
+these values without converting them to strings. Text and JSON compare the
+skill and retain the unrelated rows; no new schema or control state is
+introduced in contract 41.
+
+This follows [Claude Code's frontmatter reference](https://code.claude.com/docs/en/skills#frontmatter-reference),
+which documents a free-form metadata map and does not use its contents to
+grant authority. It is not a claim of portable skill validity: the
+[Agent Skills specification](https://agentskills.io/specification#metadata-field)
+requires string values. All metadata remains in the structure digest, so
+changing a value still changes the declaration; a prose-only edit can prove
+unchanged structure. Existing string-only metadata digests are unchanged.
+
+Claude Code documents that it drops a `metadata` value that is not a map.
+This reader does not drop it: the value is digested as written, as an
+undocumented key is (#730), so it is read with no limit and a change to it,
+including from a map to a list or back, is still a changed skill.
+
+The bounded reader still refuses an unterminated fence, invalid YAML,
+non-mapping frontmatter, aliases, tags, duplicate keys and unencodable values.
+It requires string keys at every depth of `metadata`, map or not, preventing
+distinct YAML keys (`true` and `'True'`) from collapsing into one JSON digest
+member, so a metadata key YAML reads as a number, date, boolean or null
+(`1:`, `2026-01-29:`, `on:`) still refuses. No declared tool or hook is
+ignored.
+
 <a id="workflow-access-label-859"></a>
 
 ## Migration Note: Unreleased — workflow values label aggregate access (#859)
@@ -839,7 +873,7 @@ reader reads an in-tree link at a boundary path through to its target
 ([#700](#link-read-through-at-boundary-paths-contract-v39-700)),
 but the unchanged proof accepted only a file at its own path, so a limit on a
 file read through a link refused the whole comparison. With a skill whose
-`metadata.internal` is `true`, which this entry's bounded profile does not
+`metadata` has the key `1`, which this entry's bounded profile does not
 accept, and a change that only drops `deny: Bash(curl *)` from
 `.claude/settings.json`:
 
@@ -880,10 +914,11 @@ accept, and a change that only drops `deny: Bash(curl *)` from
   copy, or rewritten to land on the same file (`../../skills/review` to
   `../../skills/./review`), a link replaced by a directory holding the same
   bytes or the reverse, and any later link of a chain retargeted.
-- **Not coerced.** The metadata value is not reinterpreted: `internal: true`
-  is still an unresolved structure, `unsupported`, published with the same
-  `detail` as at a direct path. `internal: "true"` was and is read, with no
-  limit.
+- **Not coerced.** Metadata is not reinterpreted: the key `1` is not read as
+  the string `"1"`, so it is still an unresolved structure, `unsupported`,
+  published with the same `detail` as at a direct path. Since
+  [#848](#skill-metadata-848), `internal: true` is read as written, with no
+  limit, as `internal: "true"` was and is; the two digest apart.
 - **Who reads the proof.** One function answers it for every consumer, so they
   move together: `unchanged_limits` in `diff --json` and `verifier.json`; the
   `Not compared: unchanged in this change and not read` list of `diff`,

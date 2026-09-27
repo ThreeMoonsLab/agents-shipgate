@@ -1,0 +1,45 @@
+blob
+mark :1
+data 144
+name: Example
+on: [pull_request]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo example
+
+reset refs/heads/main
+commit refs/heads/main
+mark :2
+author fixture <fixture@example.invalid> 1790507902 -0700
+committer fixture <fixture@example.invalid> 1790507902 -0700
+data 17
+constructed base
+M 100644 :1 .github/workflows/example.yml
+
+blob
+mark :3
+data 145
+name: Example
+on: [pull_request]
+permissions:
+  contents: write
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo example
+
+commit refs/heads/change
+mark :4
+author fixture <fixture@example.invalid> 1790507902 -0700
+committer fixture <fixture@example.invalid> 1790507902 -0700
+data 19
+constructed change
+from :2
+M 100644 :3 .github/workflows/example.yml
+
+done
