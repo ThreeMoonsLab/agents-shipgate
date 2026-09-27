@@ -166,8 +166,11 @@ is the repository's own code is read from the compared commit's tree (for
 `scan`, from the checkout, or from the three directories above the scope when
 there is none): a module or regular package at the repository root, under
 `src/`, or under any directory between the root and the scope (`backend/common`
-for scope `backend/app`) — except a standard-library name, and the scope's own
-package on the way to it, which counts only when it holds the name imported
+for scope `backend/app`) — except a module the interpreter loads before any
+application code (`os`, `sys`), a standard-library name at a root that is
+itself a regular package (a plain directory on the path does shadow it:
+`backend/calendar.py` is the `calendar` that scope `backend/app` imports), and
+the scope's own package on the way to it, which counts only when it holds the name imported
 (`from agents import Agent` beside `app/agents/support` is the SDK) — a linked
 or submodule entry the import spells, or a
 directory without `__init__.py` that holds the submodule named — `agents/support/`
@@ -175,16 +178,30 @@ holding SDK apps is not the `agents` that `from agents import Agent` imports. Th
 scope spelled from one of those roots through a regular package
 (`svc.app.tools` with scope `svc/app`) is read inside the scope. The
 `__init__.py` of every package between the repository root and the scope, and
-the modules each imports, run before the scope's modules and are read for the
-same reassignments. `sys.modules` and `globals()` are read by allow-list: a
-subscript, `get`, a membership test or a read-only builtin reads them; a store
-(`[...] =`, `setdefault`, `update`, an attribute of `sys.modules[...]`) is a
-named stop when its key names a module on the chain, a package above one, or
+the modules each imports — every package on the way to one (`import
+svc.lib.util` runs `svc/lib/__init__.py`) and each submodule named (`from
+.hooks import patches`) — run before the scope's modules and are read for the
+same reassignments. There a reassignment counts only when the module it is
+rooted at is in the scope or cannot be found (`registry.tools = []` on
+`app/services/registry.py` replaces nothing the agent binds); one of those
+modules that cannot be read is a caveat unless its import is guarded or
+generated; and what they import in turn is not followed. `sys.modules` and
+`globals()` are read by allow-list: a subscript, `get`, a membership test, a
+comparison, iteration, a spread (`[*globals()]`, `**globals()`), a read-only
+builtin, `pkgutil.iter_modules(__path__)` or a namespace keyword
+(`get_type_hints(fn, globalns=globals())`) reads them; a store (`[...] =`,
+`setdefault`, `update`, `patch.dict`, `setitem`, an attribute of
+`sys.modules[...]`) is a named stop when its key names a module on the chain, a package above one, or
 the framework's own modules — `__name__` plus a literal is that module's own
 name — and nothing when it names another module; any other use (`mods =
 sys.modules`, `|=`, `operator.setitem`, a computed key) is a caveat. A
-module rebinding its own name through `globals()` or `sys.modules[__name__]` is
-a reassignment of that name, and a change to `__path__` a caveat. A package
+module rebinding its own name through `globals()` or its own module object is
+a reassignment of that name, whichever way it spells the object
+(`sys.modules[__name__]`, `sys.modules.get(__name__)`,
+`importlib.import_module(__name__)`, an alias of one, `globals` under another
+name) or the store (an attribute, `__dict__[...]`, `vars(...)[...]`); a
+computed `setattr`, handing the module object to a function that is not a read,
+and a change to `__path__` are caveats. A package
 hook is not trusted when the package rebinds `__name__`, `__getattr__` or
 `__path__`, patches `importlib`, or stores into `sys.modules` or `globals()`
 other than the idiom's own cache. A generated
