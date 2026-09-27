@@ -301,6 +301,71 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="grant-direction-820"></a>
+
+## Migration Note: Unreleased — changed grants are not automatically widenings (#820)
+
+Host-grants `0.7` and contract 41 are extended in place. The issue originally
+named unreleased `0.6`/40; those shipped in 1.1.0 and remain frozen. No field,
+schema discriminator, check ID or severity changes here.
+
+Previously every added or changed MCP server, loaded hook, plugin, permission
+mode or sandbox setting emitted an expansion signal. A guard added to a hook,
+an MCP `--read-only` argument, disabling a plugin, changing `bypassPermissions`
+to `default`, and enabling the sandbox therefore all got widening markers.
+Now only a documented gain does:
+
+- A new MCP server or a new loaded hook, including a hook whose declaration
+  gains established loading from a previously declared-only or selected plugin.
+  Command, matcher, timeout, package, argument and endpoint changes remain
+  visible using #819's fields. They establish neither widening nor narrowing.
+- A plugin or app explicitly enabled when newly declared or previously false.
+  Disabling one, adding it disabled, changing an already-enabled app's other
+  configuration, or registering/repointing a marketplace establishes no gain.
+  Non-boolean Claude Code enablement is now unknown (`enabled: null`), not
+  coerced to true. The nullable field and configuration digest already exist.
+- A documented less restrictive Claude Code mode. `default`, `dontAsk` and
+  `plan` can widen to modes that permit more actions; `bypassPermissions` can
+  widen from the other known modes. `auto` and `acceptEdits` are not ordered
+  against each other. Unknown modes are not ranked. A newly declared
+  `acceptEdits`, `auto` or `bypassPermissions` is explicitly permissive; a newly
+  declared `default`, `dontAsk` or `plan` is not an expansion.
+- A new named project MCP approval or an explicit switch enabling all project
+  MCP servers or skipping the bypass-mode confirmation. Disabling those
+  switches does not expand. These are typed booleans, not string lookalikes.
+- Disabling Claude Code or a VS Code stdio server's sandbox, or permitting Claude Code's
+  unsandboxed commands. Codex's known sandbox modes are ordered
+  `read-only` < `workspace-write` < `danger-full-access`; adding explicit full
+  access or widening that order expands. Enabling workspace-write networking
+  or removing an explicit temporary-directory exclusion also expands.
+  Other setting edits are unclassified changes, not ranked by severity.
+
+The rules follow the hosts' [permission-mode](https://code.claude.com/docs/en/permissions#permission-modes),
+[settings](https://code.claude.com/docs/en/settings),
+[VS Code MCP sandbox](https://code.visualstudio.com/docs/agents/reference/mcp-configuration#sandbox-configuration), and
+[Codex configuration](https://learn.chatgpt.com/docs/config-file/config-reference)
+references. They compare declared facts, not runtime behavior or effective
+session defaults. In particular Codex `approval_policy: never` is not treated
+as bypassing its sandbox. Removing a setting does not invent its replacement.
+
+`mcp_server_changed` is no longer emitted for arbitrary server edits.
+`hook_changed` requires a gain in established loading. The existing
+`plugin_or_app_*`, `permission_mode_*`, and `sandbox_*` strings remain, but
+only for the gains above. A same-identity edit with no gain is `changed` with
+`expands: false`; hook/MCP rows explicitly say their direction is unknown.
+Settings whose identity includes their value keep their removed/added rows.
+Each arrival is evaluated against its own host, source and setting, so a
+tightening cannot inherit another setting's widening marker in the same file.
+Ambiguous predecessors establish no gain.
+
+`diff`, verifier host comparisons, PR comments, `check` rows, drift and
+preflight use the same expansion evidence. **Check decisions are unchanged:**
+the existing rules still review hook/MCP edits and permission settings at their
+documented severity, even when direction is unknown or tightening. A widening
+marker is not the control signal, and removing one grants no merge authority.
+The [direction benchmark](benchmark/host-config/direction-replay-820.md) records
+before/after counts separately from the historical row-presence scores.
+
 <a id="partial-host-comparison-808"></a>
 
 ## Migration Note: Unreleased — a plugin directory that cannot be compared no longer hides the rest (verifier `0.21`, capability diff `0.4`, contract v41, #808)

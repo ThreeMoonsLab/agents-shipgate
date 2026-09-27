@@ -76,15 +76,14 @@ def case_dirs() -> list[Path]:
     return sorted(path for path in CASES.iterdir() if path.is_dir()) if CASES.is_dir() else []
 
 
-def replay_case(case_dir: Path, workdir: Path) -> dict[str, Any]:
-    """The observed outcome of one vendored case, in `replay.json`'s shape."""
+def replay_record(case_dir: Path, workdir: Path) -> dict[str, Any]:
+    """Raw comparison plus independent expectation, also used by direction replay."""
 
     from typer.testing import CliRunner
 
     from agents_shipgate.cli.main import app
 
     expected = _load("expected")
-    score = _load("score")
     case = json.loads((case_dir / "case.json").read_text(encoding="utf-8"))
     sides = {
         side: (case_dir / f"{side}.txt").read_bytes().decode("utf-8")
@@ -116,7 +115,13 @@ def replay_case(case_dir: Path, workdir: Path) -> dict[str, Any]:
         ),
         "expectation": expected.expected(case["kind"], sides["base"], sides["head"]),
     }
-    outcome = score.score_record(record)
+    return record
+
+
+def replay_case(case_dir: Path, workdir: Path) -> dict[str, Any]:
+    """The observed outcome of one vendored case, in `replay.json`'s shape."""
+
+    outcome = _load("score").score_record(replay_record(case_dir, workdir))
     return {key: outcome[key] for key in OBSERVED_KEYS}
 
 

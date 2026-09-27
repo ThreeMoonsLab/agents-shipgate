@@ -1037,7 +1037,8 @@ def _vscode_mcp_extras(
             grants.append(_setting_grant(
                 host="vscode", scope=scope, source=source, kind="sandbox",
                 setting=f"servers.{name}.sandboxEnabled", value=enabled,
-                access="admin" if enabled is False else "unknown", risk="high",
+                access="admin" if enabled is False and _transport_hint(server) == "stdio" else "unknown",
+                risk="high",
             ))
         if "envFile" in server:
             issues.append(_inventory_issue(
@@ -1407,7 +1408,7 @@ def _claude_grants(data: Any, *, scope: HostScope, source: str) -> list[dict[str
                     host="claude-code", scope=scope, source=source, kind="plugin_or_app",
                     identity=str(name), config={"enabled": enabled}, access="execute", risk="high",
                 ),
-                "name": str(name), "enabled": bool(enabled),
+                "name": str(name), "enabled": enabled if isinstance(enabled, bool) else None,
             })
     # `enabledPlugins` entries install from these, so a marketplace added or
     # re-pointed changes what an enabled plugin runs (#720). Named with a
@@ -5744,7 +5745,89 @@ def _diff_host_coverage(
     return changes
 
 
-def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
+def _setting_predecessor(after: dict, changes: list[dict]) -> tuple[dict | None, bool]:
+    """One same-source setting, whose grant identity includes its value."""
+
+    if after.get("host") == "claude-code" and after.get("setting") in CLAUDE_LIST_SETTINGS:
+        # Each named server is a separate grant, not a scalar replacement.
+        return None, True
+    candidates = [
+        old for change in changes
+        if (old := change.get("baseline")) is not None
+        and all(old.get(key) == after.get(key) for key in ("host", "source", "kind", "setting"))
+    ]
+    return (candidates[0] if len(candidates) == 1 else None), len(candidates) <= 1
+
+
+def _setting_widens(before: dict | None, after: dict) -> bool:
+    """Only documented increases, never a severity ranking (#820).
+
+    Settings with no rule remain changes. Absence is not a host default: it
+    establishes only the introduction of an explicitly permissive setting.
+    """
+
+    host, setting = after.get("host"), after.get("setting")
+    old = published_setting_value(before) if before is not None else None
+    new = published_setting_value(after)
+    if host == "claude-code":
+        if setting == "defaultMode":
+            # code.claude.com/docs/en/permissions#permission-modes.
+            # auto and acceptEdits are not ordered against each other.
+            wider = {
+                "default": {"acceptEdits", "auto", "bypassPermissions"},
+                "dontAsk": {"default", "acceptEdits", "auto", "bypassPermissions"},
+                "plan": {"default", "acceptEdits", "auto", "bypassPermissions"},
+                "acceptEdits": {"bypassPermissions"},
+                "auto": {"bypassPermissions"},
+                "bypassPermissions": set(),
+            }
+            if before is None:
+                return isinstance(new, str) and new in {"acceptEdits", "auto", "bypassPermissions"}
+            return isinstance(old, str) and isinstance(new, str) and new in wider.get(old, set())
+        if setting == "enabledMcpjsonServers":
+            return before is None and isinstance(new, str) and bool(new.strip())
+        widening_value = {
+            "enableAllProjectMcpServers": True,
+            "skipDangerousModePermissionPrompt": True,
+            "sandbox.enabled": False,
+            "sandbox.allowUnsandboxedCommands": True,
+        }.get(str(setting))
+        if widening_value is not None:
+            return new is widening_value and (before is None or old is not widening_value and isinstance(old, bool))
+    elif host == "codex":
+        # learn.chatgpt.com/docs/config-file/config-reference. `never`
+        # auto-rejects escalations, so approval_policy is NOT ranked here.
+        if setting == "sandbox_mode":
+            order = {"read-only": 0, "workspace-write": 1, "danger-full-access": 2}
+            if before is None:
+                return new == "danger-full-access"
+            return (
+                isinstance(old, str) and isinstance(new, str)
+                and old in order and new in order and order[new] > order[old]
+            )
+        if setting == "sandbox_workspace_write.network_access":
+            return new is True and (before is None or old is False)
+        if setting in {"sandbox_workspace_write.exclude_slash_tmp", "sandbox_workspace_write.exclude_tmpdir_env_var"}:
+            return new is False and old is True
+    elif host == "vscode" and isinstance(setting, str) and (
+        setting.startswith("servers.") and setting.endswith(".sandboxEnabled")
+    ):
+        # VS Code documents this only for local stdio servers; the reader
+        # assigns admin access only when that transport is established.
+        return after.get("access") == "admin" and new is False and (before is None or old is True)
+    return False
+
+
+def host_grant_expansion_signals(
+    changes: list[dict[str, Any]], *, comparison_changes: list[dict[str, Any]] | None = None,
+) -> list[str]:
+    """Expansion evidence for these changes, with setting replacement context.
+
+    Row projection asks about one change at a time; the full comparison is
+    needed because setting identities include values, making an edit two rows.
+    """
+
+    context = changes if comparison_changes is None else comparison_changes
     widened, narrowed_rules = _permission_direction_signals(changes)
     signals: list[str] = list(widened)
     for change in changes:
@@ -5757,7 +5840,10 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
         kind = after.get("kind")
         prefix = "added" if before is None else "changed"
         if kind == "mcp_server":
-            signals.append(f"mcp_server_{prefix}: {after['host']}:{after['server']}")
+            # Launch fields (#819) describe the edit, not what arbitrary
+            # server code/arguments will do. Neither wider nor narrower.
+            if before is None:
+                signals.append(f"mcp_server_{prefix}: {after['host']}:{after['server']}")
         elif kind == "permission_rule" and after.get("disposition") == "allow":
             if (after["host"], str(after["rule"])) in narrowed_rules:
                 # The narrower half of a replacement. This list is an
@@ -5783,12 +5869,14 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
             # that this repository's project settings enable from an
             # in-repository marketplace. A hook nothing selects, or one a
             # plugin selects without that enablement, is still a row, never
-            # an expansion (#714). Read from the current grant only, so a
-            # baseline that recorded such a file as `execute` does not report
-            # a widening when it is re-read.
-            if hook_loading_basis(after) in LOADED_HOOK_BASES:
+            # an expansion (#714). A loaded hook's command/matcher/timeout
+            # edit alone establishes no direction (#820). Its loading basis
+            # becoming established is still a gain in declared execution.
+            if hook_loading_basis(after) in LOADED_HOOK_BASES and (
+                before is None or hook_loading_basis(before) in {"declared_only", "plugin_selected"}
+            ):
                 signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
-        elif kind in {"permission_mode", "sandbox", "additional_path", "plugin_or_app"}:
+        elif kind in {"permission_mode", "sandbox"}:
             if (
                 kind in {"permission_mode", "sandbox"}
                 and before is not None
@@ -5800,6 +5888,13 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
                 # `medium`. The file permits nothing new, so the row stays as
                 # a change without an expansion signal, as #816 did for rules.
                 continue
+            previous, unambiguous = (before, True) if before is not None else _setting_predecessor(after, context)
+            if unambiguous and _setting_widens(previous, after):
+                signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
+        elif kind == "plugin_or_app":
+            if after.get("enabled") is True and (before is None or before.get("enabled") is False):
+                signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
+        elif kind == "additional_path" and before is None:
             signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
         elif kind == "workflow":
             previous = before or {}

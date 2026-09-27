@@ -1383,7 +1383,9 @@ def capability_diff_rows(
         else:
             direction = CHANGED
         # Classify original typed evidence; redaction affects display values only.
-        expands = bool(expansions.intersection(host_grant_expansion_signals([change])))
+        expands = bool(expansions.intersection(host_grant_expansion_signals(
+            [change], comparison_changes=payload.get("changes") or [],
+        )))
         if direction == CHANGED and expands:
             direction = WIDENED
         gone_steps, new_steps = _step_action_changes(before_grant, after_grant)
@@ -1407,6 +1409,21 @@ def capability_diff_rows(
             gone_secrets=gone_secrets, new_secrets=new_secrets,
             agent_reasons=agent_reasons,
         )
+        if direction == CHANGED and grant.get("kind") == "mcp_server":
+            why = "MCP edit; authority direction is unknown"
+        if direction == CHANGED and grant.get("kind") == "hook":
+            if hook_loading_basis(grant) == "host_configuration":
+                why = "hook edit; authority direction is unknown"
+            else:
+                why += "; authority direction is unknown"
+        if grant.get("kind") == "plugin_or_app" and after_grant is not None:
+            enabled = after_grant.get("enabled")
+            if enabled is False:
+                why = "declares this plugin or app disabled"
+            elif expands:
+                why = "enables this plugin or app"
+            else:
+                why += "; the direction of authority change is not established"
         row = CapabilityDiffRow(
             subject=_subject(grant),
             before=_grant_value(

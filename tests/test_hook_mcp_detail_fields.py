@@ -88,8 +88,8 @@ from tests.test_host_diff_review_changes import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SETTINGS = ".claude/settings.json"
-HOOK_HEADER = "⚠ high widened claude-code .claude/settings.json"
-MCP_HEADER = "⚠ high widened claude-code .mcp.json"
+HOOK_HEADER = "high changed claude-code .claude/settings.json"
+MCP_HEADER = "high changed claude-code .mcp.json"
 
 
 def _hooks(matcher: str, command: str, timeout: object) -> dict:
@@ -186,9 +186,9 @@ def test_each_changed_field_is_named_with_its_before_and_after_on_every_route(
     assert _table_entry(text, header)[1] == change
     [published] = payload["review"]["changes"]
     assert published["change"] == change
-    # The row itself is what `1.1.0` published: one row, the same values.
+    # #820 keeps the row and values, without inferring a direction from the edit.
     assert [(row["before"], row["after"], row["direction"]) for row in payload["rows"]] == [
-        (subject_value, subject_value, "widened")
+        (subject_value, subject_value, "changed")
     ]
 
     # `verify`'s text, the PR comment and `verifier.json`.
@@ -1045,7 +1045,7 @@ def test_long_hook_entries_leave_every_line_1_1_0_prints_in_the_pr_comment(tmp_p
     assert len(headings) == len(rows)
     for index in headings:
         assert lines[index + 1].startswith("  ` ") and lines[index + 1].endswith(" `")
-        assert lines[index + 2] == "  ` changes what runs around the agent's actions `"
+        assert lines[index + 2] == "  ` hook edit; authority direction is unknown `"
     # The coverage block, the question, the reproduction, the advisory and the evidence.
     assert "What this run established:" in lines
     assert any(line.startswith("- ` .claude/settings.json ` (claude-code): compared;") for line in lines)
@@ -1194,7 +1194,7 @@ def test_the_detail_is_left_out_of_equality_and_the_inventory_digest(tmp_path: P
     _write(root, SETTINGS, _hooks("Edit|Write", "bin/lint.sh", 10))
     changed = build_host_drift_payload(baseline=legacy, inventory=_inventory(root), baseline_file="b.json")
     assert [change["current"]["kind"] for change in changed["changes"]] == ["hook"]
-    assert changed["expansion_signals"] == ["hook_changed: claude-code:.claude/settings.json"]
+    assert changed["expansion_signals"] == []
     # A legacy side names no field difference it cannot show: the event, as before.
     [row] = capability_diff_rows(changed)
     [presented] = review_changes([row])
@@ -1475,7 +1475,7 @@ def test_a_codex_hook_names_its_timeout(tmp_path: Path) -> None:
 
     repo = _repository(tmp_path, {".codex/hooks.json": hook(5)}, {".codex/hooks.json": hook(120)})
     text, _ = _diff(repo)
-    assert _table_entry(text, "⚠ high widened codex .codex/hooks.json")[1] == "Stop: timeout 5 → 120"
+    assert _table_entry(text, "high changed codex .codex/hooks.json")[1] == "Stop: timeout 5 → 120"
 
 
 @pytest.mark.parametrize(

@@ -167,3 +167,29 @@ def test_the_engine_passes_every_control(tmp_path: Path) -> None:
         record = _record(name, payload.get("rows") or [], expectation)
         record["payload"] = payload
         assert _passes(name, record), (name, payload.get("rows"))
+
+
+def test_direction_score_rejects_false_markers_and_missing_positive_markers():
+    for name in CONTROLS:
+        expectation = expected.expected(KIND, *_texts(name))
+        false = score.direction_counts(_record(name, _false_widening(expectation), expectation))
+        zero = score.direction_counts(_record(name, [], expectation))
+        if name == "positive":
+            assert zero["expected_widenings"] == 1 and zero["marked_widenings_found"] == 0
+        else:
+            assert false["false_marked_rows"] > 0
+        good = score.direction_counts(_record(name, _correct(expectation), expectation))
+        assert good["false_marked_rows"] == 0
+        assert good["marked_widenings_found"] == good["expected_widenings"]
+
+
+@pytest.mark.parametrize("before,after,direction", [
+    ({}, {"enabledPlugins": {"demo": False}}, "changed"),
+    ({"enabledPlugins": {"demo": True}}, {"enabledPlugins": {"demo": False}}, "narrowing"),
+    ({"enabledPlugins": {"demo": False}}, {"enabledPlugins": {"demo": True}}, "widening"),
+    ({}, {"sandbox": {"enabled": False}}, "widening"),
+    ({"sandbox": {"enabled": False}}, {"sandbox": {"enabled": True}}, "narrowing"),
+])
+def test_direction_oracle_distinguishes_disabling_from_enabling(before, after, direction):
+    result = expected.expected(KIND, json.dumps(before), json.dumps(after))
+    assert [change["semantic_direction"] for change in result["changes"]] == [direction]
