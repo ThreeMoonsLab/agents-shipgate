@@ -301,6 +301,30 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="exec-equivalent-permissions-824"></a>
+
+## Migration Note: Unreleased — arbitrary-code launcher allow rules (#824)
+
+Host-grants 0.7 / contract 41 are extended in place. The documented
+[launcher table](docs/engineering/exec-equivalent-permissions.md) rates exact
+Bash launcher prefixes followed by ` *` or `:*` as `admin`/`critical`, previously
+`execute`/`medium`. It covers interpreter eval flags, package/environment runners,
+Docker exec/run and argument forwarders. Exact commands and unlisted forms retain
+their prior ratings. Ask and deny ratings remain `none`/`low`.
+
+Rows say “reaches arbitrary code through a launcher, without a prompt”. Diff,
+host audit, check rows, verifier host comparison and PR comments agree. Check
+retains the fixed launcher prefix in evidence and rows, while all other operands
+remain redacted. No field or schema discriminator is added.
+
+A newly granted tier rule uses the existing critical/block
+`SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` route instead of the
+require-review `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` route. No check ID
+is added or removed. The containment lattice and expansion signals are unchanged:
+a review rating is not an assertion that the rule matches every Bash command,
+bypasses a sandbox or overrides deny/ask precedence. Re-rating an unchanged
+saved launcher declaration from an older baseline creates no expansion signal.
+
 <a id="partial-host-comparison-808"></a>
 
 ## Migration Note: Unreleased — a plugin directory that cannot be compared no longer hides the rest (verifier `0.21`, capability diff `0.4`, contract v41, #808)

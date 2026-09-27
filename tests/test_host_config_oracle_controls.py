@@ -167,3 +167,16 @@ def test_the_engine_passes_every_control(tmp_path: Path) -> None:
         record = _record(name, payload.get("rows") or [], expectation)
         record["payload"] = payload
         assert _passes(name, record), (name, payload.get("rows"))
+
+
+@pytest.mark.parametrize("rule,rating", [
+    ("Bash(python3 -c *)", "critical"),
+    ("Bash(npx:*)", "critical"),
+    ("Bash(npx prettier --check .)", "medium"),
+    ("Bash(npm test *)", "medium"),
+    ("Bash(find *)", "medium"),
+    ("Read(**)", None),
+    ("Bash(*)", None),
+])
+def test_exec_rating_oracle_is_separate_from_direction(rule, rating):
+    assert expected.scoped_bash_rating(rule) == rating

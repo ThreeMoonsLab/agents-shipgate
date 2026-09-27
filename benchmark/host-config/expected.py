@@ -265,3 +265,25 @@ def expected(kind: str, before_text: str | None, after_text: str | None) -> dict
 if __name__ == "__main__":
     print(json.dumps(expected(sys.argv[1], Path(sys.argv[2]).read_text() if sys.argv[2] != "-" else None,
                               Path(sys.argv[3]).read_text() if sys.argv[3] != "-" else None), indent=2))
+
+
+# Separate rating oracle for #824. Not imported from the engine; its scope is
+# documented in docs/engineering/exec-equivalent-permissions.md. This oracle
+# was authored after engine-output exposure, not independently human-labelled.
+_EXEC_LAUNCHERS = {
+    "python -c", "python3 -c", "node -e", "ruby -e", "perl -e", "bash -c", "sh -c",
+    "npx", "bunx", "pnpm dlx", "uvx", "uv run", "docker exec", "docker run", "xargs", "env",
+}
+
+
+def scoped_bash_rating(rule: str) -> str | None:
+    """Expected rating only for closed, non-whole Bash declarations."""
+    if not rule.startswith("Bash(") or not rule.endswith(")"):
+        return None
+    argument = rule[5:-1]
+    if not argument or argument.startswith("*"):
+        return None
+    for launcher in _EXEC_LAUNCHERS:
+        if argument in (launcher + " *", launcher + ":*"):
+            return "critical"
+    return "medium"

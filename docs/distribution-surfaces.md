@@ -206,3 +206,12 @@ renders that sentence into the adoption prompts beside the pin, and the
 See also [`CONTRIBUTING.md` § Surface discipline](../CONTRIBUTING.md#surface-discipline),
 which governs whether a *new* surface should exist at all. This document governs
 what an existing one is allowed to say.
+
+### Exec-equivalent permission evidence (#824)
+
+Check evidence and rows retain the exact fixed-table launcher prefix plus ` *`
+for [documented arbitrary-code grants](engineering/exec-equivalent-permissions.md).
+All other scoped arguments remain redacted. No user-supplied code, package, path
+or credential operand is included by this exception. Diff, audit, verifier host
+comparison and PR comments use the same critical/admin rating; check routes new
+grants through the existing wildcard block rule. Containment is unchanged.

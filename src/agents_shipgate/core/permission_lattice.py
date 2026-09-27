@@ -329,6 +329,34 @@ def whole_tool_risk(rule: str) -> tuple[str, str]:
     return "execute", "high"
 
 
+# Exact launcher prefixes only: no shell interpretation or executable lookup.
+# Sources and exclusions: docs/engineering/exec-equivalent-permissions.md.
+EXEC_EQUIVALENT_PREFIXES = frozenset({
+    "python -c", "python3 -c", "node -e", "ruby -e", "perl -e",
+    "bash -c", "sh -c", "npx", "bunx", "pnpm dlx", "uvx", "uv run",
+    "docker exec", "docker run", "xargs", "env",
+})
+
+
+def exec_equivalent_prefix(raw: str) -> str | None:
+    """A documented launcher followed by an unrestricted argument wildcard.
+
+    This rating fact is deliberately independent of `subsumes`. It neither
+    claims every Bash command matches nor evaluates sandbox/deny precedence.
+    Exact commands, extra fixed arguments and unknown shell syntax abstain.
+    The returned string is from the fixed table, never copied user content.
+    """
+
+    rule = parse_rule(raw)
+    if not _is_shell(rule) or rule.argument is None or not raw.strip().endswith(")"):
+        return None
+    argument = _shell_argument(rule.argument)
+    if argument is None or not argument.endswith(" *"):
+        return None
+    prefix = argument[:-2]
+    return prefix if prefix in EXEC_EQUIVALENT_PREFIXES else None
+
+
 def scoped_risk(rule: str) -> tuple[str, str]:
     """``(access, risk)`` for an allow rule that names a bounded target.
 
@@ -339,6 +367,8 @@ def scoped_risk(rule: str) -> tuple[str, str]:
     is the tool class, so that is what is left.
     """
 
+    if exec_equivalent_prefix(rule) is not None:
+        return "admin", "critical"
     classification = tool_class(rule)
     if classification == "read":
         return "read", "low"
@@ -349,6 +379,7 @@ def scoped_risk(rule: str) -> tuple[str, str]:
 
 __all__ = [
     "Rule",
+    "exec_equivalent_prefix",
     "names_tools_within_one_mcp_server",
     "parse_rule",
     "subsumes",

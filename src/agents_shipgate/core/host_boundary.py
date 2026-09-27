@@ -56,6 +56,7 @@ from agents_shipgate.core.host_settings import (
 )
 from agents_shipgate.core.jsonc import is_vscode_mcp_path, loads_jsonc
 from agents_shipgate.core.permission_lattice import (
+    exec_equivalent_prefix,
     names_tools_within_one_mcp_server,
     subsumes,
     whole_tool_risk,
@@ -925,6 +926,8 @@ def _allow_rule_id(rule: str) -> str:
     audit table uses so the gate and the table cannot drift apart (#657).
     """
 
+    if exec_equivalent_prefix(rule) is not None:
+        return "HOST-PERMISSION-WILDCARD-ALLOW"
     if not _is_wildcard_allow(rule):
         return "HOST-PERMISSION-ALLOW-EXPANDED"
     _, risk = whole_tool_risk(rule)
@@ -937,6 +940,8 @@ def _allow_rule_id(rule: str) -> str:
 
 
 def _safe_rule(rule: str) -> str:
+    if (prefix := exec_equivalent_prefix(rule)) is not None:
+        return f"Bash({prefix} *)"
     stripped = rule.strip()
     open_paren = stripped.find("(")
     if open_paren == -1:

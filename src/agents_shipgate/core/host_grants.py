@@ -65,6 +65,7 @@ from agents_shipgate.core.instruction_structure import (
 )
 from agents_shipgate.core.jsonc import is_vscode_mcp_path, loads_jsonc
 from agents_shipgate.core.permission_lattice import (
+    exec_equivalent_prefix,
     scoped_risk,
     subsumes,
     whole_tool_risk,
@@ -5774,6 +5775,16 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
                 # #816 rated a one-tool MCP rule a whole-server grant. Reading
                 # it narrower now removes nothing and adds nothing; the row
                 # stays, as a change without an expansion signal.
+                continue
+            if (
+                before is not None
+                and exec_equivalent_prefix(str(after.get("rule") or "")) is not None
+                and before.get("rule") == after.get("rule")
+                and before.get("config_sha256") is not None
+                and before.get("config_sha256") == after.get("config_sha256")
+            ):
+                # #824 re-rates a saved declaration; unchanged bytes do not
+                # grant new authority merely because this engine rates higher.
                 continue
             marker = "wildcard_allow" if after.get("wildcard") else "allow_rule"
             signals.append(f"{marker}_{prefix}: {after['host']}:{after['rule']}")
