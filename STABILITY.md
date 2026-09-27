@@ -308,14 +308,22 @@ the Action tag) for reproducible CI.
 Host-grants 0.7 / contract 41 are extended in place. The documented
 [launcher table](docs/engineering/exec-equivalent-permissions.md) rates exact
 Bash launcher prefixes followed by ` *` or `:*` as `admin`/`critical`, previously
-`execute`/`medium`. It covers interpreter eval flags, package/environment runners,
-Docker exec/run and argument forwarders. Exact commands and unlisted forms retain
-their prior ratings. Ask and deny ratings remain `none`/`low`.
+`execute`/`medium`. It covers interpreter and shell eval flags, package/environment
+runners, Docker exec/run, `sudo` and argument forwarders. A Bash allow rule the
+containment lattice decides is wider than one of those rules is rated the same, so
+`Bash(python3 *)`, `Bash(docker *)`, `Bash(uv *)`, `Bash(npx*)` and `Bash(n*)` are
+`admin`/`critical` too, previously `execute`/`medium`: widening a rule can no
+longer lower its rating. Exact commands, rules that are not wider (`Bash(n *)`,
+`Bash(npm *)`) and unlisted forms retain their prior ratings. Ask and deny ratings
+remain `none`/`low`.
 
 Rows say “reaches arbitrary code through a launcher, without a prompt”. Diff,
-host audit, check rows, verifier host comparison and PR comments agree. Check
-retains the fixed launcher prefix in evidence and rows, while all other operands
-remain redacted. No field or schema discriminator is added.
+host audit, check rows, verifier host comparison and PR comments agree, and the
+`audit --host` Markdown line that names
+`SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` counts these rules and says how many
+reach a launcher. Check shows these rules in evidence and rows in table text
+(`Bash(npx *)`, `Bash(python3 *)`), while all other operands remain redacted. No
+field or schema discriminator is added; the `wildcard` field is unchanged.
 
 A newly granted tier rule uses the existing critical/block
 `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` route instead of the
@@ -324,6 +332,11 @@ is added or removed. The containment lattice and expansion signals are unchanged
 a review rating is not an assertion that the rule matches every Bash command,
 bypasses a sandbox or overrides deny/ask precedence. Re-rating an unchanged
 saved launcher declaration from an older baseline creates no expansion signal.
+`check` no longer treats respelling a Bash rule as a new grant: replacing
+`Bash(npx:*)` with `Bash(npx *)`, or `Bash(npm test:*)` with `Bash(npm test *)`,
+raises no allow finding, where it previously raised
+`SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` (review). `diff` still shows it as a
+removal and an addition.
 
 <a id="partial-host-comparison-808"></a>
 

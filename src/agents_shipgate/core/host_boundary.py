@@ -56,8 +56,9 @@ from agents_shipgate.core.host_settings import (
 )
 from agents_shipgate.core.jsonc import is_vscode_mcp_path, loads_jsonc
 from agents_shipgate.core.permission_lattice import (
-    exec_equivalent_prefix,
+    exec_equivalent_argument,
     names_tools_within_one_mcp_server,
+    same_grant,
     subsumes,
     whole_tool_risk,
 )
@@ -802,10 +803,15 @@ def _widens_allow(rule: str, old_rules) -> bool:
     An added rule that an old rule already subsumes grants nothing new. The
     drift reader and the audit table already read direction from this lattice
     (#657); the boundary check now does too. Only a decided ``True`` excuses a
-    rule, so a pair the lattice cannot decide stays an expansion.
+    rule, so a pair the lattice cannot decide stays an expansion. So does an
+    old rule that is the same grant spelled another way: `subsumes` answers
+    ``False`` for `Bash(npx:*)` against `Bash(npx *)`, and without this the
+    respelling blocked as a new launcher grant (#824).
     """
 
-    return not any(subsumes(old, rule) is True for old in old_rules)
+    return not any(
+        subsumes(old, rule) is True or same_grant(old, rule) for old in old_rules
+    )
 
 
 HOST_SETTINGS_NARROWED = "host_settings_narrowed"
@@ -926,7 +932,7 @@ def _allow_rule_id(rule: str) -> str:
     audit table uses so the gate and the table cannot drift apart (#657).
     """
 
-    if exec_equivalent_prefix(rule) is not None:
+    if exec_equivalent_argument(rule) is not None:
         return "HOST-PERMISSION-WILDCARD-ALLOW"
     if not _is_wildcard_allow(rule):
         return "HOST-PERMISSION-ALLOW-EXPANDED"
@@ -940,8 +946,9 @@ def _allow_rule_id(rule: str) -> str:
 
 
 def _safe_rule(rule: str) -> str:
-    if (prefix := exec_equivalent_prefix(rule)) is not None:
-        return f"Bash({prefix} *)"
+    if (argument := exec_equivalent_argument(rule)) is not None:
+        # Table text only: the argument is sliced from a launcher entry.
+        return f"Bash({argument})"
     stripped = rule.strip()
     open_paren = stripped.find("(")
     if open_paren == -1:

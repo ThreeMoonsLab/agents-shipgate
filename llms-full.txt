@@ -4058,7 +4058,8 @@ rule to specific commands.
 
 A documented [arbitrary-code launcher prefix](engineering/exec-equivalent-permissions.md)
 followed by ` *` or `:*`, such as `Bash(python3 -c *)` or `Bash(npx *)`,
-also follows this critical/block route (#824). Exact commands do not enter
+also follows this critical/block route (#824), and so does a rule wider than
+one, such as `Bash(python3 *)` or `Bash(npx*)`. Exact commands do not enter
 that tier. This rating does not change rule containment or deny precedence.
 
 An MCP rule that names tools within one server, such as

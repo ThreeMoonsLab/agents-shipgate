@@ -47,7 +47,7 @@ from agents_shipgate.core.host_grants import (
     step_action_key,
 )
 from agents_shipgate.core.host_settings import rate_claude_setting, setting_value_text
-from agents_shipgate.core.permission_lattice import exec_equivalent_prefix
+from agents_shipgate.core.permission_lattice import exec_equivalent_argument
 from agents_shipgate.schemas.capability_diff import CapabilityDiffRow as CapabilityDiffRow
 
 ABSENT = "—"
@@ -670,7 +670,7 @@ def _why(
             return f"a {condition} the agent is subject to"
         if direction == REMOVED:
             return "removes a permission the agent previously had here"
-        if exec_equivalent_prefix(str(grant.get("rule") or "")) is not None:
+        if exec_equivalent_argument(str(grant.get("rule") or "")) is not None:
             return "reaches arbitrary code through a launcher, without a prompt"
         if wildcard and access == "admin":
             return "matches any command of this kind, without a prompt"
