@@ -2036,8 +2036,19 @@ def test_ordinary_packages_above_the_scope_change_nothing(repo, above):
                 "def fake_heavy(monkeypatch, fake):\n    monkeypatch.setitem(sys.modules, 'heavy_dep', fake)\n"
             ),
         },
+        {
+            # siada-cli's DebugUtils.dump: a local named ``vars``, not the builtin.
+            "svc/app/__init__.py": "from . import debug  # noqa: F401\n",
+            "svc/app/debug.py": (
+                "import traceback\n\n\ndef dump(*args):\n    vars = traceback.extract_stack()[-2][-3]\n"
+                "    return sum(1 for v in vars if '\\n' in v)\n"
+            ),
+        },
     ],
-    ids=["forward-refs", "type-hints-namespace", "starred-namespace", "path-iteration", "test-helpers"],
+    ids=[
+        "forward-refs", "type-hints-namespace", "starred-namespace", "path-iteration", "test-helpers",
+        "a-local-named-vars",
+    ],
 )
 def test_namespace_reads_in_the_chain_are_not_patches(repo, files):
     """R14-3."""

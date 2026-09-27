@@ -2042,6 +2042,17 @@ def _attribute_patches(tree: ast.Module) -> dict[str, int]:
                 and node.slice.id == parameter
             }
 
+    shadowing: list[tuple[ScopeIndex, dict[str, list[_Binding]]]] = []
+
+    def builtin(node: ast.Name) -> bool:
+        """Whether a bare ``globals`` / ``vars`` is the builtin, not a variable
+        of that name (``vars = stack[-2][-3]``)."""
+
+        if not shadowing:
+            shadowing.append((ScopeIndex(tree), _module_bindings(tree)[0]))
+        scopes, module_bindings = shadowing[0]
+        return not scopes.enclosing_bindings(node, node.id) and node.id not in module_bindings
+
     def is_table(node: ast.AST) -> bool:
         spelling = reference_spelling(node)
         return spelling in {f"{name}.modules" for name in sys_names} or spelling in modules_names
@@ -2216,6 +2227,7 @@ def _attribute_patches(tree: ast.Module) -> dict[str, int]:
             and node.id in {"globals", "vars"}
             and isinstance(node.ctx, ast.Load)
             and not (isinstance(parent, ast.Call) and parent.func is node)
+            and builtin(node)
         ):
             record(MODULE_TABLE_COMPUTED, line)
             continue
