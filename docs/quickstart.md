@@ -93,6 +93,10 @@ to know what changed before deciding anything. No manifest, policy, saved
 baseline, skill or account is involved, and nothing is written to the
 repository.
 
+For worked examples, see the [three host-review cards](examples/host-review/README.md):
+a shell-rule widening, an added remote MCP declaration and a workflow token
+permission change, with exact inputs and captured released-build output.
+
 ### 1. Make the base branch visible to Git
 
 `diff` reads history from your clone and never fetches. Check out the PR, and
