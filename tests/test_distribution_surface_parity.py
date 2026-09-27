@@ -242,6 +242,12 @@ SURFACES: tuple[Surface, ...] = (
         # answer and adds no claim; `tests/test_linked_unchanged_limits.py`
         # holds diff, verify, the PR comment and `check` to it, including the
         # shared plugin-reference limits `check` leaves out by the same proof.
+        # A hook row's inline-allow note (#826) renders the display-only
+        # `inline_allow` the engine published on a Claude Code `PreToolUse`
+        # handler, left out of grant equality, the inventory digests and saved
+        # baselines, so it restates no answer and moves no row, severity or
+        # `check` decision; `tests/test_inline_hook_allow.py` holds diff,
+        # verify, the PR comment and check to it.
         # Its agent-launch cells and note (#823) restate no answer: direction
         # comes from the engine's
         # `workflow_agent_widened_*` expansion signal, itself read off the

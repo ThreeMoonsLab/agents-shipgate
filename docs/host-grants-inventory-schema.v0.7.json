@@ -517,9 +517,16 @@
           "title": "Decision Limit"
         },
         "inline_allow": {
-          "default": false,
-          "title": "Inline Allow",
-          "type": "boolean"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inline Allow"
         },
         "matcher": {
           "anyOf": [

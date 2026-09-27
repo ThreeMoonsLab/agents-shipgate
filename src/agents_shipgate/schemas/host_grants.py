@@ -671,8 +671,12 @@ class HostHookHandlerV7(BaseModel):
     # `bool` first: pydantic's lax `int` would otherwise read `true` as `1`.
     timeout: bool | int | float | str | None = None
     # #826: literal declaration facts only; false is not proof of no approval.
-    inline_allow: bool = False
-    decision_limit: Literal["script_or_command_behavior_not_read"] | None = None
+    # Present only on a Claude Code PreToolUse handler, the one the reader
+    # examines: absent means not examined, never "read, no allow".
+    inline_allow: bool | None = Field(default=None, exclude_if=lambda value: value is None)
+    decision_limit: Literal["script_or_command_behavior_not_read"] | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
 
 
 class HostHookGrantV7(HostHookGrantV2):

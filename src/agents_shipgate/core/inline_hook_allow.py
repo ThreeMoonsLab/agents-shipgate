@@ -10,7 +10,9 @@ import shlex
 from typing import Any
 
 MAX_INLINE_COMMAND = 8192
-_HERE = re.compile(r"cat[ \t]+<<[ \t]*(?P<quote>['\"]?)(?P<end>[A-Za-z_][A-Za-z0-9_]{0,39})(?P=quote)[ \t]*\n(?P<body>.*)\n(?P=end)\n?", re.DOTALL)
+_HERE = re.compile(r"cat[ \t]+<<(?P<dash>-?)[ \t]*(?P<quote>['\"]?)(?P<end>[A-Za-z_][A-Za-z0-9_]{0,39})(?P=quote)[ \t]*\n(?P<body>.*)\n(?P<tabs>\t*)(?P=end)\n?", re.DOTALL)
+#: An echo/printf followed by ``; exit 0`` or ``&& exit 0``: the same output, exit status 0.
+_EXIT_ZERO = re.compile(r"(?P<emit>.*?\S)[ \t]*(?:;|&&)[ \t]*exit[ \t]+0[ \t]*", re.DOTALL)
 
 
 def broad_tool_matcher(matcher: Any) -> bool:
@@ -36,14 +38,24 @@ def _unique_object(pairs):
 def _literal_output(command: str) -> str | None:
     here = _HERE.fullmatch(command)
     if here:
+        if here["tabs"] and not here["dash"]:
+            return None
         body = here["body"]
+        if here["dash"]:
+            # `<<-` strips leading tabs from each body line and the delimiter.
+            body = "\n".join(line.lstrip("\t") for line in body.split("\n"))
         # Unquoted heredocs process backslash escapes; this grammar declines
         # those rather than emulating the shell. Quoted delimiters are literal.
         return body if here["quote"] or "\\" not in body else None
+    exit_zero = _EXIT_ZERO.fullmatch(command)
+    if exit_zero:
+        command = exit_zero["emit"]
     # Entire operands must be quoted. shlex alone would accept escaped
     # quotes inside unquoted JSON, where a real shell can expand braces.
     quoted = r"(?:'[^']*'|\"(?:[^\"\\]|\\.)*\")"
-    if not re.fullmatch(r"(?:echo|printf)[ \t]+" + quoted + r"(?:[ \t]+" + quoted + r")?", command, re.DOTALL):
+    if not re.fullmatch(
+        r"(?:echo(?:[ \t]+-n)?|printf)[ \t]+" + quoted + r"(?:[ \t]+" + quoted + r")?", command, re.DOTALL,
+    ):
         return None
     try:
         lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>()")
@@ -52,12 +64,16 @@ def _literal_output(command: str) -> str | None:
         words = list(lexer)
     except ValueError:
         return None
+    if words[:2] == ["echo", "-n"]:
+        words = words[:1] + words[2:]
     if len(words) == 2 and words[0] == "echo" and "\\" not in words[1]:
         return words[1]
     if len(words) == 3 and words[0] == "printf" and words[1] in {"%s", "%s\\n"}:
         return words[2]
-    if len(words) == 2 and words[0] == "printf" and not any(c in words[1] for c in "%\\"):
-        return words[1]
+    if len(words) == 2 and words[0] == "printf":
+        # A literal format; its one escape may be a trailing `\n`.
+        literal = words[1].removesuffix("\\n")
+        return literal if not any(c in literal for c in "%\\") else None
     return None
 
 
@@ -90,7 +106,11 @@ def literal_permission_decision(command: Any) -> str | None:
 
 
 def inline_allow_facts(group: dict, handler: dict) -> dict[str, Any]:
-    """Display facts only: unknown script/command behavior stays a named limit."""
+    """Display facts only: unknown script/command behavior stays a named limit.
+
+    A handler whose decision was read carries no ``decision_limit`` key, as its
+    published form omits a null one; a handler never examined carries neither.
+    """
     unknown = {"inline_allow": False, "decision_limit": "script_or_command_behavior_not_read"}
     if (
         set(group) - {"matcher", "hooks"}
@@ -102,7 +122,4 @@ def inline_allow_facts(group: dict, handler: dict) -> dict[str, Any]:
     decision = literal_permission_decision(handler.get("command"))
     if decision is None:
         return unknown
-    return {
-        "inline_allow": decision == "allow" and broad_tool_matcher(group.get("matcher")),
-        "decision_limit": None,
-    }
+    return {"inline_allow": decision == "allow" and broad_tool_matcher(group.get("matcher"))}

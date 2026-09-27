@@ -2,15 +2,6 @@
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
-Unreleased #826 extends host inventory `0.7` and runtime contract `41` in
-place with display-only hook handler fields `inline_allow` (default false)
-and `decision_limit` (default null). A supported literal PreToolUse allow
-adds an explanation to a current broad-matcher Claude Code hook row;
-unsupported script/command behavior is named in handler metadata. These
-fields do not participate in baseline identity, direction, severity,
-widening or control decisions. Released schemas are unchanged. See the
-[grammar and limits](docs/engineering/inline-hook-allow-notes.md).
-
 Unreleased, runtime contract v41: a host comparison names the changed inputs it
 does not read (#821). Verifier `0.21` and capability diff `0.4` add a
 `changed_not_read` coverage item, with the `candidate` rule that named it, for
@@ -458,6 +449,23 @@ command, verdict, reader, row or control state is added.
 **What does not change.** `comparison_status`, `incomparable_reasons`, `rows` and every row value, `review`, `unchanged_limits`, every other coverage item, the inventory digests, saved host-grants baselines and drift payloads (this change moves no host-grants schema; the unreleased host-grants `0.7` is #823's, [its note](#workflow-agent-launches-contract-v41-823)), `audit --host`, `check`'s decision, rows and text, the control envelope's `capability_rows`, and every control state, permission and next action on a comparison that reads a host artifact. The host-config and cold-start benchmark replays reproduce their run-of-record scores. `minimum_control_contract_version` stays `21`.
 
 **Compatibility.** `coverage` and its items are closed objects, so a reader validating against the published [`docs/verifier-schema.v0.20.json`](docs/verifier-schema.v0.20.json) rejects a `0.21` artifact's new members; that schema stays frozen. The current reader reads a `0.20` artifact as `0.21` with `unread_candidates: null`, which is what that build knew, and refuses one that claims a `changed_not_read` item, a `candidate`, `read_sources_only: false` or either `unread_candidates` member. A `diff --json` consumer sees `capability_diff_schema_version: "0.4"`. A consumer switching on `coverage.items[].status` should treat an unknown status as a change it must read, not as no change.
+
+<a id="inline-hook-allow-826"></a>
+
+## Migration Note: Unreleased — unconditional inline hook approvals (host-grants `0.7`, contract v41, #826)
+
+Host inventory `0.7` and runtime contract `41` are extended in place with two
+optional, display-only members of a hook handler, published only on a Claude
+Code `PreToolUse` handler, the one the reader examines: `inline_allow`, and
+`decision_limit` (`script_or_command_behavior_not_read`) when the command is
+outside the [bounded grammar](docs/engineering/inline-hook-allow-notes.md). A
+handler of any other event or host publishes neither, so an absent member means
+not examined, never read without a limit. A supported literal, unconditional
+`PreToolUse` allow on a broad matcher adds an explanation to a current Claude
+Code hook row's `why`. These members are left out of saved baselines, grant
+equality and the inventory digests, and do not change direction, severity,
+widening signals, check IDs or control decisions. Released schemas are
+unchanged.
 
 <a id="hook-mcp-detail-fields-819"></a>
 

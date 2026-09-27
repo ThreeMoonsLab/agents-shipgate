@@ -13,7 +13,9 @@ from typer.testing import CliRunner
 from agents_shipgate.cli.main import app
 from agents_shipgate.core.capability_diff_rows import capability_diff_rows
 from agents_shipgate.core.host_grants import (
+    HostStaticParseCache,
     _hooks_grants,
+    build_host_boundary_snapshot,
     compared_grant,
     host_grant_expansion_signals,
 )
@@ -26,6 +28,12 @@ from agents_shipgate.core.inline_hook_allow import (
 OUTPUT = json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow"}})
 ECHO = "echo " + shlex.quote(OUTPUT)
 EMITTERS = [ECHO, "printf '%s\\n' " + shlex.quote(OUTPUT), "printf '%s' " + shlex.quote(OUTPUT), "printf " + shlex.quote(OUTPUT), "cat <<'EOF'\n" + OUTPUT + "\nEOF", 'cat <<"EOF"\n' + OUTPUT + "\nEOF", "cat <<EOF\n" + OUTPUT + "\nEOF"]
+# Common spellings of the same unconditional output (#826 review).
+EMITTERS += [
+    ECHO + "; exit 0", ECHO + " && exit 0", ECHO + " ;exit 0 ", "echo -n " + shlex.quote(OUTPUT),
+    "printf '" + OUTPUT + "\\n'", 'printf "' + OUTPUT.replace('"', '\\"') + '\\n"',
+    "cat <<-'EOF'\n\t" + OUTPUT + "\n\tEOF", "cat <<-EOF\n" + OUTPUT + "\n\t\tEOF",
+]
 
 
 @pytest.mark.parametrize("command", EMITTERS)
@@ -35,7 +43,7 @@ def test_unconditional_inline_allow_forms(command, matcher):
     if matcher is not None:
         group["matcher"] = matcher
     assert literal_permission_decision(command) == "allow"
-    assert inline_allow_facts(group, {"type": "command", "command": command}) == {"inline_allow": True, "decision_limit": None}
+    assert inline_allow_facts(group, {"type": "command", "command": command}) == {"inline_allow": True}
 
 
 @pytest.mark.parametrize("matcher", ["Read", "NotBash", "BashTool", "Bash(rm *)", "Bash(?=foo)", "Bash[", ["Bash"], 0])
@@ -55,6 +63,11 @@ def test_matcher_is_not_a_substring_guess(matcher):
     "cat <<EOF\n" + OUTPUT + "\nWRONG", "cat file.json", "echo '$OUTPUT'",
     "echo `helper`", "echo $(helper)", "echo 'unterminated", "echo " + "x" * 8192,
     None, [ECHO],
+    ECHO + "; exit 2", ECHO + " || exit 0", ECHO + " && exit", ECHO + "; exit 0; true",
+    ECHO + " & exit 0", "true; exit 0", "echo -n -e " + shlex.quote(OUTPUT), "echo -nn " + shlex.quote(OUTPUT),
+    "printf '" + OUTPUT + "\\t'", "printf '" + OUTPUT + "\\n\\n'", "printf '%%" + OUTPUT + "'",
+    "cat <<'EOF'\n" + OUTPUT + "\n\tEOF", "cat <<-EOF\n" + OUTPUT + "\\\n\tEOF",
+    "cat <<-'EOF'\n" + OUTPUT + "\n\tEOF; exit 0",
 ])
 def test_guarded_indirect_dynamic_and_malformed_commands_abstain(command):
     assert literal_permission_decision(command) is None
@@ -83,7 +96,7 @@ def test_duplicate_decision_keys_are_not_evidence():
 @pytest.mark.parametrize("decision", ["deny", "ask"])
 def test_non_allow_literals_are_not_notes(decision):
     facts = inline_allow_facts({"matcher": "*"}, {"type": "command", "command": ECHO.replace('"allow"', f'"{decision}"')})
-    assert facts == {"inline_allow": False, "decision_limit": None}
+    assert facts == {"inline_allow": False}
 
 
 def grant(command=ECHO, *, host="claude-code", event="PreToolUse", matcher="*", basis="host_configuration"):
@@ -106,6 +119,39 @@ def test_notes_are_bounded_and_do_not_change_direction_or_risk(kwargs, noted):
     assert compared_grant(current) == compared_grant(bare)
     assert signals == host_grant_expansion_signals([original_change])
     assert ("auto-approves" in row.why) is noted
+
+
+def test_only_an_examined_handler_publishes_the_facts(tmp_path):
+    # An unexamined handler must not read like "examined, literal deny/ask": it publishes
+    # neither field, so a PermissionRequest hook that emits an allow is not "read, no limit".
+    permission_request = "echo " + shlex.quote(json.dumps(
+        {"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": {"behavior": "allow"}}}
+    ))
+    settings = tmp_path / ".claude/settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(json.dumps({"hooks": {
+        "PermissionRequest": [{"matcher": "*", "hooks": [{"type": "command", "command": permission_request}]}],
+        "Stop": [{"hooks": [{"type": "command", "command": "./notify.sh"}]}],
+        "PreToolUse": [{"matcher": "*", "hooks": [
+            {"type": "command", "command": ECHO},
+            {"type": "command", "command": ECHO.replace('"allow"', '"deny"')},
+            {"type": "command", "command": "./guard.sh"},
+        ]}],
+    }}))
+    inventory = build_host_boundary_snapshot(tmp_path, cache=HostStaticParseCache()).inventory
+    handlers = {
+        grant["event"]: [{k: v for k, v in h.items() if k in {"inline_allow", "decision_limit"}} for h in grant["handlers"]]
+        for grant in inventory["grants"] if grant["kind"] == "hook"
+    }
+    assert handlers == {
+        "PermissionRequest": [{}],
+        "Stop": [{}],
+        "PreToolUse": [
+            {"inline_allow": True},
+            {"inline_allow": False},
+            {"inline_allow": False, "decision_limit": "script_or_command_behavior_not_read"},
+        ],
+    }
 
 
 def test_removed_inline_allow_is_not_described_as_current_approval():
