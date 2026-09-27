@@ -14,14 +14,14 @@
     },
     "control": {
       "cases": 1,
-      "scored_rules": 47,
-      "expected_critical": 32,
+      "scored_rules": 88,
+      "expected_critical": 70,
       "marked_critical": 0,
       "true_critical": 0,
       "false_critical": 0,
-      "missed_critical": 32,
+      "missed_critical": 70,
       "missing_rules": 0,
-      "correct_ratings": 15
+      "correct_ratings": 18
     }
   },
   "records": [
@@ -159,14 +159,14 @@
       "case": "launcher-controls",
       "group": "control",
       "cases": 1,
-      "scored_rules": 47,
-      "expected_critical": 32,
+      "scored_rules": 88,
+      "expected_critical": 70,
       "marked_critical": 0,
       "true_critical": 0,
       "false_critical": 0,
-      "missed_critical": 32,
+      "missed_critical": 70,
       "missing_rules": 0,
-      "correct_ratings": 15
+      "correct_ratings": 18
     }
   ]
 }

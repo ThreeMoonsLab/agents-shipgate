@@ -217,6 +217,27 @@ def subsumes(wider: str, narrower: str) -> bool | None:
     return _argument_subsumes(left.argument or "", right.argument or "")
 
 
+def same_grant(left: str, right: str) -> bool:
+    """Whether two rule texts are one Bash grant spelled two ways (#816).
+
+    `subsumes` names direction, so it answers ``False`` both ways for
+    `Bash(npm:*)` and `Bash(npm *)` just as it does for two unrelated rules.
+    A caller asking whether an added rule grants anything new needs the
+    equality as well: rewriting one spelling into the other grants nothing.
+    ``True`` is a claim; ``False`` only means equality is not established.
+    """
+
+    a, b = parse_rule(left), parse_rule(right)
+    if a.raw == b.raw:
+        return True
+    if not (_is_shell(a) and _is_shell(b)) or a.argument is None or b.argument is None:
+        return False
+    if not (a.raw.endswith(")") and b.raw.endswith(")")):
+        return False
+    canonical = _shell_argument(a.argument)
+    return canonical is not None and canonical == _shell_argument(b.argument)
+
+
 #: Glob syntax this lattice does not implement. A character class or an
 #: optional-character pattern makes `startswith` the wrong question:
 #: `a[bc]d` matches `abd` while not being a prefix of it, so treating the
@@ -332,9 +353,10 @@ def whole_tool_risk(rule: str) -> tuple[str, str]:
 # Exact launcher prefixes only: no shell interpretation or executable lookup.
 # Sources and exclusions: docs/engineering/exec-equivalent-permissions.md.
 EXEC_EQUIVALENT_PREFIXES = frozenset({
-    "python -c", "python3 -c", "node -e", "ruby -e", "perl -e",
-    "bash -c", "sh -c", "npx", "bunx", "pnpm dlx", "uvx", "uv run",
-    "docker exec", "docker run", "xargs", "env",
+    "python -c", "python3 -c", "node -e", "node --eval", "node -p", "node --print",
+    "ruby -e", "perl -e", "perl -E", "php -r", "bash -c", "sh -c", "zsh -c",
+    "pwsh -c", "eval", "npx", "bunx", "pnpm dlx", "pnpm exec", "uvx", "uv run",
+    "uv tool run", "pipx run", "docker exec", "docker run", "xargs", "env", "sudo",
 })
 
 
@@ -357,6 +379,38 @@ def exec_equivalent_prefix(raw: str) -> str | None:
     return prefix if prefix in EXEC_EQUIVALENT_PREFIXES else None
 
 
+def exec_equivalent_argument(raw: str) -> str | None:
+    """The Bash argument, spelled from table text, of a rule that reaches a launcher.
+
+    A table prefix followed by ` *` or `:*` reaches one. So does any rule the
+    lattice decides is wider than one of those: `Bash(python3 *)` allows every
+    `python3 -c` program and `Bash(npx*)` every `npx` package, and a rating
+    that put them below `Bash(python3 -c *)` let widening a rule clear the
+    block its narrower form earns (#824). Only a decided ``True`` counts, so a
+    pattern the lattice cannot read keeps its prior rating. The whole tool
+    (`Bash`, `Bash(*)`) abstains: `whole_tool_risk` already rates it critical.
+
+    A wider rule's argument is a single trailing ``*`` over a prefix of some
+    ``"<entry> "``, so the text returned (``"npx *"``, ``"python3 *"``,
+    ``"n*"``) is sliced from that entry and never copies a user operand.
+    """
+
+    prefix = exec_equivalent_prefix(raw)
+    if prefix is not None:
+        return f"{prefix} *"
+    rule = parse_rule(raw)
+    if not _is_shell(rule) or rule.whole_tool or not raw.strip().endswith(")"):
+        return None
+    argument = _shell_argument(rule.argument or "")
+    stem = None if argument is None else _simple_prefix(argument)
+    if not stem:
+        return None
+    for entry in sorted(EXEC_EQUIVALENT_PREFIXES):
+        if subsumes(raw, f"Bash({entry} *)") is True:
+            return f"{f'{entry} '[: len(stem)]}*"
+    return None
+
+
 def scoped_risk(rule: str) -> tuple[str, str]:
     """``(access, risk)`` for an allow rule that names a bounded target.
 
@@ -367,7 +421,7 @@ def scoped_risk(rule: str) -> tuple[str, str]:
     is the tool class, so that is what is left.
     """
 
-    if exec_equivalent_prefix(rule) is not None:
+    if exec_equivalent_argument(rule) is not None:
         return "admin", "critical"
     classification = tool_class(rule)
     if classification == "read":
@@ -379,9 +433,11 @@ def scoped_risk(rule: str) -> tuple[str, str]:
 
 __all__ = [
     "Rule",
+    "exec_equivalent_argument",
     "exec_equivalent_prefix",
     "names_tools_within_one_mcp_server",
     "parse_rule",
+    "same_grant",
     "subsumes",
     "tool_class",
     "scoped_risk",

@@ -14,13 +14,21 @@ from pathlib import Path
 import replay
 
 POSITIVE = [
-    "python -c", "python3 -c", "node -e", "ruby -e", "perl -e", "bash -c", "sh -c",
-    "npx", "bunx", "pnpm dlx", "uvx", "uv run", "docker exec", "docker run", "xargs", "env",
+    "python -c", "python3 -c", "node -e", "node --eval", "node -p", "node --print",
+    "ruby -e", "perl -e", "perl -E", "php -r", "bash -c", "sh -c", "zsh -c", "pwsh -c",
+    "eval", "npx", "bunx", "pnpm dlx", "pnpm exec", "uvx", "uv run", "uv tool run",
+    "pipx run", "docker exec", "docker run", "xargs", "env", "sudo",
+]
+# Declarations wider than a launcher's own rule: never rated below it.
+WIDER = [
+    "python3 *", "python *", "python3:*", "node *", "bash *", "sh *", "docker *",
+    "docker:*", "uv *", "pnpm *", "npx*", "python3 -c*", "env*", "n*",
 ]
 NEGATIVE = [
     "npx prettier --check .", "npm test *", "find *", "make *", "sed *", "gh api *",
     "python3 -m pytest *", "node server.js *", "ruby -c *", "bash -e *", "python -e *",
     "npx prettier *", "env CI=1 npm test *", "xargs grep *", "docker inspect *",
+    "n *", "npm *", "python3 -c foo *",
 ]
 
 
@@ -38,7 +46,7 @@ def measure() -> dict:
             if path.exists():
                 cases.append((directory.name, "population", case["path"], path.read_text()))
     rules = [f"Bash({p}{s})" for p in POSITIVE for s in (" *", ":*")]
-    rules += [f"Bash({p})" for p in NEGATIVE]
+    rules += [f"Bash({p})" for p in WIDER + NEGATIVE]
     cases.append(("launcher-controls", "control", ".claude/settings.json", json.dumps({"permissions": {"allow": rules}})))
     records = []
     for name, group, path, body in cases:

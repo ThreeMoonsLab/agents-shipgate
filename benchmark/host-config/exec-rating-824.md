@@ -23,15 +23,19 @@ Whole-tool and non-Bash rules are outside this scoped rating denominator.
 | Critical-label precision | undefined (0 labels) | 1/1 |
 | Noise: critical launcher rated medium | 1 | 0 |
 | Missing population rules | 0 | 0 |
-| Scored control rules | 47 | 47 |
-| Correct control ratings | 15/47 | 47/47 |
-| Critical positive controls found | 0/32 | 32/32 |
+| Scored control rules | 88 | 88 |
+| Correct control ratings | 18/88 | 88/88 |
+| Critical positive controls found | 0/70 | 70/70 |
 | False critical controls | 0 | 0 |
-| Critical control precision | undefined (0 labels) | 32/32 |
+| Critical control precision | undefined (0 labels) | 70/70 |
 
-The 32 positives cover both trailing wildcard spellings for all 16 prefixes.
-The 15 negatives include exact npx, scoped test/script commands, excluded utility
-families, wrong eval flags and fixed operands. Positive-control recall is kept
+The 70 positives cover both trailing wildcard spellings for all 28 prefixes, plus
+14 declarations wider than one of them (`Bash(python3 *)`, `Bash(docker:*)`,
+`Bash(npx*)`, `Bash(n*)`), which the oracle labels critical because they admit
+the launcher followed by any payload: a wider rule is never rated below the
+launcher rule it allows. The 18 negatives include exact npx, scoped test/script
+commands, excluded utility families, wrong eval flags, fixed operands and
+patterns that are not wider (`n *`, `npm *`, `python3 -c foo *`). Positive-control recall is kept
 beside precision so labelling nothing critical cannot appear to pass. Unit tests
 also cover malformed patterns, wrappers, shell syntax and preservation of the
 containment lattice. These small, selected denominators are not a population-wide
