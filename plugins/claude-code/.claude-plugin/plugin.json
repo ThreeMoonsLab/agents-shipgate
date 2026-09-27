@@ -1,7 +1,7 @@
 {
   "name": "agents-shipgate",
   "version": "1.1.0",
-  "description": "Review PR changes to declared coding-agent permissions, MCP bindings, hooks and workflow permissions with agents-shipgate diff. This static host comparison needs no manifest, policy, saved baseline or skill; it names coverage limits and implies no verdict. For tool-using application repositories, the existing Tool-Use Readiness workflow verifies a declared tool surface. The plugin supplies optional workflow instructions; the scanner runs through the agents-shipgate CLI installed locally (pipx install agents-shipgate). Installing this metadata does not enable hooks or establish runtime authority.",
+  "description": "Review PR changes to declared coding-agent permissions, MCP bindings, hooks and workflow permissions with the agents-shipgate diff CLI command (not routed by this plugin's skill, which covers check, verify and audit --host). This static host comparison needs no manifest, policy, saved baseline or skill; it names coverage limits and implies no verdict. For tool-using application repositories, the existing Tool-Use Readiness workflow verifies a declared tool surface. The plugin supplies optional workflow instructions; the scanner runs through the agents-shipgate CLI installed locally (pipx install agents-shipgate). Installing this metadata does not enable hooks or establish runtime authority.",
   "author": {
     "name": "Three Moons Lab",
     "email": "help@threemoonslab.com",

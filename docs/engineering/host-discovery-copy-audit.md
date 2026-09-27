@@ -19,7 +19,7 @@ search indexing.
 | `.claude-plugin/marketplace.json` | Descriptions now distinguish host review from release verification and name static/advisory limits. Added task keywords; source and installation policy unchanged. |
 | `action.yml` | Description distinguishes host-only review from configured application verification. Canonical tagline, complete supported-input list, execution and inputs retained. |
 | Suspended legacy skill (#690), installed guidance and hook configuration | Excluded from edits and activation. Metadata changes install no hook and restore no suspended workflow. |
-| Website, PyPI and installed marketplace copies | External or historical distributions. Repository edits do not publish them. Release/site owners must update them through their existing publication route. |
+| Website, PyPI and installed marketplace copies | External or historical distributions. Repository edits do not publish them. Release/site owners must update them through their existing publication route. Exception: the Claude Code (`.claude-plugin/marketplace.json`, source `./plugins/claude-code`) and Codex (`.agents/plugins/marketplace.json`) marketplaces are sourced from this repository, so merging publishes this plugin copy to anyone who adds or updates either marketplace from the default branch, still under version 1.1.0, while the `v1.1.0` tag carries the earlier text. |
 
 ## Exercised installed route
 

@@ -4,12 +4,12 @@
     "name": "Three Moons Lab",
     "email": "help@threemoonslab.com"
   },
-  "description": "Agents Shipgate — the deterministic merge gate for AI-generated agent capability changes. Review PR changes to declared coding-agent permissions, MCP bindings, hooks and workflow permissions with agents-shipgate diff. This static host comparison needs no manifest, policy, saved baseline or skill; it names coverage limits and implies no verdict. Optional workflow instructions use the agents-shipgate CLI installed locally.",
+  "description": "Agents Shipgate — the deterministic merge gate for AI-generated agent capability changes. Review PR changes to declared coding-agent permissions, MCP bindings, hooks and workflow permissions with the agents-shipgate diff CLI command (not routed by the plugin's skill, which covers check, verify and audit --host). This static host comparison needs no manifest, policy, saved baseline or skill; it names coverage limits and implies no verdict. Optional workflow instructions use the agents-shipgate CLI installed locally.",
   "plugins": [
     {
       "name": "agents-shipgate",
       "source": "./plugins/claude-code",
-      "description": "Review PR changes to declared coding-agent permissions, MCP bindings, hooks and workflow permissions with agents-shipgate diff. This static host comparison needs no manifest, policy, saved baseline or skill; it names coverage limits and implies no verdict. Tool-Use Readiness release verification is a separate workflow for repositories with a declared tool surface. Requires the agents-shipgate CLI (pipx install agents-shipgate); no hook is enabled by this metadata.",
+      "description": "Review PR changes to declared coding-agent permissions, MCP bindings, hooks and workflow permissions with the agents-shipgate diff CLI command (not routed by the plugin's skill, which covers check, verify and audit --host). This static host comparison needs no manifest, policy, saved baseline or skill; it names coverage limits and implies no verdict. Tool-Use Readiness release verification is a separate workflow for repositories with a declared tool surface. Requires the agents-shipgate CLI (pipx install agents-shipgate); no hook is enabled by this metadata.",
       "version": "1.1.0",
       "author": {
         "name": "Three Moons Lab",
