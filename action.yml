@@ -612,8 +612,9 @@ runs:
               'Read the review below in the workflow summary. No authenticated decision is recorded; ' +
               'the verifier gate and current control still apply.';
             core.warning(limitation);
-            await core.summary.addHeading('Agents Shipgate: PR publication unavailable', 2)
-              .addRaw(limitation, true).addRaw(body, true).write();
+            await core.summary.addRaw(
+              `## Agents Shipgate: PR publication unavailable\n\n${limitation}\n\n${body}\n`
+            ).write();
           }
 
     - name: Build Agents Shipgate check-run payload
