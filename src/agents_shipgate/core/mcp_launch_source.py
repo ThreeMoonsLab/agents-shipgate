@@ -16,9 +16,38 @@ _PYPI = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?(?:\[[A-Za-z0-9._
 _PY_VERSION = re.compile(r"\d+(?:\.\d+)*(?:(?:a|b|rc)\d+)?(?:\.post\d+)?(?:\.dev\d+)?(?:\+[A-Za-z0-9.]+)?")
 _IMAGE = re.compile(r"[a-z0-9][a-z0-9._-]*(?::\d+)?(?:/[a-z0-9][a-z0-9._-]*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:([0-9a-f]{64}))?")
 _TOOL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+#: uv's ``uvx NAME@VERSION`` / ``uvx NAME@latest`` (an exact version or ``latest`` only).
+_UV_AT = re.compile(r"([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?(?:\[[A-Za-z0-9._,-]+\])?)@([^@]+)")
+#: ``docker run`` flags that take no value; ``-it``/``-ti`` combine the short ones.
+_DOCKER_SWITCHES = frozenset({"-i", "--interactive", "-t", "--tty", "--rm", "--init"})
+_DOCKER_SHORT_SWITCHES = re.compile(r"-[it]+")
+#: ``docker run`` flags whose value is the next argument, or follows ``=``.
+#: The value is skipped: it is never the selected source and never published.
+_DOCKER_VALUE_FLAGS = frozenset({
+    "-e", "--env", "--env-file", "-v", "--volume", "--network", "--name",
+    "-w", "--workdir", "-u", "--user", "-p", "--publish", "--mount",
+    "--platform", "--entrypoint", "--pull",
+})
 
 
-def _python_pin(spec: str) -> Pin | None:
+def _docker_image_index(args: list[str], index: int) -> int | None:
+    """The image's index after ``docker run``, or ``None`` at any flag outside the two tables."""
+    while index < len(args):
+        arg = args[index]
+        if arg in _DOCKER_SWITCHES or _DOCKER_SHORT_SWITCHES.fullmatch(arg):
+            index += 1
+        elif arg in _DOCKER_VALUE_FLAGS:
+            index += 2
+        elif "=" in arg and arg.split("=", 1)[0] in _DOCKER_VALUE_FLAGS:
+            index += 1
+        elif arg.startswith("-"):
+            return None
+        else:
+            return index
+    return None
+
+
+def _python_pin(spec: str, *, uv_at: bool = False) -> Pin | None:
     if spec.startswith("git+"):
         try:
             url = urlsplit(spec[4:])
@@ -34,6 +63,13 @@ def _python_pin(spec: str) -> Pin | None:
         if separator and (not ref or not _path.strip("/")):
             return None
         return "pinned" if separator and re.fullmatch(r"[0-9a-fA-F]{40}", ref) else "mutable"
+    if uv_at and "@" in spec:
+        at = _UV_AT.fullmatch(spec)
+        if at is None:
+            return None
+        if at[2] == "latest":
+            return "mutable"
+        return "pinned" if _PY_VERSION.fullmatch(at[2]) else None
     match = _PYPI.fullmatch(spec)
     if match is None:
         return None
@@ -94,8 +130,10 @@ def launch_source_pin(command: Any, args: Any) -> tuple[Pin, int] | None:
         family = "image"
         if args[0] != "run":
             return None
-        index = 1
-        flags = {"-i", "--interactive", "-t", "--tty", "--rm", "--init"}
+        docker_index = _docker_image_index(args, 1)
+        if docker_index is None:
+            return None
+        index = docker_index
     while index < len(args) and args[index] in flags:
         index += 1
     if index >= len(args):
@@ -112,5 +150,5 @@ def launch_source_pin(command: Any, args: Any) -> tuple[Pin, int] | None:
             return None
         pin = "pinned" if match[1] else "mutable"
     else:
-        pin = _python_pin(spec)
+        pin = _python_pin(spec, uv_at=command == "uvx" and index == 0)
     return (pin, index) if pin else None

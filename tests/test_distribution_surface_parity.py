@@ -263,6 +263,12 @@ SURFACES: tuple[Surface, ...] = (
         # equality and the inventory digests, so it restates no answer and
         # moves no row; `tests/test_hook_mcp_detail_fields.py` holds every
         # route to the same entry.
+        # An MCP row's launch-source note (#825) renders the display-only
+        # `launch_source` pin the engine published on the grant, left out of
+        # grant equality, the inventory digests and saved baselines, so it
+        # restates no answer and moves no row, severity or `check` decision;
+        # `tests/test_mcp_launch_source.py` holds diff, verify, the PR comment
+        # and check to it.
         {},
     ),
     Surface(

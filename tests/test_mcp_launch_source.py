@@ -39,6 +39,9 @@ PIN_CASES = [
     ("uvx", ["pkg"], "mutable"),
     ("uvx", ["pkg~=1.2"], "mutable"),
     ("uvx", ["pkg==1.*"], "mutable"),
+    ("uvx", ["pkg@latest"], "mutable"),
+    ("uvx", ["pkg@1.2.3"], "pinned"),
+    ("uvx", ["pkg[extra]@1.2.3", "--flag"], "pinned"),
     ("uvx", ["--from", "pkg==1.2.3", "server"], "pinned"),
     ("pipx", ["run", "--spec", "pkg==1.2.3", "server"], "pinned"),
     ("pipx", ["run", "--no-cache", "--spec", "pkg", "server"], "mutable"),
@@ -52,6 +55,15 @@ PIN_CASES = [
     ("docker", ["run", "image"], "mutable"),
     ("docker", ["run", "org/image:latest"], "mutable"),
     ("docker", ["run", "org/image:1.2.3"], "mutable"),
+    # GitHub's documented launch: a flag's value is skipped, never the source.
+    ("docker", ["run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "ghcr.io/github/github-mcp-server"], "mutable"),
+    ("docker", ["run", "-i", "--rm", "--env", "LOG_LEVEL", "mcp/fetch"], "mutable"),
+    ("docker", ["run", "-it", "mcp/fetch"], "mutable"),
+    ("docker", ["run", "-ti", "--rm", "mcp/fetch"], "mutable"),
+    ("docker", ["run", "--rm", "-i", "--pull=always", "mcp/fetch"], "mutable"),
+    ("docker", ["run", "-e=A=1", "--network=host", "--platform", "linux/amd64", "image:1"], "mutable"),
+    ("docker", ["run", "--name", "org/image:latest", "actual-image"], "mutable"),
+    ("docker", ["run", "-i", "-v", "/tmp:/tmp", "--mount", "type=bind,src=/a,dst=/b", "-w", "/b", "-u", "1000", "-p", "80:80", "--env-file", ".env", "--entrypoint", "srv", "--volume=/c:/c", "org/fs@sha256:" + DIGEST], "pinned"),
 ]
 
 
@@ -72,13 +84,18 @@ def test_documented_launch_source_forms(command, args, pin):
     ("uvx", ["--with", "pkg==1.2.3", "other"]),
     ("pipx", ["run", "--spec", "pkg"]), ("pipx", ["install", "pkg"]),
     ("pnpm", ["exec", "pkg"]), ("docker", ["exec", "image"]),
-    ("docker", ["run", "--name", "org/image:latest", "actual-image"]),
+    ("docker", ["run", "--privileged", "image"]), ("docker", ["run", "-d", "image"]),
+    ("docker", ["run", "-itd", "image"]), ("docker", ["run", "--rm=true", "image"]),
+    ("docker", ["run", "--cap-add=NET_ADMIN", "image"]), ("docker", ["run", "-eFOO", "image"]),
+    ("docker", ["run", "-i", "-e"]), ("docker", ["run", "--name", "image"]),
     ("docker", ["run", "image@sha256:abc"]),
     ("npx", ["$PACKAGE"]), ("npx", ["${PACKAGE}"]),
     ("npx", ["pkg@latest", "${TOKEN}"]), ("npx", ["`source`"]),
     ("npx", ["https://example.com/archive.tgz"]),
     ("uvx", ["pkg==not-a-version"]), ("uvx", ["pkg>=unknown"]),
     ("uvx", ["./pkg"]), ("npx", ["pkg\n@latest"]),
+    ("uvx", ["pkg@main"]), ("uvx", ["pkg@>=1.0"]), ("uvx", ["pkg@1.2@latest"]),
+    ("uvx", ["--from", "pkg@latest", "tool"]), ("pipx", ["run", "--spec", "pkg@1.2.3", "tool"]),
     ("npx", "pkg@latest"), ("npx", [None]), ("npx", []),
     ("npx", ["pkg@latest"] * 65), ("npx", ["x" * 2049]),
 ])
@@ -99,6 +116,8 @@ def grant(config):
     (None, {"url": "https://example.com/mcp"}, None),
     (None, {"command": "node", "args": ["./server.js"]}, None),
     ({"command": "npx", "args": ["pkg@latest"]}, None, None),
+    (None, {"command": "docker", "args": ["run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "ghcr.io/github/github-mcp-server"], "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "x"}}, "launch source is mutable"),
+    ({"command": "uvx", "args": ["pkg@1.2.3"]}, {"command": "uvx", "args": ["pkg@latest"]}, "launch source moved from pinned (pkg@1.2.3) to mutable (pkg@latest)"),
 ])
 def test_note_preserves_the_existing_row_and_signals(before, after, phrase):
     old, new = grant(before) if before else None, grant(after) if after else None
@@ -129,6 +148,25 @@ def test_package_publication_does_not_disclose_positional_or_url_secrets():
         source = _mcp_launch_source(config)
         assert secret not in json.dumps(source)
         assert "private-project" not in json.dumps(source)
+
+
+def test_docker_flag_values_are_skipped_and_never_published():
+    secret = "ghp_" + "x" * 36
+    args = [
+        "run", "-i", "--rm", "-e", f"GITHUB_PERSONAL_ACCESS_TOKEN={secret}", "--name", "org/decoy:1.0",
+        "-v", "/srv/private-project:/data", "ghcr.io/github/github-mcp-server:latest",
+    ]
+    assert launch_source_pin("docker", args) == ("mutable", len(args) - 1)
+    source = _mcp_launch_source({"command": "docker", "args": args})
+    assert source == {"pin": "mutable", "package": "ghcr.io/github/github-mcp-server:latest"}
+    # A flag's value is never the selected source, even when it is the only image-shaped argument.
+    decoy = ["run", "--name", "org/decoy:1.0", "actual"]
+    assert launch_source_pin("docker", decoy) == ("mutable", 3)
+    assert _mcp_launch_source({"command": "docker", "args": decoy}) == {"pin": "mutable", "package": None}
+    # #819's redaction reads the argument after a secret-named one as its value: a rewritten image abstains.
+    redacted = ["run", "--env", "API_KEY", "mcp/fetch:latest"]
+    assert launch_source_pin("docker", redacted) == ("mutable", 3)
+    assert _mcp_launch_source({"command": "docker", "args": redacted}) is None
 
 
 @pytest.mark.parametrize("path,contents", [
@@ -170,8 +208,10 @@ def test_text_json_verify_and_pr_comment_agree(tmp_path, path, contents, monkeyp
         assert check[key] == original[key]
 
 
-
 def test_git_ref_classification_does_not_expand_the_url_path_comparison_boundary():
+    # Known limit, tracked by #772: config_sha256 covers the redacted URL, never its path, so a Git
+    # ref moving from a pinned commit to a branch inside that path produces no row and so no note.
+    # Both pin states are established, but launch_source is display-only and cannot create a row.
     old = grant({"command": "pipx", "args": ["run", "--spec", "git+https://example.com/repo.git@" + SHA, "server"]})
     new = grant({"command": "pipx", "args": ["run", "--spec", "git+https://example.com/repo.git@main", "server"]})
     assert old["launch_source"] == {"pin": "pinned", "package": None}
