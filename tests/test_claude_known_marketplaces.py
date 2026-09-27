@@ -50,9 +50,9 @@ def _rows(tmp_path: Path, before: dict, after: dict) -> list[tuple[str, str, str
     return [(row["direction"], row["before"], row["after"], row["expands"]) for row in payload["rows"]]
 
 
-def test_an_added_marketplace_is_named_and_expands(tmp_path: Path) -> None:
+def test_an_added_marketplace_is_named_without_claiming_execution(tmp_path: Path) -> None:
     assert _rows(tmp_path, {}, {"extraKnownMarketplaces": {"acme": TEAM}}) == [
-        ("added", "—", "marketplace:acme", True)
+        ("added", "—", "marketplace:acme", False)
     ]
 
 
@@ -62,14 +62,14 @@ def test_a_removed_marketplace_is_named_and_does_not_expand(tmp_path: Path) -> N
     ]
 
 
-def test_a_repointed_marketplace_is_one_widening_row(tmp_path: Path) -> None:
-    """The name stays and the source moves: what the enabled plugins run changed."""
+def test_a_repointed_marketplace_is_one_changed_row(tmp_path: Path) -> None:
+    """The source moves, but registration alone establishes no execution gain."""
 
     assert _rows(
         tmp_path,
         {"extraKnownMarketplaces": {"acme": TEAM}},
         {"extraKnownMarketplaces": {"acme": FORK}},
-    ) == [("widened", "marketplace:acme", "marketplace:acme", True)]
+    ) == [("changed", "marketplace:acme", "marketplace:acme", False)]
 
 
 def test_an_unchanged_marketplace_is_quiet(tmp_path: Path) -> None:

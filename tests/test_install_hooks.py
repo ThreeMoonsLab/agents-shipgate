@@ -1680,11 +1680,13 @@ def test_stop_hook_is_quiet_on_the_engines_declared_only_hook_row(tmp_path: Path
     assert any(call[0] == "diff" for call in _cli_calls(hook_root))
 
 
-def test_stop_hook_announces_the_engines_enabled_plugin_hook_row(tmp_path: Path) -> None:
-    """#714 review cycle 2: a hook a plugin selects, where the repository is
-    its own marketplace and its project settings enable the plugin, loads
-    like a settings hook. Published 1.0.0 announced this change as widening,
-    and so must this build. The payload comes from a real `diff`."""
+@pytest.mark.parametrize("added", [False, True])
+def test_stop_hook_distinguishes_loaded_hook_addition_from_edit(tmp_path: Path, added: bool) -> None:
+    """#714/#820: new loaded hooks widen; an arbitrary command edit does not.
+
+    Drive the stop hook from the real engine's diff, preserving both the
+    widening announcement and silence for edits of unknown direction.
+    """
 
     from typer.testing import CliRunner
 
@@ -1705,6 +1707,8 @@ def test_stop_hook_announces_the_engines_enabled_plugin_hook_row(tmp_path: Path)
             "hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "true"}]}]}
         },
     }
+    if added:
+        files[".claude/hooks/hooks.json"] = {"hooks": {}}
     for relative, data in files.items():
         (engine / relative).parent.mkdir(parents=True, exist_ok=True)
         (engine / relative).write_text(json.dumps(data), encoding="utf-8")
@@ -1724,7 +1728,7 @@ def test_stop_hook_announces_the_engines_enabled_plugin_hook_row(tmp_path: Path)
     assert diff.exit_code == 0, diff.output
     payload = json.loads(diff.output)
     assert [(row["subject"], row["direction"], row["expands"]) for row in payload["rows"]] == [
-        ("claude-code .claude/hooks/hooks.json", "widened", True)
+        ("claude-code .claude/hooks/hooks.json", "added" if added else "changed", added)
     ]
 
     hook_root = tmp_path / "hook"
@@ -1733,9 +1737,13 @@ def test_stop_hook_announces_the_engines_enabled_plugin_hook_row(tmp_path: Path)
     result = _run_hook(hook_root, "verify", {}, diff_payload=json.dumps(payload))
 
     assert result.returncode == 0, result.stderr
-    message = json.loads(result.stdout)["systemMessage"]
-    assert "These rows widen what the agent can do" in message
-    assert "claude-code .claude/hooks/hooks.json" in message
+    if added:
+        message = json.loads(result.stdout)["systemMessage"]
+        assert "These rows widen what the agent can do" in message
+        assert "claude-code .claude/hooks/hooks.json" in message
+    else:
+        assert result.stdout.strip() == ""
+    assert any(call[0] == "diff" for call in _cli_calls(hook_root))
 
 
 def test_stop_hook_without_manifest_names_widening_rows_once(tmp_path: Path) -> None:
