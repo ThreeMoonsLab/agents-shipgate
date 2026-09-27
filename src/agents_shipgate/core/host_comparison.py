@@ -195,6 +195,37 @@ def _script_unchanged(
     return limit == "missing_input" and absent is not None and absent(path)
 
 
+def without_untouched_script_limits(
+    before: dict[str, Any], after: dict[str, Any], touched: Callable[[str], bool]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Both inventories without the bytes of each limited hook script the change does not touch (#702).
+
+    For a route that cannot name a limit (`check`, a provided diff): such a
+    script is left out of the comparison on both sides rather than refusing
+    it, as before scripts were read, and the route reviews a script the
+    change touches itself. A touched one keeps its limit.
+    """
+
+    left_out = {
+        script
+        for inventory in (before, after)
+        for script in hook_dependency_limits(inventory)
+        if not touched(script[1])
+    }
+    if not left_out:
+        return before, after
+
+    def without(inventory: dict[str, Any]) -> dict[str, Any]:
+        issues = hook_dependency_issues(inventory)
+        return without_hook_dependency_bytes(
+            inventory,
+            issue_ids={issue for issue, script in issues.items() if script in left_out},
+            dependencies=left_out,
+        )
+
+    return without(before), without(after)
+
+
 def _withheld_scripts(
     before: dict[str, Any],
     after: dict[str, Any],

@@ -316,7 +316,13 @@ same for `CLAUDE_PLUGIN_ROOT` in a plugin's hooks. A script edit keeps the
 declaration digest unchanged and produces one attributed hook row, without a
 new permission expansion signal. The local boundary gate routes the selected
 dependency for review; it reads the base's declarations only when the change
-touches a declaration, since otherwise both sides select alike.
+touches a declaration, since otherwise both sides select alike. `check`,
+including a provided diff (`check --diff`), cannot name a limit: a selected
+script the change does not touch is left out of its comparison and its input
+coverage, as before #702, so an untouched missing, ignored or linked script
+changes no decision. A script the change touches is routed for review, and a
+provided diff that also touches the hook's declaring file compares the
+script's bytes as the diff states them.
 
 A script this entry could not read costs that script, never the comparison.
 Its limit is a blocking `unreadable` issue on the script's own path. When both

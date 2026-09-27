@@ -536,7 +536,13 @@ change. A script-only edit does not assert a permission expansion. A
 mode-only change, such as `chmod +x`, is not compared: only the bytes are.
 `check` routes the selected file for review on either side of the change,
 with separate host attribution, and reads the base's declarations only when
-the change touches one.
+the change touches one. `check`, including a provided diff (`check --diff`),
+cannot name a limit: a selected script the change does not touch is left out
+of its comparison and its input coverage, as before scripts were read, so an
+untouched missing, ignored or linked script changes no decision. A script the
+change touches is routed for review, and a provided diff that also touches
+the hook's declaring file compares the script's bytes as the diff states
+them.
 
 Missing, linked, nonregular, oversized and unreadable inputs retain explicit
 limits, each a blocking `unreadable` issue on the script's own path, and cost

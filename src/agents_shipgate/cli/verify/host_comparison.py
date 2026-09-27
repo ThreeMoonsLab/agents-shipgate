@@ -25,12 +25,16 @@ from agents_shipgate.core.boundary_registry import (
     is_boundary_surface_path,
 )
 from agents_shipgate.core.errors import ConfigError
-from agents_shipgate.core.host_comparison import compare_host_inventories
+from agents_shipgate.core.host_comparison import (
+    compare_host_inventories,
+    without_untouched_script_limits,
+)
 from agents_shipgate.core.host_grants import (
     EnabledPluginHookFiles,
     HostBoundarySnapshot,
     HostStaticParseCache,
     build_host_boundary_snapshot,
+    hook_dependency_limits,
     without_host_issues,
 )
 from agents_shipgate.core.unread_inputs import ChangedInputs
@@ -66,7 +70,9 @@ def compare_host_refs(
     shared parse or shape limit on an unchanged source, leave a plugin
     directory a plugin-reference limit is bounded by uncompared when nothing
     they compare depends on it (a ``partial`` comparison, #808), and refuse
-    otherwise.
+    otherwise. For the same reason `check` leaves out the limit of a
+    selected hook script the change does not touch (#702): it routes a
+    changed script itself.
 
     ``coverage=False`` is for `check` too: its result carries no coverage, so
     it asks no identity question it would discard (#812), and lists no
@@ -182,6 +188,13 @@ def compare_host_refs(
             base_inventory, head_inventory = _without_shared_plugin_reference_limits(
                 base_snapshot, head_snapshot, unchanged=unchanged
             )
+            if hook_dependency_limits(base_inventory) or hook_dependency_limits(head_inventory):
+                listed = changed_inputs().paths
+                if listed is not None:
+                    touched = set(listed)
+                    base_inventory, head_inventory = without_untouched_script_limits(
+                        base_inventory, head_inventory, touched.__contains__
+                    )
         result = compare_host_inventories(
             base_inventory,
             head_inventory,

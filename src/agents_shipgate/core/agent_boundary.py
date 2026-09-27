@@ -66,6 +66,7 @@ from agents_shipgate.core.host_grants import (
     EnabledPluginHookFiles,
     HostBoundarySnapshot,
     build_host_boundary_snapshot,
+    hook_dependency_issues,
 )
 from agents_shipgate.core.host_input_failure import safe_failure_text
 from agents_shipgate.core.trust_roots import (
@@ -222,9 +223,15 @@ def evaluate_agent_boundary(
         and path.replace("\\", "/") not in plugin_hook_paths
     )
     plugin_unread_folded = {path.casefold() for path in plugin_unread_paths}
+    script_issues = hook_dependency_issues(host_snapshot.inventory)
 
     def counted(item: dict[str, Any]) -> bool:
         source = str(item.get("source") or "").replace("\\", "/")
+        if str(item.get("issue_id")) in script_issues:
+            # A selected hook script this check could not read (#702) is its
+            # own input only when the change touches it, which it also
+            # routes; an untouched one leaves the decision as 1.0.0 had it.
+            return bool(item.get("blocking")) and script_issues[str(item["issue_id"])][1] in changed_set
         if str(item.get("issue_id")) not in host_snapshot.plugin_reference_issue_ids:
             return bool(item.get("blocking"))
         # A plugin manifest, marketplace or plugin-selected hook file is not a
