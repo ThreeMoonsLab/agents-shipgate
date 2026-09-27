@@ -193,6 +193,9 @@ SURFACE_GAP_DUPLICATE_TOOL_NAME = "duplicate_tool_name"
 #: One agent name constructed at more than one call site in a module: the
 #: binding graph merges them, so no tool can be attributed to either (#876).
 SURFACE_GAP_DUPLICATE_AGENT_NAME = "duplicate_agent_name"
+#: A class deriving from an ADK agent class: instances are built by calling the
+#: subclass, which this reader does not follow, so their tools are unread (#876).
+SURFACE_GAP_AGENT_SUBCLASS = "agent_subclass_unread"
 SURFACE_GAP_UNRESOLVED_SUB_AGENT = "unresolved_sub_agent"
 #: The module reaches an agent's ``tools`` attribute after construction, or
 #: builds an agent from unpacked keyword arguments. Reading the ``tools=``
@@ -1092,6 +1095,7 @@ class _PythonAdkExtractor:
                 loaded_sources.extend(
                     self._extract_tool_expr(item, tools, agent_name, binding)
                 )
+        self._record_agent_subclasses()
         self._resolve_extraction_evidence(warnings_before, loaded_sources)
         return [
             LoadedToolSource(
@@ -1103,6 +1107,39 @@ class _PythonAdkExtractor:
             ),
             *loaded_sources,
         ]
+
+    def _record_agent_subclasses(self) -> None:
+        """Name each class deriving from an ADK agent class (#876; ported from PR #880).
+
+        ``extract`` reads every ``Agent(...)`` call; an instance of a subclass
+        is not one, so its wiring is a named limit rather than silently absent.
+        A base is ADK's only while its root name is bound by nothing but an
+        import, as ``_framework_symbol_is_proven`` requires of a call.
+        """
+
+        for node in ast.walk(self.tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            for base in node.bases:
+                expression = base.value if isinstance(base, ast.Subscript) else base
+                root = expression
+                while isinstance(root, ast.Attribute):
+                    root = root.value
+                if (
+                    isinstance(root, ast.Name)
+                    and _qualified_name(expression, self.aliases) in AGENT_CLASS_NAMES
+                    and all(
+                        isinstance(binding, ast.alias)
+                        for binding in self.name_bindings.get(root.id, [])
+                    )
+                ):
+                    self._surface_warning(
+                        f"Google ADK agent class {node.name!r} at {self.source_ref}:"
+                        f"{node.lineno} derives from an agent class; agents built from it "
+                        "are not read.",
+                        SURFACE_GAP_AGENT_SUBCLASS,
+                    )
+                    break
 
     def _surface_warning(self, message: str, reason: str) -> None:
         """Report a construct that leaves part of this module's surface unknown."""

@@ -925,3 +925,61 @@ def test_an_adk_agent_changed_after_construction_is_a_limit(repo):
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial"
     assert any("changed at agent.py" in limit for limit in result["head"]["limits"])
+
+
+# Ported from PR #880 (tests/test_application_diff_constructions.py).
+
+
+def test_issue_reproduction_with_an_imported_list_and_a_scope(repo):
+    """The issue's own minimal reproduction: the builder imports its list."""
+
+    tools = TOOLS + "QUOTE_TOOLS = LIST\n"
+    builder = (
+        "from agents import Agent\nfrom app.tools import QUOTE_TOOLS, quote\n"
+        "def build_quote_agent():\n"
+        '    return Agent(name="Quote", instructions="q", tools=QUOTE_TOOLS)\n'
+    )
+    double = (
+        "from agents import Agent, function_tool\n@function_tool\n"
+        "def fake_lookup(q: str) -> str:\n    return q\n"
+        'agent = Agent(name="TestAgent", instructions="t", tools=[fake_lookup])\n'
+    )
+    base = commit(
+        repo,
+        {
+            "app/tools.py": tools.replace("LIST", "[quote]"),
+            "app/agents_def.py": builder,
+            "app/tests/test_turn.py": double,
+        },
+    )
+    head = commit(repo, {"app/tools.py": tools.replace("LIST", "[quote, send_image]")})
+    result = run(repo, base, head, "--scope", "app")
+    # Main printed `compared` with no rows; the test double was the only agent.
+    assert result["comparison_status"] == "partial"
+    assert [a["name"] for a in result["head"]["agents"]] == ["Quote"]
+    assert result["head"]["excluded_tests"] == ["tests/test_turn.py"]
+    # Until the imported list resolves, it is named on Quote.
+    assert any(
+        g["agent"] == "Quote" and "QUOTE_TOOLS" in g["reason"]
+        for g in result["head"]["coverage_gaps"]
+    )
+
+
+def test_an_adk_agent_subclass_is_a_named_limit(repo):
+    adk = (
+        "from google.adk.agents import LlmAgent\n"
+        "def lookup(query: str) -> str:\n    return query\n"
+        "def execute(code: str) -> str:\n    return code\n"
+        'root_agent = LlmAgent(name="root", tools=[lookup])\n'
+        "class Helper(LlmAgent):\n    pass\n"
+        'helper = Helper(name="helper", tools=TOOLS)\n'
+    )
+    base = commit(repo, {"agent.py": adk.replace("TOOLS", "[lookup]")})
+    head = commit(repo, {"agent.py": adk.replace("TOOLS", "[lookup, execute]")})
+    result = run(repo, base, head)
+    # Main and this branch before the port printed `compared` with no rows.
+    assert result["comparison_status"] == "partial"
+    assert any(
+        "agent.py:7" in g["reason"] and "'Helper'" in g["reason"]
+        for g in result["head"]["coverage_gaps"]
+    )
