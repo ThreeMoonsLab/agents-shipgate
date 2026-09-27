@@ -1,7 +1,7 @@
 {
   "name": "agents-shipgate",
   "version": "1.1.0",
-  "description": "Run Agents Shipgate Tool-Use Readiness workflows from Claude Code. Skill-only: the plugin supplies the agents-shipgate skill and the /agents-shipgate:shipgate command; the scanner runs through the agents-shipgate CLI installed in the local environment (pipx install agents-shipgate; the bundled skill names the runtime contract its setup route needs, and `agents-shipgate contract --json` reports the one you have). For the deterministic hooks (trigger check after edits, full verify at Stop), run: agents-shipgate install-hooks --target claude-code --write.",
+  "description": "Review PR changes to declared coding-agent permissions, MCP bindings, hooks and workflow permissions with the agents-shipgate diff CLI command (not routed by this plugin's skill, which covers check, verify and audit --host). This static host comparison needs no manifest, policy, saved baseline or skill; it names coverage limits and implies no verdict. For tool-using application repositories, the existing Tool-Use Readiness workflow verifies a declared tool surface. The plugin supplies optional workflow instructions; the scanner runs through the agents-shipgate CLI installed locally (pipx install agents-shipgate). Installing this metadata does not enable hooks or establish runtime authority.",
   "author": {
     "name": "Three Moons Lab",
     "email": "help@threemoonslab.com",
@@ -16,6 +16,9 @@
     "tool-use-readiness",
     "release-gate",
     "mcp-security",
-    "policy-as-code"
+    "policy-as-code",
+    "coding-agent-config",
+    "permission-changes",
+    "workflow-permissions"
   ]
 }
