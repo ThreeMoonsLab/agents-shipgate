@@ -301,6 +301,26 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="permission-review-guidance-839"></a>
+
+## Migration Note: Unreleased — conditional shell-permission review guidance (#839)
+
+The existing maintained `review.changes[]` gains optional `guidance`: a bounded
+projection of raw Claude Code shell-rule evidence, a specific intent question,
+conditional human choices, limitations, an advisory owner and a declaration
+comparison target. It neither decides nor grants authority. Redacted,
+unsupported, conflicting or incomplete evidence withholds specific choices;
+legacy payloads are never interpreted by parsing their display cells.
+CLI and PR output render the same published projection after existing facts,
+coverage and authority. Whole-item bounds retain an omitted count and the JSON
+evidence pointer. Existing rows, inventory digests and control are unchanged.
+
+Verifier `0.21`, capability diff `0.4` and runtime contract v41 are unreleased
+and extended in place. The frozen `0.20` schema stays unchanged; a payload
+claiming that version cannot carry `guidance`. Current readers accept missing
+guidance as unrecorded, not as proof that no review is needed. See the
+[case mapping and limitations](docs/engineering/permission-review-guidance.md).
+
 <a id="grant-direction-820"></a>
 
 ## Migration Note: Unreleased — changed grants are not automatically widenings (#820)

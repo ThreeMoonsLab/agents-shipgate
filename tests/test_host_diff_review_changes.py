@@ -301,7 +301,8 @@ def test_identical_rule_text_joins_as_a_move_only_once_in_one_source(
     repo = _repository(tmp_path, base, head)
 
     text, payload = _diff(repo)
-    lines = [" ".join(line.split()) for line in text.splitlines()]
+    # The established table precedes #839's separately labelled advisory detail.
+    lines = [" ".join(line.split()) for line in text.split("Permission review guidance:")[0].splitlines()]
     printed = sorted(
         (lines[index], lines[index + 1])
         for index, line in enumerate(lines)
@@ -724,7 +725,8 @@ def test_references_name_the_compared_commits_and_a_command_that_reproduces_them
         f"Reproduce in that working tree: {command}",
     ]
     text, _ = _diff(repo)
-    assert text.rstrip().splitlines()[-3:] == [question, *worktree[-2:]]
+    assert text.split("Permission review guidance:")[0].rstrip().splitlines()[-3:] == [question, *worktree[-2:]]
+    assert "Question: Does this task need" in text
 
 
 @pytest.mark.parametrize(

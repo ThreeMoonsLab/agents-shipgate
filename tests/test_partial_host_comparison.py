@@ -765,7 +765,9 @@ def test_a_0_20_verifier_cannot_claim_a_partial_comparison(tmp_path: Path) -> No
     frozen = json.loads((ROOT / "docs/verifier-schema.v0.20.json").read_text(encoding="utf-8"))
     legacy = json.loads(json.dumps(verifier))
     legacy["verifier_schema_version"] = "0.20"
-    # Without what #821 added in 0.21, so only the partial comparison differs.
+    # Without the other additions in 0.21, so only the partial comparison differs.
+    for change in legacy["host_comparison"]["review"]["changes"]:
+        change.pop("guidance", None)
     for key in ("unread_candidates", "unread_candidates_not_examined"):
         legacy["host_comparison"]["coverage"].pop(key)
     for item in legacy["host_comparison"]["coverage"]["items"]:

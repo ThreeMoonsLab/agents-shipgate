@@ -63,8 +63,12 @@ entry per changed grant or replaced rule. If the PR targets another branch, pass
 `--base upstream/<pr-base>`. On a PR that widens a Claude Code allow rule,
 drops a denial and adds an MCP server:
 
+The example below is from this source tree. Its conditional review guidance is
+**not yet released**; the published `1.1.0` prints the same comparison without
+that guidance section.
+
 ```text
-Agent capability diff  origin/main (07c50e1b) -> working tree
+Agent capability diff  origin/main (7063f900) -> working tree
 
 ⚠ high    added    claude-code .mcp.json
                   billing (command name npx; env keys BILLING_TOKEN)
@@ -87,8 +91,26 @@ What this run established:
   .mcp.json (claude-code): compared; 1 row
 
 Review question: Does the team intend these 3 declared capability changes (from 4 rows)?
-Compared: base 07c50e1b → working tree at HEAD 55a980d1, agents-shipgate 1.1.0.
-Reproduce in that working tree: agents-shipgate diff --base 07c50e1bc59a0b3b2ba60b9ad781db4f04c11202
+Compared: base 7063f900 → working tree at HEAD ac6fbdcf, agents-shipgate 1.1.0.
+Reproduce in that working tree: agents-shipgate diff --base 7063f90046e90a1673fe98f993cb77f7063ef396
+Permission review guidance:
+Conditional review choices only; current control permissions still apply. A PR note grants no authority.
+- Change 2: .claude/settings.json
+  Question: Does this task need the command matches of Bash(npm *) beyond Bash(npm test:*)?
+  Limit: These are repository declarations. Runtime access, credentials, other permission layers and task intent are not established.
+  Choice: If intentional, record the rationale in the existing PR discussion; the declaration delta remains visible.
+  Choice: If another scope is intended, the declaration owner chooses it at the named source. The previous value is a reference, not an automatically safe fix.
+  Choice: If disputed, preserve the compared refs and evidence for triage; do not suppress the finding or rewrite policy to clear it.
+  Advisory next actor: declaration owner to be assigned
+  Verification: Compare the resulting declarations against the original base; a rerun establishes a declaration delta, not intent or runtime access.
+- Change 3: .claude/settings.json
+  Question: Should this source remove the deny declaration Bash(rm -rf:*) for this task?
+  Limit: These are repository declarations. Runtime access, credentials, other permission layers and task intent are not established.
+  Choice: If intentional, record the rationale in the existing PR discussion; the declaration delta remains visible.
+  Choice: If another scope is intended, the declaration owner chooses it at the named source. The previous value is a reference, not an automatically safe fix.
+  Choice: If disputed, preserve the compared refs and evidence for triage; do not suppress the finding or rewrite policy to clear it.
+  Advisory next actor: declaration owner to be assigned
+  Verification: Compare the resulting declarations against the original base; a rerun establishes a declaration delta, not intent or runtime access.
 ```
 
 The answer is one of these, and they mean different things: named changes,
@@ -122,7 +144,7 @@ it names how many it left out and that they rank below the ones it kept. The
 entries are for a reviewer to act on, not merge authority: each names the rule
 with its disposition, a replaced rule's before and after, and an MCP server's
 command name or redacted URL and key names, then one review question. Every
-answer, a zero-row one and a refusal included, ends with the compared commits
+answer, a zero-row one and a refusal included, names the compared commits
 and the command that reproduces the comparison. `--json` publishes the same entries,
 counters, question and command beside the rows, so a script and a reader
 describe one run the same way; a refused comparison is the exception, which
@@ -132,11 +154,9 @@ beside the refusal. The
 [quickstart](docs/quickstart.md#review-a-host-configuration-change) shows each
 answer, the `--base <ref>` recovery when no base can be detected, and the
 [surfaces `diff` does not read](docs/host-boundary-support.md#known-unread-surfaces).
-**Released in `1.1.0`:** the output above is from the published `1.1.0`,
-installed from PyPI into a clean virtualenv outside any checkout and run in a
-clone. The previous release, `1.0.0`, names the same changes as four rows,
-without the dispositions, the joined replacement, the MCP launch details, the
-`What this run established` block, the review question and the reference lines.
+Supported shell changes then add conditional human choices. They establish no
+intent or runtime access and grant no authority. The source tree still reports
+version `1.1.0`; that version string does not make this a published-wheel capture.
 
 When the answer is useful and you want it on every pull request, add
 [`examples/github-actions/14-host-only-advisory-pr.yml`](examples/github-actions/14-host-only-advisory-pr.yml):

@@ -783,6 +783,24 @@ class _RowView:
 _VIEW = "_review_view"
 
 
+def review_grant_evidence(
+    rows: Sequence[CapabilityDiffRow], indexes: Sequence[int],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None] | None:
+    """Reader identities for a proven review group, before serialization (#839).
+
+    Never recover these from display labels. The comparison serializes the
+    guidance derived here; plain reloaded rows have no raw evidence.
+    """
+    evidence = [getattr(rows[index], "_grant_evidence", None) for index in indexes]
+    if not evidence or any(item is None for item in evidence):
+        return None
+    before = [item[0] for item in evidence if item[0] is not None]
+    after = [item[1] for item in evidence if item[1] is not None]
+    if len(before) > 1 or len(after) > 1:
+        return None
+    return (before[0] if before else None, after[0] if after else None)
+
+
 @dataclass(frozen=True)
 class ReviewChange:
     """One change as the text projections print it (#795).
@@ -1486,6 +1504,9 @@ def capability_diff_rows(
             )
         else:
             view = _RowView(before=row.before, after=row.after)
+        # Kept with the row through sorting, never emitted as row fields.
+        # Only the bounded advisory projection is serialized by the comparator.
+        object.__setattr__(row, "_grant_evidence", (before_grant, after_grant))
         rows.append(row)
         views.append(view)
         changes.append(change)

@@ -92,19 +92,32 @@ def render_pr_comment(
     ):
         request = None
     if style == "findings":
-        return _render_findings_comment(
+        comment = _render_findings_comment(
             verifier,
             report=report,
             human_context=human_context,
             human_review_request=request,
         )
-    return _render_capability_review_comment(
-        verifier,
-        report=report,
-        capability_lock_diff=capability_lock_diff,
-        human_context=human_context,
-        human_review_request=request,
-    )
+    else:
+        comment = _render_capability_review_comment(
+            verifier,
+            report=report,
+            capability_lock_diff=capability_lock_diff,
+            human_context=human_context,
+            human_review_request=request,
+        )
+    if verifier.host_comparison is not None:
+        from agents_shipgate.report.host_comparison import permission_guidance_lines
+
+        # Existing facts, coverage, evidence and current control take their
+        # original space first. Advisory choices use only what remains.
+        guidance = permission_guidance_lines(
+            verifier.host_comparison, markdown=True,
+            max_chars=min(2400, _COMMENT_MAX_CHARS - len(comment) - 2),
+        )
+        if guidance:
+            comment += "\n\n" + "\n".join(guidance)
+    return comment
 
 
 def _render_capability_review_comment(
@@ -189,6 +202,7 @@ def _human_summary_lines(
                 coverage_max_chars=coverage_max_chars,
                 entry_max_chars=entry_max_chars,
                 entry_note=entry_note,
+                guidance_max_chars=0,
             )
         )
         lines.append("Advisory: no application release policy configured. This comparison grants no merge authority.")
@@ -712,6 +726,7 @@ def _render_findings_comment(
                     coverage_max_chars=coverage_max_chars,
                     entry_max_chars=entry_max_chars,
                     entry_note=entry_note,
+                    guidance_max_chars=0,
                 ),
                 "Advisory: no application release policy configured. This comparison grants no merge authority.",
                 *(_next_actor_lines(verifier) if comparison.comparison_status != "comparable" else []),

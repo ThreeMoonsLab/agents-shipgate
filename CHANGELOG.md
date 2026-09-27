@@ -23,6 +23,8 @@
 
 ### Changes
 
+- Add conditional review guidance for supported Claude Code shell-permission changes: a concrete intent question, human choices and a declaration comparison target, shared by CLI, maintained JSON and advisory PR output. Conflicting, redacted or incomplete evidence withholds specific choices. Existing control permissions, rows and release decisions are unchanged. See the [case mapping](docs/engineering/permission-review-guidance.md). (#839)
+
 - Correct false widening markers on hook/MCP edits, disabled plugins, more restrictive permission modes and enabled sandboxes. Unknown direction stays visible as a change; explicit enablement, less restrictive modes, sandbox disablement and added loaded hooks/MCP servers still expand. Setting replacements use their full comparison context so another setting's expansion cannot mark a tightening. Claude Code plugin enablement no longer coerces malformed values to booleans. Existing check decisions and severities remain unchanged. See the [migration note](STABILITY.md#grant-direction-820) and [before/after direction benchmark](benchmark/host-config/direction-replay-820.md). (#820)
 
 - Move the published-release pins, examples and adoption prompts to `v1.1.0` (contract 40) now that it is published, re-capture the README and quickstart `diff` answers from the published `1.1.0`, and re-measure the pilot ledger's Route H dry run on it. No schema or contract change. (#778)
