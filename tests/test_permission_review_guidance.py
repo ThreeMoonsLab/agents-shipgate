@@ -229,3 +229,56 @@ def test_retaining_the_same_widening_does_not_confirm_a_correction(tmp_path):
     assert reread.review.summary.widenings == result.review.summary.widenings
     assert reread.review.changes[0].guidance == guidance
     assert "complete" not in guidance.model_dump()
+
+
+def test_fresh_non_shell_permission_changes_print_no_guidance_limit(tmp_path):
+    """#839 review: `allow: Read(src/**)` added and `deny: WebFetch` removed are
+    permission rows but not shell cases. A fresh comparison records that, so
+    diff, verify and the PR comment say nothing about guidance; the legacy limit
+    is for an artifact that records no guidance field at all."""
+
+    from test_host_diff_review_changes import SETTINGS, _diff, _invoke, _repository
+
+    from agents_shipgate.report.pr_comment import render_pr_comment
+    from agents_shipgate.schemas.verifier import VerifierArtifact
+
+    repo = _repository(
+        tmp_path,
+        {SETTINGS: {"permissions": {"allow": ["Bash(npm test *)"], "deny": ["WebFetch"]}}},
+        {SETTINGS: {"permissions": {"allow": ["Bash(npm test *)", "Read(src/**)"]}}},
+    )
+    text, payload = _diff(repo)
+    assert payload["rows"] and all(row["disposition"] for row in payload["rows"])
+    assert [change["guidance"] for change in payload["review"]["changes"]] == [None, None]
+    out = tmp_path / "out"
+    verify = _invoke([
+        "verify", "--workspace", str(repo), "--config", "shipgate.yaml", "--ci-mode", "advisory",
+        "--out", str(out), "--pr-comment-style", "capability-review", "--format", "text",
+        "--base", "main",
+    ])
+    comment = (out / "pr-comment.md").read_text(encoding="utf-8")
+    reloaded = VerifierArtifact.model_validate_json((out / "verifier.json").read_text(encoding="utf-8"))
+    for rendered in (text, verify, comment, render_pr_comment(reloaded, report=None, style="capability-review")):
+        assert "Specific permission guidance unavailable" not in rendered
+        assert "Permission review guidance:" not in rendered
+    assert permission_guidance_lines(reloaded.host_comparison) == []
+
+
+@pytest.mark.parametrize("rule", ["Bash", "Bash(*)"])
+def test_the_whole_shell_tool_gets_the_same_question_either_way(tmp_path, rule):
+    guidance = comparison(tmp_path, {"allow": ["Read"]}, {"allow": ["Read", rule]}).review.changes[0].guidance
+    assert guidance.case == "declaration_added"
+    assert guidance.question == f"Should this source add the allow declaration {rule} for this task?"
+    assert guidance.after_rule == rule
+
+
+def test_withheld_guidance_still_names_its_established_source(tmp_path):
+    result = comparison(tmp_path, {}, {"allow": ["Bash(npm test && curl example.invalid)"]})
+    guidance = result.review.changes[0].guidance
+    assert (guidance.case, guidance.source) == ("unavailable", ".claude/settings.json")
+    lines = permission_guidance_lines(result)
+    assert "- Change 1: .claude/settings.json" in lines
+    assert not any("evidence unavailable" in line for line in lines)
+    redacted = comparison(tmp_path / "redacted", {"allow": ["Bash(npm test *)"]},
+                          {"allow": ["Bash(npm *)"]}, redact_permission_arguments=True)
+    assert {change.guidance.source for change in redacted.review.changes} == {".claude/settings.json"}

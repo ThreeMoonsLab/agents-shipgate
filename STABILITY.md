@@ -318,7 +318,9 @@ evidence pointer. Existing rows, inventory digests and control are unchanged.
 Verifier `0.21`, capability diff `0.4` and runtime contract v41 are unreleased
 and extended in place. The frozen `0.20` schema stays unchanged; a payload
 claiming that version cannot carry `guidance`. Current readers accept missing
-guidance as unrecorded, not as proof that no review is needed. See the
+guidance as unrecorded, not as proof that no review is needed; a recorded
+`guidance: null` is a change that is not a supported shell case, and prints
+nothing. See the
 [case mapping and limitations](docs/engineering/permission-review-guidance.md).
 
 <a id="grant-direction-820"></a>

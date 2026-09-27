@@ -68,18 +68,25 @@ def permission_guidance_lines(
     if not comparison.rows or comparison.comparison_status == "incomparable":
         return []
     review = comparison.review
-    if review is None or sorted(
+    # A comparison that recorded guidance sets the field on every change, `null`
+    # where the change is not a supported shell case; an artifact from before
+    # #839 has no such field. Only that one is a limit worth a line: a fresh
+    # comparison whose permission rows are all non-shell (`allow: Read(src/**)`,
+    # `deny: WebFetch`) has nothing to say here.
+    recorded = review is not None and sorted(
         index for item in review.changes for index in item.row_indexes
-    ) != list(range(len(comparison.rows))):
-        items = []
-    else:
-        items = [(index + 1, item.guidance) for index, item in enumerate(review.changes)
-                 if item.guidance is not None]
-    if not items:
+    ) == list(range(len(comparison.rows))) and all(
+        "guidance" in item.model_fields_set for item in review.changes
+    )
+    if not recorded:
         if not any(row.disposition for row in comparison.rows):
             return []
         line = "Specific permission guidance unavailable: this artifact records no supported raw rule evidence."
         return [line] if len(line) <= max_chars else []
+    items = [(index + 1, item.guidance) for index, item in enumerate(review.changes)
+             if item.guidance is not None]
+    if not items:
+        return []
     boundary = (
         "Conditional review choices only; current control permissions still apply. "
         "A PR note grants no authority."

@@ -16,8 +16,9 @@ from agents_shipgate.schemas.host_comparison import PermissionReviewGuidance
 
 # Deliberately bounded to literal commands and terminal prefix patterns. Shell
 # operators, quoting, substitutions, interior globs and private projections are
-# not evidence from which this entry offers a specific choice.
-_RULE = re.compile(r"Bash\((?:\*|[A-Za-z0-9_./:+=-]+(?: [A-Za-z0-9_./:+=-]+)*(?: \*|:\*)?)\)\Z")
+# not evidence from which this entry offers a specific choice. The bare tool
+# name is the whole tool, as `Bash(*)` is.
+_RULE = re.compile(r"Bash(?:\((?:\*|[A-Za-z0-9_./:+=-]+(?: [A-Za-z0-9_./:+=-]+)*(?: \*|:\*)?)\))?\Z")
 _RUNTIME_LIMIT = (
     "These are repository declarations. Runtime access, credentials, other permission "
     "layers and task intent are not established."
@@ -57,20 +58,27 @@ def permission_review_guidance(
     ):
         return None
 
+    source = grants[0].get("source")
+    displayable = not (
+        not isinstance(source, str) or not source or len(source) > 512
+        or redact_text(source) != source
+        or any(ord(char) < 32 or char in "<>" for char in source)
+        or any(grant.get("source") != source for grant in grants)
+    )
+
     def withheld(reason: str) -> PermissionReviewGuidance:
-        return PermissionReviewGuidance(case="unavailable", limitations=[reason, _RUNTIME_LIMIT])
+        # The source is a path, not rule arguments: once established it is
+        # still named, so the reader knows where to look (#839 review).
+        return PermissionReviewGuidance(
+            case="unavailable", source=source if displayable else None,
+            limitations=[reason, _RUNTIME_LIMIT],
+        )
 
     if redacted:
         return withheld("Rule arguments are redacted; specific guidance is unavailable.")
     if any(not _supported(grant.get("rule")) for grant in grants):
         return withheld("Rule evidence is unsupported, private or too long; specific guidance is unavailable.")
-    source = grants[0].get("source")
-    if (
-        not isinstance(source, str) or not source or len(source) > 512
-        or redact_text(source) != source
-        or any(ord(char) < 32 or char in "<>" for char in source)
-        or any(grant.get("source") != source for grant in grants)
-    ):
+    if not displayable:
         return withheld("One exact, displayable source identity is not established.")
     if any(grant.get("disposition") not in {"allow", "deny"} for grant in grants):
         return withheld("This choice supports allow and deny declarations only.")

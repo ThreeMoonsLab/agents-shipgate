@@ -22,8 +22,9 @@ coverage apply. There is no invented source line or independent risk score.
 | Allow/deny added or removed | One raw grant and exact source identity | Should this source add/remove this declaration? | No inferred replacement, global permission gain or loss. |
 | Disposition moved | Engine-proven exact rule identity in one source | Is moving this rule between allow and deny intended? | Rerun establishes declared disposition, not runtime permission. |
 | Conflicting or unknown context | Unchanged rules and settings from both inventories | Withhold specific choices; identify the contextual limitation. | No least-privilege fix or effective-access conclusion is inferred. |
-| Redacted, unsupported or oversized rule | Required literal evidence missing | Explicitly unavailable; no specific question or choice. | No reconstruction from display strings or private text. |
-| Legacy artifact | No recorded guidance | Explicitly unavailable. | Rendering does not invent historical reader evidence. |
+| Redacted, unsupported or oversized rule | Required literal evidence missing | Explicitly unavailable; no specific question or choice. The source is still named when it is established. | No reconstruction from display strings or private text. |
+| Not a shell rule (`allow: Read(src/**)`, `deny: WebFetch`) | A recorded `guidance: null` | Nothing is printed. | The row and review question are unchanged. |
+| Legacy artifact | No `guidance` field recorded | Explicitly unavailable. | Rendering does not invent historical reader evidence. |
 | Incomparable input | Existing comparison refusal | Existing coverage/recovery remains the answer. | No correction or no-change claim. |
 | Covered no change | No changed grant | No guidance and no new task. | Existing coverage-qualified no-change answer. |
 
@@ -36,7 +37,8 @@ base can establish the declaration delta; it does not confirm intent, runtime
 access, or the stronger correction-proof claim owned by #840.
 
 The first supported spelling is `Bash(...)` with literal command words, an exact
-command, or a terminal ` *` / `:*` prefix. Operators, substitutions, quoting,
+command, or a terminal ` *` / `:*` prefix, and the whole tool as `Bash(*)` or
+bare `Bash`. Operators, substitutions, quoting,
 interior wildcards, redacted fields and rules over 512 characters withhold
 specific choices. The comparator supplies pairings; this projection selects
 none. A changed rule can receive an individual declaration question while an
@@ -60,10 +62,11 @@ comment with no room retains its existing evidence pointer. All source-derived
 strings use the existing single-line/Markdown literal display protections.
 
 Verifier `0.21`, capability diff `0.4` and contract v41 are unreleased and are
-extended in place. `guidance: null` means no supported projection was recorded;
-it does not establish absence of risk. Frozen verifier `0.20` is unchanged and
-cannot claim the new field. Current readers accept historical artifacts without
-guidance and report that specific guidance is unavailable.
+extended in place. `guidance: null` means the change is not a supported shell
+case, so the renderers print nothing for it; it does not establish absence of
+risk. Frozen verifier `0.20` is unchanged and cannot claim the new field.
+Current readers accept historical artifacts whose changes carry no `guidance`
+field and report that specific guidance is unavailable.
 
 ## Readiness evidence still required
 
