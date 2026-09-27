@@ -1832,3 +1832,15 @@ def test_the_observed_side_honours_a_moved_file(repo):
     rows = {(row["tool"], row["change"]) for row in result["rows"] if row["agent"] == "plant_agent"}
     assert ("send_image", "removed") not in rows, result["rows"]
     assert ("send_image", "not_established") in rows, result["rows"]
+
+
+@pytest.mark.parametrize("builtin", ["globals", "__import__", "setattr"])
+def test_a_builtin_that_reaches_the_applications_code_is_not_data(repo, builtin):
+    """Only the builtins that build data from data are inert beside a list
+    handed to another library; ``globals`` or ``__import__`` reach the
+    application's own code (#876 review, round 20)."""
+
+    use = f"from somelib import wrap\n\n\ndef setup(agent):\n    wrap({builtin}, agent.tools)\n"
+    body = 'quote_agent = Agent(name="Quote", tools=[quote])\n' + ADD_IMAGE_HELPER + use + "\n\nsetup(quote_agent)\n"
+    result = _compare(repo, body.replace("BODY", "pass"), body.replace("BODY", "lst.append(send_image)"))
+    assert result["comparison_status"] == "partial", result["rows"]

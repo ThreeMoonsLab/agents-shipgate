@@ -2321,7 +2321,7 @@ class _AgentValues:
             spelling = reference_spelling(expr.func) or ""
             if spelling.rsplit(".", 1)[-1] in _LOGGER_FACTORIES or (
                 isinstance(expr.func, ast.Name)
-                and expr.func.id in _BUILTIN_NAMES
+                and expr.func.id in _ALL_BUILTINS
                 and not self.scopes.enclosing_bindings(site, expr.func.id)
                 and not self.module_bindings.get(expr.func.id)
             ):
@@ -2849,8 +2849,9 @@ def _leaves_arguments_alone(call: ast.Call, bindings_at: BindingsAt) -> bool:
     )
 
 
-#: Builtins a container member may be the result of, none of them an agent.
-_BUILTIN_NAMES = frozenset(dir(builtins))
+#: Every builtin: a container member one returns is no agent. Not the data
+#: builtins above (``_BUILTIN_NAMES``), which a library read trusts.
+_ALL_BUILTINS = frozenset(dir(builtins))
 
 #: Calls whose result is a logger.
 _LOGGER_FACTORIES = frozenset({"getLogger", "get_logger", "getChild", "LoggerAdapter"})
