@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from ci_sharding import shard_assignment
+from ci_sharding import SECONDS_FILE, load_seconds, shard_assignment
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -80,6 +80,58 @@ def test_a_dominant_file_does_not_leave_a_shard_idle() -> None:
     assert len(load) == 3, "every shard must receive at least one file"
     total = sum(weighted.values())
     assert max(weighted.values()) / total < 0.55
+
+
+def test_measured_seconds_outweigh_item_counts() -> None:
+    """A slow file of few tests is balanced by its time, not its count (#904).
+
+    By count, the 20-item file below is a twentieth of the 400-item one and
+    shares a shard. Measured, it takes most of the suite's time, and it gets a
+    shard to itself.
+    """
+
+    def sharing(owner: dict[str, int]) -> list[str]:
+        return [path for path, shard in owner.items() if shard == owner["tests/test_small_a.py"]]
+
+    seconds = {"tests/test_small_a.py": 600.0, "tests/test_huge.py": 60.0, "tests/test_large.py": 60.0}
+    assert sharing(shard_assignment(_COLLECTION, 2)) != ["tests/test_small_a.py"]
+    assert sharing(shard_assignment(_COLLECTION, 2, seconds)) == ["tests/test_small_a.py"]
+
+
+def test_an_unmeasured_file_costs_its_items_at_the_measured_rate() -> None:
+    """A new file weighs what its items would at the suite's seconds per item."""
+
+    seconds = {"tests/test_huge.py": 400.0}  # one second per item
+    owner = shard_assignment({"tests/test_huge.py": 400, "tests/test_new.py": 400}, 2, seconds)
+    assert owner["tests/test_huge.py"] != owner["tests/test_new.py"]
+
+
+@pytest.mark.parametrize("shards", [2, 3, 4])
+def test_the_timed_assignment_is_deterministic(shards: int) -> None:
+    seconds = {path: count * 0.37 for path, count in _COLLECTION.items() if "tiny" not in path}
+    first = shard_assignment(_COLLECTION, shards, seconds)
+    reordered = dict(reversed(list(_COLLECTION.items())))
+    assert shard_assignment(reordered, shards, dict(reversed(list(seconds.items())))) == first
+    assert set(first) == set(_COLLECTION)
+
+
+def test_a_missing_or_malformed_measurement_balances_by_count(tmp_path: Path) -> None:
+    assert load_seconds(tmp_path / "absent.json") == {}
+    broken = tmp_path / "broken.json"
+    broken.write_text("{not json")
+    assert load_seconds(broken) == {}
+    odd = tmp_path / "odd.json"
+    odd.write_text('{"files": {"tests/a.py": 3, "tests/b.py": -1, "tests/c.py": true, "tests/d.py": "x"}}')
+    assert load_seconds(odd) == {"tests/a.py": 3.0}
+
+
+def test_the_committed_measurement_names_test_files() -> None:
+    """The measurement is a weight per test file, and every weight is usable."""
+
+    seconds = load_seconds(SECONDS_FILE)
+    assert seconds, f"{SECONDS_FILE} holds no measurement"
+    assert all(re.fullmatch(r"tests/\S+\.py", path) for path in seconds)
+    assert all(value >= 0 for value in seconds.values())
 
 
 def _collect(shard: int | None, shards: int | None) -> dict[str, int]:

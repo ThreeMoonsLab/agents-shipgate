@@ -27,7 +27,7 @@ os.environ["PYTHONPATH"] = os.pathsep.join(parts)
 
 import pytest  # noqa: E402
 
-from ci_sharding import shard_assignment  # noqa: E402
+from ci_sharding import load_seconds, shard_assignment  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -90,7 +90,7 @@ def pytest_collection_modifyitems(config, items) -> None:  # noqa: ANN001
     counts: dict[str, int] = {}
     for item in items:
         counts[item.location[0]] = counts.get(item.location[0], 0) + 1
-    owner = shard_assignment(counts, shards)
+    owner = shard_assignment(counts, shards, load_seconds())
     keep = [item for item in items if owner[item.location[0]] == index - 1]
     dropped = [item for item in items if owner[item.location[0]] != index - 1]
     if not keep:
