@@ -1119,3 +1119,40 @@ def test_a_builder_giving_its_agent_the_callers_capabilities_later_is_on_request
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial", result["scope_selection"]
     assert any("server.py" in limit for limit in _consumer_limits(result)), result["scope_selection"]
+
+
+# ---------------------------------------------------------------------------
+# #875 review, round 11: a capability change is what the reader counts as one
+# — a slice store, a handle changed later — in the builder or its consumer.
+
+_FIXED_FACTORY = (
+    "from google.adk.agents import Agent\n\n\ndef _build():\n    return Agent(name='bot', model='m', tools=[])\n\n\n"
+    "def make():\n    return _build()\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("factory", "server"),
+    [
+        (
+            "from google.adk.agents import Agent\n\n\ndef _build(extra):\n    agent = Agent(name='bot', model='m', tools=[])\n"
+            "    agent.tools[:] = [extra]\n    return agent\n\n\ndef make(extra):\n    return _build(extra)\n",
+            "from lib.factory import make\nfrom app.shared import shared_tool\n\nbot = make(shared_tool)\n",
+        ),
+        (
+            _FIXED_FACTORY,
+            "from lib.factory import make\nfrom app.shared import shared_tool\n\nbot = make()\nbot.tools[:] = [shared_tool]\n",
+        ),
+        (
+            _FIXED_FACTORY,
+            "from lib.factory import make\nfrom app.shared import shared_tool\n\nbot = make()\nhandle = bot.tools\nhandle.append(shared_tool)\n",
+        ),
+    ],
+    ids=["slice-store-in-the-builder", "slice-store-by-the-consumer", "handle-changed-by-the-consumer"],
+)
+def test_a_capability_change_the_reader_counts_counts_for_the_scope(repo, factory, server):
+    base = commit(repo, {**_FACTORY_BASE, "lib/factory.py": factory, "server.py": server})
+    head = commit(repo, _SHARED_HEAD)
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "partial", result["scope_selection"]
+    assert any("server.py" in limit for limit in result["scope_selection"]["limits"]), result["scope_selection"]

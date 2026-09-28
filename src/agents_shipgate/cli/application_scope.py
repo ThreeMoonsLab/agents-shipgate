@@ -24,6 +24,7 @@ from typing import Any
 from agents_shipgate.cli.discovery.artifacts import _skip_part
 from agents_shipgate.cli.discovery.signals import _is_test_path, application_frameworks
 from agents_shipgate.cli.verify.git import _blob_contents, _run_git_bounded_output, _TreeBlob
+from agents_shipgate.inputs.openai_sdk_static import _capability_changes
 
 SUPPORTED = frozenset({"openai_agents_sdk", "google_adk"})
 #: Import hops a change is related to an agent file through.
@@ -752,35 +753,24 @@ def _dotted(node: ast.AST) -> str | None:
     return node.id if isinstance(node, ast.Name) else None
 
 
-def _rewires(node: ast.AST) -> bool:
-    """``x.tools = ...``, ``x.tools += ...``, ``x.tools.append(...)``,
-    ``setattr(x, "tools", ...)``."""
+def _changes_capabilities(tree: ast.Module) -> list[ast.AST]:
+    """Where a module changes an object's capability list, as the SDK reader's
+    census reads it — an attribute, item or slice store, a delete, a list
+    method, ``setattr``/``delattr`` by name, a handle changed later — so scope
+    derivation and the reader answer one question one way (#875 review)."""
 
-    if isinstance(node, ast.Assign | ast.AugAssign | ast.AnnAssign):
-        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-        return any(isinstance(item, ast.Attribute) and item.attr in _CAPABILITIES for item in targets)
-    if isinstance(node, ast.Call):
-        func = node.func
-        if (
-            isinstance(func, ast.Attribute)
-            and func.attr in {"append", "extend", "insert", "remove", "pop", "clear"}
-            and isinstance(func.value, ast.Attribute)
-            and func.value.attr in _CAPABILITIES
-        ):
-            return True
-        return (
-            isinstance(func, ast.Name)
-            and func.id in {"setattr", "delattr"}
-            and len(node.args) >= 2
-            and isinstance(node.args[1], ast.Constant)
-            and node.args[1].value in _CAPABILITIES
-        )
-    return False
+    try:
+        return [site for _, site in _capability_changes(tree, frozenset(_CAPABILITIES))]
+    except (RecursionError, ValueError):
+        return [tree]
 
 
 def _rewired_values(node: ast.AST) -> list[ast.expr]:
-    """What a rewire (``_rewires``) gives the capability; a removal gives nothing."""
+    """What a capability change gives the capability; a removal gives nothing.
+    Anything else the reader counts as a change is its own value."""
 
+    if isinstance(node, ast.Delete):
+        return []
     if isinstance(node, ast.Assign | ast.AugAssign | ast.AnnAssign):
         return [node.value] if node.value is not None else []
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
@@ -788,9 +778,9 @@ def _rewired_values(node: ast.AST) -> list[ast.expr]:
             return list(node.args[-1:]) + [item.value for item in node.keywords]
         if node.func.attr in {"remove", "pop", "clear"}:
             return []
-    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "setattr":
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in {"setattr", "delattr"}:
         return list(node.args[2:3])
-    return []
+    return [node] if isinstance(node, ast.expr) else []
 
 
 def _copied_values(call: ast.Call) -> list[ast.expr]:
@@ -822,7 +812,7 @@ def _rewires_agent(text: str) -> bool:
         tree = ast.parse(text)
     except (SyntaxError, ValueError, RecursionError):
         return False
-    return any(_rewires(node) for node in ast.walk(tree))
+    return bool(_changes_capabilities(tree))
 
 
 def _builds_agent(text: str, *, on_request: bool = False) -> bool:
@@ -928,26 +918,24 @@ def _builds_agent(text: str, *, on_request: bool = False) -> bool:
                 item.arg is None or (item.arg in _CAPABILITIES and not fixed(item.value)) for item in node.keywords
             ):
                 return True
-            # Or given afterwards: a rewire or a copy whose capabilities are
-            # not the module's own (``agent.tools.append(extra)``,
-            # ``BASE.clone(tools=tools)``) (#875 review).
-            if _rewires(node) and not all(fixed(value) or own(value) for value in _rewired_values(node)):
-                return True
+            # Or given afterwards: a copy whose capabilities are not the
+            # module's own (``BASE.clone(tools=tools)``) (#875 review).
             if isinstance(node, ast.Call) and copies(node) and not all(
                 fixed(value) or own(value) for value in _copied_values(node)
             ):
                 return True
-        return False
-    roots: list[ast.AST] = [tree]
-    for root in roots:
-        for node in ast.walk(root):
-            if isinstance(node, ast.Call) and (named(node.func) or copies(node)):
-                return True
-            if _rewires(node) and not on_request:
-                return True
-            if isinstance(node, ast.ClassDef) and any(named(base) for base in node.bases):
-                return True
-    return False
+        # Or a capability change, as the reader counts one, with a value that
+        # is not the module's own (``agent.tools[:] = [extra]``).
+        return any(
+            not all(fixed(value) or own(value) for value in _rewired_values(site))
+            for site in _changes_capabilities(tree)
+        )
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and (named(node.func) or copies(node)):
+            return True
+        if isinstance(node, ast.ClassDef) and any(named(base) for base in node.bases):
+            return True
+    return bool(_changes_capabilities(tree))
 
 
 def _common_directory(paths: set[str]) -> str:
