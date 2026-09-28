@@ -907,3 +907,20 @@ def test_a_factory_tool_in_a_list_that_grows_is_read(tmp_path, append):
     _write(tmp_path, {"tools.py": FACTORY + factory, "agent.py": agent})
     loaded, artifacts = _adk(tmp_path)
     assert "run" in [tool for _, tool, _ in _edges(loaded, artifacts)]
+
+
+# -- #865 review, round 5 -------------------------------------------------------
+
+
+def test_two_constructions_whose_factory_values_differ_are_not_one_agent(tmp_path):
+    body = (
+        AGENT_HEAD + "from tools import lookup\n\nroot_agent = Agent(name='root', tools=[make_sql_tool(readonly=RO_A), lookup])\n\n\n"
+        "def build():\n    return Agent(name='root', tools=[make_sql_tool(readonly=RO_B), lookup])\n"
+    )
+    tools = SQL_FACTORY + "\n\ndef lookup(query: str) -> str:\n    return query\n"
+    _git(tmp_path, "init", "-q", "-b", "main")
+    before = _commit(tmp_path, {"tools.py": tools, "agent.py": body.replace("RO_A", "True").replace("RO_B", "False")})
+    after = _commit(tmp_path, {"agent.py": body.replace("RO_A", "False").replace("RO_B", "True")})
+    result = _compare(tmp_path, before, after)
+    assert result["comparison_status"] == "partial"
+    assert any("more than once" in gap["reason"] for gap in result["head"]["coverage_gaps"]), result["head"]["coverage_gaps"]

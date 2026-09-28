@@ -3032,6 +3032,11 @@ class _PythonAdkExtractor:
         if made:
             calls = tool.extraction.setdefault("factory_calls", {})
             calls[agent_name] = sorted({*calls.get(agent_name, []), *made})
+            if binding.recording is not None:
+                # This construction's closure is part of its site: two
+                # constructions whose factory values differ are not twins
+                # (#865 review).
+                binding.recording.append((f"{tool.name}@factory", ",".join(sorted(made))))
 
     def _names_of(
         self, module: PythonModule
