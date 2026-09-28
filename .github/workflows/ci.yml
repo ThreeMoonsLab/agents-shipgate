@@ -22,7 +22,12 @@ jobs:
     # (add a shard).
     #
     # `conftest.py` assigns whole test *files* to shards, deterministically,
-    # from the collection alone — nothing is exchanged between these jobs.
+    # from the collection and the measured seconds per file in
+    # `tests/shard_seconds.json` — nothing is exchanged between these jobs.
+    # Balancing item counts instead left one shard at 13 of its 15 minutes on
+    # `main` while another took 8, and any new test file reshuffled the rest
+    # (#904). When a shard nears the cap, re-measure with
+    # `scripts/measure_shard_seconds.py` before adding a shard.
     # `tests/test_shard_partition.py` asserts the union of the shards is the
     # suite, because a partition that silently drops a file leaves every job
     # green while a test stops running.
