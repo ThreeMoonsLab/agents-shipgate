@@ -83,7 +83,7 @@
       "title": "HostAdditionalPathGrantV2",
       "type": "object"
     },
-    "HostArtifactV4": {
+    "HostArtifactV7": {
       "additionalProperties": false,
       "properties": {
         "artifact_id": {
@@ -119,7 +119,8 @@
             "hooks",
             "workflow",
             "instructions",
-            "requirements"
+            "requirements",
+            "hook_script"
           ],
           "title": "Kind",
           "type": "string"
@@ -173,7 +174,7 @@
         "kind",
         "parse_status"
       ],
-      "title": "HostArtifactV4",
+      "title": "HostArtifactV7",
       "type": "object"
     },
     "HostCoverageV2": {
@@ -275,7 +276,7 @@
       "properties": {
         "artifacts": {
           "items": {
-            "$ref": "#/$defs/HostArtifactV4"
+            "$ref": "#/$defs/HostArtifactV7"
           },
           "title": "Artifacts",
           "type": "array"
@@ -285,7 +286,7 @@
             "discriminator": {
               "mapping": {
                 "additional_path": "#/$defs/HostAdditionalPathGrantV2",
-                "hook": "#/$defs/HostHookGrantV2",
+                "hook": "#/$defs/HostHookComparisonV7",
                 "instruction_trust_root": "#/$defs/HostInstructionGrantV2",
                 "mcp_server": "#/$defs/HostMcpServerGrantV2",
                 "permission_mode": "#/$defs/HostPermissionModeGrantV2",
@@ -309,7 +310,7 @@
                 "$ref": "#/$defs/HostPermissionModeGrantV2"
               },
               {
-                "$ref": "#/$defs/HostHookGrantV2"
+                "$ref": "#/$defs/HostHookComparisonV7"
               },
               {
                 "$ref": "#/$defs/HostSandboxGrantV2"
@@ -359,7 +360,7 @@
       "title": "HostGrantsNormalizedSnapshotV7",
       "type": "object"
     },
-    "HostHookGrantV2": {
+    "HostHookComparisonV7": {
       "additionalProperties": false,
       "properties": {
         "access": {
@@ -424,6 +425,21 @@
           "title": "Scope",
           "type": "string"
         },
+        "script_inputs": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/HostHookScriptInputV7"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Script Inputs"
+        },
         "source": {
           "title": "Source",
           "type": "string"
@@ -439,7 +455,120 @@
         "risk",
         "event"
       ],
-      "title": "HostHookGrantV2",
+      "title": "HostHookComparisonV7",
+      "type": "object"
+    },
+    "HostHookScriptInputV7": {
+      "additionalProperties": false,
+      "description": "A direct executable reference and its byte reading, never script semantics.",
+      "properties": {
+        "basis": {
+          "anyOf": [
+            {
+              "enum": [
+                "project_root_placeholder",
+                "plugin_root_placeholder",
+                "absolute_workspace_path"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Basis"
+        },
+        "handler": {
+          "minimum": 0,
+          "title": "Handler",
+          "type": "integer"
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "enum": [
+                "unsupported_host",
+                "not_command_handler",
+                "unsupported_command_shape",
+                "platform_command_override",
+                "unsupported_shell",
+                "unsupported_exec_form",
+                "unsupported_shell_command",
+                "dynamic_command_argument",
+                "unexpanded_path_placeholder",
+                "unsupported_path_placeholder",
+                "plugin_root_not_established",
+                "unsupported_or_escaping_path",
+                "dynamic_or_conditional_path",
+                "working_directory_not_established",
+                "interpreter_wrapper",
+                "path_lookup",
+                "external_executable",
+                "unsupported_hook_shape",
+                "handler_bound_exceeded",
+                "hook_selection_not_established",
+                "redacted_dependency_path",
+                "escaping_path",
+                "missing_input",
+                "symlink_input",
+                "non_regular_input",
+                "oversized_input",
+                "unsafe_or_unreadable_input",
+                "unreadable_input"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Limit"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "size_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size Bytes"
+        }
+      },
+      "required": [
+        "handler"
+      ],
+      "title": "HostHookScriptInputV7",
       "type": "object"
     },
     "HostInstructionGrantV2": {

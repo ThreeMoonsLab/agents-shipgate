@@ -32,6 +32,16 @@ _RANK = {"none": 0, "read": 1, "write": 2}
 _WIDER_MODES = {"acceptEdits", "bypassPermissions", "auto"}
 
 
+def _handler_count(groups: Any) -> int:
+    """Handlers one hook event lists, or -1 when it is not the documented shape."""
+
+    if not isinstance(groups, list) or not all(
+        isinstance(group, dict) and isinstance(group.get("hooks"), list) for group in groups
+    ):
+        return -1
+    return sum(len(group["hooks"]) for group in groups)
+
+
 def _direct(change: dict[str, Any]) -> dict[str, Any]:
     kind, key, direction = change["kind"], change["key"], change["direction"]
     before, after = change.get("before"), change.get("after")
@@ -40,10 +50,24 @@ def _direct(change: dict[str, Any]) -> dict[str, Any]:
         disposition = key.split(":", 1)[0]
         grows = (disposition == "allow") == (direction == "added")
         verdict = "widening" if grows else "narrowing"
-    elif kind in {"additional_path", "mcp_server", "hook", "plugin"} and direction in {"added", "removed"}:
+    elif kind in {"additional_path", "mcp_server", "hook"} and direction in {"added", "removed"}:
         verdict = "widening" if direction == "added" else "narrowing"
-    elif kind == "plugin" and direction == "changed":
-        verdict = "widening" if after is True else "narrowing" if after is False else "changed"
+    elif kind == "hook" and _handler_count(after) > _handler_count(before) >= 0:
+        # Claude Code runs every handler of every matcher group an event lists:
+        # one more handler on an event that already had some is an added hook.
+        verdict = "widening"
+    elif kind == "plugin" and key.startswith("marketplace:"):
+        # Enabled plugins install from a registered marketplace (#720): adding
+        # one widens what they may run; a re-pointed source is only `changed`.
+        if direction in {"added", "removed"}:
+            verdict = "widening" if direction == "added" else "narrowing"
+    elif kind == "plugin":
+        old = before.get("enabled") if isinstance(before, dict) else before
+        new = after.get("enabled") if isinstance(after, dict) else after
+        if new is True and (direction == "added" or old is False):
+            verdict = "widening"
+        elif old is True and (direction == "removed" or new is False):
+            verdict = "narrowing"
     elif kind == "setting":
         if key == "permissions.defaultMode":
             if after in _WIDER_MODES and before not in _WIDER_MODES:
@@ -53,7 +77,10 @@ def _direct(change: dict[str, Any]) -> dict[str, Any]:
         elif key == "enableAllProjectMcpServers":
             verdict = "widening" if after is True else "narrowing" if before is True else "changed"
         elif key == "sandbox.enabled":
-            verdict = "narrowing" if after is True else "widening" if before is True else "changed"
+            if after is False and (before is True or direction == "added"):
+                verdict = "widening"
+            elif after is True and before is False:
+                verdict = "narrowing"
     return {**change, "semantic_direction": verdict}
 
 
@@ -100,9 +127,7 @@ def codex_config(before_text: str | None, after_text: str | None) -> dict[str, A
             change = cold._change("setting", key, old, new)
             if change:
                 verdict = "changed"
-                if key == "approval_policy":
-                    verdict = "widening" if new == "never" else "narrowing" if old == "never" else "changed"
-                elif key == "sandbox_mode":
+                if key == "sandbox_mode":
                     order = {"read-only": 0, "workspace-write": 1, "danger-full-access": 2}
                     if old in order and new in order:
                         verdict = "widening" if order[new] > order[old] else "narrowing"
@@ -265,3 +290,40 @@ def expected(kind: str, before_text: str | None, after_text: str | None) -> dict
 if __name__ == "__main__":
     print(json.dumps(expected(sys.argv[1], Path(sys.argv[2]).read_text() if sys.argv[2] != "-" else None,
                               Path(sys.argv[3]).read_text() if sys.argv[3] != "-" else None), indent=2))
+
+
+# Separate rating oracle for #824. Not imported from the engine; its scope is
+# documented in docs/engineering/exec-equivalent-permissions.md. This oracle
+# was authored after engine-output exposure, not independently human-labelled.
+_EXEC_LAUNCHERS = {
+    "python -c", "python3 -c", "node -e", "node --eval", "node -p", "node --print",
+    "ruby -e", "perl -e", "perl -E", "php -r", "bash -c", "sh -c", "zsh -c", "pwsh -c",
+    "eval", "npx", "bunx", "pnpm dlx", "pnpm exec", "uvx", "uv run", "uv tool run",
+    "pipx run", "docker exec", "docker run", "xargs", "env", "sudo",
+}
+
+
+def scoped_bash_rating(rule: str) -> str | None:
+    """Expected rating only for closed, non-whole Bash declarations.
+
+    Critical when the declaration admits a launcher followed by any payload
+    the caller picks: its text, up to one trailing `*` (a trailing `:*` read
+    as ` *`), starts every `<launcher> <payload>` command. That covers the
+    launcher's own `Bash(npx *)` and anything wider (`Bash(npx*)`,
+    `Bash(python3 *)`); a pattern with any other glob syntax is not scored as
+    critical. Stated from the command strings, not from engine containment.
+    """
+    if not rule.startswith("Bash(") or not rule.endswith(")"):
+        return None
+    argument = rule[5:-1]
+    if not argument or argument.startswith("*"):
+        return None
+    command = argument[:-2]
+    if argument.endswith(":*") and command.strip() and command == command.rstrip():
+        argument = command + " *"
+    head = argument[:-1]
+    if argument.endswith("*") and not set("*[]?{}") & set(head):
+        for launcher in _EXEC_LAUNCHERS:
+            if all(f"{launcher} {payload}".startswith(head) for payload in ("a", "b")):
+                return "critical"
+    return "medium"

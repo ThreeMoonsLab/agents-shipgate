@@ -502,9 +502,9 @@ def test_redacted_label_collisions_preserve_each_rows_semantics_and_input():
             'host': 'claude-code', 'source': '.claude/settings.json',
             'kind': 'permission_rule', 'rule': rule, 'risk': 'medium',
             'disposition': 'allow', 'wildcard': True,
-        }} for rule in ('Bash(npm *)', 'Bash(python *)')
+        }} for rule in ('Bash(npm *)', 'Bash(make *)')
     ]
-    payload = {'changes': changes, 'expansion_signals': ['wildcard_allow_added: claude-code:Bash(python *)']}
+    payload = {'changes': changes, 'expansion_signals': ['wildcard_allow_added: claude-code:Bash(make *)']}
     original = deepcopy(payload)
     rows = capability_diff_rows(payload, redact_permission_arguments=True)
     assert len(rows) == 2

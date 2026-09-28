@@ -17,20 +17,24 @@ from agents_shipgate.cli.verify.git import (
     merge_base_sha,
     require_merge_base_sha,
     shallow_merge_base_is_proven,
+    tree_path_absent,
     tree_sha,
 )
 from agents_shipgate.core.boundary_diff import BoundaryInputIssue
 from agents_shipgate.core.boundary_registry import (
     is_boundary_surface_path,
-    is_claude_plugin_reference_path,
-    is_enabled_plugin_hook_source,
 )
 from agents_shipgate.core.errors import ConfigError
-from agents_shipgate.core.host_comparison import compare_host_inventories
+from agents_shipgate.core.host_comparison import (
+    compare_host_inventories,
+    without_untouched_script_limits,
+)
 from agents_shipgate.core.host_grants import (
     EnabledPluginHookFiles,
     HostBoundarySnapshot,
+    HostStaticParseCache,
     build_host_boundary_snapshot,
+    hook_dependency_limits,
     without_host_issues,
 )
 from agents_shipgate.core.unread_inputs import ChangedInputs
@@ -66,7 +70,9 @@ def compare_host_refs(
     shared parse or shape limit on an unchanged source, leave a plugin
     directory a plugin-reference limit is bounded by uncompared when nothing
     they compare depends on it (a ``partial`` comparison, #808), and refuse
-    otherwise.
+    otherwise. For the same reason `check` leaves out the limit of a
+    selected hook script the change does not touch (#702): it routes a
+    changed script itself.
 
     ``coverage=False`` is for `check` too: its result carries no coverage, so
     it asks no identity question it would discard (#812), and lists no
@@ -134,16 +140,15 @@ def compare_host_refs(
         before.mkdir()
         # The host comparison reads host surface only, so it archives host
         # surface only: the same scope the live reader uses (#686, #688).
-        archive_tree(
-            workspace, base_commit, before, scope=is_boundary_surface_path
-        )
+        from agents_shipgate.cli.verify.host_tree import materialize_host_tree
+
+        before, base_read = materialize_host_tree(workspace, base_commit, before, archive=archive_tree)
         after = workspace
+        head_read = None
         if head is not None:
             after = Path(scratch) / "head"
             after.mkdir()
-            archive_tree(
-                workspace, head_commit, after, scope=is_boundary_surface_path
-            )
+            after, head_read = materialize_host_tree(workspace, head_commit, after, archive=archive_tree)
         # Removing a configured gate, or selecting a historical head containing
         # one, is not first adoption. Leave the existing verifier route intact.
         if require_unconfigured and (
@@ -158,6 +163,9 @@ def compare_host_refs(
         def identities(paths):
             return blob_path_identities(workspace, base_commit, compared_head, paths)
 
+        def absent(path: str) -> bool:
+            return tree_path_absent(workspace, base_commit, compared_head, path)
+
         def changed_inputs() -> ChangedInputs:
             """The change's own paths, without this run's output directory (#821)."""
 
@@ -168,14 +176,25 @@ def compare_host_refs(
                 return ChangedInputs(paths=None)
             return comparison_changed_inputs(workspace, base_commit, compared_head, exclude=exclude)
 
-        base_snapshot = build_host_boundary_snapshot(before)
-        head_snapshot = build_host_boundary_snapshot(after)
+        base_snapshot = base_read or build_host_boundary_snapshot(
+            before, cache=HostStaticParseCache(reference_workspace=workspace)
+        )
+        head_snapshot = head_read or build_host_boundary_snapshot(
+            after, cache=HostStaticParseCache(reference_workspace=workspace)
+        )
         base_inventory = base_snapshot.inventory
         head_inventory = head_snapshot.inventory
         if exclude_plugin_reference_limits:
             base_inventory, head_inventory = _without_shared_plugin_reference_limits(
                 base_snapshot, head_snapshot, unchanged=unchanged
             )
+            if hook_dependency_limits(base_inventory) or hook_dependency_limits(head_inventory):
+                listed = changed_inputs().paths
+                if listed is not None:
+                    touched = set(listed)
+                    base_inventory, head_inventory = without_untouched_script_limits(
+                        base_inventory, head_inventory, touched.__contains__
+                    )
         result = compare_host_inventories(
             base_inventory,
             head_inventory,
@@ -185,6 +204,7 @@ def compare_host_refs(
             redact_permission_arguments=redact_permission_arguments,
             unchanged=unchanged,
             identities=identities,
+            absent=absent,
             coverage=coverage,
             changed_inputs=changed_inputs() if coverage else None,
             # A plugin directory a limit is bounded by is left uncompared and
@@ -195,6 +215,22 @@ def compare_host_refs(
         if identity() != captured_identity:
             raise ValueError("Host comparison inputs moved during the run")
         result.input_identity = captured_identity
+        if head is None:
+            from agents_shipgate.schemas.verification_identity import VerificationBlob
+
+            result.input_script_blobs = [
+                VerificationBlob(
+                    path=path, sha256="sha256:" + facts["sha256"],
+                    size_bytes=facts["size_bytes"], source="worktree",
+                )
+                for path, facts in sorted(head_snapshot.cache.hook_script_reads.items())
+                if facts.get("sha256") is not None
+            ]
+            result.input_script_absent_paths = sorted(head_snapshot.cache.hook_script_absences)
+            result.input_script_unconfirmable_paths = sorted(
+                path for path, facts in head_snapshot.cache.hook_script_reads.items()
+                if facts.get("limit") not in {None, "missing_input"}
+            )
         result_coverage = result.coverage
         mentions_unread = result_coverage is not None and (
             not result_coverage.read_sources_only
@@ -261,7 +297,7 @@ def enabled_plugin_hook_evidence(
     base: str | None,
     head: str | None = None,
 ) -> tuple[HostBoundarySnapshot | None, EnabledPluginHookFiles | None, list[BoundaryInputIssue]]:
-    """Which changed files hold an enabled plugin's hooks, on both sides (#809).
+    """Selected plugin declarations and executable dependencies on both sides.
 
     `check` and `verify` both call this, so the boundary decision each
     publishes for one change is made from the same evidence. Returns
@@ -278,22 +314,27 @@ def enabled_plugin_hook_evidence(
     with no commit to compare (a provided diff) passes no ``base``, and only
     the tree it evaluates is read.
 
-    Nothing is archived unless a changed path is one the plugin hook reader
-    opens, so a change to no plugin file costs nothing here, and the base is
-    not archived once the head already routes every such path. A side that
-    cannot be read is an input issue on each such path rather than a guess:
-    whether an enabled plugin loads hooks from it is not established.
+    A script can have any filename, so the head's declarations are read for
+    every nonempty change. Only boundary declarations are archived here:
+    lexical references establish selection, while the comparison separately
+    captures executable bytes. The base matters even when the head already
+    selects a path, since another host may have selected it only at the
+    base, so it is read too whenever the change touches a boundary surface.
+    A change that touches none leaves every declaration byte-identical, so
+    the base selects exactly what the head does and is not archived again
+    (#702 review). An unreadable side leaves selection unestablished rather
+    than guessed.
     """
 
-    candidates = sorted(path for path in changed_files if is_claude_plugin_reference_path(path))
+    # Executables may have any repository filename. Read the declarations
+    # before ruling out a changed file as a selected dependency.
+    candidates = sorted(set(changed_files))
     if not candidates or not base:
         return None, None, []
+    declarations_changed = any(is_boundary_surface_path(path) for path in candidates)
 
     snapshot: HostBoundarySnapshot | None = None
     files = EnabledPluginHookFiles()
-
-    def all_routed() -> bool:
-        return all(is_enabled_plugin_hook_source(path, files.sources) for path in candidates)
 
     try:
         if head_is_worktree:
@@ -301,31 +342,33 @@ def enabled_plugin_hook_evidence(
                 commit_sha(workspace, "HEAD")
                 if base == "HEAD"
                 else merge_base_sha(workspace, base, "HEAD")
-            ]
+            ] if declarations_changed else []
             snapshot = build_host_boundary_snapshot(workspace, scope="repository")
             files = files.union(EnabledPluginHookFiles.of(snapshot))
         else:
             head_ref = head or "HEAD"
-            # The head first: when it routes every candidate, the base adds nothing.
-            commits = [commit_sha(workspace, head_ref), merge_base_sha(workspace, base, head_ref)]
+            # Preserve each host's selection from both declaration trees.
+            commits = [commit_sha(workspace, head_ref)]
+            if declarations_changed:
+                commits.append(merge_base_sha(workspace, base, head_ref))
         for commit in commits:
-            if all_routed():
-                break
             if commit is None:
                 raise ValueError("a compared commit is not available locally")
             with tempfile.TemporaryDirectory(prefix="shipgate-plugin-hooks-") as scratch:
                 tree = Path(scratch) / "tree"
                 archive_tree(workspace, commit, tree, scope=is_boundary_surface_path)
-                files = files.union(EnabledPluginHookFiles.of(build_host_boundary_snapshot(tree)))
+                files = files.union(EnabledPluginHookFiles.of(build_host_boundary_snapshot(
+                    tree, cache=HostStaticParseCache(reference_workspace=workspace),
+                )))
     except (OSError, RuntimeError, ValueError, ConfigError):
         return snapshot, None, [
             BoundaryInputIssue(
                 code="host_inventory_unreadable",
                 path=path,
                 message=(
-                    "The plugin configuration of a compared commit could not be read, so "
-                    "whether a plugin this repository's project settings enable loads hooks "
-                    "from this file is not established."
+                    "The hook configuration of a compared commit could not be read, so "
+                    "whether this file declares selected plugin hooks or is a selected "
+                    "hook executable is not established."
                 ),
             )
             for path in candidates

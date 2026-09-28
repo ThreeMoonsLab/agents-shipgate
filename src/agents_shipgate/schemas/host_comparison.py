@@ -8,19 +8,23 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agents_shipgate.schemas.capability_diff import CapabilityDiffRow
 from agents_shipgate.schemas.current_control import CurrentControlWorkspaceIdentity
+from agents_shipgate.schemas.verification_identity import VerificationBlob
 
 
 class HostComparisonLimit(BaseModel):
     """A surface this comparison did not read, and the change did not touch (#721).
 
     Named rather than dropped: rows exclude it, and the comparison makes no
-    claim about it.
+    claim about it. ``unreadable`` is only a selected hook script both sides
+    failed to read alike, whose file the host would run Git proves unchanged
+    through any in-tree link on its path, or which Git proves is on neither
+    side (#702).
     """
 
     model_config = ConfigDict(extra="forbid")
 
     host: str
-    limit: Literal["unsupported", "parse_failed", "experimental_coverage"]
+    limit: Literal["unsupported", "parse_failed", "experimental_coverage", "unreadable"]
     source: str
     detail: str
 
@@ -100,7 +104,9 @@ class HostComparisonCoverageItem(BaseModel):
       Codex profile (``<file>#profiles.<name>``). With ``0`` rows on ``both``
       sides, the file's bytes were proven identical on both sides. With ``0``
       rows on one side, the file declares no grant this entry compares and its
-      artifact did not change, as for a new guidance-only instruction file.
+      artifact did not change, as for a new guidance-only instruction file,
+      or it is a hook script only that side's hooks select (#702), whose
+      selection change is the declaring hook's row.
     - ``changed_without_grant_change``: the file changed, it gives no row, and
       the published data shows no grant this entry compares moved: its
       artifact digests the whole file, every side that has it parsed it, and
@@ -118,8 +124,9 @@ class HostComparisonCoverageItem(BaseModel):
       it, but the data does not show that no compared grant moved: a plugin
       manifest or marketplace (its ``hooks`` rows are published under the hook
       files it selects), a retargeted link, a parse or instruction-structure
-      change, or project settings while a hook's loading basis changed or in
-      a ``partial`` comparison.
+      change, project settings while a hook's loading basis changed or in
+      a ``partial`` comparison, or a selected hook script whose bytes changed
+      (#702): its row is the declaring hook's, which names it.
     - ``unchanged_not_proven``: both sides read the file, it gives no row and
       its artifact did not change, but its bytes could be neither proven
       identical nor shown to differ, so a change in a value the artifact
@@ -127,13 +134,19 @@ class HostComparisonCoverageItem(BaseModel):
       source no artifact publishes on both sides, or working-tree bytes that
       differ only as a checkout conversion such as ``eol=crlf`` or
       ``core.autocrlf`` makes them, cannot be proven. Never read as no change,
-      and never as a change.
+      and never as a change. A selected hook script whose working-tree bytes
+      differ from the base only in a way such a conversion can explain is
+      one of these, and its hook gives no row for it (#702).
     - ``blocking_limit``: an incomparable or partial comparison, and this
       source carries a blocking inventory issue of kind ``limit`` on ``side``.
       On a ``partial`` comparison it also names ``scope``, the directory
       that comparison did not compare because of this issue (#808): the
       plugin directory the issue is bounded by, or a withheld plugin
-      directory that holds it.
+      directory that holds it. For a selected hook script either side could
+      not read (#702), unless both read it alike and it is proven unchanged
+      or on neither side,
+      ``scope`` is the script's own path, equal to ``source``: only its bytes
+      were not compared, and the hook declaring it still was.
     - ``changed_not_read``: a path in the comparison's own changed-file set
       that a documented candidate rule names, and that no reader of this entry
       read (#821). ``candidate`` names the rule. The source is the file, or a
@@ -144,6 +157,17 @@ class HostComparisonCoverageItem(BaseModel):
       loads the file, gives no row and is never a finding. It can accompany a
       refused comparison as well as a comparable one: it is not a source
       either inventory compared.
+    - ``script_not_resolved``: a hook a host loads for this project, declared
+      in this file, runs a command whose script this entry does not resolve
+      (#702): an interpreter wrapper such as ``python3 hooks/check.py``, a
+      relative path, a conditional expansion such as ``${VAR:-.}``, a
+      compound command or a malformed group. ``detail`` names each such
+      handler, bounded, with its reason. A change to that script would show
+      nowhere, so it is named while the change could touch it: the changed
+      files could not be listed, or they hold this file or a file no reader
+      of this entry read. Never a row, a widening or a limit. A bare command
+      with no path-shaped argument and an absolute path outside the
+      workspace name no repository script and are never named.
 
     ``side`` says which inventories published the source, as an artifact or
     as the file of a grant (or carry the limit): ``base`` only, ``head`` only,
@@ -170,11 +194,13 @@ class HostComparisonCoverageItem(BaseModel):
         "unchanged_not_proven",
         "blocking_limit",
         "changed_not_read",
+        "script_not_resolved",
     ]
     rows: int = Field(default=0, ge=0)
     limit: CoverageLimitKind | None = None
-    #: A blocking limit's published issue message, or for an
-    #: ``external_plugin_source`` the source it names, redacted and bounded.
+    #: A blocking limit's published issue message, for an
+    #: ``external_plugin_source`` the source it names, redacted and bounded,
+    #: or for ``script_not_resolved`` the handlers it names (#702).
     detail: str | None = None
     #: The candidate rule that named a ``changed_not_read`` item (#821).
     candidate: UnreadCandidateKind | None = None
@@ -202,6 +228,11 @@ class HostComparisonCoverageItem(BaseModel):
                 raise ValueError(
                     "a changed input this entry does not read names its candidate rule "
                     "and publishes no rows"
+                )
+        elif self.status == "script_not_resolved":
+            if not self.detail or self.rows or self.limit is not None or self.candidate is not None:
+                raise ValueError(
+                    "an unresolved hook script names its handlers and publishes no rows"
                 )
         elif self.limit is not None or self.detail is not None or self.candidate is not None:
             raise ValueError("only a blocking limit names a limit kind or detail")
@@ -278,6 +309,41 @@ class HostComparisonCoverage(BaseModel):
         return self
 
 
+class PermissionReviewGuidance(BaseModel):
+    """Advisory human choices, never control or authority (#839).
+
+    Rule identities come from reader facts. Null evidence means unavailable,
+    never an absent declaration; `case` distinguishes that from an addition.
+    Enclosing comparison refs and coverage apply to every item.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    case: Literal[
+        "allow_widened", "allow_narrowed", "disposition_moved",
+        "declaration_added", "declaration_removed", "unavailable",
+    ]
+    source: str | None = Field(default=None, max_length=512)
+    before_rule: str | None = Field(default=None, max_length=512)
+    after_rule: str | None = Field(default=None, max_length=512)
+    before_disposition: Literal["allow", "deny"] | None = None
+    after_disposition: Literal["allow", "deny"] | None = None
+    question: str | None = Field(default=None, max_length=1200)
+    choices: list[str] = Field(default_factory=list, max_length=3)
+    limitations: list[str] = Field(default_factory=list, min_length=1, max_length=3)
+    next_actor: Literal["declaration owner to be assigned"] = "declaration owner to be assigned"
+    verification: str | None = None
+
+    @model_validator(mode="after")
+    def conditional_choices(self):
+        if self.case == "unavailable":
+            if self.question is not None or self.choices or self.verification is not None:
+                raise ValueError("unavailable evidence cannot carry a specific choice")
+        elif not self.source or not self.question or not self.choices or not self.verification:
+            raise ValueError("a specific choice requires its evidence and verification target")
+        return self
+
+
 class HostComparisonReviewChange(BaseModel):
     """One change exactly as the text prints it, referring to the rows it stands for (#795).
 
@@ -314,6 +380,7 @@ class HostComparisonReviewChange(BaseModel):
     #: expansion. The count a reader sees is this one, per change, not the
     #: per-row ``expands``: a joined pair is one widening printed once.
     expands: bool = False
+    guidance: PermissionReviewGuidance | None = None
 
     @model_validator(mode="after")
     def change_shape(self):
@@ -406,6 +473,10 @@ class HostComparison(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     input_identity: CurrentControlWorkspaceIdentity | None = None
+    # Worktree scripts can be gitignored, so Git's overlay is not their identity.
+    input_script_blobs: list[VerificationBlob] = Field(default_factory=list, exclude_if=lambda value: not value)
+    input_script_absent_paths: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
+    input_script_unconfirmable_paths: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
     comparison_status: Literal["comparable", "partial", "incomparable"]
     incomparable_reasons: list[str] = Field(default_factory=list)
     base_commit: str | None = None

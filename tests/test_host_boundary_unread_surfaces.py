@@ -51,9 +51,10 @@ def test_composite_actions_are_named_as_unread() -> None:
     assert "(#701)" in section
 
 
-def test_hook_run_scripts_are_named_as_unread() -> None:
+def test_unsupported_hook_script_shapes_remain_named_as_unread() -> None:
     section = _bullets()
-    assert "script a hook command runs" in section
+    assert "script outside the supported hook reference shapes" in section
+    assert "bounded script comparison" in section
     assert "(#702)" in section
 
 

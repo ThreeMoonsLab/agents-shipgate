@@ -2,6 +2,17 @@
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
+Unreleased #829 adds a source-local residual-prefix explanation to the existing
+host comparison row `why` text for supported Claude Code `git push` allows.
+It reads all compared head deny rules in that source, including unchanged
+ones, and lists only fixed documented examples outside every deny prefix.
+Unknown, compound, equal, broader or unrelated deny shapes withhold the note.
+CLI, JSON and PR review explanations use the same rows; `check`, whose rows
+redact rule arguments, omits the note, since its examples would spell out the
+redacted prefix. No field, schema,
+direction, expansion, severity, check decision or authority changes. The note
+describes pattern coverage, not runtime approval; other rules still apply.
+
 Unreleased, runtime contract v41: a host comparison names the changed inputs it
 does not read (#821). Verifier `0.21` and capability diff `0.4` add a
 `changed_not_read` coverage item, with the `candidate` rule that named it, for
@@ -301,6 +312,283 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="hook-script-dependencies-702"></a>
+
+## Migration Note: Unreleased — selected hook script dependencies (#702)
+
+Host-grants `0.7` adds `script_inputs` to hook comparison facts and
+`hook_script` artifacts to the inventory and drift shapes. A supported direct
+executable reference binds the repository file's bytes, digest and size;
+selection remains host configuration or a project-enabled plugin. The shell
+spellings the hooks documentation uses resolve: `"$CLAUDE_PROJECT_DIR"/path`,
+`"${CLAUDE_PROJECT_DIR}"/path`, the variable and path in one pair of double
+quotes, and either unquoted with a path free of shell metacharacters, and the
+same for `CLAUDE_PLUGIN_ROOT` in a plugin's hooks. A script edit keeps the
+declaration digest unchanged and produces one attributed hook row, without a
+new permission expansion signal. The local boundary gate routes the selected
+dependency for review; it reads the base's declarations only when the change
+touches a declaration, since otherwise both sides select alike. `check`,
+including a provided diff (`check --diff`), cannot name a limit: a selected
+script the change does not touch is left out of its comparison and its input
+coverage, as before #702, so an untouched missing, ignored or linked script
+changes no decision. A script the change touches is routed for review, and a
+provided diff that also touches the hook's declaring file compares the
+script's bytes as the diff states them.
+
+A script this entry could not read costs that script, never the comparison.
+Its limit is a blocking `unreadable` issue on the script's own path. When both
+sides carry the same limit and Git proves the file the host would run
+unchanged, through any in-tree link on its path, it is named in
+`unchanged_limits` (`limit: unreadable`) and the comparison stays comparable,
+as it is for a script both sides report missing that Git proves is on neither
+side (no gitlink, link or file on the way, nothing staged there): a script in
+neither commit cannot have been changed. Otherwise only its bytes are withheld: the comparison is `partial`, its
+`blocking_limit` coverage item names the script as both `source` and `scope`,
+and every hook and other grant is still compared. A script whose working-tree
+bytes differ from the base only as `eol=crlf` or `core.autocrlf` can make
+them is no row and reads `unchanged_not_proven`. A mode-only change, such as
+`chmod +x`, is not compared.
+
+Verifier `0.21` and capability diff `0.4` add a `script_not_resolved`
+coverage item: a hook a host loads for this project runs a command whose
+script this entry does not resolve (an interpreter wrapper, a relative path,
+a conditional expansion such as `${VAR:-.}`, a compound command or a malformed
+group), named with each handler and its reason while the change could touch
+it. It is never a row, a widening or a limit. `script_inputs[].limit` is a
+closed list.
+
+Baselines retain these comparison facts. A pre-#702 baseline stays comparable
+unless one of its repository hooks now binds a script: then it is incomparable
+(`baseline_hook_script_inputs_unavailable`), not evidence that the old script
+was empty or unchanged. A hook whose entries hold limits only compares as
+before. Recreate such a baseline only through the existing reviewed baseline
+workflow. Display-only handler detail remains excluded from baselines.
+
+Verifier `0.21` worktree comparisons add `input_script_blobs`,
+`input_script_absent_paths` and `input_script_unconfirmable_paths` when needed.
+These bind consumed bytes and missing path components even when Git ignores
+them. Current control refuses changed dependencies or any unconfirmable read.
+Committed comparisons bind the immutable Git tree instead. A `0.20` verifier
+claiming any of these is refused. No released schema changes, new check ID,
+runtime execution or script semantic interpretation is introduced. See the
+[supported reference shapes and limits](docs/host-boundary-support.md#hook-script-dependencies).
+
+<a id="mcp-launch-source-825"></a>
+
+## Migration Note: Unreleased — mutable MCP launch source notes (#825)
+
+Host-grants 0.7 / contract 41 are extended in place. MCP inventory grants add
+optional `launch_source`: `null` when not established, otherwise a `pin` of
+`pinned` or `mutable` plus nullable `package`. The latter passes the existing
+#819 publication gate. Saved baselines omit this display-only fact; grant
+comparison and inventory digests exclude it. Historical baseline absence
+establishes no prior pin, and creates no synthetic change.
+
+The existing row `why` appends a mutable-source note for an added or changed
+MCP declaration recognized by the [bounded launcher grammar](docs/engineering/mcp-launch-source-notes.md).
+A pinned-to-mutable transition names both sides only when both are established.
+Pinned, removed, unknown/dynamic/wrapped and remote URL sources get no note.
+Diff text/JSON, check, verifier host comparison and PR comments share it.
+Direction, expands, severity, expansion signals and check/control decisions
+are unchanged. There is no new check ID, row field or schema discriminator.
+The note says mutable, not unsafe; it is not an actionability or outreach claim.
+
+<a id="permission-review-guidance-839"></a>
+
+## Migration Note: Unreleased — conditional shell-permission review guidance (#839)
+
+The existing maintained `review.changes[]` gains optional `guidance`: a bounded
+projection of raw Claude Code shell-rule evidence, a specific intent question,
+conditional human choices, limitations, an advisory owner and a declaration
+comparison target. It neither decides nor grants authority. Redacted,
+unsupported, conflicting or incomplete evidence withholds specific choices;
+legacy payloads are never interpreted by parsing their display cells.
+CLI and PR output render the same published projection after existing facts,
+coverage and authority. Whole-item bounds retain an omitted count and the JSON
+evidence pointer. Existing rows, inventory digests and control are unchanged.
+
+Verifier `0.21`, capability diff `0.4` and runtime contract v41 are unreleased
+and extended in place. The frozen `0.20` schema stays unchanged; a payload
+claiming that version cannot carry `guidance`. Current readers accept missing
+guidance as unrecorded, not as proof that no review is needed; a recorded
+`guidance: null` is a change that is not a supported shell case, and prints
+nothing. See the
+[case mapping and limitations](docs/engineering/permission-review-guidance.md).
+
+<a id="grant-direction-820"></a>
+
+## Migration Note: Unreleased — changed grants are not automatically widenings (#820)
+
+Host-grants `0.7` and contract 41 are extended in place. The issue originally
+named unreleased `0.6`/40; those shipped in 1.1.0 and remain frozen. No field,
+schema discriminator, check ID or severity changes here.
+
+Previously every added or changed MCP server, loaded hook, plugin, permission
+mode or sandbox setting emitted an expansion signal. A guard added to a hook,
+an MCP `--read-only` argument, disabling a plugin, changing `bypassPermissions`
+to `default`, and enabling the sandbox therefore all got widening markers.
+Now only a documented gain does:
+
+- A new MCP server or a new loaded hook. That includes a hook whose declaration
+  gains established loading from a previously declared-only or selected
+  plugin, and one more handler on an event that already had one: hook grants
+  are one per event, so that added hook is a `changed` grant whose #819
+  handler count grows. Other command, matcher, timeout, package, argument and
+  endpoint changes remain visible using #819's fields. They establish neither
+  widening nor narrowing.
+- A plugin or app enabled when newly declared, or where it was disabled or its
+  enablement was not established. Codex documents `apps.<id>.enabled` as
+  defaulting to `true`, so an app table without the key is enabled. A Claude
+  Code marketplace added to or re-pointed in `extraKnownMarketplaces` still
+  expands, as #720 shipped: the enabled plugins install from it. Disabling a
+  plugin, adding it disabled, or changing an already-enabled app's other
+  configuration establishes no gain. Non-boolean Claude Code enablement is now
+  unknown (`enabled: null`), not coerced to true. The nullable field and
+  configuration digest already exist.
+- A documented less restrictive Claude Code mode. `default`, `dontAsk` and
+  `plan` can widen to modes that permit more actions; `bypassPermissions` can
+  widen from the other known modes. `auto` and `acceptEdits` are not ordered
+  against each other. A newly declared `acceptEdits`, `auto` or
+  `bypassPermissions` is explicitly permissive; a newly declared `default`,
+  `dontAsk` or `plan` is not an expansion.
+- A new named project MCP approval or an explicit switch enabling all project
+  MCP servers or skipping the bypass-mode confirmation. Disabling those
+  switches does not expand. These are typed booleans, not string lookalikes.
+- Loosening a documented sandbox control. For Claude Code: disabling the
+  sandbox, permitting unsandboxed commands, `autoAllowBashIfSandboxed: true`,
+  `enableWeakerNestedSandbox: true`, a new `excludedCommands` entry, or a new
+  `network.allowedDomains` entry (including `*`). For VS Code `mcp.json`:
+  disabling a stdio server's sandbox, or a new `sandbox.network.allowedDomains`
+  entry. For Codex: known sandbox modes are ordered `read-only` <
+  `workspace-write` < `danger-full-access`, and adding explicit full access or
+  widening that order expands; so do enabling `workspace-write` networking,
+  keeping `/tmp` or `$TMPDIR` writable, a new `writable_roots` entry, and a
+  `web_search` mode ordered `disabled` < `cached` < `indexed` < `live` that
+  rises, or `live` declared anew.
+
+A replaced value that is absent, ambiguous (several values of the setting left)
+or not a documented value is not a host default: the arrival is read as a new
+declaration, so a typo, an undocumented mode such as `delegate`, or two
+predecessors cannot hide `bypassPermissions` or `danger-full-access` arriving.
+
+The rules follow the hosts' [permission-mode](https://code.claude.com/docs/en/permissions#permission-modes),
+[settings](https://code.claude.com/docs/en/settings),
+[sandboxing](https://code.claude.com/docs/en/sandboxing),
+[VS Code MCP sandbox](https://code.visualstudio.com/docs/agents/reference/mcp-configuration#sandbox-configuration), and
+[Codex configuration](https://learn.chatgpt.com/docs/config-file/config-reference)
+references. They compare declared facts, not runtime behavior or effective
+session defaults. In particular Codex `approval_policy: never` is not treated
+as bypassing its sandbox. Removing a setting does not invent its replacement.
+
+**An edit whose direction is not established is named, not silent.** A
+same-identity MCP or loaded-hook edit with no gain, a plugin or app whose
+enablement is not established, and an added setting value no rule above orders
+(Codex `approval_policy`, a Cursor `cli.json` setting, `disableAllHooks`,
+`acceptEdits` ↔ `auto`, a string lookalike, and so on) is a row with
+`expands: false` whose `why` ends `authority direction is unknown`. The Claude
+Code Stop hook announces those rows once, under their own heading, beside the
+widenings it already announced. A settled tightening (a disabled plugin, a
+more restrictive mode, an enabled sandbox, a smaller list) and an edit to a
+hook nothing loads (#714) stay quiet.
+
+`mcp_server_changed` is no longer emitted for arbitrary server edits.
+`hook_changed` requires a gain in established loading or declared handlers. The existing
+`plugin_or_app_*`, `permission_mode_*`, and `sandbox_*` strings remain, but
+only for the gains above. A same-identity edit with no gain is `changed` with
+`expands: false`.
+Settings whose identity includes their value keep their removed/added rows.
+Each arrival is evaluated against its own host, source and setting, so a
+tightening cannot inherit another setting's widening marker in the same file.
+
+Three reader corrections re-read unchanged files differently, so a baseline
+saved before this change can show a `changed` row without a new expansion
+signal after upgrading: a Claude Code non-boolean `enabledPlugins` value
+publishes `enabled: null` instead of `true`, a Codex app without `enabled`
+publishes `true` instead of `null`, and a VS Code `sandboxEnabled: false` on a
+server whose stdio transport is not established publishes `access: unknown`
+instead of `admin`. Save the baseline again to clear them.
+
+`diff`, verifier host comparisons, PR comments, `check` rows, drift and
+preflight use the same expansion evidence. **Check decisions are unchanged:**
+the existing rules still review hook/MCP edits and permission settings at their
+documented severity, even when direction is unknown or tightening. A widening
+marker is not the control signal, and removing one grants no merge authority.
+The [direction benchmark](benchmark/host-config/direction-replay-820.md) records
+before/after counts separately from the historical row-presence scores.
+
+
+<a id="exec-equivalent-permissions-824"></a>
+
+## Migration Note: Unreleased — arbitrary-code launcher allow rules (#824)
+
+Host-grants 0.7 / contract 41 are extended in place. The documented
+[launcher table](docs/engineering/exec-equivalent-permissions.md) rates exact
+Bash launcher prefixes followed by ` *` or `:*` as `admin`/`critical`, previously
+`execute`/`medium`. It covers interpreter and shell eval flags, package/environment
+runners, Docker exec/run, `sudo` and argument forwarders. A Bash allow rule the
+containment lattice decides is wider than one of those rules is rated the same, so
+`Bash(python3 *)`, `Bash(docker *)`, `Bash(uv *)`, `Bash(npx*)` and `Bash(n*)` are
+`admin`/`critical` too, previously `execute`/`medium`: widening a rule can no
+longer lower its rating. Exact commands, rules that are not wider (`Bash(n *)`,
+`Bash(npm *)`) and unlisted forms retain their prior ratings. Ask and deny ratings
+remain `none`/`low`.
+
+Rows say “reaches arbitrary code through a launcher, without a prompt”. Diff,
+host audit, check rows, verifier host comparison and PR comments agree, and the
+`audit --host` Markdown line that names
+`SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` counts these rules and says how many
+reach a launcher. Check shows these rules in evidence and rows in table text
+(`Bash(npx *)`, `Bash(python3 *)`), while all other operands remain redacted. No
+field or schema discriminator is added; the `wildcard` field is unchanged.
+
+A newly granted tier rule uses the existing critical/block
+`SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` route instead of the
+require-review `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` route. No check ID
+is added or removed. The containment lattice and expansion signals are unchanged:
+a review rating is not an assertion that the rule matches every Bash command,
+bypasses a sandbox or overrides deny/ask precedence. Re-rating an unchanged
+saved launcher declaration from an older baseline creates no expansion signal.
+`check` no longer treats respelling a Bash rule as a new grant: replacing
+`Bash(npx:*)` with `Bash(npx *)`, or `Bash(npm test:*)` with `Bash(npm test *)`,
+raises no allow finding, where it previously raised
+`SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` (review). `diff` still shows it as a
+removal and an addition.
+
+
+<a id="skill-metadata-848"></a>
+
+## Migration Note: Unreleased — free-form skill metadata (#848)
+
+In 1.1.0 (contract 40), a skill with `metadata: {internal: true}` made the
+whole host comparison incomparable. The same happened for integer and nested
+metadata values, and for a `metadata` that is not a map (`metadata: [a, b]`,
+`metadata: internal`, `metadata: true`), hiding a fully readable permission
+widening in another file. The shared skill structure projection now reads
+these values without converting them to strings. Text and JSON compare the
+skill and retain the unrelated rows; no new schema or control state is
+introduced in contract 41.
+
+This follows [Claude Code's frontmatter reference](https://code.claude.com/docs/en/skills#frontmatter-reference),
+which documents a free-form metadata map and does not use its contents to
+grant authority. It is not a claim of portable skill validity: the
+[Agent Skills specification](https://agentskills.io/specification#metadata-field)
+requires string values. All metadata remains in the structure digest, so
+changing a value still changes the declaration; a prose-only edit can prove
+unchanged structure. Existing string-only metadata digests are unchanged.
+
+Claude Code documents that it drops a `metadata` value that is not a map.
+This reader does not drop it: the value is digested as written, as an
+undocumented key is (#730), so it is read with no limit and a change to it,
+including from a map to a list or back, is still a changed skill.
+
+The bounded reader still refuses an unterminated fence, invalid YAML,
+non-mapping frontmatter, aliases, tags, duplicate keys and unencodable values.
+It requires string keys at every depth of `metadata`, map or not, preventing
+distinct YAML keys (`true` and `'True'`) from collapsing into one JSON digest
+member, so a metadata key YAML reads as a number, date, boolean or null
+(`1:`, `2026-01-29:`, `on:`) still refuses. No declared tool or hook is
+ignored.
+
 <a id="workflow-access-label-859"></a>
 
 ## Migration Note: Unreleased — workflow values label aggregate access (#859)
@@ -444,7 +732,7 @@ Host-grants `0.6` shipped in 1.1.0, so this mints host-grants inventory, baselin
 
 **Compatibility.**
 - **A committed `0.4`, `0.5` or `0.6` baseline holding a workflow grant** is loaded but incomparable: it never read agent launches or checkout refs, so its silence is not evidence that none changed. `audit --host --drift` reports `comparison_status: incomparable` with `baseline_workflow_agent_launches_unavailable` among `incomparable_reasons` (beside the #771 and #693 reasons for a `0.4`/`0.5` one), `has_drift: null` and `next_action: null`, and exits `20` under `--fail-on-drift`; `preflight` raises a `high`, `actor: human` `host_grant_drift` signal naming it. To migrate, follow [the #771 steps](#workflow-step-action-references-contract-v40-771) from a checkout of the reviewed default branch, keeping the old file as `host-grants.v0.6.json`: review `audit --host`, move the baseline aside, `audit --host --save-baseline`, and confirm drift is comparable with `has_drift: false`.
-- **A `0.4`–`0.6` baseline with no workflow grant** stays comparable for drift. `audit --host --save-baseline` may replace a `0.6` baseline with no workflow grant, preserving #819’s display-only compatibility. A `0.6` baseline holding a workflow grant, and every older baseline, is refused with `unsupported_baseline_schema`; move it aside after review and re-save.
+- **A `0.4`–`0.6` baseline with no workflow grant** stays comparable for drift. `audit --host --save-baseline` may replace a `0.6` baseline with no workflow grant, preserving #819’s display-only compatibility. A `0.6` baseline holding a workflow grant, and every older baseline, is refused with `unsupported_baseline_schema`; move it aside after review and re-save. The one exception is #702's: a repository hook whose current reading binds a selected script names `baseline_hook_script_inputs_unavailable`, since that baseline never read the script's bytes; see [its migration note](#hook-script-dependencies-702).
 - **Git-backed `diff`, `check` and manifest-free `verify`** read both refs with the current reader and need no migration. Their rows keep their shape, and this change moves neither verifier `0.21` nor capability diff `0.4`, which are #821's. What changes is values: a workflow row can now be `widened` for an agent launch, its `before`/`after` cells list changed launches and checkout refs, and the `why` of every workflow row whose workflow runs an agent gains the note, so a consumer that matches `why` text exactly sees new text. No check id is added or removed, and `check` decides as before.
 - **Validators pinned to the `0.6` schemas** reject a `0.7` inventory, baseline or drift payload.
 - **`minimum_control_contract_version`** stays `21`.
@@ -501,6 +789,23 @@ command, verdict, reader, row or control state is added.
 
 **Compatibility.** `coverage` and its items are closed objects, so a reader validating against the published [`docs/verifier-schema.v0.20.json`](docs/verifier-schema.v0.20.json) rejects a `0.21` artifact's new members; that schema stays frozen. The current reader reads a `0.20` artifact as `0.21` with `unread_candidates: null`, which is what that build knew, and refuses one that claims a `changed_not_read` item, a `candidate`, `read_sources_only: false` or either `unread_candidates` member. A `diff --json` consumer sees `capability_diff_schema_version: "0.4"`. A consumer switching on `coverage.items[].status` should treat an unknown status as a change it must read, not as no change.
 
+<a id="inline-hook-allow-826"></a>
+
+## Migration Note: Unreleased — unconditional inline hook approvals (host-grants `0.7`, contract v41, #826)
+
+Host inventory `0.7` and runtime contract `41` are extended in place with two
+optional, display-only members of a hook handler, published only on a Claude
+Code `PreToolUse` handler, the one the reader examines: `inline_allow`, and
+`decision_limit` (`script_or_command_behavior_not_read`) when the command is
+outside the [bounded grammar](docs/engineering/inline-hook-allow-notes.md). A
+handler of any other event or host publishes neither, so an absent member means
+not examined, never read without a limit. A supported literal, unconditional
+`PreToolUse` allow on a broad matcher adds an explanation to a current Claude
+Code hook row's `why`. These members are left out of saved baselines, grant
+equality and the inventory digests, and do not change direction, severity,
+widening signals, check IDs or control decisions. Released schemas are
+unchanged.
+
 <a id="hook-mcp-detail-fields-819"></a>
 
 ## Migration Note: Unreleased — hook matcher, command and timeout, and MCP launch arguments (host-grants `0.7`, contract v41, #819)
@@ -535,7 +840,7 @@ baselines** below):
 - **The PR comment.** Its 6,000-character bound cuts at the first line that does not fit, so long entries could hide the rows after them, the coverage block, the change count, the review question, the reproduction and the advisory. The lines `1.1.0` printed get their room first: the coverage block is given the room the other lines leave with every entry in its shortest form (below), which is at least the room `1.1.0`'s lines left it, and the agent instruction block is chosen on those lines too, so the entries get only what is left. The first of these that fits is printed: every entry whole; every longer entry cut to the widest length of at least 60 characters at which the comment fits, ending in `…`; entries in their shortest form, longest first, down to every one that has one; and that without the line below. An entry's shortest form is, for a field-level difference, the difference cut after the name it opens with (`PreToolUse: …`, `docs: …`), and for an added or removed grant its row's own `before → after` (`(absent) → PreToolUse`); it is printed only where it is the shorter. A permission rule's entry and a joined change have none: they are never shortened. No entry in its shortest form is longer than the one `1.1.0` printed for the same row — a hook's read `PreToolUse → PreToolUse`, an MCP server's its name and at least one difference, an added hook its row — so wherever `1.1.0`'s own lines fit, every one of them is kept, entries aside. One line after the rows, not one per entry, reads ``Some entries are shortened here to fit; `verifier.json` holds each entry whole.``; it is left out only where it does not fit beside every other line. When not even the last fits, the bound cuts the rest, as it cut `1.1.0`'s, and the line naming what was cut is as long as `1.1.0`'s. `verifier.json` and every other route keep every entry whole. A comment written without a readiness report points to `verifier.json` when it omits detail (``- … more human summary detail omitted; see `verifier.json`.``), since that route writes no `report.md`.
 
 **Compatibility.**
-- **A committed `0.6` baseline without workflow grants** stays comparable. #823 requires review and replacement of older workflow baselines, which never read agent launches. Drift reads its grants without the new members and reports what contract v40 reported, with no new row, expansion signal or incomparable reason. `audit --host --save-baseline` may now replace it and reports `status: updated`, with no move-aside step. A baseline older than `0.6` is still refused with `unsupported_baseline_schema`, as the [#771 note](#workflow-step-action-references-contract-v40-771) describes.
+- **A committed `0.6` baseline without workflow grants** stays comparable. #823 requires review and replacement of older workflow baselines, which never read agent launches. Drift reads its grants without the new members and reports what contract v40 reported, with no new row, expansion signal or incomparable reason. `audit --host --save-baseline` may now replace it and reports `status: updated`, with no move-aside step. A baseline older than `0.6` is still refused with `unsupported_baseline_schema`, as the [#771 note](#workflow-step-action-references-contract-v40-771) describes. The one exception is #702's: a repository hook whose current reading binds a selected script names `baseline_hook_script_inputs_unavailable`, since that baseline never read the script's bytes; see [its migration note](#hook-script-dependencies-702).
 - **Git-backed `diff`, `check` and manifest-free `verify`** read both sides with the current reader and need no migration.
 - **Validators pinned to the `0.6` schemas** reject a `0.7` inventory, baseline or drift payload. The `0.6` schema files stay published.
 - **Verifier `0.21`, capability diff `0.4` (both moved by #821 in the same contract), `shipgate.agent_boundary_result/v3` and `minimum_control_contract_version` `21`** do not move for it.
@@ -802,7 +1107,7 @@ reader reads an in-tree link at a boundary path through to its target
 ([#700](#link-read-through-at-boundary-paths-contract-v39-700)),
 but the unchanged proof accepted only a file at its own path, so a limit on a
 file read through a link refused the whole comparison. With a skill whose
-`metadata.internal` is `true`, which this entry's bounded profile does not
+`metadata` has the key `1`, which this entry's bounded profile does not
 accept, and a change that only drops `deny: Bash(curl *)` from
 `.claude/settings.json`:
 
@@ -843,10 +1148,11 @@ accept, and a change that only drops `deny: Bash(curl *)` from
   copy, or rewritten to land on the same file (`../../skills/review` to
   `../../skills/./review`), a link replaced by a directory holding the same
   bytes or the reverse, and any later link of a chain retargeted.
-- **Not coerced.** The metadata value is not reinterpreted: `internal: true`
-  is still an unresolved structure, `unsupported`, published with the same
-  `detail` as at a direct path. `internal: "true"` was and is read, with no
-  limit.
+- **Not coerced.** Metadata is not reinterpreted: the key `1` is not read as
+  the string `"1"`, so it is still an unresolved structure, `unsupported`,
+  published with the same `detail` as at a direct path. Since
+  [#848](#skill-metadata-848), `internal: true` is read as written, with no
+  limit, as `internal: "true"` was and is; the two digest apart.
 - **Who reads the proof.** One function answers it for every consumer, so they
   move together: `unchanged_limits` in `diff --json` and `verifier.json`; the
   `Not compared: unchanged in this change and not read` list of `diff`,
@@ -1274,7 +1580,7 @@ No schema, contract or `minimum_control_contract_version` moves. What changes is
 - **Identity is unchanged.** `grant_id` and `config_sha256` do not depend on the basis, so the same file is the same grant before and after. An inline marketplace hook's `source` is `<marketplace>#plugins.<name>`.
 - **Enablement is read only where the repository proves it.** A `github`, `git`, `url` or `settings` marketplace source, an absolute, home-relative or escaping path, a plugin the marketplace does not list, and a value other than `true` leave the plugin's hooks at `execute`/`medium`. The `<marketplace>` in an `enabledPlugins` key matches the `extraKnownMarketplaces` key that registers the marketplace or the registered `marketplace.json`'s own `name`; neither is documented as the one Claude Code matches, so both are read, and the `name` alone never registers a marketplace. A `true` in either project settings file counts even when the other sets `false`, because a `false` in `.claude/settings.local.json` is one machine's opt-out. That file is usually uncommitted, but Claude Code reads it whenever it exists, so reading it errs toward showing the hook. User settings, installation state and workspace trust are never read.
 - **The basis is read only from these exact pairs.** A plugin hook's `source` is a hook file, a manifest or a marketplace entry, never a settings layer, which separates it from a settings hook with the same pair. A hook-file grant with none of the plugin pairs was recorded without a basis and is not described as selected. `1.0.0` recorded every hook file as `execute`/`high`, the enabled-plugin pair, and no field can tell them apart without a schema change. The engine reads a basis only from the current side of a change, and a removal row, the only row built from a baseline's grant, names no basis. So nothing a `1.0.0` baseline holds is described as selected or enabled.
-- **A saved baseline that recorded an unselected hook file as `execute`/`high`** stays comparable. Drift reports one `changed` grant for each of its events, with no expansion signal, so `--fail-on-drift` exits `20` once. Review the row, then move the old file aside (`git mv .agents-shipgate/host-grants.json .agents-shipgate/host-grants.v0.5.json`) and re-save the baseline: `--save-baseline` refuses to overwrite any baseline older than `0.6`, including every baseline `1.0.0` wrote. Nothing is hidden, and nothing is reported as a widening. Separately, #771 makes a `0.4` or `0.5` baseline holding a workflow grant incomparable; see [its migration note](#workflow-step-action-references-contract-v40-771).
+- **A saved baseline that recorded an unselected hook file as `execute`/`high`** stays comparable. Drift reports one `changed` grant for each of its events, with no expansion signal, so `--fail-on-drift` exits `20` once. Review the row, then move the old file aside (`git mv .agents-shipgate/host-grants.json .agents-shipgate/host-grants.v0.5.json`) and re-save the baseline: `--save-baseline` refuses to overwrite any baseline older than `0.6`, including every baseline `1.0.0` wrote. Nothing is hidden, and nothing is reported as a widening. Separately, #771 makes a `0.4` or `0.5` baseline holding a workflow grant incomparable; see [its migration note](#workflow-step-action-references-contract-v40-771). The one exception is #702's: a repository hook whose current reading binds a selected script names `baseline_hook_script_inputs_unavailable`, since that baseline never read the script's bytes; see [its migration note](#hook-script-dependencies-702).
 - **Plugin manifests, marketplaces and the hook files they select are newly read.** A manifest or marketplace enters the inventory only when it declares `hooks`, and only that member is digested, so a version bump is not drift. Every repository that has one drifts once against a `1.0.0` baseline, because that manifest or marketplace is a new artifact and a new observed source. Two shapes:
   - **A hook file `1.0.0` never read** — one a plugin selects outside the Claude Code registry paths, such as `plugins/demo/hooks/hooks.json` — is also a new grant. It carries a `hook_added` expansion signal only where the project settings enable the plugin, because such a hook was loaded all along.
   - **A hook file `1.0.0` did read**, such as a `.claude/hooks/hooks.json` an enabled plugin selects, keeps `1.0.0`'s `execute`/`high` and the same `grant_id`. The grant does not change, so `--fail-on-drift` exits `20` reporting **0 typed grant change(s)**, with no rows and no expansion signal. The added artifact and observed source are in `artifact_changes` and `coverage_changes` in `audit --host --drift --json`; the Markdown summary counts typed grant changes only.

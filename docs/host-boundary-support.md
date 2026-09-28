@@ -58,10 +58,13 @@ the changed inputs the candidate rules at the end of this section name (#821):
   It runs inside the calling job, with that job's `permissions` and secrets, so
   adding a `run:` step to `.github/actions/<name>/action.yml` adds a command
   holding the caller's scopes. Only the workflow file is read (#701).
-- **A script a hook command runs** (for example
-  `.claude/hooks/session-start`). The hook entry is read; the file it executes
-  is not, so editing the script changes what runs without changing the hook
-  (#702).
+- **A script outside the supported hook reference shapes** (for example a
+  relative `.claude/hooks/session-start`, a wrapper's argument, or a dynamic
+  shell expression). A filename alone establishes neither selection nor the
+  host's working directory. Selected literal references in the
+  [bounded script comparison](#hook-script-dependencies) below are read;
+  the remaining scripts are still unread, and a selected hook whose script is
+  not resolved is named as a `script_not_resolved` coverage item (#702).
 - **The path of a remote MCP server's URL.** The host and query are compared
   and the path is not, because a webhook-style path can itself be the secret.
   Changing `/read` to `/admin` on the same host produces no row (#772).
@@ -490,7 +493,7 @@ a tag or digest) and a digest of the rest, so a version pin moving to
 `@latest` reads `package example-mcp-server@1.2.3 → example-mcp-server@latest`
 and any other argument edit `launch arguments changed` with both digests. The
 detail is a display of the declaration, never an input to the comparison: the
-command is not resolved or run, the script it names is not read (#702), and
+command is not run, and
 the digests are of the configuration as `config_sha256`'s input holds it. A
 value that input already redacts, such as the value after `--token`,
 `--api-key` or `--password`, a `--password=…` value, an `X-Api-Key:` header
@@ -501,6 +504,81 @@ reaches the committed file. A hook declaration outside the documented shape
 publishes no handlers, and its row says the matcher, command and timeout are
 not shown; when only one side is outside it, the row names that side and lists
 the other side's handlers.
+
+<a id="hook-script-dependencies"></a>
+
+Selected hook executables have a separate, bounded byte comparison (#702).
+For Claude Code, a direct executable anchored by `CLAUDE_PROJECT_DIR`, or by
+`CLAUDE_PLUGIN_ROOT` with an independently established selected plugin root,
+can name an exact repository file. In a shell command these spellings
+resolve, braced or not: the variable alone in double quotes followed by a
+plain path (`"$CLAUDE_PROJECT_DIR"/.claude/hooks/check.sh`, the form the hooks
+documentation uses), the variable and its path in one pair of double quotes,
+and both unquoted when the path holds no shell metacharacter. The documented
+argument-list form (`args`) substitutes the braced placeholder in its
+executable field only, since no shell expands `$VAR` there. Both Claude Code
+and Codex can name an absolute executable inside the original workspace.
+Historical trees retain that original path namespace. Relative paths, bare
+PATH commands, interpreter wrappers, compound commands, conditional
+expansions such as `${VAR:-.}` and unsupported command overrides do not
+establish a dependency. No environment variable is read and no command runs.
+
+Only selected repository hooks bind scripts: host configuration or a plugin
+the project enables. A declared-only plugin hook does not become selected
+because its script exists. Each supported reference reads at most 1 MiB of
+raw bytes through the bounded host reader, with at most 256 handlers examined
+per event independently of the 16-handler display limit, without following links or
+interpreting script behavior. A malformed matcher group is skipped with a
+non-blocking issue naming it, and the groups after it are still read.
+Changes to captured bytes produce one row on the declaring hook, naming its
+event, loading basis and script path, with the before/after digests in its
+change. A script-only edit does not assert a permission expansion. A
+mode-only change, such as `chmod +x`, is not compared: only the bytes are.
+`check` routes the selected file for review on either side of the change,
+with separate host attribution, and reads the base's declarations only when
+the change touches one. `check`, including a provided diff (`check --diff`),
+cannot name a limit: a selected script the change does not touch is left out
+of its comparison and its input coverage, as before scripts were read, so an
+untouched missing, ignored or linked script changes no decision. A script the
+change touches is routed for review, and a provided diff that also touches
+the hook's declaring file compares the script's bytes as the diff states
+them.
+
+Missing, linked, nonregular, oversized and unreadable inputs retain explicit
+limits, each a blocking `unreadable` issue on the script's own path, and cost
+that script only. Where both sides carry the same limit and Git proves the
+file the host would run unchanged, through any in-tree link on the way, the
+limit is named in `unchanged_limits` and the comparison stays comparable. So
+is a script both sides report missing when Git proves nothing at its path on
+either side, through no gitlink, link or file on the way, and nothing staged
+there: a script in neither commit cannot have been changed by the change.
+Otherwise the comparison is `partial`: the script's bytes are withheld on both
+sides, its `blocking_limit` coverage item names it as `source` and `scope`,
+and every hook and other grant is still compared. A script ignored by Git or
+untracked on one side only, one inside a submodule or one behind a link
+leaving the repository is such a limit. Working-tree bytes that differ from the base only
+as an `eol=crlf` attribute or `core.autocrlf` can make them are not a row;
+the script is `unchanged_not_proven`.
+
+A selected hook whose script is not resolved is named in coverage as
+`script_not_resolved` on its declaring file, with each such handler and its
+reason (`interpreter_wrapper`, `working_directory_not_established`,
+`dynamic_or_conditional_path` and so on), while the change could touch that
+script: the changed files could not be listed, or they hold the declaring
+file or a file no reader of this entry read. It is never a row, a widening or
+a limit. A bare command with no path- or script-shaped argument
+(`path_lookup`) and an absolute path outside the workspace name no repository
+script and are never named.
+
+These dependency facts are comparison inputs and survive in a baseline; an
+older baseline is incomparable only for a repository hook whose current
+reading binds a script, and a hook whose entries hold limits alone compares as
+before. They differ from the display-only handler detail above. Worktree
+verification binds successful reads and missing-path observations, including
+ignored paths, so a later change invalidates current control. An unsafe read
+cannot establish current control. This compares declared source bytes, not
+installed plugin bytes, session activation, recursive dependencies or runtime
+behavior.
 
 A hook row states its loading basis (#714). Parsing a hook file proves the
 file exists, not that a host loads it, so hooks are published four ways:

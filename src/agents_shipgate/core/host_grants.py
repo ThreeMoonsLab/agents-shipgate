@@ -37,6 +37,11 @@ from agents_shipgate.core.boundary_registry import (
     is_explicit_boundary_file_path,
     is_hook_declaration_file_name,
 )
+from agents_shipgate.core.hook_script_capture import capture_hook_script
+from agents_shipgate.core.hook_script_reference import (
+    MAX_HOOK_SCRIPT_HANDLERS,
+    hook_script_reference,
+)
 from agents_shipgate.core.host_boundary import (
     _is_wildcard_allow,
     _is_write,
@@ -58,13 +63,16 @@ from agents_shipgate.core.host_settings import (
     claude_setting_values,
     rate_claude_setting,
 )
+from agents_shipgate.core.inline_hook_allow import inline_allow_facts
 from agents_shipgate.core.instruction_structure import (
     classify_instruction,
     instruction_profile,
     unresolved_reason_is_invalid_syntax,
 )
 from agents_shipgate.core.jsonc import is_vscode_mcp_path, loads_jsonc
+from agents_shipgate.core.mcp_launch_source import launch_source_pin
 from agents_shipgate.core.permission_lattice import (
+    exec_equivalent_argument,
     permission_pairing_group,
     scoped_risk,
     subsumes,
@@ -148,6 +156,9 @@ class HostStaticParseCache:
 
     max_entries: int = MAX_HOST_STATIC_ENTRIES
     max_total_bytes: int = MAX_HOST_STATIC_TOTAL_BYTES
+    reference_workspace: Path | None = None
+    hook_script_reads: dict[str, dict[str, Any]] = field(default_factory=dict)
+    hook_script_absences: set[str] = field(default_factory=set)
     _reads: dict[tuple[str, str], tuple[str | None, str | None]] = field(
         default_factory=dict
     )
@@ -375,9 +386,9 @@ class HostBoundarySnapshot:
 
 @dataclass(frozen=True)
 class EnabledPluginHookFiles:
-    """The files holding hooks of a plugin the project settings enable (#809).
+    """Selected plugin hook declarations and host executable references.
 
-    The two private snapshot facts, gathered across the sides of a change a
+    Private snapshot facts, gathered across the sides of a change a
     caller could read, so `check` and `verify` decide from the same evidence.
     """
 
@@ -387,17 +398,28 @@ class EnabledPluginHookFiles:
     #: Files such a plugin selects whose hooks the reader did not read
     #: (``HostBoundarySnapshot.enabled_plugin_unread_hook_files``).
     unread: frozenset[str] = frozenset()
+    #: Selected literal executable references, identified separately per host.
+    scripts: frozenset[tuple[str, str]] = frozenset()
 
     @classmethod
     def of(cls, snapshot: HostBoundarySnapshot) -> EnabledPluginHookFiles:
         return cls(
             sources=snapshot.enabled_plugin_hook_sources,
             unread=snapshot.enabled_plugin_unread_hook_files,
+            scripts=frozenset(
+                (grant["host"], entry["path"])
+                for grant in snapshot.inventory["grants"]
+                if grant.get("kind") == "hook"
+                and hook_loading_basis(grant) in {"host_configuration", "project_enabled_plugin"}
+                for entry in grant.get("script_inputs") or []
+                if entry.get("path") and entry.get("basis")
+            ),
         )
 
     def union(self, other: EnabledPluginHookFiles) -> EnabledPluginHookFiles:
         return EnabledPluginHookFiles(
-            sources=self.sources | other.sources, unread=self.unread | other.unread
+            sources=self.sources | other.sources, unread=self.unread | other.unread,
+            scripts=self.scripts | other.scripts,
         )
 
 
@@ -1000,6 +1022,27 @@ def _mcp_launch_args(config: dict[str, Any]) -> tuple[str | None, str | None]:
     return None, redacted_config_sha256(args)
 
 
+def _mcp_launch_source(config: dict[str, Any]) -> dict[str, Any] | None:
+    if _transport_hint(config) != "stdio" or "url" in config:
+        return None
+    args = config.get("args")
+    redacted = _redact_secret_values(args)
+    command = config.get("command")
+    fact = launch_source_pin(command, args)
+    if fact is None:
+        return None
+    pin, index = fact
+    if args[index] != redacted[index] and not args[index].startswith("git+"):
+        return None
+    # Git URLs never publish their path/ref. The bounded parser establishes
+    # only pin state from a credential-free literal URL before path redaction;
+    # interpreting <redacted-path> as a real ref would invent mutability.
+    # Reuse #819's exact publication gate. Bare names and Git URLs remain
+    # withheld even when their pin state can be established.
+    shown = _published_package_index(args, redacted)
+    return {"pin": pin, "package": args[index] if shown == index else None}
+
+
 #: VS Code's prompted-input reference, e.g. `"API_KEY": "${input:apiKey}"`.
 _VSCODE_INPUT_REF = re.compile(r"\$\{input:([^}]+)\}")
 #: The documented top level of `.vscode/mcp.json` (#731). Anything else is not
@@ -1038,7 +1081,8 @@ def _vscode_mcp_extras(
             grants.append(_setting_grant(
                 host="vscode", scope=scope, source=source, kind="sandbox",
                 setting=f"servers.{name}.sandboxEnabled", value=enabled,
-                access="admin" if enabled is False else "unknown", risk="high",
+                access="admin" if enabled is False and _transport_hint(server) == "stdio" else "unknown",
+                risk="high",
             ))
         if "envFile" in server:
             issues.append(_inventory_issue(
@@ -1089,6 +1133,7 @@ def _mcp_grants(
             "header_keys": sorted(str(key) for key in headers),
             "package": package,
             "args_sha256": args_sha256,
+            "launch_source": _mcp_launch_source(config),
         })
     return grants
 
@@ -1241,7 +1286,7 @@ def _hook_command(value: Any) -> dict[str, str] | None:
     return {"executable": _plain_token(name), "sha256": redacted_config_sha256(value)}
 
 
-def _hook_handlers(config: Any) -> tuple[list[dict[str, Any]] | None, int]:
+def _hook_handlers(config: Any, *, host: str | None = None, event: str | None = None) -> tuple[list[dict[str, Any]] | None, int]:
     """Every handler one hook event declares, as its grant publishes them (#819).
 
     Only the documented shape is read: a list of matcher groups, each an
@@ -1278,6 +1323,10 @@ def _hook_handlers(config: Any) -> tuple[list[dict[str, Any]] | None, int]:
                 "matcher": published,
                 "command": _hook_command(handler.get("command")),
                 "timeout": _hook_timeout(handler.get("timeout")),
+                **(
+                    inline_allow_facts(group, handler)
+                    if host == "claude-code" and event == "PreToolUse" else {}
+                ),
             }
             for handler in listed
         )
@@ -1324,7 +1373,7 @@ def _hooks_grants(
     access, risk = _HOOK_ACCESS_BY_BASIS[basis]
     grants: list[dict[str, Any]] = []
     for event, config in sorted(hooks.items()):
-        handlers, omitted = _hook_handlers(config)
+        handlers, omitted = _hook_handlers(config, host=host, event=str(event))
         grants.append({
             **_grant_base(
                 host=host, scope=scope, source=source, kind="hook",
@@ -1408,7 +1457,7 @@ def _claude_grants(data: Any, *, scope: HostScope, source: str) -> list[dict[str
                     host="claude-code", scope=scope, source=source, kind="plugin_or_app",
                     identity=str(name), config={"enabled": enabled}, access="execute", risk="high",
                 ),
-                "name": str(name), "enabled": bool(enabled),
+                "name": str(name), "enabled": enabled if isinstance(enabled, bool) else None,
             })
     # `enabledPlugins` entries install from these, so a marketplace added or
     # re-pointed changes what an enabled plugin runs (#720). Named with a
@@ -1473,7 +1522,9 @@ def _codex_grants(data: Any, *, scope: HostScope, source: str) -> list[dict[str,
     apps = data.get("apps")
     if isinstance(apps, dict):
         for name, config in sorted(apps.items()):
-            enabled = config.get("enabled") if isinstance(config, dict) else None
+            # Codex documents `apps.<id>.enabled` as defaulting to true, so a
+            # declared app table without the key is enabled (#820).
+            enabled = config.get("enabled", True) if isinstance(config, dict) else None
             grants.append({
                 **_grant_base(
                     host="codex", scope=scope, source=source, kind="plugin_or_app",
@@ -3755,7 +3806,9 @@ def _collect_file(
     artifacts: list[dict[str, Any]], grants: list[dict[str, Any]], issues: list[dict[str, Any]],
     resolved_through: tuple[str, ...] = (),
     hook_basis: HookLoadingBasis = "host_configuration",
+    plugin_root: str | None = None,
 ) -> Any:
+    first_grant = len(grants)
     if kind == "instructions":
         text, error = cache.read(path, containment_root=containment_root)
         if error:
@@ -3877,7 +3930,117 @@ def _collect_file(
         grants.extend(_claude_grants(data, scope=scope, source=source))
     elif host == "cursor":
         grants.extend(_cursor_grants(data, scope=scope, source=source))
+    _bind_hook_scripts(
+        data=data, grants=grants[first_grant:], root=containment_root,
+        cache=cache, issues=issues, artifacts=artifacts, plugin_root=plugin_root,
+    )
     return data
+
+
+def _bind_hook_scripts(
+    *, data: Any, grants: list[dict[str, Any]], root: Path,
+    cache: HostStaticParseCache, issues: list[dict[str, Any]],
+    artifacts: list[dict[str, Any]],
+    plugin_root: str | None = None,
+) -> None:
+    """Attach bounded direct dependencies to selected repository hook grants.
+
+    A limit on a selected dependency is a blocking ``unreadable`` issue on the
+    dependency's own path, once per host and path, so a comparison can prove
+    it unchanged or withhold that script alone (#702 review). A malformed
+    group is skipped with a non-blocking issue naming it: the groups after it
+    still select their handlers.
+    """
+    hooks = data.get("hooks") if isinstance(data, dict) else None
+    if not isinstance(hooks, dict):
+        return
+    for grant in grants:
+        if grant.get("kind") != "hook" or grant.get("scope") != "repository":
+            continue
+        event = grant["event"]
+        groups = hooks.get(event)
+        entries: list[dict[str, Any]] = []
+        grant["script_inputs"] = entries
+        selected = hook_loading_basis(grant) in LOADED_HOOK_BASES
+        malformed: list[str] = []
+        if not isinstance(groups, list):
+            entries.append({"handler": 0, "limit": "unsupported_hook_shape"})
+            malformed.append("value")
+            groups = []
+        index = 0
+        for position, group in enumerate(groups):
+            handlers = group.get("hooks") if isinstance(group, dict) else None
+            if not isinstance(handlers, list):
+                entries.append({"handler": index, "limit": "unsupported_hook_shape"})
+                malformed.append(f"group {position}")
+                continue
+            for handler in handlers:
+                if index >= MAX_HOOK_SCRIPT_HANDLERS:
+                    entries.append({"handler": index, "limit": "handler_bound_exceeded"})
+                    break
+                ordinal = index
+                index += 1
+                if not isinstance(handler, dict) or handler.get("type") != "command":
+                    continue
+                if not selected:
+                    entries.append({"handler": ordinal, "limit": "hook_selection_not_established"})
+                    continue
+                ref = hook_script_reference(
+                    handler, host=grant["host"],
+                    workspace_path=str(cache.reference_workspace or root), plugin_root=plugin_root,
+                )
+                entry: dict[str, Any] = {"handler": ordinal, "path": ref.path, "basis": ref.basis, "limit": ref.limit}
+                if ref.path is not None:
+                    shown = public_host_path(ref.path)
+                    if shown != ref.path:
+                        entry.update(path=shown, limit="redacted_dependency_path")
+                    else:
+                        if ref.path not in cache.hook_script_reads:
+                            cache.hook_script_reads[ref.path] = capture_hook_script(
+                                cache.reader_for(root), ref.path, absent_paths=cache.hook_script_absences,
+                            )
+                        entry.update(cache.hook_script_reads[ref.path])
+                    if entry.get("limit"):
+                        issue = _inventory_issue(
+                            kind="unreadable", host=grant["host"], source=shown,
+                            message=(
+                                f"Selected hook script {shown}: {entry['limit']}; its bytes were "
+                                f"not compared (hook {event} in {grant['source']})."
+                            ),
+                            blocking=True,
+                        )
+                        if not any(
+                            (item["kind"], item["host"], item["source"])
+                            == (issue["kind"], issue["host"], issue["source"])
+                            for item in issues
+                        ):
+                            issues.append(issue)
+                    if not any(item["host"] == grant["host"] and item["path"] == shown and item["kind"] == "hook_script" for item in artifacts):
+                        artifacts.append(_artifact(
+                            host=grant["host"], scope="repository", source=shown, kind="hook_script",
+                            status="failed" if entry.get("limit") else "parsed",
+                            data={"sha256": entry.get("sha256"), "size_bytes": entry.get("size_bytes")},
+                        ))
+                entries.append(entry)
+            if entries and entries[-1].get("limit") == "handler_bound_exceeded":
+                break
+        if selected and malformed:
+            issues.append(_inventory_issue(
+                kind="unsupported", host=grant["host"], source=grant["source"],
+                message=(
+                    f"Hook {event} {', '.join(malformed[:3])}"
+                    + (f" and {len(malformed) - 3} more" if len(malformed) > 3 else "")
+                    + " is not a matcher group holding a hooks list, so its handlers were "
+                    "not examined for script dependencies."
+                ),
+                blocking=False,
+            ))
+        if selected and any(entry.get("limit") == "handler_bound_exceeded" for entry in entries):
+            issues.append(_inventory_issue(
+                kind="unsupported", host=grant["host"], source=grant["source"],
+                message=f"Hook {event} executable dependencies were not fully examined: handler bound {MAX_HOOK_SCRIPT_HANDLERS} exceeded.",
+                blocking=True,
+            ))
 
 
 def _claude_plugin_hook_issue(*, source: str, message: str, blocking: bool) -> dict[str, Any]:
@@ -4329,10 +4492,15 @@ def _resolve_claude_plugin_hooks(
         enabled_here = plugin_root.casefold() in enabled_roots
         if enabled_here:
             result.enabled_inline.add(selector.split("#", 1)[0])
-        grants.extend(_hooks_grants(
+        inline_grants = _hooks_grants(
             {"hooks": declared}, host="claude-code", scope="repository", source=selector,
             basis="project_enabled_plugin" if enabled_here else "plugin_selected",
-        ))
+        )
+        _bind_hook_scripts(
+            data={"hooks": declared}, grants=inline_grants, root=root,
+            cache=cache, issues=issues, artifacts=artifacts, plugin_root=plugin_root,
+        )
+        grants.extend(inline_grants)
     result.enabled = {
         hook_file for hook_file, roots in roots_by_file.items() if roots & enabled_roots
     }
@@ -4986,6 +5154,8 @@ def build_host_boundary_snapshot(
     root = workspace.resolve()
     home = Path.home().resolve()
     cache = cache or HostStaticParseCache()
+    if cache.reference_workspace is None:
+        cache.reference_workspace = root
     artifacts: list[dict[str, Any]] = []
     grants: list[dict[str, Any]] = []
     issues: list[dict[str, Any]] = []
@@ -5074,6 +5244,7 @@ def build_host_boundary_snapshot(
             containment_root=root, cache=cache,
             artifacts=artifacts, grants=grants, issues=issues,
             resolved_through=resolved_through, hook_basis=hook_basis,
+            plugin_root=(next(iter(selection.roots[source])) if len(selection.roots.get(source, ())) == 1 else None),
         )
         if hook_basis in {"plugin_selected", "project_enabled_plugin"}:
             note_unusable_selected_hooks(data, source=source)
@@ -5088,6 +5259,7 @@ def build_host_boundary_snapshot(
             hook_basis=(
                 "project_enabled_plugin" if source in selection.enabled else "plugin_selected"
             ),
+            plugin_root=(next(iter(selection.roots[source])) if len(selection.roots.get(source, ())) == 1 else None),
         )
         # Read only because a plugin selects it, so its read limits are
         # plugin-reference limits. A registered hook path above keeps the
@@ -5292,6 +5464,96 @@ def without_host_sources(
         **inventory,
         "artifacts": artifacts,
         "grants": [item for item in inventory.get("grants") or [] if kept(item.get("source"))],
+        "issues": issues,
+        "host_coverage": _coverage(
+            scope=inventory.get("scope", "repository"), artifacts=artifacts, issues=issues
+        ),
+    }
+
+
+def hook_dependency_limits(inventory: dict[str, Any]) -> dict[tuple[str, str], str]:
+    """Each selected hook script whose bytes were not read, as ``{(host, path): limit}`` (#702).
+
+    Read from the ``script_inputs`` the grants publish: only an established
+    reference (a path and its basis) the reader then could not capture.
+    """
+
+    return {
+        (str(grant["host"]), str(entry["path"])): str(entry["limit"])
+        for grant in inventory.get("grants", [])
+        if grant.get("kind") == "hook"
+        for entry in grant.get("script_inputs") or []
+        if entry.get("path") and entry.get("basis") and entry.get("limit")
+    }
+
+
+def hook_dependency_issues(inventory: dict[str, Any]) -> dict[str, tuple[str, str]]:
+    """The blocking issues that are a selected hook script's limit, as ``{issue id: (host, path)}``.
+
+    An issue qualifies only when nothing else this inventory publishes at its
+    path could have raised it: a path that is also a declaration the reader
+    parses keeps its issue as that declaration's.
+    """
+
+    limits = hook_dependency_limits(inventory)
+    labels = {(host, _issue_source_label(path)): (host, path) for host, path in limits}
+    declared = {
+        (str(artifact["host"]), str(artifact["path"]))
+        for artifact in inventory.get("artifacts", [])
+        if artifact.get("kind") != "hook_script"
+    }
+    found: dict[str, tuple[str, str]] = {}
+    for issue in inventory.get("issues", []):
+        key = labels.get((str(issue.get("host")), str(issue.get("source"))))
+        if issue.get("blocking") and issue.get("kind") == "unreadable" and key and key not in declared:
+            found[str(issue["issue_id"])] = key
+    return found
+
+
+def without_hook_dependency_bytes(
+    inventory: dict[str, Any],
+    *,
+    issue_ids: set[str] | frozenset[str],
+    dependencies: set[tuple[str, str]] | frozenset[tuple[str, str]],
+) -> dict[str, Any]:
+    """The inventory with these hook scripts' bytes left uncompared (#702 review).
+
+    For a comparison that withholds one selected script rather than the whole
+    comparison: its limit issues and ``hook_script`` artifacts are dropped,
+    each hook entry naming it keeps its handler, path and basis but no digest,
+    size or limit, and host coverage is recomputed as the reader derives it.
+    The declaring hook is still compared, so a repointed reference is a row.
+    """
+
+    def withheld(host: object, path: object) -> bool:
+        return (str(host), str(path)) in dependencies
+
+    grants = []
+    for grant in inventory.get("grants") or []:
+        entries = grant.get("script_inputs")
+        if grant.get("kind") == "hook" and entries and any(
+            withheld(grant.get("host"), entry.get("path")) for entry in entries
+        ):
+            grant = {
+                **grant,
+                "script_inputs": [
+                    {**entry, "sha256": None, "size_bytes": None, "limit": None}
+                    if withheld(grant.get("host"), entry.get("path"))
+                    else entry
+                    for entry in entries
+                ],
+            }
+        grants.append(grant)
+    issues = [item for item in inventory.get("issues", []) if item.get("issue_id") not in issue_ids]
+    artifacts = [
+        item
+        for item in inventory.get("artifacts") or []
+        if not (item.get("kind") == "hook_script" and withheld(item.get("host"), item.get("path")))
+    ]
+    return {
+        **inventory,
+        "artifacts": artifacts,
+        "grants": grants,
         "issues": issues,
         "host_coverage": _coverage(
             scope=inventory.get("scope", "repository"), artifacts=artifacts, issues=issues
@@ -5609,11 +5871,13 @@ def diff_host_grants(baseline: dict[str, Any], current: dict[str, Any]) -> list[
 #: the digest does. Grant equality and the inventory digests leave them out:
 #: a change is still a row, through ``config_sha256``, and a ``0.6`` grant,
 #: which has none of them, compares equal to its ``0.7`` reading of the same
-#: configuration. A saved baseline holds none of them
+#: configuration. #825's source pin classification is display-only too; its
+#: Git-ref fact may describe bytes omitted by URL-path redaction, and never
+#: creates a row by itself. A saved baseline holds none of them
 #: (:func:`build_host_grants_baseline`).
 DISPLAY_ONLY_GRANT_FIELDS: dict[str, frozenset[str]] = {
     "hook": frozenset({"handlers", "omitted_handlers"}),
-    "mcp_server": frozenset({"package", "args_sha256"}),
+    "mcp_server": frozenset({"package", "args_sha256", "launch_source"}),
 }
 
 
@@ -5626,6 +5890,17 @@ def compared_grant(grant: dict[str, Any] | None) -> dict[str, Any] | None:
     if not hidden or not hidden.intersection(grant):
         return grant
     return {key: value for key, value in grant.items() if key not in hidden}
+
+
+def hook_dependency_only_change(before: dict | None, after: dict | None) -> bool:
+    """Script bytes are compared evidence, never newly granted authority."""
+    if not before or not after or before.get("kind") != "hook" or after.get("kind") != "hook":
+        return False
+    return (
+        before.get("script_inputs") != after.get("script_inputs")
+        and {k: v for k, v in compared_grant(before).items() if k != "script_inputs"}
+        == {k: v for k, v in compared_grant(after).items() if k != "script_inputs"}
+    )
 
 
 def _same_workflow_grant(before: dict | None, after: dict | None) -> bool:
@@ -5745,7 +6020,207 @@ def _diff_host_coverage(
     return changes
 
 
-def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
+def _setting_predecessor(after: dict, changes: list[dict]) -> dict | None:
+    """The one same-source setting value an added value replaced, else ``None``.
+
+    A setting's grant identity includes its value, so an edit is a removal and
+    an addition. With no removed value, or several, what came before is not
+    established, and the addition is read as a new declaration (#820).
+    """
+
+    if after.get("host") == "claude-code" and after.get("setting") in CLAUDE_LIST_SETTINGS:
+        # Each named server is a separate grant, not a scalar replacement.
+        return None
+    candidates = [
+        old for change in changes
+        if (old := change.get("baseline")) is not None and change.get("current") is None
+        and all(old.get(key) == after.get(key) for key in ("host", "source", "kind", "setting"))
+    ]
+    return candidates[0] if len(candidates) == 1 else None
+
+
+#: The Claude Code permission modes each documented mode can widen to
+#: (code.claude.com/docs/en/permissions#permission-modes). `auto` and
+#: `acceptEdits` are not ordered against each other.
+_CLAUDE_WIDER_MODES: dict[str, frozenset[str]] = {
+    "default": frozenset({"acceptEdits", "auto", "bypassPermissions"}),
+    "dontAsk": frozenset({"default", "acceptEdits", "auto", "bypassPermissions"}),
+    "plan": frozenset({"default", "acceptEdits", "auto", "bypassPermissions"}),
+    "acceptEdits": frozenset({"bypassPermissions"}),
+    "auto": frozenset({"bypassPermissions"}),
+    "bypassPermissions": frozenset(),
+}
+#: Documented switches and the value that permits more (#820). Claude Code's
+#: settings and sandboxing references: the project MCP and bypass-mode
+#: prompts, disabling the sandbox, its unsandboxed-command escape hatch,
+#: prompt-free sandboxed Bash, and the nested sandbox that "considerably
+#: weakens security". Codex's config reference: `workspace-write` networking,
+#: and keeping `/tmp` and `$TMPDIR` writable.
+_WIDENING_SWITCHES: dict[tuple[str, str], bool] = {
+    ("claude-code", "enableAllProjectMcpServers"): True,
+    ("claude-code", "skipDangerousModePermissionPrompt"): True,
+    ("claude-code", "sandbox.enabled"): False,
+    ("claude-code", "sandbox.allowUnsandboxedCommands"): True,
+    ("claude-code", "sandbox.autoAllowBashIfSandboxed"): True,
+    ("claude-code", "sandbox.enableWeakerNestedSandbox"): True,
+    ("codex", "sandbox_workspace_write.network_access"): True,
+    ("codex", "sandbox_workspace_write.exclude_slash_tmp"): False,
+    ("codex", "sandbox_workspace_write.exclude_tmpdir_env_var"): False,
+}
+#: Lists each entry of which permits something: a command run outside the
+#: Claude Code sandbox, or a directory Codex's `workspace-write` may write.
+_PERMITTING_LISTS = frozenset({
+    ("claude-code", "sandbox.excludedCommands"),
+    ("codex", "sandbox_workspace_write.writable_roots"),
+})
+_CODEX_SANDBOX_MODES = {"read-only": 0, "workspace-write": 1, "danger-full-access": 2}
+#: Codex `web_search`: `cached` has no external web access, `indexed` reaches
+#: it only through the search index, and `live` is unrestricted retrieval.
+_CODEX_WEB_SEARCH = {"disabled": 0, "cached": 1, "indexed": 2, "live": 3}
+
+
+def _setting_direction(before: dict | None, after: dict) -> bool | None:
+    """Whether a documented rule says this value widens: ``True``, ``False`` or ``None`` (#820).
+
+    ``None`` means no rule decides; the row says its direction is not
+    established, and nothing is ranked by severity. ``before`` is the value
+    this one replaced. When it is absent, ambiguous or not a documented value,
+    it is not a host default: only an explicitly permissive value widens, so a
+    typo or an unknown mode cannot hide `bypassPermissions` arriving.
+    """
+
+    host, setting = str(after.get("host")), str(after.get("setting"))
+    old = published_setting_value(before) if before is not None else None
+    new = published_setting_value(after)
+    switch = _WIDENING_SWITCHES.get((host, setting))
+    if switch is not None:
+        if new is switch:
+            return not (isinstance(old, bool) and old is switch)
+        return False if isinstance(new, bool) else None
+    if (host, setting) in _PERMITTING_LISTS:
+        if not isinstance(new, list):
+            return None
+        previous = old if isinstance(old, list) else []
+        return any(entry not in previous for entry in new)
+    if host in {"claude-code", "vscode"} and setting == "sandbox.network":
+        # Each `allowedDomains` entry is a domain sandboxed commands may reach;
+        # the object's other keys are not ordered here.
+        old_network = old if isinstance(old, dict) else {}
+        if not isinstance(new, dict):
+            return None
+        domains, previous = new.get("allowedDomains", []), old_network.get("allowedDomains", [])
+        if not isinstance(domains, list) or not isinstance(previous, list):
+            return None
+        if any(domain not in previous for domain in domains):
+            return True
+        new_rest, old_rest = ({**network, "allowedDomains": None} for network in (new, old_network))
+        return False if new_rest == old_rest else None
+    if host == "claude-code":
+        if setting == "defaultMode":
+            if not isinstance(new, str) or new not in _CLAUDE_WIDER_MODES:
+                return None
+            if not isinstance(old, str) or old not in _CLAUDE_WIDER_MODES:
+                return new in {"acceptEdits", "auto", "bypassPermissions"}
+            if new in _CLAUDE_WIDER_MODES[old]:
+                return True
+            return False if old in _CLAUDE_WIDER_MODES[new] else None
+        if setting == "enabledMcpjsonServers":
+            if before is not None:
+                return False  # The same named entry: nothing is approved anew.
+            return True if isinstance(new, str) and new.strip() else None
+        if setting == "disableBypassPermissionsMode":
+            return False if new == "disable" else None
+        if setting in {"allowManagedPermissionRulesOnly", "allowManagedHooksOnly"}:
+            # Restrictions, and only from managed settings: neither value grants.
+            return False if isinstance(new, bool) else None
+    elif host == "codex":
+        # learn.chatgpt.com/docs/config-file/config-reference. `never`
+        # auto-rejects escalations, so approval_policy is NOT ranked here.
+        for name, order, introduced in (
+            ("sandbox_mode", _CODEX_SANDBOX_MODES, {"danger-full-access": True, "read-only": False}),
+            ("web_search", _CODEX_WEB_SEARCH, {"live": True, "cached": False, "disabled": False}),
+        ):
+            if setting != name:
+                continue
+            if not isinstance(new, str) or new not in order:
+                return None
+            if isinstance(old, str) and old in order:
+                return order[new] > order[old]
+            return introduced.get(new)
+    elif host == "vscode" and setting.startswith("servers.") and setting.endswith(".sandboxEnabled"):
+        # VS Code documents this only for local stdio servers; the reader
+        # assigns admin access only when that transport is established.
+        if new is True:
+            return False
+        return True if new is False and after.get("access") == "admin" else None
+    return None
+
+
+def _setting_change_direction(change: dict, comparison_changes: list[dict]) -> bool | None:
+    """:func:`_setting_direction` of one added or changed setting grant, in its comparison."""
+
+    before, after = change.get("baseline"), change["current"]
+    previous = before if before is not None else _setting_predecessor(after, comparison_changes)
+    return _setting_direction(previous, after)
+
+
+def _hook_handler_count(grant: dict) -> int | None:
+    """How many handlers a hook grant declares (#819), or ``None`` where it does not say."""
+
+    handlers, omitted = grant.get("handlers"), grant.get("omitted_handlers")
+    if not isinstance(handlers, list) or isinstance(omitted, bool) or not isinstance(omitted, int):
+        return None
+    return len(handlers) + omitted
+
+
+def _hook_handlers_grew(before: dict, after: dict) -> bool:
+    """One event declares more handlers than it did: a hook was added to it (#820)."""
+
+    old, new = _hook_handler_count(before), _hook_handler_count(after)
+    return old is not None and new is not None and new > old
+
+
+def host_grant_direction_unknown(
+    change: dict[str, Any], *, comparison_changes: list[dict[str, Any]] | None = None,
+) -> bool:
+    """An edit that may widen authority, where no documented rule decides whether it does (#820).
+
+    Named, never silent: the row says its direction is unknown, and the Claude
+    Code Stop hook announces it beside the widenings. ``False`` for an
+    expansion, for a direction a rule settles (a disabled plugin, a more
+    restrictive mode), for a removal, for a re-read of the same
+    configuration, and for a hook nothing loads (#714). A hook or MCP edit is
+    never assumed to narrow.
+    """
+
+    before, after = change.get("baseline"), change.get("current")
+    if after is None or (before is not None and before.get("config_sha256") == after.get("config_sha256")):
+        return False
+    if host_grant_expansion_signals([change], comparison_changes=comparison_changes):
+        return False
+    kind = after.get("kind")
+    if kind == "mcp_server":
+        return before is not None
+    if kind == "hook":
+        return before is not None and hook_loading_basis(after) in LOADED_HOOK_BASES
+    if kind == "plugin_or_app":
+        return after.get("enabled") is not False
+    if kind in {"permission_mode", "sandbox"}:
+        context = [change] if comparison_changes is None else comparison_changes
+        return _setting_change_direction(change, context) is None
+    return False
+
+
+def host_grant_expansion_signals(
+    changes: list[dict[str, Any]], *, comparison_changes: list[dict[str, Any]] | None = None,
+) -> list[str]:
+    """Expansion evidence for these changes, with setting replacement context.
+
+    Row projection asks about one change at a time; the full comparison is
+    needed because setting identities include values, making an edit two rows.
+    """
+
+    context = changes if comparison_changes is None else comparison_changes
     widened, narrowed_rules = _permission_direction_signals(changes)
     signals: list[str] = list(widened)
     for change in changes:
@@ -5758,7 +6233,10 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
         kind = after.get("kind")
         prefix = "added" if before is None else "changed"
         if kind == "mcp_server":
-            signals.append(f"mcp_server_{prefix}: {after['host']}:{after['server']}")
+            # Launch fields (#819) describe the edit, not what arbitrary
+            # server code/arguments will do. Neither wider nor narrower.
+            if before is None:
+                signals.append(f"mcp_server_{prefix}: {after['host']}:{after['server']}")
         elif kind == "permission_rule" and after.get("disposition") == "allow":
             if (after["host"], after.get("source", ""), str(after["rule"])) in narrowed_rules:
                 # The narrower half of a replacement. This list is an
@@ -5776,6 +6254,16 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
                 # it narrower now removes nothing and adds nothing; the row
                 # stays, as a change without an expansion signal.
                 continue
+            if (
+                before is not None
+                and exec_equivalent_argument(str(after.get("rule") or "")) is not None
+                and before.get("rule") == after.get("rule")
+                and before.get("config_sha256") is not None
+                and before.get("config_sha256") == after.get("config_sha256")
+            ):
+                # #824 re-rates a saved declaration; unchanged bytes do not
+                # grant new authority merely because this engine rates higher.
+                continue
             marker = "wildcard_allow" if after.get("wildcard") else "allow_rule"
             signals.append(f"{marker}_{prefix}: {after['host']}:{after['rule']}")
         elif kind == "hook":
@@ -5784,12 +6272,18 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
             # that this repository's project settings enable from an
             # in-repository marketplace. A hook nothing selects, or one a
             # plugin selects without that enablement, is still a row, never
-            # an expansion (#714). Read from the current grant only, so a
-            # baseline that recorded such a file as `execute` does not report
-            # a widening when it is re-read.
-            if hook_loading_basis(after) in LOADED_HOOK_BASES:
+            # an expansion (#714). A loaded hook's command/matcher/timeout
+            # edit alone establishes no direction (#820). Its loading basis
+            # becoming established is still a gain in declared execution, and
+            # so is one more handler on an event that already had some: hook
+            # grants are one per event, so that added hook is a `changed` one.
+            if hook_loading_basis(after) in LOADED_HOOK_BASES and (
+                before is None
+                or hook_loading_basis(before) in {"declared_only", "plugin_selected"}
+                or _hook_handlers_grew(before, after)
+            ):
                 signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
-        elif kind in {"permission_mode", "sandbox", "additional_path", "plugin_or_app"}:
+        elif kind in {"permission_mode", "sandbox"}:
             if (
                 kind in {"permission_mode", "sandbox"}
                 and before is not None
@@ -5801,6 +6295,21 @@ def host_grant_expansion_signals(changes: list[dict[str, Any]]) -> list[str]:
                 # `medium`. The file permits nothing new, so the row stays as
                 # a change without an expansion signal, as #816 did for rules.
                 continue
+            if _setting_change_direction(change, context) is True:
+                signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
+        elif kind == "plugin_or_app":
+            if before is not None and before.get("config_sha256") == after.get("config_sha256"):
+                continue  # The same declaration, read again: nothing enabled anew.
+            # A marketplace added or re-pointed changes what the plugins
+            # enabled from it install and run (#720); it carries no `enabled`.
+            # Otherwise only enablement gains: a plugin or app enabled where
+            # it was absent, disabled, or not established as enabled.
+            marketplace = after.get("host") == "claude-code" and str(after.get("name", "")).startswith("marketplace:")
+            if marketplace or (
+                after.get("enabled") is True and (before is None or before.get("enabled") is not True)
+            ):
+                signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
+        elif kind == "additional_path" and before is None:
             signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
         elif kind == "workflow":
             previous = before or {}
@@ -6032,6 +6541,21 @@ def build_host_drift_payload(
     *, baseline: dict[str, Any], inventory: dict[str, Any], baseline_file: str
 ) -> dict[str, Any]:
     reasons: list[str] = []
+    # A baseline from before #702 never read script bytes. Only a hook whose
+    # current reading binds a script cannot be compared against it; for every
+    # other hook the current entries hold limits alone and are left out.
+    unread_scripts = {
+        str(grant.get("grant_id"))
+        for grant in (baseline.get("inventory") or {}).get("grants", [])
+        if grant.get("kind") == "hook" and grant.get("scope") == "repository"
+        and grant.get("script_inputs") is None
+    }
+    if any(
+        str(grant.get("grant_id")) in unread_scripts
+        and any(entry.get("path") and entry.get("basis") for entry in grant.get("script_inputs") or [])
+        for grant in inventory.get("grants", [])
+    ):
+        reasons.append("baseline_hook_script_inputs_unavailable")
     if baseline.get("host_grants_schema_version") == "0.1":
         reasons.append("baseline_schema_v0.1_lacks_typed_grants_and_scope")
     elif baseline.get("host_grants_schema_version") not in _COMPARABLE_BASELINE_SCHEMA_VERSIONS:
@@ -6073,14 +6597,27 @@ def build_host_drift_payload(
         baseline_inventory=baseline["inventory"],
         inventory=inventory,
         baseline_file=baseline_file,
+        unread_scripts=unread_scripts,
     )
 
 
 def _comparable_drift_payload(
-    *, baseline_inventory: dict[str, Any], inventory: dict[str, Any], baseline_file: str
+    *, baseline_inventory: dict[str, Any], inventory: dict[str, Any], baseline_file: str,
+    unread_scripts: set[str] | frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     current = normalized_host_grants(inventory)
-    changes = diff_host_grants(baseline_inventory, current)
+    # Limit-only entries against a baseline that never read scripts: neither
+    # side establishes a script, so there is nothing to compare (#702).
+    compared = {
+        **current,
+        "grants": [
+            {key: value for key, value in grant.items() if key != "script_inputs"}
+            if str(grant.get("grant_id")) in unread_scripts
+            else grant
+            for grant in current["grants"]
+        ],
+    } if unread_scripts else current
+    changes = diff_host_grants(baseline_inventory, compared)
     artifact_changes = _diff_host_artifacts(baseline_inventory, current)
     coverage_changes = _diff_host_coverage(baseline_inventory, current)
     payload = {
@@ -6163,13 +6700,28 @@ def render_host_audit_markdown(
         # warning names the wildcards whose tool class earned a severity;
         # the low-risk ones are still listed above, just not shouted (#657).
         notable = [grant for grant in wildcard_rules if grant.get("risk") != "low"]
-        if notable:
+        # A launcher rule is not wildcard-shaped, but the check blocks it
+        # through the same rule, so the line that names that rule counts it
+        # (#824).
+        launchers = [
+            grant
+            for grant in by_kind.get("permission_rule", [])
+            if grant.get("disposition") == "allow"
+            and not grant.get("wildcard")
+            and exec_equivalent_argument(str(grant.get("rule") or "")) is not None
+        ]
+        if notable or launchers:
             lines.append("")
             quiet = len(wildcard_rules) - len(notable)
             lines.append(
-                f"⚠ {len(notable)} wildcard allow rule(s) above low risk; "
+                f"⚠ {len(notable) + len(launchers)} wildcard allow rule(s) above low risk; "
                 "verification reports "
                 "`SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW`."
+                + (
+                    f" {len(launchers)} of them reach arbitrary code through a launcher."
+                    if launchers
+                    else ""
+                )
                 + (
                     f" {quiet} further wildcard rule(s) are read-only and listed above."
                     if quiet
@@ -6244,6 +6796,7 @@ __all__ = [
     "hook_loading_basis",
     "host_audit_inventory",
     "host_comparison_baseline",
+    "host_grant_direction_unknown",
     "host_grant_expansion_signals",
     "host_grants_sha256",
     "inventory_is_complete",

@@ -88,8 +88,8 @@ from tests.test_host_diff_review_changes import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SETTINGS = ".claude/settings.json"
-HOOK_HEADER = "⚠ high widened claude-code .claude/settings.json"
-MCP_HEADER = "⚠ high widened claude-code .mcp.json"
+HOOK_HEADER = "high changed claude-code .claude/settings.json"
+MCP_HEADER = "high changed claude-code .mcp.json"
 
 
 def _hooks(matcher: str, command: str, timeout: object) -> dict:
@@ -186,9 +186,9 @@ def test_each_changed_field_is_named_with_its_before_and_after_on_every_route(
     assert _table_entry(text, header)[1] == change
     [published] = payload["review"]["changes"]
     assert published["change"] == change
-    # The row itself is what `1.1.0` published: one row, the same values.
+    # #820 keeps the row and values, without inferring a direction from the edit.
     assert [(row["before"], row["after"], row["direction"]) for row in payload["rows"]] == [
-        (subject_value, subject_value, "widened")
+        (subject_value, subject_value, "changed")
     ]
 
     # `verify`'s text, the PR comment and `verifier.json`.
@@ -272,14 +272,18 @@ def test_several_handlers_name_which_one_changed(tmp_path: Path) -> None:
         *hooks(5)["hooks"]["PreToolUse"],
         {"matcher": "Write", "hooks": [{"type": "command", "command": "bin/scan.sh"}]},
     ]}}
-    for name, head, change in (
-        ("timeout", hooks(50), "PreToolUse: handler 2 timeout 5 → 50"),
-        ("added", added, f"PreToolUse: +handler (matcher Write, command scan.sh {_digest('bin/scan.sh')})"),
+    for name, head, header, change in (
+        ("timeout", hooks(50), HOOK_HEADER, "PreToolUse: handler 2 timeout 5 → 50"),
+        # One more handler on the event is an added hook, so it widens (#820).
+        (
+            "added", added, "⚠ high widened claude-code .claude/settings.json",
+            f"PreToolUse: +handler (matcher Write, command scan.sh {_digest('bin/scan.sh')})",
+        ),
     ):
         (tmp_path / name).mkdir()
         repo = _repository(tmp_path / name, {SETTINGS: hooks(5)}, {SETTINGS: head})
         text, _ = _diff(repo)
-        assert _table_entry(text, HOOK_HEADER)[1] == change, name
+        assert _table_entry(text, header)[1] == change, name
 
 
 #: What a reorder says: equal published handlers never establish equal
@@ -1045,7 +1049,7 @@ def test_long_hook_entries_leave_every_line_1_1_0_prints_in_the_pr_comment(tmp_p
     assert len(headings) == len(rows)
     for index in headings:
         assert lines[index + 1].startswith("  ` ") and lines[index + 1].endswith(" `")
-        assert lines[index + 2] == "  ` changes what runs around the agent's actions `"
+        assert lines[index + 2] == "  ` hook edit; authority direction is unknown `"
     # The coverage block, the question, the reproduction, the advisory and the evidence.
     assert "What this run established:" in lines
     assert any(line.startswith("- ` .claude/settings.json ` (claude-code): compared;") for line in lines)
@@ -1164,6 +1168,9 @@ def _legacy_baseline(inventory: dict) -> dict:
         **baseline["inventory"],
         "grants": [compared_grant(grant) for grant in baseline["inventory"]["grants"]],
     }
+    for grant in snapshot["grants"]:
+        grant.pop("script_inputs", None)  # This reader did not exist in 0.6.
+    snapshot["artifacts"] = [item for item in snapshot["artifacts"] if item["kind"] != "hook_script"]
     legacy = {
         "host_grants_schema_version": "0.6",
         "scope": baseline["scope"],
@@ -1178,24 +1185,24 @@ def test_the_detail_is_left_out_of_equality_and_the_inventory_digest(tmp_path: P
     _write(root, SETTINGS, _hooks("Edit", "bin/lint.sh", 10))
     _write(root, ".mcp.json", _server("-y", "example-mcp-server@1.2.3"))
     inventory = _inventory(root)
-    legacy = _legacy_baseline(inventory)
+    baseline = build_host_grants_baseline(inventory)
 
-    # No detail member survives in the legacy snapshot, and the digest is the same.
-    for grant in legacy["inventory"]["grants"]:
+    # No detail member survives in the baseline snapshot, and the digest is the same.
+    for grant in baseline["inventory"]["grants"]:
         assert not DISPLAY_ONLY_GRANT_FIELDS.get(grant["kind"], frozenset()).intersection(grant)
-    assert legacy["inventory_sha256"] == build_host_grants_baseline(inventory)["inventory_sha256"]
+    assert baseline["inventory_sha256"] == build_host_grants_baseline(inventory)["inventory_sha256"]
 
-    drift = build_host_drift_payload(baseline=legacy, inventory=inventory, baseline_file="b.json")
+    drift = build_host_drift_payload(baseline=baseline, inventory=inventory, baseline_file="b.json")
     assert (drift["comparison_status"], drift["has_drift"], drift["changes"]) == ("comparable", False, [])
     assert drift["incomparable_reasons"] == []
     assert drift["baseline_sha256"] == drift["current_sha256"]
 
     # A change is still a row, through `config_sha256`.
     _write(root, SETTINGS, _hooks("Edit|Write", "bin/lint.sh", 10))
-    changed = build_host_drift_payload(baseline=legacy, inventory=_inventory(root), baseline_file="b.json")
+    changed = build_host_drift_payload(baseline=baseline, inventory=_inventory(root), baseline_file="b.json")
     assert [change["current"]["kind"] for change in changed["changes"]] == ["hook"]
-    assert changed["expansion_signals"] == ["hook_changed: claude-code:.claude/settings.json"]
-    # A legacy side names no field difference it cannot show: the event, as before.
+    assert changed["expansion_signals"] == []
+    # A saved side names no field difference it cannot show: the event, as before.
     [row] = capability_diff_rows(changed)
     [presented] = review_changes([row])
     assert (presented.before, presented.after, presented.change) == ("PostToolUse", "PostToolUse", None)
@@ -1203,6 +1210,8 @@ def test_the_detail_is_left_out_of_equality_and_the_inventory_digest(tmp_path: P
 
 def test_a_0_6_baseline_stays_comparable_and_may_be_re_saved(tmp_path: Path) -> None:
     root = tmp_path / "repo"
+    # A relative script path binds no dependency (#702), so a baseline that
+    # never read scripts loses nothing here.
     _write(root, SETTINGS, _hooks("Edit", "bin/lint.sh", 10))
     _write(root, ".mcp.json", _server("-y", "example-mcp-server@1.2.3"))
     path = root / ".agents-shipgate/host-grants.json"
@@ -1219,8 +1228,30 @@ def test_a_0_6_baseline_stays_comparable_and_may_be_re_saved(tmp_path: Path) -> 
     assert saved["status"] == "updated"
     resaved = json.loads(path.read_text())
     assert resaved["host_grants_schema_version"] == "0.7"
-    # The re-saved grants are the `0.6` ones: only the version moved.
-    assert resaved["inventory"] == json.loads(json.dumps(_legacy_baseline(_inventory(root))))["inventory"]
+    # Re-saving records the current comparison facts, the unresolved
+    # reference's limit among them; nothing else moved.
+    assert resaved == build_host_grants_baseline(_inventory(root))
+
+
+def test_a_0_6_hook_baseline_is_incomparable_only_where_a_script_is_bound(tmp_path: Path) -> None:
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+
+    root = tmp_path / "repo"
+    _write(root, SETTINGS, _hooks("Edit", '"${CLAUDE_PROJECT_DIR}/bin/lint.sh"', 10))
+    _write(root, "bin/lint.sh", "#!/bin/sh\n")
+    path = root / ".agents-shipgate/host-grants.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(_legacy_baseline(_inventory(root)), indent=2, sort_keys=True) + "\n")
+
+    result = CliRunner().invoke(app, [
+        "audit", "--host", "--workspace", str(root), "--drift", "--fail-on-drift", "--json",
+    ])
+    assert result.exit_code == 20
+    drift = json.loads(result.stdout)
+    assert (drift["comparison_status"], drift["has_drift"]) == ("incomparable", None)
+    assert "baseline_hook_script_inputs_unavailable" in drift["incomparable_reasons"]
 
 
 def test_an_older_baseline_is_still_refused_on_save(tmp_path: Path) -> None:
@@ -1475,7 +1506,7 @@ def test_a_codex_hook_names_its_timeout(tmp_path: Path) -> None:
 
     repo = _repository(tmp_path, {".codex/hooks.json": hook(5)}, {".codex/hooks.json": hook(120)})
     text, _ = _diff(repo)
-    assert _table_entry(text, "⚠ high widened codex .codex/hooks.json")[1] == "Stop: timeout 5 → 120"
+    assert _table_entry(text, "high changed codex .codex/hooks.json")[1] == "Stop: timeout 5 → 120"
 
 
 @pytest.mark.parametrize(

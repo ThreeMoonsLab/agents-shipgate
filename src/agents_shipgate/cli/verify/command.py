@@ -557,13 +557,18 @@ def _emit_verify_stdout(
             else _unevaluated_verdict_word(verifier)
         )
         if verifier.host_comparison is not None:
-            from agents_shipgate.report.host_comparison import host_comparison_lines
+            from agents_shipgate.report.host_comparison import (
+                host_comparison_lines,
+                permission_guidance_lines,
+            )
             for line in host_comparison_lines(verifier.host_comparison):
                 typer.echo(line)
             typer.echo("Agents Shipgate verify: advisory: no application release policy configured")
             if verifier.host_comparison.comparison_status != "comparable" and verifier.control.next_action is not None:
                 typer.echo("Next: " + single_line_text(verifier.control.next_action.why))
             typer.echo("Static configuration comparison only; no application release or merge authority is granted.")
+            for line in permission_guidance_lines(verifier.host_comparison):
+                typer.echo(line)
             return
         # Lead with the operational answer. The release verdict below is the
         # gate's word on the change; these lines are the reader's word on what

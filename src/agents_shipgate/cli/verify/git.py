@@ -1303,6 +1303,99 @@ def blob_path_unchanged(workspace: Path, base: str, head: str | None, path: str)
     return hashed.returncode == 0 and hashed.stdout.strip() == base_entry[2]
 
 
+def tree_path_absent(workspace: Path, base: str, head: str | None, path: str) -> bool:
+    """Whether nothing is at ``path`` at ``base`` and at ``head`` (#702).
+
+    ``head=None`` means the working tree. On each side every component above
+    the first missing one must be a directory: a gitlink, link or file on the
+    way is not absence, since the file may live behind it, and neither is a
+    Git failure. In the working tree no component may be a link or other
+    non-directory either, and the index may stage nothing at the path or at
+    a component above it, such as a submodule not checked out. ``False``
+    whenever absence is not proven, so a selected hook script missing on both
+    sides is an unchanged limit only when this proves it (the #822 rule for
+    limits identical on both sides).
+    """
+
+    from pathlib import PurePosixPath
+
+    relative = PurePosixPath(path)
+    if (
+        not path
+        or relative.is_absolute()
+        or relative.as_posix() != path
+        or ".." in relative.parts
+        or "\\" in path
+        or "\0" in path
+    ):
+        return False
+    try:
+        encoded = path.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    prefixes = ["/".join(relative.parts[: index + 1]) for index in range(len(relative.parts))]
+
+    def commit_absent(ref: str) -> bool:
+        commit = commit_sha(workspace, ref)
+        if commit is None:
+            return False
+        for prefix in prefixes:
+            listed = _run_git(
+                workspace,
+                ["--literal-pathspecs", "ls-tree", "-z", "--full-tree", commit, "--", prefix],
+                check=False,
+                text=False,
+            )
+            if listed.returncode != 0:
+                return False
+            records = [record for record in listed.stdout.split(b"\0") if record]
+            if not records:
+                return True
+            header, separator, name = records[0].partition(b"\t")
+            if (
+                len(records) != 1
+                or not separator
+                or name != prefix.encode("utf-8")
+                or header.split()[:2] != [b"040000", b"tree"]
+            ):
+                return False
+        return False
+
+    if not commit_absent(base):
+        return False
+    if head is not None:
+        return commit_absent(head)
+    import stat
+
+    for prefix in prefixes:
+        try:
+            mode = os.lstat(workspace / prefix).st_mode
+        except FileNotFoundError:
+            break
+        except OSError:
+            return False
+        if not stat.S_ISDIR(mode):
+            return False
+    else:
+        return False
+    staged = _run_git(
+        workspace,
+        ["--literal-pathspecs", "ls-files", "--stage", "-z", "--", *prefixes],
+        check=False,
+        text=False,
+    )
+    if staged.returncode != 0:
+        return False
+    names = {prefix.encode("utf-8") for prefix in prefixes}
+    for record in staged.stdout.split(b"\0"):
+        if not record:
+            continue
+        _header, separator, name = record.partition(b"\t")
+        if not separator or name in names or name.startswith(encoded + b"/"):
+            return False
+    return True
+
+
 #: Bounds on what :func:`blob_path_identities` reads (#812): one tree listing,
 #: each base blob and working-tree file it compares (the host reader's own
 #: per-file bound), and those base blobs together.
@@ -2327,8 +2420,16 @@ def archive_tree(
     *,
     scope: Callable[[str], bool] | None = None,
     record_gitlinks: bool = False,
+    rescope: Callable[[Path], tuple[Path, Callable[[str], bool]] | None] | None = None,
 ) -> dict[str, str]:
     """Materialize exact Git blobs without export-ignore or substitutions.
+
+    ``rescope``, with a ``scope``, is called with the materialized tree and
+    may name a second, empty destination and a wider scope: the same
+    verified object store then materializes that one too, so a reader that
+    learns from the first tree which further paths it needs (#702) does not
+    copy and verify the object graph twice. The gitlinks returned are the
+    last tree's.
 
     ``scope`` narrows the materialized tree to the paths a reader will
     actually open, plus every symlink — a linked directory is what can
@@ -2370,11 +2471,25 @@ def archive_tree(
             git_dir=git_dir,
             tree=tree if scope is not None else None,
         )
-        return _materialize_isolated_tree(
+        gitlinks = _materialize_isolated_tree(
             git_dir,
             tree=tree,
             destination=destination,
             scope=scope,
+            record_gitlinks=record_gitlinks,
+        )
+        wider = rescope(destination) if rescope is not None and scope is not None else None
+        if wider is None:
+            return gitlinks
+        again, wider_scope = wider
+        again.mkdir(parents=True, exist_ok=True)
+        if any(again.iterdir()):
+            raise ConfigError("Git archive destination must be empty")
+        return _materialize_isolated_tree(
+            git_dir,
+            tree=tree,
+            destination=again,
+            scope=wider_scope,
             record_gitlinks=record_gitlinks,
         )
 
@@ -3219,6 +3334,7 @@ def archive_fetched_tree(
     *,
     scope: Callable[[str], bool] | None = None,
     record_gitlinks: bool = False,
+    rescope: Callable[[Path], tuple[Path, Callable[[str], bool]] | None] | None = None,
 ) -> dict[str, str]:
     """:func:`archive_tree`, naming a partial clone's unfetched objects as such.
 
@@ -3234,7 +3350,8 @@ def archive_fetched_tree(
 
     try:
         return archive_tree(
-            workspace, commit, destination, scope=scope, record_gitlinks=record_gitlinks
+            workspace, commit, destination, scope=scope, record_gitlinks=record_gitlinks,
+            rescope=rescope,
         )
     except (ConfigError, subprocess.CalledProcessError) as exc:
         if promised_objects_missing(workspace, commit):

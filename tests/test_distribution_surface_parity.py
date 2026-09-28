@@ -248,6 +248,12 @@ SURFACES: tuple[Surface, ...] = (
         # answer and adds no claim; `tests/test_linked_unchanged_limits.py`
         # holds diff, verify, the PR comment and `check` to it, including the
         # shared plugin-reference limits `check` leaves out by the same proof.
+        # A hook row's inline-allow note (#826) renders the display-only
+        # `inline_allow` the engine published on a Claude Code `PreToolUse`
+        # handler, left out of grant equality, the inventory digests and saved
+        # baselines, so it restates no answer and moves no row, severity or
+        # `check` decision; `tests/test_inline_hook_allow.py` holds diff,
+        # verify, the PR comment and check to it.
         # Its agent-launch cells and note (#823) restate no answer: direction
         # comes from the engine's
         # `workflow_agent_widened_*` expansion signal, itself read off the
@@ -269,6 +275,22 @@ SURFACES: tuple[Surface, ...] = (
         # equality and the inventory digests, so it restates no answer and
         # moves no row; `tests/test_hook_mcp_detail_fields.py` holds every
         # route to the same entry.
+        # A hook script's byte comparison (#702) restates no engine answer:
+        # its row, `script_inputs`-derived `why` and change, the script's
+        # coverage lines, the `partial` scope or `unchanged_limits` entry a
+        # script limit becomes, and the `script_not_resolved` item are facts
+        # the comparator computed from what the reader published, never a
+        # verdict, pin or vocabulary, and a script-only change is never an
+        # expansion; `check`'s routing of a selected script reuses the
+        # protected-surface rule. `tests/test_hook_script_capture.py`,
+        # `tests/test_hook_script_comparison_limits.py` and
+        # `tests/test_hook_script_routing.py` hold diff, verify and `check`.
+        # An MCP row's launch-source note (#825) renders the display-only
+        # `launch_source` pin the engine published on the grant, left out of
+        # grant equality, the inventory digests and saved baselines, so it
+        # restates no answer and moves no row, severity or `check` decision;
+        # `tests/test_mcp_launch_source.py` holds diff, verify, the PR comment
+        # and check to it.
         {},
     ),
     Surface(

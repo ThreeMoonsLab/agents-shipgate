@@ -941,6 +941,7 @@ def _validate_control_currency(
         _validate_worktree_currency(
             out_dir, pointer, live, required=grants_authority, artifacts=artifacts
         )
+        _validate_hook_script_currency(out_dir, live, artifacts)
     elif identity.snapshot_kind == "committed_tree":
         _require_clean_worktree(out_dir, live)
     if "verification_plan" in artifacts:
@@ -956,6 +957,58 @@ def _validate_control_currency(
                 f"The recorded source and dependency inputs are no longer current: {exc}",
                 path=out_dir,
             ) from exc
+
+
+def _validate_hook_script_currency(
+    out_dir: Path, live: LiveWorkspace, artifacts: Mapping[str, bytes],
+) -> None:
+    """Re-read every consumed script, including paths Git's overlay ignores."""
+    raw = artifacts.get("verifier")
+    if raw is None:
+        return
+    from agents_shipgate.core.hook_script_capture import capture_hook_script
+    from agents_shipgate.core.host_grants import HostStaticParseCache
+    from agents_shipgate.schemas.verification_identity import VerificationBlob
+
+    try:
+        verifier = json.loads(raw)
+        comparison = verifier.get("host_comparison") if isinstance(verifier, dict) else None
+        if not isinstance(comparison, dict):
+            return
+        if comparison.get("input_script_unconfirmable_paths"):
+            raise ValueError("a selected hook script could not be captured")
+        absent_paths = comparison.get("input_script_absent_paths", [])
+        snapshot = None
+        if absent_paths:
+            from agents_shipgate.core.static_inputs import StaticInputSnapshot
+
+            snapshot = StaticInputSnapshot(live.root)
+            for path in absent_paths:
+                relative = Path(path)
+                if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+                    raise ValueError("invalid hook script absence path")
+                if not snapshot.bind_dependency_absence(live.root / relative):
+                    raise ValueError("a missing hook script dependency appeared")
+        cache = HostStaticParseCache()
+        reader = cache.reader_for(live.root)
+        for item in comparison.get("input_script_blobs", []):
+            bound = VerificationBlob.model_validate(item)
+            observed = capture_hook_script(reader, bound.path)
+            if (
+                observed.get("limit") is not None
+                or "sha256:" + str(observed.get("sha256")) != bound.sha256
+                or observed.get("size_bytes") != bound.size_bytes
+            ):
+                raise ValueError("selected hook script bytes no longer match the captured dependency")
+        cache.finish()
+        if snapshot is not None:
+            snapshot.finish()
+    except (ValueError, OSError, NotImplementedError) as exc:
+        raise CurrentControlUnavailable(
+            "workspace_unverifiable",
+            "The recorded hook script dependency inputs are no longer current; re-run verification.",
+            path=out_dir,
+        ) from exc
 
 
 def _refuse_unobserved(

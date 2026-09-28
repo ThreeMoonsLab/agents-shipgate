@@ -33,6 +33,15 @@
 
 ### Changes
 
+- Compare exact repository script bytes for supported, selected Claude Code and Codex hook executable references. A script-only edit produces an attributable hook row without asserting a permission expansion; its `why` names the direction as not established (#820), so the Claude Code Stop hook lists it apart from widenings rather than staying silent; `check` routes the dependency for review from either compared revision. The documented shell spellings resolve (`"$CLAUDE_PROJECT_DIR"/path`, `"${CLAUDE_PROJECT_DIR}"/path`, the variable and path quoted together, or unquoted with a plain path, and `CLAUDE_PLUGIN_ROOT` alike in a plugin's hooks). A script this entry cannot read withholds only its own bytes: an unchanged shared limit, or a script absent from both sides, is an `unchanged_limits` entry, and any other makes the comparison `partial` with every grant still compared. A script whose working-tree bytes differ only by a checkout's line-ending conversion is `unchanged_not_proven`, not a row. A selected hook whose script is not resolved (an interpreter wrapper, a relative path, a conditional expansion, a compound command or a malformed group) is named as a `script_not_resolved` coverage item while the change could touch it, never a row. A pre-#702 baseline is incomparable only for a hook that now binds a script. `check` and a provided diff (`check --diff`) leave out a selected script the change does not touch, so an untouched missing, ignored or linked script changes no `check` decision; a touched one is routed for review, and compared from the diff where the diff also touches its declaration. Verification binds ignored inputs and missing-path observations, and refuses current authority for unsafe reads. Mode-only changes and recursive dependencies are not compared. (#702)
+- Note a literal, unconditional inline `PreToolUse` allow on a broad Claude Code hook matcher. Diff, verifier host comparison and PR comments share the note; script and unsupported command behavior remains a named inventory limit. Direction, severity, widening signals and control decisions are unchanged. See the [bounded grammar](docs/engineering/inline-hook-allow-notes.md). (#826)
+- Add factual mutable-source notes to supported MCP launcher changes, including established pinned-to-mutable transitions. Keep package text within existing redaction rules; do not change direction, severity or control decisions (#825).
+- Add conditional review guidance for supported Claude Code shell-permission changes: a concrete intent question, human choices and a declaration comparison target, shared by CLI, maintained JSON and advisory PR output. Conflicting, redacted or incomplete evidence withholds specific choices. Existing control permissions, rows and release decisions are unchanged. See the [case mapping](docs/engineering/permission-review-guidance.md). (#839)
+
+- Correct false widening markers on hook/MCP edits, disabled plugins, more restrictive permission modes and enabled sandboxes. Explicit enablement (including a Codex app, enabled by default), added or re-pointed Claude Code marketplaces, less restrictive modes, documented sandbox loosenings (disabling it, `excludedCommands`, `autoAllowBashIfSandboxed`, `enableWeakerNestedSandbox`, `allowedDomains`, Codex `writable_roots` and `web_search: live`) and added loaded hooks/MCP servers still expand, including a handler added to an event that already had one. An edit whose direction is not established is a row whose `why` ends `authority direction is unknown`, and the Claude Code Stop hook names it under its own heading instead of staying silent. Setting replacements use their full comparison context so another setting's expansion cannot mark a tightening; an unknown or ambiguous predecessor is read as a new declaration, so it cannot hide `bypassPermissions`. Claude Code plugin enablement no longer coerces malformed values to booleans. Existing check decisions and severities remain unchanged. See the [migration note](STABILITY.md#grant-direction-820) and [before/after direction benchmark](benchmark/host-config/direction-replay-820.md). (#820)
+- A changed Claude Code `git push` prefix allow now names documented command forms that the narrower deny prefixes in the same source do not cover, including a flag placed after the remote (`git push origin main --force`). The shared CLI/JSON/PR explanation considers unchanged head denies too, declines unsupported shapes and preserves all direction, severity and gate decisions; `check`, whose rows redact rule arguments, omits it. It does not claim those commands will execute without prompting. (#829)
+- Rate documented arbitrary-code Bash launcher prefixes with trailing wildcards as critical/admin, and any Bash allow rule the lattice decides is wider than one (`Bash(python3 *)`, `Bash(npx*)`), so widening a rule cannot lower its rating; route newly granted forms through the existing wildcard block check, and count them in the `audit --host` Markdown warning. Show them in check evidence in table text only; exact commands and containment comparisons stay unchanged. `check` no longer reports respelling a Bash rule (`Bash(npx:*)` to `Bash(npx *)`) as a new grant (#824).
+- Skill frontmatter `metadata` no longer refuses the entire host comparison. A map's boolean, numeric, list and nested values are preserved, and a `metadata` that is not a map, which Claude Code drops, is digested as written, as an undocumented key is (#730). Claude Code documents a free-form map; this static structure reader does not validate portability to hosts that require string values. Metadata changes remain in the structure digest, and malformed frontmatter, ambiguous YAML and a metadata key that is not a string, at any depth, still refuse. A permission widening beside such metadata is now visible in text and JSON, with matching coverage. See the [migration note](STABILITY.md#skill-metadata-848). (#848)
 - Version-based Action installs log the existing installed engine content
   digest, including host-only runs. It can be compared with a local verifier's
   `engine_distribution_sha256`; it is not the wheel ZIP hash. An engine that
@@ -208,8 +217,8 @@
 
 - An unchanged instruction file or plugin manifest reached through an in-tree
   link no longer refuses the whole host comparison. A `SKILL.md` whose
-  `metadata` holds a non-string value, which this entry cannot resolve, is
-  named as an unchanged limit when the change leaves it alone (#721). Read
+  `metadata` has a key that is not a string, which this entry cannot resolve,
+  is named as an unchanged limit when the change leaves it alone (#721). Read
   through `.claude/skills -> ../.agents/skills`, a per-skill link or a file
   link, the same untouched file made `diff`, `verify` and the manifest-free PR
   comment print `Cannot compare against HEAD~1: base_inventory_incomplete;
@@ -232,9 +241,10 @@
     same file; a link replaced by a directory holding the same bytes, or the
     reverse; and every link the reader does not read through (dangling,
     looping, absolute, escaping, past eight links, or inside a linked
-    directory), which stays `unreadable` and is never an unchanged limit. The
-    metadata value is not coerced: `internal: true` stays an `unsupported`
-    structure (#811).
+    directory), which stays `unreadable` and is never an unchanged limit.
+    Metadata is not coerced: the key `1` is not read as the string `"1"`, so
+    it stays an `unsupported` structure, and the value `internal: true` is read
+    as written, with no limit (#811, #848).
   - **A plugin manifest behind a link.** The same proof covers a
     plugin-reference limit, such as a `parse_failed`
     `plugins/demo/.claude-plugin/plugin.json` that is a file link to

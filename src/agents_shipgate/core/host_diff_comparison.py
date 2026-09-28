@@ -4,59 +4,160 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path, PurePosixPath
+from typing import Any
 
-from agents_shipgate.core.boundary_diff import _resolve_changed_file_text, parse_unified_diff
+from agents_shipgate.core.boundary_diff import (
+    DiffFile,
+    _resolve_changed_file_text,
+    parse_unified_diff,
+)
 from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS
-from agents_shipgate.core.host_comparison import compare_host_inventories
-from agents_shipgate.core.host_grants import HostStaticParseCache, build_host_boundary_snapshot
+from agents_shipgate.core.host_comparison import (
+    compare_host_inventories,
+    without_untouched_script_limits,
+)
+from agents_shipgate.core.host_grants import (
+    HostStaticParseCache,
+    build_host_boundary_snapshot,
+    hook_dependency_issues,
+    hook_dependency_limits,
+    without_host_issues,
+)
 from agents_shipgate.schemas.host_comparison import HostComparison
 
 
+def _names(change: DiffFile) -> list[str]:
+    return [name for name in (change.old_path, change.new_path) if name]
+
+
+def _write_sides(
+    workspace: Path,
+    changes: list[DiffFile],
+    before: Path,
+    after: Path,
+    cache: HostStaticParseCache,
+) -> HostComparison | None:
+    """Write each change's two sides, or the refusal a path or its content earns."""
+
+    for change in changes:
+        names = _names(change)
+        if any(
+            PurePosixPath(name).is_absolute()
+            or ".." in PurePosixPath(name).parts
+            or "\\" in name
+            or "\0" in name
+            for name in names
+        ):
+            return HostComparison(
+                comparison_status="incomparable",
+                incomparable_reasons=["invalid_changed_host_path"],
+                head_kind="provided_diff",
+            )
+        resolved = _resolve_changed_file_text(
+            workspace, change, [], cache, preserve_rename_source=True
+        )
+        if resolved.old_text is None or resolved.new_text is None:
+            return HostComparison(
+                comparison_status="incomparable",
+                incomparable_reasons=["changed_host_content_unresolved"],
+                head_kind="provided_diff",
+                paths=sorted(set(names)),
+            )
+        for root, name, value, absent in (
+            (before, change.old_path, resolved.old_text, change.is_new),
+            (after, change.new_path, resolved.new_text, change.is_deleted),
+        ):
+            if name and not absent:
+                target = root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(value, encoding="utf-8")
+    return None
+
+
+def _absence_the_diff_states(
+    inventory: dict[str, Any], *, touched: set[str], present: set[str]
+) -> dict[str, Any]:
+    """One side, where a script the diff touches is absent as the diff states it (#702).
+
+    A touched script was written on each side the diff has it. Where the diff
+    adds or deletes it, its absence from this side is the diff's own
+    statement, compared (`missing_input` against its bytes) rather than a
+    limit no reconstruction could lift.
+    """
+
+    limits = hook_dependency_limits(inventory)
+    stated = {
+        issue
+        for issue, script in hook_dependency_issues(inventory).items()
+        if script[1] in touched
+        and script[1] not in present
+        and limits.get(script) == "missing_input"
+    }
+    return without_host_issues(inventory, stated) if stated else inventory
+
+
 def compare_host_diff(workspace: Path, diff_text: str) -> HostComparison:
-    """Read only changed host files. Unchanged context is not an inventory claim."""
+    """Read only changed host files. Unchanged context is not an inventory claim.
+
+    A selected hook script the diff touches is reconstructed from it like a
+    host file, and one it does not touch is left out (#702 review), so a
+    hook's declaration is compared as it was before scripts were read.
+    """
     cache = HostStaticParseCache()
+    changes = parse_unified_diff(diff_text)
+    touched = {name for change in changes for name in _names(change)}
+    host_changes = [
+        change
+        for change in changes
+        if any(adapter.matches(name) for adapter in BOUNDARY_ADAPTERS for name in _names(change))
+    ]
     with tempfile.TemporaryDirectory(prefix="shipgate-host-diff-") as scratch:
         before, after = Path(scratch) / "base", Path(scratch) / "head"
         before.mkdir()
         after.mkdir()
-        for change in parse_unified_diff(diff_text):
-            names = [name for name in (change.old_path, change.new_path) if name]
-            if not any(adapter.matches(name) for adapter in BOUNDARY_ADAPTERS for name in names):
-                continue
-            if any(
-                PurePosixPath(name).is_absolute()
-                or ".." in PurePosixPath(name).parts
-                or "\\" in name
-                or "\0" in name
-                for name in names
-            ):
-                return HostComparison(
-                    comparison_status="incomparable",
-                    incomparable_reasons=["invalid_changed_host_path"],
-                    head_kind="provided_diff",
-                )
-            resolved = _resolve_changed_file_text(
-                workspace, change, [], cache, preserve_rename_source=True
+        refused = _write_sides(workspace, host_changes, before, after, cache)
+        if refused is not None:
+            return refused
+
+        def read() -> tuple[dict[str, Any], dict[str, Any]]:
+            # The original checkout names absolute references, as `diff` reads them.
+            return tuple(  # type: ignore[return-value]
+                build_host_boundary_snapshot(
+                    root, cache=HostStaticParseCache(reference_workspace=workspace.resolve())
+                ).inventory
+                for root in (before, after)
             )
-            if resolved.old_text is None or resolved.new_text is None:
-                return HostComparison(
-                    comparison_status="incomparable",
-                    incomparable_reasons=["changed_host_content_unresolved"],
-                    head_kind="provided_diff",
-                    paths=sorted(set(names)),
-                )
-            for root, name, value, absent in (
-                (before, change.old_path, resolved.old_text, change.is_new),
-                (after, change.new_path, resolved.new_text, change.is_deleted),
-            ):
-                if name and not absent:
-                    target = root / name
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_text(value, encoding="utf-8")
+
+        base, head = read()
+        scripts = {path for inventory in (base, head) for _host, path in hook_dependency_limits(inventory)}
+        written = {id(change) for change in host_changes}
+        edited = [
+            change
+            for change in changes
+            if id(change) not in written and scripts.intersection(_names(change))
+        ]
+        if edited:
+            refused = _write_sides(workspace, edited, before, after, cache)
+            if refused is not None:
+                return refused
+            base, head = read()
         cache.finish()
+        # The diff is the whole change: a script it does not touch is
+        # unchanged by construction, and left out rather than refusing.
+        base, head = without_untouched_script_limits(base, head, touched.__contains__)
+        base = _absence_the_diff_states(
+            base,
+            touched=touched,
+            present={change.old_path for change in edited if change.old_path and not change.is_new},
+        )
+        head = _absence_the_diff_states(
+            head,
+            touched=touched,
+            present={change.new_path for change in edited if change.new_path and not change.is_deleted},
+        )
         return compare_host_inventories(
-            build_host_boundary_snapshot(before).inventory,
-            build_host_boundary_snapshot(after).inventory,
+            base,
+            head,
             head_kind="provided_diff",
             redact_permission_arguments=True,
             # `agent-result` keeps only the rows, reasons and status, so no

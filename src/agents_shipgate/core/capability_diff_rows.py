@@ -38,7 +38,9 @@ from agents_shipgate.core.host_grants import (
     agent_rule_gains,
     agent_rule_text,
     checkout_ref_key,
+    hook_dependency_only_change,
     hook_loading_basis,
+    host_grant_direction_unknown,
     host_grant_expansion_signals,
     permission_rule_replacements,
     published_setting_value,
@@ -48,7 +50,12 @@ from agents_shipgate.core.host_grants import (
     step_action_key,
 )
 from agents_shipgate.core.host_settings import rate_claude_setting, setting_value_text
-from agents_shipgate.core.permission_lattice import permission_pairing_group, subsumes
+from agents_shipgate.core.permission_lattice import (
+    exec_equivalent_argument,
+    permission_pairing_group,
+    subsumes,
+)
+from agents_shipgate.core.permission_residual import residual_prefix_note
 from agents_shipgate.schemas.capability_diff import CapabilityDiffRow as CapabilityDiffRow
 
 ABSENT = "—"
@@ -557,6 +564,12 @@ ADDED = "added"
 REMOVED = "removed"
 WIDENED = "widened"
 CHANGED = "changed"
+#: The words a row's `why` ends with when the engine cannot establish which
+#: way an edit that may widen authority went (#820): an MCP or loaded-hook
+#: edit, an unestablished plugin enablement, or a setting no documented rule
+#: orders. The row is named, never silent, and the Claude Code Stop hook,
+#: which renders this text at install time, announces it beside widenings.
+DIRECTION_UNKNOWN = "authority direction is unknown"
 
 
 def _grant_value(
@@ -672,6 +685,8 @@ def _why(
             return f"a {condition} the agent is subject to"
         if direction == REMOVED:
             return "removes a permission the agent previously had here"
+        if exec_equivalent_argument(str(grant.get("rule") or "")) is not None:
+            return "reaches arbitrary code through a launcher, without a prompt"
         if wildcard and access == "admin":
             return "matches any command of this kind, without a prompt"
         if wildcard:
@@ -784,6 +799,24 @@ class _RowView:
 #: row exactly as before (#795), and equality ignores it. A row read back from
 #: JSON has no view and renders from its published values alone.
 _VIEW = "_review_view"
+
+
+def review_grant_evidence(
+    rows: Sequence[CapabilityDiffRow], indexes: Sequence[int],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None] | None:
+    """Reader identities for a proven review group, before serialization (#839).
+
+    Never recover these from display labels. The comparison serializes the
+    guidance derived here; plain reloaded rows have no raw evidence.
+    """
+    evidence = [getattr(rows[index], "_grant_evidence", None) for index in indexes]
+    if not evidence or any(item is None for item in evidence):
+        return None
+    before = [item[0] for item in evidence if item[0] is not None]
+    after = [item[1] for item in evidence if item[1] is not None]
+    if len(before) > 1 or len(after) > 1:
+        return None
+    return (before[0] if before else None, after[0] if after else None)
 
 
 @dataclass(frozen=True)
@@ -928,6 +961,37 @@ _PRINTABLE_URL = re.compile(r"(?:https?|wss?|sse)://[^\s/?#@]+(?:/|/<redacted-pa
 
 #: What a URL server's launch fact reads when its URL is not in that form.
 _URL_NOT_SHOWN = "not shown"
+
+
+def _mcp_source_note(before: dict[str, Any] | None, after: dict[str, Any] | None) -> str | None:
+    source = (after or {}).get("launch_source")
+    if not source or source.get("pin") != "mutable":
+        return None
+    old = (before or {}).get("launch_source") or {}
+    def label(value: dict[str, Any]) -> str:
+        package = value.get("package")
+        return f" ({published_workflow_label(str(package))})" if package else ""
+    if old.get("pin") == "pinned":
+        return f"launch source moved from pinned{label(old)} to mutable{label(source)}"
+    return f"launch source is mutable{label(source)}"
+
+
+def _inline_allow_note(grant: dict[str, Any] | None) -> str | None:
+    if (
+        not grant or grant.get("host") != "claude-code" or grant.get("event") != "PreToolUse"
+        or hook_loading_basis(grant) not in {"host_configuration", "project_enabled_plugin"}
+    ):
+        return None
+    matchers = sorted({
+        published_workflow_label(str(handler.get("matcher") or "all"))
+        for handler in grant.get("handlers") or [] if handler.get("inline_allow") is True
+    })
+    if not matchers:
+        return None
+    shown = ", ".join(matchers[:3])
+    if len(matchers) > 3:
+        shown += f" (+{len(matchers) - 3} more)"
+    return f"inline allow auto-approves matched tool calls without a prompt (matcher {shown}); host exceptions and deny/ask rules still apply"
 
 
 def _mcp_endpoint(grant: dict[str, Any]) -> str | None:
@@ -1236,6 +1300,59 @@ def _handler_changes(before: list[dict[str, Any]], after: list[dict[str, Any]]) 
     return parts
 
 
+def _changed_hook_scripts(
+    before: dict[str, Any], after: dict[str, Any]
+) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
+    """Each selected script whose reading differs, with both readings, once per path (#702).
+
+    Only for a dependency-only change, whose declaration is identical on both
+    sides, so the entries pair by position: a malformed group's entry can
+    share a handler number with the handler after it.
+    """
+
+    changed: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
+    old, new = before.get("script_inputs") or [], after.get("script_inputs") or []
+    for index in range(max(len(old), len(new))):
+        left = old[index] if index < len(old) else {}
+        right = new[index] if index < len(new) else {}
+        if left != right:
+            path = published_workflow_label(
+                str(right.get("path") or left.get("path") or "unresolved path")
+            )
+            changed.setdefault(path, (left, right))
+    return [(path, left, right) for path, (left, right) in changed.items()]
+
+
+def hook_script_named_by(row: CapabilityDiffRow, path: str) -> bool:
+    """Whether a dependency-only hook row names this script as changed (#702).
+
+    The coverage text reads it, so a changed script whose change is on the
+    declaring hook's row is not described as a change no row shows.
+    """
+
+    if not row.why.startswith(_HOOK_SCRIPT_WHY):
+        return False
+    named = row.why.split(";", 1)[0][len(_HOOK_SCRIPT_WHY):].strip()
+    return path in named.split(", ")
+
+
+_HOOK_SCRIPT_WHY = "selected script bytes changed:"
+
+
+def _hook_dependency_change(before: dict[str, Any], after: dict[str, Any]) -> str:
+    def digest(item: dict[str, Any]) -> str:
+        return str(item.get("sha256") or item.get("limit") or "not read")[:64]
+
+    parts = [
+        f"script {path} bytes {digest(left)} → {digest(right)}"
+        for path, left, right in _changed_hook_scripts(before, after)
+    ]
+    shown = "; ".join(parts[:3])
+    if len(parts) > 3:
+        shown += f"; {len(parts) - 3} more dependency changes"
+    return shown
+
+
 def _hook_change(event: str, before: dict[str, Any], after: dict[str, Any]) -> str | None:
     """What differs between two readings of one hook event, in its published handlers (#819).
 
@@ -1257,6 +1374,8 @@ def _hook_change(event: str, before: dict[str, Any], after: dict[str, Any]) -> s
     it (#819 review, cycle 5).
     """
 
+    if hook_dependency_only_change(before, after):
+        return f"{event}: {_hook_dependency_change(before, after)}"
     if "handlers" not in before or "handlers" not in after:
         return None
     old, new = before["handlers"], after["handlers"]
@@ -1366,7 +1485,8 @@ def _link_rows(
 
 
 def capability_diff_rows(
-    payload: dict[str, Any], *, redact_permission_arguments: bool = False
+    payload: dict[str, Any], *, redact_permission_arguments: bool = False,
+    current_grants: Sequence[dict[str, Any]] = (),
 ) -> list[CapabilityDiffRow]:
     """Every typed grant change in ``payload``, one row each."""
 
@@ -1408,7 +1528,9 @@ def capability_diff_rows(
         else:
             direction = CHANGED
         # Classify original typed evidence; redaction affects display values only.
-        expands = bool(expansions.intersection(host_grant_expansion_signals([change])))
+        expands = bool(expansions.intersection(host_grant_expansion_signals(
+            [change], comparison_changes=payload.get("changes") or [],
+        )))
         # The public signal text has no source. An identical rule added in
         # another file must not mark this source's decided narrowing (#858).
         if (
@@ -1441,6 +1563,24 @@ def capability_diff_rows(
             gone_secrets=gone_secrets, new_secrets=new_secrets,
             agent_reasons=agent_reasons,
         )
+        kind = grant.get("kind")
+        if (
+            kind == "plugin_or_app" and after_grant is not None
+            and not str(after_grant.get("name", "")).startswith("marketplace:")
+        ):
+            if after_grant.get("enabled") is False:
+                why = "declares this plugin or app disabled"
+            elif expands:
+                why = "enables this plugin or app"
+        if not expands and host_grant_direction_unknown(
+            change, comparison_changes=payload.get("changes") or [],
+        ):
+            # Named as such, never silent, and never assumed to narrow (#820).
+            if kind == "mcp_server":
+                why = "MCP edit"
+            elif kind == "hook" and hook_loading_basis(grant) == "host_configuration":
+                why = "hook edit"
+            why += f"; {DIRECTION_UNKNOWN}"
         if (
             direction == REMOVED and grant.get("kind") == "permission_rule"
             and grant.get("disposition") == "allow"
@@ -1454,6 +1594,32 @@ def capability_diff_rows(
         ):
             # Wording only: ambiguity still forbids a pair or signal suppression.
             why = "removes this allow rule; another added allow rule still covers its matches"
+        if hook_dependency_only_change(before_grant, after_grant):
+            # The digests are the change cell (`_hook_change`); the why names
+            # the scripts once, so the text does not print them twice.
+            scripts = [path for path, _left, _right in _changed_hook_scripts(before_grant, after_grant)]
+            named = ", ".join(scripts[:3]) + (f", {len(scripts) - 3} more" if len(scripts) > 3 else "")
+            # A script the host runs changed: what that does to the agent's
+            # authority is not established, and it is not silent (#820).
+            why = (
+                f"{_HOOK_SCRIPT_WHY} {named}; "
+                f"declaration unchanged, selected by {hook_loading_basis(after_grant)}; "
+                "compares file bytes only, not permissions or runtime behavior; "
+                f"{DIRECTION_UNKNOWN}"
+            )
+        # The examples spell out the rule's prefix, which a route that
+        # redacts rule arguments must not print beside the redacted rule.
+        note = (
+            None
+            if redact_permission_arguments
+            else residual_prefix_note(after_grant, current_grants)
+        )
+        if note:
+            why = f"{why}; {note}"
+        if grant.get("kind") == "mcp_server" and (note := _mcp_source_note(before_grant, after_grant)):
+            why = f"{why}; {note}"
+        if grant.get("kind") == "hook" and (note := _inline_allow_note(after_grant)):
+            why = f"{why}; {note}"
         row = CapabilityDiffRow(
             subject=_subject(grant),
             before=_grant_value(
@@ -1516,6 +1682,9 @@ def capability_diff_rows(
             )
         else:
             view = _RowView(before=row.before, after=row.after)
+        # Kept with the row through sorting, never emitted as row fields.
+        # Only the bounded advisory projection is serialized by the comparator.
+        object.__setattr__(row, "_grant_evidence", (before_grant, after_grant))
         rows.append(row)
         views.append(view)
         changes.append(change)

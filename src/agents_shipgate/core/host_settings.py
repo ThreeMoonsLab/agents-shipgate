@@ -41,8 +41,9 @@ permission modes, and the ``basis`` states that in a reviewer's words:
   imposes (``disableBypassPermissionsMode``, ``disableAllHooks``, the two
   managed-only switches) and ``false`` for the two prompt switches.
 
-A rating is of the value, not of the change: whether one value is wider than
-the one it replaced is not modelled, so every value a change sets is reviewed.
+A rating is of the value, not of the change: every value a change sets is
+reviewed. ``host_grants`` separately compares documented directions (#820);
+an unknown direction or a tightening does not remove this review obligation.
 A value that moves between ``permissions`` and the top level is one a change
 sets, because Claude Code documents each setting in one of them.
 Removing a setting raises nothing of its own here, as removing ``defaultMode``
