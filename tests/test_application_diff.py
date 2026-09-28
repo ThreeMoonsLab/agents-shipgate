@@ -184,7 +184,7 @@ def test_identical_git_rename_preserves_binding_identity(repo):
     source = SDK.replace('TOOLS', '[lookup]')
     base = commit(repo, {'before/agent.py': source})
     head = commit(repo, {'before/agent.py': None, 'after/agent.py': source})
-    result = run(repo, base, head)
+    result = run(repo, base, head, '--scope', '.')
     assert result['rows'] == []
     assert result['source_correspondence'] == [{'base_source': 'before/agent.py',
         'head_source': 'after/agent.py', 'basis': 'git_rename_identical_blob'}]
@@ -234,12 +234,12 @@ def test_gitlink_is_not_a_successful_comparison(repo):
     git(repo, 'update-index', '--add', '--cacheinfo', f'160000,{base},external')
     git(repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
         '-c', 'commit.gpgsign=false', 'commit', '-qm', 'gitlink')
-    result = run(repo, base, 'HEAD')
+    result = run(repo, base, 'HEAD', '--scope', '.')
     assert result['comparison_status'] == 'partial'
     assert [(g['source'], g['reason']) for g in result['head']['coverage_gaps']] == [
         ('external', f'Submodule content is not read (commit {base[:12]}): external')]
     text = CliRunner().invoke(app, ['diff', '--application', '--workspace', str(repo),
-                                   '--base', base, '--head', 'HEAD'])
+                                   '--base', base, '--head', 'HEAD', '--scope', '.'])
     assert 'not a no-change result' in text.output
 
 
@@ -248,7 +248,7 @@ def test_python_size_bound_precedes_discovery(repo, monkeypatch):
     ref = commit(repo, {'agent.py': SDK.replace('TOOLS', '[lookup]')})
     monkeypatch.setattr(module, 'MAX_PYTHON_BYTES', 8)
     monkeypatch.setattr(module, 'detect_workspace', lambda *a, **kw: pytest.fail('oversized input parsed'))
-    result = run(repo, ref, ref)
+    result = run(repo, ref, ref, '--scope', '.')
     assert result['comparison_status'] == 'partial'
     assert result['rows'] == []
 
@@ -285,7 +285,7 @@ def test_nonidentical_unpaired_move_does_not_invent_new_capabilities(repo):
     source = SDK.replace('TOOLS', '[lookup]')
     base = commit(repo, {'old/agent.py': source})
     head = commit(repo, {'old/agent.py': None, 'new/agent.py': '# changed comment\n' + source})
-    result = run(repo, base, head)
+    result = run(repo, base, head, '--scope', '.')
     assert result['comparison_status'] == 'partial'
     assert result['rows']
     assert all(row['change'] == 'not_established' for row in result['rows'])
@@ -311,7 +311,7 @@ def test_diagnostic_limits_use_shared_redaction(repo, monkeypatch, json_output):
     secret = 'sk-privacyaaaaaaaaaaaaaaaa'
     monkeypatch.setattr(module, 'observe', lambda *a, **kw:
                         module.Observations('.', status='partial', limits=[f'unresolved {secret}']))
-    args = ['diff', '--application', '--workspace', str(repo), '--base', ref]
+    args = ['diff', '--application', '--workspace', str(repo), '--base', ref, '--scope', '.']
     if json_output:
         args.append('--json')
     result = CliRunner().invoke(app, args)

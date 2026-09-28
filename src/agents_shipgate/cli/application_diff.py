@@ -18,6 +18,7 @@ from typing import Any
 
 import typer
 
+from agents_shipgate.cli.application_scope import derive_scopes
 from agents_shipgate.cli.discovery import detect_workspace
 from agents_shipgate.cli.discovery.artifacts import _candidate_files, _skip_part
 from agents_shipgate.cli.discovery.signals import _is_test_path
@@ -1256,15 +1257,19 @@ def run_application_diff(
     workspace: Path,
     base: str | None,
     head: str,
-    scope: str,
+    scope: str | None,
     base_scope: str | None,
     max_python_files: int,
     json_output: bool,
 ) -> int:
-    from agents_shipgate.cli.diff import _one_line, _refuse_objects_missing, _resolve_base
+    from agents_shipgate.cli.diff import _refuse_objects_missing, _resolve_base
+    from agents_shipgate.cli.verify.git import promised_objects_missing
 
     workspace = ensure_git_workspace(workspace)
-    scope, old_scope = _scope(scope), _scope(base_scope if base_scope is not None else scope)
+    if scope is None and base_scope is not None:
+        raise typer.BadParameter(
+            "--base-scope names the old path of an explicitly selected application; pass --scope too."
+        )
     if not head.strip() or head.startswith("-"):
         raise typer.BadParameter("Head ref must be non-empty and cannot start with a dash.")
     head_commit = commit_sha(workspace, head)
@@ -1287,13 +1292,96 @@ def run_application_diff(
         raise typer.BadParameter("Base ref must be non-empty and cannot start with a dash.")
     requested_base_commit = commit_sha(workspace, base_ref)
     _, base_commit = _resolve_base(workspace, requested_base_commit or base_ref, head_commit)
+    for side, ref, commit in (("base", base_ref, base_commit), ("head", head, head_commit)):
+        if promised_objects_missing(workspace, commit):
+            # A partial clone: name the hydration it needs before anything
+            # reads the tree, the derived scope included (#817, #875).
+            _refuse_objects_missing(workspace, ref, commit, side=side)
     engine = build_engine_requirement(plugins_enabled=False).model_dump(mode="json")
+    sides = {
+        "base": {
+            "requested_ref": base_ref,
+            "requested_commit": requested_base_commit,
+            "compared_commit": base_commit,
+            "tree": tree_sha(workspace, base_commit),
+        },
+        "head": {
+            "requested_ref": head,
+            "compared_commit": head_commit,
+            "tree": tree_sha(workspace, head_commit),
+        },
+    }
+    if scope is None:
+        # No --scope: the change chooses it (#875).
+        selection = derive_scopes(workspace, base_commit, head_commit)
+        pairs = list(selection.pairs)
+        scope_selection = selection.payload()
+    else:
+        scope, old_scope = _scope(scope), _scope(base_scope if base_scope is not None else scope)
+        pairs = [(old_scope, scope)]
+        scope_selection = {
+            "mode": "explicit",
+            "scopes": [scope],
+            "base_scope": old_scope,
+            "reason": "Selected with --scope.",
+        }
+    comparisons = [
+        _compare_scopes(
+            workspace,
+            sides,
+            (base_ref, base_commit, old_scope),
+            (head, head_commit, new_scope),
+            max_python_files=max_python_files,
+            engine=engine,
+            derived=scope is None,
+        )
+        for old_scope, new_scope in pairs
+    ]
+    if len(comparisons) == 1:
+        payload = {**comparisons[0], "scope_selection": scope_selection}
+        if scope_selection.get("limits") and payload["comparison_status"] == "compared":
+            # The derivation stopped at a bound: an agent it did not reach
+            # may be related too (#875).
+            payload["comparison_status"] = "partial"
+    else:
+        payload = _combined(comparisons, sides, scope_selection, engine, max_python_files)
+    payload = sanitize_report_payload(payload)
+    payload["comparison_id"] = _digest(payload)
+    if json_output:
+        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        _print_comparison(payload, base_commit, head_commit)
+    return 0
+
+
+_LIMITS = [
+    "Covers supported OpenAI Agents SDK and Google ADK source wiring only.",
+    "Deployment-root reachability, runtime behavior, indirect helper effects and business authority are not established.",
+    "This comparison is advisory evidence and supplies no release verdict or merge permission.",
+]
+
+
+def _compare_scopes(
+    workspace: Path,
+    sides: dict[str, dict[str, Any]],
+    base: tuple[str, str, str],
+    head: tuple[str, str, str],
+    *,
+    max_python_files: int,
+    engine: dict[str, Any],
+    derived: bool,
+) -> dict[str, Any]:
+    """One comparison of ``base`` and ``head`` (``(ref, commit, scope)``)."""
+
+    from agents_shipgate.cli.diff import _refuse_objects_missing
+
+    (base_ref, base_commit, old_scope), (head_ref, head_commit, scope) = base, head
     with tempfile.TemporaryDirectory(prefix="shipgate-application-diff-") as raw:
         scratch = Path(raw)
         gitlinks: dict[str, dict[str, str]] = {}
         for side, ref, commit, selected_scope in (
             ("base", base_ref, base_commit, old_scope),
-            ("head", head, head_commit, scope),
+            ("head", head_ref, head_commit, scope),
         ):
 
             def in_scope(path: str, selected: str = selected_scope) -> bool:
@@ -1336,7 +1424,7 @@ def run_application_diff(
             old = observe(old_found, max_python_files=max_python_files, census=census)
         with repository_layout(new_layout):
             new = observe(new_found, max_python_files=max_python_files, census=census)
-        if old.status == new.status == "absent":
+        if old.status == new.status == "absent" and not derived:
             raise ConfigError(
                 f"Neither comparison tree contains the selected scopes: "
                 f"base={old_scope!r}, head={scope!r}. Check --scope/--base-scope."
@@ -1355,97 +1443,198 @@ def run_application_diff(
     status = "partial" if "partial" in {old.status, new.status} else "compared"
     if not old.agents and not new.agents and status == "compared":
         status = "not_established"
-    payload = {
+    return {
         "application_comparison_schema_version": SCHEMA_VERSION,
         "comparison_status": status,
         "static_analysis_only": True,
         "comparison_basis": "source_observed_per_agent_wiring",
         "input_origin": "independent_tree_discovery",
         "engine": engine,
-        "base": {
-            "requested_ref": base_ref,
-            "requested_commit": requested_base_commit,
-            "compared_commit": base_commit,
-            "tree": tree_sha(workspace, base_commit),
-            **old.summary(),
-        },
-        "head": {
-            "requested_ref": head,
-            "compared_commit": head_commit,
-            "tree": tree_sha(workspace, head_commit),
-            **new.summary(),
-        },
+        "base": {**sides["base"], **old.summary()},
+        "head": {**sides["head"], **new.summary()},
         "options": {"max_python_files": max_python_files, "max_python_bytes": MAX_PYTHON_BYTES},
         "source_correspondence": moves,
         "rows": rows,
-        "limits": [
-            "Covers supported OpenAI Agents SDK and Google ADK source wiring only.",
-            "Deployment-root reachability, runtime behavior, indirect helper effects and business authority are not established.",
-            "This comparison is advisory evidence and supplies no release verdict or merge permission.",
-        ],
+        "limits": list(_LIMITS),
     }
-    payload = sanitize_report_payload(payload)
-    payload["comparison_id"] = _digest(payload)
-    if json_output:
-        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def _combined(
+    comparisons: list[dict[str, Any]],
+    sides: dict[str, dict[str, Any]],
+    scope_selection: dict[str, Any],
+    engine: dict[str, Any],
+    max_python_files: int,
+) -> dict[str, Any]:
+    """No scope, or several: one result that holds each comparison (#875).
+
+    With none, the change touches no supported agent, and the answer says so;
+    it is not a failure. With several, rows are every comparison's, each
+    path spelled from the repository root."""
+
+    statuses = {item["comparison_status"] for item in comparisons}
+    if not comparisons or statuses == {"not_established"}:
+        status = "not_established"
+    elif statuses == {"compared"}:
+        status = "compared"
     else:
-        typer.echo(f"Application comparison: {status} ({base_commit[:12]} → {head_commit[:12]})")
-        for row in payload["rows"]:
-            typer.echo(
-                f"{row['change'].upper()}  {_one_line(row['agent'])} → {_one_line(row['tool'])}"
-            )
-            for side in ("before", "after"):
-                value = row[side]
-                if value is None:
-                    typer.echo(
-                        f"  {side}: "
-                        + (
-                            "binding presence not established"
-                            if row["uncertainty"]
-                            else "no observed binding"
-                        )
-                    )
-                else:
-                    definition = value.get("definition", {})
-                    typer.echo(
-                        f"  {side}: {_one_line(value.get('signature') or value['tool'])} at {_one_line(value.get('binding_location'))}"
-                    )
-                    if definition:
-                        typer.echo(
-                            f"    implementation: {_one_line(definition['source'])}:{definition['line']} ({str(definition['implementation_sha256'])[:12]})"
-                        )
-                    for path in value.get("import_path", []):
-                        hops = " → ".join(
-                            f"{step['path']}:{step['line']}"
-                            for step in path["steps"]
-                            if step.get("line") is not None
-                        )
-                        typer.echo(f"    imported: {_one_line(hops)}")
-            typer.echo(f"  {_one_line(row['why'])}")
-            for side, reasons in row["uncertainty"].items():
-                for reason in reasons:
-                    typer.echo(f"  {side} uncertainty: {_one_line(reason)}")
-            typer.echo(f"  Review: {_one_line(row['review_question'])}")
-        if not rows:
-            typer.echo(
-                "No supported application agents were established."
-                if status == "not_established"
-                else "Incomplete comparison; this is not a no-change result."
-                if status == "partial"
-                else "No established binding/interface/implementation changes in the observed surface."
-            )
-        for side in ("base", "head"):
-            for limit in payload[side]["limits"]:
-                typer.echo(f"  {side} limit: {_one_line(limit)}")
-        # Test files are never the application (#876); say which were left
-        # out, so a product module that only looks like a test is visible.
-        excluded = sorted(
-            set(payload["base"].get("excluded_tests", []))
-            | set(payload["head"].get("excluded_tests", []))
+        status = "partial"
+    gaps = scope_selection.get("limits", [])
+    if gaps:
+        # A bound reached or an agent left outside: the answer is incomplete,
+        # never "no agent" (#875).
+        status = "partial"
+
+    def side(name: str) -> dict[str, Any]:
+        # The same fields one comparison's side has, every path spelled from
+        # the repository root; each comparison keeps its own detail.
+        def rooted(item: dict[str, Any], path: str | None) -> str | None:
+            return _location(item[name]["scope"], path)
+
+        return {
+            **sides[name],
+            "scope": None,
+            "scopes": [item[name]["scope"] for item in comparisons],
+            "status": "not_selected"
+            if not comparisons
+            else "partial"
+            if any(item[name]["status"] == "partial" for item in comparisons)
+            else "complete",
+            "sources": [
+                {**source, "path": rooted(item, source.get("path"))}
+                for item in comparisons
+                for source in item[name]["sources"]
+            ],
+            "agents": [
+                {
+                    **agent,
+                    "source": rooted(item, agent.get("source")),
+                    "location": rooted(item, agent.get("location")),
+                }
+                for item in comparisons
+                for agent in item[name]["agents"]
+            ],
+            "binding_count": sum(item[name]["binding_count"] for item in comparisons),
+            "limits": sorted(
+                {*gaps, *(f"{item[name]['scope']}: {limit}" for item in comparisons for limit in item[name]["limits"])}
+            ),
+            "coverage_gaps": [
+                {**gap, "source": rooted(item, gap.get("source"))}
+                for item in comparisons
+                for gap in item[name]["coverage_gaps"]
+            ],
+            "excluded_tests": sorted(
+                str(rooted(item, path)) for item in comparisons for path in item[name].get("excluded_tests", [])
+            ),
+        }
+
+    return {
+        "application_comparison_schema_version": SCHEMA_VERSION,
+        "comparison_status": status,
+        "static_analysis_only": True,
+        "comparison_basis": "source_observed_per_agent_wiring",
+        "input_origin": "independent_tree_discovery",
+        "engine": engine,
+        "base": side("base"),
+        "head": side("head"),
+        "options": {"max_python_files": max_python_files, "max_python_bytes": MAX_PYTHON_BYTES},
+        "source_correspondence": [
+            {
+                **move,
+                "base_source": _location(item["base"]["scope"], move["base_source"]),
+                "head_source": _location(item["head"]["scope"], move["head_source"]),
+            }
+            for item in comparisons
+            for move in item["source_correspondence"]
+        ],
+        "rows": [
+            {**row, "agent_source": _location(item["head"]["scope"], row.get("agent_source"))}
+            for item in comparisons
+            for row in item["rows"]
+        ],
+        "comparisons": comparisons,
+        "scope_selection": scope_selection,
+        "limits": list(_LIMITS),
+    }
+
+
+def _print_comparison(payload: dict[str, Any], base_commit: str, head_commit: str) -> None:
+    from agents_shipgate.cli.diff import _one_line
+
+    status = payload["comparison_status"]
+    typer.echo(f"Application comparison: {status} ({base_commit[:12]} → {head_commit[:12]})")
+    selection = payload.get("scope_selection") or {}
+    if selection.get("mode") == "derived":
+        scopes = ", ".join(selection["scopes"]) or "none"
+        typer.echo(f"scope: {_one_line(scopes)} (derived: {_one_line(selection['reason'])})")
+        for limit in selection.get("limits", []):
+            typer.echo(f"  scope limit: {_one_line(limit)}")
+    if payload.get("comparisons") == []:
+        typer.echo("The change touches no supported application agent; nothing was compared.")
+    for item in payload.get("comparisons", [payload]):
+        if "comparisons" in payload:
+            typer.echo(f"Scope {item['head']['scope']}: {item['comparison_status']}")
+        _print_rows(item, _one_line)
+    typer.echo(payload["limits"][-1])
+
+
+def _print_rows(payload: dict[str, Any], _one_line: Any) -> None:
+    status = payload["comparison_status"]
+    rows = payload["rows"]
+    for row in payload["rows"]:
+        typer.echo(
+            f"{row['change'].upper()}  {_one_line(row['agent'])} → {_one_line(row['tool'])}"
         )
-        if excluded:
-            shown = ", ".join(_one_line(path) for path in excluded[:5])
-            more = f", and {len(excluded) - 5} more" if len(excluded) > 5 else ""
-            typer.echo(f"Test files not read as the application ({len(excluded)}): {shown}{more}")
-        typer.echo(payload["limits"][-1])
-    return 0
+        for side in ("before", "after"):
+            value = row[side]
+            if value is None:
+                typer.echo(
+                    f"  {side}: "
+                    + (
+                        "binding presence not established"
+                        if row["uncertainty"]
+                        else "no observed binding"
+                    )
+                )
+            else:
+                definition = value.get("definition", {})
+                typer.echo(
+                    f"  {side}: {_one_line(value.get('signature') or value['tool'])} at {_one_line(value.get('binding_location'))}"
+                )
+                if definition:
+                    typer.echo(
+                        f"    implementation: {_one_line(definition['source'])}:{definition['line']} ({str(definition['implementation_sha256'])[:12]})"
+                    )
+                for path in value.get("import_path", []):
+                    hops = " → ".join(
+                        f"{step['path']}:{step['line']}"
+                        for step in path["steps"]
+                        if step.get("line") is not None
+                    )
+                    typer.echo(f"    imported: {_one_line(hops)}")
+        typer.echo(f"  {_one_line(row['why'])}")
+        for side, reasons in row["uncertainty"].items():
+            for reason in reasons:
+                typer.echo(f"  {side} uncertainty: {_one_line(reason)}")
+        typer.echo(f"  Review: {_one_line(row['review_question'])}")
+    if not rows:
+        typer.echo(
+            "No supported application agents were established."
+            if status == "not_established"
+            else "Incomplete comparison; this is not a no-change result."
+            if status == "partial"
+            else "No established binding/interface/implementation changes in the observed surface."
+        )
+    for side in ("base", "head"):
+        for limit in payload[side]["limits"]:
+            typer.echo(f"  {side} limit: {_one_line(limit)}")
+    # Test files are never the application (#876); say which were left
+    # out, so a product module that only looks like a test is visible.
+    excluded = sorted(
+        set(payload["base"].get("excluded_tests", []))
+        | set(payload["head"].get("excluded_tests", []))
+    )
+    if excluded:
+        shown = ", ".join(_one_line(path) for path in excluded[:5])
+        more = f", and {len(excluded) - 5} more" if len(excluded) > 5 else ""
+        typer.echo(f"Test files not read as the application ({len(excluded)}): {shown}{more}")

@@ -38,7 +38,8 @@ agents-shipgate diff --application --workspace /path/to/repo --base BASE_SHA --h
 ```
 
 It shows source-observed changes per agent, including before/after signatures
-and source locations. See [application comparison](docs/application-comparison.md)
+and source locations, in the package that holds the changed code's agents unless
+`--scope` names one. See [application comparison](docs/application-comparison.md)
 for scoped applications, moves, exact refs and coverage limits. Version availability
 is recorded in the [CHANGELOG entry](CHANGELOG.md#application-comparison-without-prior-setup);
 while it is under Unreleased, use a source build containing the feature.

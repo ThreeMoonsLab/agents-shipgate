@@ -756,7 +756,7 @@ def test_a_self_wrapping_function_tool_is_read_without_a_guess(repo):
     )
     base = commit(repo, {"agent.py": source.replace("BODY", "q"), "notes.md": "a\n"})
     unchanged = commit(repo, {"notes.md": "b\n"})
-    result = run(repo, base, unchanged)
+    result = run(repo, base, unchanged, "--scope", ".")
     assert result["comparison_status"] == "compared"
     assert result["rows"] == []
     head = commit(repo, {"agent.py": source.replace("BODY", "q.upper()")})

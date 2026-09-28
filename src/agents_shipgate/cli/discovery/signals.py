@@ -901,12 +901,31 @@ def _parse_python_facts(path: Path, workspace: Path) -> _PyFacts | None:
         source = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
+    return _python_facts_from_source(source, path, _relative(path, workspace))
+
+
+def application_frameworks(rel_path: str, source: str) -> frozenset[str]:
+    """The frameworks one Python file's own code claims, by the same signals
+    discovery scores: ``openai_agents_sdk`` for an ``agents`` import or an
+    SDK ``@function_tool``, ``google_adk`` for a ``google.adk`` import, and so
+    on (#875). Read from text, so a commit's blob answers without a checkout.
+    """
+
+    facts = _python_facts_from_source(source, Path(rel_path), rel_path)
+    if facts is None:
+        return frozenset()
+    scores = _initial_framework_scores()
+    _score_python_signals_inner(facts, scores)
+    return frozenset(name for name, state in scores.items() if state.candidate_files)
+
+
+def _python_facts_from_source(source: str, path: Path, rel_path: str) -> _PyFacts | None:
     try:
         tree = ast.parse(source, filename=str(path))
-    except SyntaxError:
+    except (SyntaxError, ValueError, RecursionError):
         return None
 
-    facts = _PyFacts(path=path, rel_path=_relative(path, workspace))
+    facts = _PyFacts(path=path, rel_path=rel_path)
     scopes = _walk_scoped(tree)
     nodes = scopes.nodes
     facts.scope_parents = scopes.parents

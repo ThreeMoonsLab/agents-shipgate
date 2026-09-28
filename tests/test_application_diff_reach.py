@@ -61,7 +61,7 @@ def test_python_link_to_an_input_already_read_is_not_read_twice(repo):
     link(repo, "helper.py", "real/helper.py")
     base = commit(repo, {})
     head = commit(repo, {"real/helper.py": source.replace("TOOLS", "[lookup, execute]")})
-    result = run(repo, base, head)
+    result = run(repo, base, head, "--scope", ".")
     assert result["comparison_status"] == "compared", result["head"]["limits"]
     assert [(r["agent_source"], r["tool"], r["change"]) for r in result["rows"]] == [
         ("real/helper.py", "execute", "added")

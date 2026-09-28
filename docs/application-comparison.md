@@ -13,8 +13,9 @@ agents-shipgate diff --application --workspace /path/to/repository \
 
 No `init`, manifest, saved baseline or authored declaration is required. The
 command writes no files in the subject repository and runs no application code.
-Fetch the refs first; the command never fetches. `--scope` defaults to the
-repository root; `--head` defaults to committed `HEAD`, excluding dirty edits.
+Fetch the refs first; the command never fetches. Without `--scope` the scope
+is derived from the change (below); `--scope .` selects the repository root.
+`--head` defaults to committed `HEAD`, excluding dirty edits.
 The base is the requested base ref's merge base with the selected head.
 
 The result identifies each observed agent object and its added, removed or
@@ -32,6 +33,92 @@ ADDED  synthesizer_agent → python_exec
 A reviewer can inspect the new callable and decide whether that agent should
 receive it. A body change is a request to review the implementation; it does not
 establish widening, narrowing, business impact or runtime behavior.
+
+## A scope derived from the change
+
+Without `--scope`, the comparison does not read the whole repository, nor only
+the directory the change touched. Each changed Python file is related to the
+agent files — files discovery scores as OpenAI Agents SDK or Google ADK sources
+that construct an agent class (under any name they import it as), subclass
+one or copy one with capabilities of its own, and a module that changes an
+agent's capabilities after construction (`support.tools.append(x)`) and
+imports one of those, or that builds its agent through one's factory
+(`root_agent = make("bot", [tool])` with `make` returning an `Agent`); a
+module that only defines tools is not one — that
+import it, or that it imports, up to six import hops away, on each side of the
+change. A module under a directory discovery skips (`build/`, `fixtures/`) is
+related like any other, never an agent file. Importing `pkg.impl` runs `pkg/__init__.py`
+first, so a package's imports count, and so does a literal
+`importlib.import_module("app.tools")`. A file named like a test is related
+when an agent imports it; it is never an agent file, and a changed test that
+imports an agent does not widen a scope. A changed Python file not related to
+a module that builds an agent — no import path, one longer than six hops, only
+a module that rewires an agent, a file too large to read — is named in
+`scope_selection.limits` with why, and makes the result `partial`, even when a
+compared scope holds it: its consumer may be elsewhere. So is a changed link
+to a module or a directory, or a changed submodule, whose content is not read,
+and so is an agent outside the compared scopes whose imports go past the hop
+bound. A module that imports the change — directly, through a package's
+re-export, an agent file's, or other modules, up to six levels — and imports
+within six hops an agent builder that builds on request — one that
+constructs an agent whose tools, handoffs, MCP servers or sub-agents are not a
+fixed list of the module's own names (`tools=tools`, `list(REGISTRY.items)`,
+`self.tools`, `**config`) or gives it such capabilities afterwards (a
+rewire, or a copy such as `BASE.clone(tools=tools)`), or subclasses an agent
+class — is named too,
+however it builds its agent from them, when it builds, copies
+(`clone(tools=...)`, `clone(update={"tools": ...})`) or rewires an agent
+itself, calls the repository's code with arguments of its own, or sets the
+repository's module state (`factory.TOOLS = [...]`,
+`setattr(factory, ...)`), unless
+one compared scope holds it, the change and that builder. A module that only
+imports another module's agent, or only calls an entry point (`main()`), is
+not one. A module that imports the change and imports onward past six hops
+without reaching a builder is named as not established, and so is the search
+itself when modules outside the compared scopes still import onward after six
+levels. A rename's two paths are one file.
+
+```text
+scope: backend/app (derived: backend/app: backend/app/services/gemini_tools.py is
+related to agent file backend/app/agents/support.py through …)
+```
+
+Each changed file is compared in the outermost package holding it and every
+agent that reaches it — with what those agents import from the repository and
+the path entry a namespace package is imported through (`src` for
+`myapp.tools` in `src/myapp/`) — so the reader can follow each chain. A
+change to `backend/app/services/gemini_tools.py` that
+`backend/app/agents/support.py` imports is compared in `backend/app`. When only
+the repository root holds them all — a library module its own agents and an
+example app elsewhere both import — the change is compared where its nearest
+agents are, the others are named in `outside` and in `scope_selection.limits`,
+and the answer is `partial`, never a silent `compared`.
+
+Independent applications of a monorepo are separate comparisons, never the
+repository root; `--json` then holds each one under `comparisons`, with every
+path spelled from the repository root, and `comparison_status` is `compared`
+only when each one is. A Python module moved inside one package is one
+comparison of that package; an application directory moved whole — its old
+path gone from the head, its new one absent from the base — is one relocation,
+compared old path to new path as `--base-scope`/`--scope` would, with every
+scope inside it; a renamed
+non-Python file joins nothing. A change that touches no supported agent — a
+README, or a script no agent imports — is `not_established` with the reason
+naming the files considered; nothing is compared, and that is an answer, not a
+failure. An absolute import is found where the importer's own path would find
+it, or at one path entry holding a package of that name (`libs/shared`); a
+standard-library name is the standard library unless a module on the importer's
+path shadows it.
+
+Everything is read from the two commits' objects, never run. The reading is
+bounded per side: six import hops, 2000 files read to relate the change, and
+5000 files or 64 MB read to find the agent files. A bound reached is named in
+`scope_selection.limits` and makes the result `partial` — so does a
+no-agent answer whose import following stopped at the hop bound — and it never
+falls back to the root. `--json` records `scope_selection`: `mode` (`derived`
+or `explicit`), `scopes`, the `reason`, the changed files considered and each
+scope's relations (`base_scope` when it moved, `outside` agents). An explicit
+`--scope` always wins, and `--base-scope` needs it.
 
 ## Scopes, moves and incomplete inputs
 
@@ -54,7 +141,8 @@ exit 2. A removal describes the selected source path, not the entire repository.
 
 `--json` emits `application_comparison_schema_version: "0.1"`, engine identity,
 requested and compared refs/tree IDs, per-side scope/coverage, rows, source
-correspondence, and a deterministic `comparison_id`. This is a separate advisory
+correspondence, `scope_selection`, `comparisons` when a derived change spans
+more than one application, and a deterministic `comparison_id`. This is a separate advisory
 artifact from the existing host diff JSON and verifier receipt.
 
 - `compared`: the selected supported source observations were compared. An

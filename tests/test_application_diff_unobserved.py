@@ -103,7 +103,7 @@ def test_a_test_double_does_not_establish_the_application(repo):
         },
     )
     head = commit(repo, {"bots/agents.py": _agents(real.replace("TOOLS", "[quote, send_image]"))})
-    result = run(repo, base, head)
+    result = run(repo, base, head, "--scope", ".")
     assert _pairs(result) == [("Wycena", "send_image", "added")]
     for side in ("base", "head"):
         assert [a["name"] for a in result[side]["agents"]] == ["Wycena"]
@@ -455,7 +455,7 @@ def test_a_copy_in_a_module_without_the_sdk_import_is_a_named_limit(repo):
             )
         },
     )
-    result = run(repo, base, head)
+    result = run(repo, base, head, "--scope", ".")
     assert result["comparison_status"] == "partial"
     assert any("app/variants.py:3" in limit for limit in result["head"]["limits"])
 
@@ -1089,7 +1089,8 @@ def test_an_adk_subclass_the_module_uses_is_a_limit(repo, use, named):
     )
     base = commit(repo, {"agent.py": body.replace("TOOLS", "[lookup]")})
     head = commit(repo, {"agent.py": body.replace("TOOLS", "[lookup, search]")})
-    result = run(repo, base, head)
+    # The reader's answer, not scope selection: ``decorated`` changes nothing.
+    result = run(repo, base, head, "--scope", ".")
     assert result["comparison_status"] == "partial"
     assert any(f"'{named}'" in limit for limit in result["head"]["limits"]), result["head"][
         "limits"

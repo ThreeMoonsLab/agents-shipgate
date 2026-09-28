@@ -173,7 +173,7 @@ SURFACES: tuple[Surface, ...] = (
     ),
     Surface(
         "application_diff",
-        ("src/agents_shipgate/cli/application_diff.py",),
+        ("src/agents_shipgate/cli/application_diff.py", "src/agents_shipgate/cli/application_scope.py"),
         # Advisory source-wiring comparison, not host drift or an engine verdict.
         # No release permission, declared authority, pin or root reachability claim.
         # Its per-side `excluded_tests` list (#876) names test files the

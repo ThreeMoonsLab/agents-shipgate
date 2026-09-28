@@ -329,7 +329,7 @@ def test_non_promisor_git_error_is_normalized_at_materialization_boundary(repo, 
     monkeypatch.setattr(module, "archive_tree", broken)
     monkeypatch.setattr(module, "promised_objects_missing", lambda *a: False)
     result = CliRunner().invoke(app, ["diff", "--application", "--workspace", str(repo),
-                                     "--base", ref, "--json"],
+                                     "--base", ref, "--json", "--scope", "."],
                                 env={"AGENTS_SHIPGATE_AGENT_MODE": "1"})
     assert result.exit_code == 2
     assert "config_error" in result.output

@@ -495,7 +495,7 @@ def diff(
     ),
     application: bool = typer.Option(False, "--application", help="Compare source-observed application agent wiring without setup (SDK/ADK)."),
     head: str | None = typer.Option(None, "--head", help="Application comparison head ref; defaults to committed HEAD."),
-    scope: str = typer.Option(".", "--scope", help="Application directory relative to the repository."),
+    scope: str | None = typer.Option(None, "--scope", help="Application directory relative to the repository; derived from the change when omitted."),
     base_scope: str | None = typer.Option(None, "--base-scope", help="Old application directory for an explicitly selected scope move."),
     max_python_files: int | None = typer.Option(None, "--max-python-files", min=1, help="Application discovery parse bound."),
     json_output: bool = typer.Option(False, "--json", help="Emit the rows as JSON."),
@@ -515,7 +515,7 @@ def diff(
             emit_agent_mode_error("input_parse_error" if isinstance(exc, InputParseError) else "config_error", message=str(exc), exit_code=2)
             raise typer.Exit(2) from exc
         raise typer.Exit(code)
-    if head is not None or scope != "." or base_scope is not None or max_python_files is not None:
+    if head is not None or scope is not None or base_scope is not None or max_python_files is not None:
         raise typer.BadParameter("--head, --scope, --base-scope and --max-python-files require --application.")
     raise typer.Exit(
         run_capability_diff(workspace=workspace, base=base, json_output=json_output)
