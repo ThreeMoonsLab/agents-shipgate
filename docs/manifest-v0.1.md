@@ -144,6 +144,8 @@ Supported static ADK signals:
 - Python `Agent` / `LlmAgent` definitions with literal `tools=[...]`.
 - Plain function tools referenced in an agent tools list.
 - `FunctionTool(func=...)` and `LongRunningFunctionTool(func=...)` wrappers.
+- A tool a local factory returns (`tool = create_tool()`), read to the factory's one unconditional `return FunctionTool(inner)`.
+- A tools list built in the agent's function with `append` / `extend` / `insert` / `+=`; an addition under a condition is named, not bound.
 - `OpenAPIToolset` when a local spec path can be resolved from a literal path or `Path("...").read_text()`.
 - `McpToolset` metadata, including static `tool_filter` and explicit `inventory_path` / `tool_inventory_path` hints.
 - Agent Config YAML `tools`, `sub_agents`, callbacks, plugins, and local config references.

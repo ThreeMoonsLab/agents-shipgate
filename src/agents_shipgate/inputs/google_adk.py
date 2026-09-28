@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import ast
+import copy as copy_module
 import dataclasses
+import hashlib
+import json
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -38,6 +42,7 @@ from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.openapi import load_openapi_tools
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.inputs.python_imports import (
+    FACTORY_RETURN,
     LOCAL_BINDING,
     MODULE_NOT_FOUND,
     NOT_BOUND,
@@ -1011,6 +1016,12 @@ class _PythonAdkExtractor:
         # ``(aliases, name bindings)`` per defining module, for the annotation
         # and shadowing checks that module's own spelling decides.
         self.module_names: dict[str, tuple[dict[str, str], dict[str, list[ast.AST]]]] = {}
+        # Scope indexes of the modules a tool factory is read in (#865).
+        self.module_scopes: dict[str, ScopeIndex] = {}
+        # ``(module, name) -> line`` where a module-level factory tool is changed.
+        self.module_changes: dict[tuple[str, str], int | None] = {}
+        # ``module -> name -> lines`` of the functions a tool can be made from.
+        self.module_function_lines: dict[str, dict[str, list[int]]] = {}
         # Tool names produced by one toolset construction, keyed by the AST
         # call node. A toolset assigned to a variable and shared between
         # agents is loaded once, not once per agent.
@@ -1083,6 +1094,30 @@ class _PythonAdkExtractor:
             handoffs_at = len(self.artifacts.sub_agents)
             self._record_agent_callbacks_plugins_subagents(call, agent_name)
             handoffs = self.artifacts.sub_agents[handoffs_at:]
+            flowed = self._local_tool_list(tools_expr, call) if isinstance(tools_expr, ast.Name) else None
+            if flowed is not None:
+                # ``tools = [...]`` built in the agent's function (#865): its
+                # members read as a literal list would be.
+                elements, conditional = flowed
+                self.artifacts.agents[-1]["tool_count"] = len(elements) + len(conditional)
+                binding = self._binding_for(agent_name, call)
+                loaded_sources.extend(
+                    self._read_construction(
+                        call, agent_name, binding, ast.List(elts=elements, ctx=ast.Load()), tools, handoffs
+                    )
+                )
+                for line in conditional:
+                    message = (
+                        f"Google ADK agent {agent_name!r} adds a tool to its tools list only under a "
+                        f"condition or in a loop at {self.source_ref}:{line}, which is not established."
+                    )
+                    self._surface_warning(message, SURFACE_GAP_DYNAMIC_TOOLS)
+                    if message not in binding.issues:
+                        binding.issues.append(message)
+                if conditional:
+                    # Not the same agent as another construction of its name.
+                    self.agent_sites.setdefault(agent_name, {})[id(call)] = (call.lineno, call)
+                continue
             if not isinstance(tools_expr, (ast.List, ast.Tuple)):
                 if tools_expr is not None:
                     self._surface_warning(
@@ -1232,6 +1267,101 @@ class _PythonAdkExtractor:
                 "from an agent class; agents built from it are not read.",
                 SURFACE_GAP_AGENT_SUBCLASS,
             )
+
+    def _local_tool_list(self, name: ast.Name, agent: ast.Call) -> tuple[list[ast.expr], list[int]] | None:
+        """The members of ``tools = [a, b]`` bound once in the agent's function,
+        with ``tools.append(c)`` / ``.extend([...])`` / ``.insert(i, c)`` /
+        ``tools += [...]`` statements, and the lines of those made under a
+        condition or in a loop (#865).
+
+        None — the dynamic tools expression it was — for any other use of the
+        list in that function: handed to a call, returned, aliased, changed
+        another way, read by a nested function, or a starred member.
+
+        The agent copies the list when it is built, so only additions before
+        the statement that builds it count; one in the same compound
+        statement is named (#865 review).
+        """
+
+        # ``tools += [...]`` binds the name too; read below as an addition.
+        found = [
+            item
+            for item in self.scopes.enclosing_bindings(name, name.id)
+            if not isinstance(self.scopes.parents.get(item), ast.AugAssign)
+        ]
+        if len(found) != 1 or not isinstance(found[0], ast.Name):
+            return None
+        statement = self.scopes.statement_of(found[0])
+        value = getattr(statement, "value", None)
+        if not (
+            statement is not None
+            and (
+                (isinstance(statement, ast.Assign) and statement.targets == [found[0]])
+                or (isinstance(statement, ast.AnnAssign) and statement.target is found[0])
+            )
+            and isinstance(value, ast.List | ast.Tuple)
+            and _unconditional(statement, self.scopes)
+        ):
+            return None
+        function = self.scopes.parents[statement]
+        body = list(getattr(function, "body", []))
+        built_at = _top_statement(agent, function, self.scopes.parents)
+        if built_at not in body:
+            return None
+        elements: list[ast.expr] = list(value.elts)
+        conditional: list[int] = []
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Name) or node.id != name.id or node is found[0]:
+                continue
+            if self._enclosing_scope(node) is not function:
+                return None
+            parent = self.scopes.parents.get(node)
+            if isinstance(parent, ast.keyword) and parent.arg == "tools":
+                call = self.scopes.parents.get(parent)
+                if isinstance(call, ast.Call) and self._is_agent_call(call):
+                    continue
+                return None
+            added: list[ast.expr] | None = None
+            change: ast.stmt | None = None
+            if isinstance(parent, ast.AugAssign) and parent.target is node and isinstance(parent.op, ast.Add):
+                if isinstance(parent.value, ast.List | ast.Tuple):
+                    added, change = list(parent.value.elts), parent
+            elif isinstance(parent, ast.Attribute) and parent.value is node and isinstance(node.ctx, ast.Load):
+                call = self.scopes.parents.get(parent)
+                holder = self.scopes.parents.get(call) if call is not None else None
+                if isinstance(call, ast.Call) and call.func is parent and isinstance(holder, ast.Expr) and not call.keywords:
+                    if parent.attr == "append" and len(call.args) == 1:
+                        added, change = [call.args[0]], holder
+                    elif parent.attr == "insert" and len(call.args) == 2:
+                        added, change = [call.args[1]], holder
+                    elif (
+                        parent.attr == "extend"
+                        and len(call.args) == 1
+                        and isinstance(call.args[0], ast.List | ast.Tuple)
+                    ):
+                        added, change = list(call.args[0].elts), holder
+            if added is None or change is None:
+                return None
+            top = _top_statement(change, function, self.scopes.parents)
+            if top not in body or body.index(top) > body.index(built_at):
+                # After the agent is built: not its list any more.
+                continue
+            if top is change and body.index(top) < body.index(built_at):
+                elements += added
+            else:
+                conditional.append(change.lineno)
+        if any(isinstance(item, ast.Starred) for item in elements):
+            return None
+        return elements, conditional
+
+    def _enclosing_scope(self, node: ast.AST) -> ast.AST | None:
+        current = self.scopes.parents.get(node)
+        while current is not None and not isinstance(
+            current, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda | ast.ClassDef | ast.Module
+            | ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp
+        ):
+            current = self.scopes.parents.get(current)
+        return current
 
     def _surface_warning(self, message: str, reason: str) -> None:
         """Report a construct that leaves part of this module's surface unknown."""
@@ -1781,6 +1911,24 @@ class _PythonAdkExtractor:
                 return []
             if call_name in OPENAPI_TOOLSET_NAMES | MCP_TOOLSET_NAMES:
                 return self._extract_toolset_call(expr, agent_name, binding)
+            spelling = reference_spelling(expr.func)
+            made = (
+                self._factory_call(expr, self.module, f"{spelling}()")
+                if spelling is not None and self.resolver is not None and self.module is not None
+                else None
+            )
+            if made is not None:
+                # ``tools=[create_tool()]``: what the factory returns (#865).
+                resolution, long_running = made
+                if resolution.resolved:
+                    self._bind_resolved(resolution, tools, agent_name, binding, long_running)
+                    return []
+                warning = (
+                    f"Google ADK agent {agent_name!r} has a tool expression that could not be statically resolved."
+                )
+                self._surface_warning(warning, SURFACE_GAP_UNRESOLVED_EXPRESSION)
+                self._record_unresolved_reference(warning, agent_name, f"{spelling}()", resolution)
+                return []
         self._surface_warning(
             f"Google ADK agent {agent_name!r} has a tool expression that could not be statically resolved.",
             SURFACE_GAP_UNRESOLVED_EXPRESSION,
@@ -1829,6 +1977,9 @@ class _PythonAdkExtractor:
             recorded = self.wrappers.get(name, {}).get("call") or self.toolset_assignments.get(name)
             if value is not None and value is recorded:
                 return "flat"
+            made = self._local_factory(local, statement, spelling)
+            if made is not None:
+                return made
         return (
             Resolution(
                 reference=spelling,
@@ -1837,6 +1988,69 @@ class _PythonAdkExtractor:
             ),
             False,
         )
+
+    def _wrapped_function(self, node: ast.Name) -> bool:
+        """``FunctionTool(func=fn, require_confirmation=True)`` with ``fn`` a
+        factory's function: the wrapper reads it."""
+
+        parent = self.scopes.parents.get(node)
+        call = self.scopes.parents.get(parent) if isinstance(parent, ast.keyword) else parent
+        return (
+            isinstance(call, ast.Call)
+            and _qualified_name(call.func, self.aliases) in FUNCTION_TOOL_NAMES | LONG_RUNNING_TOOL_NAMES
+            and _call_func_expr(call) is node
+        )
+
+    def _local_factory(
+        self, local: ast.Name, statement: ast.stmt | None, spelling: str
+    ) -> tuple[Resolution, bool] | None:
+        """``tool = create_tool()`` in the agent's own function, bound once and
+        unconditionally: the tool the factory returns (#865). None when the
+        call is not to application code, or the binding is conditional."""
+
+        value = getattr(statement, "value", None)
+        if (
+            self.resolver is None
+            or self.module is None
+            or statement is None
+            or not isinstance(value, ast.Call)
+            or not (
+                (isinstance(statement, ast.Assign) and statement.targets == [local])
+                or (isinstance(statement, ast.AnnAssign) and statement.target is local)
+            )
+            or not _unconditional(statement, self.scopes)
+        ):
+            return None
+        made = self._factory_call(value, self.module, spelling)
+        if made is None:
+            return None
+        plain = not any(step.get("returns_tool") for step in made[0].steps)
+        function = self.scopes.parents[statement]
+        changed = _changed_at(
+            function,
+            local.id,
+            self.scopes.parents,
+            bound=local,
+            allowed=lambda node: _in_tools_argument(node, self.scopes.parents, self._is_agent_call)
+            or _in_local_list(node, self.scopes.parents, self._is_agent_call)
+            # Wrapping a function it returns; wrapping a tool again is not a tool.
+            or (plain and self._wrapped_function(node)),
+        )
+        if changed is not None:
+            return (
+                Resolution(
+                    reference=spelling,
+                    reason=FACTORY_RETURN,
+                    detail=(
+                        f"{spelling!r}, the tool {reference_spelling(value.func)!r} returns at "
+                        f"{self.source_ref}:{statement.lineno}, is changed or handed on at "
+                        f"{self.source_ref}:{changed}"
+                    ),
+                    steps=made[0].steps,
+                ),
+                False,
+            )
+        return made
 
     def _module_level_flat(self, name: str) -> str | None:
         """Whether the flat maps describe ``name``'s module-level binding.
@@ -2092,7 +2306,53 @@ class _PythonAdkExtractor:
 
         if self.resolver is None or self.module is None:
             return None, False
-        return self._through_wrapper(self.resolver.resolve(self.module, spelling))
+        resolution, long_running = self._through_wrapper(self.resolver.resolve(self.module, spelling))
+        value, home = resolution.value, resolution.module
+        if resolution.resolved or not isinstance(value, ast.Call) or home is None:
+            return resolution, long_running
+        aliases, _ = self._names_of(home)
+        if _qualified_name(value.func, aliases) in (
+            FUNCTION_TOOL_NAMES | LONG_RUNNING_TOOL_NAMES | OPENAPI_TOOLSET_NAMES | MCP_TOOLSET_NAMES
+        ):
+            return resolution, long_running
+        # ``tool = create_tool()`` at a module's top level: what the factory
+        # returns (#865), unless the module changes the tool afterwards.
+        made = self._factory_call(value, home, spelling)
+        if made is None:
+            return resolution, long_running
+        inner, inner_long_running = made
+        scopes = self._scopes_for(home)
+        statement = scopes.statement_of(value)
+        holders = statement.targets if isinstance(statement, ast.Assign) else [getattr(statement, "target", None)]
+        holder = holders[0] if len(holders) == 1 and isinstance(holders[0], ast.Name) else None
+        changed: int | None = None
+        if holder is not None:
+            cache_key = (home.ref, holder.id)
+            if cache_key not in self.module_changes:
+                self.module_changes[cache_key] = _changed_at(
+                    home.tree, holder.id, scopes.parents, bound=holder, strict=False
+                )
+            changed = self.module_changes[cache_key]
+        if holder is None or changed is not None:
+            return (
+                dataclasses.replace(
+                    resolution,
+                    reason=FACTORY_RETURN,
+                    detail=(
+                        f"{spelling!r}, the tool {reference_spelling(value.func)!r} returns at "
+                        f"{home.ref}:{value.lineno}, is changed at {home.ref}:{changed}"
+                    ),
+                ),
+                False,
+            )
+        return (
+            dataclasses.replace(
+                inner,
+                steps=(*resolution.steps, *inner.steps),
+                caveats=tuple(dict.fromkeys((*resolution.caveats, *inner.caveats))),
+            ),
+            inner_long_running,
+        )
 
     def _through_wrapper(self, resolution: Resolution) -> tuple[Resolution, bool]:
         """Continue into ``name = FunctionTool(func)`` in the module that built it.
@@ -2138,6 +2398,482 @@ class _PythonAdkExtractor:
             call_name in LONG_RUNNING_TOOL_NAMES,
         )
 
+    def _scopes_for(self, module: PythonModule) -> ScopeIndex:
+        if module is self.module:
+            return self.scopes
+        scopes = self.module_scopes.get(module.ref)
+        if scopes is None:
+            scopes = self.module_scopes[module.ref] = ScopeIndex(module.tree)
+        return scopes
+
+    def _factory_call(
+        self,
+        call: ast.Call,
+        module: PythonModule,
+        reference: str,
+        *,
+        depth: int = 0,
+        seen: frozenset[tuple[str, int]] = frozenset(),
+        outer: ast.FunctionDef | ast.AsyncFunctionDef | None = None,
+    ) -> tuple[Resolution, bool] | None:
+        """The tool ``factory(...)`` returns, read from the factory's body (#865).
+
+        Followed when the call names a function this read can resolve: its one
+        unconditional ``return`` is ``FunctionTool(inner)`` (or
+        ``LongRunningFunctionTool``), a plain function, a name bound once to
+        one of those, or another factory's call, up to
+        :data:`MAX_FACTORY_DEPTH` deep. Nothing is executed. None: the call is
+        not to application code (a builtin, a third-party package), so the
+        caller keeps the answer it had.
+        """
+
+        assert self.resolver is not None
+        spelling = reference_spelling(call.func)
+        if spelling is None:
+            return None
+        scopes = self._scopes_for(module)
+        name = spelling.split(".", 1)[0]
+        found = scopes.enclosing_bindings(call.func, name)
+        callee: Resolution
+        import_node: tuple[ast.Import | ast.ImportFrom, ast.alias] | None = None
+        if len(found) > 1:
+            callee = Resolution(
+                reference=spelling,
+                reason=LOCAL_BINDING,
+                detail=local_binding_detail(module.ref, name, found[0], rebound=True),
+            )
+        elif found:
+            local = found[0]
+            statement = scopes.statement_of(local)
+            if isinstance(local, ast.alias) and isinstance(statement, ast.Import | ast.ImportFrom):
+                import_node = (statement, local)
+                callee = self.resolver.resolve_local_import(module, statement, local, spelling)
+            elif (
+                isinstance(local, ast.FunctionDef | ast.AsyncFunctionDef)
+                and spelling == name
+                and _unconditional(local, scopes)
+            ):
+                callee = Resolution(
+                    reference=spelling,
+                    module=module,
+                    definition=local,
+                    steps=(_step(module, local, "definition"),),
+                )
+            else:
+                callee = Resolution(
+                    reference=spelling,
+                    reason=LOCAL_BINDING,
+                    detail=local_binding_detail(module.ref, name, local),
+                )
+        else:
+            callee = self.resolver.resolve(module, spelling)
+            bound = module.bindings.get(name, [])
+            if len(bound) == 1 and isinstance(bound[0].node, ast.alias):
+                statement = bound[0].statement
+                if isinstance(statement, ast.Import | ast.ImportFrom):
+                    import_node = (statement, bound[0].node)
+        where = f"{module.ref}:{call.lineno}"
+        if not callee.resolved:
+            # Only a function this read reaches is a factory it follows. A
+            # third-party package, a class, a name bound twice or through a
+            # wildcard keep the answer they had (#865 review) — except
+            # application code outside the scope, named with the scope that
+            # would read it.
+            if callee.reason != MODULE_NOT_FOUND or import_node is None:
+                return None
+            statement, alias = import_node
+            if isinstance(statement, ast.ImportFrom) and not statement.level:
+                dotted, names = statement.module or "", [alias.name]
+            elif isinstance(statement, ast.Import):
+                dotted, names = alias.name, []
+            else:
+                return None
+            if not dotted or not self.resolver.repository_holds(dotted, names):
+                return None
+            held = "; the repository holds it outside the read scope, which a scope including it would read"
+            return (
+                dataclasses.replace(
+                    callee,
+                    reference=reference,
+                    detail=f"{reference!r} is the tool {spelling!r} returns at {where}, and {callee.detail}{held}",
+                ),
+                False,
+            )
+        factory, home = callee.definition, callee.module
+        assert factory is not None and home is not None
+        if module is self.module and not found:
+            self._require_proven_name(name)
+        key = (home.ref, factory.lineno)
+        # The factory's body and this call's own arguments are part of what
+        # the tool does: its closure (#865 review).
+        # The values the call gives the factory's parameters are what the
+        # closure holds; a value this read cannot name leaves it unknown.
+        values, unnamed = self._call_values(call, factory, module, home, outer)
+        # Unnamed: the call as written, and which value is not named — the
+        # implementation is then an open question, not a changed tool.
+        # An unnamed value may be set anywhere in the calling module: its
+        # bytes stand in for it, so an untouched module is no change.
+        digest = hashlib.sha256(
+            (_code_dump(factory) + (values if values is not None else _dump(call) + module.sha256)).encode()
+        ).hexdigest()
+        steps = (
+            *callee.steps,
+            {
+                **_step(home, factory, "factory"),
+                "factory_ast": digest if unnamed is None else f"unknown:{digest}:{unnamed}",
+                "returns_tool": _returns_tool(factory, self._names_of(home)[0]),
+            },
+        )
+
+        def stop(detail: str) -> tuple[Resolution, bool]:
+            return (
+                Resolution(
+                    reference=reference,
+                    reason=FACTORY_RETURN,
+                    detail=f"{reference!r} is the tool factory {factory.name!r} ({home.ref}:{factory.lineno}) returns, and {detail}",
+                    steps=steps,
+                    caveats=callee.caveats,
+                ),
+                False,
+            )
+
+        if key in seen:
+            return stop("it calls itself on the way, which is not followed")
+        if depth >= MAX_FACTORY_DEPTH:
+            return stop(f"it is reached through more than {MAX_FACTORY_DEPTH} factories, which is not followed")
+        if factory.decorator_list:
+            return stop("it is decorated, which may change what it returns")
+        if isinstance(factory, ast.AsyncFunctionDef):
+            return stop("it is a coroutine function, whose call returns a coroutine, not a tool")
+        returns, yields = _own_returns(factory)
+        if yields:
+            return stop("it is a generator")
+        if len(returns) != 1:
+            return stop(f"it returns from {len(returns)} places" if returns else "it never returns")
+        returned = returns[0]
+        if returned not in factory.body:
+            return stop(f"it returns only under a condition, at {home.ref}:{returned.lineno}")
+        if returned.value is None:
+            return stop("it returns nothing")
+        followed = self._factory_returned(
+            returned.value, factory, home, returned, reference, depth, seen | {key}, stop
+        )
+        resolution, long_running = followed
+        return (
+            dataclasses.replace(
+                resolution,
+                steps=(*steps, *resolution.steps),
+                caveats=tuple(dict.fromkeys((*callee.caveats, *resolution.caveats))),
+            ),
+            long_running,
+        )
+
+    def _function_lines(self, module: PythonModule) -> dict[str, list[int]]:
+        """``name -> lines`` of the functions a tool can be minted from in a
+        module — not a class's methods — read once per module (#865 review)."""
+
+        lines = self.module_function_lines.get(module.ref)
+        if lines is None:
+            lines = {}
+            stack: list[ast.AST] = [module.tree]
+            while stack:
+                node = stack.pop()
+                for child in ast.iter_child_nodes(node):
+                    if isinstance(child, ast.ClassDef):
+                        continue
+                    if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
+                        lines.setdefault(child.name, []).append(child.lineno)
+                    stack.append(child)
+            for found in lines.values():
+                found.sort()
+            self.module_function_lines[module.ref] = lines
+        return lines
+
+    def _call_values(
+        self,
+        call: ast.Call,
+        factory: ast.FunctionDef | ast.AsyncFunctionDef,
+        module: PythonModule,
+        home: PythonModule,
+        outer: ast.FunctionDef | ast.AsyncFunctionDef | None = None,
+    ) -> tuple[str | None, str | None]:
+        """What each of the factory's parameters holds at this call, as data,
+        with the factory's defaults for the rest — so ``make(True)``,
+        ``make(readonly=True)`` and ``mk(readonly=True)`` are one call — and,
+        when a value is not data this read can name, which one: ``(None,
+        "readonly=ro at agent.py:12")`` (#865 review)."""
+
+        arguments = factory.args
+        positional = [*arguments.posonlyargs, *arguments.args]
+        where = f"{module.ref}:{call.lineno}"
+        if any(isinstance(item, ast.Starred) for item in call.args) or any(item.arg is None for item in call.keywords):
+            return None, f"'*' or '**' arguments at {where}"
+        if len(call.args) > len(positional):
+            return None, f"extra positional arguments at {where}"
+        given: dict[str, ast.expr] = {item.arg: arg for item, arg in zip(positional, call.args, strict=False)}
+        for keyword in call.keywords:
+            assert keyword.arg is not None
+            given[keyword.arg] = keyword.value
+        names = [item.arg for item in [*positional, *arguments.kwonlyargs]]
+        if set(given) - set(names):
+            return None, f"arguments the factory does not name at {where}"
+        defaults: dict[str, ast.expr] = dict(
+            zip([item.arg for item in positional[len(positional) - len(arguments.defaults) :]], arguments.defaults, strict=False)
+        )
+        for item, default in zip(arguments.kwonlyargs, arguments.kw_defaults, strict=False):
+            if default is not None:
+                defaults[item.arg] = default
+        held: dict[str, str] = {}
+        unnamed: list[str] = []
+        for name in names:
+            if name in given:
+                data = self._data(given[name], module, call, outer=outer)
+                expression = given[name]
+            elif name in defaults:
+                data = self._data(defaults[name], home, defaults[name])
+                expression = defaults[name]
+            else:
+                return None, f"no value for {name!r} at {where}"
+            if data is None:
+                unnamed.append(f"{name}={ast.unparse(expression)}")
+            else:
+                held[name] = data
+        if unnamed:
+            return None, f"{', '.join(unnamed)} at {where}"
+        return json.dumps(sorted(held.items())), None
+
+    def _data(
+        self,
+        node: ast.expr,
+        module: PythonModule,
+        at: ast.AST,
+        depth: int = 0,
+        *,
+        outer: ast.FunctionDef | ast.AsyncFunctionDef | None = None,
+    ) -> str | None:
+        """``node`` as data: a literal; a name or module attribute bound once,
+        unconditionally, to one — a list, dict or set only when nothing else
+        in its scope uses it, and never a module's, which another module can
+        change; a function, by its code; or a parameter of the factory this
+        call is made in, which that factory's own call supplies. Else None."""
+
+        if depth > 4:
+            return None
+        if _written_out(node):
+            if isinstance(node, ast.Set):
+                return "{" + ",".join(sorted(_dump(item) for item in node.elts)) + "}"
+            return _dump(node)
+        scopes = self._scopes_for(module)
+        if isinstance(node, ast.Name):
+            found = scopes.enclosing_bindings(at, node.id)
+            if found:
+                if len(found) != 1:
+                    return None
+                if isinstance(found[0], ast.arg) and outer is not None and scopes.parents.get(
+                    scopes.parents.get(found[0])
+                ) is outer:
+                    # ``def make_named(readonly): return make_sql_tool(readonly=readonly)``.
+                    return f"<parameter {node.id}>"
+                if not isinstance(found[0], ast.Name):
+                    return None
+                statement = scopes.statement_of(found[0])
+                if not (
+                    isinstance(statement, ast.Assign | ast.AnnAssign)
+                    and statement.value is not None
+                    and (statement.targets == [found[0]] if isinstance(statement, ast.Assign) else statement.target is found[0])
+                    and _unconditional(statement, scopes)
+                ):
+                    return None
+                if (isinstance(statement.value, ast.Name) or _holds_mutable(statement.value)) and _changed_at(
+                    scopes.parents[statement], node.id, scopes.parents, bound=found[0], allowed=lambda use: use is node
+                ) is not None:
+                    # ``policy = {...}; policy["readonly"] = False``, also
+                    # through ``policy = base`` or ``({...},)``.
+                    return None
+                return self._data(statement.value, module, statement, depth + 1)
+        spelling = reference_spelling(node)
+        if spelling is None or self.resolver is None:
+            return None
+        resolution = self.resolver.resolve(module, spelling)
+        if resolution.caveats or resolution.module is None:
+            return None
+        if resolution.definition is not None:
+            # ``make(upper)``: a function, by its code.
+            return "<function " + _code_dump(resolution.definition) + ">"
+        value = resolution.value
+        if value is None or _holds_mutable(value):
+            # A module's mutable value another module can change.
+            return None
+        return self._data(value, resolution.module, value, depth + 1)
+
+    def _factory_returned(
+        self,
+        value: ast.expr,
+        factory: ast.FunctionDef | ast.AsyncFunctionDef,
+        home: PythonModule,
+        returned: ast.Return,
+        reference: str,
+        depth: int,
+        seen: frozenset[tuple[str, int]],
+        stop: Callable[[str], tuple[Resolution, bool]],
+        *,
+        through: str | None = None,
+    ) -> tuple[Resolution, bool]:
+        """What a factory's ``return`` value is, as a resolution with only the
+        steps past the factory itself."""
+
+        scopes = self._scopes_for(home)
+        aliases, _ = self._names_of(home)
+        if isinstance(value, ast.Call):
+            call_name = _qualified_name(value.func, aliases)
+            if call_name in FUNCTION_TOOL_NAMES | LONG_RUNNING_TOOL_NAMES:
+                func_expr = _call_func_expr(value)
+                if func_expr is None:
+                    return stop(f"its {call_name} names no function")
+                root = value.func
+                while isinstance(root, ast.Attribute):
+                    root = root.value
+                if isinstance(root, ast.Name):
+                    # As for any wrapper: ADK's constructor only while the name
+                    # is still the import it resolves through.
+                    bound = self._names_of(home)[1].get(root.id, [])
+                    local = scopes.enclosing_bindings(value, root.id)
+                    adk_import = bool(local) and all(
+                        isinstance(item, ast.alias)
+                        and isinstance(statement := scopes.statement_of(item), ast.ImportFrom)
+                        and (statement.module or "").startswith("google.adk")
+                        for item in local
+                    )
+                    if not adk_import and (local or len(bound) != 1 or not isinstance(bound[0], ast.alias)):
+                        self._note_surface_gap(SURFACE_GAP_SHADOWED_FRAMEWORK_SYMBOL)
+                resolution = self._factory_function(
+                    func_expr, factory, home, returned, reference, stop, wrapper=value
+                )
+                return resolution, resolution.resolved and call_name in LONG_RUNNING_TOOL_NAMES
+            followed = self._factory_call(value, home, reference, depth=depth + 1, seen=seen, outer=factory)
+            if followed is None:
+                return stop(
+                    f"it returns what {reference_spelling(value.func) or 'a call'!r} returns at "
+                    f"{home.ref}:{value.lineno}, which is not application code this read follows"
+                )
+            return followed
+        if isinstance(value, ast.Name) and through is None:
+            found = scopes.enclosing_bindings(value, value.id)
+            if len(found) == 1 and isinstance(found[0], ast.Name):
+                statement = scopes.statement_of(found[0])
+                bound_to = (
+                    statement.value
+                    if isinstance(statement, ast.Assign)
+                    and len(statement.targets) == 1
+                    and statement.targets[0] is found[0]
+                    else statement.value
+                    if isinstance(statement, ast.AnnAssign) and statement.target is found[0]
+                    else None
+                )
+                if bound_to is not None and statement in factory.body and statement.lineno < returned.lineno:
+                    # ``tool = FunctionTool(inner)`` then ``return tool``.
+                    changed = _changed_at(
+                        factory, value.id, scopes.parents, bound=found[0], returned=returned
+                    )
+                    if changed is not None:
+                        return stop(f"it changes the {value.id!r} it returns at {home.ref}:{changed}")
+                    return self._factory_returned(
+                        bound_to, factory, home, returned, reference, depth, seen, stop, through=value.id
+                    )
+        if isinstance(value, ast.Name | ast.Attribute):
+            # A plain callable: ADK wraps it in a ``FunctionTool`` itself.
+            return self._factory_function(value, factory, home, returned, reference, stop), False
+        return stop(f"it returns an expression at {home.ref}:{returned.lineno} this read does not follow")
+
+    def _factory_function(
+        self,
+        expr: ast.expr,
+        factory: ast.FunctionDef | ast.AsyncFunctionDef,
+        home: PythonModule,
+        returned: ast.Return,
+        reference: str,
+        stop: Callable[[str], tuple[Resolution, bool]],
+        *,
+        wrapper: ast.Call | None = None,
+    ) -> Resolution:
+        """The function a factory wraps or returns: a function nested in it,
+        defined once, before its ``return`` and never changed or handed on
+        (``inner.__name__ = ...`` renames the tool), or one its module binds."""
+
+        assert self.resolver is not None
+        spelling = reference_spelling(expr)
+        if spelling is None:
+            return stop(f"the function it wraps at {home.ref}:{returned.lineno} is not a named function")[0]
+        scopes = self._scopes_for(home)
+        name = spelling.split(".", 1)[0]
+        found = scopes.enclosing_bindings(expr, name)
+        if len(found) > 1:
+            return stop(local_binding_detail(home.ref, name, found[0], rebound=True))[0]
+        if found:
+            inner = found[0]
+            statement = scopes.statement_of(inner)
+            if isinstance(inner, ast.alias) and isinstance(statement, ast.Import | ast.ImportFrom):
+                changed = (
+                    _changed_at(factory, name, scopes.parents, bound=inner, returned=returned, wrapper=wrapper)
+                    if spelling == name
+                    else _attribute_changed(factory, spelling, scopes.parents, returned=returned, wrapper=wrapper)
+                )
+                if changed is not None:
+                    return stop(f"{spelling!r} is changed or handed on at {home.ref}:{changed}, which may rename it")[0]
+                resolution = self.resolver.resolve_local_import(home, statement, inner, spelling)
+                return dataclasses.replace(resolution, reference=reference)
+            if not (
+                isinstance(inner, ast.FunctionDef | ast.AsyncFunctionDef)
+                and spelling == name
+                and inner in factory.body
+                and inner.lineno < returned.lineno
+            ):
+                return stop(local_binding_detail(home.ref, name, inner))[0]
+            if inner.decorator_list:
+                return stop(f"{name!r} ({home.ref}:{inner.lineno}) is decorated, which may replace it")[0]
+            same = self._function_lines(home).get(name, [])
+            if len(same) > 1:
+                # A tool is known by its name in its file (#865 review).
+                return stop(
+                    f"{home.ref} defines {name!r} more than once (lines "
+                    f"{', '.join(str(line) for line in same)}), so which one is the tool is not established"
+                )[0]
+            changed = _changed_at(
+                factory, name, scopes.parents, bound=inner, returned=returned, wrapper=wrapper
+            )
+            if changed is not None:
+                return stop(
+                    f"{name!r} is changed or handed on at {home.ref}:{changed}, which may rename it"
+                )[0]
+            return Resolution(
+                reference=reference,
+                module=home,
+                definition=inner,
+                steps=(_step(home, inner, "definition"),),
+            )
+        # ``search.__name__ = "lookup"`` in the factory renames it too, as
+        # does ``impl.search.__name__ = ...``.
+        changed = (
+            _changed_at(factory, name, scopes.parents, bound=factory, returned=returned, wrapper=wrapper)
+            if spelling == name
+            else _attribute_changed(factory, spelling, scopes.parents, returned=returned, wrapper=wrapper)
+        )
+        if changed is not None:
+            return stop(f"{spelling!r} is changed or handed on at {home.ref}:{changed}, which may rename it")[0]
+        resolution = self.resolver.resolve(home, spelling)
+        if resolution.resolved:
+            return dataclasses.replace(resolution, reference=reference)
+        if resolution.reason in (None, NOT_BOUND):
+            return stop(f"{spelling!r} is not bound in {home.ref}")[0]
+        return dataclasses.replace(
+            resolution,
+            reference=reference,
+            detail=(
+                f"{reference!r} is the tool factory {factory.name!r} ({home.ref}:"
+                f"{factory.lineno}) returns, and {resolution.detail}"
+            ),
+        )
+
     def _imported_root(self, expr: ast.Attribute) -> bool:
         """Whether a dotted reference starts at a name this module imports."""
 
@@ -2170,18 +2906,19 @@ class _PythonAdkExtractor:
     ) -> None:
         if resolution is None or resolution.reason in (None, NOT_BOUND):
             return
-        self.artifacts.unresolved_references.append(
-            {
-                "agent_name": agent_name,
-                "reference": spelling,
-                "warning": warning,
-                "reason": resolution.reason,
-                "detail": resolution.detail,
-                "source_id": self.source_id,
-                "source_ref": self.source_ref,
-                "import_resolution": resolution.evidence(),
-            }
-        )
+        record = {
+            "agent_name": agent_name,
+            "reference": spelling,
+            "warning": warning,
+            "reason": resolution.reason,
+            "detail": resolution.detail,
+            "source_id": self.source_id,
+            "source_ref": self.source_ref,
+            "import_resolution": resolution.evidence(),
+        }
+        # A factory called N times inline is one record (#865 review).
+        if record not in self.artifacts.unresolved_references:
+            self.artifacts.unresolved_references.append(record)
 
     def _bind_wrapped_reference(
         self,
@@ -2229,13 +2966,16 @@ class _PythonAdkExtractor:
 
         node, module = resolution.definition, resolution.module
         assert node is not None and module is not None
-        # The spelling this module used has to hold up like a local name.
-        self._require_proven_name(resolution.reference.split(".", 1)[0])
+        # A factory's function: its call was proven where it was read (#865).
+        made = any(step.get("binding") == "factory" for step in resolution.steps)
+        if not made:
+            # The spelling this module used has to hold up like a local name.
+            self._require_proven_name(resolution.reference.split(".", 1)[0])
         if any(step.get("module_getattr") for step in resolution.steps):
             # A package ``__getattr__`` could have answered before the
             # submodule did; the definition is named, not proven.
             self._note_surface_gap(SURFACE_GAP_SHADOWED_DEFINITION)
-        if module is self.module:
+        if module is self.module and not (made and node not in module.tree.body):
             # ``alias = local_function``: the chain came back to this module.
             self._bind_function_tool(node, tools, agent_name, binding, long_running)
             tool = self.canonical_function_tools.get(node.name)
@@ -2258,9 +2998,10 @@ class _PythonAdkExtractor:
                         name, name_bindings, aliases
                     ),
                 )
-                # Minted from an import: another source reading that module
-                # observes the same definition; the catalog keeps one (#879).
-                tool.extraction["imported_definition"] = True
+                if module is not self.module:
+                    # Minted from an import: another source reading that module
+                    # observes the same definition; the catalog keeps one (#879).
+                    tool.extraction["imported_definition"] = True
                 self.imported_function_tools[key] = tool
                 tools.append(tool)
             else:
@@ -2282,6 +3023,15 @@ class _PythonAdkExtractor:
         recorded = tool.extraction.setdefault("import_resolutions", [])
         if evidence not in recorded:
             recorded.append(evidence)
+        # Every factory call that makes this tool is part of its
+        # implementation: the factory's body and the call's arguments, which
+        # its closure holds (#865 review).
+        # Per agent: another agent's call to the same factory is its own.
+        # ``unknown``: a call passes a value this read cannot name.
+        made = [str(step["factory_ast"]) for step in resolution.steps if "factory_ast" in step]
+        if made:
+            calls = tool.extraction.setdefault("factory_calls", {})
+            calls[agent_name] = sorted({*calls.get(agent_name, []), *made})
 
     def _names_of(
         self, module: PythonModule
@@ -3464,6 +4214,299 @@ def _parameters(
 #: at. A binding reached through anything else — an ``if``/``try``/``for`` body,
 #: a ``with`` block — is conditional or order-dependent, which is exactly what
 #: this check exists to refuse.
+#: How many factory calls deep a tool factory's return is followed (#865).
+MAX_FACTORY_DEPTH = 4
+
+
+def _step(module: PythonModule, node: ast.FunctionDef | ast.AsyncFunctionDef, binding: str) -> dict[str, Any]:
+    """One hop of a resolution's evidence, in the resolver's shape."""
+
+    return {
+        "path": module.ref,
+        "line": node.lineno,
+        "name": node.name,
+        "sha256": module.sha256,
+        "binding": binding,
+    }
+
+
+def _unconditional(node: ast.stmt, scopes: ScopeIndex) -> bool:
+    """Whether a statement runs whenever its function (or module) body does."""
+
+    parent = scopes.parents.get(node)
+    return isinstance(parent, ast.Module | ast.FunctionDef | ast.AsyncFunctionDef) and node in parent.body
+
+
+def _own_returns(function: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[list[ast.Return], bool]:
+    """The ``return`` statements of ``function`` itself, and whether it yields."""
+
+    returns: list[ast.Return] = []
+    yields = False
+    stack: list[ast.AST] = list(function.body)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef | ast.Lambda):
+            continue
+        if isinstance(node, ast.Return):
+            returns.append(node)
+        elif isinstance(node, ast.Yield | ast.YieldFrom):
+            yields = True
+        stack.extend(ast.iter_child_nodes(node))
+    return sorted(returns, key=lambda item: (item.lineno, item.col_offset)), yields
+
+
+def _changed_at(
+    function: ast.AST,
+    name: str,
+    parents: dict[ast.AST, ast.AST],
+    *,
+    bound: ast.AST,
+    returned: ast.Return | None = None,
+    wrapper: ast.Call | None = None,
+    strict: bool = True,
+    allowed: Callable[[ast.Name], bool] | None = None,
+) -> int | None:
+    """The line where ``name`` — a factory's function or the tool it returns —
+    may be changed, or None.
+
+    Any store or deletion through it (``inner.__name__ = ...``,
+    ``inner.__dict__[...]``), a rebinding, and ``setattr``/``delattr``/
+    ``update_wrapper`` on it always count. ``strict``: so does any other use —
+    handing it to a call, a container or another name — except being the
+    ``return`` value or the function ``wrapper`` wraps (#865).
+    """
+
+    for node in ast.walk(function):
+        if not isinstance(node, ast.Name) or node.id != name or node is bound:
+            continue
+        line = getattr(node, "lineno", 0)
+        if not isinstance(node.ctx, ast.Load):
+            return line
+        parent = parents.get(node)
+        if isinstance(parent, ast.Attribute | ast.Subscript) and parent.value is node:
+            outer = parent
+            while isinstance(parents.get(outer), ast.Attribute | ast.Subscript):
+                outer = parents[outer]
+            if not isinstance(getattr(outer, "ctx", None), ast.Load):
+                return line
+        if isinstance(parent, ast.Call) and node in parent.args:
+            callee = reference_spelling(parent.func) or ""
+            if callee.rsplit(".", 1)[-1] in {"setattr", "delattr", "update_wrapper"}:
+                return line
+        if not strict or (isinstance(parent, ast.Call) and parent.func is node):
+            # Calling it changes nothing about it.
+            continue
+        if isinstance(parent, ast.Attribute) and parent.value is node:
+            # ``tool.name`` read — logged, formatted — leaves it as it is; a
+            # method call on it may not.
+            outer = parent
+            while isinstance(parents.get(outer), ast.Attribute | ast.Subscript) and getattr(parents[outer], "value", None) is outer:
+                outer = parents[outer]
+            holder = parents.get(outer)
+            if isinstance(holder, ast.Call) and holder.func is outer:
+                # A method call on it may change it.
+                return line
+            handed = (
+                isinstance(holder, ast.keyword)
+                or (isinstance(holder, ast.Call) and outer in holder.args)
+                # ``f = tool.func``, ``[tool.func]``: another name for a part of it.
+                or isinstance(holder, ast.Assign | ast.AnnAssign | ast.NamedExpr | ast.List | ast.Tuple | ast.Set | ast.Dict)
+            )
+            if handed and not (
+                isinstance(outer, ast.Attribute) and outer.value is node and outer.attr in _DESCRIPTIVE_ATTRIBUTES
+            ):
+                # ``rename_fn(tool.func)``: a part of it handed on (#865 review).
+                return line
+            continue
+        if isinstance(parent, ast.Return) and parent is returned:
+            continue
+        if wrapper is not None and parent is wrapper:
+            continue
+        if isinstance(parent, ast.keyword) and parents.get(parent) is wrapper and wrapper is not None:
+            continue
+        if allowed is not None and allowed(node):
+            continue
+        return line
+    return None
+
+
+def _code_dump(function: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
+    """A function's code, without docstrings (description, not behaviour)."""
+
+    copy = copy_module.deepcopy(function)
+    for node in ast.walk(copy):
+        body = getattr(node, "body", None)
+        if (
+            isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+            and body
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)
+        ):
+            node.body = body[1:] or [ast.Pass()]
+    return _dump(copy)
+
+
+#: A tool's attributes that are text: handing one on changes nothing.
+_DESCRIPTIVE_ATTRIBUTES = frozenset({"name", "description", "__name__", "__doc__", "__qualname__"})
+
+
+def _returns_tool(function: ast.FunctionDef | ast.AsyncFunctionDef, aliases: dict[str, str]) -> bool:
+    """Whether a factory's own ``return`` is (or may be) a tool object rather
+    than a plain function: a wrapper call, anything but a name, or a name its
+    body binds to a call (#865 review)."""
+
+    returns, _ = _own_returns(function)
+    for node in returns:
+        value = node.value
+        if value is None:
+            continue
+        if isinstance(value, ast.Call) and _qualified_name(value.func, aliases) in FUNCTION_TOOL_NAMES | LONG_RUNNING_TOOL_NAMES:
+            return True
+        if not isinstance(value, ast.Name):
+            return True
+        # ``tool = FunctionTool(inner)`` / ``tool: FunctionTool = ...``: its own
+        # bindings only, not a nested function's.
+        stack: list[ast.AST] = list(function.body)
+        while stack:
+            item = stack.pop()
+            if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef | ast.Lambda):
+                continue
+            bound = (
+                item.targets
+                if isinstance(item, ast.Assign)
+                else [item.target]
+                if isinstance(item, ast.AnnAssign | ast.NamedExpr)
+                else []
+            )
+            if any(isinstance(target, ast.Name) and target.id == value.id for target in bound) and isinstance(
+                getattr(item, "value", None), ast.Call
+            ):
+                return True
+            stack.extend(ast.iter_child_nodes(item))
+    return False
+
+
+def _dump(node: ast.AST) -> str:
+    """``ast.dump`` that reads the same on every supported Python."""
+
+    return ast.dump(node, include_attributes=False, **({"show_empty": True} if sys.version_info >= (3, 13) else {}))
+
+
+def _holds_mutable(node: ast.AST) -> bool:
+    """A list, dict or set anywhere in a literal: ``({"readonly": True},)``."""
+
+    return any(isinstance(item, ast.List | ast.Dict | ast.Set) for item in ast.walk(node))
+
+
+def _written_out(node: ast.AST) -> bool:
+    """A value written out in full: a constant, or a container of them."""
+
+    if isinstance(node, ast.Constant):
+        return True
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub | ast.UAdd | ast.Not):
+        return _written_out(node.operand)
+    if isinstance(node, ast.List | ast.Tuple | ast.Set):
+        return all(_written_out(item) for item in node.elts)
+    if isinstance(node, ast.Dict):
+        return all(key is not None and _written_out(key) for key in node.keys) and all(_written_out(item) for item in node.values)
+    return False
+
+
+def _attribute_changed(
+    function: ast.AST,
+    spelling: str,
+    parents: dict[ast.AST, ast.AST],
+    *,
+    returned: ast.Return | None,
+    wrapper: ast.Call | None,
+) -> int | None:
+    """``_changed_at`` for a module attribute (``impl.search``): a store
+    through it, or handing it to a call other than the wrapper (#865 review)."""
+
+    for node in ast.walk(function):
+        if not isinstance(node, ast.Attribute) or reference_spelling(node) != spelling:
+            continue
+        parent = parents.get(node)
+        if (wrapper is not None and (parent is wrapper or (isinstance(parent, ast.keyword) and parents.get(parent) is wrapper))) or (
+            isinstance(parent, ast.Return) and parent is returned
+        ):
+            continue
+        outer: ast.AST = node
+        while isinstance(parents.get(outer), ast.Attribute | ast.Subscript) and getattr(parents[outer], "value", None) is outer:
+            outer = parents[outer]
+        if not isinstance(getattr(outer, "ctx", None), ast.Load):
+            return node.lineno
+        holder = parents.get(outer)
+        if isinstance(holder, ast.keyword) or (isinstance(holder, ast.Call) and outer in holder.args):
+            return node.lineno
+        if isinstance(holder, ast.Assign | ast.AnnAssign | ast.NamedExpr | ast.List | ast.Tuple | ast.Set | ast.Dict):
+            # ``f = impl.search``: another name for it (#865 review).
+            return node.lineno
+    return None
+
+
+def _in_local_list(
+    node: ast.AST, parents: dict[ast.AST, ast.AST], is_agent_call: Callable[[ast.Call], bool]
+) -> bool:
+    """A member of ``tools = [a, b]`` whose every use is an agent's ``tools=``:
+    the list the tools-list reader follows, and nothing else (#865 review)."""
+
+    holder = parents.get(node)
+    statement = parents.get(holder) if isinstance(holder, ast.List | ast.Tuple) else None
+    if not isinstance(statement, ast.Assign | ast.AnnAssign) or statement.value is not holder:
+        return False
+    target = statement.targets[0] if isinstance(statement, ast.Assign) and len(statement.targets) == 1 else getattr(statement, "target", None)
+    function = parents.get(statement)
+    while function is not None and not isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef | ast.Module):
+        function = parents.get(function)
+    if not isinstance(target, ast.Name) or function is None:
+        return False
+    for use in ast.walk(function):
+        if not isinstance(use, ast.Name) or use.id != target.id or use is target:
+            continue
+        holder = parents.get(use)
+        call = parents.get(holder)
+        if isinstance(holder, ast.keyword) and holder.arg == "tools" and isinstance(call, ast.Call) and is_agent_call(call):
+            continue
+        # What the tools-list reader follows: additions to the list.
+        if isinstance(holder, ast.AugAssign) and holder.target is use:
+            continue
+        if (
+            isinstance(holder, ast.Attribute)
+            and holder.attr in {"append", "extend", "insert"}
+            and isinstance(call, ast.Call)
+            and call.func is holder
+            and isinstance(parents.get(call), ast.Expr)
+        ):
+            continue
+        return False
+    return True
+
+
+def _in_tools_argument(
+    node: ast.AST, parents: dict[ast.AST, ast.AST], is_agent_call: Callable[[ast.Call], bool]
+) -> bool:
+    """Whether ``node`` is a member of an agent call's ``tools=`` list."""
+
+    parent = parents.get(node)
+    if isinstance(parent, ast.List | ast.Tuple):
+        parent = parents.get(parent)
+    if not isinstance(parent, ast.keyword) or parent.arg != "tools":
+        return False
+    call = parents.get(parent)
+    return isinstance(call, ast.Call) and is_agent_call(call)
+
+
+def _top_statement(node: ast.AST, function: ast.AST, parents: dict[ast.AST, ast.AST]) -> ast.AST | None:
+    """The statement directly in ``function``'s body that holds ``node``."""
+
+    current: ast.AST | None = node
+    while current is not None and parents.get(current) is not function:
+        current = parents.get(current)
+    return current
+
+
 _TOP_LEVEL_BINDING_STATEMENTS = (
     ast.Assign,
     ast.AnnAssign,

@@ -160,7 +160,7 @@ def _source_path(root: Path, ref: str) -> str:
     return ref
 
 
-def _definition(root: Path, tool: Any) -> dict[str, Any]:
+def _definition(root: Path, tool: Any, agent: str | None = None) -> dict[str, Any]:
     """Read a unique function's AST; line movement/comments are not changes."""
     path = _source_path(root, tool.source_ref or "")
     symbol = tool.annotations.get("python_symbol")
@@ -203,17 +203,32 @@ def _definition(root: Path, tool: Any) -> dict[str, Any]:
     node.body = body
     # Include defaults and decorators: approval decorators and changed default
     # bounds are review-relevant even when the executable body is unchanged.
-    return {
+    code = ast.dump(
+        node,
+        include_attributes=False,
+        **({"show_empty": True} if sys.version_info >= (3, 13) else {}),
+    )
+    # A tool a factory makes also holds what the factory and this agent's
+    # calls to it put in its closure (#865 review).
+    calls = (getattr(tool, "extraction", None) or {}).get("factory_calls")
+    made_by = [str(item) for item in calls.get(agent, [])] if isinstance(calls, dict) and agent is not None else []
+    # ``unknown:<digest>:<which value>``: the call as written is compared,
+    # the value it names is not — an open question, not a change.
+    unnamed = [item.split(":", 2)[2] for item in made_by if item.startswith("unknown:")]
+    if made_by:
+        code += "|factory:" + ",".join(item.split(":", 2)[1] if item.startswith("unknown:") else item for item in made_by)
+    result = {
         "source": path,
         "line": node.lineno,
-        "implementation_sha256": _digest(
-            ast.dump(
-                node,
-                include_attributes=False,
-                **({"show_empty": True} if sys.version_info >= (3, 13) else {}),
-            )
-        ),
+        "implementation_sha256": _digest(code),
     }
+    if unnamed:
+        result["unestablished"] = (
+            f"A factory call that makes {tool.name} gives it a value this read cannot name "
+            f"({'; '.join(sorted(set(unnamed)))}), which its closure holds; whether that value "
+            "changed is not established."
+        )
+    return result
 
 
 #: Bytes one repository-directory listing may take.
@@ -803,7 +818,15 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
         if key in ambiguous_agents:
             continue
         tool = tool_by_id[edge.tool_id]
-        definition = _definition(root, tool)
+        definition = _definition(root, tool, key[1])
+        if definition.get("unestablished"):
+            result.gap(
+                definition["unestablished"],
+                source=key[0],
+                agent=key[1],
+                tool=tool.name,
+                affects="implementation",
+            )
         if definition["implementation_sha256"] is None:
             result.gap(
                 f"Implementation location unresolved: {tool.name} ({tool.source_ref}).",
@@ -1000,6 +1023,13 @@ def compare(
             for side, value in (("base", before), ("head", after)):
                 if "definition" in value and value["definition"]["implementation_sha256"] is None:
                     uncertainty[side] = ["The bound callable's implementation could not be read."]
+            if before_meaning != _meaning(after):
+                # A factory value this read cannot name moved with the code
+                # around it: a candidate change, not an established one.
+                for side, value in (("base", before), ("head", after)):
+                    reason = value.get("definition", {}).get("unestablished")
+                    if reason:
+                        uncertainty.setdefault(side, []).append(reason)
             for side, observed in (("base", base), ("head", head)):
                 reasons = observed.tool_gaps(key)
                 if reasons:
@@ -1195,7 +1225,9 @@ def _published_binding(binding: dict[str, Any] | None, scope: str) -> dict[str, 
     if "target_source" in result:
         result["target_source"] = _location(scope, result["target_source"])
     if "definition" in result:
-        result["definition"] = dict(result["definition"])
+        # Why the implementation is unknown is published as the row's
+        # uncertainty, not as a field of the definition.
+        result["definition"] = {key: value for key, value in result["definition"].items() if key != "unestablished"}
         result["definition"]["source"] = _location(scope, result["definition"]["source"])
     if "import_path" in result:
         result["import_path"] = [

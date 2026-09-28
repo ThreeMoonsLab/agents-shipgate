@@ -69,8 +69,8 @@ def test_unknown_implementation_does_not_hide_an_observed_addition(repo, monkeyp
 
     definition = module._definition
 
-    def missing(root, tool):
-        value = definition(root, tool)
+    def missing(root, tool, *args):
+        value = definition(root, tool, *args)
         if tool.name == "lookup":
             value["implementation_sha256"] = None
         return value

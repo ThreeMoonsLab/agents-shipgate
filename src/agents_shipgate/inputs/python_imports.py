@@ -62,6 +62,8 @@ LINKED_MODULE = "linked_module"
 UNREADABLE_MODULE = "unreadable_module"
 RESOLUTION_LIMIT = "resolution_limit"
 LOCAL_BINDING = "local_binding"
+#: A tool factory's return that is not one function wrapped as a tool (#865).
+FACTORY_RETURN = "factory_return"
 
 #: Distinct modules one resolver will parse, and lookups one reference may
 #: take. A repository-local tool is normally one or two hops away; the bounds
@@ -682,6 +684,13 @@ class ImportResolver:
             f"{where} imports {spelling!r}, which no file in the read scope provides and "
             "which could reassign it"
         )
+
+    def repository_holds(self, dotted: str, names: list[str]) -> bool:
+        """Whether the repository holds, anywhere, the module an absolute import
+        names: application code outside the read scope, not a third-party
+        package (#865)."""
+
+        return self._repository_provides(dotted.split("."), names)
 
     def _repository_provides(self, parts: list[str], names: list[str]) -> bool:
         """Whether the repository holds the module an absolute import names.
@@ -2750,6 +2759,7 @@ def local_binding_detail(ref: str, name: str, node: ast.AST, *, rebound: bool = 
 __all__ = [
     "AMBIGUOUS_MODULE",
     "CONDITIONAL_BINDING",
+    "FACTORY_RETURN",
     "IMPORT_CYCLE",
     "ImportResolver",
     "LINKED_MODULE",

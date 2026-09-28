@@ -223,6 +223,46 @@ module's SHA-256. `import_path` is evidence, not compared meaning — moving an
 import is not a change. An OpenAI Agents SDK definition must carry the SDK's
 `@function_tool`.
 
+A Google ADK tool built by a factory is the function the factory wraps. A
+factory call — `tool = create_tool()` bound once and unconditionally in the
+agent's function or at a module's top level, or `tools=[create_tool()]` — is
+read, never run, to the factory's one unconditional `return`:
+`FunctionTool(inner)` / `LongRunningFunctionTool(inner)`, a plain function, a
+name bound once to one of those, or another factory's call, up to four
+factories deep. The function is one nested in the factory and defined before
+the `return`, or one the factory's module binds; `import_path` records the
+factory as a step, and the factory's code and the values each of this
+agent's calls gives its parameters — what the tool's closure holds — are
+part of its implementation digest: a literal, or a name or module attribute
+bound once to one (a list, dict or set — at any depth, or through another
+name — only when nothing else in its scope uses it, never a module's), a
+function by its own code (not the helpers it calls, as for any tool), or a
+parameter of the factory the call is made in, with the factory's defaults for
+the rest. So
+`make_sql_tool(readonly=False)` in place of `readonly=True` is a changed
+tool, while spelling the same call otherwise (an alias, a keyword, the
+default written out), a docstring, or another agent's call is not. A value
+this read cannot name — a builder's parameter, a computed value — is named
+as a limit on that agent's tool, with the arguments and where they are
+given; a row appears, `not_established`, only when the calling module or the
+factory changed — a value set from another module leaves only the limit. A
+module constant the factory's own body reads is not part of it, as for any
+function. A factory that returns from more than one place or
+under a condition, calls itself, is decorated, a generator or `async`, a
+wrapped function that is decorated, a parameter, defined more than once in its
+file (a tool is known by its name there), or changed or handed on in the
+factory (`inner.__name__ = ...` renames the tool, for a module function,
+`impl.search` or a function-local import too), a tool changed or handed on
+where it is bound (reading `tool.name`, listing it in a tools list, or
+wrapping it in `FunctionTool(func=...)` is not), and a factory the repository
+holds outside the scope stay named with why; any other call — a third-party
+package, a class, a name bound twice — is what it was. A tools list built in
+the agent's function — `tools = [a, b]` with `tools.append(c)`,
+`.extend([...])`, `.insert(i, c)` or `tools += [...]` — is read member by
+member up to the statement that builds the agent, which copies it; an addition
+under a condition or in a loop before it is named on the agent, never read as
+bound, and any other use of the list keeps it a dynamic tools expression.
+
 The boundary is narrow. Only regular `.py` files inside the selected scope are
 read, parsed with `ast` and never imported or run. Symbolic links are not
 followed, and a module name must match a file's exact spelling. An absolute
