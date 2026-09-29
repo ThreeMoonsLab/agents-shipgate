@@ -730,7 +730,8 @@ def test_an_unnamed_value_in_an_untouched_module_is_a_gap_not_a_row(tmp_path):
     _git(tmp_path, "init", "-q", "-b", "main")
     before = _commit(tmp_path, {"tools.py": SQL_FACTORY, "agent.py": body, "README.md": "a\n"})
     after = _commit(tmp_path, {"README.md": "b\n"})
-    result = _compare(tmp_path, before, after)
+    # The whole tree: a README-only change derives no scope of its own (#875).
+    result = _compare(tmp_path, before, after, "--scope", ".")
     assert result["rows"] == []
     assert result["comparison_status"] == "partial"
     assert any("readonly=ro at agent.py:" in gap["reason"] for gap in result["head"]["coverage_gaps"])
@@ -758,7 +759,8 @@ def test_a_value_the_read_can_follow_is_data(tmp_path, factory, call):
     _git(tmp_path, "init", "-q", "-b", "main")
     before = _commit(tmp_path, {"tools.py": FACTORY + factory, "agent.py": agent, "README.md": "a\n"})
     after = _commit(tmp_path, {"README.md": "b\n"})
-    result = _compare(tmp_path, before, after)
+    # The whole tree: a README-only change derives no scope of its own (#875).
+    result = _compare(tmp_path, before, after, "--scope", ".")
     assert result["rows"] == [] and result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
 
 
