@@ -196,7 +196,8 @@ SURFACE_GAP_CONFLICTING_CONTRACT = "conflicting_tool_contract"
 #: callables, so which one runs is not something the source settles (#864).
 SURFACE_GAP_DUPLICATE_TOOL_NAME = "duplicate_tool_name"
 #: One agent name constructed at more than one call site in a module: the
-#: binding graph merges them, so no tool can be attributed to either (#876).
+#: binding graph merges them, so which one runs is not established (#876). Each
+#: row names the constructions that list its tool (#872).
 SURFACE_GAP_DUPLICATE_AGENT_NAME = "duplicate_agent_name"
 #: A class deriving from an ADK agent class: instances are built by calling the
 #: subclass, which this reader does not follow, so their tools are unread (#876).
@@ -906,6 +907,8 @@ class _AdkAgentBinding:
     #: bound before or not, while ``extract`` reads that construction (#876
     #: review); None between constructions.
     recording: list[tuple[str, str | None]] | None = field(default=None, repr=False)
+    #: ``tool_name -> lines`` of the constructions that list it (#872).
+    tool_sites: dict[str, list[int]] = field(default_factory=dict)
 
     def bind(
         self, tool_name: str, locator: str | None = None, location: str | None = None
@@ -1179,6 +1182,10 @@ class _PythonAdkExtractor:
                 loaded.extend(self._extract_tool_expr(item, tools, agent_name, binding))
         finally:
             recorded, binding.recording = binding.recording, None
+        for tool_name, _ in recorded or ():
+            lines = binding.tool_sites.setdefault(tool_name, [])
+            if call.lineno not in lines:
+                lines.append(call.lineno)
         clean = (
             not loaded
             and all(locator is not None for _, locator in recorded or ())
@@ -1219,8 +1226,9 @@ class _PythonAdkExtractor:
             lines = ", ".join(str(line) for line in sorted(line for line, _ in sites.values()))
             reason = (
                 f"Google ADK agent {agent_name!r} is constructed more than once in "
-                f"{self.source_ref} (lines {lines}); its tools are not attributed to "
-                "either construction."
+                f"{self.source_ref} (lines {lines}); which one runs is not established, "
+                "and their tools are compared as one agent, each row naming the "
+                "constructions that list its tool."
             )
             self._surface_warning(reason, SURFACE_GAP_DUPLICATE_AGENT_NAME)
             self.agent_bindings[agent_name].issues.append(reason)
@@ -1687,6 +1695,12 @@ class _PythonAdkExtractor:
                 tool_names=list(binding.tool_names),
                 tool_locators=dict(binding.tool_locators),
                 tool_issues=dict(binding.tool_issues),
+                tool_sites={
+                    name: [f"{self.source_ref}:{line}" for line in sorted(lines)]
+                    for name, lines in binding.tool_sites.items()
+                }
+                if len(self.agent_sites.get(binding.agent, {})) > 1
+                else {},
                 tools_complete=not binding.issues,
                 issues=list(binding.issues),
             )

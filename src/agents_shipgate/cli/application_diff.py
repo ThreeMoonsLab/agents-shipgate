@@ -37,17 +37,23 @@ from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.domain import ANY_TOOL
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.privacy import sanitize_report_payload
+from agents_shipgate.core.semantic_assessment import REACH_CLAIM_SOURCE, assess_tool_semantics
 from agents_shipgate.core.verification_identity import build_engine_requirement
 from agents_shipgate.inputs.google_adk import adk_agent_subclasses, load_google_adk_artifacts
 from agents_shipgate.inputs.openai_sdk_static import (
     census_module,
     load_openai_sdk_static_tools,
 )
-from agents_shipgate.inputs.python_imports import RepositoryLayout, repository_layout
+from agents_shipgate.inputs.python_imports import (
+    ImportResolver,
+    RepositoryLayout,
+    repository_layout,
+)
+from agents_shipgate.inputs.tool_reach import read_tool_reach
 from agents_shipgate.schemas.manifest import ToolSourceConfig
 
 SUPPORTED = frozenset({"openai_agents_sdk", "google_adk"})
-SCHEMA_VERSION = "0.1"
+SCHEMA_VERSION = "0.2"
 MAX_PYTHON_BYTES = 2_000_000
 
 
@@ -230,6 +236,101 @@ def _definition(root: Path, tool: Any, agent: str | None = None) -> dict[str, An
             "changed is not established."
         )
     return result
+
+
+def _reach(root: Path, tool: Any) -> dict[str, Any]:
+    """The outbound HTTP calls the tool's own code makes, read statically (#872).
+
+    Evidence beside the signature, never meaning: what a tool reaches can say
+    what a binding lets the model do, but a change confined to a helper is not
+    a changed binding here.
+    """
+    path = _source_path(root, tool.source_ref or "")
+    symbol = tool.annotations.get("python_symbol")
+    if not isinstance(symbol, str):
+        symbol = (
+            (tool.native_locator or "").split("#")[-1]
+            if "#" in (tool.native_locator or "")
+            else (tool.function_signature or tool.name).split("(")[0]
+        )
+    file = root / path
+    if (
+        not path.endswith(".py")
+        or not file.is_file()
+        or not file.resolve().is_relative_to(root.resolve())
+    ):
+        return {}
+    location = tool.source_location or ""
+    line = location.rsplit(":", 1)[-1]
+    try:
+        text = file.read_bytes().decode("utf-8", errors="replace")
+        tree = ast.parse(text)
+        nodes = [
+            (node, enclosing)
+            for node, enclosing in _functions(tree)
+            if node.name == symbol and (not line.isdecimal() or node.lineno == int(line))
+        ]
+        if not line.isdecimal():
+            nodes = [(node, enclosing) for node, enclosing in nodes if node in tree.body]
+        if len(nodes) != 1:
+            return {}
+        resolver = ImportResolver(root)
+        module = resolver.entry(file, tree, text)
+        if module is None:
+            return {}
+        properties = (tool.input_schema or {}).get("properties")
+        return read_tool_reach(
+            resolver,
+            module,
+            nodes[0][0],
+            model_params=frozenset(properties) if isinstance(properties, dict) else frozenset(),
+            enclosing=nodes[0][1],
+            is_test=_is_test_path,
+        )
+    except (SyntaxError, ValueError, RecursionError, OSError):
+        return {}
+
+
+def _functions(
+    tree: ast.Module,
+) -> list[tuple[ast.FunctionDef | ast.AsyncFunctionDef, ast.FunctionDef | ast.AsyncFunctionDef | None]]:
+    """Every function, with the function that directly encloses it, if any."""
+    found: list[
+        tuple[ast.FunctionDef | ast.AsyncFunctionDef, ast.FunctionDef | ast.AsyncFunctionDef | None]
+    ] = []
+    stack: list[tuple[ast.AST, ast.FunctionDef | ast.AsyncFunctionDef | None]] = [(tree, None)]
+    while stack:
+        node, enclosing = stack.pop()
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
+                found.append((child, enclosing))
+                stack.append((child, child))
+            elif isinstance(child, ast.ClassDef):
+                stack.append((child, None))
+            else:
+                stack.append((child, enclosing))
+    return found
+
+
+def _effect_evidence(tool: Any, reach: dict[str, Any]) -> dict[str, Any]:
+    """The existing semantic assessment of the tool, given what it reaches."""
+    assessed = assess_tool_semantics(
+        tool.model_copy(update={"extraction": {**tool.extraction, "reach": reach}})
+    )
+    return {
+        "conservative_effect": assessed.conservative_effect,
+        "status": assessed.effect.status,
+        "claims": [
+            {
+                "value": claim.value,
+                "source": claim.source,
+                "basis": claim.basis,
+                "at": claim.source_pointer,
+            }
+            for claim in assessed.effect.claims
+            if claim.dimension == "effect"
+        ],
+    }
 
 
 #: Bytes one repository-directory listing may take.
@@ -776,10 +877,14 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
     # reader already names it as incomplete; a tool both sites bind the same
     # way is one binding of it, not an ambiguous one (#876 review).
     sites: dict[tuple[str, str], int] = {}
+    # Where each tool is listed when one ADK name is constructed more than
+    # once: the row points at a construction that lists it (#872).
+    tool_sites: dict[tuple[str, str], dict[str, list[str]]] = {}
     for item in loaded:
         for observation in item.binding_observations:
             site = (_source_path(root, observation.source), observation.agent)
             sites[site] = sites.get(site, 0) + 1
+            tool_sites.setdefault(site, {}).update(observation.tool_sites)
     tools, warnings = _canonical_tools(result, source, loaded)
     for warning in warnings:
         result.gap(warning, source=source.path)
@@ -852,6 +957,16 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
             "evidence_basis": edge.provenance_kind,
             **_import_path(tool, key[0]),
         }
+        listed = tool_sites.get(key, {}).get(tool.name)
+        if listed:
+            binding["binding_location"] = listed[0]
+            if len(listed) > 1:
+                binding["construction_sites"] = listed
+        if binding_key not in result.bindings:
+            reach = _reach(root, tool)
+            if reach:
+                binding["reach"] = reach
+            binding["effect_evidence"] = _effect_evidence(tool, reach)
         if binding_key in result.bindings:
             if sites.get(key, 0) > 1 and _meaning(result.bindings[binding_key]) == _meaning(
                 binding
@@ -990,7 +1105,16 @@ def _meaning(binding: dict[str, Any]) -> dict[str, Any]:
         k: v
         for k, v in binding.items()
         if k
-        not in {"binding_location", "definition", "evidence_basis", "agent_source", "import_path"}
+        not in {
+            "binding_location",
+            "definition",
+            "evidence_basis",
+            "agent_source",
+            "import_path",
+            "construction_sites",
+            "reach",
+            "effect_evidence",
+        }
     } | {"implementation_sha256": binding.get("definition", {}).get("implementation_sha256")}
 
 
@@ -1223,6 +1347,10 @@ def _published_binding(binding: dict[str, Any] | None, scope: str) -> dict[str, 
     result = dict(binding)
     result["agent_source"] = _location(scope, result["agent_source"])
     result["binding_location"] = _location(scope, result.get("binding_location"))
+    if "construction_sites" in result:
+        result["construction_sites"] = [
+            _location(scope, site) for site in result["construction_sites"]
+        ]
     if "target_source" in result:
         result["target_source"] = _location(scope, result["target_source"])
     if "definition" in result:
@@ -1249,7 +1377,129 @@ def _published_binding(binding: dict[str, Any] | None, scope: str) -> dict[str, 
             }
             for item in result["import_path"]
         ]
+    if "reach" in result:
+        reach = result["reach"]
+        result["reach"] = {
+            **reach,
+            "calls": [
+                {
+                    **call,
+                    "at": _location(scope, call["at"]),
+                    "via": [_location(scope, hop) for hop in call["via"]],
+                }
+                for call in reach["calls"]
+            ],
+            "limits": [{**item, "at": _location(scope, item["at"])} for item in reach["limits"]],
+            "effect_claims": [
+                {**item, "at": _location(scope, item["at"])} for item in reach["effect_claims"]
+            ],
+        }
+    if "effect_evidence" in result:
+        result["effect_evidence"] = {
+            **result["effect_evidence"],
+            "claims": [
+                {**claim, "at": _location(scope, claim["at"])}
+                if claim["source"] == REACH_CLAIM_SOURCE
+                else claim
+                for claim in result["effect_evidence"]["claims"]
+            ],
+        }
     return result
+
+
+def _reach_lines(binding: dict[str, Any]) -> list[str]:
+    """A side's outbound calls and effect evidence, one fact per line (#872)."""
+    from agents_shipgate.report.human_order import EFFECT_EVIDENCE_LABELS
+
+    reach = binding.get("reach") or {}
+    calls = reach.get("calls") or []
+    limits = reach.get("limits") or []
+    lines: list[str] = []
+    groups: dict[tuple[str, str, str | None], list[dict[str, Any]]] = {}
+    for call in calls:
+        key = (call["method"] or "an unread method", call["url"], call.get("graphql"))
+        groups.setdefault(key, []).append(call)
+    for (method, url, graphql), group in groups.items():
+        first = group[0]
+        operation = f" (GraphQL {graphql})" if graphql else ""
+        via = f" via {' → '.join(first['via'])}" if first["via"] else ""
+        more = (
+            f", and {len(group) - 1} more call site{'s' if len(group) > 2 else ''}"
+            if len(group) > 1
+            else ""
+        )
+        lines.append(f"reaches: {method} {url}{operation} at {first['at']}{via}{more}")
+        facts: list[str] = []
+        for call in group:
+            for item in call.get("fields", []):
+                name = item.get("field")
+                if name is None:
+                    continue
+                if "values" in item:
+                    fact = f"  field {name} ∈ {{{', '.join(item['values'])}}}" + (
+                        f", decided by {', '.join(item['decided_by'])}"
+                        if item.get("decided_by")
+                        else ""
+                    )
+                elif "value" in item:
+                    fact = f"  field {name} = {json.dumps(item['value'])}"
+                else:
+                    continue
+                if fact not in facts:
+                    facts.append(fact)
+        supplied: list[str] = []
+        for call in group:
+            for item in call.get("model_supplied", []):
+                fact = f"{item['param']} → {item['into']}"
+                if fact not in supplied:
+                    supplied.append(fact)
+        if supplied:
+            facts.append("  model-supplied: " + "; ".join(supplied))
+        credentials: dict[str, int] = {}
+        for call in group:
+            for item in call.get("credential_sources", []):
+                target = next(
+                    f"{kind} {item[kind]}" if item[kind] else kind
+                    for kind in ("header", "auth", "query", "field", "userinfo")
+                    if kind in item
+                )
+                sources = [f"env {name}" for name in item.get("env", [])]
+                if item.get("from"):
+                    sources.append(
+                        "a value made from model-supplied " + ", ".join(item["from"])
+                    )
+                if item.get("literal"):
+                    sources.append("a literal (not printed)")
+                source = ", ".join(sources) or "a computed value"
+                fact = f"  credential: {source} → {target}"
+                credentials[fact] = credentials.get(fact, 0) + 1
+        for fact, count in credentials.items():
+            # A credential only some call sites send (a 401 retry without it)
+            # is not said of all of them.
+            facts.append(fact if count >= len(group) else f"{fact} (at some call sites)")
+        lines.extend(facts)
+    evidence = binding.get("effect_evidence")
+    if evidence and (calls or limits):
+        status = evidence["status"]
+        label = EFFECT_EVIDENCE_LABELS.get(status, status)
+        basis = ""
+        claims = [c for c in evidence["claims"] if c["source"] == REACH_CLAIM_SOURCE]
+        if status == "structural" and claims:
+            claim = next(
+                (c for c in claims if c["value"] == evidence["conservative_effect"]), claims[0]
+            )
+            basis = (
+                ": every call was followed, and every outbound call reads"
+                if claim["value"] == "read"
+                else f": outbound call at {claim['at']}"
+            )
+        lines.append(f"effect: {evidence['conservative_effect']} ({label}{basis})")
+    for item in limits[:3]:
+        lines.append(f"reach limit: {item['at']} {item['why']}")
+    hidden = len(limits) - 3 + reach.get("more_limits", 0)
+    if hidden > 0:
+        lines.append(f"reach limit: and {hidden} more")
+    return lines
 
 
 def run_application_diff(
@@ -1356,7 +1606,7 @@ def run_application_diff(
 
 _LIMITS = [
     "Covers supported OpenAI Agents SDK and Google ADK source wiring only.",
-    "Deployment-root reachability, runtime behavior, indirect helper effects and business authority are not established.",
+    "Deployment-root reachability, runtime behavior, effects other than the outbound HTTP calls a row names, and business authority are not established.",
     "This comparison is advisory evidence and supplies no release verdict or merge permission.",
 ]
 
@@ -1598,8 +1848,14 @@ def _print_rows(payload: dict[str, Any], _one_line: Any) -> None:
                 )
             else:
                 definition = value.get("definition", {})
+                also = [
+                    site
+                    for site in value.get("construction_sites", [])
+                    if site != value.get("binding_location")
+                ]
                 typer.echo(
                     f"  {side}: {_one_line(value.get('signature') or value['tool'])} at {_one_line(value.get('binding_location'))}"
+                    + (f" (also listed at {_one_line(', '.join(also))})" if also else "")
                 )
                 if definition:
                     typer.echo(
@@ -1612,6 +1868,8 @@ def _print_rows(payload: dict[str, Any], _one_line: Any) -> None:
                         if step.get("line") is not None
                     )
                     typer.echo(f"    imported: {_one_line(hops)}")
+                for line in _reach_lines(value):
+                    typer.echo(f"    {_one_line(line)}")
         typer.echo(f"  {_one_line(row['why'])}")
         for side, reasons in row["uncertainty"].items():
             for reason in reasons:

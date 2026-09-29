@@ -703,6 +703,10 @@ class AgentBindingObservation(BaseModel):
     #: definition for it but could not establish that it is the one bound
     #: (#879 review). The binding is reported, never as established.
     tool_issues: dict[str, str] = Field(default_factory=dict)
+    #: ``tool_name -> ["file:line", ...]``: the constructions of this agent
+    #: that list the tool, when one name is constructed more than once in the
+    #: source (#872). Where each binding is, not which one runs.
+    tool_sites: dict[str, list[str]] = Field(default_factory=dict)
     handoff_names: list[str] = Field(default_factory=list)
     tools_complete: bool = True
     handoffs_complete: bool = True

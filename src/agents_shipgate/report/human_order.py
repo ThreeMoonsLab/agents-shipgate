@@ -43,7 +43,7 @@ class HumanArtifactContext:
 
 
 _SURFACE_WRITE_ACTION_LIMIT = 8
-_EFFECT_EVIDENCE_LABELS = {
+EFFECT_EVIDENCE_LABELS = {
     "declared": "reviewed declaration",
     "structural": "structural evidence",
     "inferred": "provisional: inference",
@@ -75,7 +75,7 @@ class SurfaceLead:
             lines.append("Conservative effect projections: no root-reachable action effects were classified.")
         if self.effect_evidence_counts:
             evidence = ", ".join(
-                f"{count} {_EFFECT_EVIDENCE_LABELS.get(status, _EFFECT_EVIDENCE_LABELS['unavailable'])}"
+                f"{count} {EFFECT_EVIDENCE_LABELS.get(status, EFFECT_EVIDENCE_LABELS['unavailable'])}"
                 for status, count in self.effect_evidence_counts
             )
             lines.append(f"Effect evidence: {evidence}.")
@@ -86,7 +86,7 @@ class SurfaceLead:
         if self.write_actions:
             actions = ", ".join(
                 f"{display_literal(name)} ({effect_phrase(effect)}) "
-                f"[{_EFFECT_EVIDENCE_LABELS.get(status, _EFFECT_EVIDENCE_LABELS['unavailable'])}"
+                f"[{EFFECT_EVIDENCE_LABELS.get(status, EFFECT_EVIDENCE_LABELS['unavailable'])}"
                 f"{'; not pass-eligible' if not eligible else ''}]"
                 for name, effect, status, eligible in self.write_actions[:_SURFACE_WRITE_ACTION_LIMIT]
             )

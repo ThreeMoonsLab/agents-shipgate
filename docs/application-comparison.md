@@ -139,10 +139,12 @@ An absent side names the missing scope and suggests `--base-scope`/`--scope`
 for relocation. If neither selected directory exists, the command refuses with
 exit 2. A removal describes the selected source path, not the entire repository.
 
-`--json` emits `application_comparison_schema_version: "0.1"`, engine identity,
+`--json` emits `application_comparison_schema_version: "0.2"`, engine identity,
 requested and compared refs/tree IDs, per-side scope/coverage, rows, source
 correspondence, `scope_selection`, `comparisons` when a derived change spans
-more than one application, and a deterministic `comparison_id`. This is a separate advisory
+more than one application, and a deterministic `comparison_id`. Version 0.2 adds
+`reach`, `effect_evidence` and `construction_sites` to a row's sides (see
+[What a bound tool reaches](#what-a-bound-tool-reaches)). This is a separate advisory
 artifact from the existing host diff JSON and verifier receipt.
 
 - `compared`: the selected supported source observations were compared. An
@@ -503,6 +505,236 @@ A row compares a definition's signature and implementation digest, not the
 module it lives in: moving a function is not a change. So retargeting a binding
 between two functions whose definitions are the same text in different modules
 shows no row, even when the modules differ in what the function body refers to.
+
+## What a bound tool reaches
+
+A signature says what the model may pass, not what the call does. Each
+`before`/`after` side of a function tool also carries `reach`: the outbound
+HTTP calls the tool's own code makes. It is read statically from the function
+and the repository helpers it calls, up to three helper calls deep.
+
+```text
+ADDED  tensorflow_pr_review_agent → submit_pr_code_review
+  after: submit_pr_code_review(pr_number, overall_assessment, summary_comment, inline_comments) -> dict[str, Any] at pr_review_agent/agent/agent.py:591
+    implementation: pr_review_agent/agent/agent.py:140 (f4919a519638)
+    reaches: POST https://api.github.com/repos/{env OWNER}/{env REPO}/pulls/{pr_number}/reviews at pr_review_agent/agent/utils.py:172 via pr_review_agent/agent/agent.py:190 post_pull_request_review, and 1 more call site
+      field event ∈ {APPROVE, COMMENT, REQUEST_CHANGES}, decided by overall_assessment
+      model-supplied: inline_comments → field comments; overall_assessment → field event; pr_number → url; summary_comment → field body; inline_comments → field body
+      credential: env GITHUB_TOKEN → header Authorization
+    effect: write (structural evidence: outbound call at pr_review_agent/agent/utils.py:172)
+    reach limit: pr_review_agent/agent/agent.py:165 calls ….get ('_PREFETCHED_PR_DETAILS' is bound more than once in agent.py (lines 51, 55)), which is not read
+```
+
+What each call records:
+
+- **The method and the URL.** Calls through `requests`, `httpx`, an `aiohttp`
+  session and `urllib.request.urlopen` are read, including a
+  `requests.Session()` or `httpx.Client(base_url=...)` built in the function or
+  at module level. The URL is a template. Each part is a literal, a tool
+  parameter (`{pr_number}`), an environment variable (`{env OWNER}`), or `{…}`
+  for a part the read cannot name. Module constants are followed through
+  imports.
+- **Request fields** (`json=`, `data=`). A field is one of:
+  - a literal value, printed only when it is a number or a word without
+    digits and the field's name does not suggest a secret (`pass`, `token`,
+    `key`, …); any other literal is `literal: true`;
+  - the literals it is chosen from, with the parameters that decide
+    (`field event ∈ {…}, decided by overall_assessment`);
+  - the parameters or environment variables it is made from.
+- **`model_supplied`.** Which parameters the model supplies flow into the URL,
+  method, query, fields or headers. A parameter the framework injects, such as
+  a tool or run context, is not model input, and neither is a parameter the
+  function overwrites before reading it (`pr_number = int(os.environ[...])`).
+- **`credential_sources`.** For a credential-named header (`Authorization`,
+  `X-Api-Key`, `Cookie`, …), `auth=`, a secret-named query key or field, or a
+  value spliced into a URL's userinfo (names are matched by whole word, so
+  `max_tokens` and `Idempotency-Key` are not credentials), these are the environment variables its
+  value is made from, by name only. A hard-coded credential, or a literal
+  default (`os.getenv("KEY", "sk-test")`), is reported as `literal: true`, and
+  its value is never printed. A value fetched at run time is `computed`. In a
+  printed URL, a query value is shown only when it is a short lowercase word
+  or a number (or a date, or a list of words). A token-shaped path piece after
+  the host is withheld: a run of 20 characters, or of 7 with letters and at
+  least two digits, so `us-central1` stays readable. So is the whole path of a
+  webhook or bot URL except its method name
+  (`hooks.slack.com/services/[REDACTED:sensitive_field]/…`). These are shapes,
+  not proof: a secret spelled like an ordinary word in an ordinary place can
+  still print, as it already appears in the source.
+- **GraphQL.** For a call to a GraphQL endpoint (the URL, or the variable it
+  comes from, says `graphql`), this records whether the literal `query`
+  document defines a query or a mutation. Transport is not effect: a query
+  sent over POST reads. A `query` field elsewhere (SQL, LogQL) is a plain POST.
+
+Each side also carries `effect_evidence`: the existing semantic assessment of
+the tool (see [effect evidence](effect-evidence.md)), with the reach as one
+more structural source, `source_http_call`. It gives the conservative effect,
+the evidence status and the claims.
+
+- **Write or destructive.** A POST, PUT or PATCH call, or a GraphQL mutation,
+  supports `write`; a DELETE supports `destructive`. It does so whatever else
+  the tool does.
+- **Read.** A tool is said to read only when all of these hold:
+  - it makes at least one outbound call, and every outbound call reads (GET,
+    HEAD, OPTIONS or a GraphQL query);
+  - every call the tool makes was followed, and none of them is a limit.
+- **Limits.** The read passes over only calls with no effect outside the
+  process:
+  - a closed list of builtins, and functions such as `json`, `re`, `os.path`
+    and `logging`;
+  - read-only methods (`get`, `strip`, `json`, …) on plain data (an
+    environment value, a model argument with a JSON type, or a list or dict
+    holding only those) or on an object one of those libraries returned (an
+    HTTP response, a regex match, a date). What such a method returns is plain
+    data only when what it reads is: `CLIENTS.values()` hands back clients;
+  - list and dict changes (`append`, `update`, …) on the function's own
+    containers or on plain data.
+
+  Every other call is a `reach.limits[]` entry with its location, and the tool
+  is then not said to read. That includes:
+  - a library function, `open`, and a method on an object the read cannot
+    name (a repository class's `get` may POST);
+  - a helper beyond the bound or outside the scope;
+  - a decorator the read cannot see into;
+  - a store into an object it cannot name (`cache[key] = value` on a redis
+    client), or an attribute set on something the function did not build
+    (`r.method = "DELETE"` on a request passed in).
+
+  A repository function handed to another call (`sorted(items, key=helper)`)
+  is read as called. So is one set as a request's or client's hook or auth
+  (`hooks={"response": [audit]}`, httpx `event_hooks`, `session.auth = sign`),
+  since it runs on every request. Any other function that a passed-over call
+  runs is a limit: `map(es.delete, ids)`, a `key=` that is not a builtin,
+  `iter(queue.pop, None)`. A request's changes after it is built are read: its
+  `data`, its headers, and a method set on it, which leaves the method unread.
+  Setting anything on a client other than its transport settings (headers,
+  auth, timeouts, proxies, …) — `session.request = send` — is a limit.
+  Options spread into a call (`requests.get(url, **opts)`) are read one by one.
+
+  Five rules bound what `read` can rest on:
+  - **A call through a client or request built elsewhere is a limit.** A
+    module-level, imported or factory-made client (`SESSION.get(...)`), or a
+    module-level `urllib` request (`urlopen(PURGE)`), can be configured
+    anywhere. So only a direct library call (`requests.get`), or a client or
+    request the same function constructs, can support `read`. Its hooks and
+    auth are still read, so a write they make is still found.
+  - **A value read out of a module-level dict is never taken as written.**
+    Any code may change such a dict, through routes a static read cannot
+    bound: a helper two calls away, `*args`, an accessor, a loop. So
+    `CONFIG["method"]`, `QUERIES["viewer"]` or `HANDLERS["drop"]` is unknown,
+    and cannot support `read`. So is a value read out of a copy of one
+    (`{**DEFAULTS}`, `config.update(DEFAULTS)`). A dict the tool's own
+    function builds from literals is read as written.
+  - **A module-level constant or function rebound elsewhere is unknown.**
+    Every attribute and `setattr` name the scope stores under is collected
+    (`agent_config.METHOD = "DELETE"`, `helpers.fetch = purge`), whatever the
+    store goes through: an import in a function, a dotted import, an alias or
+    a parameter. So is every module whose namespace is changed under names
+    the read cannot see. That covers a computed `setattr`, `vars(m)`,
+    `m.__dict__`, `globals()`, `exec` or `eval`, and `sys.modules[...]`
+    (replaced, or its `__class__` swapped). It also covers a namespace
+    handed to a call that is not a known reader
+    (`code.interact(local=vars(m))`). What the changed object may be is
+    followed:
+    - through names, closures, `global` and `nonlocal`;
+    - through parameters and their defaults, however many helpers deep;
+    - through what a function returns, and through displays, loops and
+      `.values()`;
+    - back to an `import`, `sys.modules[...]`, `importlib.import_module`,
+      `__import__` or `globals()`.
+
+    Any other object is taken as not a module: a call's result, an ORM row,
+    an instance attribute. So `setattr(user, field, value)` withholds
+    nothing. A module is also tracked when it is kept where it is not
+    followed, in a container, an attribute, a class attribute, or a call the
+    scope does not define (`Holder(config)`, `SimpleNamespace(m=config)`).
+    If any namespace change in the scope goes to an object the scan does
+    not follow, every module kept that way is unknown. Every value from
+    module scope is unknown in these cases:
+    - a namespace change the scan cannot tie to one module, such as a
+      computed `sys.modules[name]` store, or a frame's `f_globals`;
+    - a lambda, or a function passed on as a value (a callback,
+      `functools.partial`, an import hook), that changes its argument's
+      namespace. A library may hand it any module. A function used only as
+      a decorator (`@tag`, or returned by a factory used only as
+      `@tag(...)`) is handed definitions, never a module;
+    - a file the scan cannot read, or a scope past its 2000-file bound.
+
+    A module-level name another file imports is followed to what it holds:
+    an alias (`import config as settings_module`, `CONFIG = config`, a tuple)
+    is that module, and so is a name a star import may bind. A module held in
+    a container there (`SETTINGS_MODULES = [config]`), or returned by a
+    module's `__getattr__`, is also kept. Any other imported name that is no
+    module file of the scope is an object the scan does not follow. `del sys.modules[name]` only makes the next import read the module
+    again. A module registered lazily under its own name and spec
+    (`module_from_spec(find_spec(name))`) is itself. A builtin rebound
+    anywhere in the scope (`builtins.print = send_log`,
+    `builtins.__dict__["print"] = …`) is not read as the builtin. A library
+    function the read takes as pure and replaced anywhere in the scope
+    (`json.dumps = audited`, `logging.Logger.info = …`, `setattr(re, "sub", …)`)
+    is a limit where the tool calls it, however the module was reached
+    (`sys.modules["json"]`, `import_module("json")`, an alias, a helper's
+    parameter). So is a method replaced on a library class
+    (`pathlib.Path.read_text = …`) where the tool calls it on such an object.
+
+    A value the tool takes from module scope under such a name, or from such
+    a module, is unknown. Stores through a method's own `self` change an
+    instance and are not collected. Two unrelated uses of one name only ever
+    withhold a value.
+  - **State a closure shares is not taken as written.** A dict the tool reads
+    from an enclosing function (an ADK factory's `state = {...}`) outlives
+    one call, so what is read out of it is unknown. A name a function
+    nested in that enclosing function rebinds (`nonlocal method`) or stores
+    into (`state["method"] = "DELETE"`) is unknown too, whichever of its
+    closures is the tool.
+  - **A patch to an HTTP library anywhere in the scope is a limit** on every
+    tool that sends: a store into `requests`, `httpx`, `urllib3`, `http`,
+    `socket` or the like (`requests.get = logged_get`,
+    `setattr(requests, …)`, `sys.modules["requests"].get = …`, or through an
+    alias or a helper's parameter, a client class's method included), and a
+    call that installs or instruments the
+    stack (`install_opener`, `patch_all`, `ddtrace.patch(…)`,
+    `instrument_requests()`), in any file outside tests, inside a function or
+    not. A setting stored as a plain value (`DEFAULT_RETRIES = 3`, a class's
+    `timeout` or `max_retries`) and a retrying transport or adapter are not
+    patches. A class's other attributes are, even as a plain value
+    (`urllib.request.Request.method = "DELETE"`). So is any attribute but a
+    tuning one stored on a class reached through an object or its bases
+    (`req.__class__.method = …`, `type(req)`, `Sub.__mro__[1]`, through an
+    alias, a loop or a helper too), unless it is the method's own class
+    (`type(self)`). A patch is followed however its library was reached:
+    through another module's attribute or a class's (`agent.requests.get = …`,
+    `clients.Http.lib.get = …`, an import in a class body, re-exported
+    relatively or with `*`), kept
+    on an object, `self` or one built around it and patched by name
+    (`http.module.get = …`, `self.http.get = …`,
+    `Holder(urllib.request).module.Request.method = …`, a method the stack
+    sends through such as `Session.prepare_request`, one of its classes
+    however reached), kept in a container, under another attribute or a
+    property, set with `setattr` or `__dict__`, or passed through a call
+    (`typing.cast(type, requests.Session).request = …`), or through
+    `mock.patch.multiple`, `patch.object` under any alias and `wrapt`'s
+    wrappers. A function of the stack handed along
+    (`asyncio.to_thread(requests.get, url)`), a constant and an exception
+    are not the stack kept. A chain of re-exports too long to follow counts
+    as any module. A file the scan cannot
+    read is named. A patch outside the compared scope is not seen, nor is code run
+    from a string (`exec`, `eval`): 13 of the 99 corpus scopes run an interpreter
+    or a calculator that way, so failing closed there would limit most of them. A recursive call with other arguments is followed twice as called,
+  then once with every parameter unnamed. Past 24 outbound calls, the rest
+  are not listed but still count for the effect.
+- **Unread method or document.** When a request method or a GraphQL document is
+  not a literal, it is a limit, and that call supports no effect.
+
+`reach` and `effect_evidence` are evidence, not compared meaning. A helper's
+changed endpoint does not make a binding `changed` on its own, and neither
+field is a verdict or a risk score. The read never runs the code or fetches, so
+a URL built from a response stays `{…}`.
+
+When one Google ADK agent name is constructed more than once in a module, each
+row's `binding_location` names the first construction, in line order, that
+lists the tool, and `construction_sites` lists every construction that does.
+When the constructions differ, which one runs is not established, so the agent
+stays a named limit; identical constructions are one agent.
 
 ## Evidence identity and recovery
 

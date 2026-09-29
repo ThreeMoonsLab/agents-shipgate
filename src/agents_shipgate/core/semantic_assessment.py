@@ -52,6 +52,8 @@ from agents_shipgate.schemas.manifest.action_surface import CONFIRMED_BASIS_PREF
 from agents_shipgate.schemas.surfaces import ActionEffect
 
 _EFFECT_VALUES = frozenset(_EFFECT_RANK)
+#: The effect claim source for a tool's own outbound HTTP calls (#872).
+REACH_CLAIM_SOURCE = "source_http_call"
 MCP_SOURCE_TYPES = frozenset(
     {
         "mcp",
@@ -337,6 +339,33 @@ def _assess_effect(
             )
         )
 
+    # The outbound HTTP calls a static read of the tool's own code followed
+    # (#872): the method of a call that was made, or — only when every call
+    # was followed and every outbound call reads — ``read``. The reader
+    # decides which of the two it can support; this is the one place either
+    # becomes effect evidence.
+    reach = tool.extraction.get("reach")
+    if isinstance(reach, dict):
+        for item in reach.get("effect_claims") or []:
+            if not isinstance(item, dict) or item.get("effect") not in _EFFECT_VALUES:
+                continue
+            claims.append(
+                _claim(
+                    "effect",
+                    item["effect"],
+                    "high",
+                    "static_declaration",
+                    "protocol_structure",
+                    REACH_CLAIM_SOURCE,
+                    item.get("at") or pointer,
+                    {
+                        key: item[key]
+                        for key in ("method", "url", "graphql", "calls")
+                        if key in item
+                    },
+                )
+            )
+
     for name in _BOOLEAN_ANNOTATIONS:
         if name in tool.annotations and type(tool.annotations[name]) is not bool:
             issues.append(
@@ -490,6 +519,7 @@ def _assess_effect(
             "permission_class",
             "auth_scope",
             "action_scope",
+            REACH_CLAIM_SOURCE,
         }
         or (claim.policy_eligible and claim.basis == "typed_provider_fact")
     ]

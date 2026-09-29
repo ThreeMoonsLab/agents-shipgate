@@ -173,7 +173,11 @@ SURFACES: tuple[Surface, ...] = (
     ),
     Surface(
         "application_diff",
-        ("src/agents_shipgate/cli/application_diff.py", "src/agents_shipgate/cli/application_scope.py"),
+        (
+            "src/agents_shipgate/cli/application_diff.py",
+            "src/agents_shipgate/cli/application_scope.py",
+            "src/agents_shipgate/inputs/tool_reach.py",
+        ),
         # Advisory source-wiring comparison, not host drift or an engine verdict.
         # No release permission, declared authority, pin or root reachability claim.
         # Its per-side `excluded_tests` list (#876) names test files the
@@ -182,6 +186,10 @@ SURFACES: tuple[Surface, ...] = (
         # ADK agent subclass) only turn `compared` into `partial`; neither
         # restates an engine answer, so neither adds a claim.
         # `tests/test_application_diff_unobserved.py` holds both.
+        # A side's `reach` (#872) is what the tool's own code sends, and its
+        # `effect_evidence` is `assess_tool_semantics` itself over that tool —
+        # the engine's one effect model, called, not restated — so neither adds
+        # a claim either (`tests/test_application_diff_tool_reach.py`).
         {},
     ),
     Surface(

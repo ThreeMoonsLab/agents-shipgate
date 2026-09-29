@@ -44,6 +44,13 @@ No new report field or enum is introduced. For each
 - `semantic_assessment.pass_eligible` answers the combined semantic question;
   a structural effect can still have an unresolved binding or authority.
 
+`diff --application` shows the same assessment for each tool it compares, as
+`effect_evidence` (see [What a bound tool reaches](application-comparison.md#what-a-bound-tool-reaches)).
+There, the outbound HTTP calls read from the tool's own code are one more
+structural source, `source_http_call`. Such a call supports the effect of the
+call it makes. It supports `read` only when every call the tool makes was
+followed and every outbound call reads.
+
 Policy severity cannot turn a heuristic claim into typed evidence. Renderers
 leave claims, risk tags, severity, pass eligibility and the release decision
 unchanged. Runtime behavior is never proven by this static presentation.
