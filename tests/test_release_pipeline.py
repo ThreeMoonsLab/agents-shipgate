@@ -883,7 +883,7 @@ def test_release_does_not_weaken_the_coverage_floor() -> None:
     CI splits the suite across jobs, so its shards each hold a fragment of the
     coverage data. Two things have to be true and neither is implied by the
     other: the combined data is gated at 85, and no shard sets a threshold of
-    its own. A `--cov-fail-under` on a third of the suite would be a number
+    its own. A `--cov-fail-under` on a quarter of the suite would be a number
     that cannot mean what it says, and it would pass or fail for reasons
     unrelated to the floor.
     """
@@ -900,7 +900,15 @@ def test_release_does_not_weaken_the_coverage_floor() -> None:
     # And the gate has to wait for every shard, or it would combine whatever
     # happened to have finished.
     assert ci["jobs"]["coverage"]["needs"] == ["suite"]
-    assert ci["jobs"]["suite"]["strategy"]["matrix"]["shard"] == [1, 2, 3]
+    # Every shard index the matrix runs, and the count each shard partitions by,
+    # agree: a matrix of four over a count of three would drop a quarter.
+    shards = ci["jobs"]["suite"]["strategy"]["matrix"]["shard"]
+    count = next(
+        step["env"]["SHIPGATE_TEST_SHARDS"]
+        for step in ci["jobs"]["suite"]["steps"]
+        if "SHIPGATE_TEST_SHARDS" in step.get("env", {})
+    )
+    assert shards == list(range(1, int(count) + 1)) == [1, 2, 3, 4]
 
 
 def test_adapter_static_only_lint_stays_covered_in_release() -> None:

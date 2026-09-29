@@ -17,9 +17,10 @@ jobs:
     # 15-minute budget on it depending on runner speed — so whether a green
     # commit stayed green was decided by which runner it drew, and `main`
     # itself was cancelled at the cap. Splitting the *suite* rather than
-    # raising the number keeps a real bound: each shard is roughly a third of
-    # the work, so the margin grows back and stays there as the suite grows
-    # (add a shard).
+    # raising the number keeps a real bound: each shard is roughly a quarter
+    # of the work, so the margin grows back and stays there as the suite grows
+    # (add a shard). Three shards had reached 13 of their 15 minutes on `main`
+    # by #904, and #872's tests took one past the cap: a fourth was added.
     #
     # `conftest.py` assigns whole test *files* to shards, deterministically,
     # from the collection and the measured seconds per file in
@@ -34,7 +35,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4]
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -83,11 +84,11 @@ jobs:
         # there too, so keep it out of the coverage pass rather than doing the
         # same AST sweep twice on every PR.
         #
-        # No `--cov-fail-under` here: a shard covers a third of the suite, so
+        # No `--cov-fail-under` here: a shard covers a quarter of the suite, so
         # its coverage is a fragment. The threshold is enforced once, on the
         # combined data, in `coverage` below.
         env:
-          SHIPGATE_TEST_SHARDS: 3
+          SHIPGATE_TEST_SHARDS: 4
           SHIPGATE_TEST_SHARD: ${{ matrix.shard }}
         run: python -m pytest -n auto -m "not perf" --ignore=tests/test_adapter_static_only.py --cov=agents_shipgate --cov-report=
 
@@ -107,7 +108,7 @@ jobs:
   coverage:
     # The coverage gate, enforced once over the combined fragments.
     #
-    # Splitting the suite split its coverage with it, and three partial
+    # Splitting the suite split its coverage with it, and four partial
     # measurements each fail an 85% threshold that the whole run passes. This
     # job is where the number is a number about the suite again.
     needs: [suite]
@@ -148,7 +149,7 @@ jobs:
         # test pass.
         #
         # `coverage combine` consumes its inputs, so the fragments are copied
-        # to distinct names first — three files all called `.coverage` in
+        # to distinct names first — four files all called `.coverage` in
         # separate directories would otherwise collide on the way in.
         run: |
           set -euo pipefail
