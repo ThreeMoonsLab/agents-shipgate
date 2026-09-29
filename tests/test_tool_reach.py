@@ -706,7 +706,10 @@ def test_large_constants_and_doubled_strings_stay_fast(tmp_path):
         '    s0 = "a"\n' + doubling +
         '    requests.get("https://x.test/" + TABLE["k1"] + s24)\n',
     )
-    assert time.monotonic() - started < 20
+    # A guard against a blow-up, not a benchmark: about 4 s locally, 45 s in
+    # CI's suite (coverage on a shared runner), and many minutes if a table
+    # or a doubled string were read quadratically.
+    assert time.monotonic() - started < 120
 
 
 # -- #872 review round 2 ---------------------------------------------------------
