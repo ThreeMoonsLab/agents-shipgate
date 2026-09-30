@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.0 - 2026-09-29
+## 1.2.0 - 2026-09-30
 
 An advisory-channel minor release. It adds `diff --application`, which compares
 the agent wiring of OpenAI Agents SDK and Google ADK applications between two
