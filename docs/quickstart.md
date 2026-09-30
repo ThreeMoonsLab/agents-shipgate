@@ -130,7 +130,7 @@ comparison facts and coverage, but does not append the conditional permission
 review guidance shown in the change example, nor the `launch source is mutable`
 note on the added MCP server. That note identifies its unversioned `npx` package
 and changes neither severity nor the widening count. The source tree still
-reports version `1.1.0`; its version string alone is not published-wheel
+reports version `1.2.0`; its version string alone is not published-wheel
 provenance. On
 the remote's `main`, `.claude/settings.json` allows `Bash(npm test:*)` and denies `Bash(rm -rf:*)`,
 and `.mcp.json` configures one server, `docs`. The PR branch allows

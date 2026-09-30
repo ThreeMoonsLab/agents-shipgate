@@ -64,7 +64,8 @@ allow list from `Bash(npm test)` / `Read(src/**)` to `Bash(*)` / `Read(**)` /
 capability-change class this pilot exists to observe.
 
 **Published build measured: `1.1.0`.** Preview measured:
-`0.16.0+preview.20260903.gb61aca7`. Source tree: `1.1.0`, runtime contract 41.
+`0.16.0+preview.20260903.gb61aca7`. Source tree: `1.2.0`, runtime contract 41: only this label moved with the
+1.2.0 version bump, and the source-tree cells below were not re-measured for it.
 The released and source-tree columns were both rerun on 2026-09-22, after
 `v1.1.0` was published: the released column from `pip install
 agents-shipgate==1.1.0` in a clean virtualenv outside any checkout (the wheel

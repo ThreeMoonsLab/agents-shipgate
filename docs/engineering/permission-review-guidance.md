@@ -61,8 +61,8 @@ coverage, authority and evidence first; guidance uses only remaining room. A
 comment with no room retains its existing evidence pointer. All source-derived
 strings use the existing single-line/Markdown literal display protections.
 
-Verifier `0.21`, capability diff `0.4` and contract v41 are unreleased and are
-extended in place. `guidance: null` means the change is not a supported shell
+Verifier `0.21`, capability diff `0.4` and contract v41 had not shipped before
+1.2.0 and were extended in place. `guidance: null` means the change is not a supported shell
 case, so the renderers print nothing for it; it does not establish absence of
 risk. Frozen verifier `0.20` is unchanged and cannot claim the new field.
 Current readers accept historical artifacts whose changes carry no `guidance`

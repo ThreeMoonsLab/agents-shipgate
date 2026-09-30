@@ -1,6 +1,6 @@
 {
   "name": "agents-shipgate",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Review declared coding-agent configuration changes with the agents-shipgate diff CLI command; the bundled skill verifies tool-using agent releases.",
   "author": {
     "name": "Three Moons Lab",

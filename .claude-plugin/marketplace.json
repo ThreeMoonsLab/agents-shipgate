@@ -10,7 +10,7 @@
       "name": "agents-shipgate",
       "source": "./plugins/claude-code",
       "description": "Review PR changes to declared coding-agent permissions, MCP bindings, hooks and workflow permissions with the agents-shipgate diff CLI command (not routed by the plugin's skill, which covers check, verify and audit --host). This static host comparison needs no manifest, policy, saved baseline or skill; it names coverage limits and implies no verdict. Tool-Use Readiness release verification is a separate workflow for repositories with a declared tool surface. Requires the agents-shipgate CLI (pipx install agents-shipgate); no hook is enabled by this metadata.",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "author": {
         "name": "Three Moons Lab",
         "url": "https://threemoonslab.com/"

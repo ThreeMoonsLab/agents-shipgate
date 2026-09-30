@@ -41,8 +41,8 @@ It shows source-observed changes per agent, including before/after signatures
 and source locations, in the package that holds the changed code's agents unless
 `--scope` names one. See [application comparison](docs/application-comparison.md)
 for scoped applications, moves, exact refs and coverage limits. Version availability
-is recorded in the [CHANGELOG entry](CHANGELOG.md#application-comparison-without-prior-setup);
-while it is under Unreleased, use a source build containing the feature.
+is recorded in the [CHANGELOG entry](CHANGELOG.md#application-comparison-without-prior-setup):
+it is new in 1.2.0, so until 1.2.0 is published, use a source build containing the feature.
 
 ## What did this PR change?
 
@@ -159,7 +159,7 @@ Supported shell changes then add conditional human choices. They establish no
 intent or runtime access and grant no authority. The `launch source is mutable`
 note identifies the unversioned `npx` package declared by the added server; it
 changes neither the row's severity nor the widening count. The source tree still
-reports version `1.1.0`; that version string does not make this a published-wheel
+reports version `1.2.0`; that version string does not make this a published-wheel
 capture.
 
 When the answer is useful and you want it on every pull request, add

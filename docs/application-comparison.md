@@ -1,8 +1,8 @@
 # Application comparison without prior setup
 
-**Availability:** see the [CHANGELOG entry](../CHANGELOG.md#application-comparison-without-prior-setup).
-While that entry is under Unreleased, run the source checkout's `./shipgate`
-or a build containing the feature.
+**Availability:** new in 1.2.0; see the [CHANGELOG entry](../CHANGELOG.md#application-comparison-without-prior-setup).
+Until 1.2.0 is published, run the source checkout's `./shipgate` or a build
+containing the feature.
 
 For an OpenAI Agents SDK or Google ADK application, compare committed PR refs:
 

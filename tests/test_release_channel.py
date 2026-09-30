@@ -28,6 +28,7 @@ def test_the_committed_declaration_records_the_advisory_1_0_decision() -> None:
     assert rc.load_declaration(REPO_ROOT / rc.DECLARATION_PATH) == {
         "1.0.0": "advisory",
         "1.1.0": "advisory",
+        "1.2.0": "advisory",
     }
 
 

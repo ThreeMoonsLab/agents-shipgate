@@ -1,8 +1,8 @@
-# Stability Contract · 1.1.0
+# Stability Contract · 1.2.0
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
-Unreleased #829 adds a source-local residual-prefix explanation to the existing
+New in 1.2.0, #829 adds a source-local residual-prefix explanation to the existing
 host comparison row `why` text for supported Claude Code `git push` allows.
 It reads all compared head deny rules in that source, including unchanged
 ones, and lists only fixed documented examples outside every deny prefix.
@@ -13,7 +13,7 @@ redacted prefix. No field, schema,
 direction, expansion, severity, check decision or authority changes. The note
 describes pattern coverage, not runtime approval; other rules still apply.
 
-Unreleased, runtime contract v41: a host comparison names the changed inputs it
+New in 1.2.0, runtime contract v41: a host comparison names the changed inputs it
 does not read (#821). Verifier `0.21` and capability diff `0.4` add a
 `changed_not_read` coverage item, with the `candidate` rule that named it, for
 each path in the comparison's own changed-file set that a bounded, documented
@@ -29,7 +29,7 @@ workspace too.
 `minimum_control_contract_version` stays `21`. See
 [the migration note](#unread-changed-inputs-821).
 
-Also in unreleased runtime contract v41, extended in place: the host inventory
+Also new in 1.2.0, in runtime contract v41, extended in place: the host inventory
 reads how a coding agent is launched inside a workflow job (#823).
 Host-grants `0.6` shipped in 1.1.0, so host-grants inventory, baseline and
 drift schemas move to `0.7`: a workflow grant adds `agent_launches[]` — a
@@ -62,7 +62,7 @@ workflow stays comparable. It moves neither #821's verifier `0.21` nor its
 capability diff `0.4`, and `minimum_control_contract_version` stays
 `21`. See [the migration note](#workflow-agent-launches-contract-v41-823).
 
-Also in unreleased runtime contract v41: a hook row names what changed in the
+Also new in 1.2.0, in runtime contract v41: a hook row names what changed in the
 hook, and an MCP row a change to the server's launch arguments (#819).
 Host-grants inventory, baseline and drift schemas move to `0.7`: a hook grant
 adds `handlers[]` — each handler's group `matcher`, its `command` as
@@ -81,7 +81,7 @@ schema, a `0.6` baseline without workflow grants stays comparable with no new ro
 the members. `minimum_control_contract_version` stays `21`. See
 [the migration note](#hook-mcp-detail-fields-819).
 
-Also unreleased, and moving no version of its own: a Claude Code setting that
+Also new in 1.2.0, and moving no version of its own: a Claude Code setting that
 disables prompts or approves project MCP servers carries one rating on every
 surface (#827). The `audit --host` grant, the `diff`, `verify` and `check`
 rows, `check`'s violation and `verify`'s finding read one table.
@@ -93,7 +93,7 @@ the wildcard check to `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` at
 entries become grants. See
 [the migration note](#claude-setting-ratings-827).
 
-Also unreleased, and moving no version of its own: `check` and `verify` route
+Also new in 1.2.0, and moving no version of its own: `check` and `verify` route
 a changed hook declaration of a plugin the repository's project settings
 enable to protected-surface review, wherever the plugin keeps it (#809). A
 hook file such a plugin selects outside the registry paths, such as
@@ -107,7 +107,7 @@ such a plugin selects under a name the reader does not follow fires
 still not routed. No schema, member, row or check id moves. See
 [the migration note](#enabled-plugin-hook-routing-809).
 
-Also unreleased, and moving no version of its own: a `verify --preview` pointer
+Also new in 1.2.0, and moving no version of its own: a `verify --preview` pointer
 never binds the verification plan (#807). In a repository with a manifest, the
 preview's pointer bound the plan a `verify` would run, whose inputs a preview
 never reads, so it had no input-directory census and every reader refused it:
@@ -314,7 +314,7 @@ the Action tag) for reproducible CI.
 
 <a id="hook-script-dependencies-702"></a>
 
-## Migration Note: Unreleased — selected hook script dependencies (#702)
+## Migration Note: 1.2.0 — selected hook script dependencies (#702)
 
 Host-grants `0.7` adds `script_inputs` to hook comparison facts and
 `hook_script` artifacts to the inventory and drift shapes. A supported direct
@@ -375,7 +375,7 @@ runtime execution or script semantic interpretation is introduced. See the
 
 <a id="mcp-launch-source-825"></a>
 
-## Migration Note: Unreleased — mutable MCP launch source notes (#825)
+## Migration Note: 1.2.0 — mutable MCP launch source notes (#825)
 
 Host-grants 0.7 / contract 41 are extended in place. MCP inventory grants add
 optional `launch_source`: `null` when not established, otherwise a `pin` of
@@ -395,7 +395,7 @@ The note says mutable, not unsafe; it is not an actionability or outreach claim.
 
 <a id="permission-review-guidance-839"></a>
 
-## Migration Note: Unreleased — conditional shell-permission review guidance (#839)
+## Migration Note: 1.2.0 — conditional shell-permission review guidance (#839)
 
 The existing maintained `review.changes[]` gains optional `guidance`: a bounded
 projection of raw Claude Code shell-rule evidence, a specific intent question,
@@ -407,8 +407,8 @@ CLI and PR output render the same published projection after existing facts,
 coverage and authority. Whole-item bounds retain an omitted count and the JSON
 evidence pointer. Existing rows, inventory digests and control are unchanged.
 
-Verifier `0.21`, capability diff `0.4` and runtime contract v41 are unreleased
-and extended in place. The frozen `0.20` schema stays unchanged; a payload
+Verifier `0.21`, capability diff `0.4` and runtime contract v41 had not shipped
+before 1.2.0 and were extended in place. The frozen `0.20` schema stays unchanged; a payload
 claiming that version cannot carry `guidance`. Current readers accept missing
 guidance as unrecorded, not as proof that no review is needed; a recorded
 `guidance: null` is a change that is not a supported shell case, and prints
@@ -417,7 +417,7 @@ nothing. See the
 
 <a id="grant-direction-820"></a>
 
-## Migration Note: Unreleased — changed grants are not automatically widenings (#820)
+## Migration Note: 1.2.0 — changed grants are not automatically widenings (#820)
 
 Host-grants `0.7` and contract 41 are extended in place. The issue originally
 named unreleased `0.6`/40; those shipped in 1.1.0 and remain frozen. No field,
@@ -519,7 +519,7 @@ before/after counts separately from the historical row-presence scores.
 
 <a id="exec-equivalent-permissions-824"></a>
 
-## Migration Note: Unreleased — arbitrary-code launcher allow rules (#824)
+## Migration Note: 1.2.0 — arbitrary-code launcher allow rules (#824)
 
 Host-grants 0.7 / contract 41 are extended in place. The documented
 [launcher table](docs/engineering/exec-equivalent-permissions.md) rates exact
@@ -557,7 +557,7 @@ removal and an addition.
 
 <a id="skill-metadata-848"></a>
 
-## Migration Note: Unreleased — free-form skill metadata (#848)
+## Migration Note: 1.2.0 — free-form skill metadata (#848)
 
 In 1.1.0 (contract 40), a skill with `metadata: {internal: true}` made the
 whole host comparison incomparable. The same happened for integer and nested
@@ -591,7 +591,7 @@ ignored.
 
 <a id="workflow-access-label-859"></a>
 
-## Migration Note: Unreleased — workflow values label aggregate access (#859)
+## Migration Note: 1.2.0 — workflow values label aggregate access (#859)
 
 Workflow row `before` and `after` values now begin with `access: read`,
 `access: write` or the other recorded access value, instead of an unlabelled
@@ -603,7 +603,7 @@ published values; no schema changes.
 
 <a id="host-control-row-count-857"></a>
 
-## Migration Note: Unreleased — host control reasons count rows explicitly (#857)
+## Migration Note: 1.2.0 — host control reasons count rows explicitly (#857)
 
 The host-only verifier headline and `control.reason` now say
 `N repository-declared host capability row(s)` instead of `change(s)`.
@@ -614,7 +614,7 @@ limits. No schema, decision, permission, next action or merge authority changes.
 
 <a id="permission-replacements-858"></a>
 
-## Migration Note: Unreleased — unrelated tools do not obscure permission replacements (#858)
+## Migration Note: 1.2.0 — unrelated tools do not obscure permission replacements (#858)
 
 Permission replacement selection still stays within one host, source and
 disposition and uses the existing lattice. After setting aside moved rules,
@@ -642,7 +642,7 @@ is added, and historical artifacts are not rewritten.
 
 <a id="partial-host-comparison-808"></a>
 
-## Migration Note: Unreleased — a plugin directory that cannot be compared no longer hides the rest (verifier `0.21`, capability diff `0.4`, contract v41, #808)
+## Migration Note: 1.2.0 — a plugin directory that cannot be compared no longer hides the rest (verifier `0.21`, capability diff `0.4`, contract v41, #808)
 
 A pull request that broke one plugin manifest — `plugins/demo/.claude-plugin/plugin.json`
 left as `{not json` — and also dropped a `deny` rule from `.claude/settings.json`
@@ -687,15 +687,15 @@ is added.
 - **Text.** `diff` opens with `Partial comparison against main (<sha>) -> working tree: head_inventory_incomplete`, then, before any row, `Not compared: plugins/demo, a plugin directory this entry could not read completely, so no change inside it is shown and nothing is claimed about it.` and `The changes below come only from sources outside it, so they are not the whole change; nothing here is a claim that the change is safe.` With no row, that last line reads `No static host-grant change was detected outside it. That is not a no-change answer for this change, and no verdict is implied.`, and `No static host-grant changes detected` is never printed. `verify --format text` and the manifest-free PR comment open with `Host capability comparison partial: head_inventory_incomplete` and the same two lines. The limit's item reads `plugins/demo/.claude-plugin/plugin.json (claude-code): parse_failed in head, so nothing in plugins/demo was compared`. The rows, their summary, the review question and the reproduction lines print as a comparable result prints them.
 - **Authority and routes do not move.** A partial comparison is not comparable, so every consumer that switches on `comparison_status == "comparable"` reads it as it read the refusal. `verify`'s control state, permissions, next action (`audit --host`), merge verdict and exit code are the incomplete comparison's, and only its headline changes, to `Host comparison is partial: N repository-declared host capability row(s) outside what it could not compare, listed under host_comparison in verifier.json; review its input limits before interpreting changes.` The control envelope's `capability_rows` projects a partial comparison as `incomparable`, with its reasons and no rows, exactly as before: that block cannot name a directory, so its `reason`, which is that headline, points to the rows in `verifier.json`. `check` records no coverage, so it cannot name one either and refuses its comparison as `1.1.0` did; its decision and violations come from its own routing, so the #808 fixture still gives `require_review` with `HOST-PERMISSION-DENY-REMOVED` and no rows. The Stop hook still tells the agent to treat the change as unreviewed. `audit --host`, the inventory digests, saved host-grants baselines and drift payloads are unchanged (host-grants stays `0.6`), so a partial comparison never creates or satisfies a baseline. The host-config and cold-start benchmark replays reproduce their run-of-record scores. `minimum_control_contract_version` stays `21`.
 
-**Compatibility.** Verifier `0.21`, capability diff `0.4` and runtime contract v41 are unreleased, so they are extended in place. `comparison_status` is a closed enumeration, so a reader validating against the frozen [`docs/verifier-schema.v0.20.json`](docs/verifier-schema.v0.20.json) rejects `partial`; the current reader refuses a `0.20` artifact that claims a partial comparison or a `scope`. A consumer that treats every status but `comparable` as not comparable is unaffected. One that expected only `comparable` or `incomparable` should read `partial` as `incomparable` for any decision, and may read its rows as what is known outside the directories named.
+**Compatibility.** Verifier `0.21`, capability diff `0.4` and runtime contract v41 had not shipped before 1.2.0, so they were extended in place. `comparison_status` is a closed enumeration, so a reader validating against the frozen [`docs/verifier-schema.v0.20.json`](docs/verifier-schema.v0.20.json) rejects `partial`; the current reader refuses a `0.20` artifact that claims a partial comparison or a `scope`. A consumer that treats every status but `comparable` as not comparable is unaffected. One that expected only `comparable` or `incomparable` should read `partial` as `incomparable` for any decision, and may read its rows as what is known outside the directories named.
 
 ---
 
 <a id="workflow-agent-launches-contract-v41-823"></a>
 
-## Migration Note: Unreleased — workflow agent launches (host-grants `0.7`, contract v41, #823)
+## Migration Note: 1.2.0 — workflow agent launches (host-grants `0.7`, contract v41, #823)
 
-Host-grants `0.6` shipped in 1.1.0, so this mints host-grants inventory, baseline and drift `0.7` rather than extending it in place, and extends in place the unreleased runtime contract `41` that #821 minted ([its note](#unread-changed-inputs-821)). The `0.6` schema files stay published and unchanged. A workflow grant adds three members, each present only when a step declares one; in a `0.7` grant their absence means the steps were read and declare none:
+Host-grants `0.6` shipped in 1.1.0, so this mints host-grants inventory, baseline and drift `0.7` rather than extending it in place, and extends in place runtime contract `41`, unpublished before 1.2.0, that #821 minted ([its note](#unread-changed-inputs-821)). The `0.6` schema files stay published and unchanged. A workflow grant adds three members, each present only when a step declares one; in a `0.7` grant their absence means the steps were read and declare none:
 
 ```json
 {
@@ -739,7 +739,7 @@ Host-grants `0.6` shipped in 1.1.0, so this mints host-grants inventory, baselin
 
 <a id="unread-changed-inputs-821"></a>
 
-## Migration Note: Unreleased — the changed inputs a host comparison does not read (verifier `0.21`, capability diff `0.4`, contract v41, #821)
+## Migration Note: 1.2.0 — the changed inputs a host comparison does not read (verifier `0.21`, capability diff `0.4`, contract v41, #821)
 
 A zero-row comparison could not tell a reviewer that the change touched agent
 configuration this entry does not read. A pull request that added a Cursor
@@ -785,13 +785,13 @@ command, verdict, reader, row or control state is added.
 
 **One route moves, on `verify` and `verify --preview` alike.** `verify` without a `shipgate.yaml` returned to the setup route (`Shipgate config not found`, exit `2`) whenever neither side of the comparison held a host artifact, and that route says nothing about the change. A comparison that read no artifact but names a changed input this entry does not read, or counts one or more changed candidate inputs as not examined (`unread_candidates_not_examined` above `0`, the one place that change is mentioned), is now published instead, on the existing manifest-free host route: advisory, exit `0`, `control.state` `agent_action_required` with the `audit --host` next action that route already names. `verify --preview` runs the same comparison and moves the same way: where its next action was `initialize` (`init --write`) with `host_comparison: null`, it is now `discover` (`audit --host`) with the comparison published and the host route's headline; `control.state` stays `agent_action_required` and the exit stays `0`. That includes an agent-related workspace, such as one whose change also adds a tool: a published host comparison takes the preview route whenever one exists, exactly as it already did when the change edits a host file this entry reads, such as the root `.claude/settings.json`. A comparison that reads no artifact, names nothing and counts nothing as not examined still takes the setup route on `verify` and `initialize` on `verify --preview`, as before; so does one whose changed files could not be listed (`unread_candidates: not_examined`), which says nothing about whether a candidate changed.
 
-**What does not change.** `comparison_status`, `incomparable_reasons`, `rows` and every row value, `review`, `unchanged_limits`, every other coverage item, the inventory digests, saved host-grants baselines and drift payloads (this change moves no host-grants schema; the unreleased host-grants `0.7` is #823's, [its note](#workflow-agent-launches-contract-v41-823)), `audit --host`, `check`'s decision, rows and text, the control envelope's `capability_rows`, and every control state, permission and next action on a comparison that reads a host artifact. The host-config and cold-start benchmark replays reproduce their run-of-record scores. `minimum_control_contract_version` stays `21`.
+**What does not change.** `comparison_status`, `incomparable_reasons`, `rows` and every row value, `review`, `unchanged_limits`, every other coverage item, the inventory digests, saved host-grants baselines and drift payloads (this change moves no host-grants schema; host-grants `0.7`, new in 1.2.0, is #823's, [its note](#workflow-agent-launches-contract-v41-823)), `audit --host`, `check`'s decision, rows and text, the control envelope's `capability_rows`, and every control state, permission and next action on a comparison that reads a host artifact. The host-config and cold-start benchmark replays reproduce their run-of-record scores. `minimum_control_contract_version` stays `21`.
 
 **Compatibility.** `coverage` and its items are closed objects, so a reader validating against the published [`docs/verifier-schema.v0.20.json`](docs/verifier-schema.v0.20.json) rejects a `0.21` artifact's new members; that schema stays frozen. The current reader reads a `0.20` artifact as `0.21` with `unread_candidates: null`, which is what that build knew, and refuses one that claims a `changed_not_read` item, a `candidate`, `read_sources_only: false` or either `unread_candidates` member. A `diff --json` consumer sees `capability_diff_schema_version: "0.4"`. A consumer switching on `coverage.items[].status` should treat an unknown status as a change it must read, not as no change.
 
 <a id="inline-hook-allow-826"></a>
 
-## Migration Note: Unreleased — unconditional inline hook approvals (host-grants `0.7`, contract v41, #826)
+## Migration Note: 1.2.0 — unconditional inline hook approvals (host-grants `0.7`, contract v41, #826)
 
 Host inventory `0.7` and runtime contract `41` are extended in place with two
 optional, display-only members of a hook handler, published only on a Claude
@@ -808,7 +808,7 @@ unchanged.
 
 <a id="hook-mcp-detail-fields-819"></a>
 
-## Migration Note: Unreleased — hook matcher, command and timeout, and MCP launch arguments (host-grants `0.7`, contract v41, #819)
+## Migration Note: 1.2.0 — hook matcher, command and timeout, and MCP launch arguments (host-grants `0.7`, contract v41, #819)
 
 A hook row read `PostToolUse → PostToolUse` whether the edit was to the hook's
 matcher, its command or its timeout, and an MCP server whose version pin moved
@@ -847,10 +847,10 @@ baselines** below):
 
 <a id="claude-setting-ratings-827"></a>
 
-## Migration Note: Unreleased — one rating per Claude Code setting (#827)
+## Migration Note: 1.2.0 — one rating per Claude Code setting (#827)
 
 This change moves no version of its own: no schema, member, check id or
-`minimum_control_contract_version` moves. Of the unreleased tree's versions,
+`minimum_control_contract_version` moves. Of the versions new in 1.2.0,
 host-grants `0.7` is #823's
 ([migration note](#workflow-agent-launches-contract-v41-823)), capability
 diff `0.4` and verifier `0.21` are #821's
@@ -938,11 +938,11 @@ finding — all read it. The ratings and their basis are in
 
 <a id="enabled-plugin-hook-routing-809"></a>
 
-## Migration Note: Unreleased — an enabled plugin's hook is routed wherever it lives (#809)
+## Migration Note: 1.2.0 — an enabled plugin's hook is routed wherever it lives (#809)
 
 No schema, member, check id or `minimum_control_contract_version` moves. This
 change adds no version of its own: host-grants, capability diff, verifier and
-the runtime contract are what the rest of the unreleased tree carries. What
+the runtime contract are what the rest of 1.2.0 carries. What
 moves is when two existing checks fire, and so `check`'s decision and control,
 and a manifest-backed `verify`'s release decision, merge verdict and PR
 comment.
@@ -1013,7 +1013,7 @@ gave a `widened`, `expands: true` row beside `decision: allow` and
 
 <a id="preview-control-currency-807"></a>
 
-## Migration Note: Unreleased — a preview is read against the working tree it read, configured or not (#807)
+## Migration Note: 1.2.0 — a preview is read against the working tree it read, configured or not (#807)
 
 No schema, contract, member, error kind, refusal code, exit code or
 `minimum_control_contract_version` moves. What changes is which artifacts a
@@ -1091,12 +1091,12 @@ Outside a repository a preview still declares no snapshot and still reads.
 
 <a id="linked-unchanged-limits-822"></a>
 
-## Migration Note: Unreleased — an unchanged limit reached through an in-tree link is named, not a refusal (#822)
+## Migration Note: 1.2.0 — an unchanged limit reached through an in-tree link is named, not a refusal (#822)
 
 No schema, member, reason code, check id or `minimum_control_contract_version`
 moves, and host-grants stays `0.6`. This change adds no version of its own:
-capability diff, verifier and the runtime contract are what the rest of the
-unreleased tree carries. What moves is which comparisons name an unchanged
+capability diff, verifier and the runtime contract are what the rest of 1.2.0
+carries. What moves is which comparisons name an unchanged
 limit instead of refusing, and so which are `comparable`, and which `check`
 compares.
 
@@ -1182,8 +1182,8 @@ accept, and a change that only drops `deny: Bash(curl *)` from
   Either way, `check`'s decision, violations and control state do not move:
   the change above is still `require_review` with
   `HOST-PERMISSION-DENY-REMOVED`.
-- **`partial` becomes `comparable`.** On this unreleased tree, a comparison
-  refused only by such a plugin-reference limit is `partial` (#808): `diff`,
+- **`partial` becomes `comparable`.** Without this change, a comparison
+  refused only by such a plugin-reference limit is `partial` (#808, also new in 1.2.0): `diff`,
   `verify` and the PR comment withhold its plugin directory, as
   `Not compared: plugins/demo`, and publish the rows outside it. Once the
   proof holds, the limit is an unchanged one, so a comparison that was
@@ -1202,9 +1202,9 @@ accept, and a change that only drops `deny: Bash(curl *)` from
   benchmark replays reproduce their run-of-record scores.
 
 **Compatibility.** No field changes shape. A consumer that switches on
-`comparison_status` reads `comparable` where it read `incomparable` for these
-layouts, or `partial` on this unreleased tree for a plugin-reference limit,
-with the limit in `unchanged_limits` exactly as a limit at its own path has
+`comparison_status` reads `comparable` where `1.1.0` read `incomparable` for these
+layouts (the intermediate `partial` for a plugin-reference limit, #808, never
+shipped), with the limit in `unchanged_limits` exactly as a limit at its own path has
 been published since `1.0.0`. Where such a limit was its only refusal,
 `check`'s boundary result reads `unchanged_limits_not_representable` for a
 limit it cannot leave out, and for a shared plugin-reference limit it

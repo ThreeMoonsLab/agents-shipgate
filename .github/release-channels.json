@@ -2,6 +2,7 @@
   "schema": "shipgate.release_channels/v1",
   "channels": {
     "1.0.0": "advisory",
-    "1.1.0": "advisory"
+    "1.1.0": "advisory",
+    "1.2.0": "advisory"
   }
 }
