@@ -52,11 +52,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 #: The newest published release tag, without its ``v`` prefix.
-LATEST_PUBLISHED_VERSION = "1.1.0"
+LATEST_PUBLISHED_VERSION = "1.2.0"
 
-#: The ``CONTRACT_VERSION`` that release emits. ``v1.1.0`` emits ``40``, above
+#: The ``CONTRACT_VERSION`` that release emits. ``v1.2.0`` emits ``41``, above
 #: ``MINIMUM_CONTROL_CONTRACT_VERSION`` ``21``.
-LATEST_PUBLISHED_CONTRACT_VERSION = "40"
+LATEST_PUBLISHED_CONTRACT_VERSION = "41"
 
 
 def latest_published_action_ref() -> str:

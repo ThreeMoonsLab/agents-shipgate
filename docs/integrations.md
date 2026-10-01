@@ -40,12 +40,12 @@ jobs:
         with:
           fetch-depth: 0
       - id: agents-shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v1.1.0
+        uses: ThreeMoonsLab/agents-shipgate@v1.2.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
           diff_base: target
-          shipgate_version: '1.1.0'
+          shipgate_version: '1.2.0'
 ```
 
 To post PR comments, set:
@@ -308,7 +308,7 @@ agents-shipgate:
   stage: test
   image: python:3.12
   script:
-    - python -P -m pip install --pre "agents-shipgate==1.1.0"
+    - python -P -m pip install --pre "agents-shipgate==1.2.0"
     - agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
   artifacts:
     when: always
@@ -340,7 +340,7 @@ jobs:
       - image: cimg/python:3.12
     steps:
       - checkout
-      - run: python -P -m pip install --pre "agents-shipgate==1.1.0"
+      - run: python -P -m pip install --pre "agents-shipgate==1.2.0"
       - run: agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
       - store_artifacts:
           path: agents-shipgate-reports

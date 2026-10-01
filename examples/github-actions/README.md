@@ -28,7 +28,7 @@ Copy-paste-ready workflows. Each one is a complete file — drop it into `.githu
 
 Each run leaves one comment, which later pushes update in place rather than adding new ones. Its human summary opens with one of:
 
-- **Changes** — `Repository-declared host capability changes:`, then one entry per changed grant with before → after and why it matters. Since `1.1.0`, the pinned release, a widening entry is marked `⚠`, a permission rule names its disposition, a replaced or moved rule is one `widened`, `narrowed` or `moved` entry, an MCP server names its published command name (not its path) or redacted URL and key names, and the entries end with `Review question: Does the team intend …?`, a `Compared:` line naming the base and head commits and the version, and a `Reproduce:` line with the `agents-shipgate diff --base <sha>` to run after checking out the head. Both lines also end a comment with no change. A comment whose comparison was unavailable ends with the same two lines, the first labelled `Inputs:` rather than `Compared:`, since that run compared nothing — but only where that run named a base commit: `shallow_history` and an unfetched base name none, so those comments carry neither line, as they carry no block. Neither asks a question. On `pull_request` that head is the commit the Action compared, `github.sha`: GitHub's merge commit for the PR, not the branch tip. No branch holds it, so fetch it first with `git fetch origin refs/pull/<number>/merge`, which serves it only until a later push to the PR or its base branch replaces it.
+- **Changes** — `Repository-declared host capability changes:`, then one entry per changed grant with before → after and why it matters. Since `1.1.0`, a widening entry is marked `⚠`, a permission rule names its disposition, a replaced or moved rule is one `widened`, `narrowed` or `moved` entry, an MCP server names its published command name (not its path) or redacted URL and key names, and the entries end with `Review question: Does the team intend …?`, a `Compared:` line naming the base and head commits and the version, and a `Reproduce:` line with the `agents-shipgate diff --base <sha>` to run after checking out the head. Both lines also end a comment with no change. A comment whose comparison was unavailable ends with the same two lines, the first labelled `Inputs:` rather than `Compared:`, since that run compared nothing — but only where that run named a base commit: `shallow_history` and an unfetched base name none, so those comments carry neither line, as they carry no block. Neither asks a question. On `pull_request` that head is the commit the Action compared, `github.sha`: GitHub's merge commit for the PR, not the branch tip. No branch holds it, so fetch it first with `git fetch origin refs/pull/<number>/merge`, which serves it only until a later push to the PR or its base branch replaces it.
 - **No change** — `Repository-declared host capability changes:`, then `No static host-grant changes detected in the covered comparison. No verdict is implied.`
 - Either of those can add **Not compared** — `Not compared: unchanged in this change and not read, so no claim is made about them:` and the sources it skipped, such as an unparseable `.cursor/mcp.json` the PR did not touch. Nothing is claimed about those.
 - **Cannot compare** — `Host capability comparison unavailable:` with the reason, such as `head_inventory_incomplete` for a configuration file the PR leaves unreadable, or `shallow_history` for a clone without the base branch's history. That is an input limit, not a finding and not a pass.
@@ -48,9 +48,9 @@ The `merge_verdict` and `agent_control_state` outputs are not a pass/fail signal
 - **Permissions.** `contents: read` checks out the repository; `pull-requests: write` is only for the comment. Without it — including on every PR from a fork, which `pull_request` gives a read-only token — the comment step writes the same review to the job summary and says publication was unavailable. Do not switch to `pull_request_target` to reach forks: it runs with a write token against untrusted PR contents.
 - **History.** Keep `fetch-depth: 0`. With `diff_base: target` the Action compares against `origin/<the PR's base branch>`, so a PR into `develop` is compared with `develop`. The Action never fetches.
 - **One run per PR.** The `concurrency` group runs one job per pull request and cancels the older run when a new push arrives; the newer run waits until the cancelled one has finished, so two quick pushes cannot both create a comment and the newer push's result is written last. The Action's reporting steps run with `if: always()`, so a cancelled run may still upload an artifact or update the comment from a partial or missing report before the newer run replaces it. Manually re-running an older run writes that older result again.
-- **What runs.** `shipgate_version: '1.1.0'` installs `agents-shipgate==1.1.0` from PyPI; pip resolves that package's dependencies within their declared ranges when the job runs, so they are not frozen. The Action's steps come from the `v1.1.0` tag, which can be moved. For an immutable ref, replace `v1.1.0` in the `uses:` line with the commit it names, `e3c6cb0c7657d9c53d4e29b2061d04dcf99a4e9b`, and keep `# v1.1.0` as a trailing comment; that commit is what `agents-shipgate init --ci` from the 1.1.0 release writes. No agent, tool or MCP server is started.
+- **What runs.** `shipgate_version: '1.2.0'` installs `agents-shipgate==1.2.0` from PyPI; pip resolves that package's dependencies within their declared ranges when the job runs, so they are not frozen. The Action's steps come from the `v1.2.0` tag, which can be moved. For an immutable ref, replace `v1.2.0` in the `uses:` line with the commit it names, `7fc61ef43d8ec5c906bc690765f4a1297dff4fda`, and keep `# v1.2.0` as a trailing comment; that commit is what `agents-shipgate init --ci` from the 1.2.0 release writes. No agent, tool or MCP server is started.
 - **Whose job this is.** On `pull_request`, GitHub runs the workflow file from the PR's merge commit, for fork PRs too (by default, a first-time contributor's run waits for approval). The PR can therefore change this workflow, and the job's output is always advisory output of a job the PR controls — never an independent check on the PR.
-- **Known issue in the `v1.0.0` Action, fixed in `v1.1.0`.** The `v1.0.0` install and merge-verdict steps start Python with the checkout on `sys.path` (`python -m pip`, `python -`), so a PR that adds a `pip/` or `agents_shipgate/` package runs its own code even when the workflow file is left unchanged; a workflow still pinned to `v1.0.0` keeps that behaviour. The `v1.1.0` Action this recipe pins starts them with `python -P`, which closes that import route — it matters most where the workflow itself is trusted, such as `pull_request_target`, `workflow_run` or a required workflow — but does not make a `pull_request` job's result independent of the PR.
+- **Known issue in the `v1.0.0` Action, fixed since `v1.1.0`.** The `v1.0.0` install and merge-verdict steps start Python with the checkout on `sys.path` (`python -m pip`, `python -`), so a PR that adds a `pip/` or `agents_shipgate/` package runs its own code even when the workflow file is left unchanged; a workflow still pinned to `v1.0.0` keeps that behaviour. The `v1.2.0` Action this recipe pins starts them with `python -P`, as `v1.1.0` did, which closes that import route — it matters most where the workflow itself is trusted, such as `pull_request_target`, `workflow_run` or a required workflow — but does not make a `pull_request` job's result independent of the PR.
 - **Not a gate.** It adds no required check, failure policy or branch protection. Making a result blocking is a separate, explicit choice (recipes 07, 08 and 10).
 
 A GitHub-hosted run of this recipe on a real pull request is still outstanding; see [#780](https://github.com/ThreeMoonsLab/agents-shipgate/issues/780) and [#570](https://github.com/ThreeMoonsLab/agents-shipgate/issues/570).
@@ -74,12 +74,12 @@ Configure per-job, never repo-wide.
 For reproducible CI, pin both the action and the underlying CLI:
 
 ```yaml
-- uses: ThreeMoonsLab/agents-shipgate@v1.1.0
+- uses: ThreeMoonsLab/agents-shipgate@v1.2.0
   with:
-    shipgate_version: "1.1.0"
+    shipgate_version: "1.2.0"
 ```
 
-On current source, a `shipgate_version` install logs
+Since `v1.2.0`, a `shipgate_version` install logs
 `verification_identity.engine_distribution_sha256=sha256:…`, using the same
 installed-package content identity that verification records. This is **not**
 the wheel archive's SHA-256: ZIP metadata and packaging can change a wheel hash
@@ -90,14 +90,13 @@ verifier run using the same installed wheel. The script-path invocation and
 pip's `-P` keep the PR checkout from impersonating the engine. An engine that
 cannot compute this identity, such as any release before `1.0.0`, logs a
 warning instead and the install continues.
-This logging change is not present in historical Action tags such as `v1.1.0`;
-use the immutable Action commit containing it until it is released. The
+Older Action tags such as `v1.1.0` do not log it. The
 `shipgate_wheel`/`shipgate_wheel_sha256` route still verifies the supplied wheel
 archive bytes as before. No extra report or release verdict is introduced.
 
 When `shipgate_version` is empty the action installs the CLI from the action source — convenient for local action development, less reproducible for CI.
 
-`shipgate_version` pins the `agents-shipgate` package only; pip resolves its dependencies when the job runs. A tag such as `v1.1.0` can be moved, so the hardened form replaces it with the commit it names and keeps the tag as a comment — see *What runs* under [Host-only advisory PR review](#host-only-advisory-pr-review).
+`shipgate_version` pins the `agents-shipgate` package only; pip resolves its dependencies when the job runs. A tag such as `v1.2.0` can be moved, so the hardened form replaces it with the commit it names and keeps the tag as a comment — see *What runs* under [Host-only advisory PR review](#host-only-advisory-pr-review).
 
 ## Action outputs
 
@@ -112,7 +111,7 @@ When `shipgate_version` is empty the action installs the CLI from the action sou
 
 ```yaml
 - id: shipgate
-  uses: ThreeMoonsLab/agents-shipgate@v1.1.0
+  uses: ThreeMoonsLab/agents-shipgate@v1.2.0
 
 - if: steps.shipgate.outputs.decision == 'blocked'
   run: echo "Release blocked by Agents Shipgate"
@@ -157,7 +156,7 @@ mergeable/success, blocked/failure, human-routed/neutral behavior.
 `blocked` and `unknown` so setup failures do not look successful. For direct
 branch protection, use `check_run_policy: require-mergeable`; only
 `can_merge_without_human == true` succeeds. `check_run_policy` first shipped in
-v1.0.0; the Check Run policy example pins v1.1.0, which carries it.
+v1.0.0; the Check Run policy example pins v1.2.0, which carries it.
 
 `verify` writes static capability artifacts to the workflow artifact when
 available: `capabilities.lock.json`, `base.capabilities.lock.json`, and

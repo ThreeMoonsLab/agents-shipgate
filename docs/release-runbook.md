@@ -552,6 +552,17 @@ The shape that holds:
    the published version on its reference lines. The second is the pilot
    ledger's route readiness dry run, which `tests/test_design_partner_pilot.py`
    holds to the newest release on its `Published build measured` line.
+   The bundled prompts and CI recipes are re-rendered by the package's own
+   renderer, never hand-edited: their hashes move in
+   `tests/test_agent_instructions_renderers.py`, and the renders the new tag
+   carries are appended to `prior_render_sha256` in both
+   `adoption-kits/*/.agents-shipgate-kit-metadata.json` files, so an
+   unmodified install still upgrades. No test enumerates prose that calls the
+   new release or its contract unreleased — `unreleased`, `not yet released`,
+   `until <version> is published`, in docs and in `src/` comments that justify
+   extending a contract in place — so search for it; at `1.2.0` it was in
+   `docs/agent-contract-current.md`, `docs/application-comparison.md`, the
+   README and `schemas/contract.py`.
 
    The two constants govern ordinary/source/preview adoption: the `uses:`
    pin in the workflow it generates, the runner pins in the bundled adoption

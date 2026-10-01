@@ -6,9 +6,9 @@ and cannot-compare quotes were first taken from the published `1.0.0`,
 installed outside a checkout and run in a clone of a repository with a remote;
 the change quote was this tree's output from #795, and every quote gained the
 `What this run established` block with #812, while the pages labelled them as
-not yet released. Since #778 every quote is re-captured from the published
-`1.1.0`, installed from PyPI into a clean virtualenv outside any checkout, and
-the pages say so. This module rebuilds that arrangement — a bare remote, the
+not yet released. Since #778 every quote is re-captured, at each release's
+step 8, from the newest published build — `1.2.0` today — installed from PyPI
+into a clean virtualenv outside any checkout, and the pages say so. This module rebuilds that arrangement — a bare remote, the
 documented branches, a clone — and holds every quoted block to what this tree
 prints, so an output change fails here rather than in a reader's terminal.
 Commit ids and the version on the reference lines are the only normalized
@@ -356,7 +356,7 @@ _REFERENCE_VERSION = re.compile(r"^(?:Compared|Inputs): .*, agents-shipgate (\S+
 _ANSWER_PREFIXES = ("Agent capability diff", "Cannot compare against", "What this run established:")
 
 #: The release `_PUBLISHED_ANSWERS` was recorded from.
-_PUBLISHED_ANSWERS_VERSION = "1.1.0"
+_PUBLISHED_ANSWERS_VERSION = "1.2.0"
 #: What that release prints for each documented answer, as the sha256 of the
 #: answer after `_normalize` (`_answer_digest`). `no_compared_grant` is the
 #: `What this run established` block of the `env`-only edit, the part the
@@ -365,9 +365,12 @@ _PUBLISHED_ANSWERS_VERSION = "1.1.0"
 #: virtualenv outside any checkout, on the fixtures this module builds. Never
 #: recorded from this tree: until its next version bump it prints the published
 #: version on its reference lines, so a record taken from it would let a
-#: source-tree capture pass as published output.
+#: source-tree capture pass as published output. Only `change` moved from
+#: `1.1.0`'s record: `1.2.0` appends the conditional review guidance and the
+#: `launch source is mutable` note to it. The other four digests are the ones
+#: `1.1.0` printed, re-taken from `1.2.0` and unchanged.
 _PUBLISHED_ANSWERS = {
-    "change": "536d404fdbd22382afd84f6b6ef6f214b6020499132d4b672acb4467531e2411",
+    "change": "098d8e2700cc1a0ccdc96fa267cbd4897000efb3c3d72ffeb1e34c0351a19ebf",
     "no_change": "4735bd240c7bdfbb46655f144d7fa0905d621de053564ab3d609972994df6d74",
     "not_compared": "73d814a7a17a6447006e7670f9a8030cfcd80ba599b0dbd3fc106367237337c1",
     "incomparable": "6be1e130dae73c6c8d51ec9d27623a98093d83270545929692c227b18c897883",
@@ -512,6 +515,21 @@ source checkout of this project. The published `1.0.0` names the same changes
 as four rows, without the dispositions, the joined replacement, the MCP launch
 details, the review question and the reference lines, and none of its answers
 has the `What this run established` block."""
+#: The labels the pages carried when `v1.2.0` was tagged: the change quote's
+#: guidance and note were source-tree output, compared with `1.1.0`. `1.2.0`
+#: prints them, so at its step 8 both labels were stale the same way.
+_README_LABEL_AS_TAGGED_V120 = """\
+The example below is from this source tree. Its conditional review guidance and
+its `launch source is mutable` note are **not yet released**; the published
+`1.1.0` prints the same comparison without that guidance section or note."""
+_QUICKSTART_LABEL_AS_TAGGED_V120 = """\
+**Source-tree examples, not yet released:** the published `1.1.0` prints these
+comparison facts and coverage, but does not append the conditional permission
+review guidance shown in the change example, nor the `launch source is mutable`
+note on the added MCP server. That note identifies its unversioned `npx` package
+and changes neither severity nor the widening count. The source tree still
+reports version `1.2.0`; its version string alone is not published-wheel
+provenance."""
 
 
 def test_the_published_quote_guard_catches_a_stale_capture() -> None:
@@ -557,9 +575,16 @@ def test_the_published_quote_guard_catches_a_stale_capture() -> None:
     # The labels `v1.1.0` was tagged with, over answers `1.1.0` prints (#853
     # review, case a): they compare with a release that is no longer the
     # newest, and they call published output not yet released.
-    for label, blocks in ((_README_LABEL_AS_TAGGED, readme), (_QUICKSTART_LABEL_AS_TAGGED, quickstart)):
+    # The labels `v1.2.0` was tagged with fail the same two ways one release
+    # later, naming `1.1.0`.
+    for label, blocks, older in (
+        (_README_LABEL_AS_TAGGED, readme, "1.0.0"),
+        (_QUICKSTART_LABEL_AS_TAGGED, quickstart, "1.0.0"),
+        (_README_LABEL_AS_TAGGED_V120, readme, "1.1.0"),
+        (_QUICKSTART_LABEL_AS_TAGGED_V120, quickstart, "1.1.0"),
+    ):
         problems = page(label, blocks)
-        assert reports(problems, "compares them with the published ['1.0.0']"), problems
+        assert reports(problems, f"compares them with the published ['{older}']"), problems
         assert reports(problems, "each is an answer the published"), problems
     # Naming the newest release does not rescue a not-yet-released label over
     # answers that release prints, and naming none is wrong over answers it

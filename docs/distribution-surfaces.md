@@ -146,7 +146,7 @@ says which input postdates the release and what to do once one carries it.
 `DECLARED_UNPINNED_REFS` enumerates these, and is empty today:
 `examples/github-actions/10-check-run-annotations.yml` targeted `@main` until
 `v1.0.0` carried `check_run_policy`, and has pinned the newest published
-release since — `v1.1.0` today. The guard checks that the file really uses that ref and really explains itself, so an
+release since — `v1.2.0` today. The guard checks that the file really uses that ref and really explains itself, so an
 unexplained `@main` elsewhere is still the defect it looks like.
 
 ## Release channels

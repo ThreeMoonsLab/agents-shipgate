@@ -214,7 +214,7 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # ``host_comparison.coverage`` and ``shipgate diff --json`` (capability diff
 # 0.3) the same block. It is evidence beside the rows and moves no state,
 # permission, route or row. A 0.19 verifier reads with coverage not recorded.
-# v41, unreleased, carries three changes. It names the changed inputs a host
+# v41, shipped in 1.2.0, carries three changes. It names the changed inputs a host
 # comparison does not read (#821): verifier 0.21 and ``shipgate diff --json``
 # (capability diff 0.4) add a ``changed_not_read`` coverage item with its
 # ``candidate`` rule, a ``read_sources_only`` that is ``false`` while one is
@@ -242,7 +242,7 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # stays comparable. #823 moves neither verifier 0.21 nor capability diff 0.4:
 # its rows keep their shape. ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21.
 # And v41 keeps what a comparison established outside a plugin directory it
-# could not compare (#808), extended in place because v41 is unreleased: where
+# could not compare (#808), extended in place because v41 was then unreleased: where
 # every blocking limit is a plugin-reference limit that its plugin directory
 # bounds, and no compared source depends on that directory, verifier 0.21 and
 # capability diff 0.4 publish ``comparison_status: partial`` with the rows

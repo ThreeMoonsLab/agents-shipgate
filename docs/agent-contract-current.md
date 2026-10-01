@@ -1,6 +1,6 @@
 # Current Agent Contract
 
-Runtime contract v41, unreleased, names the changed inputs a host comparison
+Runtime contract v41, new in 1.2.0, names the changed inputs a host comparison
 does not read (#821). A zero-row comparison used to print "No static
 host-grant changes detected" for a pull request that added a Cursor plugin's
 `mcp.json` or moved a marketplace plugin's pinned `sha`, exactly as for a
@@ -28,7 +28,7 @@ file this entry reads. `minimum_control_contract_version`
 stays `21`, and a `0.20` verifier reads with the search not recorded. See
 [the migration note](../STABILITY.md#unread-changed-inputs-821).
 
-Still contract v41, unreleased: a plugin directory a host comparison cannot
+Still contract v41, new in 1.2.0: a plugin directory a host comparison cannot
 compare no longer hides the changes outside it (#808). Where every blocking
 limit that refused the comparison is a plugin-reference limit bounded by its
 plugin directory, and no compared source depends on that directory, verifier
@@ -91,7 +91,7 @@ comparable. It moves neither #821's verifier `0.21` nor its capability diff
 `0.4`, and `minimum_control_contract_version` stays `21`. See
 [the migration note](../STABILITY.md#workflow-agent-launches-contract-v41-823).
 
-The same unreleased runtime contract v41 also names what changed in a hook and
+The same runtime contract v41, new in 1.2.0, also names what changed in a hook and
 in an MCP server's launch arguments (#819). Host-grants inventory, baseline and
 drift schemas move to `0.7`: a hook grant adds `handlers[]` (each handler's
 group `matcher`, its `command` as `{executable, sha256}` and its `timeout`)
@@ -775,7 +775,7 @@ Downstream repos generated with
 `init --agent-instructions=default` get the minimal local copy at
 `.shipgate/agent-contract.json`.
 
-- Latest release: `v1.1.0`
+- Latest release: `v1.2.0`
 - In-tree runtime: `1.2.0` — see [pyproject.toml](../pyproject.toml)
 - Runtime contract: `41` (minimum control contract: `21`)
 - Current report schema: `1.0`, frozen, superseding `0.43` — [`docs/report-schema.v1.0.json`](report-schema.v1.0.json); the `1.x` rules are in [`docs/report-1-0-contract.md`](report-1-0-contract.md)

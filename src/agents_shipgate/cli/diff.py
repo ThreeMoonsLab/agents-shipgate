@@ -39,8 +39,8 @@ from agents_shipgate.core.host_grants import (
 # 0.4 names, in `coverage`, the changed inputs this entry does not read: a
 # `changed_not_read` item with its `candidate` rule, `read_sources_only` that
 # is `false` while one is listed, and whether the change set was examined
-# (`unread_candidates`, `unread_candidates_not_examined`) (#821). 0.4, still
-# unreleased, also publishes `comparison_status: partial`: the rows outside a
+# (`unread_candidates`, `unread_candidates_not_examined`) (#821). 0.4, shipped
+# in 1.2.0, also publishes `comparison_status: partial`: the rows outside a
 # plugin directory the comparison could not compare, with that directory as
 # `coverage.items[].scope` on the limits that caused it (#808).
 DIFF_SCHEMA_VERSION = "0.4"

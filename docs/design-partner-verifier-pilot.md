@@ -5,7 +5,7 @@ repositories through an actual review workflow: someone introduces a
 capability or permission change, someone else reviews it, and the next
 eligible change tests whether the integration stayed useful.
 
-It teaches the loop the newest published release, `v1.1.0`, runs — settle
+It teaches the loop the newest published release, `v1.2.0`, runs — settle
 [which build a partner is on](#which-build-this-runbook-is-for) and
 [which route their repository is on](#routes-under-test) before you quote a
 command at them. Those two choices decide what the partner can see, and both
@@ -59,15 +59,15 @@ that workflow. Do not recruit for Route A to balance the cohort.
 
 The read order, the tracker and the agent prompt below all name `control.state`
 and `control.next_action.actor`. Those come from the agent-control envelope,
-which the newest published release, `v1.1.0`, carries, as did the previous
-one, `v1.0.0`. The older `v0.15.0` predates it — and has no `diff`, the
+which the newest published release, `v1.2.0`, carries, as did the previous
+ones, `v1.1.0` and `v1.0.0`. The older `v0.15.0` predates it — and has no `diff`, the
 Git-backed Route H command — so a partner still on that build cannot follow
 this runbook end to end — and saying so is part of the instructions rather
 than a footnote:
 
 | Channel | How a partner gets it | Runtime contract | Emits `control.*`? | Qualification |
 | --- | --- | --- | --- | --- |
-| Published release `v1.1.0` | `pipx install agents-shipgate` | 40 | Yes | **None.** Declared `advisory` in `.github/release-channels.json`; see [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) § Amendment 5 |
+| Published release `v1.2.0` | `pipx install agents-shipgate` | 41 | Yes | **None.** Declared `advisory` in `.github/release-channels.json`; see [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) § Amendment 5 |
 | Unqualified preview | `gh release download preview-<version> --repo ThreeMoonsLab/agents-shipgate --pattern '*.whl'`, then `pip install ./<wheel>` | that of the source commit it was cut from | Yes | **None.** No adjudicated corpus, no qualification artifact, nothing signed — see [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) § Amendment 2 |
 | Source checkout | `git clone`, then `./shipgate …` from the checkout | that of the checkout | Yes | Not a distributed build |
 
@@ -326,8 +326,8 @@ the first observation of the run, not preamble.
 `verify` and `feedback export` are present in every channel, including the
 released build. The runbook's **read order** is what needs the newer contract:
 `control.state` requires the agent-control envelope, which the released
-`v1.1.0` (contract 40) and `v1.0.0` (contract 39) emit and the older
-`v0.15.0` (contract 10) does not. So a partner still on `v0.15.0` either
+`v1.2.0` (contract 41), `v1.1.0` (contract 40) and `v1.0.0` (contract 39) emit
+and the older `v0.15.0` (contract 10) does not. So a partner still on `v0.15.0` either
 upgrades or reads `controller` / `gate` instead — do not quote a contract floor the build they
 have installed cannot reach.
 
@@ -459,8 +459,8 @@ reviewed is the coding-host configuration.
 ## Read Order
 
 Route A — read `agents-shipgate-reports/agent-handoff.json` first. This order
-needs a build that emits the agent-control envelope (the released `v1.1.0` or
-`v1.0.0`, a preview, or a source checkout); on the older `v0.15.0`, start at
+needs a build that emits the agent-control envelope (the released `v1.2.0`,
+`v1.1.0` or `v1.0.0`, a preview, or a source checkout); on the older `v0.15.0`, start at
 step 2 and read `controller` in place of `control`:
 
 1. `control.state`
@@ -496,7 +496,7 @@ suppression, or policy-weakening evidence.
 Paste this into the partner's coding agent from the target repo root, with the
 install line for the channel you settled above — the block below carries the
 released one. Step 4 names the agent-control envelope, which the released
-`v1.1.0` and `v1.0.0` carry; on the older `v0.15.0` there is none, so the
+`v1.2.0`, `v1.1.0` and `v1.0.0` carry; on the older `v0.15.0` there is none, so the
 agent reads `controller` and `gate` instead. The
 ownership boundary in step 4 is the rule either way: on a build with the
 envelope the tool enforces it, and on one without it, nothing but the
