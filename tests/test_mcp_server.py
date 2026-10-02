@@ -120,7 +120,7 @@ def test_mcp_preflight_handler_is_read_only(tmp_path: Path) -> None:
         ),
     )
 
-    assert payload["preflight_schema_version"] == "0.5"
+    assert payload["preflight_schema_version"] == "0.6"
     assert payload["requires_human_review"] is True
     assert payload["requires_verify"] is True
     assert payload["control"]["state"] == "human_review_required"
@@ -178,7 +178,7 @@ def test_mcp_preflight_accepts_plan_without_writes(tmp_path: Path) -> None:
         },
     )
 
-    assert payload["preflight_schema_version"] == "0.5"
+    assert payload["preflight_schema_version"] == "0.6"
     assert payload["first_next_action"]["actor"] == "human"
     assert payload["control"]["state"] == "human_review_required"
     assert any(signal["kind"] == "least_privilege" for signal in payload["signals"])

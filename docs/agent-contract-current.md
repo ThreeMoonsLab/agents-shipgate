@@ -1,5 +1,24 @@
 # Current Agent Contract
 
+Runtime contract v42, unreleased, stops an empty preflight plan from minting
+authority (#610). Through preflight `0.5` a plan that named nothing to route
+returned the shared `complete` state, whose `permissions` grant `merge` and
+`report_complete`, with no verifier identity behind it. Preflight `0.6` has its
+own control union: `planning_only`, `agent_action_required` and
+`human_review_required`. `planning_only` is new and means only that
+planning finished, because the plan named no changed file, capability request
+or host permission request and no drift signal fired; it has no `next_action`.
+Preflight never returns `complete` or `review_publishable`, and every
+permission is `false` on every route, in the model and in
+[`docs/preflight-schema.v0.6.json`](preflight-schema.v0.6.json) alike, so
+leaving files out of a plan can never stand in for an evaluation of the
+change: preflight never authorizes merge or completion. `0.5` stays frozen
+and readable as a
+`--base-preflight`; `minimum_control_contract_version` stays `21`, because
+the shared `AgentControl` union is unchanged and a reader that does not know
+`planning_only` cannot mistake it for `complete`. See
+[the migration note](../STABILITY.md#planning-only-preflight-610).
+
 Runtime contract v41, new in 1.2.0, names the changed inputs a host comparison
 does not read (#821). A zero-row comparison used to print "No static
 host-grant changes detected" for a pull request that added a Cursor plugin's
@@ -235,7 +254,8 @@ schemas are unchanged; all setup permissions remain false.
 
 Runtime contract v32 separates instruction prose from supported parsed permission
 structure across verification, preflight, host drift and generated edit hooks.
-It publishes verifier v0.17, handoff v9, preflight v0.5 and host evidence v0.3.
+It publishes verifier v0.17, handoff v9, preflight v0.5 and host evidence v0.3;
+preflight v0.6 (#610) keeps that structure and changes only its control.
 Raw identity still changes on prose edits; legacy evidence is never upgraded to
 a new permission claim. `conditional_file_edits` is a standing routing rule with
 `grants_authority: false`, separate from unconditional `forbidden_file_edits`.
@@ -777,7 +797,7 @@ Downstream repos generated with
 
 - Latest release: `v1.2.0`
 - In-tree runtime: `1.2.0` — see [pyproject.toml](../pyproject.toml)
-- Runtime contract: `41` (minimum control contract: `21`)
+- Runtime contract: `42` (minimum control contract: `21`)
 - Current report schema: `1.0`, frozen, superseding `0.43` — [`docs/report-schema.v1.0.json`](report-schema.v1.0.json); the `1.x` rules are in [`docs/report-1-0-contract.md`](report-1-0-contract.md)
 - Current packet schema: `0.18` — [`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json)
 - Current shared agent result schema: `agent_result_v3` — [`docs/agent-result-schema.v3.json`](agent-result-schema.v3.json)
@@ -790,7 +810,7 @@ Downstream repos generated with
 - Current agent handoff schema: `shipgate.agent_handoff/v9` — [`docs/agent-handoff-schema.v9.json`](agent-handoff-schema.v9.json)
 - Current agent boundary result schema: `shipgate.agent_boundary_result/v3` — [`docs/agent-boundary-result-schema.v3.json`](agent-boundary-result-schema.v3.json)
 - Frozen deprecated Codex projection: `shipgate.codex_boundary_result/v2` — [`docs/codex-boundary-result-schema.v2.json`](codex-boundary-result-schema.v2.json)
-- Current preflight schema: `0.5` — [`docs/preflight-schema.v0.5.json`](preflight-schema.v0.5.json)
+- Current preflight schema: `0.6` — [`docs/preflight-schema.v0.6.json`](preflight-schema.v0.6.json) (`0.5` and earlier stay frozen; `0.6` adds `planning_only` and denies every permission on every route)
 - Current downstream local agent contract schema: `10`
 - Current capability standard: `0.5` — [`docs/capability-standard.md`](capability-standard.md)
 - Current capability lock schema: `0.8` — [`docs/capability-lock-schema.v0.8.json`](capability-lock-schema.v0.8.json)
@@ -1082,7 +1102,7 @@ they do not replace the gate above and must not introduce a second verdict.
 proactive routing surface for coding agents before edits. It accepts a single
 `PreflightPlanV1` object with `changed_files[]`, optional `diff_text`,
 `capability_requests[]`, `host_permission_requests[]`, and
-`context.{agent,task}`. The emitted `PreflightResultV5` reports protected
+`context.{agent,task}`. The emitted `PreflightResultV6` reports protected
 surfaces, forbidden shortcut actions, required evidence for proposed high-risk
 capabilities, host-grant drift when a host baseline is present, deterministic
 `signals[]`, `control`, `requires_verify`, `verification_command`,
@@ -1092,7 +1112,10 @@ only appends valid built-in `tool_sources` rows may mark that manifest touch
 authorizes proposal authorship only: existing rows and all other manifest
 values must be unchanged, authority-bearing fields and custom adapters are
 excluded, and the resulting trust-root diff still requires human review. It is
-not a second gate; it must never be read as passed or mergeable. The release
+not a second gate; it must never be read as passed or mergeable. Its `control.state`
+is `planning_only`, `agent_action_required` or `human_review_required`,
+never `complete`, and every `control.permissions` value is `false` on all
+three (#610). The release
 gate remains `release_decision.decision`.
 
 ## Read these first for release gating

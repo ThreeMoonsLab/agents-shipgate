@@ -69,6 +69,7 @@ from pydantic import (
 )
 
 from agents_shipgate.schemas.agent_control import (
+    ALL_PERMISSIONS_DENIED_SCHEMA,
     PERMISSION_FIELDS,
     CodingAgentAction,
     ExactCommand,
@@ -373,12 +374,6 @@ _NON_BLANK = r"\S"
 # ``review_publishable`` (whose whole meaning is "the evidence may be
 # published") is made unreachable, rather than being left to the projection to
 # refuse.
-_ALL_PERMISSIONS_DENIED = {
-    "type": "object",
-    "properties": {name: {"const": False} for name in PERMISSION_FIELDS},
-    "required": list(PERMISSION_FIELDS),
-}
-
 _SETUP_PROVENANCE_RULE = [
     {
         "if": {
@@ -400,7 +395,7 @@ _SETUP_PROVENANCE_RULE = [
                 "current_control_id": {"type": "null"},
                 "artifacts": {"maxProperties": 0},
                 # Setup read no change, so no route may authorize acting on one.
-                "permissions": _ALL_PERMISSIONS_DENIED,
+                "permissions": ALL_PERMISSIONS_DENIED_SCHEMA,
                 # `complete` is already unreachable via the variant's own
                 # `operation` Literal; `review_publishable` needed saying.
                 "control_state": {

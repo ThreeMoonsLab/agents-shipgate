@@ -33,7 +33,7 @@ Claude Code registration (`.mcp.json`):
 | Tool | Input | Output |
 |---|---|---|
 | `shipgate.check` | `{agent, workspace, diff_text, config?, policy?}` | exact `shipgate.agent_boundary_result/v3` |
-| `shipgate.preflight` | `{workspace?, config?, plan?, changed_files?, diff_text?, capability_request?, base_preflight?}` | exact `PreflightResultV3` |
+| `shipgate.preflight` | `{workspace?, config?, plan?, changed_files?, diff_text?, capability_request?, base_preflight?}` | exact `PreflightResultV6` (preflight `0.6`) |
 | `shipgate.explain` | `{check_id}` or `{fingerprint, report_path}` | deterministic check/finding explanation JSON |
 | `shipgate.capabilities` | `{config}` or `{base_lock, head_lock}` | capability lock or capability lock diff JSON |
 | `shipgate.handoff` | `{verifier_path, report_path?, verify_run_path?}` | exact `shipgate.agent_handoff/v8` |
@@ -43,7 +43,10 @@ Claude Code registration (`.mcp.json`):
 routing only: prefer passing a `PreflightPlanV1` object in `plan`. It can tell
 an agent to stop before editing protected surfaces, route host/MCP permission
 requests to a human, or gather evidence for a proposed high-risk capability,
-but it is not a second release verdict. The release gate remains
+but it is not a second release verdict. Every permission in its `control` is
+`false`. A plan that names nothing to route returns `planning_only`
+unless host-grant or trust-root drift stops it for a human; it never returns
+`complete`. The release gate remains
 `report.json.release_decision.decision`.
 
 For `shipgate.preflight`, `plan` is mutually exclusive with the direct

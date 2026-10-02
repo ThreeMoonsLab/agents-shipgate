@@ -5,6 +5,7 @@ import json
 import os
 import posixpath
 import stat
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -56,10 +57,13 @@ from agents_shipgate.invocation import render_command, retarget_command
 from agents_shipgate.schemas.agent_control import (
     CodingAgentCommandAction,
     HumanControlAction,
+    NoAgentPermissions,
 )
 from agents_shipgate.schemas.preflight import (
+    AnyPreflightResult,
     CapabilityRequestV1,
     HostPermissionRequestV1,
+    PlanningOnlyControl,
     PreflightDriftSummary,
     PreflightNextAction,
     PreflightPlanV1,
@@ -67,15 +71,14 @@ from agents_shipgate.schemas.preflight import (
     PreflightProtectedSurfaceTouchV2,
     PreflightRequiredEvidence,
     PreflightResultV1,
-    PreflightResultV2,
-    PreflightResultV3,
-    PreflightResultV5,
+    PreflightResultV6,
     PreflightSignalV1,
     ProtectedSurfaceScopeType,
     TrustRootGraphV1,
     TrustRootGraphV2,
     TrustRootNodeV1,
     TrustRootNodeV2,
+    parse_preflight_result,
 )
 from agents_shipgate.schemas.surfaces import ActionEffect
 
@@ -276,11 +279,9 @@ def build_preflight_result(
     host_permission_requests: list[HostPermissionRequestV1 | dict[str, Any]] | None = None,
     plan: PreflightPlanV1 | dict[str, Any] | None = None,
     diff_text: str | None = None,
-    base_preflight: (
-        PreflightResultV1 | PreflightResultV2 | PreflightResultV3 | PreflightResultV5 | dict[str, Any] | None
-    ) = None,
+    base_preflight: AnyPreflightResult | dict[str, Any] | None = None,
     host_baseline: Path | None = None,
-) -> PreflightResultV5:
+) -> PreflightResultV6:
     root = workspace.resolve()
     config_path = _lexical_config_path(
         root,
@@ -422,7 +423,7 @@ def build_preflight_result(
         allowed_next_commands=allowed_next_commands,
     )
 
-    return PreflightResultV5(
+    return PreflightResultV6(
         workspace=str(root),
         config=_display_path(config_path, root),
         protected_surfaces=surfaces,
@@ -529,9 +530,7 @@ def _reject_mixed_plan_inputs(
     capability_requests: list[CapabilityRequestV1 | dict[str, Any]] | None,
     host_permission_requests: list[HostPermissionRequestV1 | dict[str, Any]] | None,
     diff_text: str | None,
-    base_preflight: (
-        PreflightResultV1 | PreflightResultV2 | PreflightResultV3 | PreflightResultV5 | dict[str, Any] | None
-    ),
+    base_preflight: AnyPreflightResult | dict[str, Any] | None,
 ) -> None:
     """Keep plan and direct-input request shapes mutually exclusive."""
 
@@ -1606,21 +1605,17 @@ def _coerce_host_permission_requests(
 
 
 def _coerce_base_preflight(
-    value: (PreflightResultV1 | PreflightResultV2 | PreflightResultV3 | PreflightResultV5 | dict[str, Any] | None),
-) -> PreflightResultV1 | PreflightResultV2 | PreflightResultV3 | PreflightResultV5 | None:
-    if value is None or isinstance(
-        value, (PreflightResultV1, PreflightResultV2, PreflightResultV3, PreflightResultV5)
-    ):
+    value: AnyPreflightResult | Mapping[str, Any] | None,
+) -> AnyPreflightResult | None:
+    # Every version's model derives from v0.1's, so one check admits them all.
+    if value is None or isinstance(value, PreflightResultV1):
         return value
+    if not isinstance(value, Mapping):
+        raise ConfigError(
+            f"Invalid base preflight result: expected a JSON object, got {type(value).__name__}"
+        )
     try:
-        version = value.get("preflight_schema_version")
-        if version == "0.5":
-            return PreflightResultV5.model_validate(value)
-        if version == "0.3":
-            return PreflightResultV3.model_validate(value)
-        if version == "0.2":
-            return PreflightResultV2.model_validate(value)
-        return PreflightResultV1.model_validate(value)
+        return parse_preflight_result(dict(value))
     except ValidationError as exc:
         raise ConfigError(f"Invalid base preflight result: {exc}") from exc
 
@@ -1909,8 +1904,18 @@ def _first_next_action(
         actor="coding_agent",
         kind="continue",
         command=None,
-        why="No requested protected-surface touch, host drift, or evidence gap was found by preflight.",
+        why=_PLANNING_ONLY_REASON,
     )
+
+
+# The one route on which preflight finds nothing to say (#610).
+_PLANNING_ONLY_REASON = (
+    "The plan names no changed file, capability request or host permission "
+    "request, and preflight found no protected-surface touch, host drift or "
+    "evidence gap to route. Only planning is complete: this result evaluated no "
+    "change and authorizes no edit, commit, push, pull-request update, merge or "
+    "completion."
+)
 
 
 def _derive_preflight_control(
@@ -1920,7 +1925,13 @@ def _derive_preflight_control(
     requires_verify: bool,
     allowed_next_commands: list[str],
 ):
-    """Project preflight signals through the shared control derivation."""
+    """Project preflight signals onto preflight's own control union.
+
+    A human or verify obligation goes through the shared derivation. No
+    obligation is ``planning_only``, never the shared ``complete``: with
+    nothing to route, ``derive_agent_control`` would grant merge and
+    completion for a change no one evaluated (#610).
+    """
 
     reason = first_next_action.why
     if requires_human_review:
@@ -1946,7 +1957,9 @@ def _derive_preflight_control(
             verify_required=True,
             allowed_next_commands=allowed_next_commands,
         )
-    return derive_agent_control(reason=reason)
+    return PlanningOnlyControl(
+        state="planning_only", reason=reason, permissions=NoAgentPermissions()
+    )
 
 
 def _display_path(path: Path, root: Path) -> str:

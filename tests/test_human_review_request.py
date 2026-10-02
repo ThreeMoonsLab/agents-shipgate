@@ -195,6 +195,9 @@ FROZEN_CONTROL_SCHEMAS = {
     "verifier-schema.v0.16.json": "cfa834d9bf047d3e39ffed531f19fbd7ed2cd6e82353789dddb7a458dfae408a",
     "agent-handoff-schema.v8.json": "036dc757914a297b34ebb9b7ca10c21869c5c91820fa7f07bda415c1effe30c3",
     "preflight-schema.v0.4.json": "048c4785253afa476e7b86f6175d61328ea299641f6253c3d4315c9d61d67583",
+    # Frozen by #610: 0.6 replaced the shared union in preflight's control with
+    # its own, so 0.5 is a predecessor grammar from here on.
+    "preflight-schema.v0.5.json": "b85dfd1d1ba84fadb87c739c147ec49d2d329f405f0f0cd2140c1c35667a7947",
     "agent-result-schema.v3.json": "ad762ecbbcde20b6cbc117337b4e0ad208708ab062ccc851ffe26b4ff63df232",
     "agent-boundary-result-schema.v2.json": "179f849080fabdc59cdf4b86b5ec6a0d9c605e1ac31eb130ee2463c6a0ab361d",
     "verify-run-schema.v5.json": "19deb3ba50d3f610325b6e7457ad000ccbcbb737e03cb8bb0e8011c69343f141",

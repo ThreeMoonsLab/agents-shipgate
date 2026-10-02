@@ -2,6 +2,16 @@
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
+Unreleased, runtime contract v42: an empty preflight plan no longer mints
+authority (#610). Through preflight `0.5`, a plan that named nothing to route
+returned the shared `complete` state with every permission granted, `merge`
+and `report_complete` included, and no verifier identity behind it. Preflight
+`0.6` answers it with `planning_only`, which owes no action and authorizes
+nothing, and on every preflight route every permission is now `false`.
+Preflight never returns `complete` or `review_publishable`. `0.5` stays frozen
+and readable. `minimum_control_contract_version` stays `21`. See
+[the migration note](#planning-only-preflight-610).
+
 New in 1.2.0, #829 adds a source-local residual-prefix explanation to the existing
 host comparison row `why` text for supported Claude Code `git push` allows.
 It reads all compared head deny rules in that source, including unchanged
@@ -309,6 +319,69 @@ defaults. The stable/provisional inventory, the `1.x` rules and the migration
 from the shipped `v0.15.0` contract are in
 [`docs/report-1-0-contract.md`](docs/report-1-0-contract.md). Pin a version (or
 the Action tag) for reproducible CI.
+
+---
+
+<a id="planning-only-preflight-610"></a>
+
+## Migration Note: Unreleased — planning-only preflight (preflight `0.6`, contract v42, #610)
+
+**What was wrong.** Preflight answers a question about a change that has not
+been made yet, so it never has an evaluated change to stand behind. Yet a plan
+that named no changed file, capability request or host permission request, with
+no drift signal, returned the shared `complete` state, and that state's
+`permissions` grant `edit`, `commit`, `push`, `update_pr`, `merge` and
+`report_complete`. Leaving files out of a plan therefore read as merge
+authority, with no verifier run and no current-control identity behind it. The
+published `0.5` schema accepted that payload too: it pins `update_pr` to
+`false` only while the state is not `complete`, so a schema-valid `0.5` answer
+could carry merge authority. (`0.4` pinned it unconditionally and refused it.)
+
+**What changes.** `preflight_schema_version` is `0.6`
+([`docs/preflight-schema.v0.6.json`](docs/preflight-schema.v0.6.json)), and
+`control` is preflight's own union:
+
+- `planning_only` (new): nothing for preflight to route. `next_action` is
+  `null`, `allowed_next_commands` is empty, `completion_allowed`, `must_stop`
+  and `verify_required` are `false`, and `reason` says only planning finished.
+  The legacy `first_next_action` still projects `continue`, as it did.
+- `agent_action_required`: unchanged; its `next_action` is the exact `verify`
+  command.
+- `human_review_required`: unchanged.
+
+`complete` and `review_publishable` cannot appear, and every permission is
+`false` on every route. The model and the generated schema enforce both, and
+both refuse a stored `0.6` control that does not state all six permissions. A
+planning answer therefore never stands in for an evaluation of the change:
+preflight never authorizes merge or completion.
+
+**Who must act.**
+
+- A reader that switched on preflight's `control.state == "complete"` now sees
+  `planning_only`. Treat it as "nothing to route, nothing authorized". A
+  reader that does not know the state must not read it as `complete`; the
+  vector beside it denies everything either way.
+- A `.claude/hooks/agents-shipgate.py` written by `install-hooks` before this
+  change accepts only `preflight_schema_version: "0.5"`. Against a `0.6` CLI
+  its instruction-structure check fails closed: an instruction edit whose
+  structure is unchanged is prompted instead of allowed, and nothing is
+  allowed that was not before. Re-run `agents-shipgate install-hooks --write`;
+  the new script accepts `0.5` and `0.6`.
+
+**What stays readable.** `0.5` and earlier stay frozen and published. A stored
+`0.5` answer still reads as `0.5` through `--base-preflight` or
+`shipgate.preflight`'s `base_preflight`, `complete` included, because that is
+what it was; relabelled `0.6`, the same payload is refused. Both readers, the
+CLI and the core builder, now parse a stored answer through one version ladder,
+so a version cannot be readable in one and refused by the other.
+
+**What does not change.** Routes for any plan that names something — a
+docs-only plan still owes `verify`, and a protected surface still stops for a
+human — and `signals[]`, `required_evidence[]`, `protected_surface_touches[]`,
+the trust-root graph and its hash, the policy hash, host-grant drift, `verify`,
+`check`, `current-control.json` and `release_decision.decision`. The shared
+`AgentControl` union is byte-identical, so `minimum_control_contract_version`
+stays `21`.
 
 ---
 
@@ -3758,8 +3831,11 @@ or claim merge safety. `release_decision.decision` remains the only release gate
 
 The stable top-level fields in the v0.3 preflight result are:
 
-- `preflight_schema_version` — currently `"0.3"`.
-- `control` — the shared `AgentControl` operational projection.
+- `preflight_schema_version` — currently `"0.6"`.
+- `control` — preflight's own operational projection: `planning_only`,
+  `agent_action_required` or `human_review_required`, with every permission
+  `false`. Through `0.5` it was the shared `AgentControl`; see
+  [the migration note](#planning-only-preflight-610).
 - `workspace` and `config` — resolved workspace and manifest path context.
 - `protected_surfaces[]` — canonical trust-root surfaces with `kind`, `pattern`,
   `scope_type`, `present`, and `present_paths`.

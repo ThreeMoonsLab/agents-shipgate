@@ -263,7 +263,19 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # no row value, row count, verifier or capability-diff schema; the field
 # difference reaches the text and ``review.changes[].change``.
 # ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21.
-CONTRACT_VERSION: Literal["41"] = "41"
+# v42 stops an empty preflight plan from minting authority (#610). Through
+# preflight 0.5 a plan that named nothing returned the shared ``complete``,
+# whose vector grants ``merge`` and ``report_complete``, with no verifier
+# identity behind it. Preflight 0.6 carries its own control union instead:
+# ``planning_only`` (new: nothing to route, only planning finished),
+# ``agent_action_required`` and ``human_review_required``. ``complete`` and
+# ``review_publishable`` cannot appear, and every permission is false on every
+# route, in the model and in the generated schema. 0.5 stays frozen and
+# readable as a ``--base-preflight``. The shared ``AgentControl`` union is
+# byte-identical, so ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21: a
+# reader that does not know ``planning_only`` cannot mistake it for
+# ``complete``, and it authorizes nothing either way.
+CONTRACT_VERSION: Literal["42"] = "42"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
 AGENT_RESULT_SCHEMA_VERSION: Literal["agent_result_v3"] = "agent_result_v3"

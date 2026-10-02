@@ -64,7 +64,7 @@ allow list from `Bash(npm test)` / `Read(src/**)` to `Bash(*)` / `Read(**)` /
 capability-change class this pilot exists to observe.
 
 **Published build measured: `1.2.0`.** Preview measured:
-`0.16.0+preview.20260903.gb61aca7`. Source tree: `1.2.0`, runtime contract 41.
+`0.16.0+preview.20260903.gb61aca7`. Source tree: `1.2.0`, runtime contract 42.
 The released and source-tree columns were both rerun on 2026-10-01, after
 `v1.2.0` was published, each on its own fresh fixture: the released column from
 `pip install agents-shipgate==1.2.0` in a clean virtualenv outside any checkout
@@ -98,6 +98,21 @@ drift names those two replacements as `permission_widened` signals beside the
 four expansion signals `1.1.0` names (`mcp_server_added` and three
 `wildcard_allow_added`). On this fixture `1.2.0` changes how the rows read as
 changes, not which rows it finds.
+
+#610 then moved this tree's runtime contract to 42, changing only preflight's
+control. The source-tree column was rerun on 2026-10-02 through `./shipgate`
+on a fresh fixture rebuilt from the description above, beside `main` at
+`0e98f41d` (runtime contract 41, the `v1.2.0` engine plus the pin move) run
+the same way. The two returned identical cells except the runtime contract,
+41 against 42: `check` blocking with four violations and visible coverage,
+the host-only `init` handoff with no manifest or workflow written,
+manifest-free `verify` exiting 0 with six advisory rows, drift naming the same
+six signals, and `diff` exiting 0, `comparable`, with six rows, four of them
+widening, read as 4 changes. The `diff` text is identical apart from the
+fixture's commit ids, and the drift JSON is byte-identical. The other JSON
+differs only in the launcher path in printed commands, the fixture's commit
+ids, and `init --json`'s contract version and the input id that carries it.
+Preflight is not one of this route's cells.
 
 The paragraphs below record the earlier runs, on 2026-09-22 and 2026-09-23,
 while `1.1.0` was the newest release.
@@ -167,7 +182,7 @@ expansion signals. It shipped as a qualified release.
 
 | | Released `v1.2.0` (`pip install`) | Preview `0.16.0+preview.20260903` (`gh release download`) | Source tree |
 | --- | --- | --- | --- |
-| Runtime contract | 41 | 29 | 41 |
+| Runtime contract | 41 | 29 | 42 |
 | Host-grant inventory schema | 0.7 | 0.2 | 0.7 |
 | `check` on the fixture | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** |
 | Coverage limit visible (`host_coverage`, `excluded_scopes`) | yes | yes | yes |

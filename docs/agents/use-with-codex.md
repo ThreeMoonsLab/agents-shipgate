@@ -212,6 +212,9 @@ agents-shipgate verify --base origin/main --head HEAD --json
 
 If preflight returns `control.state="human_review_required"`, Codex must stop for a human
 before editing the protected surface or asserting missing high-risk evidence.
+`control.state="planning_only"` means the plan named nothing for
+preflight to route; it authorizes nothing, so Codex still runs `verify`
+before reporting a change complete.
 
 Then read `agents-shipgate-reports/agent-handoff.json` and **switch on
 `control.state`**, then read `gate.merge_verdict` (`mergeable` / `human_review_required` /
