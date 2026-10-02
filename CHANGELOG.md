@@ -4,6 +4,7 @@
 
 ### Changes
 
+- Commit the application review benchmark (`benchmark/application-q2/`): the 49 pinned development pull requests, the runner, the hand-scoring protocol, the 2026-09-30 ledger (Q2 1/49; 8 members turned out not to be SDK/ADK changes, so Q0 is 41/49), and a holdout selection rule frozen before the reader changes it will judge. Each release now records `Q2: n/49 development, m/≥30 holdout`. Development evidence only; no success-rate claim. (#908)
 - Move the published-release pins, examples and adoption prompts to `v1.2.0` (contract 41) now that it is published, re-capture the README and quickstart `diff` answers from the published `1.2.0`, and re-measure the pilot ledger's Route H dry run on it. No schema or contract change. (#778)
 
 ## 1.2.0 - 2026-09-30

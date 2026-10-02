@@ -518,6 +518,13 @@ The shape that holds:
    `docs/changelog/<version>.md`, and leave a one-line-per-change section
    behind. This is the release body; verification refuses a tag with no
    matching section, and refuses one over 125,000 characters.
+   That record also states the application review count: run
+   [`benchmark/application-q2`](../benchmark/application-q2/README.md#every-release)
+   on both corpora with the release build, hand-score the rows that changed
+   since the previous ledger, commit the new ledger, and write
+   `Q2: n/49 development, m/≥30 holdout` with the change since the previous
+   release (#908). While the holdout has no pins, the line says so in place of
+   `m`. No success rate or market claim is made from either corpus.
 2. Stamp `<version>` on `STABILITY.md`'s title and on every
    `## Migration Note: unreleased` heading.
 3. Confirm `pyproject.toml` has the release version,

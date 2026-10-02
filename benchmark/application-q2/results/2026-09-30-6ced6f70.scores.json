@@ -1,0 +1,296 @@
+{
+  "ITMO-NSS-team_FEDOT.MAS-30": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: Agent 'adk_agent' occurs at different unpaired source paths; select --base-scope/--scope or review relocation."
+  },
+  "ITMO-NSS-team_FEDOT.MAS-36": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: An object's tools, handoffs, MCP servers or sub-agents are changed at packages/fedotmas/src/fedotmas/mas/builder.py:37"
+  },
+  "ITMO-NSS-team_FEDOT.MAS-38": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: An object's tools, handoffs, MCP servers or sub-agents are changed at maw/builder.py:272"
+  },
+  "ITMO-NSS-team_FEDOT.MAS-42": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: An object's tools, handoffs, MCP servers or sub-agents are changed at maw/builder.py:272"
+  },
+  "InseeFrLab_GRAAL-33": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: Application comparison does not yet support langchain: agents/Code2ReText/regenerator.py"
+  },
+  "JSebastianIEU_voice-freight-negotiator-10": {
+    "q0": false,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q0: the agents are LiveKit Agents (`livekit.agents.Agent`), not the OpenAI Agents SDK or ADK."
+  },
+  "JinyanSu1_Agentic-AI-Scientist-2": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: only `not_established` rows."
+  },
+  "Lling0000_OpenCMO-41": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: A possibly reachable tool has an incomplete binding edge; provide a complete static graph or reviewed declaration."
+  },
+  "SponsioLabs_Sponsio-173": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: An object's tools, handoffs, MCP servers or sub-agents are changed at sponsio/models/system.py:38"
+  },
+  "Tiendat2703_MIS_TALENT-5": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; `Finance_Agent`'s `tools=[*FINANCE_TOOLS, *(... if want_handoff_tool else [])]` is unread (#909)."
+  },
+  "Tiendat2703_MIS_TALENT-6": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: the rows on `Finance_Agent_Preflight` are right, but the same tool's change on `Finance_Agent`, bound through a spread list, is missing (#909)."
+  },
+  "Tiendat2703_MIS_TALENT-7": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: `load_and_validate` changed and `load_service_catalog` added on `Finance_Agent_Preflight` are right; `Finance_Agent`'s row is missing behind `[*FINANCE_TOOLS, ...]` (#909)."
+  },
+  "Tiendat2703_MIS_TALENT-8": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: same construction as #7; `Finance_Agent`'s rows are missing (#909)."
+  },
+  "VRSEN_agency-swarm-796": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: An object's tools, handoffs, MCP servers or sub-agents are changed at tools/hosted_mcp_activation.py:92"
+  },
+  "VRSEN_agency-swarm-804": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: An object's tools, handoffs, MCP servers or sub-agents are changed at tools/hosted_mcp_activation.py:92"
+  },
+  "VidulaWickramasinghe_O.R.I.O.N-126": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: 58 changed and 176 `not_established` rows on `orion`; most share one cause (tools not decorated with `@function_tool`), and the uncertain rows are not a complete answer (#914)."
+  },
+  "YaroslavMarkivskyi_internstore-migrate-4": {
+    "q0": false,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q0: a hand-written ReAct loop (`ai_assistant.react_loop`); no OpenAI Agents SDK or ADK import in the changed code."
+  },
+  "ZeroRuntimeAI_zeroruntime-python-examples-1": {
+    "q0": false,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q0: ZeroRuntime agents (`from zrt import Agent`), not the OpenAI Agents SDK or ADK."
+  },
+  "ZeroRuntimeAI_zeroruntime-python-examples-5": {
+    "q0": false,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q0: ZeroRuntime agents (`from zeroruntime import Agent`), not the OpenAI Agents SDK or ADK."
+  },
+  "alliance-genome_agr_ai_curation-842": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: An agent copy at backend/src/lib/agent_studio/custom_agent_service.py:638 passes its own tools, handoffs or MCP servers in a module that does not import the OpenAI Age…"
+  },
+  "alliance-genome_agr_ai_curation-858": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: An agent copy at backend/src/lib/agent_studio/custom_agent_service.py:646 passes its own tools, handoffs or MCP servers in a module that does not import the OpenAI Age…"
+  },
+  "alliance-genome_agr_ai_curation-860": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: An agent copy at backend/src/lib/agent_studio/custom_agent_service.py:724 passes its own tools, handoffs or MCP servers in a module that does not import the OpenAI Age…"
+  },
+  "buriro-ezekia_cinescout-ai-9": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: Excluded candidate: {'type': 'mcp', 'path': '.vscode/mcp.json', 'reason': 'mcpServers-style MCP server config (host configuration), not an MCP tools-array export'}"
+  },
+  "carlosdaniel092015-crypto_pastoriza-66": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: OpenAI Agents SDK agent constructed at agents/base.py:154 has no literal name, so it cannot be identified; its tools are not read."
+  },
+  "carlosdaniel092015-crypto_pastoriza-69": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: OpenAI Agents SDK agent constructed at agents/base.py:154 has no literal name, so it cannot be identified; its tools are not read."
+  },
+  "carlospolop_chack-agent-25": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: OpenAI Agents SDK agent 'agent' at chack_agent/backends/openai_compaction_backend.py:932 uses a dynamic tools expression"
+  },
+  "cianfhoghlaim_tuatha-1": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: only `not_established` rows."
+  },
+  "contributory_starchatter-telegram-4": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: Excluded candidate: {'type': 'mcp', 'path': '.bolt/mcp.json', 'reason': 'mcpServers-style MCP server config (host configuration), not an MCP tools-array export'}"
+  },
+  "cuppibla_adk_tutorial-7": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: Google ADK agent 'ActivityFinderAgent' references unresolved tool 'google_search'. Not resolved because no file inside the read scope provides module 'google.adk.tools…"
+  },
+  "cuppibla_adk_tutorial-9": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: only a `not_established` row; ADK built-in `google_search` is unresolved (#910)."
+  },
+  "evvyraine_skye-next-17": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: Application comparison does not yet support langchain: custom_agents.py"
+  },
+  "geroembser_livekit-agents-1": {
+    "q0": false,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q0: LiveKit Agents (`livekit.agents`), not the OpenAI Agents SDK or ADK."
+  },
+  "hamzafarooq_multi-agent-course-63": {
+    "q0": false,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q0: the course's own `agent.Agent` class; no OpenAI Agents SDK or ADK import in the changed code."
+  },
+  "hamzafarooq_multi-agent-course-64": {
+    "q0": false,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q0: the course's own `agent.Agent` class; no OpenAI Agents SDK or ADK import in the changed code."
+  },
+  "jpka_attest-3": {
+    "q0": true,
+    "q1": true,
+    "q2": true,
+    "rationale": "Q2: `compared`; exactly the two tools added to the base agent `attest_orchestrator`, each row naming the hop it could not follow (`MemoryBank.from_env`, `bank.retrieve` / `bank.generate_memories`)."
+  },
+  "kkmiecik-coder_CRM-5": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: OpenAI Agents SDK agent 'Router' has dynamic handoffs at bots_pro/agenci.py:122."
+  },
+  "krevetka-is-afk_llm-agent-for-ai-studio-19": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: An agent copy at conversation_state.py:129 passes its own tools, handoffs or MCP servers in a module that does not import the OpenAI Agents SDK; it is not read."
+  },
+  "krevetka-is-afk_llm-agent-for-ai-studio-20": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: An agent copy at conversation_state.py:173 passes its own tools, handoffs or MCP servers in a module that does not import the OpenAI Agents SDK; it is not read."
+  },
+  "krevetka-is-afk_llm-agent-for-ai-studio-23": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: Agent 'agent' occurs at different unpaired source paths; select --base-scope/--scope or review relocation."
+  },
+  "liauto-siada_siada-cli-6": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: An object's tools, handoffs, MCP servers or sub-agents are changed at agent_hub/context_filter/api_message_transfer_filter.py:46"
+  },
+  "lifenyan_agent-desk-8": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: Application comparison does not yet support mcp_server_source: mcp_server"
+  },
+  "mezgoodle_Vesta-53": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: Google ADK agent 'CalendarAgent' uses a dynamic tools expression."
+  },
+  "mezgoodle_Vesta-58": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: Google ADK agent 'KnowledgeAgent' uses a dynamic tools expression."
+  },
+  "mezgoodle_Vesta-70": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: Google ADK agent 'KnowledgeAgent' uses a dynamic tools expression."
+  },
+  "mosnin_realestatecrm-612": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: OpenAI Agents SDK agent 'Chippi (broker)' at chippi_broker.py:149 uses a dynamic tools expression"
+  },
+  "rustic-ai_rustic-ai-419": {
+    "q0": false,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q0: rustic-ai guild agents (`rustic_ai.core.guild.agent.Agent`), not the OpenAI Agents SDK or ADK."
+  },
+  "surrealdb_agent-memory-openai-agents-sdk-1": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: OpenAI Agents SDK agent 'agent' at examples/01_quickstart.py:21 uses a dynamic tools expression"
+  },
+  "xju2_hepagent-72": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: `request_slurm_interactive` changed is right (names `subprocess.run`), but the deleted Textual wrapper agent and a bash `function_tool` are not shown."
+  },
+  "xju2_hepagent-74": {
+    "q0": true,
+    "q1": false,
+    "q2": false,
+    "rationale": "Not Q1: no row; first named limit: OpenAI Agents SDK agent 'Explorer Agent' at agents/explorer.py:231 uses a dynamic tools expression"
+  }
+}
