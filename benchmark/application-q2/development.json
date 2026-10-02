@@ -2,15 +2,18 @@
   "corpus": "application-q2-development",
   "issue": "https://github.com/ThreeMoonsLab/agents-shipgate/issues/908",
   "selection": {
-    "summary": "Real pull requests in public repositories importing the OpenAI Agents SDK or Google ADK, merged or open, from the 90 days before 2026-09-25, whose patch edits an existing agent's tools=, sub_agents= or handoffs= in non-test application code.",
+    "summary": "49 real pull requests admitted on 2026-09-25 as changes to an existing OpenAI Agents SDK or Google ADK agent's wiring; see search-2026-09-25 for the criteria and the members that turned out not to meet them.",
     "assembled": "2026-09-25 (50 pull requests); re-pinned 2026-09-30 from PR numbers to 49 after the session scratchpad holding the pins was cleaned",
     "pins": "merge_base is git merge-base of the PR's base and head commits; head is the PR head commit on 2026-09-30",
-    "criteria_ids": {
-      "framework_import": "public repository importing the OpenAI Agents SDK or Google ADK",
-      "merged_or_open_recent": "pull request merged or open, active in the 90 days before 2026-09-25",
-      "edits_agent_wiring_in_application_code": "the patch edits the tools=, sub_agents= or handoffs= argument of an agent construction in non-test application code",
-      "agent_exists_at_base": "the agent's construction exists at the merge base"
-    }
+    "search-2026-09-25": {
+      "criteria": [
+        "public repository importing the OpenAI Agents SDK or Google ADK",
+        "pull request merged or open, active in the 90 days before 2026-09-25",
+        "the patch edits an existing agent's tools=, sub_agents= or handoffs= in non-test code"
+      ],
+      "note": "Admitted by text and code search on these criteria. Re-reading the members for the 2026-09-30 ledger found twelve that do not meet them (other frameworks, framework or library internals, a model-string change); each ledger scores relevance per member as Q0, with the reason."
+    },
+    "frameworks": "the SDK/ADK sources the 6ced6f70 engine read at base or head, by import identity; empty when it read none"
   },
   "members": [
     {
@@ -26,12 +29,7 @@
       "frameworks": [
         "google_adk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "ITMO-NSS-team_FEDOT.MAS-36",
@@ -46,12 +44,7 @@
       "frameworks": [
         "google_adk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "ITMO-NSS-team_FEDOT.MAS-38",
@@ -66,12 +59,7 @@
       "frameworks": [
         "google_adk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "ITMO-NSS-team_FEDOT.MAS-42",
@@ -86,12 +74,7 @@
       "frameworks": [
         "google_adk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "InseeFrLab_GRAAL-33",
@@ -106,12 +89,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "JSebastianIEU_voice-freight-negotiator-10",
@@ -124,12 +102,7 @@
       "merge_base": "00c50bc54f5187314878767b560957de3fb6c42e",
       "head": "51546cbcc69cdf7e280f7e95fa429c77904c3b9d",
       "frameworks": [],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "JinyanSu1_Agentic-AI-Scientist-2",
@@ -144,12 +117,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "Lling0000_OpenCMO-41",
@@ -164,12 +132,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "SponsioLabs_Sponsio-173",
@@ -182,14 +145,10 @@
       "merge_base": "6b7fa320c052bbf1698d57fb6221066235e5de66",
       "head": "c05467defc49e624e55cf60dd0b0a6119fde5ca1",
       "frameworks": [
+        "google_adk",
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "Tiendat2703_MIS_TALENT-5",
@@ -204,12 +163,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "Tiendat2703_MIS_TALENT-6",
@@ -224,12 +178,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "Tiendat2703_MIS_TALENT-7",
@@ -244,12 +193,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "Tiendat2703_MIS_TALENT-8",
@@ -264,12 +208,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "VRSEN_agency-swarm-796",
@@ -284,12 +223,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "VRSEN_agency-swarm-804",
@@ -304,12 +238,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "VidulaWickramasinghe_O.R.I.O.N-126",
@@ -324,12 +253,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "YaroslavMarkivskyi_internstore-migrate-4",
@@ -342,12 +266,7 @@
       "merge_base": "2c046dbb5984a850e5d3db08eb5fa9458cd74eaa",
       "head": "90cb54df8a094bea4b4b23584aa0263e9e9654be",
       "frameworks": [],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "ZeroRuntimeAI_zeroruntime-python-examples-1",
@@ -360,12 +279,7 @@
       "merge_base": "fa4f4c5a86171d378ea0570d10f7720031cc154f",
       "head": "fa88cb7de58b23ea48b176bb542133b12b0ccfaf",
       "frameworks": [],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "ZeroRuntimeAI_zeroruntime-python-examples-5",
@@ -378,12 +292,7 @@
       "merge_base": "1fb6d9aff3da380275be422bd1f3d02cdbe5ad05",
       "head": "35958ef0d2136db9a0c24ebc0d8ab70ba5cbb40a",
       "frameworks": [],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "alliance-genome_agr_ai_curation-842",
@@ -398,12 +307,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "alliance-genome_agr_ai_curation-858",
@@ -418,12 +322,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "alliance-genome_agr_ai_curation-860",
@@ -438,12 +337,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "buriro-ezekia_cinescout-ai-9",
@@ -458,12 +352,7 @@
       "frameworks": [
         "google_adk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "carlosdaniel092015-crypto_pastoriza-66",
@@ -478,12 +367,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "carlosdaniel092015-crypto_pastoriza-69",
@@ -498,12 +382,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "carlospolop_chack-agent-25",
@@ -518,12 +397,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "cianfhoghlaim_tuatha-1",
@@ -536,15 +410,9 @@
       "merge_base": "375c6895b1acbde5d5b158a60a08494e77067418",
       "head": "329c7fa68ced5798f8bfd5a525445385c85b07d8",
       "frameworks": [
-        "google_adk",
-        "openai_agents_sdk"
+        "google_adk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "contributory_starchatter-telegram-4",
@@ -559,13 +427,8 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ],
-      "renamed_from": "contributory/starchatter-telegram"
+      "renamed_from": "contributory/starchatter-telegram",
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "cuppibla_adk_tutorial-7",
@@ -578,14 +441,10 @@
       "merge_base": "172f1c3fa47cb88d170bf6177ebb564ffed6ebfe",
       "head": "2f53067088d93d813a5d9fb55e2358fa96702d72",
       "frameworks": [
-        "google_adk"
+        "google_adk",
+        "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "cuppibla_adk_tutorial-9",
@@ -600,12 +459,7 @@
       "frameworks": [
         "google_adk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "evvyraine_skye-next-17",
@@ -620,12 +474,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "geroembser_livekit-agents-1",
@@ -638,12 +487,7 @@
       "merge_base": "6fbb50a75eb0376901ca12c426fa5db8ac64f7d5",
       "head": "163597a3a27a283ef091ed76a60eaa4403f5fd58",
       "frameworks": [],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "hamzafarooq_multi-agent-course-63",
@@ -656,12 +500,7 @@
       "merge_base": "971479d83b34c3ba3db17f471d3bd3f6a70062f6",
       "head": "43123042e226081ead5069869236fc247e72063b",
       "frameworks": [],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "hamzafarooq_multi-agent-course-64",
@@ -674,12 +513,7 @@
       "merge_base": "43123042e226081ead5069869236fc247e72063b",
       "head": "3d22287de0c1da918eb33ba8df3b1821b05928f8",
       "frameworks": [],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "jpka_attest-3",
@@ -692,15 +526,9 @@
       "merge_base": "10e1f949d48b5349a180677c41c4ba30deab943d",
       "head": "cab295001ec01e7fca388acee67842c6f53b5150",
       "frameworks": [
-        "google_adk",
-        "openai_agents_sdk"
+        "google_adk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "kkmiecik-coder_CRM-5",
@@ -715,12 +543,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "krevetka-is-afk_llm-agent-for-ai-studio-19",
@@ -735,12 +558,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "krevetka-is-afk_llm-agent-for-ai-studio-20",
@@ -755,12 +573,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "krevetka-is-afk_llm-agent-for-ai-studio-23",
@@ -775,12 +588,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "liauto-siada_siada-cli-6",
@@ -796,12 +604,7 @@
         "google_adk",
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "lifenyan_agent-desk-8",
@@ -816,12 +619,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "mezgoodle_Vesta-53",
@@ -836,12 +634,7 @@
       "frameworks": [
         "google_adk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "mezgoodle_Vesta-58",
@@ -856,12 +649,7 @@
       "frameworks": [
         "google_adk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "mezgoodle_Vesta-70",
@@ -876,12 +664,7 @@
       "frameworks": [
         "google_adk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "mosnin_realestatecrm-612",
@@ -896,12 +679,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "rustic-ai_rustic-ai-419",
@@ -914,12 +692,7 @@
       "merge_base": "f83e63bcdb5fefa68d1012a640b850753f73ca53",
       "head": "a849e819e6548f3c725f8b563977dde17432c8e0",
       "frameworks": [],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "surrealdb_agent-memory-openai-agents-sdk-1",
@@ -934,12 +707,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "xju2_hepagent-72",
@@ -954,12 +722,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     },
     {
       "slug": "xju2_hepagent-74",
@@ -974,12 +737,7 @@
       "frameworks": [
         "openai_agents_sdk"
       ],
-      "criteria_met": [
-        "framework_import",
-        "merged_or_open_recent",
-        "edits_agent_wiring_in_application_code",
-        "agent_exists_at_base"
-      ]
+      "admitted_by": "search-2026-09-25"
     }
   ]
 }

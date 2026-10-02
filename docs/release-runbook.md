@@ -609,7 +609,10 @@ proves and in what the release carries.
 To cut one:
 
 1. Land a reviewed change declaring the version `advisory`. Once a tag for a
-   version exists, its entry cannot change.
+   version exists, its entry cannot change. The same change writes the
+   release record `docs/changelog/<version>.md`, which states the
+   application review count exactly as step 1 of
+   [§ Cutting the release](#cutting-the-release) describes (#908).
 2. Dispatch **Release Engine Smoke (unqualified)** on the release commit. Its
    wheel is the one that will be published.
 3. Dispatch **Advisory Release Rehearsal** on the same commit.

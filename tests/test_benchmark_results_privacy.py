@@ -15,11 +15,15 @@ import pytest
 
 BENCHMARK = Path(__file__).resolve().parents[1] / "benchmark"
 UNMASKED = re.compile(r"/private/tmp/|/(?:Users|home)/(?!<user>/)[^/\s\"')]+/")
-RUNS = sorted(BENCHMARK.glob("*/results/*/runs.json"))
+RUNS = sorted(
+    [*BENCHMARK.glob("*/results/*/runs.json"), *BENCHMARK.glob("application-q2/results/*")]
+)
 
 
 def test_the_sweep_sees_every_harness() -> None:
-    assert {path.relative_to(BENCHMARK).parts[0] for path in RUNS} >= {"cold-start", "host-config", "mcp-servers"}
+    assert {path.relative_to(BENCHMARK).parts[0] for path in RUNS} >= {
+        "application-q2", "cold-start", "host-config", "mcp-servers",
+    }
 
 
 @pytest.mark.parametrize("runs", RUNS, ids=lambda path: str(path.relative_to(BENCHMARK)))

@@ -1,19 +1,14 @@
 {
   "corpus": "application-q2-holdout",
   "issue": "https://github.com/ThreeMoonsLab/agents-shipgate/issues/908",
-  "rule": "README.md#holdout-selection-rule",
+  "rule": "README.md#definitions to README.md#every-release, exclusive",
+  "rule_sha256": "3de8311d3169ef2d46e46889820fd88029e3d212c2fc38a4d6579b9880623280",
+  "pool": "pool.json",
+  "pool_sha256": "936568dda5600e37a7c4444c3aaf2d16cbb882802cbba0de3d70b5ed638b8301",
   "status": "awaiting_window",
   "window_start": "2026-10-02T00:00:00Z",
   "target_members": 30,
-  "note": "The selection rule was frozen before the reader changes it judges merged; on that date the window held no pull request, so no pin could exist. Members are generated from the rule, never chosen, and every candidate the rule walks is listed, member or skipped, with its reason.",
-  "pool_queries": [
-    "\"from agents import\" language:Python",
-    "\"import agents\" language:Python",
-    "\"from google.adk\" language:Python",
-    "\"import google.adk\" language:Python"
-  ],
-  "pool_generated_on": null,
-  "pool_repositories": [],
+  "note": "The rule and its pool were frozen before the reader changes they judge merged; the window could not yet hold 30 qualifying pull requests. Members are generated from the rule, never chosen, and every candidate walked is listed, member or skipped, with its reason.",
   "members": [],
   "skipped": []
 }
