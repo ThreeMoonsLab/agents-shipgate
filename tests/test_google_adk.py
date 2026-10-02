@@ -1891,7 +1891,9 @@ _UNPROVEN_CONSTRUCTS = [
             "preamble": "base_tools = []\n",
             "extra_tools": "\n        *base_tools,",
         },
-        "unresolved_tool_expression",
+        # Read since #909, but a module's list is checked for changes only in
+        # its own module, so the surface is not proven.
+        "dynamic_tools_expression",
         id="starred_tool_element",
     ),
     pytest.param(

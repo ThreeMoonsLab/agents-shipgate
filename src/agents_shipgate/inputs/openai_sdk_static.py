@@ -22,6 +22,19 @@ from agents_shipgate.inputs.common import (
 )
 from agents_shipgate.inputs.config_trace import trace_config_binding
 from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
+from agents_shipgate.inputs.list_expressions import (
+    MAX_DEPTH,
+    Conditions,
+    ListExpressions,
+    ListMember,
+    unread_list_reason,
+    unread_parts,
+)
+from agents_shipgate.inputs.list_expressions import bindings_at as _bindings_at
+from agents_shipgate.inputs.list_expressions import (
+    leaves_arguments_alone as _leaves_arguments_alone,
+)
+from agents_shipgate.inputs.list_expressions import read_only_use as _read_only_use
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.inputs.python_imports import (
     NOT_BOUND,
@@ -32,7 +45,6 @@ from agents_shipgate.inputs.python_imports import (
     _module_bindings,
     local_binding_detail,
     reference_spelling,
-    reflective_access,
 )
 from agents_shipgate.inputs.python_static import (
     display_path,
@@ -259,19 +271,20 @@ def _extract_agent_bindings(
             if literal is not None and target in shared and id(call) in function_local:
                 return literal
             return target or literal
-        tool_lists = _ToolLists(
-            tree,
-            scopes,
-            module.bindings if module is not None else _module_bindings(tree)[0],
-            sdk_names=sdk_names,
-            resolve=(
-                (lambda spelling, module=module: imports.resolver.resolve(module, spelling))
-                if module is not None
-                else None
+        module_bindings = module.bindings if module is not None else _module_bindings(tree)[0]
+        lists = ListExpressions(
+            ref=source_ref,
+            tree=tree,
+            scopes=scopes,
+            bindings=module_bindings,
+            module=module,
+            resolver=imports.resolver if module is not None else None,
+            agent_reads=lambda call, keyword, sdk_names=sdk_names: _agent_reads(
+                sdk_names, call, keyword
             ),
         )
         subclasses = _agent_subclasses(tree, sdk_names)
-        values = _AgentValues(tree, scopes, tool_lists.module_bindings, sdk_names, subclasses)
+        values = _AgentValues(tree, scopes, module_bindings, sdk_names, subclasses)
         #: ``list binding -> identities`` of agents constructed with that list.
         list_holders: dict[object, set[str]] = {}
         copies: list[ast.Call] = []
@@ -352,14 +365,10 @@ def _extract_agent_bindings(
                 )
                 continue
             values.constructed[id(call)] = target
-            # The list object this agent holds, when ``tools=`` names one: an
-            # in-place change through any agent sharing it reaches this one too.
-            shared_tools = _keyword(call, "tools")
-            if isinstance(shared_tools, ast.Name):
-                found_list = scopes.enclosing_bindings(call, shared_tools.id)
-                list_holders.setdefault(
-                    id(found_list[0]) if found_list else ("module", shared_tools.id), set()
-                ).add(target)
+            # The list objects this agent may hold: an in-place change through
+            # any agent sharing one reaches this one too.
+            for shared in _shared_lists(scopes, module_bindings, call):
+                list_holders.setdefault(shared, set()).add(target)
             opaque = _opaque_arguments(call)
             if opaque is not None:
                 reason = (
@@ -376,38 +385,47 @@ def _extract_agent_bindings(
                 )
                 continue
             tools_expr = _keyword(call, "tools")
-            references = tool_lists.references(tools_expr, call)
+            listed = lists.resolve(tools_expr)
             issues: list[str] = []
             tools_complete = True
             names: list[str] = []
             locators: dict[str, str] = {}
             tool_issues: dict[str, str] = {}
-            if references is None:
-                reason = (
-                    f"OpenAI Agents SDK agent {target!r} at {pointer} uses a "
-                    "dynamic tools expression; its binding graph is incomplete."
-                )
+            when = Conditions()
+            if listed.unresolved:
+                reason = unread_list_reason("OpenAI Agents SDK", target, pointer, listed)
                 warnings.append(reason)
                 issues.append(reason)
-                literal_concat = _literal_tool_list_concatenation(tools_expr)
                 recovery_evidence.append(SourceRecoveryEvidence(
                     warning=reason, source_id=source.id, source_type="openai_agents_sdk",
                     source_ref=pointer, path=source_ref,
-                    recovery=CoverageRecovery(
-                        kind="reader_limitation" if literal_concat else "unresolved",
-                        reason=(
-                            "sdk_literal_tool_list_concatenation_unsupported" if literal_concat
-                            else "sdk_tools_expression_unresolved"
-                        ),
-                    ),
+                    recovery=CoverageRecovery(kind="unresolved", reason="sdk_tools_expression_unresolved"),
                 ))
                 tools_complete = False
-            else:
-                # Two different definitions under one tool name: the model
-                # sees one name for both, so neither is bound (#879 review).
-                duplicated: set[str] = set()
-                first_location: dict[str, str] = {}
-                for reference, element in references:
+            # Two different definitions under one tool name: the model
+            # sees one name for both, so neither is bound (#879 review).
+            duplicated: set[str] = set()
+            first_location: dict[str, str] = {}
+            for member in listed.members:
+                element = member.expr
+                reference = reference_spelling(element)
+                if reference is None:
+                    reason = (
+                        f"OpenAI Agents SDK agent {target!r} at {pointer} binds the tool "
+                        f"expression `{_short(element)}`, which is not a reference this "
+                        "reader resolves."
+                    )
+                    warnings.append(reason)
+                    issues.append(reason)
+                    tools_complete = False
+                    continue
+                if member.module is not None:
+                    # A member of a list another module builds: its names are
+                    # that module's (#909).
+                    tool, detail = imports.tool_for(
+                        reference, member.module, member.module.ref, tool_by_name, {}
+                    )
+                else:
                     head = reference.split(".", 1)[0]
                     # Read where the reference is written: a module-level
                     # list's names are the module's, whatever the agent's
@@ -450,61 +468,89 @@ def _extract_agent_bindings(
                         tool, detail = imports.tool_for(
                             reference, module, source_ref, tool_by_name, import_aliases
                         )
-                    if tool is None:
-                        reason = (
-                            f"OpenAI Agents SDK agent {target!r} at {pointer} binds "
-                            f"unresolved tool {reference!r}"
-                            + (f": {detail}." if detail else ".")
-                        )
-                        warnings.append(reason)
-                        issues.append(reason)
-                        tools_complete = False
-                        names.append(import_aliases.get(reference, reference))
-                        continue
-                    locator = f"{tool.source_ref}#{tool.name}" if tool.source_ref else None
-                    if tool.name in duplicated:
-                        continue
-                    bound = locators.get(tool.name)
-                    if bound is not None and locator is not None and bound != locator:
-                        reason = (
-                            f"OpenAI Agents SDK agent {target!r} at {pointer} binds two "
-                            f"different functions named {tool.name!r} "
-                            f"({first_location.get(tool.name, bound.split('#', 1)[0])} and "
-                            f"{tool.source_location}); the model sees one tool name for "
-                            "both, so neither is resolved."
-                        )
-                        warnings.append(reason)
-                        issues.append(reason)
-                        tools_complete = False
-                        duplicated.add(tool.name)
-                        names = [name for name in names if name != tool.name]
-                        locators.pop(tool.name, None)
-                        tool_issues.pop(tool.name, None)
-                        continue
-                    names.append(tool.name)
-                    if locator is not None:
-                        locators[tool.name] = locator
-                        first_location.setdefault(tool.name, tool.source_location or locator)
-                    if detail:
-                        # Named, never established: code that runs first is
-                        # not read (#879 review).
-                        reason = (
-                            f"OpenAI Agents SDK agent {target!r} at {pointer} binds "
-                            f"{tool.name!r} ({tool.source_location}), but {detail}; the "
-                            "definition read for it is not established as the one bound."
-                        )
-                        warnings.append(reason)
-                        tool_issues[tool.name] = reason
-            handoff_names = tool_lists.names(
-                _keyword(call, "handoffs"), call, import_aliases, identity_of, sdk_names
-            )
+                if tool is None:
+                    reason = (
+                        f"OpenAI Agents SDK agent {target!r} at {pointer} binds "
+                        f"unresolved tool {reference!r}"
+                        + (f": {detail}." if detail else ".")
+                    )
+                    warnings.append(reason)
+                    issues.append(reason)
+                    tools_complete = False
+                    names.append(
+                        reference if member.module is not None
+                        else import_aliases.get(reference, reference)
+                    )
+                    when.add(names[-1], member.conditions)
+                    continue
+                locator = f"{tool.source_ref}#{tool.name}" if tool.source_ref else None
+                if tool.name in duplicated:
+                    continue
+                bound = locators.get(tool.name)
+                if bound is not None and locator is not None and bound != locator:
+                    reason = (
+                        f"OpenAI Agents SDK agent {target!r} at {pointer} binds two "
+                        f"different functions named {tool.name!r} "
+                        f"({first_location.get(tool.name, bound.split('#', 1)[0])} and "
+                        f"{tool.source_location}); the model sees one tool name for "
+                        "both, so neither is resolved."
+                    )
+                    warnings.append(reason)
+                    issues.append(reason)
+                    tools_complete = False
+                    duplicated.add(tool.name)
+                    names = [name for name in names if name != tool.name]
+                    locators.pop(tool.name, None)
+                    tool_issues.pop(tool.name, None)
+                    continue
+                names.append(tool.name)
+                when.add(tool.name, member.conditions)
+                if locator is not None:
+                    locators[tool.name] = locator
+                    first_location.setdefault(tool.name, tool.source_location or locator)
+                if detail:
+                    # Named, never established: code that runs first is
+                    # not read (#879 review).
+                    reason = (
+                        f"OpenAI Agents SDK agent {target!r} at {pointer} binds "
+                        f"{tool.name!r} ({tool.source_location}), but {detail}; the "
+                        "definition read for it is not established as the one bound."
+                    )
+                    warnings.append(reason)
+                    tool_issues[tool.name] = reason
+            tool_conditions = when.only_when(duplicated)
+            handoff_list = lists.resolve(_keyword(call, "handoffs"))
             handoffs_complete = True
-            if handoff_names is None:
-                reason = f"OpenAI Agents SDK agent {target!r} has dynamic handoffs at {pointer}."
+            handoff_names: list[str] = []
+            handoff_when = Conditions()
+            if handoff_list.unresolved:
+                reason = (
+                    f"OpenAI Agents SDK agent {target!r} has dynamic handoffs at {pointer}. "
+                    f"Not read: {unread_parts(handoff_list)}."
+                )
                 warnings.append(reason)
                 issues.append(reason)
                 handoffs_complete = False
-                handoff_names = []
+            for member in handoff_list.members:
+                identity, why_not = _handoff_identity(
+                    member,
+                    scopes=scopes,
+                    aliases=import_aliases,
+                    identity_of=identity_of,
+                    sdk_names=sdk_names,
+                    resolver=imports.resolver if module is not None else None,
+                )
+                if identity is None:
+                    reason = (
+                        f"OpenAI Agents SDK agent {target!r} at {pointer} hands off to "
+                        f"`{_short(member.expr)}`, which is not resolved to an agent: {why_not}."
+                    )
+                    warnings.append(reason)
+                    issues.append(reason)
+                    handoffs_complete = False
+                    continue
+                handoff_names.append(identity)
+                handoff_when.add(identity, member.conditions)
             file_observations.append(
                 AgentBindingObservation(
                     agent=target,
@@ -514,7 +560,9 @@ def _extract_agent_bindings(
                     tool_names=names,
                     tool_locators=locators,
                     tool_issues=tool_issues,
+                    tool_conditions=tool_conditions,
                     handoff_names=handoff_names,
+                    handoff_conditions=handoff_when.only_when(),
                     tools_complete=tools_complete,
                     handoffs_complete=handoffs_complete,
                     issues=issues,
@@ -594,6 +642,10 @@ def _extract_agent_bindings(
                     tuple(observation.tool_names),
                     tuple(sorted(observation.tool_locators.items())),
                     tuple(observation.handoff_names),
+                    tuple(sorted((k, tuple(v)) for k, v in observation.tool_conditions.items())),
+                    tuple(
+                        sorted((k, tuple(v)) for k, v in observation.handoff_conditions.items())
+                    ),
                     observation.tools_complete,
                     observation.handoffs_complete,
                     tuple(observation.issues),
@@ -736,20 +788,112 @@ class _ImportedTools:
         return tool, "; ".join(resolution.caveats) or None
 
 
-def _literal_tool_list_concatenation(value: ast.AST | None) -> bool:
-    """One proven reader limitation, never a claim about deployed wiring.
+def _agent_reads(sdk_names: _SdkNames, call: ast.Call, keyword: str | None) -> bool:
+    """Whether ``call`` builds an agent, or a copy of one, that reads its list argument."""
 
-    Python defines addition of two literal lists, but this reader's name-list
-    resolver has no BinOp branch. Calls, unpacking and other expressions do
-    not prove a product-owned repair and deliberately remain unresolved.
-    """
-    return (
-        isinstance(value, ast.BinOp)
-        and isinstance(value.op, ast.Add)
-        and isinstance(value.left, ast.List)
-        and isinstance(value.right, ast.List)
-        and all(isinstance(item, ast.Name) for item in [*value.left.elts, *value.right.elts])
+    return keyword in {"tools", "handoffs", "mcp_servers"} and (
+        sdk_names.denotes(dotted_name(call.func), call, "Agent", DEFAULT_AGENT_CONSTRUCTORS)
+        or (isinstance(call.func, ast.Attribute) and call.func.attr == "clone")
+        or dotted_name(call.func) in {"replace", "dataclasses.replace", "copy.replace"}
     )
+
+
+def _short(node: ast.AST) -> str:
+    source = ast.unparse(node)
+    return source if len(source) <= 120 else source[:117] + "..."
+
+
+def _handoff_identity(
+    member: ListMember,
+    *,
+    scopes: ScopeIndex,
+    aliases: dict[str, str],
+    identity_of: Callable[[ast.Call], str | None],
+    sdk_names: _SdkNames,
+    resolver: ImportResolver | None,
+) -> tuple[str | None, str]:
+    """The agent identity one handoff list member names, or why it names none.
+
+    A member written in the module being read keeps the reader's rule: a name
+    its scope binds to an agent it constructs is that agent's identity (#876
+    review); any other name is spelled through ``from`` import aliases. A
+    member of a list another module builds is followed into that module, to
+    the name its construction is assigned to (#909).
+    """
+
+    item = member.expr
+    if not isinstance(item, ast.Name):
+        return None, "it is not a name"
+    if member.module is None:
+        found = scopes.enclosing_bindings(item, item.id)
+        statement = scopes.statement_of(found[0]) if len(found) == 1 else None
+        value = getattr(statement, "value", None)
+        if (
+            isinstance(found[0] if found else None, ast.Name)
+            and isinstance(value, ast.Call)
+            and _denotes_agent(sdk_names, value)
+        ):
+            identity = identity_of(value)
+            if identity is not None:
+                return identity, ""
+        return aliases.get(item.id, item.id), ""
+    if resolver is None:
+        return None, f"it is written in {member.module.ref}, and imports are not followed here"
+    resolution = resolver.resolve(member.module, item.id)
+    name = next(
+        (step["name"] for step in reversed(resolution.steps) if step.get("binding") == "value"),
+        None,
+    )
+    if isinstance(resolution.value, ast.Call) and name is not None and not resolution.caveats:
+        return name, ""
+    return None, (
+        f"`{item.id}` in {member.module.ref} does not end at an assignment of a construction"
+        + (f" ({resolution.detail})" if resolution.detail else "")
+        + (f" ({'; '.join(resolution.caveats)})" if resolution.caveats else "")
+    )
+
+
+def _shared_lists(
+    scopes: ScopeIndex, module_bindings: dict[str, list[Any]], call: ast.Call
+) -> set[object]:
+    """Every list object the agent's ``tools=`` or ``handoffs=`` may be (#909).
+
+    ``BASE``, ``BASE or []`` and ``A if c else B`` hand the agent the list
+    itself, not a copy, and so does a name bound to one of them; a literal,
+    ``+``, a comprehension or ``list(...)`` builds a new one. Keys are the
+    binding's id, or ``("module", name)``.
+    """
+
+    found: set[object] = set()
+    pending = [
+        (value, 0)
+        for value in (_keyword(call, "tools"), _keyword(call, "handoffs"))
+        if value is not None
+    ]
+    while pending:
+        node, depth = pending.pop()
+        if depth > MAX_DEPTH:
+            continue
+        if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
+            pending.extend((value, depth + 1) for value in node.values)
+        elif isinstance(node, ast.IfExp):
+            pending.extend([(node.body, depth + 1), (node.orelse, depth + 1)])
+        elif isinstance(node, ast.Name):
+            local = scopes.enclosing_bindings(node, node.id)
+            key: object = id(local[0]) if local else ("module", node.id)
+            if key in found:
+                continue
+            found.add(key)
+            if local:
+                statement = scopes.statement_of(local[0]) if len(local) == 1 else None
+            else:
+                bindings = module_bindings.get(node.id, [])
+                statement = bindings[0].statement if len(bindings) == 1 else None
+            value = getattr(statement, "value", None)
+            if isinstance(statement, ast.Assign | ast.AnnAssign) and value is not None:
+                # ``TOOLS = BASE``: one object under a second name.
+                pending.append((value, depth + 1))
+    return found
 
 
 def _denotes_agent(sdk_names: _SdkNames, node: ast.AST) -> bool:
@@ -1346,382 +1490,6 @@ def _assignment_target(node: ast.Assign | ast.AnnAssign) -> str | None:
 
 def _keyword(call: ast.Call, name: str) -> ast.AST | None:
     return next((item.value for item in call.keywords if item.arg == name), None)
-
-
-#: Calls that read the values they are given and never change them.
-_READ_ONLY_CALLS = frozenset(
-    {
-        "len", "print", "repr", "str", "bool", "id", "hash", "isinstance", "type",
-        "list", "tuple", "set", "frozenset", "sorted", "reversed", "enumerate", "iter",
-        "any", "all", "sum", "min", "max", "zip", "map", "filter",
-        "copy.copy", "copy.deepcopy", "json.dumps", "pprint", "pprint.pprint",
-        "pprint.pformat", "pformat",
-    }
-)
-_LOG_METHODS = frozenset({"debug", "info", "warning", "error", "exception", "critical", "log"})
-
-
-#: ``(name, site) -> [(binding node, its statement)]``, empty when unbound.
-BindingsAt = Callable[[str, ast.AST], list[tuple[ast.AST, ast.AST | None]]]
-
-
-def _bindings_at(scopes: ScopeIndex, module_bindings: dict[str, list[Any]]) -> BindingsAt:
-    # ``from helpers import *`` may bind any name: none is proven unbound.
-    star = any(isinstance(node, ast.alias) and node.name == "*" for node in scopes.parents)
-
-    def found(name: str, site: ast.AST) -> list[tuple[ast.AST, ast.AST | None]]:
-        local = scopes.enclosing_bindings(site, name)
-        if local:
-            return [(item, scopes.statement_of(item)) for item in local]
-        module = [(item.node, item.statement) for item in module_bindings.get(name, [])]
-        return module or ([(site, None)] if star else [])
-
-    return found
-
-
-def _leaves_arguments_alone(call: ast.Call, bindings_at: BindingsAt) -> bool:
-    """Whether ``call`` is a builtin, a standard-library reader or a logging
-    method, which only read what they are handed.
-
-    The spelling proves nothing alone: a ``print`` imported from the
-    application's helpers, or an ``.info()`` on an object of its own, may
-    change the list (#879 review). A bare name is the builtin only when nothing
-    binds it, or the standard-library reader when it is imported from that
-    module; ``json.dumps`` only when ``json`` is the standard library's; a
-    logging method only on ``logging`` or a logger ``getLogger()`` returned.
-    """
-
-    name = dotted_name(call.func)
-    if name in _READ_ONLY_CALLS:
-        head, _, rest = name.partition(".")
-        found = bindings_at(head, call)
-        if not found:
-            return not rest
-        if len(found) != 1:
-            return False
-        node, statement = found[0]
-        if not isinstance(node, ast.alias):
-            return False
-        if isinstance(statement, ast.ImportFrom):
-            # ``from pprint import pprint``.
-            return not rest and not statement.level and f"{statement.module}.{node.name}" in _READ_ONLY_CALLS
-        # ``import json`` then ``json.dumps``.
-        return bool(rest) and isinstance(statement, ast.Import) and node.name == head and node.asname is None
-    if not (isinstance(call.func, ast.Attribute) and call.func.attr in _LOG_METHODS):
-        return False
-    receiver = call.func.value
-    if not isinstance(receiver, ast.Name):
-        return False
-    found = bindings_at(receiver.id, call)
-    if len(found) != 1:
-        return False
-    node, statement = found[0]
-    if isinstance(node, ast.alias):
-        # ``logging.info(...)``.
-        return isinstance(statement, ast.Import) and node.name == "logging" and receiver.id == "logging"
-    value = getattr(statement, "value", None)
-    # ``logger = logging.getLogger(__name__)``.
-    return (
-        isinstance(statement, ast.Assign | ast.AnnAssign)
-        and isinstance(value, ast.Call)
-        and (reference_spelling(value.func) or "").rsplit(".", 1)[-1] in {"getLogger", "get_logger"}
-    )
-
-
-def _parameter_left_alone(
-    function: ast.FunctionDef | ast.AsyncFunctionDef, name: str, bindings_at: BindingsAt
-) -> bool:
-    """Whether every use of parameter ``name`` in ``function`` only reads it.
-
-    The same test as a module list's own uses, one level deep: handing it on
-    to any call but a read-only builtin or logging method is not a read.
-    ``bindings_at`` answers for the function's own module.
-    """
-
-    parents = {child: node for node in ast.walk(function) for child in ast.iter_child_nodes(node)}
-    for node in ast.walk(function):
-        if isinstance(node, ast.Global | ast.Nonlocal) and name in node.names:
-            return False
-        if isinstance(node, ast.Name) and node.id == name:
-            if not isinstance(node.ctx, ast.Load):
-                return False
-            if not _read_only_use(
-                node, parents, lambda call, *_: _leaves_arguments_alone(call, bindings_at)
-            ):
-                return False
-    return True
-
-
-def _read_only_use(
-    node: ast.expr,
-    parents: dict[ast.AST, ast.AST],
-    call_reads: Callable[[ast.Call, int | None, str | None], bool],
-) -> bool:
-    """Whether this load of a list can only read it, never change or hand it on."""
-
-    parent = parents.get(node)
-    if isinstance(parent, ast.keyword):
-        call = parents.get(parent)
-        return isinstance(call, ast.Call) and call_reads(call, None, parent.arg)
-    if isinstance(parent, ast.Call):
-        for position, arg in enumerate(parent.args):
-            if arg is node:
-                return call_reads(parent, position, None)
-        return False
-    if isinstance(parent, ast.For | ast.AsyncFor | ast.comprehension):
-        return parent.iter is node
-    if isinstance(parent, ast.Subscript):
-        return parent.value is node and isinstance(parent.ctx, ast.Load)
-    if isinstance(parent, ast.BoolOp) or (
-        isinstance(parent, ast.IfExp) and parent.test is not node
-    ):
-        # ``TOOLS or [x]`` may be the list itself: its own use decides.
-        return _read_only_use(parent, parents, call_reads)
-    if isinstance(parent, ast.If | ast.While | ast.IfExp | ast.Assert):
-        return parent.test is node
-    if isinstance(parent, ast.UnaryOp):
-        return isinstance(parent.op, ast.Not)
-    if isinstance(parent, ast.Starred):
-        # ``[*TOOLS, x]`` or ``f(*TOOLS)`` spreads the members; the list itself
-        # goes nowhere.
-        return parent.value is node
-    if isinstance(parent, ast.Compare | ast.FormattedValue | ast.Expr | ast.BinOp):
-        # A comparison, a string, a bare expression, or ``TOOLS + [x]`` (a new list).
-        return True
-    if isinstance(parent, ast.Attribute) and parent.value is node:
-        grand = parents.get(parent)
-        return (
-            parent.attr in {"count", "index", "copy", "get", "keys", "values", "items"}
-            and isinstance(grand, ast.Call)
-            and grand.func is parent
-        )
-    return False
-
-
-class _ToolLists:
-    """Literal lists that a ``tools=NAME`` / ``handoffs=NAME`` refers to (#879 review).
-
-    The name is read where the agent is constructed, through the scope that
-    binds it there — a builder's local ``tools = [...]`` is that builder's,
-    never another's; a class body's list is the class body's. It is read only
-    when that scope binds it once, to a literal list, and nothing in the file
-    changes that binding in place — ``.append`` from a nested function, a
-    ``global`` or ``nonlocal`` rebinding, a subscript store. Anything else is a
-    dynamic expression, never the last assignment.
-
-    Every change site is indexed once, against the binding it changes, so a
-    lookup costs the depth of the scopes and not the size of the file.
-    """
-
-    def __init__(
-        self,
-        tree: ast.Module,
-        scopes: ScopeIndex,
-        module_bindings: dict[str, list[Any]],
-        *,
-        sdk_names: _SdkNames | None = None,
-        resolve: Callable[[str], Resolution] | None = None,
-    ) -> None:
-        self.scopes = scopes
-        self.module_bindings = module_bindings
-        self.sdk_names = sdk_names
-        self.resolve = resolve
-        self.changed: set[object] = set()
-        # Only a name bound to a literal list somewhere can be read as one.
-        listed = {
-            target.id
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Assign | ast.AnnAssign)
-            and isinstance(node.value, ast.List | ast.Tuple)
-            for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
-            if isinstance(target, ast.Name)
-        }
-        # Every use of such a name must be a read that cannot change the list:
-        # iterated, indexed, compared, tested, handed to a read-only builtin, to
-        # an agent's own ``tools=``, or to a function that treats its parameter
-        # the same way. Any other use — a method call, ``+=``, a second name, a
-        # tuple, a return, ``*args`` — may change it (#879 review).
-        # ``globals()["TOOLS"]``, ``vars()`` and ``sys.modules[__name__]``
-        # reach a module list without spelling its name (#879 review).
-        if reflective_access(tree) is not None:
-            self.changed.update(("module", name) for name in listed)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Global):
-                self.changed.update(("module", name) for name in node.names)
-            elif isinstance(node, ast.Nonlocal):
-                for name in node.names:
-                    found = scopes.enclosing_bindings(node, name)
-                    if found:
-                        self.changed.add(id(found[0]))
-            elif isinstance(node, ast.Name) and node.id in listed:
-                parent = scopes.parents.get(node)
-                if isinstance(node.ctx, ast.Load):
-                    unchanged = _read_only_use(node, scopes.parents, self._call_reads)
-                else:
-                    unchanged = isinstance(node.ctx, ast.Store) and not isinstance(
-                        parent, ast.AugAssign
-                    )
-                if not unchanged:
-                    found = scopes.enclosing_bindings(node, node.id)
-                    self.changed.add(id(found[0]) if found else ("module", node.id))
-
-    def _call_reads(self, call: ast.Call, position: int | None, keyword: str | None) -> bool:
-        """Whether ``call`` only reads the list it is passed at ``position``/``keyword``."""
-
-        if _leaves_arguments_alone(call, _bindings_at(self.scopes, self.module_bindings)):
-            return True
-        if keyword in {"tools", "handoffs", "mcp_servers"} and (
-            (
-                self.sdk_names is not None
-                and self.sdk_names.denotes(
-                    dotted_name(call.func), call, "Agent", DEFAULT_AGENT_CONSTRUCTORS
-                )
-            )
-            or (isinstance(call.func, ast.Attribute) and call.func.attr == "clone")
-            or dotted_name(call.func) in {"replace", "dataclasses.replace", "copy.replace"}
-        ):
-            # An agent, or a copy of one, reads its own ``tools=``.
-            return True
-        return self._callee_leaves_alone(call, position, keyword)
-
-    def _callee_leaves_alone(
-        self, call: ast.Call, position: int | None, keyword: str | None
-    ) -> bool:
-        """Whether the function ``call`` names never changes the argument it passes."""
-
-        spelling = reference_spelling(call.func)
-        if spelling is None or self.resolve is None:
-            return False
-        resolution = self.resolve(spelling)
-        function = resolution.definition if resolution.resolved else None
-        if function is None:
-            return False
-        positional = [*function.args.posonlyargs, *function.args.args]
-        if position is not None:
-            if position >= len(positional):
-                return False
-            parameter = positional[position].arg
-        elif keyword in {arg.arg for arg in [*positional, *function.args.kwonlyargs]}:
-            parameter = str(keyword)
-        else:
-            return False
-        defining = resolution.module
-        assert defining is not None
-        return _parameter_left_alone(
-            function, parameter, _bindings_at(ScopeIndex(defining.tree), defining.bindings)
-        )
-
-    def _literal(self, name: str, node: ast.AST) -> ast.List | ast.Tuple | None | bool:
-        """The one literal list ``name`` holds at ``node``.
-
-        False: not a list variable — a function, an import — so the name is a
-        reference. None: bound in a way the reader cannot read as one list.
-        """
-
-        found = self.scopes.enclosing_bindings(node, name)
-        if found:
-            if len(found) != 1:
-                return None
-            local = found[0]
-            if isinstance(local, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef | ast.alias):
-                return False
-            statement = self.scopes.statement_of(local)
-            if (
-                isinstance(local, ast.Name)
-                and isinstance(statement, ast.Assign | ast.AnnAssign)
-                and _assignment_target(statement) == name
-                and isinstance(statement.value, ast.List | ast.Tuple)
-                and id(local) not in self.changed
-            ):
-                return statement.value
-            return None
-        bindings = self.module_bindings.get(name, [])
-        if all(
-            isinstance(item.node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef | ast.alias)
-            for item in bindings
-        ):
-            return False
-        if len(bindings) != 1 or not bindings[0].top_level:
-            return None
-        statement = bindings[0].statement
-        if (
-            isinstance(statement, ast.Assign | ast.AnnAssign)
-            and _assignment_target(statement) == name
-            and isinstance(statement.value, ast.List | ast.Tuple)
-            and ("module", name) not in self.changed
-        ):
-            return statement.value
-        return None
-
-    def _elements(self, value: ast.AST | None, node: ast.AST) -> list[ast.expr] | None:
-        if value is None:
-            return []
-        if isinstance(value, ast.List | ast.Tuple):
-            literal: ast.List | ast.Tuple | None | bool = value
-        elif isinstance(value, ast.Name):
-            literal = self._literal(value.id, node)
-            if literal is False:
-                return [value]
-        else:
-            return None
-        if not isinstance(literal, ast.List | ast.Tuple) or any(
-            isinstance(item, ast.Starred) for item in literal.elts
-        ):
-            return None
-        return list(literal.elts)
-
-    def references(
-        self, value: ast.AST | None, node: ast.AST
-    ) -> list[tuple[str, ast.expr]] | None:
-        """``(spelling, element)`` per listed tool; None when not a readable list."""
-
-        elements = self._elements(value, node)
-        if elements is None:
-            return None
-        references: list[tuple[str, ast.expr]] = []
-        for item in elements:
-            spelling = reference_spelling(item)
-            if spelling is None:
-                return None
-            references.append((spelling, item))
-        return references
-
-    def names(
-        self,
-        value: ast.AST | None,
-        node: ast.AST,
-        aliases: dict[str, str],
-        identity_of: Callable[[ast.Call], str | None] | None = None,
-        sdk_names: _SdkNames | None = None,
-    ) -> list[str] | None:
-        """Handoff names: plain names only, read through ``from`` import aliases.
-
-        A name a function binds to an agent it constructs is that agent's
-        identity, which is its literal ``name`` (#876 review).
-        """
-
-        elements = self._elements(value, node)
-        if elements is None or not all(isinstance(item, ast.Name) for item in elements):
-            return None
-        names: list[str] = []
-        for item in elements:
-            assert isinstance(item, ast.Name)
-            found = self.scopes.enclosing_bindings(item, item.id)
-            statement = self.scopes.statement_of(found[0]) if len(found) == 1 else None
-            value_node = getattr(statement, "value", None)
-            if (
-                identity_of is not None
-                and sdk_names is not None
-                and isinstance(found[0] if found else None, ast.Name)
-                and isinstance(value_node, ast.Call)
-                and _denotes_agent(sdk_names, value_node)
-            ):
-                identity = identity_of(value_node)
-                if identity is not None:
-                    names.append(identity)
-                    continue
-            names.append(aliases.get(item.id, item.id))
-        return names
 
 
 _SCOPE_NODES = (

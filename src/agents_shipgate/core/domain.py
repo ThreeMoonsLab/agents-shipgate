@@ -707,7 +707,15 @@ class AgentBindingObservation(BaseModel):
     #: that list the tool, when one name is constructed more than once in the
     #: source (#872). Where each binding is, not which one runs.
     tool_sites: dict[str, list[str]] = Field(default_factory=dict)
+    #: ``tool_name -> [condition, ...]`` for a tool the agent's list holds only
+    #: under a condition -- a branch of ``a if c else b`` or ``a or b``, or a
+    #: comprehension's filter (#909). Each entry is one alternative, its
+    #: conditions joined with "and"; a tool the list also holds unconditionally
+    #: has no entry. Source text, never evaluated.
+    tool_conditions: dict[str, list[str]] = Field(default_factory=dict)
     handoff_names: list[str] = Field(default_factory=list)
+    #: ``handoff_name -> [condition, ...]``: the same, for a handoff target.
+    handoff_conditions: dict[str, list[str]] = Field(default_factory=dict)
     tools_complete: bool = True
     handoffs_complete: bool = True
     issues: list[str] = Field(default_factory=list)

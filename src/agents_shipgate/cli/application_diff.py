@@ -53,7 +53,7 @@ from agents_shipgate.inputs.tool_reach import read_tool_reach
 from agents_shipgate.schemas.manifest import ToolSourceConfig
 
 SUPPORTED = frozenset({"openai_agents_sdk", "google_adk"})
-SCHEMA_VERSION = "0.2"
+SCHEMA_VERSION = "0.3"
 MAX_PYTHON_BYTES = 2_000_000
 
 
@@ -880,11 +880,29 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
     # Where each tool is listed when one ADK name is constructed more than
     # once: the row points at a construction that lists it (#872).
     tool_sites: dict[tuple[str, str], dict[str, list[str]]] = {}
+    # What a tool or handoff is bound under when only under a condition
+    # (#909); ``None`` once any construction binds it unconditionally.
+    bound_when: dict[tuple[str, str], dict[str, list[str] | None]] = {}
     for item in loaded:
         for observation in item.binding_observations:
             site = (_source_path(root, observation.source), observation.agent)
             sites[site] = sites.get(site, 0) + 1
             tool_sites.setdefault(site, {}).update(observation.tool_sites)
+            held = bound_when.setdefault(site, {})
+            for name in observation.tool_names:
+                _hold(held, name, observation.tool_conditions.get(name))
+            for name in observation.handoff_names:
+                _hold(held, f"handoff:{name}", observation.handoff_conditions.get(name))
+    # A Google ADK agent's sub-agents are its records', not its observation's.
+    for record in artifacts.sub_agents if artifacts is not None else []:
+        if "sub_agent_count" not in record or not isinstance(record.get("agent_name"), str):
+            continue
+        held = bound_when.setdefault(
+            (_source_path(root, str(record.get("source_ref") or "")), record["agent_name"]), {}
+        )
+        conditions = record.get("conditions") or {}
+        for name in record.get("sub_agents") or []:
+            _hold(held, f"handoff:{name}", conditions.get(name))
     tools, warnings = _canonical_tools(result, source, loaded)
     for warning in warnings:
         result.gap(warning, source=source.path)
@@ -957,6 +975,9 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
             "evidence_basis": edge.provenance_kind,
             **_import_path(tool, key[0]),
         }
+        condition = bound_when.get(key, {}).get(tool.name)
+        if condition:
+            binding["bound_when"] = condition
         listed = tool_sites.get(key, {}).get(tool.name)
         if listed:
             binding["binding_location"] = listed[0]
@@ -999,6 +1020,22 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
             "binding_location": edge.source_pointer,
             "evidence_basis": edge.provenance_kind,
         }
+        condition = bound_when.get(source, {}).get(f"handoff:{target[1]}")
+        if condition:
+            result.bindings[key]["bound_when"] = condition
+
+
+def _hold(held: dict[str, list[str] | None], name: str, alternatives: list[str] | None) -> None:
+    """Record one construction's condition for ``name``: unconditional wins."""
+
+    if name in held and held[name] is None:
+        return
+    held[name] = None if alternatives is None else sorted(set(held.get(name) or []) | set(alternatives))
+
+
+def _bound(binding: dict[str, Any]) -> str:
+    alternatives = binding.get("bound_when")
+    return "only when " + " or ".join(alternatives) if alternatives else "unconditionally"
 
 
 def _canonical_tools(
@@ -1126,6 +1163,7 @@ def compare(
         before, after = base.bindings.get(key), head.bindings.get(key)
         uncertainty = {}
         kind = "added" if before is None else "removed" if after is None else "changed"
+        only_condition = False
         if before is None:
             reasons = base.absence_gaps(key, target_moves)
             if reasons:
@@ -1148,6 +1186,11 @@ def compare(
             for side, value in (("base", before), ("head", after)):
                 if "definition" in value and value["definition"]["implementation_sha256"] is None:
                     uncertainty[side] = ["The bound callable's implementation could not be read."]
+            # Only the condition it is bound under changed (#909): a change,
+            # stated as one, whose direction is not established.
+            only_condition = before_meaning != _meaning(after) and (
+                {**before_meaning, "bound_when": None} == {**_meaning(after), "bound_when": None}
+            )
             if before_meaning != _meaning(after):
                 # A factory value this read cannot name moved with the code
                 # around it: a candidate change, not an established one.
@@ -1174,15 +1217,26 @@ def compare(
                 "uncertainty": uncertainty,
                 "before": before,
                 "after": after,
-                "why": {
-                    "added": "The source now binds this callable to this agent.",
-                    "removed": "The selected source path no longer binds this callable to this agent; check scope limits for relocation.",
+                "why": (
+                    f"Only the condition changed: bound {_bound(before)} at the base and "
+                    f"{_bound(after)} at the head. Conditions are read as source text, never "
+                    "evaluated, so whether the agent holds it more or less often is not established."
+                )
+                if only_condition and not uncertainty
+                else {
+                    "added": "The source now binds this callable to this agent"
+                    + (f", {_bound(after)}." if after and after.get("bound_when") else "."),
+                    "removed": "The selected source path no longer binds this callable to this agent"
+                    + (f" (it was bound {_bound(before)})" if before and before.get("bound_when") else "")
+                    + "; check scope limits for relocation.",
                     "not_established": "This candidate change cannot be established from the affected inputs; it is not a no-change result.",
                     "changed": "The bound callable's interface or implementation changed; authority direction is not established.",
                 }[kind],
                 "review_question": (
                     f"Resolve the named uncertainty before treating {key[1]}.{key[2]} as {candidate_change}."
                     if uncertainty
+                    else f"Should {key[1]} hold {key[2]} {_bound(after)} rather than {_bound(before)}?"
+                    if only_condition
                     else f"Should {key[1]} have this {kind} binding to {key[2]}? Review the before/after signature and implementation locations."
                 ),
             }
@@ -1857,6 +1911,8 @@ def _print_rows(payload: dict[str, Any], _one_line: Any) -> None:
                     f"  {side}: {_one_line(value.get('signature') or value['tool'])} at {_one_line(value.get('binding_location'))}"
                     + (f" (also listed at {_one_line(', '.join(also))})" if also else "")
                 )
+                if value.get("bound_when"):
+                    typer.echo(f"    bound {_one_line(_bound(value))}")
                 if definition:
                     typer.echo(
                         f"    implementation: {_one_line(definition['source'])}:{definition['line']} ({str(definition['implementation_sha256'])[:12]})"

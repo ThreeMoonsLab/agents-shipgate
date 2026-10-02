@@ -347,28 +347,66 @@ def test_a_tool_added_under_a_condition_is_named_beside_the_list(tmp_path):
     assert observation.issues == [message]
 
 
+def _dynamic(artifacts, line: int, unread: str) -> None:
+    """The limit names its agent, its construction and what was not read (#909)."""
+
+    assert (
+        f"Google ADK agent 'assign' at agent.py:{line} uses a dynamic tools expression; its "
+        f"binding graph is incomplete. Not read: {unread}."
+    ) in artifacts.warnings
+
+
 @pytest.mark.parametrize(
-    "body",
+    ("body", "unread"),
     [
-        "tools = [intake]\nregister(tools)",
-        "tools = [intake]\ntools.remove(intake)",
-        "tools = [intake]\nother = tools\nother.append(route)",
-        "tools = [intake]\nhelper = lambda: tools.append(route)",
-        "tools = [intake]\ntools.extend(more_tools())",
-        "tools = [*base_tools(), intake]",
-        "if enabled:\n    tools = [intake]\nelse:\n    tools = [route]",
+        ("tools = [intake]\nregister(tools)", "`tools` may be changed in place after it is built (agent.py:7)"),
+        ("tools = [intake]\ntools.remove(intake)", "`tools` may be changed in place after it is built (agent.py:7)"),
+        (
+            "tools = [intake]\nother = tools\nother.append(route)",
+            "`tools` may be changed in place after it is built (agent.py:7)",
+        ),
+        (
+            "tools = [intake]\nhelper = lambda: tools.append(route)",
+            "`tools` may be changed in place after it is built (agent.py:7)",
+        ),
+        (
+            "tools = [intake]\ntools.extend(more_tools())",
+            "`tools` may be changed in place after it is built (agent.py:7)",
+        ),
+        (
+            "if enabled:\n    tools = [intake]\nelse:\n    tools = [route]",
+            "`tools` is bound more than once in its function (agent.py:11)",
+        ),
     ],
-    ids=["handed-to-a-call", "removed", "aliased", "nested-function", "extended-by-a-call", "starred", "rebound"],
+    ids=["handed-to-a-call", "removed", "aliased", "nested-function", "extended-by-a-call", "rebound"],
 )
-def test_any_other_use_of_the_list_keeps_it_dynamic(tmp_path, body):
+def test_any_other_use_of_the_list_keeps_it_dynamic(tmp_path, body, unread):
     _write(tmp_path, _list_agent(body))
     loaded, artifacts = _adk(tmp_path)
     assert _edges(loaded, artifacts) == []
-    assert "Google ADK agent 'assign' uses a dynamic tools expression." in artifacts.warnings
+    _dynamic(artifacts, 8 + body.count("\n"), unread)
+    (observation,) = [item for source in loaded for item in source.binding_observations]
+    # A limit on this agent, at its construction, not on the file (#909).
+    assert observation.tools_complete is False
 
 
-def test_a_module_level_tools_list_stays_dynamic(tmp_path):
-    # Another module may change a module's list: not read here.
+def test_a_starred_call_keeps_the_rest_of_the_list(tmp_path):
+    # #909: the readable member is bound; the call it cannot read is named.
+    _write(tmp_path, _list_agent("tools = [*base_tools(), intake]"))
+    loaded, artifacts = _adk(tmp_path)
+    assert [tool for _, tool, _ in _edges(loaded, artifacts)] == ["intake"]
+    assert (
+        "Google ADK agent 'assign' at agent.py:8 has a tools list it reads only in part; its binding "
+        "graph is incomplete. Not read: a call to `base_tools`, whose result is not read (agent.py:7)."
+    ) in artifacts.warnings
+    (observation,) = [item for source in loaded for item in source.binding_observations]
+    assert observation.tools_complete is False
+
+
+def test_a_module_level_tools_list_is_read(tmp_path):
+    # #909: a module's list is read when nothing in that module changes it.
+    # Another module could, which is not looked for, so ``scan`` does not
+    # count the surface as proven.
     _write(
         tmp_path,
         {
@@ -378,8 +416,24 @@ def test_a_module_level_tools_list_stays_dynamic(tmp_path):
         },
     )
     loaded, artifacts = _adk(tmp_path)
+    assert [tool for _, tool, _ in _edges(loaded, artifacts)] == ["intake"]
+    assert artifacts.warnings == []
+    (tool,) = [tool for source in loaded for tool in source.tools]
+    assert "dynamic_tools_expression" in tool.extraction["surface_gaps"]
+
+
+def test_a_module_level_tools_list_changed_in_its_module_stays_dynamic(tmp_path):
+    _write(
+        tmp_path,
+        {
+            "tools.py": LIST_TOOLS,
+            "agent.py": "from google.adk.agents import LlmAgent\nfrom tools import intake, route\n\n"
+            "TOOLS = [intake]\nTOOLS.append(route)\nroot = LlmAgent(name='assign', tools=TOOLS)\n",
+        },
+    )
+    loaded, artifacts = _adk(tmp_path)
     assert _edges(loaded, artifacts) == []
-    assert "Google ADK agent 'assign' uses a dynamic tools expression." in artifacts.warnings
+    _dynamic(artifacts, 6, "`TOOLS` may be changed in place after it is built (agent.py:4)")
 
 
 def test_application_diff_does_not_add_a_conditional_tool(tmp_path):

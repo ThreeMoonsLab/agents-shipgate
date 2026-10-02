@@ -38,6 +38,13 @@ from agents_shipgate.inputs.common import (
     stable_tool_id,
 )
 from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
+from agents_shipgate.inputs.list_expressions import (
+    Conditions,
+    ListExpressions,
+    ListMember,
+    source_text,
+    unread_list_reason,
+)
 from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.openapi import load_openapi_tools
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
@@ -51,6 +58,7 @@ from agents_shipgate.inputs.python_imports import (
     PythonModule,
     Resolution,
     ScopeIndex,
+    _module_bindings,
     local_binding_detail,
     reference_spelling,
 )
@@ -909,6 +917,8 @@ class _AdkAgentBinding:
     recording: list[tuple[str, str | None]] | None = field(default=None, repr=False)
     #: ``tool_name -> lines`` of the constructions that list it (#872).
     tool_sites: dict[str, list[int]] = field(default_factory=dict)
+    #: What each tool is bound under, when only under a condition (#909).
+    when: Conditions = field(default_factory=Conditions, repr=False)
 
     def bind(
         self, tool_name: str, locator: str | None = None, location: str | None = None
@@ -1058,12 +1068,31 @@ class _PythonAdkExtractor:
         # reused: ``extract`` iterates it, and the sub-agent spelling map
         # below is built from it.
         self.agent_call_list = self._agent_calls()
+        # Built on first use: most constructions spell a literal list.
+        self._lists: ListExpressions | None = None
         self.parents = {
             child: node
             for node in ast.walk(tree)
             for child in ast.iter_child_nodes(node)
         }
         self.agent_names_by_variable = self._agent_names_by_variable()
+
+    @property
+    def lists(self) -> ListExpressions:
+        """Members of a ``tools=`` or ``sub_agents=`` expression (#909)."""
+
+        if self._lists is None:
+            self._lists = ListExpressions(
+                ref=self.source_ref,
+                tree=self.tree,
+                scopes=self.scopes,
+                bindings=self.module.bindings if self.module is not None else _module_bindings(self.tree)[0],
+                module=self.module,
+                resolver=self.resolver,
+                agent_reads=lambda call, keyword: keyword in {"tools", "sub_agents"}
+                and self._is_agent_call(call),
+            )
+        return self._lists
 
     def extract(self) -> list[LoadedToolSource]:
         tools: list[Tool] = []
@@ -1106,7 +1135,7 @@ class _PythonAdkExtractor:
                 binding = self._binding_for(agent_name, call)
                 loaded_sources.extend(
                     self._read_construction(
-                        call, agent_name, binding, ast.List(elts=elements, ctx=ast.Load()), tools, handoffs
+                        call, agent_name, binding, [ListMember(item, None) for item in elements], tools, handoffs
                     )
                 )
                 for line in conditional:
@@ -1121,25 +1150,42 @@ class _PythonAdkExtractor:
                     # Not the same agent as another construction of its name.
                     self.agent_sites.setdefault(agent_name, {})[id(call)] = (call.lineno, call)
                 continue
-            if not isinstance(tools_expr, (ast.List, ast.Tuple)):
-                if tools_expr is not None:
-                    self._surface_warning(
-                        f"Google ADK agent {agent_name!r} uses a dynamic tools expression.",
-                        SURFACE_GAP_DYNAMIC_TOOLS,
-                    )
-                    self.artifacts.toolsets.append(
-                        GoogleAdkToolset(
-                            kind="dynamic",
-                            source_id=self.source_id,
-                            source_ref=f"{self.source_ref}:{call.lineno}",
-                            agent_name=agent_name,
-                            dynamic=True,
-                        )
-                    )
+            if tools_expr is None:
                 continue
+            if isinstance(tools_expr, ast.List | ast.Tuple) and not any(
+                isinstance(item, ast.Starred) for item in tools_expr.elts
+            ):
+                members = [ListMember(item, None) for item in tools_expr.elts]
+                unread = None
+            else:
+                # ``[*BASE, *([extra] if wanted else [])]``, ``base + extra``,
+                # a module list, a filter (#909): every member it can hold.
+                listed = self.lists.resolve(tools_expr)
+                members = list(listed.members)
+                self.artifacts.agents[-1]["tool_count"] = len(members)
+                unread = listed if listed.unresolved else None
+                # Read, but not proven for ``scan``: a list is checked for
+                # changes only in the module that binds it, and another module
+                # could change it. No warning, so the comparison reads it.
+                self._note_surface_gap(SURFACE_GAP_DYNAMIC_TOOLS)
             binding = self._binding_for(agent_name, call)
+            if unread is not None:
+                pointer = f"{self.source_ref}:{call.lineno}"
+                message = unread_list_reason("Google ADK", agent_name, pointer, unread)
+                self._surface_warning(message, SURFACE_GAP_DYNAMIC_TOOLS)
+                if message not in binding.issues:
+                    binding.issues.append(message)
+                self.artifacts.toolsets.append(
+                    GoogleAdkToolset(
+                        kind="dynamic",
+                        source_id=self.source_id,
+                        source_ref=pointer,
+                        agent_name=agent_name,
+                        dynamic=True,
+                    )
+                )
             loaded_sources.extend(
-                self._read_construction(call, agent_name, binding, tools_expr, tools, handoffs)
+                self._read_construction(call, agent_name, binding, members, tools, handoffs)
             )
         self._record_duplicate_constructions()
         self._record_agent_subclasses()
@@ -1160,7 +1206,7 @@ class _PythonAdkExtractor:
         call: ast.Call,
         agent_name: str,
         binding: _AdkAgentBinding,
-        tools_expr: ast.List | ast.Tuple,
+        members: list[ListMember],
         tools: list[Tool],
         handoffs: list[dict[str, Any]],
     ) -> list[LoadedToolSource]:
@@ -1177,9 +1223,16 @@ class _PythonAdkExtractor:
         state_at = (list(binding.issues), dict(binding.tool_issues), set(binding.duplicated))
         binding.recording = []
         loaded: list[LoadedToolSource] = []
+        conditioned: set[tuple[str, str]] = set()
         try:
-            for item in tools_expr.elts:
-                loaded.extend(self._extract_tool_expr(item, tools, agent_name, binding))
+            for member in members:
+                at = len(binding.recording)
+                loaded.extend(self._extract_member(member, tools, agent_name, binding))
+                for tool_name, _ in binding.recording[at:]:
+                    if tool_name in binding.tool_names:
+                        binding.when.add(tool_name, member.conditions)
+                        if member.conditions:
+                            conditioned.add((tool_name, " and ".join(member.conditions)))
         finally:
             recorded, binding.recording = binding.recording, None
         for tool_name, _ in recorded or ():
@@ -1204,6 +1257,14 @@ class _PythonAdkExtractor:
             (
                 frozenset(recorded or ()),
                 tuple(sorted(name for handoff in handoffs for name in handoff["sub_agents"])),
+                frozenset(conditioned),
+                tuple(
+                    sorted(
+                        (name, tuple(alternatives))
+                        for handoff in handoffs
+                        for name, alternatives in (handoff.get("conditions") or {}).items()
+                    )
+                ),
             )
             if clean
             else call
@@ -1505,6 +1566,18 @@ class _PythonAdkExtractor:
             return False
         return isinstance(self._top_level_statement(binding), _TOP_LEVEL_BINDING_STATEMENTS)
 
+    def _name_is_proven_in(self, module: PythonModule, name: str) -> bool:
+        """``_name_is_proven`` for a name written in another module (#909)."""
+
+        _, name_bindings = self._names_of(module)
+        bindings = name_bindings.get(name, [])
+        if len(bindings) != 1:
+            return False
+        statement = self._scopes_for(module).statement_of(bindings[0])
+        return statement in module.tree.body and isinstance(
+            statement, _TOP_LEVEL_BINDING_STATEMENTS
+        )
+
     def _top_level_statement(self, node: ast.AST) -> ast.AST | None:
         """The direct child of the module body that contains ``node``."""
 
@@ -1649,7 +1722,7 @@ class _PythonAdkExtractor:
             current = self.parents.get(current)
         return current
 
-    def _sub_agent_name(self, variable: str, call: ast.Call) -> str | None:
+    def _sub_agent_name(self, variable: str, call: ast.AST) -> str | None:
         """Resolve one ``sub_agents`` element to an agent defined in this module.
 
         Walks scopes innermost-out from the referencing call, so a factory's
@@ -1701,6 +1774,7 @@ class _PythonAdkExtractor:
                 }
                 if len(self.agent_sites.get(binding.agent, {})) > 1
                 else {},
+                tool_conditions=binding.when.only_when(binding.duplicated),
                 tools_complete=not binding.issues,
                 issues=list(binding.issues),
             )
@@ -1786,6 +1860,35 @@ class _PythonAdkExtractor:
         count = self.inline_slot_counts.get(agent_name, 0) + 1
         self.inline_slot_counts[agent_name] = count
         return f"#{count}"
+
+    def _extract_member(
+        self,
+        member: ListMember,
+        tools: list[Tool],
+        agent_name: str,
+        binding: _AdkAgentBinding,
+    ) -> list[LoadedToolSource]:
+        """One member of an agent's tools list, read where it is written (#909)."""
+
+        module = member.module
+        if module is None:
+            return self._extract_tool_expr(member.expr, tools, agent_name, binding)
+        spelling = reference_spelling(member.expr)
+        if spelling is None or self.resolver is None:
+            message = (
+                f"Google ADK agent {agent_name!r} binds `{source_text(member.expr)}`, written in "
+                f"{module.ref}:{member.expr.lineno}, which this reader does not resolve."
+            )
+            self._surface_warning(message, SURFACE_GAP_UNRESOLVED_EXPRESSION)
+            if message not in binding.issues:
+                binding.issues.append(message)
+            return []
+        resolution, long_running = self._resolve_reference(spelling, module)
+        if resolution is not None and resolution.resolved:
+            self._bind_resolved(resolution, tools, agent_name, binding, long_running, spelled_in=module)
+        else:
+            self._unresolved_reference(agent_name, spelling, resolution)
+        return []
 
     def _extract_tool_expr(
         self,
@@ -2311,16 +2414,22 @@ class _PythonAdkExtractor:
             f"Google ADK tool wrapper {wrapper_name!r} has no statically resolvable function.",
         )
 
-    def _resolve_reference(self, spelling: str) -> tuple[Resolution | None, bool]:
+    def _resolve_reference(
+        self, spelling: str, module: PythonModule | None = None
+    ) -> tuple[Resolution | None, bool]:
         """Follow ``spelling`` through this module's imports (#864).
 
         The flag is True when the chain went through a
-        ``LongRunningFunctionTool(...)`` built in another module.
+        ``LongRunningFunctionTool(...)`` built in another module. ``module``
+        is where the spelling is written, when not here: a member of a list
+        another module builds (#909).
         """
 
         if self.resolver is None or self.module is None:
             return None, False
-        resolution, long_running = self._through_wrapper(self.resolver.resolve(self.module, spelling))
+        resolution, long_running = self._through_wrapper(
+            self.resolver.resolve(module or self.module, spelling)
+        )
         value, home = resolution.value, resolution.module
         if resolution.resolved or not isinstance(value, ast.Call) or home is None:
             return resolution, long_running
@@ -2975,6 +3084,8 @@ class _PythonAdkExtractor:
         agent_name: str,
         binding: _AdkAgentBinding,
         long_running: bool,
+        *,
+        spelled_in: PythonModule | None = None,
     ) -> None:
         """Bind the definition an import chain reached, once per definition."""
 
@@ -2983,8 +3094,13 @@ class _PythonAdkExtractor:
         # A factory's function: its call was proven where it was read (#865).
         made = any(step.get("binding") == "factory" for step in resolution.steps)
         if not made:
-            # The spelling this module used has to hold up like a local name.
-            self._require_proven_name(resolution.reference.split(".", 1)[0])
+            # The spelling has to hold up like a local name where it is
+            # written: here, or in the module whose list holds it (#909).
+            head = resolution.reference.split(".", 1)[0]
+            if spelled_in is None or spelled_in is self.module:
+                self._require_proven_name(head)
+            elif not self._name_is_proven_in(spelled_in, head):
+                self._note_surface_gap(SURFACE_GAP_SHADOWED_DEFINITION)
         if any(step.get("module_getattr") for step in resolution.steps):
             # A package ``__getattr__`` could have answered before the
             # submodule did; the definition is named, not proven.
@@ -3528,12 +3644,19 @@ class _PythonAdkExtractor:
                     }
                 )
             elif keyword.arg == "sub_agents":
-                elements = (
-                    keyword.value.elts
-                    if isinstance(keyword.value, ast.List | ast.Tuple)
-                    else None
-                )
-                sub_agent_count = len(elements) if elements is not None else None
+                value = keyword.value
+                if isinstance(value, ast.List | ast.Tuple) and not any(
+                    isinstance(item, ast.Starred) for item in value.elts
+                ):
+                    members = [ListMember(item, None) for item in value.elts]
+                    complete = True
+                else:
+                    # A spread, concatenation, conditional or module list (#909).
+                    listed = self.lists.resolve(value)
+                    members, complete = list(listed.members), listed.complete
+                # None, unless every member is read: the graph then names the
+                # list as not statically named.
+                sub_agent_count = len(members) if complete else None
                 # Three outcomes per element, kept apart because they mean
                 # different things to the binding graph. Resolved to an agent
                 # this module defines: a real handoff target. Named but
@@ -3545,11 +3668,23 @@ class _PythonAdkExtractor:
                 # all — an inline construction, a call: left to the count.
                 sub_agent_names: list[str] = []
                 unresolved_sub_agents: list[str] = []
-                for item in elements or []:
+                when = Conditions()
+                for member in members:
+                    item = member.expr
+                    if member.module is not None:
+                        # An agent another module's list names: not one this
+                        # module defines, so not matched, as an import is not.
+                        spelling = reference_spelling(item)
+                        if spelling is not None:
+                            unresolved_sub_agents.append(spelling)
+                            self._note_surface_gap(SURFACE_GAP_UNRESOLVED_SUB_AGENT)
+                        continue
                     variable = _qualified_name(item, self.aliases)
                     if variable is None:
                         continue
-                    resolved = self._sub_agent_name(variable, call)
+                    # Read from where the member is written: a module list's
+                    # names are the module's.
+                    resolved = self._sub_agent_name(variable, item)
                     if resolved is None:
                         unresolved_sub_agents.append(variable)
                         # A handoff target this module does not define owns
@@ -3562,6 +3697,7 @@ class _PythonAdkExtractor:
                         self._note_surface_gap(SURFACE_GAP_UNRESOLVED_SUB_AGENT)
                     else:
                         sub_agent_names.append(resolved)
+                        when.add(resolved, member.conditions)
                 self.artifacts.sub_agents.append(
                     {
                         "agent_name": agent_name,
@@ -3573,6 +3709,9 @@ class _PythonAdkExtractor:
                         "sub_agent_count": sub_agent_count,
                         "sub_agents": sub_agent_names,
                         "unresolved_sub_agents": unresolved_sub_agents,
+                        # ``name -> [condition, ...]`` for a sub-agent held
+                        # only under a condition (#909).
+                        "conditions": when.only_when(),
                         "source_ref": f"{self.source_ref}:{call.lineno}",
                     }
                 )

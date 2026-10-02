@@ -49,7 +49,6 @@ def test_actual_ie_keeps_named_gaps_and_unclassified_cases(tmp_path):
 
 @pytest.mark.parametrize("expression,expected", [
     (None, "input_unavailable"),
-    ("[read_tool] + [other_tool]", "reader_limitation"),
     ("get_tools()", "unresolved"),
 ])
 def test_real_sdk_recovery_survives_qualification_without_relabeling(tmp_path, expression, expected):
