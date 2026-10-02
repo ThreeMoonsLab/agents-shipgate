@@ -483,9 +483,9 @@
       "title": "NoHumanReview",
       "type": "object"
     },
-    "PlanningCompleteControl": {
+    "PlanningOnlyControl": {
       "additionalProperties": false,
-      "description": "Preflight had nothing to route, and it authorizes nothing (#610).\n\nPreflight answers a question about a *planned* change. When the plan names\nno changed file, capability request or host permission request, and nothing\nelse raises a signal, the only thing that finished is the planning. This\nstate says exactly that.\n\nIt is deliberately not the shared ``complete``. ``complete`` carries the\nverifier's terminal authority -- ``merge`` and ``report_complete`` -- and\nevery consumer of the shared union is entitled to read it that way. Before\nv0.6 an empty plan returned it, so leaving files out of a plan minted merge\nauthority with no verifier identity behind it. Here every permission is\nfalse, the same as on every other preflight route, and only ``verify`` can\nauthorize merge or completion.\n\nA separate declaration rather than a subclass of the shared control base:\nthat base types ``state`` as the shared four-state vocabulary, and this\nstate must never enter it. The shared ``AgentControl`` union is embedded\nby six durable schemas and does not change.",
+      "description": "Preflight had nothing to route, and it authorizes nothing (#610).\n\nPreflight answers a question about a *planned* change. When the plan names\nno changed file, capability request or host permission request, and nothing\nelse raises a signal, the only thing that finished is the planning. This\nstate says exactly that.\n\nIt is deliberately not the shared ``complete``, which carries terminal\nauthority -- ``merge`` and ``report_complete`` -- that every consumer of the\nshared union is entitled to act on. Before v0.6 an empty plan returned it,\nso leaving files out of a plan minted merge authority that no evaluation of\nany change stood behind. Here every permission is false, as on every other\npreflight route: preflight never authorizes merge or completion.\n\nA separate declaration rather than a subclass of the shared control base:\nthat base types ``state`` as the shared four-state vocabulary, and this\nstate must never enter it. The shared ``AgentControl`` union is embedded\nby six durable schemas and does not change.",
       "properties": {
         "allowed_next_commands": {
           "items": {
@@ -525,7 +525,7 @@
           "type": "string"
         },
         "state": {
-          "const": "planning_complete",
+          "const": "planning_only",
           "title": "State",
           "type": "string"
         },
@@ -553,7 +553,7 @@
         "human_review",
         "stop_reason"
       ],
-      "title": "PlanningCompleteControl",
+      "title": "PlanningOnlyControl",
       "type": "object"
     },
     "PreflightControl": {
@@ -561,13 +561,13 @@
         "mapping": {
           "agent_action_required": "#/$defs/AgentActionRequiredControl",
           "human_review_required": "#/$defs/HumanReviewRequiredControl",
-          "planning_complete": "#/$defs/PlanningCompleteControl"
+          "planning_only": "#/$defs/PlanningOnlyControl"
         },
         "propertyName": "state"
       },
       "oneOf": [
         {
-          "$ref": "#/$defs/PlanningCompleteControl"
+          "$ref": "#/$defs/PlanningOnlyControl"
         },
         {
           "$ref": "#/$defs/AgentActionRequiredControl"
@@ -1121,7 +1121,8 @@
                 "update_pr",
                 "merge",
                 "report_complete"
-              ]
+              ],
+              "type": "object"
             }
           },
           "required": [
@@ -1136,7 +1137,7 @@
           "control": {
             "properties": {
               "state": {
-                "const": "planning_complete"
+                "const": "planning_only"
               }
             },
             "required": [
@@ -1153,6 +1154,9 @@
           "allowed_next_commands": {
             "maxItems": 0
           },
+          "changed_files": {
+            "maxItems": 0
+          },
           "first_next_action": {
             "properties": {
               "actor": {
@@ -1166,11 +1170,20 @@
               }
             }
           },
+          "protected_surface_touches": {
+            "maxItems": 0
+          },
+          "required_evidence": {
+            "maxItems": 0
+          },
           "requires_human_review": {
             "const": false
           },
           "requires_verify": {
             "const": false
+          },
+          "signals": {
+            "maxItems": 0
           },
           "verification_command": {
             "type": "null"
@@ -1205,10 +1218,7 @@
                   "kind": {
                     "const": "verify"
                   }
-                },
-                "required": [
-                  "kind"
-                ]
+                }
               }
             }
           },

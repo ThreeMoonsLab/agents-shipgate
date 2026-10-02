@@ -4,18 +4,19 @@ Runtime contract v42, unreleased, stops an empty preflight plan from minting
 authority (#610). Through preflight `0.5` a plan that named nothing to route
 returned the shared `complete` state, whose `permissions` grant `merge` and
 `report_complete`, with no verifier identity behind it. Preflight `0.6` has its
-own control union: `planning_complete`, `agent_action_required` and
-`human_review_required`. `planning_complete` is new and means only that
+own control union: `planning_only`, `agent_action_required` and
+`human_review_required`. `planning_only` is new and means only that
 planning finished, because the plan named no changed file, capability request
 or host permission request and no drift signal fired; it has no `next_action`.
 Preflight never returns `complete` or `review_publishable`, and every
 permission is `false` on every route, in the model and in
 [`docs/preflight-schema.v0.6.json`](preflight-schema.v0.6.json) alike, so
-leaving files out of a plan can never stand in for a verification. Only
-`verify` authorizes merge or completion. `0.5` stays frozen and readable as a
+leaving files out of a plan can never stand in for an evaluation of the
+change: preflight never authorizes merge or completion. `0.5` stays frozen
+and readable as a
 `--base-preflight`; `minimum_control_contract_version` stays `21`, because
 the shared `AgentControl` union is unchanged and a reader that does not know
-`planning_complete` cannot mistake it for `complete`. See
+`planning_only` cannot mistake it for `complete`. See
 [the migration note](../STABILITY.md#planning-only-preflight-610).
 
 Runtime contract v41, new in 1.2.0, names the changed inputs a host comparison
@@ -809,7 +810,7 @@ Downstream repos generated with
 - Current agent handoff schema: `shipgate.agent_handoff/v9` — [`docs/agent-handoff-schema.v9.json`](agent-handoff-schema.v9.json)
 - Current agent boundary result schema: `shipgate.agent_boundary_result/v3` — [`docs/agent-boundary-result-schema.v3.json`](agent-boundary-result-schema.v3.json)
 - Frozen deprecated Codex projection: `shipgate.codex_boundary_result/v2` — [`docs/codex-boundary-result-schema.v2.json`](codex-boundary-result-schema.v2.json)
-- Current preflight schema: `0.6` — [`docs/preflight-schema.v0.6.json`](preflight-schema.v0.6.json) (`0.5` and earlier stay frozen; `0.6` adds `planning_complete` and denies every permission on every route)
+- Current preflight schema: `0.6` — [`docs/preflight-schema.v0.6.json`](preflight-schema.v0.6.json) (`0.5` and earlier stay frozen; `0.6` adds `planning_only` and denies every permission on every route)
 - Current downstream local agent contract schema: `10`
 - Current capability standard: `0.5` — [`docs/capability-standard.md`](capability-standard.md)
 - Current capability lock schema: `0.8` — [`docs/capability-lock-schema.v0.8.json`](capability-lock-schema.v0.8.json)
@@ -1112,7 +1113,7 @@ authorizes proposal authorship only: existing rows and all other manifest
 values must be unchanged, authority-bearing fields and custom adapters are
 excluded, and the resulting trust-root diff still requires human review. It is
 not a second gate; it must never be read as passed or mergeable. Its `control.state`
-is `planning_complete`, `agent_action_required` or `human_review_required`,
+is `planning_only`, `agent_action_required` or `human_review_required`,
 never `complete`, and every `control.permissions` value is `false` on all
 three (#610). The release
 gate remains `release_decision.decision`.

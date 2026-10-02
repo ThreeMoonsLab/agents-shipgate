@@ -44,7 +44,8 @@ routing only: prefer passing a `PreflightPlanV1` object in `plan`. It can tell
 an agent to stop before editing protected surfaces, route host/MCP permission
 requests to a human, or gather evidence for a proposed high-risk capability,
 but it is not a second release verdict. Every permission in its `control` is
-`false`; a plan that names nothing returns `planning_complete`, never
+`false`. A plan that names nothing to route returns `planning_only`
+unless host-grant or trust-root drift stops it for a human; it never returns
 `complete`. The release gate remains
 `report.json.release_decision.decision`.
 

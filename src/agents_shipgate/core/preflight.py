@@ -5,6 +5,7 @@ import json
 import os
 import posixpath
 import stat
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -62,7 +63,7 @@ from agents_shipgate.schemas.preflight import (
     AnyPreflightResult,
     CapabilityRequestV1,
     HostPermissionRequestV1,
-    PlanningCompleteControl,
+    PlanningOnlyControl,
     PreflightDriftSummary,
     PreflightNextAction,
     PreflightPlanV1,
@@ -1604,17 +1605,17 @@ def _coerce_host_permission_requests(
 
 
 def _coerce_base_preflight(
-    value: AnyPreflightResult | dict[str, Any] | None,
+    value: AnyPreflightResult | Mapping[str, Any] | None,
 ) -> AnyPreflightResult | None:
     # Every version's model derives from v0.1's, so one check admits them all.
     if value is None or isinstance(value, PreflightResultV1):
         return value
-    if not isinstance(value, dict):
+    if not isinstance(value, Mapping):
         raise ConfigError(
             f"Invalid base preflight result: expected a JSON object, got {type(value).__name__}"
         )
     try:
-        return parse_preflight_result(value)
+        return parse_preflight_result(dict(value))
     except ValidationError as exc:
         raise ConfigError(f"Invalid base preflight result: {exc}") from exc
 
@@ -1907,15 +1908,13 @@ def _first_next_action(
     )
 
 
-# The one route on which preflight finds nothing to say. It must not read as
-# permission: before #610 this route was the shared ``complete`` state, whose
-# vector grants merge and completion.
+# The one route on which preflight finds nothing to say (#610).
 _PLANNING_ONLY_REASON = (
     "The plan names no changed file, capability request or host permission "
     "request, and preflight found no protected-surface touch, host drift or "
-    "evidence gap to route. Only planning is complete: this result is not a "
-    "verification and authorizes no edit, commit, push, pull-request update, "
-    "merge or completion. Verify a change before reporting it complete."
+    "evidence gap to route. Only planning is complete: this result evaluated no "
+    "change and authorizes no edit, commit, push, pull-request update, merge or "
+    "completion."
 )
 
 
@@ -1926,7 +1925,13 @@ def _derive_preflight_control(
     requires_verify: bool,
     allowed_next_commands: list[str],
 ):
-    """Project preflight signals through the shared control derivation."""
+    """Project preflight signals onto preflight's own control union.
+
+    A human or verify obligation goes through the shared derivation. No
+    obligation is ``planning_only``, never the shared ``complete``: with
+    nothing to route, ``derive_agent_control`` would grant merge and
+    completion for a change no one evaluated (#610).
+    """
 
     reason = first_next_action.why
     if requires_human_review:
@@ -1952,11 +1957,8 @@ def _derive_preflight_control(
             verify_required=True,
             allowed_next_commands=allowed_next_commands,
         )
-    # Not ``derive_agent_control(reason=reason)``: with no obligation it derives
-    # the shared ``complete``, whose permission vector grants merge and
-    # completion, and leaving files out of a plan must never do that (#610).
-    return PlanningCompleteControl(
-        state="planning_complete", reason=reason, permissions=NoAgentPermissions()
+    return PlanningOnlyControl(
+        state="planning_only", reason=reason, permissions=NoAgentPermissions()
     )
 
 

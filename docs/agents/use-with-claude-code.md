@@ -155,7 +155,7 @@ agents-shipgate verify --base origin/main --head HEAD --json
 
 If preflight returns `control.state="human_review_required"`, Claude Code must
 stop for a human before editing the protected surface or asserting missing
-high-risk evidence. `control.state="planning_complete"` means the plan named nothing for
+high-risk evidence. `control.state="planning_only"` means the plan named nothing for
 preflight to route; it authorizes nothing, so Claude Code still runs `verify`
 before reporting a change complete.
 

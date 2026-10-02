@@ -64,7 +64,7 @@ def test_old_graph_cannot_assert_structure_and_current_rule_never_grants_authori
     legacy = {key: value for key, value in payload.items() if key in PreflightResultV3.model_fields}
     legacy["preflight_schema_version"] = "0.3"
     # A stored 0.3 answer to an empty plan carried the shared ``complete``;
-    # 0.6's ``planning_complete`` did not exist yet (#610).
+    # 0.6's ``planning_only`` did not exist yet (#610).
     legacy["control"] = {
         **legacy["control"],
         "state": "complete",

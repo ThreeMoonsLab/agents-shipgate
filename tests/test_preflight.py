@@ -1319,7 +1319,7 @@ def test_cli_preflight_plan_empty_stdin_is_empty_plan(tmp_path: Path) -> None:
     assert payload["requires_human_review"] is False
     assert payload["requires_verify"] is False
     assert payload["first_next_action"]["kind"] == "continue"
-    assert payload["control"]["state"] == "planning_complete"
+    assert payload["control"]["state"] == "planning_only"
     assert payload["control"]["completion_allowed"] is False
     assert payload["control"]["must_stop"] is False
     assert not any(payload["control"]["permissions"].values())

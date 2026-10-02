@@ -63,7 +63,7 @@ visible as incomplete inventory coverage and cannot produce a complete baseline.
 Reinstall the hook to receive the new runner. In the default `ask` mode, one
 complete, bounded, contained `Edit` or `Write` is previewed through the installed
 CLI's preflight parser. The proposed content is never executed. The runner requires
-a v0.5 positive proof for exactly that path and reconfirms the original file's
+a v0.5 or v0.6 positive proof for exactly that path and reconfirms the original file's
 identity after parsing. Unique replacements and explicit `replace_all` are
 supported. Unknown edit shapes, non-LF or unterminated text, files over 128 KiB,
 an older CLI, a timeout, malformed output or changed identity retain the prompt.
@@ -88,10 +88,10 @@ The frozen file named `preflight-schema.v0.4.json` describes a v0.3 payload. The
 successor uses v0.5 without rewriting that historical URL; #609 tracks its discovery
 cleanup. Use the actual payload discriminator, not a version inferred from a URL.
 
-An empty plan retains the existing completed-planning response. It has no
-verifier-bound current-control identity and cannot stand in for final verification.
-The successor schema matches that existing response; #610 tracks the separate
-compatibility decision about its shared permission vector. The edit hook accepts
-only an exact verify-required preview with every permission false.
+An empty plan returns `planning_only` since preflight v0.6 (#610): it has no
+verifier-bound current-control identity, cannot stand in for final verification,
+and every permission is false. Through v0.5 it returned the shared `complete`,
+whose vector granted merge and completion. The edit hook accepts only an exact
+verify-required preview with every permission false.
 
 Refs #545, #516.

@@ -142,11 +142,11 @@ agents-shipgate preflight --capability-request request.json --json
 
 Switch on `control.state`. If it is `human_review_required`, stop and route the
 change to a human. If it is `agent_action_required`, perform only the exact
-coding-agent route in `control.next_action`. If it is `planning_complete` (preflight
+coding-agent route in `control.next_action`. If it is `planning_only` (preflight
 `0.6`, contract v42), the plan named nothing for preflight to route — an empty
 plan, for example. Only planning completed: every `control.permissions` value
-is `false`, and only `verify` can authorize merge or completion. Preflight
-never returns `complete`. The plan form accepts `changed_files[]`,
+is `false`. Preflight never authorizes merge or completion, and never returns
+`complete`. The plan form accepts `changed_files[]`,
 `diff_text`, `capability_requests[]`, `host_permission_requests[]`, and
 `context.{agent,task}`; prefer it whenever the agent can describe the planned
 change as one JSON object. Protected surfaces include

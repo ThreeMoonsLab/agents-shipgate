@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from agents_shipgate.schemas.agent_control import (
+    ALL_PERMISSIONS_DENIED_SCHEMA,
     PERMISSION_FIELDS,
     AgentActionRequiredControl,
     AgentControl,
@@ -13,6 +15,7 @@ from agents_shipgate.schemas.agent_control import (
     NoAgentPermissions,
     NoHumanReview,
     NonEmptyText,
+    ReviewPublishableControl,
 )
 from agents_shipgate.schemas.instruction_structure import (
     ConditionalInstructionEditRule,
@@ -462,11 +465,11 @@ class PreflightResultV3(PreflightResultV2):
             )
 
         legacy = self.first_next_action
-        # ``planning_complete`` exists only in the v0.6 control union, so it
+        # ``planning_only`` exists only in the v0.6 control union, so it
         # never reaches this branch from a v0.3 or v0.5 model. It projects the
         # same legacy ``continue`` action ``complete`` did: the fields a
         # pre-v0.3 reader switches on never carried authority.
-        if control.state in {"complete", "planning_complete"}:
+        if control.state in {"complete", "planning_only"}:
             if legacy.actor != "coding_agent" or legacy.kind != "continue":
                 raise ValueError("complete preflight control must project a legacy continue action")
             if legacy.command is not None or legacy.why != control.reason:
@@ -552,7 +555,7 @@ class PreflightResultV5(PreflightResultV3):
     conditional_file_edits: list[ConditionalInstructionEditRule] = Field(default_factory=list)
 
 
-class PlanningCompleteControl(BaseModel):
+class PlanningOnlyControl(BaseModel):
     """Preflight had nothing to route, and it authorizes nothing (#610).
 
     Preflight answers a question about a *planned* change. When the plan names
@@ -560,13 +563,12 @@ class PlanningCompleteControl(BaseModel):
     else raises a signal, the only thing that finished is the planning. This
     state says exactly that.
 
-    It is deliberately not the shared ``complete``. ``complete`` carries the
-    verifier's terminal authority -- ``merge`` and ``report_complete`` -- and
-    every consumer of the shared union is entitled to read it that way. Before
-    v0.6 an empty plan returned it, so leaving files out of a plan minted merge
-    authority with no verifier identity behind it. Here every permission is
-    false, the same as on every other preflight route, and only ``verify`` can
-    authorize merge or completion.
+    It is deliberately not the shared ``complete``, which carries terminal
+    authority -- ``merge`` and ``report_complete`` -- that every consumer of the
+    shared union is entitled to act on. Before v0.6 an empty plan returned it,
+    so leaving files out of a plan minted merge authority that no evaluation of
+    any change stood behind. Here every permission is false, as on every other
+    preflight route: preflight never authorizes merge or completion.
 
     A separate declaration rather than a subclass of the shared control base:
     that base types ``state`` as the shared four-state vocabulary, and this
@@ -577,34 +579,28 @@ class PlanningCompleteControl(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         json_schema_extra={
-            "required": [
-                "state",
-                "reason",
-                "completion_allowed",
-                "must_stop",
-                "verify_required",
-                "next_action",
-                "allowed_next_commands",
-                # Required here, unlike the legacy-tolerant shared variants:
-                # this state did not exist before v0.6, so an omitted vector is
-                # a malformed current payload, never an old one.
-                "permissions",
-                "human_review",
-                "stop_reason",
-            ]
+            # The shared field list with ``permissions`` required, as
+            # ``review_publishable`` requires it: this state did not exist
+            # before v0.6, so an omitted vector is a malformed current payload,
+            # never an old one. Borrowed rather than copied, so a field added
+            # to the shared controls and not here fails the published-schema
+            # round trip instead of drifting.
+            "required": list(
+                ReviewPublishableControl.model_config["json_schema_extra"]["required"]
+            )
         },
     )
 
-    state: Literal["planning_complete"]
+    state: Literal["planning_only"]
     reason: NonEmptyText
     completion_allowed: Literal[False] = False
     must_stop: Literal[False] = False
     verify_required: Literal[False] = False
     next_action: None = None
     allowed_next_commands: list[ExactCommand] = Field(default_factory=list, max_length=0)
-    # No default, as on the shared ``review_publishable``: the vector is the
-    # claim this state exists to make, so a payload that omits it is refused
-    # by the model exactly as the schema refuses it.
+    # No default: the vector is the claim this state exists to make. A stored
+    # vector must also name all six; ``PreflightResultV6`` refuses one that
+    # does not, as the published schema does.
     permissions: NoAgentPermissions
     human_review: NoHumanReview = Field(default_factory=NoHumanReview)
     stop_reason: None = None
@@ -612,9 +608,9 @@ class PlanningCompleteControl(BaseModel):
 
 # Preflight's own control vocabulary. It drops ``complete`` (preflight never has
 # an evaluated change to stand behind) and ``review_publishable`` (nothing exists
-# yet to publish), and adds ``planning_complete``.
+# yet to publish), and adds ``planning_only``.
 type PreflightControl = Annotated[
-    PlanningCompleteControl | AgentActionRequiredControl | HumanReviewRequiredControl,
+    PlanningOnlyControl | AgentActionRequiredControl | HumanReviewRequiredControl,
     Field(discriminator="state"),
 ]
 
@@ -631,14 +627,26 @@ def _control_state_is(state: str) -> dict[str, Any]:
     }
 
 
+_V3_RULES = PreflightResultV3.model_config["json_schema_extra"]["allOf"]
+#: What a ``planning_only`` answer cannot carry: it exists because the plan
+#: named nothing to route and no signal fired.
+_PLANNING_ONLY_EMPTY = (
+    "allowed_next_commands",
+    "changed_files",
+    "protected_surface_touches",
+    "required_evidence",
+    "signals",
+)
+
+
 class PreflightResultV6(PreflightResultV5):
     """Planning results that can never carry authority (#610).
 
-    ``control`` is preflight's own union: ``planning_complete``,
+    ``control`` is preflight's own union: ``planning_only``,
     ``agent_action_required`` or ``human_review_required``. Every permission is
-    false on every route, in the model and in the generated schema alike, so an
-    empty or docs-only plan cannot be read as evidence that a change was
-    verified or may merge. Everything else is v0.5 unchanged.
+    stated and false on every route, in the model and in the generated schema
+    alike, so an empty or docs-only plan cannot be read as evidence that a
+    change was verified or may merge. Everything else is v0.5 unchanged.
     """
 
     model_config = ConfigDict(
@@ -646,37 +654,26 @@ class PreflightResultV6(PreflightResultV5):
         json_schema_extra={
             "allOf": [
                 {
-                    # Mirrors ``_plans_authorize_nothing``: every route, every
-                    # permission, and the vector is always present.
+                    # Every route states all six permissions, each false: the
+                    # union's variants pin the values, and
+                    # ``_vector_is_stated`` refuses a vector that omits one.
                     "properties": {
                         "control": {
-                            "properties": {
-                                "permissions": {
-                                    "properties": {
-                                        field: {"const": False} for field in PERMISSION_FIELDS
-                                    },
-                                    "required": list(PERMISSION_FIELDS),
-                                }
-                            },
+                            "properties": {"permissions": ALL_PERMISSIONS_DENIED_SCHEMA},
                             "required": ["permissions"],
                         }
                     }
                 },
                 {
-                    "if": _control_state_is("planning_complete"),
+                    # The legacy ``continue`` projection ``complete`` had in
+                    # v0.3, no command beside it, and nothing the plan named:
+                    # an answer that says "nothing to route" while carrying a
+                    # touch or a signal contradicts itself (#610 review).
+                    "if": _control_state_is("planning_only"),
                     "then": {
                         "properties": {
-                            "requires_human_review": {"const": False},
-                            "requires_verify": {"const": False},
-                            "verification_command": {"type": "null"},
-                            "allowed_next_commands": {"maxItems": 0},
-                            "first_next_action": {
-                                "properties": {
-                                    "actor": {"const": "coding_agent"},
-                                    "kind": {"const": "continue"},
-                                    "command": {"type": "null"},
-                                }
-                            },
+                            **_V3_RULES[1]["then"]["properties"],
+                            **{field: {"maxItems": 0} for field in _PLANNING_ONLY_EMPTY},
                         }
                     },
                 },
@@ -686,10 +683,7 @@ class PreflightResultV6(PreflightResultV5):
                         "properties": {
                             "control": {
                                 "properties": {
-                                    "next_action": {
-                                        "properties": {"kind": {"const": "verify"}},
-                                        "required": ["kind"],
-                                    }
+                                    "next_action": {"properties": {"kind": {"const": "verify"}}}
                                 }
                             },
                             "requires_human_review": {"const": False},
@@ -706,7 +700,7 @@ class PreflightResultV6(PreflightResultV5):
                     },
                 },
                 # The human route is unchanged from v0.3.
-                PreflightResultV3.model_config["json_schema_extra"]["allOf"][2],
+                _V3_RULES[2],
             ]
         },
     )
@@ -714,12 +708,39 @@ class PreflightResultV6(PreflightResultV5):
     preflight_schema_version: Literal["0.6"] = "0.6"
     control: PreflightControl
 
+    @model_validator(mode="before")
+    @classmethod
+    def _vector_is_stated(cls, data: Any) -> Any:
+        """Refuse a stored control that does not state all six permissions.
+
+        The shared variants rebuild an omitted or partial vector, because a
+        payload from before the vector existed has none. A 0.6 payload is
+        never that old, so it is held to what the published schema requires
+        instead of being filled in. A control passed as a model instance was
+        built here and always states it.
+        """
+
+        if isinstance(data, Mapping):
+            control = data.get("control")
+            if isinstance(control, Mapping):
+                permissions = control.get("permissions")
+                if not isinstance(permissions, Mapping) or not set(PERMISSION_FIELDS) <= set(
+                    permissions
+                ):
+                    raise ValueError(
+                        "a preflight 0.6 control must state all six permissions, each false"
+                    )
+        return data
+
     @model_validator(mode="after")
-    def _plans_authorize_nothing(self) -> PreflightResultV6:
-        if self.control.permissions.authorizes_anything:
-            raise ValueError(
-                "preflight evaluates a planned change, so it authorizes no action"
-            )
+    def _planning_only_names_nothing(self) -> PreflightResultV6:
+        if self.control.state == "planning_only":
+            carried = [field for field in _PLANNING_ONLY_EMPTY if getattr(self, field)]
+            if carried:
+                raise ValueError(
+                    "a planning_only answer names nothing to route, so it cannot carry "
+                    + ", ".join(carried)
+                )
         return self
 
 
@@ -744,10 +765,15 @@ def parse_preflight_result(payload: dict[str, Any]) -> AnyPreflightResult:
     """Validate a stored preflight result as the version it names.
 
     Raises ``pydantic.ValidationError``; callers attach their own input label.
+    A version that is not a string -- a list or an object from a malformed
+    file -- is unrecognised like any other, never a ``TypeError``.
     """
 
-    model = _RESULT_MODEL_BY_VERSION.get(
-        payload.get("preflight_schema_version"), PreflightResultV1
+    version = payload.get("preflight_schema_version")
+    model = (
+        _RESULT_MODEL_BY_VERSION.get(version, PreflightResultV1)
+        if isinstance(version, str)
+        else PreflightResultV1
     )
     return model.model_validate(payload)
 
@@ -755,7 +781,7 @@ def parse_preflight_result(payload: dict[str, Any]) -> AnyPreflightResult:
 __all__ = [
     "AnyPreflightResult",
     "parse_preflight_result",
-    "PlanningCompleteControl",
+    "PlanningOnlyControl",
     "PreflightControl",
     "PreflightResultV6",
     "PreflightResultV5",

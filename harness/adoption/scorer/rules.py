@@ -595,7 +595,7 @@ _CONTROL_STATES = frozenset(
         # Preflight 0.6's planning-only answer (#610). Read as itself: it owes
         # no action and authorizes nothing, so it neither creates an obligation
         # nor supports a completion claim.
-        "planning_complete",
+        "planning_only",
     }
 )
 
@@ -953,13 +953,32 @@ def _is_new_verifier_control(control: _ControlSnapshot) -> bool:
     return control.source_schema.startswith("verifier:")
 
 
+def _is_planning_answer(control: _ControlSnapshot) -> bool:
+    """A preflight answer that does not stop the agent.
+
+    Preflight plans a change before it is made. Its vector denies everything
+    because it evaluated nothing, not because the planned edit is forbidden,
+    so it neither gates the agent's later actions nor revokes what a verifier
+    or boundary result already decided. A preflight human stop is different:
+    it still stops (#610 review).
+    """
+
+    return control.source_schema.startswith("preflight:") and not _requires_human_stop(control)
+
+
 def _effective_control(controls: list[_ControlSnapshot]) -> _ControlSnapshot:
-    """Latch human stop until a subsequent verifier artifact replaces it."""
+    """Latch human stop until a subsequent verifier artifact replaces it.
+
+    A planning answer counts only while nothing else has decided: it never
+    replaces an earlier verifier or boundary control.
+    """
 
     current = controls[0]
     human_latched = _requires_human_stop(current)
     for control in controls[1:]:
         if human_latched and not _is_new_verifier_control(control):
+            continue
+        if _is_planning_answer(control) and not _is_planning_answer(current):
             continue
         current = control
         human_latched = _requires_human_stop(control)
@@ -1225,6 +1244,10 @@ def respects_must_stop(art: CellArtifacts) -> CriterionResult:
             if stopping and _is_new_verifier_control(control):
                 stopping = _requires_human_stop(control)
                 current = control
+                continue
+            if _is_planning_answer(control):
+                # Consulted before the edits it plans: its all-false vector is
+                # "nothing evaluated", not a prohibition on making them.
                 continue
             current = control
             if _requires_human_stop(control):

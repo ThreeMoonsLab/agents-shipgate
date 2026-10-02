@@ -267,13 +267,13 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # preflight 0.5 a plan that named nothing returned the shared ``complete``,
 # whose vector grants ``merge`` and ``report_complete``, with no verifier
 # identity behind it. Preflight 0.6 carries its own control union instead:
-# ``planning_complete`` (new: nothing to route, only planning finished),
+# ``planning_only`` (new: nothing to route, only planning finished),
 # ``agent_action_required`` and ``human_review_required``. ``complete`` and
 # ``review_publishable`` cannot appear, and every permission is false on every
 # route, in the model and in the generated schema. 0.5 stays frozen and
 # readable as a ``--base-preflight``. The shared ``AgentControl`` union is
 # byte-identical, so ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21: a
-# reader that does not know ``planning_complete`` cannot mistake it for
+# reader that does not know ``planning_only`` cannot mistake it for
 # ``complete``, and it authorizes nothing either way.
 CONTRACT_VERSION: Literal["42"] = "42"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"

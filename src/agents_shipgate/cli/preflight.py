@@ -462,7 +462,7 @@ def preflight(
     typer.echo(f"Agents Shipgate preflight: {result.control.state.replace('_', ' ')}")
     # Every preflight route denies all six permissions; say so, because a
     # planning answer read as permission is the failure #610 closed.
-    typer.echo("Authorizes: nothing (only verify can authorize merge or completion)")
+    typer.echo("Authorizes: nothing (preflight never authorizes merge or completion)")
     typer.echo(f"Protected surface touches: {len(result.protected_surface_touches)}")
     missing = [item for item in result.required_evidence if not item.satisfied]
     typer.echo(f"Missing required evidence: {len(missing)}")

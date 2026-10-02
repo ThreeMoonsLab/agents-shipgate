@@ -29,7 +29,8 @@ with bounded host reliability maintenance. Accountable owner: Pengfei Hu
 [Days 1–5 evidence and ordered backlog](docs/research/application-days1-5/README.md)
 records released/main reproductions and the #580/#655 comparison design.
 Weeks 2–3 implement paired inputs, then per-agent wiring; deeper readers follow
-reproduced gaps. #610 remains a reproduced contract defect; #787 is the selected
+reproduced gaps. #610 was a reproduced contract defect until #925 (preflight
+`0.6`, `planning_only`); #787 is the selected
 recipe repair. #795/#812/#780/#369 retain their exact residual acceptance.
 
 This selection supersedes the scheduling and recruitment instructions in the

@@ -756,8 +756,11 @@ def _unchanged_instruction_preview(
     except (OSError, subprocess.TimeoutExpired, ValueError, UnicodeError):
         return False
     # 0.5 and 0.6 route this proof identically; a hook installed now keeps
-    # working against either CLI. Anything else is not a proof (#610).
-    if not isinstance(answer, dict) or answer.get("preflight_schema_version") not in {"0.5", "0.6"}:
+    # working against either CLI. Anything else is not a proof (#610). Tuples,
+    # not sets: membership then compares rather than hashes, so a malformed
+    # answer (a list where a string belongs) is refused, never a crash that
+    # lets the edit through unprompted.
+    if not isinstance(answer, dict) or answer.get("preflight_schema_version") not in ("0.5", "0.6"):
         return False
     control = answer.get("control")
     human = control.get("human_review") if isinstance(control, dict) else None
@@ -777,7 +780,7 @@ def _unchanged_instruction_preview(
         or answer.get("changed_files") != [path]
         or not isinstance(touches, list) or len(touches) != 1
         or not isinstance(touches[0], dict) or touches[0].get("path") != path
-        or touches[0].get("kind") not in {"agent_instructions", "tool_surface_decl"}
+        or touches[0].get("kind") not in ("agent_instructions", "tool_surface_decl")
         or touches[0].get("instruction_structure_unchanged") is not True
         or touches[0].get("requires_human_review") is not False
     ):
