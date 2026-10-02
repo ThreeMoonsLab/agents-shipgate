@@ -679,3 +679,309 @@ def test_sdk_reader_writes_nothing(tmp_path):
     before = sorted(path.name for path in Path(tmp_path).rglob("*"))
     _sdk(tmp_path, "agent.py")
     assert sorted(path.name for path in Path(tmp_path).rglob("*")) == before
+
+
+# -- #909 review: every way a list could change without the reader seeing it -----------
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        # Defaults, decorators and class bodies run in the scope around them.
+        "TOOLS = [a]\ndef register(tool, TOOLS=TOOLS):\n    TOOLS.append(tool)\nregister(b)",
+        "TOOLS = [a]\nadd = lambda tool, TOOLS=TOOLS: TOOLS.append(tool)\nadd(b)",
+        "TOOLS = [a]\ndef register(tool, *, TOOLS=TOOLS):\n    TOOLS.append(tool)",
+        "TOOLS = [a]\n@extend(TOOLS)\ndef helper(TOOLS):\n    pass",
+        "TOOLS = [a]\nclass Config:\n    TOOLS = TOOLS\n    TOOLS.append(b)",
+        # A walrus in a comprehension rebinds the name around it.
+        "TOOLS = [a]\n_ = [(TOOLS := [b]) for _ in range(1)]",
+        # A wildcard import after the list may rebind it.
+        "TOOLS = [a]\nfrom helpers import *",
+        # A list handed to a function past a spread lands on another parameter.
+        "TOOLS = [a]\nNO_ARGS = ()\ndef add(target, label=None):\n    target.append(b)\nadd(*NO_ARGS, TOOLS)",
+        # A decorated helper may hand the list to code that changes it.
+        "TOOLS = [a]\n@wrap\ndef show(items):\n    print(items)\nshow(TOOLS)",
+    ],
+    ids=["default", "lambda-default", "kw-default", "decorator", "class-body", "walrus",
+         "star-import", "spread-argument", "decorated-callee"],
+)
+def test_a_change_the_old_index_missed_keeps_the_list_unread(source):
+    result = _resolve(source)
+    assert result.members == ()
+    assert not result.complete
+
+
+def test_a_condition_is_compared_whole_however_long():
+    condition = "os.environ.get('X', '') in (" + ", ".join(f"'region-{n}'" for n in range(30)) + ")"
+    result = _resolve("", f"[a, *([b] if {condition} else [])]")
+    assert result.members[1].conditions == (f"`{condition}`",)
+    assert len(result.members[1].conditions[0]) > 160
+
+
+def test_a_list_spread_many_times_is_read_once():
+    lines = ["L0 = [a]"] + [f"L{k} = [" + ", ".join([f"*L{k - 1}"] * 10) + "]" for k in range(1, 7)]
+    result = _resolve("\n".join(lines), "L6")
+    assert _members(result) == [("a", ())]
+
+
+def test_a_class_body_comprehension_reads_the_class_list():
+    tree = ast.parse(
+        "TOOLS = [a]\nclass Config:\n    TOOLS = [b]\n    agent = Agent(tools=[t for t in TOOLS if t])\n"
+    )
+    lists = ListExpressions(
+        ref="agent.py", tree=tree, scopes=ScopeIndex(tree), bindings=_module_bindings(tree)[0],
+        module=None, resolver=None, agent_reads=lambda call, keyword: keyword == "tools",
+    )
+    call = tree.body[1].body[1].value
+    assert [ast.unparse(member.expr) for member in lists.resolve(call.keywords[0].value).members] == ["b"]
+
+
+def test_a_filter_object_is_true_however_empty():
+    # ``filter(...) or [b]`` is the filter object, never ``b``.
+    assert _members(_resolve("", "list(filter(keep, []) or [b])")) == []
+
+
+def test_a_list_bound_in_a_with_block_is_read():
+    tree = ast.parse(
+        "async def main():\n"
+        "    async with server() as s:\n"
+        "        tools = [a]\n"
+        "        return Agent(tools=tools)\n"
+    )
+    lists = ListExpressions(
+        ref="agent.py", tree=tree, scopes=ScopeIndex(tree), bindings=_module_bindings(tree)[0],
+        module=None, resolver=None, agent_reads=lambda call, keyword: keyword == "tools",
+    )
+    call = tree.body[0].body[0].body[1].value
+    assert _members(lists.resolve(call.keywords[0].value)) == [("a", ())]
+
+
+def test_a_list_bound_in_a_branch_is_read_only_inside_that_branch():
+    tree = ast.parse(
+        "def build(premium):\n"
+        "    if premium:\n"
+        "        tools = [a]\n"
+        "        first = Agent(tools=tools)\n"
+        "    return Agent(tools=tools)\n"
+    )
+    lists = ListExpressions(
+        ref="agent.py", tree=tree, scopes=ScopeIndex(tree), bindings=_module_bindings(tree)[0],
+        module=None, resolver=None, agent_reads=lambda call, keyword: keyword == "tools",
+    )
+    inside = tree.body[0].body[0].body[1].value
+    after = tree.body[0].body[1].value
+    assert _members(lists.resolve(inside.keywords[0].value)) == [("a", ())]
+    assert not lists.resolve(after.keywords[0].value).complete
+
+
+@pytest.mark.parametrize(
+    ("files", "agent_file"),
+    [
+        (   # A builder's own import of the list, changed in place.
+            {"agent.py": "from agents import Agent\ndef build():\n    from tools import FINANCE_TOOLS, prepare_finance_handoff\n"
+             "    FINANCE_TOOLS.append(prepare_finance_handoff)\n    return Agent(name='Finance', tools=[*FINANCE_TOOLS])\n"},
+            "agent.py",
+        ),
+        (   # The same list changed through the module's own spelling.
+            {"agent.py": "import tools\nfrom agents import Agent\nfrom tools import FINANCE_TOOLS\n"
+             "tools.FINANCE_TOOLS.append(tools.prepare_finance_handoff)\nfinance = Agent(name='Finance', tools=[*FINANCE_TOOLS])\n"},
+            "agent.py",
+        ),
+        (   # A package that re-exports the list changes it when imported.
+            {"pkg/__init__.py": "from pkg.tools import FINANCE_TOOLS, prepare_finance_handoff\nFINANCE_TOOLS.append(prepare_finance_handoff)\n",
+             "pkg/tools.py": SDK_TOOLS,
+             "agent.py": "from agents import Agent\nfrom pkg import FINANCE_TOOLS\nfinance = Agent(name='Finance', tools=[*FINANCE_TOOLS])\n"},
+            "agent.py",
+        ),
+        (   # The list's own module changes it through an agent built with it.
+            {"tools.py": SDK_TOOLS + "from agents import Agent\nhelper = Agent(name='Helper', tools=FINANCE_TOOLS)\n"
+             "helper.tools.append(prepare_finance_handoff)\n",
+             "agent.py": "from agents import Agent\nfrom tools import FINANCE_TOOLS\nfinance = Agent(name='Finance', tools=FINANCE_TOOLS)\n"},
+            "agent.py",
+        ),
+        (   # Another module's own ``Agent`` class is not the SDK's.
+            {"tools.py": SDK_TOOLS + "class Agent:\n    def __init__(self, name, tools):\n        tools.append(prepare_finance_handoff)\n"
+             "legacy = Agent(name='legacy', tools=FINANCE_TOOLS)\n",
+             "agent.py": "from agents import Agent\nfrom tools import FINANCE_TOOLS\nfinance = Agent(name='Finance', tools=[*FINANCE_TOOLS])\n"},
+            "agent.py",
+        ),
+    ],
+    ids=["local-import", "module-spelling", "package-init", "through-an-agent", "foreign-agent-class"],
+)
+def test_sdk_an_imported_list_changed_elsewhere_is_named(tmp_path, files, agent_file):
+    _write(tmp_path, {"tools.py": SDK_TOOLS, **files})
+    loaded = _sdk(tmp_path, agent_file)
+    (observation,) = [item for item in loaded.binding_observations if item.agent.lower() == "finance"]
+    assert observation.tools_complete is False
+    assert "prepare_finance_handoff" not in observation.tool_names
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        "replace(tools=FINANCE_TOOLS)",  # the application's own ``replace``
+        "Registry().clone(tools=FINANCE_TOOLS)",  # a ``clone`` of something not an agent
+    ],
+    ids=["user-replace", "non-agent-clone"],
+)
+def test_sdk_only_a_proven_agent_copy_reads_its_list(tmp_path, call):
+    _write(tmp_path, {"tools.py": SDK_TOOLS, "agent.py": "from agents import Agent\nfrom tools import FINANCE_TOOLS\n"
+                      "def replace(tools):\n    tools.append(1)\n\nclass Registry:\n    def clone(self, tools):\n        tools.append(1)\n\n"
+                      f"{call}\nfinance = Agent(name='Finance', tools=[*FINANCE_TOOLS])\n"})
+    observation = _observation(_sdk(tmp_path, "agent.py"))
+    assert observation.tools_complete is False
+
+
+def test_sdk_a_module_attribute_is_read_when_only_read(tmp_path):
+    _write(tmp_path, {"tools.py": SDK_TOOLS, "agent.py": "import tools\nfrom agents import Agent\n"
+                      "finance = Agent(name='Finance', tools=tools.FINANCE_TOOLS)\n"})
+    observation = _observation(_sdk(tmp_path, "agent.py"))
+    assert observation.tools_complete is True
+    assert observation.tool_names == ["load_and_validate", "summarize"]
+
+
+def test_sdk_a_parameter_shadowing_a_module_is_not_the_module(tmp_path):
+    _write(tmp_path, {"tools.py": SDK_TOOLS, "agent.py": "import tools\nfrom agents import Agent\n"
+                      "def build(tools):\n    return Agent(name='Finance', tools=tools.FINANCE_TOOLS)\n"})
+    observation = _observation(_sdk(tmp_path, "agent.py"))
+    assert observation.tools_complete is False
+    assert observation.tool_names == []
+
+
+def test_sdk_a_copy_made_after_a_change_through_an_agent_is_unread(tmp_path):
+    _write(tmp_path, {"tools.py": SDK_TOOLS, "agent.py": "from agents import Agent\n"
+                      "from tools import load_and_validate, prepare_finance_handoff\nBASE = [load_and_validate]\n"
+                      "first = Agent(name='First', tools=BASE)\nfirst.tools.append(prepare_finance_handoff)\n"
+                      "second = Agent(name='Second', tools=[*BASE])\n"})
+    observations = {item.agent: item for item in _sdk(tmp_path, "agent.py").binding_observations}
+    assert observations["second"].tools_complete is False
+
+
+def test_sdk_a_hosted_tool_keeps_its_recovery_evidence(tmp_path):
+    _write(tmp_path, {"tools.py": SDK_TOOLS, "agent.py": "from agents import Agent, WebSearchTool\n"
+                      "from tools import summarize\nfinance = Agent(name='Finance', tools=[WebSearchTool(), summarize])\n"})
+    loaded = _sdk(tmp_path, "agent.py")
+    (fact,) = loaded.recovery_evidence
+    assert (fact.recovery.kind, fact.recovery.reason) == ("unresolved", "sdk_tools_expression_unresolved")
+    assert fact.source_ref == "agent.py:3"
+
+
+def test_sdk_an_unread_member_of_another_module_is_not_bound_by_name(tmp_path):
+    # ``lookup`` in the other module's list is extlib's, not this module's.
+    _write(tmp_path, {
+        "registry.py": SDK_TOOLS + "from extlib import lookup\nTOOLS = [summarize, lookup]\n",
+        "agent.py": "from agents import Agent, function_tool\nfrom registry import TOOLS\n\n"
+        "@function_tool\ndef lookup(q: str) -> str:\n    return q\n\nfinance = Agent(name='Finance', tools=[*TOOLS])\n",
+    })
+    observation = _observation(_sdk(tmp_path, "agent.py"))
+    assert observation.tool_names == ["summarize"]
+    assert observation.tools_complete is False
+
+
+def test_sdk_a_handoff_spelled_like_a_local_agent_is_not_that_agent(tmp_path):
+    _write(tmp_path, {
+        "specialists.py": "from agents import Agent\nrefunds = Agent(name='Refunds')\nSPECIALISTS = [refunds]\n",
+        "triage.py": "from agents import Agent\nfrom specialists import SPECIALISTS\n"
+        "refunds = Agent(name='Refunds')\ntriage = Agent(name='Triage', handoffs=[*SPECIALISTS])\n",
+    })
+    (observation,) = [item for item in _sdk(tmp_path, "triage.py").binding_observations if item.agent == "triage"]
+    assert observation.handoff_names == []
+    assert observation.handoffs_complete is False
+
+
+def test_adk_a_sub_agent_list_read_from_an_expression_is_not_proven(tmp_path):
+    _write(tmp_path, {"agent.py": "from google.adk.agents import LlmAgent\n\n"
+                      "def lookup(q: str) -> dict:\n    return {}\n\n"
+                      "helper = LlmAgent(name='helper', model='m', tools=[lookup])\n"
+                      "SUBS = [helper]\nroot_agent = LlmAgent(name='root', model='m', sub_agents=SUBS)\n"})
+    loaded, artifacts = _adk(tmp_path)
+    (record,) = [record for record in artifacts.sub_agents if record["agent_name"] == "root"]
+    assert record["sub_agents"] == ["helper"]
+    tools = [tool for source in loaded for tool in source.tools]
+    assert tools and all("dynamic_tools_expression" in tool.extraction["surface_gaps"] for tool in tools)
+
+
+def test_adk_twins_differing_in_what_they_hold_unconditionally_are_two(tmp_path):
+    _write(tmp_path, {"agent.py": "from google.adk.agents import Agent\n\n"
+                      "def lookup(q: str) -> str:\n    return q\n\ndef search(q: str) -> str:\n    return q\n\n"
+                      "def export(q: str) -> str:\n    return q\n\n"
+                      "COMMON = [lookup, search]\nPREMIUM = [lookup, export]\n\n"
+                      "def build(premium):\n    return Agent(name='assistant', tools=[*COMMON, *(PREMIUM if premium else [])])\n\n"
+                      "def other(premium):\n    return Agent(name='assistant', tools=[search, *(PREMIUM if premium else [])])\n"})
+    loaded, _ = _adk(tmp_path)
+    (observation,) = [item for source in loaded for item in source.binding_observations if item.agent == "assistant"]
+    assert observation.tools_complete is False
+    assert any("constructed more than once" in issue for issue in observation.issues)
+
+
+def test_application_diff_an_adk_list_read_in_part_limits_only_its_agent(tmp_path):
+    agent = (
+        "from google.adk.agents import Agent\n\n"
+        "def lookup(q: str) -> str:\n    return q\n\ndef search(q: str) -> str:\n    return q\n\n"
+        "a = Agent(name='a', tools=[lookup, *get_more()])\nb = Agent(name='b', tools=TOOLS)\n"
+    )
+    _git(tmp_path, "init", "-q", "-b", "main")
+    base = _commit(tmp_path, {"agent.py": agent.replace("TOOLS", "[search]")})
+    head = _commit(tmp_path, {"agent.py": agent.replace("TOOLS", "[]")})
+    result = _compare(tmp_path, base, head)
+
+    assert result["comparison_status"] == "partial"
+    assert _rows(result) == [("b", "search", "removed")]
+
+
+def test_application_diff_a_condition_change_beside_an_unread_part_is_not_established(tmp_path):
+    _git(tmp_path, "init", "-q", "-b", "main")
+    base = _commit(tmp_path, _sdk_agent("[load_and_validate, summarize, *plugin_tools()]"))
+    head = _commit(tmp_path, _sdk_agent("[load_and_validate, *([summarize] if ADMIN else []), *plugin_tools()]"))
+    result = _compare(tmp_path, base, head)
+
+    (row,) = result["rows"]
+    assert (row["tool"], row["change"], row["candidate_change"]) == ("summarize", "not_established", "changed")
+
+
+def test_application_diff_a_change_past_160_characters_of_a_condition_is_seen(tmp_path):
+    regions = ", ".join(f"'region-{n}'" for n in range(20))
+    tools = "[*FINANCE_TOOLS, *([prepare_finance_handoff] if os.environ.get('X', '') in (REGIONS) else [])]"
+    _git(tmp_path, "init", "-q", "-b", "main")
+    base = _commit(tmp_path, _sdk_agent(tools.replace("REGIONS", regions), "import os\n"))
+    head = _commit(tmp_path, _sdk_agent(tools.replace("REGIONS", regions + ", '*'"), "import os\n"))
+    result = _compare(tmp_path, base, head)
+
+    assert _rows(result) == [("finance", "prepare_finance_handoff", "changed")]
+
+
+def test_adk_a_literal_spread_keeps_the_surface_proven(tmp_path):
+    # No name another module could change: nothing puts the proof at risk.
+    _write(tmp_path, {"agent.py": "from google.adk.agents import Agent\n\n"
+                      "def lookup(q: str) -> str:\n    return q\n\ndef search(q: str) -> str:\n    return q\n\n"
+                      "root_agent = Agent(name='root', tools=[lookup] + [*[search]])\n"})
+    loaded, _ = _adk(tmp_path)
+    tools = [tool for source in loaded for tool in source.tools]
+    assert sorted(tool.name for tool in tools) == ["lookup", "search"]
+    assert all("dynamic_tools_expression" not in tool.extraction["surface_gaps"] for tool in tools)
+
+
+def test_sdk_one_load_indexes_an_imported_module_once(tmp_path, monkeypatch):
+    files = {"tools.py": SDK_TOOLS}
+    for index in range(5):
+        files[f"agents/agent_{index}.py"] = (
+            "from agents import Agent\nfrom tools import FINANCE_TOOLS\n"
+            f"agent_{index} = Agent(name='a{index}', tools=[*FINANCE_TOOLS])\n"
+        )
+    _write(tmp_path, files)
+    indexed: list[str] = []
+    original = ListExpressions._index_changes
+
+    def counting(self, view):
+        indexed.append(view.ref)
+        return original(self, view)
+
+    monkeypatch.setattr(ListExpressions, "_index_changes", counting)
+    from agents_shipgate.inputs.openai_sdk_static import load_openai_sdk_static_tools
+    from agents_shipgate.schemas.manifest import ToolSourceConfig
+
+    loaded = load_openai_sdk_static_tools(
+        ToolSourceConfig(id="sdk", type="openai_agents_sdk", path="."), None, tmp_path
+    )
+    assert indexed.count("tools.py") <= 2  # once as an imported module, once if read as an entry
+    assert all(observation.tools_complete for observation in loaded.binding_observations)

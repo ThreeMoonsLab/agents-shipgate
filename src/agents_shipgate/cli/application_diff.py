@@ -924,6 +924,27 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
             "source": key[0],
             "location": agent.source_pointer,
         }
+    if artifacts is not None:
+        # A Google ADK list read only in part is a limit its agent already
+        # carries; the toolset record beside it names no agent, and would
+        # otherwise cover every agent in the file (#909 review).
+        incomplete = {
+            (_source_path(root, observation.source), observation.agent)
+            for item in loaded
+            for observation in item.binding_observations
+            if not observation.tools_complete
+        }
+        dynamic = [toolset for toolset in artifacts.toolsets if toolset.dynamic or not toolset.resolved]
+        if dynamic and all(
+            toolset.kind == "dynamic"
+            and toolset.agent_name
+            and (_source_path(root, toolset.source_ref or ""), toolset.agent_name) in incomplete
+            for toolset in dynamic
+        ):
+            attributed.update(
+                f"Google ADK toolset {toolset.name or toolset.kind!r} is not statically enumerable."
+                for toolset in dynamic
+            )
     for issue in graph.issues:
         if (
             issue.kind in {"ambiguous_root_agent", "missing_binding_evidence"}
@@ -1191,6 +1212,13 @@ def compare(
             only_condition = before_meaning != _meaning(after) and (
                 {**before_meaning, "bound_when": None} == {**_meaning(after), "bound_when": None}
             )
+            if only_condition:
+                # A part of the list that was not read may hold the tool some
+                # other way, so the condition is not established either.
+                for side, observed, moves in (("base", base, target_moves), ("head", head, None)):
+                    reasons = observed.absence_gaps(key, moves)
+                    if reasons:
+                        uncertainty.setdefault(side, []).extend(reasons)
             if before_meaning != _meaning(after):
                 # A factory value this read cannot name moved with the code
                 # around it: a candidate change, not an established one.

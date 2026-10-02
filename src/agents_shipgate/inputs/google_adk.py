@@ -42,6 +42,7 @@ from agents_shipgate.inputs.list_expressions import (
     Conditions,
     ListExpressions,
     ListMember,
+    ListResolution,
     source_text,
     unread_list_reason,
 )
@@ -1151,6 +1152,12 @@ class _PythonAdkExtractor:
                     self.agent_sites.setdefault(agent_name, {})[id(call)] = (call.lineno, call)
                 continue
             if tools_expr is None:
+                # No tools, but a construction all the same: two of one name
+                # that hand off differently are not one agent (#909 review).
+                binding = self._binding_for(agent_name, call)
+                loaded_sources.extend(
+                    self._read_construction(call, agent_name, binding, [], tools, handoffs)
+                )
                 continue
             if isinstance(tools_expr, ast.List | ast.Tuple) and not any(
                 isinstance(item, ast.Starred) for item in tools_expr.elts
@@ -1162,12 +1169,14 @@ class _PythonAdkExtractor:
                 # a module list, a filter (#909): every member it can hold.
                 listed = self.lists.resolve(tools_expr)
                 members = list(listed.members)
-                self.artifacts.agents[-1]["tool_count"] = len(members)
+                self.artifacts.agents[-1]["tool_count"] = len({id(member.expr) for member in members})
                 unread = listed if listed.unresolved else None
-                # Read, but not proven for ``scan``: a list is checked for
-                # changes only in the module that binds it, and another module
-                # could change it. No warning, so the comparison reads it.
-                self._note_surface_gap(SURFACE_GAP_DYNAMIC_TOOLS)
+                if _at_risk(listed):
+                    # Read, but not proven for ``scan``: a list is checked for
+                    # changes only in the module that binds it, and another
+                    # module could change it. No warning, so the comparison
+                    # reads it.
+                    self._note_surface_gap(SURFACE_GAP_DYNAMIC_TOOLS)
             binding = self._binding_for(agent_name, call)
             if unread is not None:
                 pointer = f"{self.source_ref}:{call.lineno}"
@@ -1224,6 +1233,7 @@ class _PythonAdkExtractor:
         binding.recording = []
         loaded: list[LoadedToolSource] = []
         conditioned: set[tuple[str, str]] = set()
+        always: set[str] = set()
         try:
             for member in members:
                 at = len(binding.recording)
@@ -1233,6 +1243,8 @@ class _PythonAdkExtractor:
                         binding.when.add(tool_name, member.conditions)
                         if member.conditions:
                             conditioned.add((tool_name, " and ".join(member.conditions)))
+                        else:
+                            always.add(tool_name)
         finally:
             recorded, binding.recording = binding.recording, None
         for tool_name, _ in recorded or ():
@@ -1258,6 +1270,7 @@ class _PythonAdkExtractor:
                 frozenset(recorded or ()),
                 tuple(sorted(name for handoff in handoffs for name in handoff["sub_agents"])),
                 frozenset(conditioned),
+                frozenset(always),
                 tuple(
                     sorted(
                         (name, tuple(alternatives))
@@ -1548,35 +1561,34 @@ class _PythonAdkExtractor:
         bindings = self.name_bindings.get(current.id, [])
         return len(bindings) == 1 and isinstance(bindings[0], ast.alias)
 
-    def _name_is_proven(self, name: str) -> bool:
+    def _name_is_proven(self, name: str, module: PythonModule | None = None) -> bool:
         """Whether ``name`` unambiguously refers to what the flat maps say.
 
         True only when the module binds the name exactly once, at module scope,
         through a statement that is a direct child of the module body. A second
         binding of any kind — a parameter, a class, an import, a later
         assignment, a ``global`` declaration — means the resolution is a guess
-        about which one was in effect, and a guess is not a proof.
+        about which one was in effect, and a guess is not a proof. ``module``
+        is where the name is written, when not here: a member of a list
+        another module builds (#909).
         """
 
-        bindings = self.name_bindings.get(name, [])
+        if module is None or module is self.module:
+            bindings, tree, parents = self.name_bindings.get(name, []), self.tree, self.parents
+        else:
+            bindings = self._names_of(module)[1].get(name, [])
+            tree, parents = module.tree, self._scopes_for(module).parents
         if len(bindings) != 1:
             return False
-        binding = bindings[0]
-        if self._scope_of(binding) is not self.tree:
+        scope = parents.get(bindings[0])
+        while scope is not None and not isinstance(scope, _SCOPE_NODES):
+            scope = parents.get(scope)
+        if scope is not tree:
             return False
-        return isinstance(self._top_level_statement(binding), _TOP_LEVEL_BINDING_STATEMENTS)
-
-    def _name_is_proven_in(self, module: PythonModule, name: str) -> bool:
-        """``_name_is_proven`` for a name written in another module (#909)."""
-
-        _, name_bindings = self._names_of(module)
-        bindings = name_bindings.get(name, [])
-        if len(bindings) != 1:
-            return False
-        statement = self._scopes_for(module).statement_of(bindings[0])
-        return statement in module.tree.body and isinstance(
-            statement, _TOP_LEVEL_BINDING_STATEMENTS
-        )
+        top: ast.AST = bindings[0]
+        while parents.get(top) is not None and parents.get(top) is not tree:
+            top = parents[top]
+        return isinstance(top, _TOP_LEVEL_BINDING_STATEMENTS)
 
     def _top_level_statement(self, node: ast.AST) -> ast.AST | None:
         """The direct child of the module body that contains ``node``."""
@@ -3096,10 +3108,7 @@ class _PythonAdkExtractor:
         if not made:
             # The spelling has to hold up like a local name where it is
             # written: here, or in the module whose list holds it (#909).
-            head = resolution.reference.split(".", 1)[0]
-            if spelled_in is None or spelled_in is self.module:
-                self._require_proven_name(head)
-            elif not self._name_is_proven_in(spelled_in, head):
+            if not self._name_is_proven(resolution.reference.split(".", 1)[0], spelled_in):
                 self._note_surface_gap(SURFACE_GAP_SHADOWED_DEFINITION)
         if any(step.get("module_getattr") for step in resolution.steps):
             # A package ``__getattr__`` could have answered before the
@@ -3652,8 +3661,12 @@ class _PythonAdkExtractor:
                     complete = True
                 else:
                     # A spread, concatenation, conditional or module list (#909).
+                    # Read, not proven for ``scan``: another module could change
+                    # the list, and the sub-agents it holds bring their tools.
                     listed = self.lists.resolve(value)
                     members, complete = list(listed.members), listed.complete
+                    if _at_risk(listed):
+                        self._note_surface_gap(SURFACE_GAP_DYNAMIC_TOOLS)
                 # None, unless every member is read: the graph then names the
                 # list as not statically named.
                 sub_agent_count = len(members) if complete else None
@@ -4663,6 +4676,17 @@ def _top_statement(node: ast.AST, function: ast.AST, parents: dict[ast.AST, ast.
     while current is not None and parents.get(current) is not function:
         current = parents.get(current)
     return current
+
+
+def _at_risk(listed: ListResolution) -> bool:
+    """Whether a list's reading depends on a binding another module could change.
+
+    Following a name did, even to an empty list, and so did reading another
+    module's list; a literal spread into a literal (``[a, *[b]]``,
+    ``[a] + [b]``) did not.
+    """
+
+    return bool(listed.unresolved) or listed.followed
 
 
 _TOP_LEVEL_BINDING_STATEMENTS = (

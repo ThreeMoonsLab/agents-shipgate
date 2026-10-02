@@ -23,10 +23,12 @@ from agents_shipgate.inputs.common import (
 from agents_shipgate.inputs.config_trace import trace_config_binding
 from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
 from agents_shipgate.inputs.list_expressions import (
-    MAX_DEPTH,
     Conditions,
+    ListCache,
     ListExpressions,
     ListMember,
+    shared_lists,
+    source_text,
     unread_list_reason,
     unread_parts,
 )
@@ -228,6 +230,9 @@ def _extract_agent_bindings(
         }
     )
     imports = _ImportedTools(tools, source, base_dir)
+    # What reading one file's lists learns about a module it imports serves
+    # every other file of this load (#909 review).
+    list_cache = ListCache()
     for path in paths:
         text = load_text_file(path)
         tree = parse_python_file(path, label="OpenAI Agents SDK")
@@ -272,6 +277,15 @@ def _extract_agent_bindings(
                 return literal
             return target or literal
         module_bindings = module.bindings if module is not None else _module_bindings(tree)[0]
+        #: Every agent identity this file constructs: a handoff from another
+        #: module's list spelled the same would be read as this file's agent.
+        local_identities = {
+            identity
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and _denotes_agent(sdk_names, node)
+            for identity in (identity_of(node),)
+            if identity is not None
+        }
         lists = ListExpressions(
             ref=source_ref,
             tree=tree,
@@ -279,9 +293,10 @@ def _extract_agent_bindings(
             bindings=module_bindings,
             module=module,
             resolver=imports.resolver if module is not None else None,
-            agent_reads=lambda call, keyword, sdk_names=sdk_names: _agent_reads(
-                sdk_names, call, keyword
+            agent_reads=lambda call, keyword, sdk_names=sdk_names, scopes=scopes, module_bindings=module_bindings: _agent_reads(
+                sdk_names, scopes, module_bindings, call, keyword
             ),
+            cache=list_cache if module is not None else None,
         )
         subclasses = _agent_subclasses(tree, sdk_names)
         values = _AgentValues(tree, scopes, module_bindings, sdk_names, subclasses)
@@ -367,7 +382,11 @@ def _extract_agent_bindings(
             values.constructed[id(call)] = target
             # The list objects this agent may hold: an in-place change through
             # any agent sharing one reaches this one too.
-            for shared in _shared_lists(scopes, module_bindings, call):
+            for shared in shared_lists(
+                scopes,
+                module_bindings,
+                [value for value in (_keyword(call, "tools"), _keyword(call, "handoffs")) if value is not None],
+            ):
                 list_holders.setdefault(shared, set()).add(target)
             opaque = _opaque_arguments(call)
             if opaque is not None:
@@ -412,11 +431,16 @@ def _extract_agent_bindings(
                 if reference is None:
                     reason = (
                         f"OpenAI Agents SDK agent {target!r} at {pointer} binds the tool "
-                        f"expression `{_short(element)}`, which is not a reference this "
+                        f"expression `{source_text(element)}`, which is not a reference this "
                         "reader resolves."
                     )
                     warnings.append(reason)
                     issues.append(reason)
+                    recovery_evidence.append(SourceRecoveryEvidence(
+                        warning=reason, source_id=source.id, source_type="openai_agents_sdk",
+                        source_ref=pointer, path=source_ref,
+                        recovery=CoverageRecovery(kind="unresolved", reason="sdk_tools_expression_unresolved"),
+                    ))
                     tools_complete = False
                     continue
                 if member.module is not None:
@@ -477,11 +501,9 @@ def _extract_agent_bindings(
                     warnings.append(reason)
                     issues.append(reason)
                     tools_complete = False
-                    names.append(
-                        reference if member.module is not None
-                        else import_aliases.get(reference, reference)
-                    )
-                    when.add(names[-1], member.conditions)
+                    if member.module is None:
+                        names.append(import_aliases.get(reference, reference))
+                        when.add(names[-1], member.conditions)
                     continue
                 locator = f"{tool.source_ref}#{tool.name}" if tool.source_ref else None
                 if tool.name in duplicated:
@@ -539,11 +561,12 @@ def _extract_agent_bindings(
                     identity_of=identity_of,
                     sdk_names=sdk_names,
                     resolver=imports.resolver if module is not None else None,
+                    local_identities=local_identities,
                 )
                 if identity is None:
                     reason = (
                         f"OpenAI Agents SDK agent {target!r} at {pointer} hands off to "
-                        f"`{_short(member.expr)}`, which is not resolved to an agent: {why_not}."
+                        f"`{source_text(member.expr)}`, which is not resolved to an agent: {why_not}."
                     )
                     warnings.append(reason)
                     issues.append(reason)
@@ -788,19 +811,55 @@ class _ImportedTools:
         return tool, "; ".join(resolution.caveats) or None
 
 
-def _agent_reads(sdk_names: _SdkNames, call: ast.Call, keyword: str | None) -> bool:
-    """Whether ``call`` builds an agent, or a copy of one, that reads its list argument."""
+def _agent_reads(
+    sdk_names: _SdkNames,
+    scopes: ScopeIndex,
+    module_bindings: dict[str, list[Any]],
+    call: ast.Call,
+    keyword: str | None,
+) -> bool:
+    """Whether ``call`` builds an agent, or a copy of one, that reads its list argument.
 
-    return keyword in {"tools", "handoffs", "mcp_servers"} and (
-        sdk_names.denotes(dotted_name(call.func), call, "Agent", DEFAULT_AGENT_CONSTRUCTORS)
-        or (isinstance(call.func, ast.Attribute) and call.func.attr == "clone")
-        or dotted_name(call.func) in {"replace", "dataclasses.replace", "copy.replace"}
-    )
+    The spelling proves nothing (#909 review): ``.clone`` counts only on a name
+    bound to the SDK's ``Agent``, and ``replace`` only when it is the standard
+    library's ``dataclasses``/``copy`` function.
+    """
 
-
-def _short(node: ast.AST) -> str:
-    source = ast.unparse(node)
-    return source if len(source) <= 120 else source[:117] + "..."
+    if keyword not in {"tools", "handoffs", "mcp_servers"}:
+        return False
+    if sdk_names.denotes(dotted_name(call.func), call, "Agent", DEFAULT_AGENT_CONSTRUCTORS):
+        return True
+    if isinstance(call.func, ast.Attribute) and call.func.attr == "clone":
+        receiver = call.func.value
+        if not isinstance(receiver, ast.Name):
+            return False
+        local = scopes.enclosing_bindings(receiver, receiver.id)
+        if local:
+            statements = [scopes.statement_of(local[0])] if len(local) == 1 else []
+        else:
+            found = module_bindings.get(receiver.id, [])
+            statements = [found[0].statement] if len(found) == 1 else []
+        return any(
+            isinstance(getattr(statement, "value", None), ast.Call)
+            and _denotes_agent(sdk_names, statement.value)
+            for statement in statements
+        )
+    name = dotted_name(call.func)
+    if name not in {"replace", "dataclasses.replace", "copy.replace"}:
+        return False
+    head = name.split(".", 1)[0]
+    found = _bindings_at(scopes, module_bindings)(head, call)
+    if len(found) != 1 or not isinstance(found[0][0], ast.alias):
+        return False
+    alias, statement = found[0]
+    if head == "replace":
+        return (
+            isinstance(statement, ast.ImportFrom)
+            and not statement.level
+            and statement.module in {"dataclasses", "copy"}
+            and alias.name == "replace"
+        )
+    return isinstance(statement, ast.Import) and alias.name == head and alias.asname is None
 
 
 def _handoff_identity(
@@ -811,6 +870,7 @@ def _handoff_identity(
     identity_of: Callable[[ast.Call], str | None],
     sdk_names: _SdkNames,
     resolver: ImportResolver | None,
+    local_identities: set[str],
 ) -> tuple[str | None, str]:
     """The agent identity one handoff list member names, or why it names none.
 
@@ -845,55 +905,17 @@ def _handoff_identity(
         None,
     )
     if isinstance(resolution.value, ast.Call) and name is not None and not resolution.caveats:
+        if name in local_identities:
+            return None, (
+                f"`{name}` in {member.module.ref} has the name of an agent this module builds, "
+                "so which agent it is is not established"
+            )
         return name, ""
     return None, (
         f"`{item.id}` in {member.module.ref} does not end at an assignment of a construction"
         + (f" ({resolution.detail})" if resolution.detail else "")
         + (f" ({'; '.join(resolution.caveats)})" if resolution.caveats else "")
     )
-
-
-def _shared_lists(
-    scopes: ScopeIndex, module_bindings: dict[str, list[Any]], call: ast.Call
-) -> set[object]:
-    """Every list object the agent's ``tools=`` or ``handoffs=`` may be (#909).
-
-    ``BASE``, ``BASE or []`` and ``A if c else B`` hand the agent the list
-    itself, not a copy, and so does a name bound to one of them; a literal,
-    ``+``, a comprehension or ``list(...)`` builds a new one. Keys are the
-    binding's id, or ``("module", name)``.
-    """
-
-    found: set[object] = set()
-    pending = [
-        (value, 0)
-        for value in (_keyword(call, "tools"), _keyword(call, "handoffs"))
-        if value is not None
-    ]
-    while pending:
-        node, depth = pending.pop()
-        if depth > MAX_DEPTH:
-            continue
-        if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
-            pending.extend((value, depth + 1) for value in node.values)
-        elif isinstance(node, ast.IfExp):
-            pending.extend([(node.body, depth + 1), (node.orelse, depth + 1)])
-        elif isinstance(node, ast.Name):
-            local = scopes.enclosing_bindings(node, node.id)
-            key: object = id(local[0]) if local else ("module", node.id)
-            if key in found:
-                continue
-            found.add(key)
-            if local:
-                statement = scopes.statement_of(local[0]) if len(local) == 1 else None
-            else:
-                bindings = module_bindings.get(node.id, [])
-                statement = bindings[0].statement if len(bindings) == 1 else None
-            value = getattr(statement, "value", None)
-            if isinstance(statement, ast.Assign | ast.AnnAssign) and value is not None:
-                # ``TOOLS = BASE``: one object under a second name.
-                pending.append((value, depth + 1))
-    return found
 
 
 def _denotes_agent(sdk_names: _SdkNames, node: ast.AST) -> bool:
