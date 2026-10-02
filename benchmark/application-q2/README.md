@@ -33,6 +33,13 @@ change, as it is for a new user. Nothing is fetched while the diff runs.
 request; [`summarize.py`](summarize.py) counts statuses and rows from those
 documents. The counts are mechanical. The Q1/Q2 scores below are not.
 
+Each runner invocation invalidates previous JSON, diagnostic and run-status
+outputs for the corpus before preparing any clones. A timed-out or unavailable
+member has no JSON answer, so the summarizer reports `no_output` instead of
+reusing an earlier build's rows. Its reason is saved in `<slug>.err`, and every
+member's outcome is recorded in `runs.tsv`. The runner exits nonzero if any
+member is unavailable, times out or the engine exits nonzero.
+
 ## Scoring protocol
 
 Each pull request is scored by hand against its source at the pinned refs.

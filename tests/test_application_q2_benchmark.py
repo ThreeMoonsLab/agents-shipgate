@@ -13,6 +13,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -31,6 +32,7 @@ def _module(name: str):
 
 
 summarize = _module("summarize")
+run = _module("run")
 DEVELOPMENT = json.loads((BENCH / "development.json").read_text(encoding="utf-8"))
 MEMBERS = DEVELOPMENT["members"]
 LEDGERS = sorted((BENCH / "results").glob("*.scores.json"))
@@ -140,3 +142,102 @@ def test_the_release_runbook_records_the_count() -> None:
     runbook = (ROOT / "docs" / "release-runbook.md").read_text(encoding="utf-8")
     assert "benchmark/application-q2" in runbook
     assert "`Q2: n/49 development, m/≥30 holdout`" in runbook
+
+
+@pytest.mark.parametrize("outcome", ["success", "nonzero", "timeout", "unavailable", "fetch_failed"])
+def test_a_rerun_reports_current_outputs_and_fails_for_any_failed_member(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outcome: str,
+) -> None:
+    member = {"slug": "case", "merge_base": "a" * 40, "head": "b" * 40}
+    corpus = {"members": [member]}
+    corpus_path = tmp_path / "corpus.json"
+    corpus_path.write_text(json.dumps(corpus))
+    out = tmp_path / "out"
+    old = {"comparison_status": "compared", "rows": [{"change": "added"}]}
+    _write_run(out, "case", old)
+    (out / "case.err").write_text("previous build diagnostic")
+    (out / "runs.tsv").write_text("case\t0\t1.0\n")
+    # Files outside this corpus belong to another run and are not invalidated.
+    (out / "other.json").write_text("unrelated output")
+    engine = tmp_path / "engine"
+    engine_calls = []
+    current = {"comparison_status": "partial", "rows": [{"change": "removed"}]}
+
+    def engine_run(command, **kwargs):
+        engine_calls.append(command)
+        assert command[0] == str(engine)
+        if outcome == "timeout":
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+        return subprocess.CompletedProcess(
+            command, 2 if outcome == "nonzero" else 0,
+            json.dumps({"error": "config_error"} if outcome == "nonzero" else current),
+            "current refusal" if outcome == "nonzero" else "",
+        )
+
+    monkeypatch.setattr(run, "_has_commit", lambda *_: outcome != "unavailable")
+    monkeypatch.setattr(run.subprocess, "run", engine_run)
+    monkeypatch.setattr(run, "ensure_clone", lambda *_: "clone failed" if outcome == "fetch_failed" else None)
+    args = ["--engine", str(engine), "--corpus", str(corpus_path),
+            "--clones", str(tmp_path / "clones"), "--out", str(out)]
+    if outcome == "fetch_failed":
+        args.append("--fetch")
+
+    exit_code = run.main(args)
+    summary = summarize.load_run(corpus, out)["case"]
+    status = (out / "runs.tsv").read_text().strip().split("\t")[1]
+
+    assert exit_code == (0 if outcome == "success" else 1)
+    assert (out / "other.json").read_text() == "unrelated output"
+    assert "previous build" not in (out / "case.err").read_text()
+    assert summary["rows"]["added"] == 0
+    if outcome == "success":
+        assert status == "0" and summary["status"] == "partial"
+        assert summary["rows"]["removed"] == 1
+    elif outcome == "nonzero":
+        assert status == "2" and summary["status"] == "refused"
+        assert (out / "case.err").read_text() == "current refusal"
+    else:
+        assert status == ("timeout" if outcome == "timeout" else "unavailable")
+        assert summary["status"] == "no_output"
+        assert not (out / "case.json").exists()
+        assert (out / "case.err").read_text().strip()
+    assert len(engine_calls) == (0 if outcome in {"unavailable", "fetch_failed"} else 1)
+
+
+@pytest.mark.parametrize("failure", ["nonzero", "timeout", "unavailable"])
+def test_a_successful_member_does_not_hide_another_members_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str,
+) -> None:
+    members = [{"slug": slug, "merge_base": "a" * 40, "head": "b" * 40}
+               for slug in ("good", "bad")]
+    corpus = {"members": members}
+    corpus_path = tmp_path / "corpus.json"
+    corpus_path.write_text(json.dumps(corpus))
+    out = tmp_path / "out"
+    for member in members:
+        _write_run(out, member["slug"], {"comparison_status": "compared", "rows": [{"change": "added"}]})
+
+    def engine_run(command, **kwargs):
+        slug = kwargs["cwd"].name
+        # All members' old JSON is gone before the first engine starts.
+        assert not (out / "bad.json").exists()
+        if slug == "bad" and failure == "timeout":
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+        return subprocess.CompletedProcess(
+            command, 2 if slug == "bad" else 0,
+            json.dumps({"comparison_status": "partial", "rows": []}), "",
+        )
+
+    monkeypatch.setattr(run, "_has_commit", lambda clone, _: clone.name != "bad" or failure != "unavailable")
+    monkeypatch.setattr(run.subprocess, "run", engine_run)
+
+    exit_code = run.main(["--engine", str(tmp_path / "engine"), "--corpus", str(corpus_path),
+                          "--clones", str(tmp_path / "clones"), "--out", str(out), "--jobs", "1"])
+
+    assert exit_code == 1
+    statuses = {line.split("\t")[0]: line.split("\t")[1]
+                for line in (out / "runs.tsv").read_text().splitlines()}
+    assert statuses == {"good": "0", "bad": "2" if failure == "nonzero" else failure}
+    summary = summarize.load_run(corpus, out)
+    assert summary["good"]["status"] == "partial"
+    assert all(item["rows"]["added"] == 0 for item in summary.values())
