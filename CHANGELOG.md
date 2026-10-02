@@ -4,6 +4,7 @@
 
 ### Changes
 
+- **An empty preflight plan no longer grants merge or completion.** A plan that named no changed file, capability request or host permission request returned the shared `complete` state, whose permissions include `merge` and `report_complete`, with no verifier run behind it. Preflight `0.6` answers it with the new `planning_complete` state, which owes no action and authorizes nothing, and every preflight route now denies every permission in both the model and the published schema; `complete` and `review_publishable` cannot appear. Docs-only plans still route to `verify`, and protected surfaces and drift still stop for a human. `0.5` stays frozen and readable as a base preflight. Runtime contract 41 → 42; `minimum_control_contract_version` stays 21. Hooks written by `install-hooks` before this change accept only preflight `0.5`, so their instruction-structure check fails closed until `install-hooks --write` is re-run. See the `planning-only preflight` migration note in `STABILITY.md`. (#610)
 - Move the published-release pins, examples and adoption prompts to `v1.2.0` (contract 41) now that it is published, re-capture the README and quickstart `diff` answers from the published `1.2.0`, and re-measure the pilot ledger's Route H dry run on it. No schema or contract change. (#778)
 
 ## 1.2.0 - 2026-09-30

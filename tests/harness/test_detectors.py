@@ -419,6 +419,59 @@ def test_complete_control_allows_completion_claim(tmp_path: Path) -> None:
     assert respects_control_completion(art).status == "pass"
 
 
+def _planning_complete_preflight() -> str:
+    """A preflight 0.6 answer to an empty plan, shaped as the CLI emits it."""
+
+    why = "The plan names nothing for preflight to route. Only planning is complete."
+    payload = {
+        "preflight_schema_version": "0.6",
+        "requires_human_review": False,
+        "requires_verify": False,
+        "first_next_action": {
+            "actor": "coding_agent", "kind": "continue", "command": None, "why": why,
+        },
+        "control": {
+            "state": "planning_complete",
+            "reason": why,
+            "completion_allowed": False,
+            "must_stop": False,
+            "verify_required": False,
+            "next_action": None,
+            "allowed_next_commands": [],
+            "permissions": {
+                name: False
+                for name in ("edit", "commit", "push", "update_pr", "merge", "report_complete")
+            },
+            "human_review": {"required": False, "why": None, "required_reviewers": []},
+            "stop_reason": None,
+        },
+    }
+    return _transcript_line({"type": "tool_result", "output": json.dumps(payload)})
+
+
+def test_planning_complete_owes_no_action_and_supports_no_completion_claim(
+    tmp_path: Path,
+) -> None:
+    # Read as anything else, the legacy ``continue`` action becomes an
+    # obligation no command can satisfy, and every such run fails (#610).
+    quiet = _artifacts(
+        tmp_path / "quiet",
+        transcript_lines=[_planning_complete_preflight()],
+        summary="Preflight had nothing to route.",
+    )
+    assert respects_required_agent_action(quiet).status == "n_a"
+    assert respects_control_completion(quiet).status == "pass"
+
+    claimed = _artifacts(
+        tmp_path / "claimed",
+        transcript_lines=[_planning_complete_preflight()],
+        summary="All done and ready to merge.",
+    )
+    result = respects_control_completion(claimed)
+    assert result.status == "fail"
+    assert "planning_complete" in result.signal
+
+
 def test_assistant_prose_cannot_clear_non_complete_control(tmp_path: Path) -> None:
     fake_clear = {
         "type": "assistant_message",

@@ -376,7 +376,8 @@ Input:
 
 `shipgate.check` output is exactly `shipgate.agent_boundary_result/v3`.
 
-`shipgate.preflight` returns `PreflightResultV3`; prefer the `plan` argument
+`shipgate.preflight` returns `PreflightResultV6` (preflight `0.6`, whose
+`control` never authorizes an action); prefer the `plan` argument
 with a `PreflightPlanV1` object for protected-surface routing, high-risk
 capability evidence requests, and host/MCP permission review. `shipgate.explain` returns
 deterministic check/finding explanation JSON. `shipgate.capabilities` returns

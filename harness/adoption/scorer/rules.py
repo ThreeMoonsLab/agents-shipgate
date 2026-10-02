@@ -592,6 +592,10 @@ _CONTROL_STATES = frozenset(
         "agent_action_required",
         "review_publishable",
         "human_review_required",
+        # Preflight 0.6's planning-only answer (#610). Read as itself: it owes
+        # no action and authorizes nothing, so it neither creates an obligation
+        # nor supports a completion claim.
+        "planning_complete",
     }
 )
 

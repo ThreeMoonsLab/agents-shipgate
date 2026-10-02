@@ -60,9 +60,17 @@ def test_old_graph_cannot_assert_structure_and_current_rule_never_grants_authori
     with pytest.raises(ValidationError, match="instruction_structures"):
         TrustRootNodeV1.model_validate(node.model_dump(mode="json"))
     payload = result.model_dump(mode="json")
-    Draft202012Validator(json.loads((ROOT / "docs/preflight-schema.v0.5.json").read_text())).validate(payload)
+    Draft202012Validator(json.loads((ROOT / "docs/preflight-schema.v0.6.json").read_text())).validate(payload)
     legacy = {key: value for key, value in payload.items() if key in PreflightResultV3.model_fields}
     legacy["preflight_schema_version"] = "0.3"
+    # A stored 0.3 answer to an empty plan carried the shared ``complete``;
+    # 0.6's ``planning_complete`` did not exist yet (#610).
+    legacy["control"] = {
+        **legacy["control"],
+        "state": "complete",
+        "completion_allowed": True,
+        "permissions": dict.fromkeys(legacy["control"]["permissions"], True),
+    }
     legacy["trust_root_graph"]["schema_version"] = "0.1"
     for node in legacy["trust_root_graph"]["nodes"]:
         node.pop("instruction_structures", None)

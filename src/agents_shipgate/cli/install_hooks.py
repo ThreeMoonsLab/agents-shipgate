@@ -755,7 +755,9 @@ def _unchanged_instruction_preview(
             answer = json.load(output)
     except (OSError, subprocess.TimeoutExpired, ValueError, UnicodeError):
         return False
-    if not isinstance(answer, dict) or answer.get("preflight_schema_version") != "0.5":
+    # 0.5 and 0.6 route this proof identically; a hook installed now keeps
+    # working against either CLI. Anything else is not a proof (#610).
+    if not isinstance(answer, dict) or answer.get("preflight_schema_version") not in {"0.5", "0.6"}:
         return False
     control = answer.get("control")
     human = control.get("human_review") if isinstance(control, dict) else None

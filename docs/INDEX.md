@@ -112,8 +112,9 @@ remain separate, pending work.
 - [`codex-boundary-result-schema.v2.json`](codex-boundary-result-schema.v2.json) — frozen deprecated compatibility projection for `--format codex-boundary-json`
 - [`codex-boundary-result-schema.v1.json`](codex-boundary-result-schema.v1.json) — frozen boundary v1 reference
 - [`agent-result-schema.v1.json`](agent-result-schema.v1.json) — legacy JSON Schema retained for existing local-agent protocol and MCP surfaces; not emitted by `agents-shipgate verify`
-- [`preflight-schema.v0.5.json`](preflight-schema.v0.5.json) — current proactive preflight control schema
-- [`preflight-schema.v0.4.json`](preflight-schema.v0.4.json) — frozen prior reference; no inferred structural comparison
+- [`preflight-schema.v0.6.json`](preflight-schema.v0.6.json) — current proactive preflight control schema; `planning_complete`, and no permission on any route
+- [`preflight-schema.v0.5.json`](preflight-schema.v0.5.json) — frozen prior reference; an empty plan returned the shared `complete`
+- [`preflight-schema.v0.4.json`](preflight-schema.v0.4.json) — frozen reference; no inferred structural comparison
 - [`policy-pack-schema.v0.4.json`](policy-pack-schema.v0.4.json) — JSON Schema for local policy-pack YAML files (current; selectors are evaluated against typed predicate evidence)
 - [`policy-pack-schema.v0.3.json`](policy-pack-schema.v0.3.json) — frozen v0.3 policy-pack reference
 - [`policy-pack-schema.v0.2.json`](policy-pack-schema.v0.2.json) — frozen v0.2 policy-pack reference

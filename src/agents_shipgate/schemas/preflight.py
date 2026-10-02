@@ -1,17 +1,26 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from agents_shipgate.schemas.agent_control import AgentControl
+from agents_shipgate.schemas.agent_control import (
+    PERMISSION_FIELDS,
+    AgentActionRequiredControl,
+    AgentControl,
+    ExactCommand,
+    HumanReviewRequiredControl,
+    NoAgentPermissions,
+    NoHumanReview,
+    NonEmptyText,
+)
 from agents_shipgate.schemas.instruction_structure import (
     ConditionalInstructionEditRule,
     InstructionStructureEvidence,
 )
 from agents_shipgate.schemas.surfaces import ActionEffect
 
-PREFLIGHT_SCHEMA_VERSION = "0.5"
+PREFLIGHT_SCHEMA_VERSION = "0.6"
 MAX_PREFLIGHT_DIFF_BYTES = 32 * 1024 * 1024
 
 PreflightActor = Literal["coding_agent", "human"]
@@ -453,7 +462,11 @@ class PreflightResultV3(PreflightResultV2):
             )
 
         legacy = self.first_next_action
-        if control.state == "complete":
+        # ``planning_complete`` exists only in the v0.6 control union, so it
+        # never reaches this branch from a v0.3 or v0.5 model. It projects the
+        # same legacy ``continue`` action ``complete`` did: the fields a
+        # pre-v0.3 reader switches on never carried authority.
+        if control.state in {"complete", "planning_complete"}:
             if legacy.actor != "coding_agent" or legacy.kind != "continue":
                 raise ValueError("complete preflight control must project a legacy continue action")
             if legacy.command is not None or legacy.why != control.reason:
@@ -539,7 +552,212 @@ class PreflightResultV5(PreflightResultV3):
     conditional_file_edits: list[ConditionalInstructionEditRule] = Field(default_factory=list)
 
 
+class PlanningCompleteControl(BaseModel):
+    """Preflight had nothing to route, and it authorizes nothing (#610).
+
+    Preflight answers a question about a *planned* change. When the plan names
+    no changed file, capability request or host permission request, and nothing
+    else raises a signal, the only thing that finished is the planning. This
+    state says exactly that.
+
+    It is deliberately not the shared ``complete``. ``complete`` carries the
+    verifier's terminal authority -- ``merge`` and ``report_complete`` -- and
+    every consumer of the shared union is entitled to read it that way. Before
+    v0.6 an empty plan returned it, so leaving files out of a plan minted merge
+    authority with no verifier identity behind it. Here every permission is
+    false, the same as on every other preflight route, and only ``verify`` can
+    authorize merge or completion.
+
+    A separate declaration rather than a subclass of the shared control base:
+    that base types ``state`` as the shared four-state vocabulary, and this
+    state must never enter it. The shared ``AgentControl`` union is embedded
+    by six durable schemas and does not change.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "required": [
+                "state",
+                "reason",
+                "completion_allowed",
+                "must_stop",
+                "verify_required",
+                "next_action",
+                "allowed_next_commands",
+                # Required here, unlike the legacy-tolerant shared variants:
+                # this state did not exist before v0.6, so an omitted vector is
+                # a malformed current payload, never an old one.
+                "permissions",
+                "human_review",
+                "stop_reason",
+            ]
+        },
+    )
+
+    state: Literal["planning_complete"]
+    reason: NonEmptyText
+    completion_allowed: Literal[False] = False
+    must_stop: Literal[False] = False
+    verify_required: Literal[False] = False
+    next_action: None = None
+    allowed_next_commands: list[ExactCommand] = Field(default_factory=list, max_length=0)
+    # No default, as on the shared ``review_publishable``: the vector is the
+    # claim this state exists to make, so a payload that omits it is refused
+    # by the model exactly as the schema refuses it.
+    permissions: NoAgentPermissions
+    human_review: NoHumanReview = Field(default_factory=NoHumanReview)
+    stop_reason: None = None
+
+
+# Preflight's own control vocabulary. It drops ``complete`` (preflight never has
+# an evaluated change to stand behind) and ``review_publishable`` (nothing exists
+# yet to publish), and adds ``planning_complete``.
+type PreflightControl = Annotated[
+    PlanningCompleteControl | AgentActionRequiredControl | HumanReviewRequiredControl,
+    Field(discriminator="state"),
+]
+
+
+def _control_state_is(state: str) -> dict[str, Any]:
+    return {
+        "properties": {
+            "control": {
+                "properties": {"state": {"const": state}},
+                "required": ["state"],
+            }
+        },
+        "required": ["control"],
+    }
+
+
+class PreflightResultV6(PreflightResultV5):
+    """Planning results that can never carry authority (#610).
+
+    ``control`` is preflight's own union: ``planning_complete``,
+    ``agent_action_required`` or ``human_review_required``. Every permission is
+    false on every route, in the model and in the generated schema alike, so an
+    empty or docs-only plan cannot be read as evidence that a change was
+    verified or may merge. Everything else is v0.5 unchanged.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "allOf": [
+                {
+                    # Mirrors ``_plans_authorize_nothing``: every route, every
+                    # permission, and the vector is always present.
+                    "properties": {
+                        "control": {
+                            "properties": {
+                                "permissions": {
+                                    "properties": {
+                                        field: {"const": False} for field in PERMISSION_FIELDS
+                                    },
+                                    "required": list(PERMISSION_FIELDS),
+                                }
+                            },
+                            "required": ["permissions"],
+                        }
+                    }
+                },
+                {
+                    "if": _control_state_is("planning_complete"),
+                    "then": {
+                        "properties": {
+                            "requires_human_review": {"const": False},
+                            "requires_verify": {"const": False},
+                            "verification_command": {"type": "null"},
+                            "allowed_next_commands": {"maxItems": 0},
+                            "first_next_action": {
+                                "properties": {
+                                    "actor": {"const": "coding_agent"},
+                                    "kind": {"const": "continue"},
+                                    "command": {"type": "null"},
+                                }
+                            },
+                        }
+                    },
+                },
+                {
+                    "if": _control_state_is("agent_action_required"),
+                    "then": {
+                        "properties": {
+                            "control": {
+                                "properties": {
+                                    "next_action": {
+                                        "properties": {"kind": {"const": "verify"}},
+                                        "required": ["kind"],
+                                    }
+                                }
+                            },
+                            "requires_human_review": {"const": False},
+                            "requires_verify": {"const": True},
+                            "verification_command": {"type": "string"},
+                            "first_next_action": {
+                                "properties": {
+                                    "actor": {"const": "coding_agent"},
+                                    "kind": {"const": "verify"},
+                                    "command": {"type": "string"},
+                                }
+                            },
+                        }
+                    },
+                },
+                # The human route is unchanged from v0.3.
+                PreflightResultV3.model_config["json_schema_extra"]["allOf"][2],
+            ]
+        },
+    )
+
+    preflight_schema_version: Literal["0.6"] = "0.6"
+    control: PreflightControl
+
+    @model_validator(mode="after")
+    def _plans_authorize_nothing(self) -> PreflightResultV6:
+        if self.control.permissions.authorizes_anything:
+            raise ValueError(
+                "preflight evaluates a planned change, so it authorizes no action"
+            )
+        return self
+
+
+type AnyPreflightResult = (
+    PreflightResultV1 | PreflightResultV2 | PreflightResultV3 | PreflightResultV5 | PreflightResultV6
+)
+
+# The one version ladder for reading a stored result back, used by the core
+# builder and the CLI alike so a new version cannot be readable in one and
+# refused by the other. ``0.4`` is absent on purpose: that bump moved only the
+# schema file, and its payloads still say ``0.3``. Anything unrecognised is
+# read as ``0.1``, whose closed model refuses it by name.
+_RESULT_MODEL_BY_VERSION: dict[str, type[PreflightResultV1]] = {
+    "0.6": PreflightResultV6,
+    "0.5": PreflightResultV5,
+    "0.3": PreflightResultV3,
+    "0.2": PreflightResultV2,
+}
+
+
+def parse_preflight_result(payload: dict[str, Any]) -> AnyPreflightResult:
+    """Validate a stored preflight result as the version it names.
+
+    Raises ``pydantic.ValidationError``; callers attach their own input label.
+    """
+
+    model = _RESULT_MODEL_BY_VERSION.get(
+        payload.get("preflight_schema_version"), PreflightResultV1
+    )
+    return model.model_validate(payload)
+
+
 __all__ = [
+    "AnyPreflightResult",
+    "parse_preflight_result",
+    "PlanningCompleteControl",
+    "PreflightControl",
+    "PreflightResultV6",
     "PreflightResultV5",
     "PreflightProtectedSurfaceTouchV2",
     "TrustRootGraphV2",

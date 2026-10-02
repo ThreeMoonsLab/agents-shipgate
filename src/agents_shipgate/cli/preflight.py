@@ -28,12 +28,10 @@ from agents_shipgate.core.preflight import build_preflight_result
 from agents_shipgate.core.trust_roots import inspect_lexical_path_identity
 from agents_shipgate.schemas.diagnostics import NextAction
 from agents_shipgate.schemas.preflight import (
+    AnyPreflightResult,
     CapabilityRequestV1,
     PreflightPlanV1,
-    PreflightResultV1,
-    PreflightResultV2,
-    PreflightResultV3,
-    PreflightResultV5,
+    parse_preflight_result,
 )
 
 logger = logging.getLogger(__name__)
@@ -284,7 +282,7 @@ def preflight(
     json_output: bool = typer.Option(
         False,
         "--json",
-        help="Emit the PreflightResultV5 JSON contract.",
+        help="Emit the PreflightResultV6 JSON contract.",
     ),
     verbose: bool = typer.Option(False, "--verbose", help="Show debug details."),
 ) -> None:
@@ -462,6 +460,9 @@ def preflight(
         typer.echo(json.dumps(payload, indent=2))
         return
     typer.echo(f"Agents Shipgate preflight: {result.control.state.replace('_', ' ')}")
+    # Every preflight route denies all six permissions; say so, because a
+    # planning answer read as permission is the failure #610 closed.
+    typer.echo("Authorizes: nothing (only verify can authorize merge or completion)")
     typer.echo(f"Protected surface touches: {len(result.protected_surface_touches)}")
     missing = [item for item in result.required_evidence if not item.satisfied]
     typer.echo(f"Missing required evidence: {len(missing)}")
@@ -535,9 +536,7 @@ def _read_plan(path: Path) -> PreflightPlanV1:
         raise ConfigError(f"Invalid {source_label}: {exc}") from exc
 
 
-def _read_base_preflight(
-    path: Path | None,
-) -> PreflightResultV1 | PreflightResultV2 | PreflightResultV3 | PreflightResultV5 | None:
+def _read_base_preflight(path: Path | None) -> AnyPreflightResult | None:
     if path is None:
         return None
     source_label = _json_source_label(path, label="Base preflight")
@@ -545,14 +544,7 @@ def _read_base_preflight(
     if not isinstance(payload, dict):
         raise InputParseError(f"{source_label} JSON must be an object.")
     try:
-        version = payload.get("preflight_schema_version")
-        if version == "0.5":
-            return PreflightResultV5.model_validate(payload)
-        if version == "0.3":
-            return PreflightResultV3.model_validate(payload)
-        if version == "0.2":
-            return PreflightResultV2.model_validate(payload)
-        return PreflightResultV1.model_validate(payload)
+        return parse_preflight_result(payload)
     except ValidationError as exc:
         raise ConfigError(f"Invalid {source_label}: {exc}") from exc
 

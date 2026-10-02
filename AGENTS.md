@@ -142,7 +142,11 @@ agents-shipgate preflight --capability-request request.json --json
 
 Switch on `control.state`. If it is `human_review_required`, stop and route the
 change to a human. If it is `agent_action_required`, perform only the exact
-coding-agent route in `control.next_action`. The plan form accepts `changed_files[]`,
+coding-agent route in `control.next_action`. If it is `planning_complete` (preflight
+`0.6`, contract v42), the plan named nothing for preflight to route — an empty
+plan, for example. Only planning completed: every `control.permissions` value
+is `false`, and only `verify` can authorize merge or completion. Preflight
+never returns `complete`. The plan form accepts `changed_files[]`,
 `diff_text`, `capability_requests[]`, `host_permission_requests[]`, and
 `context.{agent,task}`; prefer it whenever the agent can describe the planned
 change as one JSON object. Protected surfaces include
@@ -831,7 +835,7 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Agent result schema (current) | [`docs/agent-result-schema.v3.json`](docs/agent-result-schema.v3.json) | `agent_result_v3` |
 | Verifier schema (current) | [`docs/verifier-schema.v0.21.json`](docs/verifier-schema.v0.21.json) | `0.21` |
 | Agent handoff schema (current) | [`docs/agent-handoff-schema.v9.json`](docs/agent-handoff-schema.v9.json) | `shipgate.agent_handoff/v9` |
-| Preflight schema (current) | [`docs/preflight-schema.v0.5.json`](docs/preflight-schema.v0.5.json) | `0.5` |
+| Preflight schema (current) | [`docs/preflight-schema.v0.6.json`](docs/preflight-schema.v0.6.json) | `0.6` |
 | Host-grants inventory schema | [`docs/host-grants-inventory-schema.v0.7.json`](docs/host-grants-inventory-schema.v0.7.json) | `0.7` |
 | Host-grants baseline schema | [`docs/host-grants-baseline-schema.v0.7.json`](docs/host-grants-baseline-schema.v0.7.json) | `0.7` |
 | Host-grants drift schema | [`docs/host-grants-drift-schema.v0.7.json`](docs/host-grants-drift-schema.v0.7.json) | `0.7` |
