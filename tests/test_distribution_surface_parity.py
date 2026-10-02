@@ -190,6 +190,10 @@ SURFACES: tuple[Surface, ...] = (
         # `effect_evidence` is `assess_tool_semantics` itself over that tool —
         # the engine's one effect model, called, not restated — so neither adds
         # a claim either (`tests/test_application_diff_tool_reach.py`).
+        # A side's `bound_when` (#909) is the source text of the condition a
+        # list member is held under, read and never evaluated: a fact about the
+        # source, not an engine answer, so it adds no claim
+        # (`tests/test_list_expressions.py`).
         {},
     ),
     Surface(

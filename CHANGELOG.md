@@ -4,6 +4,7 @@
 
 ### Changes
 
+- **`diff --application` reads tools lists built by an expression.** An OpenAI Agents SDK or Google ADK agent's `tools=` (and an SDK agent's `handoffs=`, an ADK agent's `sub_agents=`) built by a spread, `+`, a conditional, `or`, a filter or another module's list is read member by member instead of reported as one dynamic expression. A part it cannot read — a call, a builder's parameter, `self.tools` — is named with its location on that agent, which stays incomplete, and the members read are still compared. A member held only under a condition carries `bound_when`, and a change to the condition alone is a `changed` row whose direction is not established. `application_comparison_schema_version` 0.2 → 0.3. The Google ADK dynamic-tools limit now names its file and line and its agent, a starred element the ADK reader cannot read no longer leaves the agent's list read as complete, and an imported `handoffs=` list no longer reads as one handoff named after the list. The SDK recovery reason `sdk_literal_tool_list_concatenation_unsupported` is retired: that form is read (#584). For `scan`, an ADK list read this way is not counted as a proven surface. MEASURED (#909)
 - Move the published-release pins, examples and adoption prompts to `v1.2.0` (contract 41) now that it is published, re-capture the README and quickstart `diff` answers from the published `1.2.0`, and re-measure the pilot ledger's Route H dry run on it. No schema or contract change. (#778)
 
 ## 1.2.0 - 2026-09-30
