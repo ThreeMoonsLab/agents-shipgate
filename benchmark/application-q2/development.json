@@ -1,0 +1,743 @@
+{
+  "corpus": "application-q2-development",
+  "issue": "https://github.com/ThreeMoonsLab/agents-shipgate/issues/908",
+  "selection": {
+    "summary": "49 real pull requests admitted on 2026-09-25 as changes to an existing OpenAI Agents SDK or Google ADK agent's wiring; see search-2026-09-25 for the criteria and the members that turned out not to meet them.",
+    "assembled": "2026-09-25 (50 pull requests); re-pinned 2026-09-30 from PR numbers to 49 after the session scratchpad holding the pins was cleaned",
+    "pins": "merge_base is git merge-base of the PR's base and head commits; head is the PR head commit on 2026-09-30",
+    "search-2026-09-25": {
+      "criteria": [
+        "public repository importing the OpenAI Agents SDK or Google ADK",
+        "pull request merged or open, active in the 90 days before 2026-09-25",
+        "the patch edits an existing agent's tools=, sub_agents= or handoffs= in non-test code"
+      ],
+      "note": "Admitted by text and code search on these criteria. Re-reading the members for the 2026-09-30 ledger found twelve that do not meet them (other frameworks, framework or library internals, a model-string change); each ledger scores relevance per member as Q0, with the reason."
+    },
+    "frameworks": "the SDK/ADK sources the 6ced6f70 engine read at base or head, by import identity; empty when it read none"
+  },
+  "members": [
+    {
+      "slug": "ITMO-NSS-team_FEDOT.MAS-30",
+      "repository": "ITMO-NSS-team/FEDOT.MAS",
+      "number": 30,
+      "url": "https://github.com/ITMO-NSS-team/FEDOT.MAS/pull/30",
+      "title": "feat: decouple core from Google ADK via backend abstraction layer",
+      "state": "open",
+      "created_at": "2026-04-15T13:04:36Z",
+      "merge_base": "3f0c54bbe18c7ca10bd44e13d8aa339a2b746f3c",
+      "head": "706bc62529040ed9916c99fbff3bbd73f7c968d3",
+      "frameworks": [
+        "google_adk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "ITMO-NSS-team_FEDOT.MAS-36",
+      "repository": "ITMO-NSS-team/FEDOT.MAS",
+      "number": 36,
+      "url": "https://github.com/ITMO-NSS-team/FEDOT.MAS/pull/36",
+      "title": "fix: unbreak a first run, from cold start to final agent",
+      "state": "merged",
+      "created_at": "2026-08-31T17:33:58Z",
+      "merge_base": "43ab0ae355d66340ef671ecc8d3d2c00f4431dcc",
+      "head": "f599cfd0c73f782c3a7b2209a818b37ad7c48efb",
+      "frameworks": [
+        "google_adk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "ITMO-NSS-team_FEDOT.MAS-38",
+      "repository": "ITMO-NSS-team/FEDOT.MAS",
+      "number": 38,
+      "url": "https://github.com/ITMO-NSS-team/FEDOT.MAS/pull/38",
+      "title": "fix multi-step MAS routing",
+      "state": "merged",
+      "created_at": "2026-09-04T12:10:35Z",
+      "merge_base": "7d6ee1618dfd117ad50972595f3017f28f68e50a",
+      "head": "60a1e9645bec16616bf1500e498bcf996ce8352d",
+      "frameworks": [
+        "google_adk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "ITMO-NSS-team_FEDOT.MAS-42",
+      "repository": "ITMO-NSS-team/FEDOT.MAS",
+      "number": 42,
+      "url": "https://github.com/ITMO-NSS-team/FEDOT.MAS/pull/42",
+      "title": "feat(mcp): describe servers by their tools, and check they answer",
+      "state": "merged",
+      "created_at": "2026-09-14T09:26:43Z",
+      "merge_base": "f2bf5d0e9b675850497ae0180bb0bffc95bfb989",
+      "head": "35f1aee6030105056efdd39ed10f01c53d20e9c8",
+      "frameworks": [
+        "google_adk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "InseeFrLab_GRAAL-33",
+      "repository": "InseeFrLab/GRAAL",
+      "number": 33,
+      "url": "https://github.com/InseeFrLab/GRAAL/pull/33",
+      "title": "Match verifier eval",
+      "state": "merged",
+      "created_at": "2026-09-16T13:20:59Z",
+      "merge_base": "ec8bf2748933aca18965b8be043ba0ed484f2673",
+      "head": "f3c8737b96ded6da83b36ce6b179f2c4c692b641",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "JSebastianIEU_voice-freight-negotiator-10",
+      "repository": "JSebastianIEU/voice-freight-negotiator",
+      "number": 10,
+      "url": "https://github.com/JSebastianIEU/voice-freight-negotiator/pull/10",
+      "title": "Milestone 4b: the showcase (caller check, holographic explainer, guided call, reveal, EN/ES)",
+      "state": "merged",
+      "created_at": "2026-09-25T03:01:19Z",
+      "merge_base": "00c50bc54f5187314878767b560957de3fb6c42e",
+      "head": "51546cbcc69cdf7e280f7e95fa429c77904c3b9d",
+      "frameworks": [],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "JinyanSu1_Agentic-AI-Scientist-2",
+      "repository": "JinyanSu1/Agentic-AI-Scientist",
+      "number": 2,
+      "url": "https://github.com/JinyanSu1/Agentic-AI-Scientist/pull/2",
+      "title": "Fix/search and loop robustness",
+      "state": "merged",
+      "created_at": "2026-07-22T14:25:26Z",
+      "merge_base": "7fcba48f0acc7fcaa6eb6ce99abc5a8e0c4f41ca",
+      "head": "9704298fa60b59f9c4e4533cc1b2338883801711",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "Lling0000_OpenCMO-41",
+      "repository": "Lling0000/OpenCMO",
+      "number": 41,
+      "url": "https://github.com/Lling0000/OpenCMO/pull/41",
+      "title": "feat: add knowledge RAG with hybrid retrieval and source citations",
+      "state": "merged",
+      "created_at": "2026-09-07T16:37:03Z",
+      "merge_base": "2d2faf2e54365fd00b24810a0b12ffbfb0b23898",
+      "head": "4bba6fe228f877c804deee7174bf46033d8dc919",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "SponsioLabs_Sponsio-173",
+      "repository": "SponsioLabs/Sponsio",
+      "number": 173,
+      "url": "https://github.com/SponsioLabs/Sponsio/pull/173",
+      "title": "fix: every adapter gates the call its framework actually makes",
+      "state": "merged",
+      "created_at": "2026-09-15T21:39:57Z",
+      "merge_base": "6b7fa320c052bbf1698d57fb6221066235e5de66",
+      "head": "c05467defc49e624e55cf60dd0b0a6119fde5ca1",
+      "frameworks": [
+        "google_adk",
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "Tiendat2703_MIS_TALENT-5",
+      "repository": "Tiendat2703/MIS_TALENT",
+      "number": 5,
+      "url": "https://github.com/Tiendat2703/MIS_TALENT/pull/5",
+      "title": "Merge KN branch with validator agent to dev",
+      "state": "merged",
+      "created_at": "2026-07-20T18:07:40Z",
+      "merge_base": "5b2806896f7f0c337fd6b0115bcfdb70e3120fff",
+      "head": "e0d908c3afb858823f2ef43ac922b2e4bd10c0de",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "Tiendat2703_MIS_TALENT-6",
+      "repository": "Tiendat2703/MIS_TALENT",
+      "number": 6,
+      "url": "https://github.com/Tiendat2703/MIS_TALENT/pull/6",
+      "title": "Feat/missing data",
+      "state": "merged",
+      "created_at": "2026-07-21T06:54:23Z",
+      "merge_base": "06db17c5c977003c549fcb56952c1187e5979d55",
+      "head": "6d7a8f542e522ded38edddc1468a6f02fcc9f003",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "Tiendat2703_MIS_TALENT-7",
+      "repository": "Tiendat2703/MIS_TALENT",
+      "number": 7,
+      "url": "https://github.com/Tiendat2703/MIS_TALENT/pull/7",
+      "title": "contract form hot fix",
+      "state": "merged",
+      "created_at": "2026-07-21T08:18:46Z",
+      "merge_base": "420f570c9b800d54b9d3c0b2857339b2eb12445c",
+      "head": "da7034ae6ea4fc492ceb969a759a7d156e435d56",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "Tiendat2703_MIS_TALENT-8",
+      "repository": "Tiendat2703/MIS_TALENT",
+      "number": 8,
+      "url": "https://github.com/Tiendat2703/MIS_TALENT/pull/8",
+      "title": "add dev to main for new input form",
+      "state": "merged",
+      "created_at": "2026-07-21T09:00:36Z",
+      "merge_base": "5b2806896f7f0c337fd6b0115bcfdb70e3120fff",
+      "head": "279f081512c696eb57d6e86a56b9d020c27500aa",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "VRSEN_agency-swarm-796",
+      "repository": "VRSEN/agency-swarm",
+      "number": 796,
+      "url": "https://github.com/VRSEN/agency-swarm/pull/796",
+      "title": "refactor: build MCPServerOAuthClient on the Agents SDK streamable HTTP server",
+      "state": "merged",
+      "created_at": "2026-09-18T21:36:09Z",
+      "merge_base": "5e26b7ccdf686b0228df0939473b78bf801e6ff5",
+      "head": "07642c446c6fb470c3c803811c1a1cc74037af98",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "VRSEN_agency-swarm-804",
+      "repository": "VRSEN/agency-swarm",
+      "number": 804,
+      "url": "https://github.com/VRSEN/agency-swarm/pull/804",
+      "title": "refactor(mcp): delegate lifecycle and tool discovery to Agents SDK",
+      "state": "merged",
+      "created_at": "2026-09-19T19:15:44Z",
+      "merge_base": "ffee5359a5687d0a1b0110bff3094e9a51930a1d",
+      "head": "af76a4da9d003700b5cdbe8a078c004da86ba210",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "VidulaWickramasinghe_O.R.I.O.N-126",
+      "repository": "VidulaWickramasinghe/O.R.I.O.N",
+      "number": 126,
+      "url": "https://github.com/VidulaWickramasinghe/O.R.I.O.N/pull/126",
+      "title": "Harden O.R.I.O.N. security, release, and workspace workflows",
+      "state": "merged",
+      "created_at": "2026-08-30T03:16:35Z",
+      "merge_base": "490515f623cfe287628020442c75eda5c949e467",
+      "head": "1e7e19d423ca4d824570028b26aff85bf13d2ace",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "YaroslavMarkivskyi_internstore-migrate-4",
+      "repository": "YaroslavMarkivskyi/internstore-migrate",
+      "number": 4,
+      "url": "https://github.com/YaroslavMarkivskyi/internstore-migrate/pull/4",
+      "title": "feat: replace OpenAI with Gemini in ai-assistant and mcp-gateway (STR-161b Part 1)",
+      "state": "merged",
+      "created_at": "2026-08-19T14:12:22Z",
+      "merge_base": "2c046dbb5984a850e5d3db08eb5fa9458cd74eaa",
+      "head": "90cb54df8a094bea4b4b23584aa0263e9e9654be",
+      "frameworks": [],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "ZeroRuntimeAI_zeroruntime-python-examples-1",
+      "repository": "ZeroRuntimeAI/zeroruntime-python-examples",
+      "number": 1,
+      "url": "https://github.com/ZeroRuntimeAI/zeroruntime-python-examples/pull/1",
+      "title": "Refactor examples",
+      "state": "merged",
+      "created_at": "2026-08-11T07:09:21Z",
+      "merge_base": "fa4f4c5a86171d378ea0570d10f7720031cc154f",
+      "head": "fa88cb7de58b23ea48b176bb542133b12b0ccfaf",
+      "frameworks": [],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "ZeroRuntimeAI_zeroruntime-python-examples-5",
+      "repository": "ZeroRuntimeAI/zeroruntime-python-examples",
+      "number": 5,
+      "url": "https://github.com/ZeroRuntimeAI/zeroruntime-python-examples/pull/5",
+      "title": "Refactor/dx improve",
+      "state": "merged",
+      "created_at": "2026-08-27T05:16:01Z",
+      "merge_base": "1fb6d9aff3da380275be422bd1f3d02cdbe5ad05",
+      "head": "35958ef0d2136db9a0c24ebc0d8ab70ba5cbb40a",
+      "frameworks": [],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "alliance-genome_agr_ai_curation-842",
+      "repository": "alliance-genome/agr_ai_curation",
+      "number": 842,
+      "url": "https://github.com/alliance-genome/agr_ai_curation/pull/842",
+      "title": "Merge production v0.9.13 back into main for DEV parity",
+      "state": "merged",
+      "created_at": "2026-09-12T19:07:15Z",
+      "merge_base": "1923a477e372bb62ffb99f8c2547e0724a2690d3",
+      "head": "d37ec5fb4b4226fc5d118e3da8ebd2aefaf89935",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "alliance-genome_agr_ai_curation-858",
+      "repository": "alliance-genome/agr_ai_curation",
+      "number": 858,
+      "url": "https://github.com/alliance-genome/agr_ai_curation/pull/858",
+      "title": "Merge v0.9.21 production hotfix back into main",
+      "state": "merged",
+      "created_at": "2026-09-22T08:28:45Z",
+      "merge_base": "727d9bbdda28599c2db70aba95571f8e154a5f39",
+      "head": "48430990ab4d813f57ad9f31ff1765aff9433d8b",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "alliance-genome_agr_ai_curation-860",
+      "repository": "alliance-genome/agr_ai_curation",
+      "number": 860,
+      "url": "https://github.com/alliance-genome/agr_ai_curation/pull/860",
+      "title": "Merge v0.9.22 production hotfix back into main",
+      "state": "merged",
+      "created_at": "2026-09-25T04:27:59Z",
+      "merge_base": "9c1be6fbce1f7a79e37b8359b16d7b17f75dceb8",
+      "head": "e1fd3ca35a9cdf8d33d5744f0e52e25bdc979161",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "buriro-ezekia_cinescout-ai-9",
+      "repository": "buriro-ezekia/cinescout-ai",
+      "number": 9,
+      "url": "https://github.com/buriro-ezekia/cinescout-ai/pull/9",
+      "title": "Fix Phase 2 readiness and migrate to ADK Workflow",
+      "state": "merged",
+      "created_at": "2026-08-24T12:28:28Z",
+      "merge_base": "47a1cabd70ec48fdad5c5eee0560df006e400949",
+      "head": "24d9459d4db0d54f0e129fd2a014f4c4c2b15a87",
+      "frameworks": [
+        "google_adk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "carlosdaniel092015-crypto_pastoriza-66",
+      "repository": "carlosdaniel092015-crypto/pastoriza",
+      "number": 66,
+      "url": "https://github.com/carlosdaniel092015-crypto/pastoriza/pull/66",
+      "title": "Pedido m\u00ednimo como regla dura: avisar y bloquear si el subtotal no llega",
+      "state": "merged",
+      "created_at": "2026-08-21T18:18:51Z",
+      "merge_base": "bcc87e4379348df317a4f4c226565839805eaf45",
+      "head": "d2595e7c3ea58eacff0e53e5a5aa36446e3e759c",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "carlosdaniel092015-crypto_pastoriza-69",
+      "repository": "carlosdaniel092015-crypto/pastoriza",
+      "number": 69,
+      "url": "https://github.com/carlosdaniel092015-crypto/pastoriza/pull/69",
+      "title": "El tel\u00e9fono que da el cliente por chat llega ahora al aviso del supervisor",
+      "state": "merged",
+      "created_at": "2026-08-24T12:45:56Z",
+      "merge_base": "b9775c7b9e29013d7e7af57714111c0458bf0e1b",
+      "head": "b13886ebd37939e6a7823dde2765e730f81151e2",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "carlospolop_chack-agent-25",
+      "repository": "carlospolop/chack-agent",
+      "number": 25,
+      "url": "https://github.com/carlospolop/chack-agent/pull/25",
+      "title": "fix(research): pin administrator artifact workspace",
+      "state": "merged",
+      "created_at": "2026-08-09T22:46:08Z",
+      "merge_base": "dd79db40cf70694b7b7aa4837734016b8204a4e9",
+      "head": "4f1f176e952923e908fd083b81bf2bb2fcb4f305",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "cianfhoghlaim_tuatha-1",
+      "repository": "cianfhoghlaim/tuatha",
+      "number": 1,
+      "url": "https://github.com/cianfhoghlaim/tuatha/pull/1",
+      "title": "2026 08 27 kcg rename v1",
+      "state": "merged",
+      "created_at": "2026-09-12T07:10:16Z",
+      "merge_base": "375c6895b1acbde5d5b158a60a08494e77067418",
+      "head": "329c7fa68ced5798f8bfd5a525445385c85b07d8",
+      "frameworks": [
+        "google_adk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "contributory_starchatter-telegram-4",
+      "repository": "starfall-orb/starchatter-telegram",
+      "number": 4,
+      "url": "https://github.com/starfall-orb/starchatter-telegram/pull/4",
+      "title": "Update from task c9ec7617-098d-4c22-90dd-2c0238d62604",
+      "state": "merged",
+      "created_at": "2026-09-09T13:42:19Z",
+      "merge_base": "8aaf80f63c5073472e9e05a8ef25407aaf2e2ac5",
+      "head": "0eaa9f234b1157609400508dc6e01efaffaa3540",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "renamed_from": "contributory/starchatter-telegram",
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "cuppibla_adk_tutorial-7",
+      "repository": "cuppibla/adk_tutorial",
+      "number": 7,
+      "url": "https://github.com/cuppibla/adk_tutorial/pull/7",
+      "title": "Update model version from gemini-2.5-flash to gemini-flash-latest",
+      "state": "merged",
+      "created_at": "2026-07-14T15:44:34Z",
+      "merge_base": "172f1c3fa47cb88d170bf6177ebb564ffed6ebfe",
+      "head": "2f53067088d93d813a5d9fb55e2358fa96702d72",
+      "frameworks": [
+        "google_adk",
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "cuppibla_adk_tutorial-9",
+      "repository": "cuppibla/adk_tutorial",
+      "number": 9,
+      "url": "https://github.com/cuppibla/adk_tutorial/pull/9",
+      "title": "fix(b3_loop_agent): prevent refiner_agent from overwriting current_plan on loop completion (Fixes #4)",
+      "state": "open",
+      "created_at": "2026-09-13T05:57:55Z",
+      "merge_base": "c57a9f3a06a085873a2bf3835f65029ab73c9224",
+      "head": "65678d1cf0eb6466e4a4a48287ddbf969965ca2e",
+      "frameworks": [
+        "google_adk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "evvyraine_skye-next-17",
+      "repository": "evvyraine/skye-next",
+      "number": 17,
+      "url": "https://github.com/evvyraine/skye-next/pull/17",
+      "title": "Hide inner monologue behind send_message bubbles",
+      "state": "merged",
+      "created_at": "2026-08-23T08:53:50Z",
+      "merge_base": "72f0993442f6133a007c591d88ac17495089ae90",
+      "head": "4b7ed567456d04800d4bd918096b842e25f6574b",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "geroembser_livekit-agents-1",
+      "repository": "geroembser/livekit-agents",
+      "number": 1,
+      "url": "https://github.com/geroembser/livekit-agents/pull/1",
+      "title": "chore(agents): merge upstream livekit agents 1.8.1",
+      "state": "merged",
+      "created_at": "2026-09-13T03:20:58Z",
+      "merge_base": "6fbb50a75eb0376901ca12c426fa5db8ac64f7d5",
+      "head": "163597a3a27a283ef091ed76a60eaa4403f5fd58",
+      "frameworks": [],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "hamzafarooq_multi-agent-course-63",
+      "repository": "hamzafarooq/multi-agent-course",
+      "number": 63,
+      "url": "https://github.com/hamzafarooq/multi-agent-course/pull/63",
+      "title": "Build production-ready Aurora voice agent workshop",
+      "state": "merged",
+      "created_at": "2026-07-16T05:48:09Z",
+      "merge_base": "971479d83b34c3ba3db17f471d3bd3f6a70062f6",
+      "head": "43123042e226081ead5069869236fc247e72063b",
+      "frameworks": [],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "hamzafarooq_multi-agent-course-64",
+      "repository": "hamzafarooq/multi-agent-course",
+      "number": 64,
+      "url": "https://github.com/hamzafarooq/multi-agent-course/pull/64",
+      "title": "Some fixes",
+      "state": "merged",
+      "created_at": "2026-07-16T07:17:53Z",
+      "merge_base": "43123042e226081ead5069869236fc247e72063b",
+      "head": "3d22287de0c1da918eb33ba8df3b1821b05928f8",
+      "frameworks": [],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "jpka_attest-3",
+      "repository": "jpka/attest",
+      "number": 3,
+      "url": "https://github.com/jpka/attest/pull/3",
+      "title": "Memory Bank: Vertex AI working memory, and fix the import recursion it exposed",
+      "state": "merged",
+      "created_at": "2026-08-20T19:19:58Z",
+      "merge_base": "10e1f949d48b5349a180677c41c4ba30deab943d",
+      "head": "cab295001ec01e7fca388acee67842c6f53b5150",
+      "frameworks": [
+        "google_adk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "kkmiecik-coder_CRM-5",
+      "repository": "kkmiecik-coder/CRM",
+      "number": 5,
+      "url": "https://github.com/kkmiecik-coder/CRM/pull/5",
+      "title": "Domkniecie zamowienia w module wycen i szesc rund napraw Debusia",
+      "state": "merged",
+      "created_at": "2026-08-31T21:49:05Z",
+      "merge_base": "dae503cc671cc4a3c6fae9aaa9520464cfdfd74d",
+      "head": "0935d0931c58a75294b8c54239eb8ddf642558ed",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "krevetka-is-afk_llm-agent-for-ai-studio-19",
+      "repository": "krevetka-is-afk/llm-agent-for-ai-studio",
+      "number": 19,
+      "url": "https://github.com/krevetka-is-afk/llm-agent-for-ai-studio/pull/19",
+      "title": "Unify AI Studio interactions and enhance agent specifications",
+      "state": "merged",
+      "created_at": "2026-07-28T08:15:07Z",
+      "merge_base": "881ed5c341841f64de0add1b40ca540a0c9ca3bc",
+      "head": "cd3c9f5dcd78e57f1f67a10509df687b9d3fb656",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "krevetka-is-afk_llm-agent-for-ai-studio-20",
+      "repository": "krevetka-is-afk/llm-agent-for-ai-studio",
+      "number": 20,
+      "url": "https://github.com/krevetka-is-afk/llm-agent-for-ai-studio/pull/20",
+      "title": "Let users validate generated agents and enhance agent runtime features",
+      "state": "merged",
+      "created_at": "2026-07-28T08:15:35Z",
+      "merge_base": "cd3c9f5dcd78e57f1f67a10509df687b9d3fb656",
+      "head": "1868de9be838afedf3a24f5b9dbfa308d15ea333",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "krevetka-is-afk_llm-agent-for-ai-studio-23",
+      "repository": "krevetka-is-afk/llm-agent-for-ai-studio",
+      "number": 23,
+      "url": "https://github.com/krevetka-is-afk/llm-agent-for-ai-studio/pull/23",
+      "title": "Prepare for public release with extensive updates",
+      "state": "merged",
+      "created_at": "2026-08-15T15:11:00Z",
+      "merge_base": "1868de9be838afedf3a24f5b9dbfa308d15ea333",
+      "head": "7a422b38f933274955e18125170c6c19d87a16b0",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "liauto-siada_siada-cli-6",
+      "repository": "liauto-siada/siada-cli",
+      "number": 6,
+      "url": "https://github.com/liauto-siada/siada-cli/pull/6",
+      "title": "Open source release v1.7.20",
+      "state": "merged",
+      "created_at": "2026-07-31T07:30:24Z",
+      "merge_base": "df883407eeab38e19207033fb02d4043909ee62e",
+      "head": "3c594a03f82a22d89a394e5668dbfca15eb788b9",
+      "frameworks": [
+        "google_adk",
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "lifenyan_agent-desk-8",
+      "repository": "lifenyan/agent-desk",
+      "number": 8,
+      "url": "https://github.com/lifenyan/agent-desk/pull/8",
+      "title": "M8: Slack ingestion + MCP server + input guardrails",
+      "state": "merged",
+      "created_at": "2026-07-08T04:17:16Z",
+      "merge_base": "bda66ec745ce4f5ad74cb8bbc113501c8c33e8d9",
+      "head": "cb6e8a901aa548b9fc569a9fb3ac1220f6ec19c6",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "mezgoodle_Vesta-53",
+      "repository": "mezgoodle/Vesta",
+      "number": 53,
+      "url": "https://github.com/mezgoodle/Vesta/pull/53",
+      "title": "feat: Multi-Tenant Long-Term Memory System",
+      "state": "merged",
+      "created_at": "2026-07-08T06:34:18Z",
+      "merge_base": "fcf86c953a128de6f2fd2dfe9b4fed495b90285d",
+      "head": "e5095d3d5779f6827787086088c2cb56302f04d6",
+      "frameworks": [
+        "google_adk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "mezgoodle_Vesta-58",
+      "repository": "mezgoodle/Vesta",
+      "number": 58,
+      "url": "https://github.com/mezgoodle/Vesta/pull/58",
+      "title": "feat: Gmail API integration",
+      "state": "merged",
+      "created_at": "2026-07-13T07:48:32Z",
+      "merge_base": "96f08d6041ded0a5661e15424c0f005d2ae29ae9",
+      "head": "8626cba5bd1584eec6f804040139747deb44bf7c",
+      "frameworks": [
+        "google_adk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "mezgoodle_Vesta-70",
+      "repository": "mezgoodle/Vesta",
+      "number": 70,
+      "url": "https://github.com/mezgoodle/Vesta/pull/70",
+      "title": "feat(tasks): Integrate Google Tasks REST API into SecretaryAgent",
+      "state": "merged",
+      "created_at": "2026-07-23T06:31:39Z",
+      "merge_base": "c19704f95563bdf21db71b77ab9265e2f9559749",
+      "head": "e15e6a7bc31789297a6aac301878eb39ed927931",
+      "frameworks": [
+        "google_adk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "mosnin_realestatecrm-612",
+      "repository": "mosnin/realestatecrm",
+      "number": 612,
+      "url": "https://github.com/mosnin/realestatecrm/pull/612",
+      "title": "Preserve Chippi features, refine dashboards, and repair autonomous execution",
+      "state": "open",
+      "created_at": "2026-09-06T21:49:12Z",
+      "merge_base": "75113c0d68f40df0999d2dd470b831ffde3c3665",
+      "head": "051114d8e419144b02325362b54746d7a6330866",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "rustic-ai_rustic-ai-419",
+      "repository": "rustic-ai/rustic-ai",
+      "number": 419,
+      "url": "https://github.com/rustic-ai/rustic-ai/pull/419",
+      "title": "Make messaging priority boundary deterministic and add typed dependencies",
+      "state": "merged",
+      "created_at": "2026-08-27T06:12:14Z",
+      "merge_base": "f83e63bcdb5fefa68d1012a640b850753f73ca53",
+      "head": "a849e819e6548f3c725f8b563977dde17432c8e0",
+      "frameworks": [],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "surrealdb_agent-memory-openai-agents-sdk-1",
+      "repository": "surrealdb/agent-memory-openai-agents-sdk",
+      "number": 1,
+      "url": "https://github.com/surrealdb/agent-memory-openai-agents-sdk/pull/1",
+      "title": "chore!: rename to `agent-memory-openai-agents-sdk` and fix the SurrealDB SDK imports",
+      "state": "merged",
+      "created_at": "2026-09-09T14:34:35Z",
+      "merge_base": "6b79ad32efdfd7b95f737cb6968d7008def081f9",
+      "head": "8b2e269d4d321ca1050939c3d99cf37dd81f0033",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "xju2_hepagent-72",
+      "repository": "xju2/hepagent",
+      "number": 72,
+      "url": "https://github.com/xju2/hepagent/pull/72",
+      "title": "Remove Textual UI and streamline CLI runtime",
+      "state": "merged",
+      "created_at": "2026-07-10T17:33:52Z",
+      "merge_base": "1dcbe43111313278fefbab36508c0236b8a5f163",
+      "head": "ab189e95c240b3dee942625d67dc516bdf41c385",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    },
+    {
+      "slug": "xju2_hepagent-74",
+      "repository": "xju2/hepagent",
+      "number": 74,
+      "url": "https://github.com/xju2/hepagent/pull/74",
+      "title": "Analysis provenance graph + user-authored analysis plans",
+      "state": "merged",
+      "created_at": "2026-08-10T17:48:32Z",
+      "merge_base": "e2357b40e7461f5cd792aa8193523b4f578c9eef",
+      "head": "8d52e281145435aabf357b0c8540864319d25934",
+      "frameworks": [
+        "openai_agents_sdk"
+      ],
+      "admitted_by": "search-2026-09-25"
+    }
+  ]
+}

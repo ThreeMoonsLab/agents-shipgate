@@ -518,6 +518,13 @@ The shape that holds:
    `docs/changelog/<version>.md`, and leave a one-line-per-change section
    behind. This is the release body; verification refuses a tag with no
    matching section, and refuses one over 125,000 characters.
+   That record also states the application review count: run
+   [`benchmark/application-q2`](../benchmark/application-q2/README.md#every-release)
+   on both corpora with the release build, hand-score the rows that changed
+   since the previous ledger, commit the new ledger, and write
+   `Q2: n/49 development, m/≥30 holdout` with the change since the previous
+   release (#908). While the holdout has no pins, the line says so in place of
+   `m`. No success rate or market claim is made from either corpus.
 2. Stamp `<version>` on `STABILITY.md`'s title and on every
    `## Migration Note: unreleased` heading.
 3. Confirm `pyproject.toml` has the release version,
@@ -602,7 +609,10 @@ proves and in what the release carries.
 To cut one:
 
 1. Land a reviewed change declaring the version `advisory`. Once a tag for a
-   version exists, its entry cannot change.
+   version exists, its entry cannot change. The same change writes the
+   release record `docs/changelog/<version>.md`, which states the
+   application review count exactly as step 1 of
+   [§ Cutting the release](#cutting-the-release) describes (#908).
 2. Dispatch **Release Engine Smoke (unqualified)** on the release commit. Its
    wheel is the one that will be published.
 3. Dispatch **Advisory Release Rehearsal** on the same commit.

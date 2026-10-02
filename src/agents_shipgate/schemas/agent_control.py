@@ -190,6 +190,15 @@ PERMISSION_FIELDS = (
     "report_complete",
 )
 
+# The JSON-Schema form of "this vector authorizes nothing": every one of the
+# six present and false. One definition, so the control envelope and the
+# preflight result cannot publish two meanings of it.
+ALL_PERMISSIONS_DENIED_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {name: {"const": False} for name in PERMISSION_FIELDS},
+    "required": list(PERMISSION_FIELDS),
+}
+
 
 class _AgentPermissionsBase(BaseModel):
     """Action-scoped authority, fixed by the control state that carries it.

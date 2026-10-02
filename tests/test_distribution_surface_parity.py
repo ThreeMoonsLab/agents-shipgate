@@ -1235,6 +1235,28 @@ def test_harness_holds_no_drifted_copy_of_the_engine_vocabularies():
     }
 
 
+def test_harness_knows_every_control_state_the_engine_emits():
+    """The scorer's control-state vocabulary is the shared union plus preflight's.
+
+    A state it does not know is reconstructed from booleans, and #610's
+    ``planning_only`` read that way as an ``agent_action_required`` obligation
+    no command could satisfy, failing every run that consulted preflight.
+    """
+
+    from pydantic import TypeAdapter
+
+    from agents_shipgate.schemas.agent_control import AGENT_CONTROL_ADAPTER
+    from agents_shipgate.schemas.preflight import PreflightControl
+    from harness.adoption.scorer.rules import _CONTROL_STATES
+
+    def states(schema: dict) -> set[str]:
+        return set(schema["discriminator"]["mapping"])
+
+    assert _CONTROL_STATES == states(AGENT_CONTROL_ADAPTER.json_schema()) | states(
+        TypeAdapter(PreflightControl).json_schema()
+    )
+
+
 def test_alternation_reader_sees_a_seeded_extra_value():
     """Negative control: the reader above is not returning the engine's own set."""
 
