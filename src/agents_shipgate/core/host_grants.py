@@ -78,6 +78,7 @@ from agents_shipgate.core.openshell import (
     parse_selection,
     policy_field_paths,
 )
+from agents_shipgate.core.openshell_compare import compare_openshell_grants
 from agents_shipgate.core.permission_lattice import (
     exec_equivalent_argument,
     permission_pairing_group,
@@ -6013,9 +6014,13 @@ def diff_host_grants(baseline: dict[str, Any], current: dict[str, Any]) -> list[
     for grant_id in sorted(set(base_by_id) | set(current_by_id)):
         before = base_by_id.get(grant_id)
         after = current_by_id.get(grant_id)
+        same_openshell = bool(
+            before and after and before.get("kind") == after.get("kind") == "openshell_policy"
+            and compare_openshell_grants(before, after).direction == "equivalent"
+        )
         if compared_grant(before) != compared_grant(after) and not _same_workflow_grant(
             before, after
-        ):
+        ) and not same_openshell:
             changes.append({"grant_id": grant_id, "baseline": before, "current": after})
     return changes
 
@@ -6351,6 +6356,8 @@ def host_grant_direction_unknown(
     """
 
     before, after = change.get("baseline"), change.get("current")
+    if (after or before or {}).get("kind") == "openshell_policy":
+        return compare_openshell_grants(before, after).direction in {"unknown", "mixed"}
     if after is None or (before is not None and before.get("config_sha256") == after.get("config_sha256")):
         return False
     if host_grant_expansion_signals([change], comparison_changes=comparison_changes):
@@ -6383,6 +6390,11 @@ def host_grant_expansion_signals(
     for change in changes:
         before = change.get("baseline")
         after = change.get("current")
+        if (after or before or {}).get("kind") == "openshell_policy":
+            for reason in compare_openshell_grants(before, after).widened:
+                grant = after or before
+                signals.append(f"openshell_authority_expanded: {grant['source']}: {reason}")
+            continue
         if after is None:
             if before and before.get("kind") == "permission_rule" and before.get("disposition") in {"deny", "ask"}:
                 signals.append(f"{before['disposition']}_rule_removed: {before['host']}:{before['rule']}")

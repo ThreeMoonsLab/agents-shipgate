@@ -48,9 +48,53 @@ Defaults follow the pinned [OpenShell v0.1.2 authored schema](https://github.com
 and [conversion code](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/crates/openshell-policy/src/lib.rs).
 The [upstream schema reference](https://docs.nvidia.com/openshell/how-it-works/policies/schema)
 describes runtime constraints beyond document inventory. This reader is not a
-substitute for upstream policy validation. Semantic expansion/subset review,
-Git dependency identity, gate integration, local composition and native proof
-are separate implementation stages (#944–#948).
+substitute for upstream policy validation. Git dependency identity, gate
+integration, local composition and native proof are separate implementation
+stages (#945–#948).
+
+## Conservative declared-authority comparison
+
+The shared host comparator reads normalized policy facts. It describes
+declared authority, without establishing runtime enforcement or whether a
+named file, executable or destination exists. JSON and Markdown use the same
+before/after rows, expansion signals and explanations. `diff` publishes no
+merge verdict. Mixed changes retain their proven expansions and narrowings;
+their single overall direction remains unknown.
+
+| Surface | Supported direction proof | Unproven cases |
+|---|---|---|
+| Filesystem | Exact canonical absolute read/write path sets; read-write also grants read; duplicates are neutral | Omitted filesystem, changed workdir inclusion, ancestor overlap, noncanonical/wildcard paths, edits to runtime-baseline paths while network policy is present |
+| Landlock | `hard_requirement` to explicit/omitted `best_effort` weakens the compatibility requirement; reverse strengthens it | Actual kernel support or applied rules |
+| Process | Unchanged identity is neutral | Changed identity, image user/group resolution and driver defaults |
+| Network L4 | Exact binary × hostname × port selection without address/transport/request options | Wildcards, DNS/IP reach, executable resolution, credential options and endpoint path routing |
+| REST | Exact method/path matchers; method `*`; read-only/read-write/full presets; compatible overlapping allows with deny precedence | Request-path globs or omitted paths, query constraints, encoded-slash changes and protocol/credential options |
+| Other protocols | Unchanged normalized facts are neutral | Changes to MCP, GraphQL, WebSocket, JSON-RPC or middleware semantics |
+
+For REST, a finite partition includes every literal method/path on either side
+and an additional class for all other values. It evaluates the effective union
+of matching allows minus matching denials, keeping each binary/destination
+relationship. An unchanged covering grant makes an added grant redundant.
+Each possible combination of up to eight exact binary selectors is evaluated
+per destination, because a process may match both its own path and ancestor
+paths. A denial or inspected rule can therefore affect grants from another
+matching binary selector.
+Removing one of two covering denials does not expand the allowed set. A matching
+inspected rule suppresses request access from uninspected rules. Conflicting
+enforcement modes in overlapping inspected endpoints are unproven.
+
+Removing `enforcement: enforce` restores upstream `audit`, which permits
+well-formed requests that violate request rules. Malformed requests and runtime
+transport checks are outside this comparison. A full-access endpoint without
+denials already permits the compared request domain, so that transition alone
+is neutral. Named rules, collection order, duplicates and explicit spelling of
+an unchanged default are not authority. Adding/removing an entire selected
+document remains unknown because it establishes no replacement runtime policy.
+
+Comparison stops with a named unknown result beyond eight exact binary selectors
+per destination or 100,000 network reference
+or request-partition cells. Unsupported semantics never become inferred safe
+narrowing. An HTTP method or MCP tool name still supplies no business effect,
+approval, argument restriction or deployed agent binding.
 
 ## Read limits and coverage
 

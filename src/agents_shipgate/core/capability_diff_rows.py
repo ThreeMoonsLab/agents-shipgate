@@ -50,6 +50,7 @@ from agents_shipgate.core.host_grants import (
     step_action_key,
 )
 from agents_shipgate.core.host_settings import rate_claude_setting, setting_value_text
+from agents_shipgate.core.openshell_compare import compare_openshell_grants
 from agents_shipgate.core.permission_lattice import (
     exec_equivalent_argument,
     permission_pairing_group,
@@ -593,6 +594,11 @@ def _grant_value(
     if not grant:
         return ABSENT
     kind = str(grant.get("kind") or "")
+    if kind == "openshell_policy":
+        facts = grant["facts"]
+        policy = facts["policy"]
+        endpoints = sum(len(rule["endpoints"]) for rule in policy["network_policies"].values())
+        return f"{facts['role']}, OpenShell {facts['runtime_version']}, {endpoints} endpoint(s), facts {grant['config_sha256']}"
     if kind == "permission_rule" and redact_permission_arguments:
         from agents_shipgate.core.host_boundary import _safe_rule
 
@@ -1564,6 +1570,10 @@ def capability_diff_rows(
             agent_reasons=agent_reasons,
         )
         kind = grant.get("kind")
+        if kind == "openshell_policy":
+            comparison = compare_openshell_grants(before_grant, after_grant)
+            direction = comparison.direction if comparison.direction in {"widened", "narrowed"} else CHANGED
+            why = comparison.explanation + "; declared policy only; runtime enforcement and freshness are unverified"
         if (
             kind == "plugin_or_app" and after_grant is not None
             and not str(after_grant.get("name", "")).startswith("marketplace:")
