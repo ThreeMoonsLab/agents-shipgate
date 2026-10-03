@@ -28,7 +28,7 @@ VERIFY = "agents-shipgate verify --workspace . --config shipgate.yaml --format j
 
 
 def _complete() -> dict[str, object]:
-    return derive_agent_control(reason="No control obligation remains.").model_dump(mode="json")
+    return derive_agent_control(reason="No control obligation remains.", subject_evaluated=True).model_dump(mode="json")
 
 
 def _agent_action() -> dict[str, object]:

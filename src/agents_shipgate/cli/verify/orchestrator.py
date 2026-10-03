@@ -850,29 +850,6 @@ def run_verify(
         user_requested=True,
         input_status=_trigger_input_status(diff_input),
     )
-    verifier = _build_verifier(
-        git_root=git_root,
-        config_path=config_path,
-        base=base,
-        head=head,
-        changed_files=changed_files,
-        diff_text=diff_text,
-        trigger=trigger,
-        base_status=base_status,
-        base_tree=base_tree,
-        diff_status=_diff_status_artifact(diff_input),
-        base_report=base_report,
-        base_notes=base_notes,
-        report=None,
-        head_status="skipped",
-        head_exit_code=0,
-        out_dir=out_dir,
-        manifest_provenance_value=configured_manifest_provenance,
-        ci_mode=ci_mode,
-        worktree=not archive_head,
-        rerun_options=rerun_options,
-    )
-
     if diff_unavailable:
         verifier = _build_verifier(
             git_root=git_root,
@@ -920,28 +897,28 @@ def run_verify(
     if not trigger.get("run_shipgate"):
         if base and base_status == "not_requested":
             base_status = "skipped"
-            verifier = _build_verifier(
-                git_root=git_root,
-                config_path=config_path,
-                base=base,
-                head=head,
-                changed_files=changed_files,
-                diff_text=diff_text,
-                trigger=trigger,
-                base_status=base_status,
-                base_tree=base_tree,
-                diff_status=_diff_status_artifact(diff_input),
-                base_report=base_report,
-                base_notes=base_notes,
-                report=None,
-                head_status="skipped",
-                head_exit_code=0,
-                out_dir=out_dir,
-                manifest_provenance_value=configured_manifest_provenance,
-                ci_mode=ci_mode,
-                worktree=not archive_head,
-                rerun_options=rerun_options,
-            )
+        verifier = _build_verifier(
+            git_root=git_root,
+            config_path=config_path,
+            base=base,
+            head=head,
+            changed_files=changed_files,
+            diff_text=diff_text,
+            trigger=trigger,
+            base_status=base_status,
+            base_tree=base_tree,
+            diff_status=_diff_status_artifact(diff_input),
+            base_report=base_report,
+            base_notes=base_notes,
+            report=None,
+            head_status="skipped",
+            head_exit_code=0,
+            out_dir=out_dir,
+            manifest_provenance_value=configured_manifest_provenance,
+            ci_mode=ci_mode,
+            worktree=not archive_head,
+            rerun_options=rerun_options,
+        )
         _write_artifacts(
             verifier,
             verifier_path,
@@ -3905,6 +3882,7 @@ def _derive_verifier_control(
     configured_manifest: str | None = None,
     declaration_continuation: bool = False,
     durable_adoption_command: str | None = None,
+    skip_subject_evaluated: bool = False,
 ) -> AgentControl:
     """Project verifier facts through the shared operational control engine."""
 
@@ -3946,9 +3924,16 @@ def _derive_verifier_control(
         or "Agents Shipgate verification completed."
     )
     if execution == "skipped" and release_decision is None:
-        return derive_agent_control(reason=reason)
+        return derive_agent_control(
+            reason=reason,
+            subject_evaluated=(
+                skip_subject_evaluated
+                and diff_status.completeness == "complete"
+                and first_next_action_override is None
+            ),
+        )
     if release_decision is not None and release_decision.decision == "passed":
-        return derive_agent_control(reason=reason)
+        return derive_agent_control(reason=reason, subject_evaluated=subject_evaluated)
 
     if first_next_action_override is not None:
         if isinstance(first_next_action_override, HumanControlAction):
@@ -4427,6 +4412,13 @@ def _build_verifier(
         base_status=base_status,
         base_ref=base,
         diff_status=resolved_diff_status,
+        skip_subject_evaluated=(
+            resolved_diff_status.completeness == "complete"
+            and trigger.get("input_status") == "complete"
+            and trigger.get("evaluation_status") == "evaluated"
+            and trigger.get("run_shipgate") is False
+            and first_next_action_override is None
+        ),
         manifest_introduced=manifest_introduced,
         pure_adoption_review=pure_adoption_review,
         configured_manifest=_display_path(config_path, git_root),

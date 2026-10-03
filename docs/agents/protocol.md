@@ -210,6 +210,16 @@ inputs cannot produce `control.state="complete"`. It does **not** compute the to
 capability delta — that is `verify`'s job, and `release_decision.decision`
 remains the one authoritative capability gate.
 
+Completion also requires an evaluated subject. A detached `--diff` or MCP
+`diff_text` input cannot grant publication, merge or completion authority,
+including when it is empty or has no boundary findings. Run against the intended
+checkout or an available base/head comparison. A clean checkout comparison in
+an unconfigured repository remains a valid negative boundary assessment.
+`mcp audit` likewise grants no authority for an empty or irrelevant diff, or
+when any requested source or policy was unreadable, whatever its diagnostic
+decision says. A recognized, readable empty server map is still an evaluated
+MCP subject.
+
 Treat `check` as necessary but not sufficient for capability-expanding diffs.
 If a change adds dynamic, undeclared, or otherwise ambiguous tool capability,
 `control.state` is `agent_action_required`; run `verify` and read

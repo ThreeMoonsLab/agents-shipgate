@@ -166,7 +166,7 @@ def test_setup_can_never_report_complete():
     # consumer enforces, so both are checked.
     with pytest.raises(ValueError, match="setup read no change"):
         envelope_from_setup(
-            derive_agent_control(reason="Nothing left to do."),
+            derive_agent_control(reason="Nothing left to do.", subject_evaluated=True),
             operation="init",
             decision="setup_complete",
             input_id="sha256:" + "0" * 64,

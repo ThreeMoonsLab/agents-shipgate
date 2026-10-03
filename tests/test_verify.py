@@ -953,7 +953,7 @@ def test_pr_comment_keeps_code_span_values_unescaped() -> None:
         merge_verdict="mergeable",
         applicability="not_applicable",
         can_merge_without_human=True,
-        control=derive_agent_control(reason="No applicable changes."),
+        control=derive_agent_control(reason="No applicable changes.", subject_evaluated=True),
         artifacts={
             "report_markdown": "agents-shipgate-reports/report.md",
             "verifier_json": "agents-shipgate-reports/verifier.json",
@@ -3662,8 +3662,8 @@ def test_build_verifier_preserves_trigger_state_but_scrubs_embedded_commands(
         base_report=None,
         base_notes=[],
         report=None,
-        head_status="skipped",
-        head_exit_code=0,
+        head_status="failed",
+        head_exit_code=2,
         out_dir=out_dir,
         manifest_provenance_value="unknown",
     )

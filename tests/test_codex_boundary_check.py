@@ -71,8 +71,8 @@ CASES = {
         ["CODEX-CI-GATE-REMOVED"],
         "human_review_required",
     ),
-    "docs_only": ("allow", [], "complete"),
-    "python_refactor": ("allow", [], "complete"),
+    "docs_only": ("allow", [], "human_review_required"),
+    "python_refactor": ("allow", [], "human_review_required"),
     "unknown_permission_key": (
         "require_review",
         ["CODEX-UNKNOWN-PERMISSION-KEY"],

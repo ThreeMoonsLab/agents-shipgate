@@ -423,7 +423,7 @@ def _fixture(
             report.model_dump(mode="json"),
         )
         control = (
-            derive_agent_control(reason="Static verification passed.")
+            derive_agent_control(reason="Static verification passed.", subject_evaluated=True)
             if actual == "passed"
             else derive_agent_control(
                 reason=f"Qualification decision is {actual}.",

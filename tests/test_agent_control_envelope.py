@@ -46,6 +46,7 @@ from agents_shipgate.core.current_control import (
     read_current_control,
 )
 from agents_shipgate.schemas.agent_control import (
+    PERMISSION_FIELDS,
     CodingAgentCommandAction,
 )
 from agents_shipgate.schemas.agent_control_envelope import (
@@ -83,7 +84,7 @@ runner = CliRunner()
 
 
 def _complete():
-    return derive_agent_control(reason="Release ready.")
+    return derive_agent_control(reason="Release ready.", subject_evaluated=True)
 
 
 def _agent_action(command: str = "agents-shipgate verify --json"):
@@ -141,6 +142,25 @@ def _envelope(control, **overrides):
     }
     kwargs.update(overrides)
     return project_agent_control_envelope(**kwargs)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("missing", [None, *PERMISSION_FIELDS])
+@pytest.mark.parametrize("route", ["complete", "agent", "review", "stop"])
+def test_explicit_incomplete_envelope_permissions_fail_closed(route, missing):
+    controls = {
+        "complete": _complete,
+        "agent": _agent_action,
+        "review": _review_publishable,
+        "stop": _human_stop,
+    }
+    payload = _envelope(controls[route]()).model_dump(mode="json")
+    if missing is None:
+        payload["permissions"] = {}
+    else:
+        del payload["permissions"][missing]
+    assert not _PUBLISHED_SCHEMA.is_valid(payload)
+    with pytest.raises(ValidationError, match="permission"):
+        validate_agent_control_envelope(payload)
 
 
 # ---------------------------------------------------------------------------
