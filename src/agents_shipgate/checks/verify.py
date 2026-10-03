@@ -50,6 +50,9 @@ def run(context: ScanContext) -> list[Finding]:
     verification = context.verification
     if verification is None:
         return []
+    from agents_shipgate.core.agent_boundary import assessment_for_scan_context
+
+    assessment = assessment_for_scan_context(context)
     findings: list[Finding] = []
     seen: set[str] = set()
     for raw in verification.changed_files:
@@ -58,6 +61,10 @@ def run(context: ScanContext) -> list[Finding]:
             continue
         seen.add(path)
         classification = _configured_manifest(context, path) or _classify(path)
+        if path in assessment.openshell_safe_paths and classification is None:
+            continue
+        if classification is None and path in assessment.openshell_paths:
+            classification = ("host_boundary", path)
         if classification is None:
             continue
         trust_root_class, matched_glob = classification

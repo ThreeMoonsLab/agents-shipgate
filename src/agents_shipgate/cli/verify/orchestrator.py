@@ -958,6 +958,12 @@ def run_verify(
             )
         )
 
+    if enabled_plugin_hooks and enabled_plugin_hooks.openshell:
+        trigger = evaluate(paths=changed_files, diff_text=diff_text,
+            manifest_present=config_path.exists(), user_requested=True,
+            input_status=_trigger_input_status(diff_input),
+            selected_host_paths=sorted(enabled_plugin_hooks.openshell.paths))
+
     report: ReadinessReport | None = None
     head_status = "failed"
     head_exit_code = 4

@@ -417,6 +417,7 @@ class EnabledPluginHookFiles:
     unread: frozenset[str] = frozenset()
     #: Selected literal executable references, identified separately per host.
     scripts: frozenset[tuple[str, str]] = frozenset()
+    openshell: Any = None
 
     @classmethod
     def of(cls, snapshot: HostBoundarySnapshot) -> EnabledPluginHookFiles:
@@ -437,6 +438,7 @@ class EnabledPluginHookFiles:
         return EnabledPluginHookFiles(
             sources=self.sources | other.sources, unread=self.unread | other.unread,
             scripts=self.scripts | other.scripts,
+            openshell=self.openshell or other.openshell,
         )
 
 

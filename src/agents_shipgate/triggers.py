@@ -469,6 +469,7 @@ def evaluate(
     user_requested: bool = False,
     triggers: dict[str, Any] | None = None,
     input_status: str = INPUT_COMPLETE,
+    selected_host_paths: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Evaluate the trigger catalog against a snapshot of repo state.
 
@@ -586,6 +587,13 @@ def evaluate(
                     ),
                 }
             )
+
+    selected_changed = set(paths) & set(selected_host_paths)
+    if selected_changed:
+        matched.append({"id": "TRIGGER-OPENSHELL-SELECTED-INPUT",
+            "action": ACTION_FORCE_RUN, "surface_class": SURFACE_CLASS_HOST_BOUNDARY,
+            "rationale": "An explicitly selected OpenShell input changed.",
+            "command": retarget_command("agents-shipgate verify --preview --json")})
 
     stop_block = triggers.get("stop_conditions") or {}
     stop_payload = {k: v for k, v in stop_block.items() if k != "description"}

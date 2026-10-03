@@ -116,18 +116,28 @@ checks:
   floor_severity: medium
   mvp_tier: lifecycle
   requires_human_review: true
-  description: The Claude Code permission allowlist expanded.
-  rationale: Every new allow rule widens what the host executes without a
-    prompt; expansion needs a human in the loop.
-  fires_when: A changed .claude/settings.json or .claude/settings.local.json
-    adds a non-wildcard permissions.allow entry. It also fires when the
-    change sets any other value of a Claude Code setting the host-grant table
-    models - a 'defaultMode' such as 'acceptEdits' or 'dontAsk', an
-    'enabledMcpjsonServers' entry, 'disableBypassPermissionsMode',
-    'disableAllHooks', the managed-only switches, or 'false' for the prompt
-    switches - at the rating the table gives the value, which is the rating
-    its grant and host-diff row carry (#827).
-  evidence_fields: [kind, rule, mode, setting, value]
+  description: The Claude Code permission allowlist expanded. Also reports proven expansion of an explicitly
+    selected OpenShell policy.
+  rationale: Every new allow rule widens what the host executes without a prompt; expansion needs a human
+    in the loop.
+  fires_when: A changed .claude/settings.json or .claude/settings.local.json adds a non-wildcard permissions.allow
+    entry. It also fires when the change sets any other value of a Claude Code setting the host-grant
+    table models - a 'defaultMode' such as 'acceptEdits' or 'dontAsk', an 'enabledMcpjsonServers' entry,
+    'disableBypassPermissionsMode', 'disableAllHooks', the managed-only switches, or 'false' for the prompt
+    switches - at the rating the table gives the value, which is the rating its grant and host-diff row
+    carry (#827). OpenShell declared filesystem, Landlock or supported network authority expands, including
+    removal of REST enforcement.
+  evidence_fields:
+  - direction
+  - explanation
+  - kind
+  - limits
+  - mode
+  - narrowed
+  - rule
+  - setting
+  - value
+  - widened
   recommendation: Have a human approve the new permission allow rule.
 - id: SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED
   default_severity: high

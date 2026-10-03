@@ -193,6 +193,17 @@ def trigger(
             )
             raise typer.Exit(2) from exc
 
+    from agents_shipgate.cli.verify.host_comparison import enabled_plugin_hook_evidence
+    from agents_shipgate.core.host_grants import build_host_boundary_snapshot
+
+    if use_git:
+        _, files, issues = enabled_plugin_hook_evidence(workspace=workspace.resolve(),
+            changed_files=paths, head_is_worktree=base is None,
+            base=base or head or "HEAD", head=(head or "HEAD") if base else None)
+        selected = sorted(files.openshell.paths) if files and files.openshell else []
+    else:
+        selected = sorted(build_host_boundary_snapshot(workspace).cache.openshell_selected_paths)
+        issues = []
     result = evaluate(
         paths=paths,
         diff_text=diff_text,
@@ -200,6 +211,8 @@ def trigger(
         detect_result=detect_result,
         user_requested=user_requested,
         triggers=triggers,
+        selected_host_paths=selected,
+        input_status="partial" if issues else "complete",
     )
 
     if json_output:

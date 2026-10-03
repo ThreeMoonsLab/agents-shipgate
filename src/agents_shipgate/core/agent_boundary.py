@@ -117,6 +117,8 @@ class AgentBoundaryAssessment:
     legacy_result: AgentResultV2
     instruction_structure_unchanged: frozenset[str] = frozenset()
     host_settings_narrowed: frozenset[str] = frozenset()
+    openshell_paths: frozenset[str] = frozenset()
+    openshell_safe_paths: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -206,6 +208,16 @@ def evaluate_agent_boundary(
         for path in changed_files
         if is_enabled_plugin_hook_source(path, plugin_hooks.sources)
     )
+    from agents_shipgate.core.openshell_boundary import (
+        OpenShellBoundaryEvidence,
+        assess_openshell_boundary,
+    )
+
+    openshell = plugin_hooks.openshell or OpenShellBoundaryEvidence(
+        paths=frozenset(host_snapshot.cache.openshell_selected_paths),
+        after=host_snapshot.inventory,
+    )
+    openshell_paths = openshell.paths & frozenset(changed_files)
     script_hosts: dict[str, list[str]] = {}
     changed_set = set(changed_files)
     for host, path in sorted(plugin_hooks.scripts):
@@ -226,6 +238,9 @@ def evaluate_agent_boundary(
     script_issues = hook_dependency_issues(host_snapshot.inventory)
 
     def counted(item: dict[str, Any]) -> bool:
+        if (item.get("host") == "openshell" and plugin_hooks.openshell is not None
+                and str(item.get("source") or "") in plugin_hooks.openshell.paths):
+            return False  # The explicitly compared sides supply these issues below.
         source = str(item.get("source") or "").replace("\\", "/")
         if str(item.get("issue_id")) in script_issues:
             # A selected hook script this check could not read (#702) is its
@@ -326,6 +341,16 @@ def evaluate_agent_boundary(
         resolved_text_cache=resolved_text_cache,
         static_read_cache=host_snapshot.cache,
     )
+    openshell_violations, openshell_diagnostics, openshell_issues, openshell_safe = (
+        assess_openshell_boundary(openshell, changed_set, policies.host)
+    )
+    host_violations.extend(openshell_violations)
+    host_diagnostics.extend(openshell_diagnostics)
+    input_issues.extend(openshell_issues)
+    openshell_safe = {path for path in openshell_safe
+        if trust_root_class_for(path) is None and not is_agent_boundary_path(path)
+        and not is_configured_manifest(config_path, path, workspace=workspace)
+        and not _is_invocation_path(policy_path, path, workspace=workspace)}
     # A host settings change the permission lattice decides only narrows was
     # evaluated completely (#661): like an unchanged instruction structure, it
     # is not an unclassified protected change and needs no human.
@@ -372,6 +397,7 @@ def evaluate_agent_boundary(
         evaluated_paths={
             *instruction_structure_unchanged,
             *host_settings_narrowed,
+            *(openshell_safe if not input_issues else set()),
             *(
             item.path
             for item in diagnostics
@@ -534,6 +560,7 @@ def evaluate_agent_boundary(
                 ),
                 *({"claude-code"} if plugin_hook_paths or plugin_unread_paths else set()),
                 *(host for hosts in script_hosts.values() for host in hosts),
+                *({"openshell"} if openshell_paths else set()),
             }
         )
     )
@@ -544,6 +571,7 @@ def evaluate_agent_boundary(
         invocation_shared_paths=invocation_shared_paths,
         plugin_hook_paths=plugin_hook_paths | plugin_unread_paths,
         script_hosts=script_hosts,
+        openshell_paths=openshell_paths,
     )
     input_coverage: Literal["complete", "partial", "unknown"] = (
         "partial"
@@ -574,6 +602,8 @@ def evaluate_agent_boundary(
         legacy_result=projected,
         instruction_structure_unchanged=frozenset(instruction_structure_unchanged),
         host_settings_narrowed=frozenset(host_settings_narrowed),
+        openshell_paths=openshell.paths,
+        openshell_safe_paths=frozenset(openshell_safe if not input_issues else set()),
     )
 
 
@@ -1077,6 +1107,7 @@ def _coverage_for(
     invocation_shared_paths: set[str] | None = None,
     plugin_hook_paths: frozenset[str] = frozenset(),
     script_hosts: dict[str, list[str]] | None = None,
+    openshell_paths: frozenset[str] = frozenset(),
 ) -> list[BoundaryHostCoverage]:
     # A path is partially covered only when its content was not read. A kind
     # the publication predicate counts as read is never unread here, so a
@@ -1096,6 +1127,8 @@ def _coverage_for(
     coverage: list[BoundaryHostCoverage] = []
     for adapter in BOUNDARY_ADAPTERS:
         paths = sorted(path for path in changed_files if adapter.matches(path))
+        if adapter.id == "openshell":
+            paths = sorted({*paths, *openshell_paths})
         if adapter.id == "shared" and invocation_shared_paths:
             paths = sorted({*paths, *invocation_shared_paths})
         if adapter.id == "claude_code" and plugin_hook_paths:

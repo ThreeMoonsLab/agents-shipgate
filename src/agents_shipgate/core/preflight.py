@@ -328,7 +328,8 @@ def build_preflight_result(
     ]
     verify_command = _verify_command(workspace, config)
     identity_paths = {touch.path for touch in path_identity_touches}
-    classified_touches = classify_protected_touches(changed, config_path, root)
+    classified_touches = classify_protected_touches(changed, config_path, root,
+        selected_paths={node.pattern for node in graph.nodes if node.kind == "host_boundary"})
     touches = [
         *path_identity_touches,
         *(
@@ -647,6 +648,22 @@ def _build_trust_root_graph(
                 },
             )
         )
+    from agents_shipgate.core.host_grants import build_host_boundary_snapshot, public_host_path
+
+    registrations = [path for path in candidate_paths
+        if path.casefold() == ".shipgate/openshell.json"
+        or path.casefold().endswith("/.shipgate/openshell.json")]
+    selected_snapshot = build_host_boundary_snapshot(root) if registrations else None
+    for path in sorted(selected_snapshot.cache.openshell_selected_paths if selected_snapshot else []):
+        if _classify(path) is not None or public_host_path(path) != path:
+            continue
+        captured = selected_snapshot.cache.openshell_input_reads.get(path, {})
+        digest = captured.get("sha256")
+        present = [path] if digest else []
+        nodes.append(TrustRootNodeV2(id=_node_id("host_boundary", path),
+            kind="host_boundary", pattern=path, scope_type="whole_file",
+            present_paths=present, file_hashes={path: "sha256:" + digest} if digest else {}))
+    nodes.sort(key=lambda item: (item.kind, item.pattern))
     if configured_relative and not configured_is_catalogued:
         # The configured manifest is an exact identity, not a glob. Legal Git
         # filenames may themselves contain ``*``, ``?``, ``[]``, or ``\``.
@@ -682,10 +699,20 @@ def _build_trust_root_graph(
     )
 
 
+def _selected_openshell_paths(root: Path) -> set[str]:
+    from agents_shipgate.core.host_grants import build_host_boundary_snapshot, public_host_path
+
+    snapshot = build_host_boundary_snapshot(root)
+    # Redacted locations are labels, never graph locators.
+    return {path for path in snapshot.cache.openshell_selected_paths
+            if public_host_path(path) == path}
+
+
 def classify_protected_touches(
     changed_files: list[str],
     config_path: Path | None = None,
     workspace: Path | None = None,
+    *, selected_paths: set[str] | None = None,
 ) -> list[PreflightProtectedSurfaceTouchV2]:
     """Classify changed paths against the protected-surface catalog.
 
@@ -696,6 +723,8 @@ def classify_protected_touches(
     """
 
     touches: list[PreflightProtectedSurfaceTouchV2] = []
+    selected = (selected_paths if selected_paths is not None else
+        _selected_openshell_paths(workspace) if workspace is not None else set())
     seen: set[str] = set()
     for raw in changed_files:
         path = raw.replace("\\", "/")
@@ -703,6 +732,8 @@ def classify_protected_touches(
             continue
         seen.add(path)
         spec = _configured_manifest_spec(config_path, path, workspace) or _classify(path)
+        if spec is None and path in selected:
+            spec = ProtectedSurfaceSpec(kind="host_boundary", pattern=path, scope_type="whole_file")
         if spec is None:
             continue
         touches.append(

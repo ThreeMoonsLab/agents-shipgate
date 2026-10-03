@@ -436,7 +436,7 @@ repos:
             (.*/)?\.claude/(settings(\.local)?\.json|commands(/.*)?|hooks/hooks\.json)|
             (.*/)?\.cursor/(cli\.json|mcp\.json|rules(/.*)?)|
             (.*/)?\.vscode/mcp\.json|
-            (.*/)?\.shipgate/agent-contract\.json|
+            (.*/)?\.shipgate/(agent-contract|openshell)\.json|
             (.*/)?(AGENTS(\.override)?|CLAUDE)\.md|
             \.(agents|claude)/skills/.*|
             (.*/)?\.codex-plugin(/.*)?|

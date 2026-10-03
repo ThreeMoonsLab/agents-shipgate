@@ -322,6 +322,10 @@ def _assessment_for_diff(
     )
     if evidence_issues:
         input_issues = [*(input_issues or []), *evidence_issues]
+    if enabled_plugin_hooks and enabled_plugin_hooks.openshell:
+        trigger = evaluate_trigger(paths=changed_files, diff_text=diff_text,
+            manifest_present=manifest_present, user_requested=True,
+            selected_host_paths=sorted(enabled_plugin_hooks.openshell.paths))
     return evaluate_agent_boundary(
         workspace=workspace,
         diff_text=diff_text,

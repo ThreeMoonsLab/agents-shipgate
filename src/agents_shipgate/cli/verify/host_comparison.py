@@ -339,6 +339,12 @@ def enabled_plugin_hook_evidence(
     if not candidates or not base:
         return None, None, []
     declarations_changed = any(is_boundary_surface_path(path) for path in candidates)
+    from dataclasses import replace
+
+    from agents_shipgate.cli.verify.host_tree import materialize_host_tree
+    from agents_shipgate.core.openshell_boundary import OpenShellBoundaryEvidence
+
+    openshell_sides = []
 
     snapshot: HostBoundarySnapshot | None = None
     files = EnabledPluginHookFiles()
@@ -352,6 +358,10 @@ def enabled_plugin_hook_evidence(
             ] if declarations_changed else []
             snapshot = build_host_boundary_snapshot(workspace, scope="repository")
             files = files.union(EnabledPluginHookFiles.of(snapshot))
+            openshell_sides.append(snapshot)
+            if snapshot.cache.openshell_selected_paths:
+                if not commits:
+                    commits.append(commit_sha(workspace, "HEAD") if base == "HEAD" else merge_base_sha(workspace, base, "HEAD"))
         else:
             head_ref = head or "HEAD"
             # Preserve each host's selection from both declaration trees.
@@ -363,23 +373,37 @@ def enabled_plugin_hook_evidence(
                 raise ValueError("a compared commit is not available locally")
             with tempfile.TemporaryDirectory(prefix="shipgate-plugin-hooks-") as scratch:
                 tree = Path(scratch) / "tree"
-                archive_tree(workspace, commit, tree, scope=is_boundary_surface_path)
-                files = files.union(EnabledPluginHookFiles.of(build_host_boundary_snapshot(
-                    tree, cache=HostStaticParseCache(reference_workspace=workspace),
-                )))
+                tree, archived = materialize_host_tree(workspace, commit, tree, archive=archive_tree)
+                archived = archived or build_host_boundary_snapshot(
+                    tree, cache=HostStaticParseCache(reference_workspace=workspace))
+                openshell_sides.append(archived)
+                if not head_is_worktree and len(commits) == 1 and archived.cache.openshell_selected_paths:
+                    commits.append(merge_base_sha(workspace, base, head or "HEAD"))
+                files = files.union(EnabledPluginHookFiles.of(archived))
     except (OSError, RuntimeError, ValueError, ConfigError):
         return snapshot, None, [
             BoundaryInputIssue(
                 code="host_inventory_unreadable",
                 path=path,
                 message=(
-                    "The hook configuration of a compared commit could not be read, so "
+                    "The selected host inputs of a compared commit could not be read, so "
                     "whether this file declares selected plugin hooks or is a selected "
                     "hook executable is not established."
                 ),
             )
             for path in candidates
         ]
+    if openshell_sides:
+        # Head is read first; the immutable merge base is the final side.
+        head_side, base_side = openshell_sides[0], openshell_sides[-1]
+        paths = frozenset(base_side.cache.openshell_selected_paths | head_side.cache.openshell_selected_paths)
+        before_reads, after_reads = base_side.cache.openshell_input_reads, head_side.cache.openshell_input_reads
+        links = frozenset(path for path in before_reads.keys() | after_reads.keys()
+            if any(reads.get(path, {}).get("source") == "generated" for reads in (before_reads, after_reads))
+            and before_reads.get(path) != after_reads.get(path))
+        files = replace(files, openshell=OpenShellBoundaryEvidence(paths=paths, changed_links=links,
+            before=base_side.inventory if len(openshell_sides) > 1 else None,
+            after=head_side.inventory))
     return snapshot, files, []
 
 

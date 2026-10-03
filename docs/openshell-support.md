@@ -48,9 +48,7 @@ Defaults follow the pinned [OpenShell v0.1.2 authored schema](https://github.com
 and [conversion code](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/crates/openshell-policy/src/lib.rs).
 The [upstream schema reference](https://docs.nvidia.com/openshell/how-it-works/policies/schema)
 describes runtime constraints beyond document inventory. This reader is not a
-substitute for upstream policy validation. Git dependency identity, gate
-integration, local composition and native proof are separate implementation
-stages (#945–#948).
+substitute for upstream policy validation. Local composition and native proof are separate implementation stages (#947–#948).
 
 ## Conservative declared-authority comparison
 
@@ -146,3 +144,55 @@ Credential-shaped input paths cannot identify published bytes after redaction.
 They become named unsupported, unconfirmable inputs, without publishing raw
 paths or link-target digests. Static identity establishes which documents were
 read, not whether an effective export is fresh or enforced by a running sandbox.
+
+## Local control and verifier routing
+
+`check` evaluates selected OpenShell inputs for Codex, Claude Code and Cursor
+callers alike. It reads both compared trees, including selection-only edits,
+deleted registrations, arbitrary filenames and link targets. The same policy
+comparator supplies `audit --host --drift`, `diff`, `check` and verifier rows.
+
+A proved expansion uses `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED`. Mixed
+changes keep proven expansions. Unknown authority uses the existing protected
+surface review rule. Unread/malformed/unsupported inputs use the existing
+incomplete-input route, so absent grant rows never authorize completion.
+Neutral or proved narrowings can clear only their exact selected document's
+obligation; other trust-root, manifest, policy and instruction edits still apply.
+Selection edits and changed link identities retain separate review obligations.
+
+Trigger evaluation takes exact selected paths as explicit context, so even a
+selected `README.md` overrides a docs-only skip. Preflight protects selected
+inputs as exact host trust roots, including ignored files; the trust graph
+binds their captured identity without treating filenames as globs.
+
+With a configured application gate, verifier findings project to the normal
+release decision, control permissions, Markdown and SARIF. Without one,
+`verify` remains an advisory host comparison and routes to `audit --host`;
+it requires no invented purpose, action effects, authority or agent bindings,
+and establishes no application merge verdict. Preview never grants completion.
+
+For an end-to-end exercise, register the sample policy, commit it as the base,
+then remove `enforcement: enforce` from its REST endpoint. Run:
+
+```bash
+shipgate audit --host --workspace . --json
+shipgate diff --workspace . --base main --json
+shipgate check --agent codex --workspace . --base main --format agent-boundary-json
+shipgate verify --workspace . --base main --json
+shipgate agent control --workspace . --reports-dir agents-shipgate-reports
+```
+
+The change widens well-formed REST request authority by restoring audit mode.
+Review the existing control route and its permissions. A subsequent selected
+policy edit invalidates the receipt/current control, including ignored paths.
+The route-parity fixtures exercise this transition for all three callers,
+configured verification and SARIF, plus malformed input and Git-tree isolation.
+Validation is pinned to OpenShell v0.1.2/schema 1 and the supported comparison
+subset above. Gateway state, live enforcement, credentials, provider/global
+composition and native containment remain outside this static MVP.
+
+The pre-commit hook recognizes OpenShell selection files. Its static filename
+filter cannot identify an arbitrary selected policy path on its own. Run
+`shipgate check` or `agents-shipgate verify` for those changes, or set
+`always_run: true` on the local hook. The GitHub verifier reads the explicit
+selection and evaluates its dependencies.

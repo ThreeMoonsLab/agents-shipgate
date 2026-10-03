@@ -66,6 +66,17 @@
   ],
   "rules": [
     {
+      "id": "TRIGGER-OPENSHELL-BOUNDARY-CHANGED",
+      "surface_class": "host_boundary",
+      "agents_md_row": "Adds/changes coding-agent host config, hooks, permissions, MCP servers, or workflows",
+      "when": {
+        "boundary_adapter": "openshell"
+      },
+      "action": "run_shipgate",
+      "rationale": "Explicit OpenShell policy selections define a reviewed sandbox authority surface.",
+      "command": "agents-shipgate verify --preview --json"
+    },
+    {
       "id": "TRIGGER-MCP-EXPORT-CHANGED",
       "surface_class": "capability",
       "agents_md_row": "Adds/changes MCP exports, OpenAPI specs, or `tools/*openai*tools*.json`",
