@@ -1365,52 +1365,52 @@ def run_verify(
         head_exit_code = 4
         raise
     finally:
-        artifact_report = report if head_status == "succeeded" else None
-        if artifact_report is None:
-            _remove_scan_artifacts(out_dir)
-        verifier = _build_verifier(
-            git_root=git_root,
-            config_path=config_path,
-            base=base,
-            head=head,
-            changed_files=changed_files,
-            diff_text=diff_text,
-            trigger=trigger,
-            base_status=base_status,
-            base_tree=base_tree,
-            diff_status=_diff_status_artifact(diff_input),
-            head_tree=head_tree,
-            base_report=base_report,
-            base_notes=base_notes,
-            report=artifact_report,
-            head_status=head_status,
-            head_exit_code=head_exit_code,
-            out_dir=out_dir,
-            manifest_provenance_value=configured_manifest_provenance,
-            ci_mode=ci_mode,
-            manifest_introduced=manifest_introduced,
-            # Both halves, joined only here: the structural one was decided
-            # before the scan, and whether the introduction is unshared needs
-            # the scan's own record of the policy packs it loaded.
-            configured_gate_introduced=(
-                configured_gate_introduced
-                and _gate_introduction_is_unshared(
-                    artifact_report,
-                    git_root=git_root,
-                    config_relative=config_relative,
-                    changed_files=changed_files,
-                    external_policy_inputs=[
-                        baseline_path,
-                        static_diff_from_path,
-                        *list(policy_pack_paths or []),
-                    ],
-                )
-            ),
-            worktree=not archive_head,
-            worktree_ref=None if archive_head else effective_worktree_ref,
-            rerun_options=rerun_options,
-        )
         try:
+            artifact_report = report if head_status == "succeeded" else None
+            if artifact_report is None:
+                _remove_scan_artifacts(out_dir)
+            verifier = _build_verifier(
+                git_root=git_root,
+                config_path=config_path,
+                base=base,
+                head=head,
+                changed_files=changed_files,
+                diff_text=diff_text,
+                trigger=trigger,
+                base_status=base_status,
+                base_tree=base_tree,
+                diff_status=_diff_status_artifact(diff_input),
+                head_tree=head_tree,
+                base_report=base_report,
+                base_notes=base_notes,
+                report=artifact_report,
+                head_status=head_status,
+                head_exit_code=head_exit_code,
+                out_dir=out_dir,
+                manifest_provenance_value=configured_manifest_provenance,
+                ci_mode=ci_mode,
+                manifest_introduced=manifest_introduced,
+                # Both halves, joined only here: the structural one was decided
+                # before the scan, and whether the introduction is unshared needs
+                # the scan's own record of the policy packs it loaded.
+                configured_gate_introduced=(
+                    configured_gate_introduced
+                    and _gate_introduction_is_unshared(
+                        artifact_report,
+                        git_root=git_root,
+                        config_relative=config_relative,
+                        changed_files=changed_files,
+                        external_policy_inputs=[
+                            baseline_path,
+                            static_diff_from_path,
+                            *list(policy_pack_paths or []),
+                        ],
+                    )
+                ),
+                worktree=not archive_head,
+                worktree_ref=None if archive_head else effective_worktree_ref,
+                rerun_options=rerun_options,
+            )
             try:
                 _write_artifacts(
                     verifier,
@@ -1460,12 +1460,16 @@ def run_verify(
                 # failures are secondary once the head scan has already failed.
                 pass
         finally:
-            if head_tmp is not None:
-                head_tmp.cleanup()
-            if run_base is not None:
-                run_base.cleanup()
-            if static_snapshot_token is not None:
-                reset_static_input_snapshot(static_snapshot_token)
+            try:
+                if head_tmp is not None:
+                    head_tmp.cleanup()
+            finally:
+                try:
+                    if run_base is not None:
+                        run_base.cleanup()
+                finally:
+                    if static_snapshot_token is not None:
+                        reset_static_input_snapshot(static_snapshot_token)
     return verifier, report, head_exit_code
 
 
