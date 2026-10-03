@@ -985,3 +985,220 @@ def test_sdk_one_load_indexes_an_imported_module_once(tmp_path, monkeypatch):
     )
     assert indexed.count("tools.py") <= 2  # once as an imported module, once if read as an entry
     assert all(observation.tools_complete for observation in loaded.binding_observations)
+
+
+# -- #909 review: the guards, the condition rules and each reader's shapes ---------------
+
+
+def test_sdk_a_list_appended_through_a_module_level_import_is_named(tmp_path):
+    _write(tmp_path, {"tools.py": SDK_TOOLS, "agent.py": "from agents import Agent\n"
+                      "from tools import FINANCE_TOOLS, prepare_finance_handoff\n"
+                      "FINANCE_TOOLS.append(prepare_finance_handoff)\n"
+                      "finance = Agent(name='Finance', tools=[*FINANCE_TOOLS])\n"})
+    observation = _observation(_sdk(tmp_path, "agent.py"))
+    assert observation.tools_complete is False
+    assert observation.tool_names == []
+
+
+def test_sdk_a_list_whose_module_runs_unread_code_is_not_established(tmp_path):
+    # ``tools.py`` imports code above the read scope, which could rebind its list.
+    _write(tmp_path, {
+        "svc/common.py": "settings = {}\n",
+        "svc/app/__init__.py": "",
+        "svc/app/tools.py": "from ..common import settings  # noqa: F401\n" + SDK_TOOLS,
+        "svc/app/agent.py": "from agents import Agent\nfrom .tools import FINANCE_TOOLS\n"
+        "finance = Agent(name='Finance', tools=[*FINANCE_TOOLS])\n",
+    })
+    observation = _observation(_sdk(tmp_path / "svc" / "app", "agent.py"))
+    assert observation.tools_complete is False
+    assert "is not established" in observation.issues[0]
+
+
+@pytest.mark.parametrize(
+    "first",
+    ["Agent(name='First', tools=BASE if FLAG else [])", "Agent(name='First', handoffs=SPECIALISTS)"],
+    ids=["conditional-holder", "handoffs-holder"],
+)
+def test_sdk_a_change_through_one_holder_reaches_the_other(tmp_path, first):
+    _write(tmp_path, {"tools.py": SDK_TOOLS, "agent.py": "from agents import Agent\n"
+                      "from tools import load_and_validate, prepare_finance_handoff\n"
+                      "BASE = [load_and_validate]\nhelper = Agent(name='Helper')\nSPECIALISTS = [helper]\nFLAG = True\n"
+                      f"first = {first}\n"
+                      "second = Agent(name='Second', tools=BASE, handoffs=SPECIALISTS)\n"
+                      "second.tools.append(prepare_finance_handoff)\nsecond.handoffs.append(helper)\n"})
+    observations = {item.agent: item for item in _sdk(tmp_path, "agent.py").binding_observations}
+    assert observations["first"].tools_complete is False or observations["first"].handoffs_complete is False
+
+
+def test_sdk_a_member_of_another_module_is_that_module_s_definition(tmp_path):
+    # agent.py's own ``summarize`` is another function: the list's is tools.py's.
+    _write(tmp_path, {"tools.py": SDK_TOOLS, "agent.py": "from agents import Agent, function_tool\n"
+                      "from tools import FINANCE_TOOLS\n\n"
+                      "@function_tool\ndef summarize(text: str) -> str:\n    return text.upper()\n\n"
+                      "finance = Agent(name='Finance', tools=[*FINANCE_TOOLS])\n"})
+    loaded = _sdk(tmp_path, "agent.py")
+    assert _edges([loaded]) == [
+        ("finance", "load_and_validate", "tools.py:5"),
+        ("finance", "summarize", "tools.py:11"),
+    ]
+
+
+def test_sdk_a_list_imported_inside_the_builder_is_read(tmp_path):
+    _write(tmp_path, {"tools.py": SDK_TOOLS, "agent.py": "from agents import Agent\n"
+                      "def build():\n    from tools import FINANCE_TOOLS\n"
+                      "    return Agent(name='Finance', tools=FINANCE_TOOLS)\n"})
+    (observation,) = _sdk(tmp_path, "agent.py").binding_observations
+    assert observation.tools_complete is True
+    assert observation.tool_names == ["load_and_validate", "summarize"]
+
+
+def test_adk_a_member_of_another_module_that_is_not_a_reference_is_named(tmp_path):
+    _write(tmp_path, {
+        "tools.py": "from google.adk.tools import FunctionTool\n\n" + ADK_TOOLS
+        + "WRAPPED = [FunctionTool(func=summarize)]\n",
+        "agent.py": "from google.adk.agents import Agent\nfrom tools import WRAPPED\n\n"
+        "root_agent = Agent(name='finance', tools=[*WRAPPED])\n",
+    })
+    loaded, _ = _adk(tmp_path)
+    (observation,) = [item for source in loaded for item in source.binding_observations]
+    assert observation.tools_complete is False
+    assert "binds `FunctionTool(func=summarize)`, written in tools.py" in observation.issues[0]
+
+
+def test_a_tool_the_list_also_holds_unconditionally_has_no_condition(tmp_path):
+    _write(tmp_path, _sdk_agent("[load_and_validate, *([load_and_validate] if X else [])]"))
+    observation = _observation(_sdk(tmp_path, "agent.py"))
+    assert observation.tool_conditions == {}
+
+
+def test_hold_merges_constructions_unconditional_first():
+    from agents_shipgate.cli.application_diff import _hold
+
+    held: dict[str, list[str] | None] = {}
+    _hold(held, "t", ["`a`"])
+    _hold(held, "t", ["`b`"])
+    _hold(held, "u", ["`a`"])
+    _hold(held, "u", None)
+    _hold(held, "u", ["`c`"])
+    assert held == {"t": ["`a`", "`b`"], "u": None}
+
+
+def test_sdk_handoff_twins_differing_only_in_a_condition_are_two(tmp_path):
+    _write(tmp_path, {"triage.py": "from agents import Agent\nbilling = Agent(name='Billing')\n"
+                      "def build(premium):\n"
+                      "    if premium:\n        return Agent(name='Triage', handoffs=[billing])\n"
+                      "    return Agent(name='Triage', handoffs=[*([billing] if premium else [])])\n"})
+    observations = [item for item in _sdk(tmp_path, "triage.py").binding_observations if item.agent == "Triage"]
+    assert observations and all(not item.handoffs_complete or not item.tools_complete for item in observations)
+
+
+def test_adk_twins_differing_only_in_a_condition_are_two(tmp_path):
+    _write(tmp_path, {"agent.py": "from google.adk.agents import Agent\n\n"
+                      "def lookup(q: str) -> str:\n    return q\n\n"
+                      "def build(premium):\n    if premium:\n        return Agent(name='assistant', tools=[lookup])\n"
+                      "    return Agent(name='assistant', tools=[*([lookup] if premium else [])])\n"})
+    loaded, _ = _adk(tmp_path)
+    (observation,) = [item for source in loaded for item in source.binding_observations]
+    assert observation.tools_complete is False
+
+
+@pytest.mark.parametrize("expression", ["filter(keep, plugin_tools())", "list(plugin_tools())", "sorted(get())"])
+def test_a_filter_or_copy_of_an_unread_list_is_named(expression):
+    result = _resolve("", expression)
+    assert result.members == ()
+    assert not result.complete
+
+
+@pytest.mark.parametrize(
+    ("expression", "names", "conditions"),
+    [
+        ("[lookup] + [search]", ["lookup", "search"], {}),
+        ("EXTRA or [lookup]", ["search", "lookup"],
+         {"search": ["`EXTRA` is not empty and `FLAG`"], "lookup": ["`EXTRA` is empty"]}),
+        ("[t for t in BOTH if keep(t)]", ["lookup", "search"],
+         {"lookup": ["the filter `keep(t)` keeps it"], "search": ["the filter `keep(t)` keeps it"]}),
+    ],
+    ids=["concatenation", "or", "filter"],
+)
+def test_adk_tools_shapes(tmp_path, expression, names, conditions):
+    _write(tmp_path, {"agent.py": "from google.adk.agents import Agent\n\n"
+                      "def lookup(q: str) -> str:\n    return q\n\ndef search(q: str) -> str:\n    return q\n\n"
+                      "EXTRA = [search] if FLAG else []\nBOTH = [lookup, search]\n"
+                      f"root_agent = Agent(name='root', tools={expression})\n"})
+    loaded, _ = _adk(tmp_path)
+    (observation,) = [item for source in loaded for item in source.binding_observations]
+    assert observation.tool_names == names
+    assert observation.tool_conditions == conditions
+    assert observation.tools_complete is True
+
+
+@pytest.mark.parametrize(
+    ("expression", "names", "conditions"),
+    [
+        ("[billing] + [refunds]", ["billing", "refunds"], {}),
+        ("EXTRA or [billing]", ["refunds", "billing"],
+         {"refunds": ["`EXTRA` is not empty and `FLAG`"], "billing": ["`EXTRA` is empty"]}),
+        ("[a for a in BOTH if a]", ["billing", "refunds"],
+         {"billing": ["the filter `a` keeps it"], "refunds": ["the filter `a` keeps it"]}),
+    ],
+    ids=["concatenation", "or", "filter"],
+)
+def test_adk_sub_agents_shapes(tmp_path, expression, names, conditions):
+    _write(tmp_path, {"agent.py": "from google.adk.agents import Agent\n\n"
+                      "billing = Agent(name='billing')\nrefunds = Agent(name='refunds')\n"
+                      "EXTRA = [refunds] if FLAG else []\nBOTH = [billing, refunds]\n"
+                      f"root_agent = Agent(name='triage', sub_agents={expression})\n"})
+    _, artifacts = _adk(tmp_path)
+    (record,) = [record for record in artifacts.sub_agents if record["agent_name"] == "triage"]
+    assert record["sub_agents"] == names
+    assert record["conditions"] == conditions
+    assert record["sub_agent_count"] == len(names)
+
+
+def test_adk_sub_agents_from_another_module_are_not_this_module_s(tmp_path):
+    _write(tmp_path, {
+        "specialists.py": "from google.adk.agents import Agent\nbilling = Agent(name='billing')\nSPECIALISTS = [billing]\n",
+        "agent.py": "from google.adk.agents import Agent\nfrom specialists import SPECIALISTS\n\n"
+        "root_agent = Agent(name='triage', sub_agents=[*SPECIALISTS])\n",
+    })
+    _, artifacts = _adk(tmp_path)
+    (record,) = [record for record in artifacts.sub_agents if record["agent_name"] == "triage"]
+    assert record["sub_agents"] == []
+    assert record["unresolved_sub_agents"] == ["billing"]
+
+
+def test_application_diff_an_unread_sub_agent_part_is_named_on_its_agent(tmp_path):
+    agent = (
+        "from google.adk.agents import Agent\n\n"
+        "def lookup(q: str) -> str:\n    return q\n\ndef search(q: str) -> str:\n    return q\n\n"
+        "billing = Agent(name='billing')\n"
+        "root_agent = Agent(name='triage', sub_agents=[billing, *more_agents()])\n"
+        "helper = Agent(name='helper', tools=TOOLS)\n"
+    )
+    _git(tmp_path, "init", "-q", "-b", "main")
+    base = _commit(tmp_path, {"agent.py": agent.replace("TOOLS", "[lookup]")})
+    head = _commit(tmp_path, {"agent.py": agent.replace("TOOLS", "[lookup, search]")})
+    result = _compare(tmp_path, base, head)
+
+    assert result["comparison_status"] == "partial"
+    # The other agent's addition stands; the limit is the triage agent's.
+    assert ("helper", "search", "added") in _rows(result)
+    (gap,) = [gap for gap in result["head"]["coverage_gaps"] if "sub-agents" in gap["reason"]]
+    assert gap["agent"] == "triage"
+    assert "Not read: a call to `more_agents`, whose result is not read (agent.py:10)." in gap["reason"]
+
+
+@pytest.mark.parametrize(
+    ("expression", "names"),
+    [("[billing] + [refunds]", ["billing", "refunds"]), ("EXTRA or [billing]", ["refunds", "billing"]),
+     ("[a for a in BOTH if a]", ["billing", "refunds"])],
+    ids=["concatenation", "or", "filter"],
+)
+def test_sdk_handoffs_shapes(tmp_path, expression, names):
+    _write(tmp_path, {"triage.py": "from agents import Agent\n"
+                      "billing = Agent(name='Billing')\nrefunds = Agent(name='Refunds')\n"
+                      "EXTRA = [refunds] if FLAG else []\nBOTH = [billing, refunds]\n"
+                      f"triage = Agent(name='Triage', handoffs={expression})\n"})
+    (observation,) = [item for item in _sdk(tmp_path, "triage.py").binding_observations if item.agent == "triage"]
+    assert observation.handoff_names == names
+    assert observation.handoffs_complete is True

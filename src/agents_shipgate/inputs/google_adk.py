@@ -45,6 +45,7 @@ from agents_shipgate.inputs.list_expressions import (
     ListResolution,
     source_text,
     unread_list_reason,
+    unread_parts,
 )
 from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.openapi import load_openapi_tools
@@ -3659,12 +3660,14 @@ class _PythonAdkExtractor:
                 ):
                     members = [ListMember(item, None) for item in value.elts]
                     complete = True
+                    unread = None
                 else:
                     # A spread, concatenation, conditional or module list (#909).
                     # Read, not proven for ``scan``: another module could change
                     # the list, and the sub-agents it holds bring their tools.
                     listed = self.lists.resolve(value)
                     members, complete = list(listed.members), listed.complete
+                    unread = unread_parts(listed) if listed.unresolved else None
                     if _at_risk(listed):
                         self._note_surface_gap(SURFACE_GAP_DYNAMIC_TOOLS)
                 # None, unless every member is read: the graph then names the
@@ -3725,6 +3728,8 @@ class _PythonAdkExtractor:
                         # ``name -> [condition, ...]`` for a sub-agent held
                         # only under a condition (#909).
                         "conditions": when.only_when(),
+                        # Each part of the list not read, and where it is.
+                        **({"unread": unread} if unread else {}),
                         "source_ref": f"{self.source_ref}:{call.lineno}",
                     }
                 )

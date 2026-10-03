@@ -525,20 +525,29 @@ built from (#909):
   member *conditional* on the condition that selects it, or only the branch a
   constant condition, or an operand known to be empty or not, selects;
 - a comprehension that keeps its elements (`[t for t in TOOLS if keep(t)]`)
-  and `filter(f, TOOLS)`: the members of `TOOLS`, each conditional on the
-  filter, which is not evaluated, so this over-approximates and says so;
+  and `filter(f, TOOLS)`: the members of `TOOLS`, each shown as held only
+  when the filter keeps it. The filter is not evaluated, so the list may hold
+  fewer;
 - `list(...)`, `tuple(...)` and `sorted(...)` of one of these;
-- a name bound once, unconditionally, to one of these — in the builder or at
-  module level, and through a repository-local import to the module that builds
-  the list, whose members are then read by that module's names.
+- a name bound once to one of these — in the builder or at module level, and
+  through a repository-local import to the module that builds the list, whose
+  members are then read by that module's names. A binding inside a branch, a
+  loop or an `except` is read only by code in the same block; one inside
+  `with` or a `try` body is read as unconditional.
 
-A name is read only while nothing in the module that binds it can change the
-list after it is built, by the rule for `tools=NAME` above; a change made to it
-from another module is not looked for. Anything else is named where it is, on
-the agent it belongs to, with why — a call (`get_tools()`), a parameter of the
-builder (its value comes from a caller), `self.tools`, a comprehension that
-builds new elements, a name bound twice or changed in place, nesting deeper
-than 16 levels:
+A name is looked up where Python evaluates it: a default, decorator or
+annotation in the scope around its definition, a comprehension's first
+iterable around the comprehension. It is read only while nothing can change
+the list after it is built: no use in its own module but a read, by the rule
+for `tools=NAME` above; no change through an agent built with it
+(`helper.tools.append(x)`); no wildcard import after it; and no change in a
+module the import passes through or a package above the list's module, which
+run first. A change made from a module the import never passes through is not
+looked for. Anything else is named where it is, on the agent it belongs to,
+with why — a call (`get_tools()`), a parameter of the builder (its value comes
+from a caller), `self.tools`, a comprehension that builds new elements, a name
+bound twice or changed in place, nesting deeper than 16 levels, or more than
+1,000 members:
 
 ```text
 OpenAI Agents SDK agent 'finance' at agent.py:4 has a tools list it reads only in part;
@@ -548,12 +557,18 @@ read (agent.py:4).
 
 The agent stays incomplete, so the answer is never `compared`, but the members
 that were read are still compared: a tool both sides bind keeps its `changed`
-row, and nothing a part not read holds is reported as removed. Nothing is
-imported or run. A Google ADK list read this way is not counted by `scan` as a
-proven surface, because only its own module is checked for changes to it.
+row, and nothing a part not read holds is reported as removed. A member another
+module's list names is read by that module's names, and never bound by its
+spelling alone: an unresolved one is a named limit, and a handoff spelled like
+an agent this module builds is not taken for that agent. Nothing is imported or
+run. A Google ADK `tools=` or `sub_agents=` list that came through a name, or
+from another module, is not counted by `scan` as a proven surface, because
+another module could change it; a literal spread into a literal is.
 
 A member held only under a condition carries it on its row's side as
-`bound_when`, one entry per way it gets in, each the condition's source text:
+`bound_when`, one entry per way it gets in, each built from the conditions'
+source text (`` `wanted` ``, `` not `wanted` ``, `` `extra` is empty ``,
+`` the filter `keep(t)` keeps it ``, joined by `and`):
 
 ```text
 ADDED  finance → prepare_finance_handoff
@@ -563,11 +578,14 @@ ADDED  finance → prepare_finance_handoff
 ```
 
 A conditional member is never shown as unconditional, and a tool the list also
-holds unconditionally has no `bound_when`. When only the condition changed
-(`if handoffs` → `if want_handoff_tool`, or a conditional member made
-unconditional), the row is `changed`, and its `why` names both conditions: they
-are read, never evaluated, so whether the agent now holds the tool more or less
-often is not established.
+holds unconditionally has no `bound_when`. A condition is compared whole, never
+shortened. When only the condition changed (`if handoffs` → `if
+want_handoff_tool`, or a conditional member made unconditional), the row is
+`changed`, and its `why` names both conditions: they are read, never evaluated,
+so whether the agent now holds the tool more or less often is not established.
+When a part of the agent's list was not read, or the agent is constructed more
+than once differently, the row is `not_established` instead: the unread part
+may hold the tool another way.
 
 ## What a bound tool reaches
 

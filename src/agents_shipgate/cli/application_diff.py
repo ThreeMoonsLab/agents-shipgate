@@ -32,7 +32,7 @@ from agents_shipgate.cli.verify.git import (
     tree_sha,
 )
 from agents_shipgate.core.adopter_text import DUPLICATE_TOOL_IN_SOURCE
-from agents_shipgate.core.agent_bindings import resolve_agent_binding_graph
+from agents_shipgate.core.agent_bindings import adk_unnamed_sub_agents, resolve_agent_binding_graph
 from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.domain import ANY_TOOL
 from agents_shipgate.core.errors import ConfigError, InputParseError
@@ -924,6 +924,17 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
             "source": key[0],
             "location": agent.source_pointer,
         }
+    for record in artifacts.sub_agents if artifacts is not None else []:
+        if "unread" in record and isinstance(record.get("agent_name"), str):
+            # A sub-agent list read only in part: a limit on its agent, at its
+            # construction, not on every agent of the file (#909 review).
+            message = adk_unnamed_sub_agents(record["agent_name"], record)
+            result.gap(
+                message,
+                source=_source_path(root, str(record.get("source_ref") or "")),
+                agent=record["agent_name"],
+            )
+            attributed.add(message)
     if artifacts is not None:
         # A Google ADK list read only in part is a limit its agent already
         # carries; the toolset record beside it names no agent, and would

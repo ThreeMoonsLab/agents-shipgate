@@ -895,7 +895,7 @@ def _observations(
             if not isinstance(declared_count, int) or declared_count > len(
                 _string_list(record.get("sub_agents"))
             ) + len(unresolved):
-                partials.add(f"Google ADK agent {source_name!r} has sub-agents that were not statically named.")
+                partials.add(adk_unnamed_sub_agents(source_name, record))
         for toolset in adk.toolsets:
             if toolset.dynamic or not toolset.resolved:
                 partials.add(f"Google ADK toolset {toolset.name or toolset.kind!r} is not statically enumerable.")
@@ -913,6 +913,17 @@ def _observations(
         )
 
     return agents, edges, handoffs, partials, invalid_annotations
+
+
+def adk_unnamed_sub_agents(agent: str | None, record: dict[str, Any]) -> str:
+    """The limit a Google ADK sub-agent list not wholly named carries.
+
+    A list read only in part names each part not read and where it is (#909).
+    """
+
+    message = f"Google ADK agent {agent!r} has sub-agents that were not statically named."
+    unread = record.get("unread")
+    return f"{message} Not read: {unread}." if isinstance(unread, str) and unread else message
 
 
 #: Characters that mean a reader was writing a pattern, not a name.
