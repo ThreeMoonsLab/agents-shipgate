@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "runtime_version": "0.1.2",
+  "policies": [
+    {"path": "samples/openshell/sandbox.yaml", "role": "authored"}
+  ]
+}

@@ -5984,6 +5984,7 @@ UNSEEN_WORKSPACE_SUBJECT = "."
 # compare every root/nested predicate with the canonical registry. These are
 # applicability names, not a second host parser or permission model.
 HOST_CONFIG_PATHS = {
+    ".shipgate/openshell.json": ["openshell"],
     ".codex/config.toml": ["codex"],
     ".codex/hooks.json": ["codex"],
     ".codex/requirements.toml": ["codex"],
@@ -6004,6 +6005,7 @@ HOST_CONFIG_PATHS = {
 #: nesting path added later, and the conformance test only caught it
 #: because it probes a `nested/` variant of every registry glob (#689).
 HOST_CONFIG_NESTED = frozenset({
+    ".shipgate/openshell.json",
     ".claude/hooks/hooks.json",
     ".codex/config.toml",
     ".codex/hooks.json",

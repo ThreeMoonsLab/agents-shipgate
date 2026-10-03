@@ -25,7 +25,7 @@ from typing import Any, Literal
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 import yaml
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from agents_shipgate.core.boundary_registry import (
     BOUNDARY_ADAPTERS,
@@ -71,6 +71,13 @@ from agents_shipgate.core.instruction_structure import (
 )
 from agents_shipgate.core.jsonc import is_vscode_mcp_path, loads_jsonc
 from agents_shipgate.core.mcp_launch_source import launch_source_pin
+from agents_shipgate.core.openshell import (
+    OpenShellCollectionBudget,
+    OpenShellReadError,
+    parse_policy,
+    parse_selection,
+    policy_field_paths,
+)
 from agents_shipgate.core.permission_lattice import (
     exec_equivalent_argument,
     permission_pairing_group,
@@ -95,8 +102,9 @@ from agents_shipgate.schemas.host_grants import (
     HostGrantsBaselineV5,
     HostGrantsBaselineV6,
     HostGrantsBaselineV7,
-    HostGrantsDriftV7,
-    HostGrantsInventoryV7,
+    HostGrantsBaselineV8,
+    HostGrantsDriftV8,
+    HostGrantsInventoryV8,
 )
 
 HOST_GRANTS_SCHEMA_VERSION = HOST_GRANTS_BASELINE_SCHEMA_VERSION
@@ -165,6 +173,9 @@ class HostStaticParseCache:
     _parses: dict[
         tuple[str, str], tuple[Any, str | None, str | None]
     ] = field(default_factory=dict)
+    _openshell_parses: dict[tuple[str, str, str], tuple[Any, str | None, str | None]] = field(
+        default_factory=dict, repr=False,
+    )
     read_counts: dict[str, int] = field(default_factory=dict)
     parse_counts: dict[str, int] = field(default_factory=dict)
     _budget: IdentityReadBudget = field(init=False, repr=False)
@@ -3800,6 +3811,132 @@ def unresolved_structure_message(reason: str) -> str:
     )
 
 
+def _collect_openshell(
+    *, path: Path, source: str, root: Path, cache: HostStaticParseCache,
+    artifacts: list[dict[str, Any]], grants: list[dict[str, Any]],
+    issues: list[dict[str, Any]], budget: OpenShellCollectionBudget,
+    resolved_through: tuple[str, ...] = (),
+) -> None:
+    """Read registration and selected policies through the inventory's session."""
+
+    def read_document(
+        read_path: Path, label: str, kind: str, parser: Callable[[str], Any],
+        hops: tuple[str, ...] = (),
+    ) -> Any:
+        def record(artifact: dict[str, Any]) -> None:
+            if artifact["artifact_id"] not in budget.artifact_ids:
+                budget.artifact_ids.add(artifact["artifact_id"])
+                artifacts.append(artifact)
+
+        text, error = cache.read(read_path, containment_root=root)
+        if error:
+            record(_artifact(
+                host="openshell", scope="repository", source=label, kind=kind,
+                status="failed", resolved_through=hops,
+            ))
+            issues.append(cache.read_issue(
+                path=read_path, containment_root=root, source=label, host="openshell",
+                kind="unreadable", message=error,
+            ))
+            return None
+        assert text is not None
+        # Publish only a digest of structured public facts. Failed parsing
+        # leaves no digest: a hash of malformed, unredactable credential text
+        # could disclose a low-entropy value. Exact input identity is private.
+        evidence = None
+        try:
+            key = (*cache._key(read_path, root), kind)
+            if key not in cache._openshell_parses:
+                cache.parse_counts[str(read_path.absolute())] = (
+                    cache.parse_counts.get(str(read_path.absolute()), 0) + 1
+                )
+                try:
+                    cache._openshell_parses[key] = (parser(text), None, None)
+                except OpenShellReadError as exc:
+                    cache._openshell_parses[key] = (None, exc.kind, exc.message)
+            model, parse_kind, parse_message = cache._openshell_parses[key]
+            if parse_kind:
+                raise OpenShellReadError(parse_kind, parse_message or "OpenShell document was not read")
+            if isinstance(model, BaseModel):
+                raw = model.model_dump(mode="json")
+                public = _openshell_public_value(raw)
+                evidence = {"public_policy": public}
+                if public != raw:
+                    raise OpenShellReadError(
+                        "unsupported", "credential-shaped policy labels cannot be compared after redaction"
+                    )
+        except OpenShellReadError as exc:
+            record(_artifact(
+                host="openshell", scope="repository", source=label, kind=kind,
+                status="failed" if exc.kind == "parse_failed" else "unsupported",
+                data=evidence, resolved_through=hops,
+            ))
+            issues.append(_inventory_issue(
+                kind=exc.kind, host="openshell", source=label, message=exc.message, blocking=True,
+            ))
+            return None
+        record(_artifact(
+            host="openshell", scope="repository", source=label, kind=kind,
+            status="parsed", data=evidence, resolved_through=hops,
+        ))
+        return model
+
+    selection = read_document(path, source, "openshell_selection", parse_selection, resolved_through)
+    if selection is None:
+        return
+    for reference in sorted(selection.policies, key=lambda item: item.path):
+        if not budget.reserve():
+            issues.append(_inventory_issue(
+                kind="unsupported", host="openshell", source=source,
+                message="OpenShell selection exceeds the workspace limit of 64 policy references",
+                blocking=True,
+            ))
+            break
+        policy_path = root / reference.path
+        hops: tuple[str, ...] = ()
+        reader = cache.reader_for(root)
+        try:
+            kind = reader.directory_entry_kind(Path(reference.path))
+        except (OSError, ValueError):
+            kind = None
+        if kind == "symlink":
+            resolution = _resolve_in_tree_link(reader, Path(reference.path))
+            if resolution is not None and resolution[1] == "file":
+                policy_path, hops = root / resolution[0], resolution[2]
+        policy = read_document(policy_path, reference.path, "openshell_policy", parse_policy, hops)
+        if policy is None:
+            continue
+        fields, defaults = policy_field_paths(policy)
+        facts = {
+            "registration": public_host_path(source), "role": reference.role,
+            "runtime_version": selection.runtime_version, "policy_schema_version": policy.version,
+            "policy": policy.model_dump(mode="json"),
+            "defaulted_fields": defaults, "field_paths": fields,
+        }
+        grants.append({
+            **_grant_base(
+                host="openshell", scope="repository", source=reference.path,
+                kind="openshell_policy", identity=source, config=facts,
+                access="unknown", risk="unknown",
+            ),
+            "facts": facts,
+        })
+
+
+def _openshell_public_value(value: Any, *, parent_key: str = "") -> Any:
+    if isinstance(value, str):
+        return _sanitize_sensitive_string(redact_text(value) or "")
+    if isinstance(value, dict):
+        return {_openshell_public_value(key): (
+            "<redacted>" if parent_key in {"query", "params"} and _is_secret_key(key)
+            else _openshell_public_value(child, parent_key=key)
+        )
+                for key, child in value.items()}
+    if isinstance(value, list):
+        return [_openshell_public_value(child) for child in value]
+    return value
+
+
 def _collect_file(
     *, path: Path, source: str, host: str, scope: HostScope, kind: str,
     containment_root: Path, cache: HostStaticParseCache,
@@ -4916,7 +5053,10 @@ def _coverage(
     *, scope: HostScope, artifacts: list[dict[str, Any]], issues: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
     coverage: list[dict[str, Any]] = []
-    for host in ("codex", "claude-code", "cursor", "vscode", "github"):
+    hosts = ["codex", "claude-code", "cursor", "vscode", "github"]
+    if any(item["host"] == "openshell" for item in (*artifacts, *issues)):
+        hosts.append("openshell")
+    for host in hosts:
         host_artifacts = [item for item in artifacts if item["host"] == host]
         host_issues = [item for item in issues if item["host"] == host and item["blocking"]]
         status = "partial" if host_issues else "complete"
@@ -5228,7 +5368,16 @@ def build_host_boundary_snapshot(
             bound_by_selecting_roots(item["issue_id"], source)
 
     collected_claude_sources: set[str] = set()
+    openshell_budget = OpenShellCollectionBudget()
     for path, source, host, kind, resolved_through in repository_paths:
+        if host == "openshell":
+            _collect_openshell(
+                path=path, source=source, root=root, cache=cache,
+                artifacts=artifacts, grants=grants, issues=issues,
+                budget=openshell_budget,
+                resolved_through=resolved_through,
+            )
+            continue
         hook_basis: HookLoadingBasis = "host_configuration"
         if host == "claude-code" and kind == "hooks":
             # Claude Code documents no project `.claude/hooks/hooks.json`
@@ -5292,6 +5441,13 @@ def build_host_boundary_snapshot(
     else:  # pragma: no cover - CLI and typing constrain this; defensive API guard.
         raise ValueError(f"Unsupported host audit scope: {scope!r}")
 
+    if any(item["host"] == "openshell" for item in artifacts):
+        excluded.extend([
+            "OpenShell provider and gateway/global policy composition",
+            "OpenShell driver defaults, runtime-added filesystem baseline paths and live policy freshness",
+            "OpenShell runtime validation, DNS resolution, executable identity and native policy proof",
+        ])
+
     if scope == "local_static":
         grants, claude_precedence_issues = _project_claude_precedence(grants)
         issues.extend(claude_precedence_issues)
@@ -5325,7 +5481,7 @@ def build_host_boundary_snapshot(
                 except ValueError:
                     source = failure.source
                 failure = replace(failure, source=source)
-            for host in ("codex", "claude-code", "cursor", "vscode", "github"):
+            for host in ("codex", "claude-code", "cursor", "vscode", "github", "openshell"):
                 issue = _inventory_issue(
                     kind="unreadable", host=host, source=failure.source,
                     message=failure.summary() + " " + failure.recovery(), blocking=True,
@@ -5351,7 +5507,7 @@ def build_host_boundary_snapshot(
         "static_analysis_only": True,
         "runtime_session_verified": False,
     }
-    inventory = HostGrantsInventoryV7.model_validate(payload).model_dump(mode="json")
+    inventory = HostGrantsInventoryV8.model_validate(payload).model_dump(mode="json")
     return HostBoundarySnapshot(
         inventory=inventory, cache=cache, input_failures=dict(cache.input_failures),
         plugin_reference_issue_ids=frozenset(plugin_reference_issue_ids),
@@ -5390,7 +5546,7 @@ def host_audit_inventory(
 
     if snapshot is None:
         snapshot = build_host_boundary_snapshot(workspace, scope=scope, cache=cache)
-    inventory = HostGrantsInventoryV7.model_validate(snapshot.inventory)
+    inventory = HostGrantsInventoryV8.model_validate(snapshot.inventory)
     if inventory.scope != scope:
         raise ValueError(
             f"Host boundary snapshot scope {inventory.scope!r} does not match {scope!r}"
@@ -5623,7 +5779,7 @@ def build_host_grants_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
             "grants": [compared_grant(grant) for grant in normalized["grants"]],
         },
     }
-    return HostGrantsBaselineV7.model_validate(payload).model_dump(mode="json")
+    return HostGrantsBaselineV8.model_validate(payload).model_dump(mode="json")
 
 
 def host_comparison_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
@@ -5682,7 +5838,7 @@ def load_host_grants_baseline_with_text(
                 "and repair or replace it deliberately."
             )
         return data, text
-    if version not in {"0.2", "0.3", "0.4", "0.5", "0.6", HOST_GRANTS_BASELINE_SCHEMA_VERSION}:
+    if version not in {"0.2", "0.3", "0.4", "0.5", "0.6", "0.7", HOST_GRANTS_BASELINE_SCHEMA_VERSION}:
         raise ValueError(
             f"Host-grants baseline {path} has unsupported schema version "
             f"{version!r}. A human must review migration or replacement."
@@ -5690,7 +5846,8 @@ def load_host_grants_baseline_with_text(
     try:
         model = {"0.2": HostGrantsBaselineV2, "0.3": HostGrantsBaselineV3,
                  "0.4": HostGrantsBaselineV4, "0.5": HostGrantsBaselineV5,
-                 "0.6": HostGrantsBaselineV6, "0.7": HostGrantsBaselineV7}[version]
+                 "0.6": HostGrantsBaselineV6, "0.7": HostGrantsBaselineV7,
+                 "0.8": HostGrantsBaselineV8}[version]
         parsed = model.model_validate(data).model_dump(mode="json")
     except ValidationError:
         return (
@@ -6506,7 +6663,7 @@ def _incomparable_payload(
         # and also route to a human before any first acknowledgement.
         "next_action": None,
     }
-    return HostGrantsDriftV7.model_validate(payload).model_dump(mode="json")
+    return HostGrantsDriftV8.model_validate(payload).model_dump(mode="json")
 
 
 #: Baseline versions a drift comparison reads as current. v0.5 only adds
@@ -6518,11 +6675,11 @@ def _incomparable_payload(
 #: checkout refs (#823); the rules below narrow which older baselines that
 #: acceptance still covers.
 _COMPARABLE_BASELINE_SCHEMA_VERSIONS = frozenset(
-    {"0.4", "0.5", "0.6", HOST_GRANTS_BASELINE_SCHEMA_VERSION}
+    {"0.4", "0.5", "0.6", "0.7", HOST_GRANTS_BASELINE_SCHEMA_VERSION}
 )
 
 #: Baselines without workflow grants retain the v0.6 replacement route (#819).
-OVERWRITABLE_BASELINE_SCHEMA_VERSIONS = frozenset({"0.6", HOST_GRANTS_BASELINE_SCHEMA_VERSION})
+OVERWRITABLE_BASELINE_SCHEMA_VERSIONS = frozenset({"0.6", "0.7", HOST_GRANTS_BASELINE_SCHEMA_VERSION})
 
 #: Baseline versions whose workflow grants never read step action references
 #: (#771). Such a grant's missing ``step_actions`` is not evidence that no
@@ -6636,7 +6793,7 @@ def _comparable_drift_payload(
         "incomparable_reasons": [],
         "next_action": None,
     }
-    return HostGrantsDriftV7.model_validate(payload).model_dump(mode="json")
+    return HostGrantsDriftV8.model_validate(payload).model_dump(mode="json")
 
 
 def build_host_comparison_payload(
@@ -6690,6 +6847,16 @@ def render_host_audit_markdown(
     else:
         for kind, grants in sorted(by_kind.items()):
             lines.append(f"- `{kind}`: {len(grants)}")
+        for grant in by_kind.get("openshell_policy", []):
+            facts = grant["facts"]
+            lines.extend([
+                "", "### OpenShell selected document", "",
+                "Policy facts include correlated binary/endpoint rules and default provenance; "
+                "they make no tool effect or deployed enforcement claim.",
+                "", "~~~~json",
+                json.dumps({"source": grant["source"], **facts}, indent=2, sort_keys=True),
+                "~~~~",
+            ])
         wildcard_rules = [
             grant
             for grant in by_kind.get("permission_rule", [])

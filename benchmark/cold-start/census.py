@@ -67,6 +67,7 @@ CENSUS: tuple[str, ...] = (
     # review is as much part of the boundary as the host files it reads.
     "shipgate.yaml", ".agents-shipgate/*",
     "policies/*.shipgate.yaml", ".shipgate/agent-contract.json",
+    ".shipgate/openshell.json", "**/.shipgate/openshell.json",
 )
 
 #: Patterns whose files are host surface only when they carry particular

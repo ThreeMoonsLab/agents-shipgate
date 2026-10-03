@@ -15,6 +15,7 @@ and `audit --host`.
 
 | Adapter | Status | Repository surfaces | Static semantics |
 |---|---|---|---|
+| OpenShell | static inventory | root/nested `.shipgate/openshell.json` selecting arbitrary repository policy files | [Pinned policy schema 1 inventory](openshell-support.md), authored/effective-snapshot roles, explicit/defaulted fields and named read limits; runtime enforcement and freshness remain unverified |
 | Codex | first-class | `.codex/config.toml`, `.codex/hooks.json` | sandbox, approvals, network, MCP/app approvals, hooks |
 | Claude Code | first-class | `.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json`, `CLAUDE.md`, Claude skills | permission modes/rules, sandbox/network, additional paths, MCP restrictions, plugins and their marketplaces (`extraKnownMarketplaces`), hooks |
 | Cursor | first-class | `.cursor/cli.json`, `.cursor/mcp.json`, `.cursor/rules/**` | Shell/Read/Write rules, MCP declarations, instruction trust roots |

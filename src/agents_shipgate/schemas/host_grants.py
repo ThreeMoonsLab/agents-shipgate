@@ -5,10 +5,11 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from agents_shipgate.schemas.instruction_structure import InstructionStructureEvidence
+from agents_shipgate.schemas.openshell import OpenShellPolicyFacts
 
-HOST_GRANTS_INVENTORY_SCHEMA_VERSION = "0.7"
-HOST_GRANTS_BASELINE_SCHEMA_VERSION = "0.7"
-HOST_GRANTS_DRIFT_SCHEMA_VERSION = "0.7"
+HOST_GRANTS_INVENTORY_SCHEMA_VERSION = "0.8"
+HOST_GRANTS_BASELINE_SCHEMA_VERSION = "0.8"
+HOST_GRANTS_DRIFT_SCHEMA_VERSION = "0.8"
 
 HostName = Literal["codex", "claude-code", "cursor", "vscode", "github"]
 HostGrantScope = Literal["repository", "local_static"]
@@ -1064,6 +1065,84 @@ class HostGrantsBaselineArtifactV7(RootModel[HostGrantsBaselineV7]):
 
 class HostGrantsDriftArtifactV7(RootModel[HostGrantsDriftV7]):
     root: HostGrantsDriftV7
+
+
+HostNameV8 = Literal["codex", "claude-code", "cursor", "vscode", "github", "openshell"]
+
+
+class HostOpenShellPolicyGrantV8(HostGrantBaseV2):
+    host: Literal["openshell"] = "openshell"
+    kind: Literal["openshell_policy"] = "openshell_policy"
+    facts: OpenShellPolicyFacts
+
+
+HostGrantV8 = Annotated[HostGrantV7 | HostOpenShellPolicyGrantV8, Field(discriminator="kind")]
+HostBaselineGrantV8 = Annotated[
+    HostBaselineGrantV7 | HostOpenShellPolicyGrantV8, Field(discriminator="kind")
+]
+
+
+class HostArtifactV8(HostArtifactV7):
+    host: HostNameV8
+    kind: Literal[
+        "config", "mcp", "hooks", "workflow", "instructions", "requirements", "hook_script",
+        "openshell_selection", "openshell_policy",
+    ]
+
+
+class HostCoverageV8(HostCoverageV2):
+    host: HostNameV8
+
+
+class HostInventoryIssueV8(HostInventoryIssueV2):
+    host: HostNameV8
+
+
+class HostCoverageChangeV8(HostCoverageChangeV2):
+    host: HostNameV8
+
+
+class HostArtifactChangeV8(HostArtifactChangeV7):
+    baseline: HostArtifactV8 | None = None
+    current: HostArtifactV8 | None = None
+
+
+class HostGrantsInventoryV8(HostGrantsInventoryV7):
+    host_grants_inventory_schema_version: Literal["0.8"] = "0.8"
+    grants: list[HostGrantV8] = Field(default_factory=list)
+    artifacts: list[HostArtifactV8] = Field(default_factory=list)
+    host_coverage: list[HostCoverageV8] = Field(default_factory=list)
+    issues: list[HostInventoryIssueV8] = Field(default_factory=list)
+
+
+class HostGrantsNormalizedSnapshotV8(HostGrantsNormalizedSnapshotV7):
+    grants: list[HostBaselineGrantV8] = Field(default_factory=list)
+    artifacts: list[HostArtifactV8] = Field(default_factory=list)
+    host_coverage: list[HostCoverageV8] = Field(default_factory=list)
+
+
+class HostGrantsBaselineV8(HostGrantsBaselineV7):
+    host_grants_schema_version: Literal["0.8"] = "0.8"
+    inventory: HostGrantsNormalizedSnapshotV8
+
+
+class HostGrantsDriftV8(HostGrantsDriftV7):
+    host_grants_schema_version: Literal["0.8"] = "0.8"
+    artifact_changes: list[HostArtifactChangeV8] = Field(default_factory=list)
+    coverage_changes: list[HostCoverageChangeV8] = Field(default_factory=list)
+    issues: list[HostInventoryIssueV8] = Field(default_factory=list)
+
+
+class HostGrantsInventoryArtifactV8(RootModel[HostGrantsInventoryV8]):
+    root: HostGrantsInventoryV8
+
+
+class HostGrantsBaselineArtifactV8(RootModel[HostGrantsBaselineV8]):
+    root: HostGrantsBaselineV8
+
+
+class HostGrantsDriftArtifactV8(RootModel[HostGrantsDriftV8]):
+    root: HostGrantsDriftV8
 
 
 __all__ = [name for name in globals() if name.startswith("Host") or name.startswith("HOST_")]

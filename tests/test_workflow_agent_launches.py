@@ -1911,7 +1911,7 @@ def test_a_v0_6_baseline_without_a_workflow_stays_comparable_and_can_be_replaced
     audit = ["audit", "--host", "--workspace", str(tmp_path), "--baseline-file", str(path)]
     resaved = CliRunner().invoke(app, [*audit, "--save-baseline"])
     assert resaved.exit_code == 0, resaved.output
-    assert json.loads(path.read_text())["host_grants_schema_version"] == "0.7"
+    assert json.loads(path.read_text())["host_grants_schema_version"] == "0.8"
 
 
 def test_the_documented_migration_from_a_v0_6_baseline_holding_a_workflow(tmp_path):
@@ -1965,18 +1965,18 @@ def test_a_current_baseline_compares_agent_launches_and_validates_against_the_sc
     path.write_text(_yaml(_reproduction(run="npm ci && claude -p 'x'", ref=HEAD_SHA)))
     inventory = host_audit_inventory(tmp_path)
     baseline = build_host_grants_baseline(inventory)
-    assert baseline["host_grants_schema_version"] == "0.7"
+    assert baseline["host_grants_schema_version"] == "0.8"
     workflow, = [grant for grant in baseline["inventory"]["grants"] if grant["kind"] == "workflow"]
     assert workflow["unread_agent_runs"] == [{"job": "review", "step": "steps[2]", "agent": "claude"}]
     for name, payload in (("inventory", inventory), ("baseline", baseline)):
-        schema = json.loads((ROOT / f"docs/host-grants-{name}-schema.v0.7.json").read_text())
+        schema = json.loads((ROOT / f"docs/host-grants-{name}-schema.v0.8.json").read_text())
         Draft202012Validator(schema).validate(payload)
 
     path.write_text(_yaml(_reproduction(claude_args="--dangerously-skip-permissions", ref=HEAD_SHA)))
     drift = build_host_drift_payload(baseline=baseline, inventory=host_audit_inventory(tmp_path), baseline_file="b.json")
     assert (drift["comparison_status"], drift["has_drift"]) == ("comparable", True)
     assert drift["expansion_signals"] == [f"workflow_agent_widened_changed: {SOURCE}"]
-    schema = json.loads((ROOT / "docs/host-grants-drift-schema.v0.7.json").read_text())
+    schema = json.loads((ROOT / "docs/host-grants-drift-schema.v0.8.json").read_text())
     Draft202012Validator(schema).validate(drift)
 
 

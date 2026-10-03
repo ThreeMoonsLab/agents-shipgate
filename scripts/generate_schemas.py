@@ -51,13 +51,13 @@ Writes / verifies:
 - docs/registry-schema.v0.4.json
                                 (from agents_shipgate.schemas.registry.
                                  RegistryQueryResultV1)
-- docs/host-grants-inventory-schema.v0.7.json
+- docs/host-grants-inventory-schema.v0.8.json
                                 (from agents_shipgate.schemas.host_grants.
-                                 HostGrantsInventoryArtifactV7)
-- docs/host-grants-baseline-schema.v0.7.json
-                                (from HostGrantsBaselineArtifactV7)
-- docs/host-grants-drift-schema.v0.7.json
-                                (from HostGrantsDriftArtifactV7)
+                                 HostGrantsInventoryArtifactV8)
+- docs/host-grants-baseline-schema.v0.8.json
+                                (from HostGrantsBaselineArtifactV8)
+- docs/host-grants-drift-schema.v0.8.json
+                                (from HostGrantsDriftArtifactV8)
 - docs/capability-lock-schema.v0.8.json
                                 (from agents_shipgate.schemas.capabilities.
                                  CapabilityLockFileArtifactV1)
@@ -2494,10 +2494,10 @@ def build_host_grants_inventory_schema() -> tuple[Path, str]:
 
     from agents_shipgate.schemas.host_grants import (
         HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
-        HostGrantsInventoryArtifactV7,
+        HostGrantsInventoryArtifactV8,
     )
 
-    schema = HostGrantsInventoryArtifactV7.model_json_schema()
+    schema = HostGrantsInventoryArtifactV8.model_json_schema()
     minor = HOST_GRANTS_INVENTORY_SCHEMA_VERSION
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
@@ -2518,10 +2518,10 @@ def build_host_grants_baseline_schema() -> tuple[Path, str]:
 
     from agents_shipgate.schemas.host_grants import (
         HOST_GRANTS_BASELINE_SCHEMA_VERSION,
-        HostGrantsBaselineArtifactV7,
+        HostGrantsBaselineArtifactV8,
     )
 
-    schema = HostGrantsBaselineArtifactV7.model_json_schema()
+    schema = HostGrantsBaselineArtifactV8.model_json_schema()
     minor = HOST_GRANTS_BASELINE_SCHEMA_VERSION
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
@@ -2541,10 +2541,10 @@ def build_host_grants_drift_schema() -> tuple[Path, str]:
 
     from agents_shipgate.schemas.host_grants import (
         HOST_GRANTS_DRIFT_SCHEMA_VERSION,
-        HostGrantsDriftArtifactV7,
+        HostGrantsDriftArtifactV8,
     )
 
-    schema = HostGrantsDriftArtifactV7.model_json_schema()
+    schema = HostGrantsDriftArtifactV8.model_json_schema()
     minor = HOST_GRANTS_DRIFT_SCHEMA_VERSION
     schema["$id"] = (
         "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"

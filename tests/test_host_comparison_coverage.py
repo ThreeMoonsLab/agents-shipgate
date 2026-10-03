@@ -1850,7 +1850,7 @@ def test_a_blocking_source_a_reviewer_can_repair_outranks_routine_limits(tmp_pat
     assert {item["limit"] for item in coverage["items"][1:]} == {"unsupported"}
     block = _block(text)
     assert block[1].startswith(
-        "  notes.md (claude-code, codex, cursor): unreadable in base and head"
+        "  notes.md (claude-code, codex, cursor, openshell): unreadable in base and head"
     )
     # Truncation is in the text, not only in the JSON integer beside it.
     assert block[-1] == "  3 more items not listed, each ranked below those above"

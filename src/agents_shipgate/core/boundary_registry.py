@@ -30,6 +30,12 @@ class BoundaryAdapterSpec:
 
 BOUNDARY_ADAPTERS: tuple[BoundaryAdapterSpec, ...] = (
     BoundaryAdapterSpec(
+        id="openshell",
+        hosts=("openshell",),
+        exact_paths=(".shipgate/openshell.json",),
+        globs=("**/.shipgate/openshell.json",),
+    ),
+    BoundaryAdapterSpec(
         id="codex",
         hosts=("codex",),
         exact_paths=(

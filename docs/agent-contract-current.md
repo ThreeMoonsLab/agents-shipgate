@@ -820,7 +820,7 @@ Downstream repos generated with
 - Current attestation schema: `0.5` — [`docs/attestation-schema.v0.5.json`](attestation-schema.v0.5.json)
 - Current registry schema: `0.4` — [`docs/registry-schema.v0.4.json`](registry-schema.v0.4.json)
 - Current org evidence bundle schema: `shipgate.org_evidence_bundle/v2` — [`docs/org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json)
-- Current host-grants inventory, baseline, and drift schemas: `0.7` — [`inventory`](host-grants-inventory-schema.v0.7.json), [`baseline`](host-grants-baseline-schema.v0.7.json), [`drift`](host-grants-drift-schema.v0.7.json)
+- Current host-grants inventory, baseline, and drift schemas: `0.8` — [`inventory`](host-grants-inventory-schema.v0.8.json), [`baseline`](host-grants-baseline-schema.v0.8.json), [`drift`](host-grants-drift-schema.v0.8.json). Version 0.8 adds selected OpenShell document facts; historical host schemas remain frozen. See [OpenShell support](openshell-support.md).
 - Current trigger catalog schema: `0.4` — [`docs/triggers.json`](triggers.json)
 - Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
 - Current governance benchmark result schema: `0.2` — [`docs/governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json)

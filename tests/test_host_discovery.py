@@ -391,6 +391,8 @@ def test_a_link_to_a_directory_still_withholds_the_negative(tmp_path, zero):
 # nothing failing. Pinning the decision per registry entry makes that a failing
 # test and a deliberate choice instead (PR #614 review).
 REGISTRY_ELIGIBILITY: dict[str, bool] = {
+    ".shipgate/openshell.json": True,
+    "**/.shipgate/openshell.json": True,
     ".codex/config.toml": True,
     ".codex/hooks.json": True,
     # Same document, same decision, different host: a hook declaration is
