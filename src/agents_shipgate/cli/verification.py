@@ -523,6 +523,8 @@ def worker(
     require_workspace(workspace)
 
     plan = VerificationPlan.model_validate(_load_json(plan_path))
+    if "openshell_native" in plan.inputs.options:
+        raise InputParseError("Native containment cannot be imported or replayed by a worker; rerun trusted local verify.")
     resolved_diff = diff_path or plan_path.with_name(plan.inputs.diff.path)
     try:
         validate_engine_requirement(
@@ -568,6 +570,8 @@ def assemble(
     """Validate worker IR and close the sole-engine verifier projections."""
 
     plan = VerificationPlan.model_validate(_load_json(plan_path))
+    if "openshell_native" in plan.inputs.options:
+        raise InputParseError("Native containment cannot be imported or replayed by a worker; rerun trusted local verify.")
     units = [VerificationUnitResult.model_validate(_load_json(path)) for path in unit_paths]
     verifier = VerifierArtifact.model_validate(_load_json(verifier_path))
     try:

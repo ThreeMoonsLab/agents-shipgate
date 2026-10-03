@@ -1,0 +1,357 @@
+{
+  "$defs": {
+    "ExternalIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "size_bytes": {
+          "default": 0,
+          "maximum": 67108864,
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "state": {
+          "enum": [
+            "file",
+            "absent",
+            "unconfirmable"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "state"
+      ],
+      "title": "ExternalIdentity",
+      "type": "object"
+    },
+    "NativeObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "actual_exit_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actual Exit Code"
+        },
+        "candidate": {
+          "additionalProperties": true,
+          "title": "Candidate",
+          "type": "object"
+        },
+        "deployment_enforcement_verified": {
+          "const": false,
+          "default": false,
+          "title": "Deployment Enforcement Verified",
+          "type": "boolean"
+        },
+        "external_inputs": {
+          "items": {
+            "$ref": "#/$defs/ExternalIdentity"
+          },
+          "maxItems": 3,
+          "title": "External Inputs",
+          "type": "array"
+        },
+        "grants_merge_authority": {
+          "const": false,
+          "default": false,
+          "title": "Grants Merge Authority",
+          "type": "boolean"
+        },
+        "invocation": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Invocation",
+          "type": "array"
+        },
+        "modeled_containment_only": {
+          "const": true,
+          "default": true,
+          "title": "Modeled Containment Only",
+          "type": "boolean"
+        },
+        "provenance": {
+          "default": "not_executed",
+          "enum": [
+            "not_executed",
+            "local_trusted_execution"
+          ],
+          "title": "Provenance",
+          "type": "string"
+        },
+        "raw_result": {
+          "anyOf": [
+            {
+              "maxLength": 262144,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Raw Result"
+        },
+        "raw_result_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Raw Result Sha256"
+        },
+        "reason_code": {
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "required_domains": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Domains",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "absent",
+            "within_boundary",
+            "exceeds_boundary",
+            "unsupported",
+            "inconclusive",
+            "error",
+            "invalid",
+            "timeout",
+            "cancelled"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "version": {
+          "const": 1,
+          "default": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "status",
+        "reason_code",
+        "required"
+      ],
+      "title": "NativeObservation",
+      "type": "object"
+    },
+    "VerificationGitSubject": {
+      "additionalProperties": false,
+      "properties": {
+        "base_commit_sha": {
+          "anyOf": [
+            {
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Commit Sha"
+        },
+        "base_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Ref"
+        },
+        "base_tree_sha": {
+          "anyOf": [
+            {
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Tree Sha"
+        },
+        "head_commit_sha": {
+          "anyOf": [
+            {
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Head Commit Sha"
+        },
+        "head_ref": {
+          "title": "Head Ref",
+          "type": "string"
+        },
+        "head_tree_sha": {
+          "anyOf": [
+            {
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Head Tree Sha"
+        },
+        "merge_base_sha": {
+          "anyOf": [
+            {
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Merge Base Sha"
+        },
+        "repository_id": {
+          "title": "Repository Id",
+          "type": "string"
+        },
+        "snapshot_kind": {
+          "enum": [
+            "committed_tree",
+            "worktree_overlay"
+          ],
+          "title": "Snapshot Kind",
+          "type": "string"
+        },
+        "source_head_commit_sha": {
+          "anyOf": [
+            {
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Head Commit Sha"
+        },
+        "worktree_overlay_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Worktree Overlay Sha256"
+        }
+      },
+      "required": [
+        "repository_id",
+        "head_ref",
+        "snapshot_kind"
+      ],
+      "title": "VerificationGitSubject",
+      "type": "object"
+    },
+    "VerificationSubject": {
+      "additionalProperties": false,
+      "properties": {
+        "git": {
+          "$ref": "#/$defs/VerificationGitSubject"
+        },
+        "subject_id": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Subject Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subject_id",
+        "git"
+      ],
+      "title": "VerificationSubject",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/openshell-native-evidence-schema.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "evidence_schema_version": {
+      "const": "1",
+      "default": "1",
+      "title": "Evidence Schema Version",
+      "type": "string"
+    },
+    "observation": {
+      "$ref": "#/$defs/NativeObservation"
+    },
+    "request_id": {
+      "title": "Request Id",
+      "type": "string"
+    },
+    "subject": {
+      "$ref": "#/$defs/VerificationSubject"
+    }
+  },
+  "required": [
+    "observation",
+    "request_id",
+    "subject"
+  ],
+  "title": "Agents Shipgate modeled OpenShell native containment evidence v1",
+  "type": "object"
+}

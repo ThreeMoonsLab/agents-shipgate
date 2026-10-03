@@ -70,3 +70,6 @@ class VerificationContext(BaseModel):
     # serialization and never published.
     enabled_plugin_hooks: Any = Field(default=None, exclude=True, repr=False)
     enabled_plugin_hook_issues: tuple[Any, ...] = Field(default=(), exclude=True, repr=False)
+
+    # Produced only by the opt-in trusted local execution, never by JSON import.
+    openshell_native: Any = Field(default=None, exclude=True, repr=False)

@@ -47,7 +47,7 @@ Defaults follow the pinned [OpenShell v0.1.2 authored schema](https://github.com
 and [conversion code](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/crates/openshell-policy/src/lib.rs).
 The [upstream schema reference](https://docs.nvidia.com/openshell/how-it-works/policies/schema)
 describes runtime constraints beyond document inventory. This reader is not a
-substitute for upstream policy validation. Native proof remains an optional, separate implementation stage (#948).
+substitute for upstream policy validation. Native containment is a separate opt-in verifier stage.
 
 ## Conservative declared-authority comparison
 
@@ -271,3 +271,95 @@ Filesystem and Landlock fields are startup-bound, process identity is fixed
 at sandbox creation, and network policy/middleware fields may update
 dynamically. A composed proposal and an effective snapshot retain distinct roles.
 Neither establishes installed policy or live workload behavior.
+
+## Optional native containment
+
+A default `scan`, `check`, preview or flagless verifier never executes or installs
+OpenShell or its prover. Native execution requires an operator-owned external
+trust configuration, passed explicitly to configured `verify`:
+
+```bash
+agents-shipgate verify --workspace . --config shipgate.yaml --base origin/main \
+  --openshell-proof-config /operator/openshell/trust.json --json
+```
+
+The operator supplies the pinned executable and maximum boundary independently
+of the candidate PR. All three trust inputs must be absolute, outside the
+candidate workspace, without symlink traversal or hard links, owned by the
+running user or root, and not writable by group or others. Output directories
+cannot overlap them. External location is a containment boundary, not proof of
+human approval: the operator or trusted CI must independently approve and
+protect these files. Never copy trust configuration or executables from the
+candidate checkout to manufacture this provenance. A trusted CI job must load
+its trust inputs and invocation from operator-controlled infrastructure rather
+than candidate-authored workflow code.
+
+Example trust configuration ([schema v1](openshell-native-trust-schema.v1.json)):
+
+```json
+{
+  "version": 1,
+  "required": true,
+  "runtime_version": "0.1.2",
+  "prover_version": "0.1.2",
+  "executable": {"path": "/operator/openshell/openshell-prover", "sha256": "sha256:<approved-executable-digest>"},
+  "boundary": {"path": "/operator/openshell/maximum.yaml", "sha256": "sha256:<approved-boundary-digest>"},
+  "candidate": {"registration": ".shipgate/openshell.json", "path": "configs/worker-policy.yaml"},
+  "required_domains": ["filesystem", "network_l4", "network_rest", "process", "landlock"],
+  "timeout_seconds": 10
+}
+```
+
+Replace digest placeholders with the independently approved SHA-256 identities.
+Select either a registered document `path`, or a named local `composition` from
+a version 2 registration. Composed candidates retain contributor provenance and
+reconstruct the selected authored fields, preserving omitted defaults. The
+result must normalize to the same policy as the static composer before it runs.
+Every original dependency
+remains bound by the static read session. A selected effective snapshot still
+has unverified deployment freshness. No credential values are read.
+
+The supported contract is [OpenShell v0.1.2 JSON schema 1](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/crates/openshell-prover-cli/src/main.rs).
+All five [modeled domains](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/crates/openshell-prover/src/containment.rs)
+are required. The wrapper checks schema/version, input names, actual process
+exit status, domain coverage, outcome consistency and stable reason identifiers.
+It supplies captured immutable bytes to a copied, hash-pinned executable in a
+private directory, with no shell, repository executable discovery or inherited
+credential/loader environment. The installation's approved runtime and shared
+libraries remain part of the operator's execution trust; the executable hash
+does not attest an entire operating system. The executable must remain runnable
+after copying into the private directory without loader environment overrides.
+Use a release-stamped prover reporting `0.1.2`; an unstamped source build inherits
+the upstream development Cargo version `0.0.0` and is rejected by this contract.
+
+Execution supports POSIX descriptor reads and process groups. Bounds include
+1–30 seconds of solver budget plus two seconds of wall-time overhead, CPU time,
+256 KiB per output stream, file size, descriptor count and input size. Linux
+also applies a 2 GiB address-space limit. Darwin does not support that limit;
+its time/output/file bounds still apply. Unsupported platforms cannot produce
+passing execution evidence. The complete process group is terminated at the
+end, including timeout, output overflow and cancellation.
+
+`openshell-native.json` ([evidence schema v1](openshell-native-evidence-schema.v1.json))
+records the observation, immutable candidate hash, trusted config/boundary/prover
+identities, invocation options, actual exit status, available raw validated JSON,
+composition provenance and the verifier's Git subject/request identity. The
+same observation is bound in plan options and the existing terminal receipt.
+Current-control reads revalidate every external origin as well as candidate
+inputs; a change to ignored policy/profile bytes, trust configuration, boundary
+or prover makes that receipt stale. A local receipt is not a portable signature
+of approved execution. Repository-authored result JSON has no import route;
+workers and assembly refuse native-proof plans and require a fresh trusted run.
+
+`within_boundary` establishes only modeled containment of those inputs. It
+clears no static host expansion, review, purpose, effect, authority or binding
+obligation. `exceeds_boundary` produces a critical, suppression-immune verify
+finding. Unsupported, inconclusive, error, invalid, cancelled and timeout
+outcomes remain distinct observations. Required non-success also adds an
+unsuppressible evidence gap through the existing release decision, so it cannot
+complete. If optional proof is missing, its observation is `absent`, with
+`provenance: "not_executed"`; it is never described as successful containment.
+Use `--openshell-proof-required` to require proof even when no configuration
+is available. Required status is scoped to that verification request, and
+recovery commands preserve both proof flags. Native execution is refused on
+preview and never supplies a manifest-free release verdict.

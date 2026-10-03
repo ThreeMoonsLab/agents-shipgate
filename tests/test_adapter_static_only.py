@@ -458,6 +458,36 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
             "uses explicit repo-local override files, not dynamic imports."
         ),
     ),
+    AllowedException(
+        relative_path="core/openshell_native.py",
+        surface="import:subprocess",
+        line=11,
+        snippet="import subprocess",
+        rationale=(
+            "Explicit verify --openshell-proof-config execution uses one pinned "
+            "Popen boundary below. Default static commands never invoke it; "
+            "the operator must select external trust inputs and executable hashes."
+        ),
+    ),
+    AllowedException(
+        relative_path="core/openshell_native.py",
+        surface="attr_call:subprocess.Popen",
+        line=230,
+        snippet=(
+            "subprocess.Popen(command, cwd=root, shell=False, start_new_session=True, "
+            "stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, "
+            "env={'PATH': '/usr/bin:/bin', 'HOME': temp, 'LANG': 'C.UTF-8'}, "
+            "preexec_fn=lambda: _limits(seconds))"
+        ),
+        rationale=(
+            "Opt-in native containment copies captured, operator-pinned external "
+            "executable and boundary bytes into a private directory. It executes "
+            "fixed list argv without a shell or inherited credentials, bounds "
+            "the process group and output, and binds results to verifier currency. "
+            "No repository-discovered executable or imported result can substitute "
+            "for this call, and modeled containment grants no merge authority."
+        ),
+    ),
 )
 
 

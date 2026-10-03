@@ -190,6 +190,10 @@ def validate_bound_plan_inputs(
             if size > MAX_CURRENCY_INPUT_BYTES:
                 raise ValueError("recorded input exceeds the currency read limit")
             check(reader.read_bytes(path, max_bytes=MAX_CURRENCY_INPUT_BYTES), digest, size)
+    if live_origins and "openshell_native" in plan.inputs.options:
+        from agents_shipgate.core.openshell_native import validate_external_currency
+
+        validate_external_currency(plan.inputs.options["openshell_native"], root)
     validate_dependency_inputs(plan, root=root, snapshot=snapshot)
     validate_directory_inputs(plan, snapshot=snapshot)
     snapshot.finish()

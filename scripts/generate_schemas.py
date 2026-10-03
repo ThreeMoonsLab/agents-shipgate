@@ -2557,6 +2557,26 @@ def build_host_grants_drift_schema() -> tuple[Path, str]:
     return target, _canonical_json(schema)
 
 
+def build_openshell_native_trust_schema() -> tuple[Path, str]:
+    from agents_shipgate.schemas.openshell_native import NativeTrustConfig
+
+    schema = NativeTrustConfig.model_json_schema()
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["$id"] = "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/openshell-native-trust-schema.v1.json"
+    schema["title"] = "Agents Shipgate optional OpenShell native trust configuration v1"
+    return DOCS / "openshell-native-trust-schema.v1.json", _canonical_json(schema)
+
+
+def build_openshell_native_evidence_schema() -> tuple[Path, str]:
+    from agents_shipgate.schemas.openshell_native import NativeEvidence
+
+    schema = NativeEvidence.model_json_schema()
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["$id"] = "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/openshell-native-evidence-schema.v1.json"
+    schema["title"] = "Agents Shipgate modeled OpenShell native containment evidence v1"
+    return DOCS / "openshell-native-evidence-schema.v1.json", _canonical_json(schema)
+
+
 # Public ordered list of (name, builder) pairs. Tests and the CLI iterate this
 # instead of hardcoding individual calls, so adding a new schema is one edit.
 # --- Determinism boundary ---------------------------------------------------
@@ -3002,6 +3022,8 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("host_grants_inventory", build_host_grants_inventory_schema),
     ("host_grants_baseline", build_host_grants_baseline_schema),
     ("host_grants_drift", build_host_grants_drift_schema),
+    ("openshell_native_trust", build_openshell_native_trust_schema),
+    ("openshell_native_evidence", build_openshell_native_evidence_schema),
     ("governance_benchmark_catalog", build_governance_benchmark_catalog_schema),
     ("governance_benchmark_result", build_governance_benchmark_result_schema),
     ("determinism_boundary_matrix", build_determinism_boundary_matrix),

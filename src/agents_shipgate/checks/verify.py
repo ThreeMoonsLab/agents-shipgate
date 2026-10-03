@@ -54,6 +54,10 @@ def run(context: ScanContext) -> list[Finding]:
 
     assessment = assessment_for_scan_context(context)
     findings: list[Finding] = []
+    if verification.openshell_native is not None:
+        from agents_shipgate.core.openshell_native import native_findings
+
+        findings.extend(native_findings(verification.openshell_native, context))
     seen: set[str] = set()
     for raw in verification.changed_files:
         path = raw.replace("\\", "/")

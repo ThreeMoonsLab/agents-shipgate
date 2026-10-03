@@ -230,6 +230,8 @@ def verify(
             "(legacy v1 style, available for one minor release cycle)."
         ),
     ),
+    openshell_proof_config: Path | None = typer.Option(None, "--openshell-proof-config", help="Operator-owned external native-prover trust configuration; opt-in execution."),
+    openshell_proof_required: bool = typer.Option(False, "--openshell-proof-required", help="Require current native containment, including when no trust configuration is supplied."),
     verbose: bool = typer.Option(False, "--verbose", help="Show debug details."),
 ) -> None:
     """Run the canonical ongoing-PR verifier around the existing scan engine."""
@@ -246,6 +248,13 @@ def verify(
     try:
         configure_logging(verbose=verbose)
         stdout_format = _resolve_verify_format(format_, json_output=json_output, preview=preview)
+        if openshell_proof_config is not None:
+            from agents_shipgate.core.openshell_native import external_path
+
+            try:
+                external_path(str(openshell_proof_config), workspace.resolve())
+            except ValueError as exc:
+                raise ConfigError(str(exc)) from exc
         if ci_mode and ci_mode not in {"advisory", "strict"}:
             raise ConfigError("--ci-mode must be advisory or strict")
         for label, value in (("--base", base), ("--head", head)):
@@ -258,6 +267,8 @@ def verify(
                 )
         parsed_fail_on = _parse_fail_on(fail_on)
         parsed_pr_comment_style = _parse_pr_comment_style(pr_comment_style)
+        if preview and (openshell_proof_config is not None or openshell_proof_required):
+            raise ConfigError("Native execution cannot be combined with --preview")
         if preview and authorization is not None:
             raise ConfigError("--authorization cannot be combined with --preview")
     except ConfigError as exc:
@@ -316,6 +327,8 @@ def verify(
                 baseline_mode=baseline_mode,
                 diff_from=diff_from,
                 authorization=authorization,
+                openshell_proof_config=openshell_proof_config,
+                openshell_proof_required=openshell_proof_required,
                 policy_packs=policy_packs,
                 plugins_enabled=False if no_plugins else None,
                 strict_plugins=strict_plugins,

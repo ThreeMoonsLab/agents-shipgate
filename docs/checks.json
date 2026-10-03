@@ -3054,6 +3054,50 @@
     {
       "autofix_safe": false,
       "category": "verify",
+      "default_severity": "critical",
+      "description": "Trusted native OpenShell execution found a modeled candidate action outside the independently pinned maximum boundary.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-verify-openshell-boundary-exceeded",
+      "dynamic_default": false,
+      "evidence_fields": [
+        "status",
+        "reason_code",
+        "required"
+      ],
+      "fires_when": "Opt-in local execution returns a validated exceeds_boundary envelope with matching actual exit status and all required domains.",
+      "floor_severity": "critical",
+      "id": "SHIP-VERIFY-OPENSHELL-BOUNDARY-EXCEEDED",
+      "mvp_tier": "lifecycle",
+      "rationale": "A known containment counterexample cannot be treated as a passing release input. Native evidence never approves other review obligations.",
+      "recommendation": "Narrow the candidate and rerun trusted native proof; do not widen the trusted boundary from the candidate PR.",
+      "requires_human_review": true,
+      "requires_human_review_regardless_of_patch": false,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "verify",
+      "default_severity": "medium",
+      "description": "Requested native OpenShell containment is unavailable, unsupported, invalid or inconclusive.",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-verify-openshell-proof-unavailable",
+      "dynamic_default": false,
+      "evidence_fields": [
+        "status",
+        "reason_code",
+        "required"
+      ],
+      "fires_when": "Opt-in execution cannot establish current modeled containment, or required proof has not been supplied. Optional absent proof is reported only as absent.",
+      "floor_severity": "medium",
+      "id": "SHIP-VERIFY-OPENSHELL-PROOF-UNAVAILABLE",
+      "mvp_tier": "lifecycle",
+      "rationale": "A missing or failed proof establishes no containment. Required proof also creates an unsuppressible evidence gap through the existing release decision.",
+      "recommendation": "Repair trusted external inputs or unsupported proof context and rerun verify with the same proof options.",
+      "requires_human_review": true,
+      "requires_human_review_regardless_of_patch": false,
+      "suggested_patch_kind": "manual"
+    },
+    {
+      "autofix_safe": false,
+      "category": "verify",
       "default_severity": "medium",
       "description": "A policy or manifest trust root changed but there is no base policy snapshot to compare it against \u2014 the base carries no Shipgate manifest (first adoption), or no base report was obtainable.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-verify-policy-base-absent",

@@ -821,6 +821,7 @@ Downstream repos generated with
 - Current registry schema: `0.4` — [`docs/registry-schema.v0.4.json`](registry-schema.v0.4.json)
 - Current org evidence bundle schema: `shipgate.org_evidence_bundle/v2` — [`docs/org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json)
 - Current host-grants inventory, baseline, and drift schemas: `0.9` — [`inventory`](host-grants-inventory-schema.v0.9.json), [`baseline`](host-grants-baseline-schema.v0.9.json), [`drift`](host-grants-drift-schema.v0.9.json). Version 0.9 adds explicit local OpenShell composition, provider profile provenance and effective-snapshot metadata; historical host schemas remain frozen. See [OpenShell support](openshell-support.md).
+- Optional OpenShell native trust/evidence schemas: `1` — [`trust`](openshell-native-trust-schema.v1.json), [`evidence`](openshell-native-evidence-schema.v1.json). Only explicit external trust inputs enable local execution; the default remains static. Native containment never grants merge authority. See [OpenShell support](openshell-support.md#optional-native-containment).
 - Current trigger catalog schema: `0.4` — [`docs/triggers.json`](triggers.json)
 - Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
 - Current governance benchmark result schema: `0.2` — [`docs/governance-benchmark-result-schema.v0.2.json`](governance-benchmark-result-schema.v0.2.json)

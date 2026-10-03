@@ -263,3 +263,23 @@ checks:
   recommendation: A human must review the removal; restore the config binding or
     an explicit literal allowlist, or declare an explicit local tool inventory
     for the toolkit so the mounted surface is statically enumerable.
+- id: SHIP-VERIFY-OPENSHELL-BOUNDARY-EXCEEDED
+  default_severity: critical
+  floor_severity: critical
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: Trusted native OpenShell execution found a modeled candidate action outside the independently pinned maximum boundary.
+  rationale: A known containment counterexample cannot be treated as a passing release input. Native evidence never approves other review obligations.
+  fires_when: Opt-in local execution returns a validated exceeds_boundary envelope with matching actual exit status and all required domains.
+  evidence_fields: [status, reason_code, required]
+  recommendation: Narrow the candidate and rerun trusted native proof; do not widen the trusted boundary from the candidate PR.
+- id: SHIP-VERIFY-OPENSHELL-PROOF-UNAVAILABLE
+  default_severity: medium
+  floor_severity: medium
+  mvp_tier: lifecycle
+  requires_human_review: true
+  description: Requested native OpenShell containment is unavailable, unsupported, invalid or inconclusive.
+  rationale: A missing or failed proof establishes no containment. Required proof also creates an unsuppressible evidence gap through the existing release decision.
+  fires_when: Opt-in execution cannot establish current modeled containment, or required proof has not been supplied. Optional absent proof is reported only as absent.
+  evidence_fields: [status, reason_code, required]
+  recommendation: Repair trusted external inputs or unsupported proof context and rerun verify with the same proof options.

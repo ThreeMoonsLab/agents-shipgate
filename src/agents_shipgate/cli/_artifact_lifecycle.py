@@ -19,6 +19,7 @@ VERIFIER_ROUTE_ARTIFACT_NAMES = (
     "verification-unit-result.json",
     "verification-artifacts.json",
     "verification-receipt.json",
+    "openshell-native.json",
     "human-authorization.json",
     # Identity-bearing: it names the ``input_set_id`` of the run that
     # produced it, so one left beside a later run's receipt would offer a

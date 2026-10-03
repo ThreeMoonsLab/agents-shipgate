@@ -4273,6 +4273,17 @@ tests on every CI run, not by convention:
     sanitized environment, isolated/fsck-validated object graph, fixed list
     argv, exact force-with-lease, and no shell. They are explicit operational
     executor surfaces, not part of static tool extraction.
+  - **`core/openshell_native.py`** — one `subprocess` import and one
+    `subprocess.Popen` call serve only explicit
+    `verify --openshell-proof-config` requests. The operator selects an
+    external configuration that pins the executable and containment boundary
+    by hash. Captured bytes run from a private directory with fixed list argv,
+    no shell, a sanitized environment, bounded output and process-group
+    lifetime. Linux additionally bounds virtual memory; Darwin does not.
+    Default static extraction and verification never invoke this boundary.
+    There is no executable discovery, installation, download or network call.
+    The result describes modeled containment and grants no merge authority;
+    see [the OpenShell trust contract](docs/openshell-support.md).
   - **`cli/fixture.py`** — one `subprocess.run` helper invokes local
     `git init`, `git config`, `git add`, `git commit`, and `git update-ref`
     against a temporary bundled fixture copy so

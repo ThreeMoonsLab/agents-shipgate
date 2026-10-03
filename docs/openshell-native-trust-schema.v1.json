@@ -1,0 +1,111 @@
+{
+  "$defs": {
+    "CandidateSelection": {
+      "additionalProperties": false,
+      "properties": {
+        "composition": {
+          "default": "",
+          "title": "Composition",
+          "type": "string"
+        },
+        "path": {
+          "default": "",
+          "title": "Path",
+          "type": "string"
+        },
+        "registration": {
+          "title": "Registration",
+          "type": "string"
+        }
+      },
+      "required": [
+        "registration"
+      ],
+      "title": "CandidateSelection",
+      "type": "object"
+    },
+    "PinnedFile": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "title": "PinnedFile",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/openshell-native-trust-schema.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "boundary": {
+      "$ref": "#/$defs/PinnedFile"
+    },
+    "candidate": {
+      "$ref": "#/$defs/CandidateSelection"
+    },
+    "executable": {
+      "$ref": "#/$defs/PinnedFile"
+    },
+    "prover_version": {
+      "const": "0.1.2",
+      "title": "Prover Version",
+      "type": "string"
+    },
+    "required": {
+      "title": "Required",
+      "type": "boolean"
+    },
+    "required_domains": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 5,
+      "minItems": 5,
+      "title": "Required Domains",
+      "type": "array"
+    },
+    "runtime_version": {
+      "const": "0.1.2",
+      "title": "Runtime Version",
+      "type": "string"
+    },
+    "timeout_seconds": {
+      "default": 10,
+      "maximum": 30,
+      "minimum": 1,
+      "title": "Timeout Seconds",
+      "type": "integer"
+    },
+    "version": {
+      "const": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "version",
+    "required",
+    "runtime_version",
+    "prover_version",
+    "executable",
+    "boundary",
+    "candidate",
+    "required_domains"
+  ],
+  "title": "Agents Shipgate optional OpenShell native trust configuration v1",
+  "type": "object"
+}

@@ -339,7 +339,16 @@ def run_verify(
     pr_comment_style: str = "capability-review",
     auto_base: bool = False,
     authorization: Path | None = None,
+    openshell_proof_config: Path | None = None,
+    openshell_proof_required: bool = False,
 ) -> tuple[VerifierArtifact, ReadinessReport | None, int]:
+    if openshell_proof_config is not None:
+        from agents_shipgate.core.openshell_native import external_path
+
+        try:
+            external_path(str(openshell_proof_config), workspace.resolve())
+        except ValueError as exc:
+            raise ConfigError(str(exc)) from exc
     git_root = ensure_git_workspace(workspace.resolve())
     config_path, config_relative = _resolve_config_under_workspace(
         git_root,
@@ -391,6 +400,7 @@ def run_verify(
         out_dir=out_dir,
         inputs=[
             ("config", config_path),
+            *([("OpenShell trust config", openshell_proof_config)] if openshell_proof_config is not None else []),
             *([("baseline", baseline_path)] if baseline_path is not None else []),
             *[("policy pack", path) for path in (policy_pack_paths or [])],
             *(
@@ -400,6 +410,13 @@ def run_verify(
             ),
         ],
     )
+    if openshell_proof_config is not None:
+        from agents_shipgate.core.openshell_native import reject_native_output_overlap
+
+        try:
+            reject_native_output_overlap(openshell_proof_config, git_root, out_dir)
+        except ValueError as exc:
+            raise ConfigError(str(exc)) from exc
     # Before anything is written, and for every route this run can take:
     # `--head`, the worktree, and the manifest-free comparison below all leave
     # this directory out of what they read.
@@ -451,6 +468,11 @@ def run_verify(
         no_heuristics=no_heuristics,
         authorization=authorization,
     )
+    if openshell_proof_config is not None:
+        openshell_proof_config = Path(os.path.abspath(openshell_proof_config))
+        rerun_options.extend(["--openshell-proof-config", shlex.quote(str(openshell_proof_config))])
+    if openshell_proof_required:
+        rerun_options.append("--openshell-proof-required")
 
     if not config_path.is_file():
         from .host_comparison import compare_host_refs, host_comparison_failure
@@ -458,7 +480,7 @@ def run_verify(
         # A manifest-free host comparison is advisory evidence, not a synthetic
         # application policy. Explicit application inputs retain their failure.
         host_comparison = None
-        if ci_mode != "strict" and not any((baseline, policy_packs, diff_from, authorization, fail_on)):
+        if ci_mode != "strict" and not any((baseline, policy_packs, diff_from, authorization, fail_on, openshell_proof_config, openshell_proof_required)):
             try:
                 host_comparison = compare_host_refs(
                     workspace=git_root, base=base, head=head if archive_head else None,
@@ -981,6 +1003,7 @@ def run_verify(
     capability_lock_diff: CapabilityLockDiffV1 | None = None
     capability_attestation_inputs: CapabilityDeltaAttestationInputs | None = None
     head_human_context: HumanArtifactContext | None = None
+    native_observation = None
 
     def capture_capability_lock(lock: CapabilityLockFileV1) -> None:
         nonlocal head_capability_lock
@@ -1219,6 +1242,12 @@ def run_verify(
                 else None
             )
             try:
+                if openshell_proof_config is not None or openshell_proof_required:
+                    from agents_shipgate.core.openshell_native import observe_native
+
+                    native_observation = observe_native(config_path=openshell_proof_config,
+                        required=openshell_proof_required, workspace=git_root, input_root=head_input_root)
+                    base_notes.append(f"OpenShell native containment: {native_observation.status} ({native_observation.reason_code}); modeled inputs only.")
                 report, head_exit_code = run_scan(
                     config_path=head_config_path,
                     output_dir=out_dir,
@@ -1266,6 +1295,7 @@ def run_verify(
                         in _BASE_COMPARISON_FAILURES,
                         enabled_plugin_hooks=enabled_plugin_hooks,
                         enabled_plugin_hook_issues=tuple(enabled_plugin_hook_issues),
+                        openshell_native=native_observation,
                     ),
                     capability_lock_callback=capture_capability_lock,
                     human_context_callback=capture_human_context,
@@ -1432,6 +1462,7 @@ def run_verify(
                     diff_from_path=base_report,
                     authorization_path=authorization,
                     verification_options={
+                        **({"openshell_native": native_observation.model_dump(mode="json")} if native_observation is not None else {}),
                         "archive_head": archive_head,
                         "baseline_mode": baseline_mode,
                         "strict_plugins": strict_plugins,
@@ -5043,6 +5074,14 @@ def _write_artifacts(
         json.dumps(plan.model_dump(mode="json"), indent=2, sort_keys=True),
         encoding="utf-8",
     )
+    if "openshell_native" in plan.inputs.options:
+        native_path = verifier_path.with_name("openshell-native.json")
+        from agents_shipgate.schemas.openshell_native import NativeEvidence
+
+        native_evidence = NativeEvidence.model_validate({"observation": plan.inputs.options["openshell_native"],
+            "request_id": plan.request_id, "subject": plan.subject.model_dump(mode="json")})
+        native_path.write_text(json.dumps(native_evidence.model_dump(mode="json"), indent=2, sort_keys=True), encoding="utf-8")
+        verifier.artifacts["openshell_native_json"] = _display_path(native_path, git_root)
     unit_result = build_unit_result(
         plan=plan,
         status=("succeeded" if verifier.execution in {"succeeded", "skipped"} else "failed"),

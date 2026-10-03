@@ -1427,3 +1427,21 @@ the Conductor finding above. HTTP/custom-worker/A2A/provider-native execution
 is recorded as an unsupported capability and source warning in v1, so partial
 coverage cannot silently produce `passed`. A `HUMAN` task is structural pause
 evidence only; it does not prove reviewer identity or approval.
+
+| `SHIP-VERIFY-OPENSHELL-BOUNDARY-EXCEEDED` | critical | Opt-in trusted native containment found the candidate outside the pinned maximum boundary; narrow it and rerun proof. |
+| `SHIP-VERIFY-OPENSHELL-PROOF-UNAVAILABLE` | medium | Requested native containment is absent, invalid, unsupported or inconclusive; required proof retains an evidence gap. Repair trust inputs and rerun the same request. |
+
+### SHIP-VERIFY-OPENSHELL-BOUNDARY-EXCEEDED
+
+Opt-in trusted native execution found a modeled action outside the independently
+pinned maximum. The critical verify finding is suppression-immune. Narrow the
+candidate and rerun proof; a baseline or proof success cannot approve other
+release obligations. Counterexample wording is excluded from finding identity.
+
+### SHIP-VERIFY-OPENSHELL-PROOF-UNAVAILABLE
+
+Requested modeled containment is absent, invalid, unsupported, inconclusive,
+failed, cancelled or timed out. Required non-success retains an unsuppressible
+evidence gap. Optional missing proof is an absent observation, with no claim of
+containment. Repair external trust inputs and rerun the same verification
+request. See [OpenShell support](openshell-support.md#optional-native-containment).
