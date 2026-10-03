@@ -215,7 +215,7 @@ index 1111111..2222222 100644
     assert evidence["weakened_rules"][0]["id"] == "CODEX-MCP-AUTO-APPROVE-WRITE"
 
 
-def test_codex_mcp_auto_approval_requires_human_then_clean_diff_completes(
+def test_codex_mcp_auto_approval_then_clean_detached_diff_still_denies_authority(
     tmp_path: Path,
 ) -> None:
     before = runner.invoke(
@@ -255,9 +255,9 @@ def test_codex_mcp_auto_approval_requires_human_then_clean_diff_completes(
     assert before_payload["repair"]["safe_to_attempt"] is False
     assert after_payload["decision"] == "allow"
     after_control = _control(after_payload)
-    assert after_control["state"] == "complete"
-    assert after_control["completion_allowed"] is True
-    assert after_control["must_stop"] is False
+    assert after_control["state"] == "human_review_required"
+    assert after_control["completion_allowed"] is False
+    assert after_control["must_stop"] is True
 
 
 def test_check_diff_input_failure_emits_schema_valid_boundary_result(tmp_path: Path) -> None:
@@ -442,4 +442,5 @@ def test_mcp_shipgate_check_is_read_only_static_adapter(
     assert payload["schema_version"] == "shipgate.agent_boundary_result/v3"
     assert payload["agent"] == "cursor"
     assert payload["decision"] == "allow"
-    assert payload["control"]["state"] == "complete"
+    assert payload["control"]["state"] == "human_review_required"
+    assert not any(payload["control"]["permissions"].values())

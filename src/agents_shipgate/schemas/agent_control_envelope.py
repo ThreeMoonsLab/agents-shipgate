@@ -57,7 +57,7 @@ is bound by ``input_id`` instead.
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -80,6 +80,7 @@ from agents_shipgate.schemas.agent_control import (
     NoHumanReview,
     PublishOnlyPermissions,
     RequiredHumanReview,
+    validate_explicit_permission_vector,
 )
 from agents_shipgate.schemas.verification_identity import CONTENT_ID_PATTERN
 
@@ -822,6 +823,11 @@ class _AgentControlEnvelopeBase(BaseModel):
     capability_rows: EnvelopeCapabilityRows | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _explicit_permissions_are_complete(cls, data: Any) -> Any:
+        return validate_explicit_permission_vector(data)
 
     @model_validator(mode="after")
     def _decision_and_source_move_together(self) -> _AgentControlEnvelopeBase:

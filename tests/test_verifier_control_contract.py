@@ -87,7 +87,7 @@ def _passed_verifier() -> VerifierArtifact:
         merge_verdict="mergeable",
         applicability="verified",
         can_merge_without_human=True,
-        control=derive_agent_control(reason="Static verification passed."),
+        control=derive_agent_control(reason="Static verification passed.", subject_evaluated=True),
         authorization=AuthorizationEvaluationV1.not_requested(),
     )
 

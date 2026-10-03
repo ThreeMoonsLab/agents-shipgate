@@ -1111,7 +1111,19 @@ def _control_for_result(
             allowed_next_commands=[command],
         )
 
-    return derive_agent_control(reason=summary)
+    if not subject_evaluated:
+        why = (
+            "The supplied input does not establish an evaluated checkout state. "
+            "Re-run check against the intended worktree or with both --base and --head."
+        )
+        return derive_agent_control(
+            reason=why,
+            next_action=HumanControlAction(kind="review", why=why),
+            human_review_required=True,
+            human_review_why=why,
+            stop_reason=why,
+        )
+    return derive_agent_control(reason=summary, subject_evaluated=subject_evaluated)
 
 
 def load_codex_boundary_policy(

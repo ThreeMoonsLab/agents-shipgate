@@ -118,9 +118,17 @@ def _load_mcp_policy(
     raw: dict[str, Any] | None = None
     if policy_path.is_file():
         try:
-            loaded = yaml.safe_load(policy_path.read_text(encoding="utf-8")) or {}
+            loaded = yaml.safe_load(policy_path.read_text(encoding="utf-8"))
+            if loaded is None:
+                loaded = {}
             if isinstance(loaded, dict):
                 raw = loaded
+            else:
+                diagnostics.append(AgentResultDiagnostic(
+                    level="warning", code="mcp_policy_parse_failed",
+                    message="MCP permission policy root must be a mapping; using built-in defaults.",
+                    path=str(policy_path),
+                ))
         except (OSError, yaml.YAMLError) as exc:
             diagnostics.append(
                 AgentResultDiagnostic(
@@ -148,11 +156,22 @@ def _load_mcp_policy(
     version = str(raw.get("version") or "1")
     raw_rules = raw.get("rules")
     if not isinstance(raw_rules, list):
+        if "rules" in raw:
+            diagnostics.append(AgentResultDiagnostic(
+                level="warning", code="mcp_policy_parse_failed",
+                message="MCP permission policy rules must be a list; using built-in defaults.",
+                path=str(policy_path),
+            ))
         return rules, version
 
     check_id_to_rule = {rule["check_id"]: rule_id for rule_id, rule in rules.items()}
     for raw_rule in raw_rules:
         if not isinstance(raw_rule, dict):
+            diagnostics.append(AgentResultDiagnostic(
+                level="warning", code="mcp_policy_parse_failed",
+                message="MCP permission policy rule must be a mapping; ignoring unreadable rule.",
+                path=str(policy_path),
+            ))
             continue
         rule_id = str(raw_rule.get("id") or "")
         if rule_id not in rules:
@@ -275,6 +294,7 @@ def build_mcp_audit(
     base_tools: list[Tool] = []
     head_tools: list[Tool] = []
     servers: list[NormalizedMcpServer] = []
+    source_read = False
     changed_files = sorted(
         {
             path
@@ -297,7 +317,8 @@ def build_mcp_audit(
                 diagnostics,
                 preserve_rename_source=True,
             )
-            if old_is_codex and resolved.old_text and old_path:
+            if old_is_codex and resolved.old_text is not None and old_path:
+                source_read = True
                 base_tools.extend(
                     _tools_from_toml(
                         resolved.old_text,
@@ -306,7 +327,8 @@ def build_mcp_audit(
                         diagnostics=diagnostics,
                     )
                 )
-            if new_is_codex and resolved.new_text and new_path:
+            if new_is_codex and resolved.new_text is not None and new_path:
+                source_read = True
                 parsed_servers, tools = _servers_tools_from_toml(
                     resolved.new_text,
                     source_ref=new_path,
@@ -325,7 +347,8 @@ def build_mcp_audit(
                     diagnostics,
                     preserve_rename_source=True,
                 )
-            if old_is_mcp and resolved.old_text and old_path:
+            if old_is_mcp and resolved.old_text is not None and old_path:
+                source_read = True
                 base_tools.extend(
                     _tools_from_mcp_json(
                         resolved.old_text,
@@ -334,7 +357,8 @@ def build_mcp_audit(
                         diagnostics=diagnostics,
                     )
                 )
-            if new_is_mcp and resolved.new_text and new_path:
+            if new_is_mcp and resolved.new_text is not None and new_path:
+                source_read = True
                 parsed_servers, tools = _servers_tools_from_mcp_json(
                     resolved.new_text,
                     source_ref=new_path,
@@ -394,6 +418,10 @@ def build_mcp_audit(
         diag.level in {"warning", "error"} and diag.code not in _COMPLETE_INPUT_DIAGNOSTICS
         for diag in diagnostics
     )
+    # No warnings on an empty/irrelevant diff is not an assessment of MCP.
+    # Source presence is independent of server/tool counts: an empty map and
+    # a deletion can both be fully evaluated subjects.
+    payload["subject_evaluated"] = source_read and payload["input_complete"]
     return payload
 
 
@@ -416,6 +444,12 @@ def _servers_tools_from_toml(
             )
         )
         return [], []
+    _validate_server_mapping(data, "mcp_servers", source_ref, diagnostics)
+    _validate_server_mapping(data, "plugins", source_ref, diagnostics)
+    if isinstance(data.get("plugins"), dict):
+        for plugin in data["plugins"].values():
+            if isinstance(plugin, dict):
+                _validate_server_mapping(plugin, "mcp_servers", source_ref, diagnostics)
     servers = normalize_codex_config_mcp_servers(
         data,
         source_ref=source_ref,
@@ -468,12 +502,27 @@ def _servers_tools_from_mcp_json(
             )
         )
         return [], []
+    _validate_server_mapping(data, "mcpServers", source_ref, diagnostics)
     servers = normalize_mcp_json_servers(
         data,
         source_ref=source_ref,
         source_path=source_path,
     )
     return servers, tools_from_normalized_mcp_servers(servers)
+
+
+def _validate_server_mapping(
+    data: dict[str, Any], key: str, path: str, diagnostics: list[AgentResultDiagnostic],
+) -> None:
+    if key not in data:
+        return
+    servers = data[key]
+    if not isinstance(servers, dict) or any(not isinstance(value, dict) for value in servers.values()):
+        diagnostics.append(AgentResultDiagnostic(
+            level="warning", code="mcp_server_mapping_unreadable",
+            message=f"{key} must map names to configuration objects; some input was not read.",
+            path=path,
+        ))
 
 
 def _tools_from_mcp_json(
@@ -673,7 +722,20 @@ def _agent_result_from_audit(audit: dict[str, Any]) -> AgentResultV2:
             required_reviewers=human_review.required_reviewers,
             stop_reason=human_review.why or summary,
         )
-    elif decision == "require_review" and _mcp_audit_read_every_input(audit):
+    elif not _mcp_audit_read_every_input(audit) or audit.get("subject_evaluated") is not True:
+        why = (
+            "The MCP audit did not evaluate a recognized source with complete input. "
+            "Supply readable MCP configuration and policy before relying on this result."
+        )
+        control = derive_agent_control(
+            reason=why,
+            next_action=HumanControlAction(kind="review", why=why),
+            human_review_required=True,
+            human_review_why=why,
+            required_reviewers=human_review.required_reviewers,
+            stop_reason=why,
+        )
+    elif decision == "require_review":
         # The audit completed over fully-readable input; only human judgement
         # is outstanding, so the agent may still publish for that review.
         control = derive_agent_control(
@@ -684,21 +746,8 @@ def _agent_result_from_audit(audit: dict[str, Any]) -> AgentResultV2:
             human_review_why=human_review.why or summary,
             required_reviewers=human_review.required_reviewers,
         )
-    elif decision == "require_review":
-        # A partially unreadable audit is not a reviewable assessment, whatever
-        # the aggregate decision says: some of the surface was never parsed, so
-        # there is nothing trustworthy to publish.
-        why = human_review.why or summary
-        control = derive_agent_control(
-            reason=summary,
-            next_action=HumanControlAction(kind="review", why=why),
-            human_review_required=True,
-            human_review_why=why,
-            required_reviewers=human_review.required_reviewers,
-            stop_reason=why,
-        )
     else:
-        control = derive_agent_control(reason=summary)
+        control = derive_agent_control(reason=summary, subject_evaluated=True)
     return AgentResultV2(
         decision=decision,  # type: ignore[arg-type]
         risk_level=audit["risk_level"],

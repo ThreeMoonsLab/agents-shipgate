@@ -185,7 +185,7 @@ def _release_decision(status: str) -> dict[str, object]:
 @pytest.mark.parametrize("status", sorted(CANONICAL))
 def test_consistent_artifact_is_accepted(status) -> None:
     control = (
-        derive_agent_control(reason="Static verification passed.")
+        derive_agent_control(reason="Static verification passed.", subject_evaluated=True)
         if status == "passed"
         else derive_agent_control(
             reason=f"Release decision is {status}.",
@@ -225,7 +225,7 @@ def test_artifact_rejects_top_level_decision_mismatch() -> None:
             merge_verdict="mergeable",
             applicability="verified",
             can_merge_without_human=True,
-            control=derive_agent_control(reason="Static verification passed."),
+            control=derive_agent_control(reason="Static verification passed.", subject_evaluated=True),
             authorization=AuthorizationEvaluationV1.not_requested(),
         )
 
@@ -246,7 +246,7 @@ def test_artifact_without_release_decision_projects_from_execution() -> None:
         execution="skipped",
         applicability="not_applicable",
         can_merge_without_human=True,
-        control=derive_agent_control(reason="No applicable changes."),
+        control=derive_agent_control(reason="No applicable changes.", subject_evaluated=True),
     )
     assert art2.merge_verdict == "mergeable"
 
@@ -266,7 +266,7 @@ def test_artifact_rejects_applicability_inconsistent_with_substrate() -> None:
             merge_verdict="mergeable",
             applicability="not_applicable",
             can_merge_without_human=True,
-            control=derive_agent_control(reason="Static verification passed."),
+            control=derive_agent_control(reason="Static verification passed.", subject_evaluated=True),
         )
 
 

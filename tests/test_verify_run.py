@@ -119,7 +119,7 @@ def _passed_outcome() -> VerifyRunOutcome:
         decision="passed",
         merge_verdict="mergeable",
         can_merge_without_human=True,
-        control=derive_agent_control(reason="Static verification passed."),
+        control=derive_agent_control(reason="Static verification passed.", subject_evaluated=True),
     )
 
 

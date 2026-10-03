@@ -200,6 +200,21 @@ ALL_PERMISSIONS_DENIED_SCHEMA: dict[str, Any] = {
 }
 
 
+def validate_explicit_permission_vector(data: Any) -> Any:
+    """Reject a partial stored vector instead of filling in authority defaults.
+
+    Whole-vector omission retains the legacy migration path. Trusted internal
+    permission models retain their constructors; an explicitly supplied mapping
+    must contain all six fields, just as the published JSON Schema requires.
+    """
+
+    if isinstance(data, Mapping) and isinstance(data.get("permissions"), Mapping):
+        missing = set(PERMISSION_FIELDS) - data["permissions"].keys()
+        if missing:
+            raise ValueError("explicit permissions must include every permission field")
+    return data
+
+
 class _AgentPermissionsBase(BaseModel):
     """Action-scoped authority, fixed by the control state that carries it.
 
@@ -307,6 +322,11 @@ class _AgentControlBase(BaseModel):
     # execution must stop, preserving the existing controller affordance while
     # making its presence structurally consistent with ``must_stop``.
     stop_reason: NonEmptyText | None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _explicit_permissions_are_complete(cls, data: Any) -> Any:
+        return validate_explicit_permission_vector(data)
 
     @model_validator(mode="after")
     def _commands_are_unique(self) -> _AgentControlBase:
