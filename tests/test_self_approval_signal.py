@@ -118,7 +118,7 @@ def test_self_approval_never_silently_reclassifies_merge_authority() -> None:
 
 
 def test_clean_mergeable_still_merges_and_keeps_safe_action() -> None:
-    # Regression: with no self-approval note, mergeable behaves as before.
+    # An evaluated negative trigger remains complete without a self-approval note.
     assert (
         _can_merge_without_human(
             merge_verdict="mergeable", release_decision=None, capability_review=_cr()
@@ -136,6 +136,7 @@ def test_clean_mergeable_still_merges_and_keeps_safe_action() -> None:
         base_status="skipped",
         base_ref=None,
         diff_status=VerifierDiffStatus(completeness="complete"),
+        skip_subject_evaluated=True,
     )
     assert control.state == "complete"
     assert control.next_action is None
