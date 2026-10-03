@@ -49,6 +49,7 @@ def test_scan_removes_stale_verifier_route_artifacts(tmp_path: Path) -> None:
         "verification-unit-result.json",
         "verification-artifacts.json",
         "verification-receipt.json",
+        "openshell-native.json",
         "human-authorization.json",
         # Identity-bearing too: it names the ``input_set_id`` of the run that
         # produced it, so a stale one beside a later run's receipt would offer
