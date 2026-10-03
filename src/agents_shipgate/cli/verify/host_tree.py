@@ -43,6 +43,8 @@ def materialize_host_tree(
             # this reader deliberately never consumes the target's bytes.
             and item.get("limit") not in {"redacted_dependency_path", "symlink_input"}
         }
+        found.update(snapshot.cache.openshell_selected_paths)
+        found = {path for path in found if not is_boundary_surface_path(path)}
         if not found:
             read["snapshot"] = snapshot
             return None

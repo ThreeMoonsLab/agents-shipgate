@@ -31,6 +31,7 @@ from agents_shipgate.core.boundary_registry import (
     BOUNDARY_ADAPTERS,
     CLAUDE_PLUGIN_DEFAULT_HOOKS,
     CLAUDE_PLUGIN_MARKETPLACE,
+    boundary_adapters_for_path,
     is_claude_plugin_manifest_path,
     is_claude_plugin_marketplace_path,
     is_claude_plugin_reference_path,
@@ -79,6 +80,7 @@ from agents_shipgate.core.openshell import (
     policy_field_paths,
 )
 from agents_shipgate.core.openshell_compare import compare_openshell_grants
+from agents_shipgate.core.openshell_inputs import capture_openshell_input
 from agents_shipgate.core.permission_lattice import (
     exec_equivalent_argument,
     permission_pairing_group,
@@ -168,6 +170,9 @@ class HostStaticParseCache:
     reference_workspace: Path | None = None
     hook_script_reads: dict[str, dict[str, Any]] = field(default_factory=dict)
     hook_script_absences: set[str] = field(default_factory=set)
+    openshell_selected_paths: set[str] = field(default_factory=set)
+    openshell_input_reads: dict[str, dict[str, Any]] = field(default_factory=dict)
+    openshell_input_absences: set[str] = field(default_factory=set)
     _reads: dict[tuple[str, str], tuple[str | None, str | None]] = field(
         default_factory=dict
     )
@@ -3829,6 +3834,35 @@ def _collect_openshell(
                 budget.artifact_ids.add(artifact["artifact_id"])
                 artifacts.append(artifact)
 
+        reader = cache.reader_for(root)
+        dependencies = (label, *hops)
+        cache.openshell_selected_paths.update(dependencies)
+        if any(public_host_path(dependency) != dependency for dependency in dependencies):
+            # A redacted path cannot identify exact bytes. Do not publish the
+            # original path or a digest of a credential-shaped link target.
+            shown = public_host_path(label)
+            cache.openshell_input_reads[shown] = {"limit": "redacted_input_path"}
+            from agents_shipgate.core.static_inputs import active_static_input_snapshot
+
+            snapshot = active_static_input_snapshot()
+            if snapshot is not None and snapshot.root == root:
+                snapshot.mark_unconfirmable_dependency(root / shown)
+            record(_artifact(
+                host="openshell", scope="repository", source=label, kind=kind,
+                status="unsupported", resolved_through=hops,
+            ))
+            issues.append(_inventory_issue(
+                kind="unsupported", host="openshell", source=label,
+                message="Selected OpenShell input paths cannot be bound after credential redaction",
+                blocking=True,
+            ))
+            return None
+        for dependency in dependencies:
+            if dependency not in cache.openshell_input_reads:
+                cache.openshell_input_reads[dependency] = capture_openshell_input(
+                    reader, dependency, absent_paths=cache.openshell_input_absences,
+                )
+
         text, error = cache.read(read_path, containment_root=root)
         if error:
             record(_artifact(
@@ -5371,7 +5405,9 @@ def build_host_boundary_snapshot(
     collected_claude_sources: set[str] = set()
     openshell_budget = OpenShellCollectionBudget()
     for path, source, host, kind, resolved_through in repository_paths:
-        if host == "openshell":
+        if host == "openshell" and any(
+            adapter.id == "openshell" for adapter in boundary_adapters_for_path(source)
+        ):
             _collect_openshell(
                 path=path, source=source, root=root, cache=cache,
                 artifacts=artifacts, grants=grants, issues=issues,

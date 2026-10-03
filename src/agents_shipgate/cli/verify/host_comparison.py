@@ -218,18 +218,25 @@ def compare_host_refs(
         if head is None:
             from agents_shipgate.schemas.verification_identity import VerificationBlob
 
+            reads = {**head_snapshot.cache.hook_script_reads, **head_snapshot.cache.openshell_input_reads}
             result.input_script_blobs = [
                 VerificationBlob(
                     path=path, sha256="sha256:" + facts["sha256"],
-                    size_bytes=facts["size_bytes"], source="worktree",
+                    size_bytes=facts["size_bytes"], source=facts.get("source", "worktree"),
                 )
-                for path, facts in sorted(head_snapshot.cache.hook_script_reads.items())
+                for path, facts in sorted(reads.items())
                 if facts.get("sha256") is not None
             ]
-            result.input_script_absent_paths = sorted(head_snapshot.cache.hook_script_absences)
+            result.input_script_absent_paths = sorted(
+                head_snapshot.cache.hook_script_absences | head_snapshot.cache.openshell_input_absences
+            )
             result.input_script_unconfirmable_paths = sorted(
-                path for path, facts in head_snapshot.cache.hook_script_reads.items()
+                {path for captured in (
+                    head_snapshot.cache.hook_script_reads,
+                    head_snapshot.cache.openshell_input_reads,
+                ) for path, facts in captured.items()
                 if facts.get("limit") not in {None, "missing_input"}
+                }
             )
         result_coverage = result.coverage
         mentions_unread = result_coverage is not None and (

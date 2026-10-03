@@ -21,8 +21,8 @@ This registration is an Agents Shipgate format. OpenShell does not discover
 policies from this filename. Paths are normalized, relative to the audited
 workspace root, even when a registration is nested. Arbitrary filenames are
 accepted. Each registration selects 1–64 distinct paths, with at most 64 policy
-references across the workspace, including repeated selections. Globs, URLs, absolute
-paths and `..` are rejected. A policy is read only when a registration selects
+references across the workspace, including repeated selections. Paths select exact
+filenames; glob expansion is unavailable. URLs, absolute paths and `..` are rejected. A policy is read only when a registration selects
 it. The detection census recognizes the registration filename without reading
 the policy. It never classifies every YAML file as an OpenShell policy.
 
@@ -124,3 +124,25 @@ current inventories/baselines/drift use v0.8.
 The checked-in [example](../samples/openshell/sandbox.yaml) is selected by
 `samples/openshell/.shipgate/openshell.json` when auditing this repository root.
 For another workspace, copy the policy and register its new local path.
+
+## Selected input identity
+
+Each comparison reads registrations and selected policies independently from
+its base and head tree. Arbitrary policy filenames, selection-only edits,
+deletions and in-tree link chains use the same bounded archive closure as
+other host dependencies. An unread selected policy makes the comparison
+incomplete; it never means an empty policy.
+
+Verification binds regular document bytes, link-target text, and named missing
+inputs to the existing plan and receipt lifecycle. Ignored policies participate
+in currency checks. Retargeting a link, replacing its type or changing a consumed
+policy invalidates current control, even when Git reports no changed files.
+The existing `input_script_blobs` field carries these host dependencies too;
+`source: generated` identifies derived UTF-8 link-target text, while
+`source: worktree` identifies regular bytes. Plan dependency provenance records
+links separately. Old plans without a links collection remain readable.
+
+Credential-shaped input paths cannot identify published bytes after redaction.
+They become named unsupported, unconfirmable inputs, without publishing raw
+paths or link-target digests. Static identity establishes which documents were
+read, not whether an effective export is fresh or enforced by a running sandbox.

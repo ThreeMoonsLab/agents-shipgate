@@ -48,6 +48,7 @@ class StaticInputSnapshot:
         }
         self._entries: dict[Path, bytes] = {}
         self._dependency_paths: set[Path] = set()
+        self._dependency_links: dict[Path, bytes] = {}
         self._absent_dependency_paths: set[Path] = set()
         self._present_dependency_paths: set[Path] = set()
         self._unconfirmable_dependency_paths: set[Path] = set()
@@ -152,6 +153,26 @@ class StaticInputSnapshot:
 
     def dependency_paths(self) -> list[Path]:
         return sorted(self._dependency_paths)
+
+    def bind_dependency_link(self, path: Path, expected: bytes | None = None) -> bytes:
+        """Bind an exact selected symbolic-link object without following it."""
+        if self._finished:
+            raise ValueError("static input snapshot is already finalized")
+        key, relative = self._key(path)
+        session, relative = self._session_for(key)
+        raw = session.link_target(relative).encode("utf-8")
+        if expected is not None and raw != expected:
+            self.mark_unconfirmable_dependency(key)
+            raise ValueError("selected link moved between identity-bound reads")
+        previous = self._dependency_links.get(key)
+        if previous is not None and previous != raw:
+            self.mark_unconfirmable_dependency(key)
+            raise ValueError("selected link changed within the snapshot")
+        self._dependency_links[key] = raw
+        return raw
+
+    def dependency_links(self) -> dict[Path, bytes]:
+        return dict(self._dependency_links)
 
     def absent_dependency_paths(self) -> list[Path]:
         return sorted(self._absent_dependency_paths)

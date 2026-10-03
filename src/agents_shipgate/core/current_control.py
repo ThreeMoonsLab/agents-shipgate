@@ -680,7 +680,7 @@ def read_current_control(
             validated = _validate_bound_artifacts(
                 out_dir,
                 pointer,
-                capture=set(capture) | {"verification_plan", RECEIPT_ARTIFACT_KEY},
+                capture=set(capture) | {"verification_plan", "verifier", RECEIPT_ARTIFACT_KEY},
             )
         except CurrentControlUnavailable as mismatch:
             # A run that republished mid-read moves the pointer too. Retry that
@@ -993,7 +993,16 @@ def _validate_hook_script_currency(
         reader = cache.reader_for(live.root)
         for item in comparison.get("input_script_blobs", []):
             bound = VerificationBlob.model_validate(item)
-            observed = capture_hook_script(reader, bound.path)
+            if bound.source == "generated":
+                from agents_shipgate.core.openshell_inputs import capture_openshell_input
+
+                observed = capture_openshell_input(reader, bound.path, absent_paths=set())
+                if observed.get("source") != "generated":
+                    raise ValueError("selected link no longer has its captured type")
+            elif bound.source == "worktree":
+                observed = capture_hook_script(reader, bound.path)
+            else:
+                raise ValueError("invalid live dependency source")
             if (
                 observed.get("limit") is not None
                 or "sha256:" + str(observed.get("sha256")) != bound.sha256

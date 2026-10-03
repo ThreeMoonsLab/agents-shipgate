@@ -205,7 +205,7 @@ def build_verification_plan(
         normalized_options["input_directories"] = snapshot.input_directory_identity(
             source="git_blob" if archived_head else "worktree",
         )
-    if snapshot is not None and (snapshot.dependency_paths() or snapshot.absent_dependency_paths() or snapshot.present_dependency_paths() or snapshot.unconfirmable_dependency_paths()):
+    if snapshot is not None and (snapshot.dependency_paths() or snapshot.dependency_links() or snapshot.absent_dependency_paths() or snapshot.present_dependency_paths() or snapshot.unconfirmable_dependency_paths()):
         normalized_options["dependency_inputs"] = {
             "files": sorted(
                 [{"path": path.relative_to(input_root).as_posix(),
@@ -227,6 +227,11 @@ def build_verification_plan(
                 for path in snapshot.unconfirmable_dependency_paths()
             ),
         }
+        if snapshot.dependency_links():
+            normalized_options["dependency_inputs"]["links"] = sorted(
+                [{"path": path.relative_to(input_root).as_posix(), "sha256": sha256_bytes(raw), "size_bytes": len(raw)}
+                 for path, raw in snapshot.dependency_links().items()], key=lambda row: row["path"],
+            )
     normalized_options["plugins_enabled"] = effective_plugins_enabled
     overlay_paths = sorted(
         set(changed_files if worktree_overlay_paths is None else worktree_overlay_paths)
@@ -1147,14 +1152,18 @@ def validate_dependency_inputs(plan: VerificationPlan, *, root: Path, snapshot=N
     declaration = plan.inputs.options.get("dependency_inputs")
     if declaration is None:
         return
-    if not isinstance(declaration, dict) or set(declaration) != {"files", "absent_paths", "present_paths", "unconfirmable_paths"}:
+    if not isinstance(declaration, dict) or set(declaration) not in (
+        {"files", "absent_paths", "present_paths", "unconfirmable_paths"},
+        {"files", "links", "absent_paths", "present_paths", "unconfirmable_paths"},
+    ):
         raise ValueError("invalid dependency input identity")
     files, absent, present = declaration["files"], declaration["absent_paths"], declaration["present_paths"]
     unconfirmable = declaration["unconfirmable_paths"]
-    if not all(isinstance(value, list) for value in (files, absent, present, unconfirmable)):
+    links = declaration.get("links", [])
+    if not all(isinstance(value, list) for value in (files, links, absent, present, unconfirmable)):
         raise ValueError("invalid dependency input identity")
     paths = []
-    for row in files:
+    for row in [*files, *links]:
         if not isinstance(row, dict) or set(row) != {"path", "sha256", "size_bytes"}:
             raise ValueError("invalid dependency file identity")
         digest = row["sha256"]
@@ -1164,7 +1173,7 @@ def validate_dependency_inputs(plan: VerificationPlan, *, root: Path, snapshot=N
                 or type(row["size_bytes"]) is not int or row["size_bytes"] < 0):
             raise ValueError("invalid dependency file identity")
         paths.append(row["path"])
-    for values in (paths, absent, present, unconfirmable):
+    for values in ([row["path"] for row in files], [row["path"] for row in links], absent, present, unconfirmable):
         if any(
             not isinstance(path, str) or not path or Path(path).is_absolute()
             or ".." in Path(path).parts or Path(path).as_posix() != path
@@ -1174,6 +1183,9 @@ def validate_dependency_inputs(plan: VerificationPlan, *, root: Path, snapshot=N
             raise ValueError("dependency input escapes supplied root")
         if values != sorted(set(values)):
             raise ValueError("dependency input paths must be sorted and unique")
+    # File and link identities each have canonical order; their union is unique.
+    if len(paths) != len(set(paths)):
+        raise ValueError("dependency has conflicting file/link identities")
     if (set(paths) | set(present)) & set(absent):
         raise ValueError("dependency input is both present and absent")
     if unconfirmable:
@@ -1190,6 +1202,10 @@ def validate_dependency_inputs(plan: VerificationPlan, *, root: Path, snapshot=N
         data = snapshot.read_bytes(root.resolve() / row["path"])
         if len(data) != row["size_bytes"] or sha256_bytes(data) != row["sha256"]:
             raise ValueError("dependency input changed since verification")
+    for row in links:
+        data = snapshot.bind_dependency_link(root.resolve() / row["path"])
+        if len(data) != row["size_bytes"] or sha256_bytes(data) != row["sha256"]:
+            raise ValueError("dependency link changed since verification")
     for path in absent:
         if not snapshot.bind_dependency_absence(root.resolve() / path):
             raise ValueError("dependency lookup candidate appeared since verification")
