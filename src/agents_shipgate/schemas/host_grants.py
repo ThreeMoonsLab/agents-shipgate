@@ -6,10 +6,14 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from agents_shipgate.schemas.instruction_structure import InstructionStructureEvidence
 from agents_shipgate.schemas.openshell import OpenShellPolicyFacts
+from agents_shipgate.schemas.openshell_composition import (
+    OpenShellComposedPolicyFacts,
+    OpenShellSnapshotFactsV2,
+)
 
-HOST_GRANTS_INVENTORY_SCHEMA_VERSION = "0.8"
-HOST_GRANTS_BASELINE_SCHEMA_VERSION = "0.8"
-HOST_GRANTS_DRIFT_SCHEMA_VERSION = "0.8"
+HOST_GRANTS_INVENTORY_SCHEMA_VERSION = "0.9"
+HOST_GRANTS_BASELINE_SCHEMA_VERSION = "0.9"
+HOST_GRANTS_DRIFT_SCHEMA_VERSION = "0.9"
 
 HostName = Literal["codex", "claude-code", "cursor", "vscode", "github"]
 HostGrantScope = Literal["repository", "local_static"]
@@ -1143,6 +1147,57 @@ class HostGrantsBaselineArtifactV8(RootModel[HostGrantsBaselineV8]):
 
 class HostGrantsDriftArtifactV8(RootModel[HostGrantsDriftV8]):
     root: HostGrantsDriftV8
+
+
+class HostOpenShellPolicyGrantV9(HostOpenShellPolicyGrantV8):
+    facts: OpenShellPolicyFacts | OpenShellComposedPolicyFacts | OpenShellSnapshotFactsV2
+
+
+HostGrantV9 = Annotated[HostGrantV7 | HostOpenShellPolicyGrantV9, Field(discriminator="kind")]
+HostBaselineGrantV9 = Annotated[HostBaselineGrantV7 | HostOpenShellPolicyGrantV9, Field(discriminator="kind")]
+
+
+class HostArtifactV9(HostArtifactV8):
+    kind: Literal["config", "mcp", "hooks", "workflow", "instructions", "requirements", "hook_script",
+                  "openshell_selection", "openshell_policy", "openshell_profile"]
+
+
+class HostArtifactChangeV9(HostArtifactChangeV8):
+    baseline: HostArtifactV9 | None = None
+    current: HostArtifactV9 | None = None
+
+
+class HostGrantsInventoryV9(HostGrantsInventoryV8):
+    host_grants_inventory_schema_version: Literal["0.9"] = "0.9"
+    grants: list[HostGrantV9] = Field(default_factory=list)
+    artifacts: list[HostArtifactV9] = Field(default_factory=list)
+
+
+class HostGrantsNormalizedSnapshotV9(HostGrantsNormalizedSnapshotV8):
+    grants: list[HostBaselineGrantV9] = Field(default_factory=list)
+    artifacts: list[HostArtifactV9] = Field(default_factory=list)
+
+
+class HostGrantsBaselineV9(HostGrantsBaselineV8):
+    host_grants_schema_version: Literal["0.9"] = "0.9"
+    inventory: HostGrantsNormalizedSnapshotV9
+
+
+class HostGrantsDriftV9(HostGrantsDriftV8):
+    host_grants_schema_version: Literal["0.9"] = "0.9"
+    artifact_changes: list[HostArtifactChangeV9] = Field(default_factory=list)
+
+
+class HostGrantsInventoryArtifactV9(RootModel[HostGrantsInventoryV9]):
+    root: HostGrantsInventoryV9
+
+
+class HostGrantsBaselineArtifactV9(RootModel[HostGrantsBaselineV9]):
+    root: HostGrantsBaselineV9
+
+
+class HostGrantsDriftArtifactV9(RootModel[HostGrantsDriftV9]):
+    root: HostGrantsDriftV9
 
 
 __all__ = [name for name in globals() if name.startswith("Host") or name.startswith("HOST_")]

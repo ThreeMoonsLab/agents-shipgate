@@ -29,9 +29,8 @@ the policy. It never classifies every YAML file as an OpenShell policy.
 `authored` identifies a proposed sandbox policy. `effective_snapshot` identifies
 a locally supplied export in the same policy YAML/JSON shape. Both are static
 documents reviewed independently. An export's presence establishes no live
-freshness or enforcement. Provider/global composition is outside this reader's
-scope. The runtime pin `0.1.2`, OpenShell policy schema `1`, registration schema
-`1` and host inventory schema `0.8` are separate version axes.
+freshness or enforcement. Version 2 selections additionally describe explicit local composition. The runtime pin `0.1.2`, OpenShell policy schema `1`, registration schemas
+`1`/`2` and host inventory schema `0.9` are separate version axes.
 
 The `openshell_policy` grant contains typed filesystem, Landlock, process and
 network facts. Endpoint and binary lists remain together under their rule;
@@ -48,7 +47,7 @@ Defaults follow the pinned [OpenShell v0.1.2 authored schema](https://github.com
 and [conversion code](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/crates/openshell-policy/src/lib.rs).
 The [upstream schema reference](https://docs.nvidia.com/openshell/how-it-works/policies/schema)
 describes runtime constraints beyond document inventory. This reader is not a
-substitute for upstream policy validation. Local composition and native proof are separate implementation stages (#947–#948).
+substitute for upstream policy validation. Native proof remains an optional, separate implementation stage (#948).
 
 ## Conservative declared-authority comparison
 
@@ -116,8 +115,8 @@ Reports publish redacted evidence digests and sanitized errors, never parser
 excerpts or credential values. If a credential-shaped authority label would
 change under redaction, that document becomes unsupported instead of letting
 different labels compare as equal. Exact file identity remains internal to the
-read session. Historical v0.1–v0.7 host schemas remain frozen and readable;
-current inventories/baselines/drift use v0.8.
+read session. Historical v0.1–v0.8 host schemas remain frozen and readable;
+current inventories/baselines/drift use v0.9.
 
 The checked-in [example](../samples/openshell/sandbox.yaml) is selected by
 `samples/openshell/.shipgate/openshell.json` when auditing this repository root.
@@ -196,3 +195,79 @@ filter cannot identify an arbitrary selected policy path on its own. Run
 `shipgate check` or `agents-shipgate verify` for those changes, or set
 `always_run: true` on the local hook. The GitHub verifier reads the explicit
 selection and evaluates its dependencies.
+
+## Reproducible local composition
+
+Version 2 selections can describe a composed view without executing OpenShell:
+
+```json
+{
+  "version": 2,
+  "runtime_version": "0.1.2",
+  "compositions": [{
+    "name": "worker",
+    "workspace": "team-a",
+    "global_policy": {"state": "absent"},
+    "saved_policy": {"state": "selected", "path": "configs/base.yaml"},
+    "image_policy": {"state": "absent"},
+    "catalog_mode": "imported",
+    "profile_catalog": [
+      {"path": "profiles/github.yaml", "scope": "platform"}
+    ],
+    "providers": [
+      {"name": "work-github", "profile_id": "github", "endpoint_resolution": "profile"}
+    ]
+  }]
+}
+```
+
+Supply the selected policy and profile files locally. A profile uses the pinned
+upstream shape: `id`, `endpoints`, `binaries`, and optional credential metadata,
+resource version and annotations. This bundle describes a proposed local
+resolution; it does not attest which profile a gateway resolved. Familiar
+profile IDs are mutable content, with their scope, workspace, normalized content
+digest and contributing rule keys recorded beside the composed policy.
+
+Selection follows global override, saved sandbox policy, then image policy.
+An active global policy replaces the effective policy and suppresses provider
+network layers. Removing it restores the saved/image policy and provider layers.
+All declared inputs, including suppressed policies and unused catalog entries,
+participate in Git comparison and receipt currency. At least a saved or image
+policy must be supplied: runtime driver defaults are unresolved. Explicit absent
+selection states prevent a missing context from becoming an inferred default.
+
+Without a global override, provider network rules are concatenated with the base.
+Reserved `_provider_*` keys are rejected in authored composition inputs. Provider
+names use upstream ASCII sanitization, with numeric suffixes for collisions;
+no layer overwrites another. Workspace profiles override platform profiles of
+the same ID only in their named workspace. Duplicate scope/ID pairs and
+interceptor/imported ID collisions are incomplete inputs. `catalog_mode` must
+name imported, interceptor or combined local inputs. Remote discovery, base-URL
+overrides, endpointless profiles and unresolved provider context are unsupported.
+`endpoint_resolution: "profile"` explicitly selects the supplied endpoint set.
+
+Network endpoint/binary reach and credential placement are separate facts.
+Profiles may supply credential names, environment-variable names and placement
+metadata, but never values, refresh tokens or runtime authorization claims.
+Changes to credential placement produce an unproven authorization limitation
+while retaining any independently established network expansion.
+
+The local subset is pinned to [upstream composition at v0.1.2](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/crates/openshell-policy/src/compose.rs),
+[policy selection](https://docs.nvidia.com/openshell/how-it-works/policies/overview)
+and [profile resolution](https://docs.nvidia.com/openshell/how-it-works/providers/profiles).
+A registration supports up to 16 compositions, 32 catalog entries and 32
+attachments per composition, with the shared 64-reference read budget and
+1 MiB derived-input bound. Unsupported fields remain named coverage limits.
+
+Effective snapshots can carry optional metadata in a version 2 policy reference:
+
+```json
+{"path": "exports/effective.yaml", "role": "effective_snapshot",
+ "snapshot": {"source": "operator export", "revision": "sandbox-42"}}
+```
+
+Metadata is supplied evidence, with `runtime_freshness_verified: false`.
+Filesystem and Landlock fields are startup-bound, process identity is fixed
+at sandbox creation, and network policy/middleware fields may update
+dynamically. A composed proposal and an effective snapshot retain distinct roles.
+Neither establishes installed policy or live workload behavior.

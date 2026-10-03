@@ -118,6 +118,10 @@ def parse_selection(text: str) -> OpenShellSelection:
         json.loads(text)
     except (ValueError, RecursionError) as exc:
         raise OpenShellReadError("parse_failed", "OpenShell registration must be JSON") from exc
+    if data.get("version") == 2:
+        from agents_shipgate.schemas.openshell_composition import OpenShellSelectionV2
+
+        return _validate(OpenShellSelectionV2, data)
     return _validate(OpenShellSelection, data)
 
 

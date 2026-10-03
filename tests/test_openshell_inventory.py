@@ -65,7 +65,7 @@ def test_selected_arbitrary_filename_has_typed_facts_and_defaults(tmp_path: Path
     assert "/network_policies/github/endpoints/0/enforcement" in facts["defaulted_fields"]
     assert facts["runtime_freshness_verified"] is False
     assert "openshell_policy" in render_host_audit_markdown(inventory)
-    schema = json.loads((Path(__file__).parents[1] / "docs/host-grants-inventory-schema.v0.8.json").read_text())
+    schema = json.loads((Path(__file__).parents[1] / "docs/host-grants-inventory-schema.v0.9.json").read_text())
     Draft202012Validator(schema).validate(inventory)
     with pytest.raises(ValidationError):
         HostGrantsInventoryV7.model_validate(inventory)

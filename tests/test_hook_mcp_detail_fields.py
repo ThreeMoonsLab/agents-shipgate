@@ -234,7 +234,7 @@ def test_the_grants_publish_the_detail_the_rows_render(tmp_path: Path) -> None:
     assert baseline["inventory"]["grants"] == [compared_grant(grant) for grant in inventory["grants"]]
     drift = build_host_drift_payload(baseline=baseline, inventory=inventory, baseline_file="b.json")
     for name, payload in (("inventory", inventory), ("baseline", baseline), ("drift", drift)):
-        schema = json.loads((ROOT / f"docs/host-grants-{name}-schema.v0.8.json").read_text())
+        schema = json.loads((ROOT / f"docs/host-grants-{name}-schema.v0.9.json").read_text())
         Draft202012Validator(schema).validate(payload)
 
 
@@ -1227,7 +1227,7 @@ def test_a_0_6_baseline_stays_comparable_and_may_be_re_saved(tmp_path: Path) -> 
     saved = json.loads(_invoke(["audit", "--host", "--workspace", str(root), "--save-baseline", "--json"]))
     assert saved["status"] == "updated"
     resaved = json.loads(path.read_text())
-    assert resaved["host_grants_schema_version"] == "0.8"
+    assert resaved["host_grants_schema_version"] == "0.9"
     # Re-saving records the current comparison facts, the unresolved
     # reference's limit among them; nothing else moved.
     assert resaved == build_host_grants_baseline(_inventory(root))
@@ -1318,7 +1318,7 @@ def test_a_local_static_baseline_holds_no_home_directory_detail(
     for fact in ("canary", "homematcher", "homepkg", kinds["hook"]["handlers"][0]["command"]["sha256"]):
         assert fact not in text
     baseline = json.loads(text)
-    assert baseline["host_grants_schema_version"] == "0.8"
+    assert baseline["host_grants_schema_version"] == "0.9"
     assert _saved_detail(baseline) == []
     # It still acknowledges both grants, and the next drift compares as before.
     assert sorted(grant["kind"] for grant in baseline["inventory"]["grants"]) == ["hook", "mcp_server"]

@@ -73,6 +73,10 @@ def compare_openshell_grants(before: dict | None, after: dict | None) -> OpenShe
     widened: list[str] = []
     narrowed: list[str] = []
     limits: list[str] = []
+    if _canonical(left.get("credential_use", [])) != _canonical(right.get("credential_use", [])):
+        limits.append("credential-use placement or profile resolution changed; authorization is unproven")
+    if left.get("composition", {}).get("workspace") != right.get("composition", {}).get("workspace"):
+        limits.append("composition workspace resolution changed")
 
     def record(label: str, grows: bool, shrinks: bool) -> None:
         if grows:

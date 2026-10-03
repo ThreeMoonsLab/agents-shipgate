@@ -106,8 +106,9 @@ from agents_shipgate.schemas.host_grants import (
     HostGrantsBaselineV6,
     HostGrantsBaselineV7,
     HostGrantsBaselineV8,
-    HostGrantsDriftV8,
-    HostGrantsInventoryV8,
+    HostGrantsBaselineV9,
+    HostGrantsDriftV9,
+    HostGrantsInventoryV9,
 )
 
 HOST_GRANTS_SCHEMA_VERSION = HOST_GRANTS_BASELINE_SCHEMA_VERSION
@@ -3921,26 +3922,29 @@ def _collect_openshell(
     selection = read_document(path, source, "openshell_selection", parse_selection, resolved_through)
     if selection is None:
         return
-    for reference in sorted(selection.policies, key=lambda item: item.path):
+    def read_selected(selected_path: str, artifact_kind: str, parser):
         if not budget.reserve():
-            issues.append(_inventory_issue(
-                kind="unsupported", host="openshell", source=source,
-                message="OpenShell selection exceeds the workspace limit of 64 policy references",
-                blocking=True,
-            ))
-            break
-        policy_path = root / reference.path
+            raise OpenShellReadError("unsupported", "OpenShell selection exceeds the workspace limit of 64 policy references")
+        policy_path = root / selected_path
         hops: tuple[str, ...] = ()
         reader = cache.reader_for(root)
         try:
-            kind = reader.directory_entry_kind(Path(reference.path))
+            kind = reader.directory_entry_kind(Path(selected_path))
         except (OSError, ValueError):
             kind = None
         if kind == "symlink":
-            resolution = _resolve_in_tree_link(reader, Path(reference.path))
+            resolution = _resolve_in_tree_link(reader, Path(selected_path))
             if resolution is not None and resolution[1] == "file":
                 policy_path, hops = root / resolution[0], resolution[2]
-        policy = read_document(policy_path, reference.path, "openshell_policy", parse_policy, hops)
+        return read_document(policy_path, selected_path, artifact_kind, parser, hops)
+
+    for reference in sorted(selection.policies, key=lambda item: item.path):
+        try:
+            policy = read_selected(reference.path, "openshell_policy", parse_policy)
+        except OpenShellReadError as exc:
+            issues.append(_inventory_issue(kind=exc.kind, host="openshell", source=source,
+                message=exc.message, blocking=True))
+            break
         if policy is None:
             continue
         fields, defaults = policy_field_paths(policy)
@@ -3950,14 +3954,48 @@ def _collect_openshell(
             "policy": policy.model_dump(mode="json"),
             "defaulted_fields": defaults, "field_paths": fields,
         }
+        if getattr(reference, "snapshot", None) is not None:
+            facts["snapshot"] = reference.snapshot.model_dump(mode="json")
         grants.append({
-            **_grant_base(
-                host="openshell", scope="repository", source=reference.path,
-                kind="openshell_policy", identity=source, config=facts,
-                access="unknown", risk="unknown",
-            ),
+            **_grant_base(host="openshell", scope="repository", source=reference.path,
+                kind="openshell_policy", identity=source, config=facts, access="unknown", risk="unknown"),
             "facts": facts,
         })
+    for spec in getattr(selection, "compositions", []):
+        from agents_shipgate.core.openshell_composition import compose_local, composed_fields
+
+        try:
+            # Discover and capture the entire explicit closure before selecting
+            # a layer. The first archive intentionally lacks dependency bytes;
+            # one missing input must not conceal later catalog references.
+            from agents_shipgate.core.openshell_composition import parse_profile
+
+            inputs = {}
+            for role in ("global", "saved", "image"):
+                context = getattr(spec, role + "_policy")
+                if context.state == "selected":
+                    inputs[(context.path, "openshell_policy")] = read_selected(
+                        context.path, "openshell_policy", parse_policy,
+                    )
+            for reference in spec.profile_catalog:
+                inputs[(reference.path, "openshell_profile")] = read_selected(
+                    reference.path, "openshell_profile", parse_profile,
+                )
+            policy, provenance, credential_use = compose_local(
+                spec, lambda path, kind, parser, inputs=inputs: inputs[(path, kind)], parse_policy,
+            )
+            facts = {"registration": public_host_path(source), "role": "composed",
+                "runtime_version": selection.runtime_version, "policy_schema_version": policy.version,
+                "policy": policy.model_dump(mode="json"), "composition": provenance,
+                "credential_use": credential_use, "field_paths": composed_fields(policy)}
+            if _openshell_public_value(facts) != facts:
+                raise OpenShellReadError("unsupported", "Composition facts cannot be compared after credential redaction")
+            grants.append({**_grant_base(host="openshell", scope="repository", source=source,
+                kind="openshell_policy", identity="composition:" + spec.name,
+                config=facts, access="unknown", risk="unknown"), "facts": facts})
+        except OpenShellReadError as exc:
+            issues.append(_inventory_issue(kind=exc.kind, host="openshell", source=source,
+                message=exc.message, blocking=True))
 
 
 def _openshell_public_value(value: Any, *, parent_key: str = "") -> Any:
@@ -5482,7 +5520,7 @@ def build_host_boundary_snapshot(
 
     if any(item["host"] == "openshell" for item in artifacts):
         excluded.extend([
-            "OpenShell provider and gateway/global policy composition",
+            "OpenShell live gateway/provider catalog and inference-policy resolution",
             "OpenShell driver defaults, runtime-added filesystem baseline paths and live policy freshness",
             "OpenShell runtime validation, DNS resolution, executable identity and native policy proof",
         ])
@@ -5546,7 +5584,7 @@ def build_host_boundary_snapshot(
         "static_analysis_only": True,
         "runtime_session_verified": False,
     }
-    inventory = HostGrantsInventoryV8.model_validate(payload).model_dump(mode="json")
+    inventory = HostGrantsInventoryV9.model_validate(payload).model_dump(mode="json")
     return HostBoundarySnapshot(
         inventory=inventory, cache=cache, input_failures=dict(cache.input_failures),
         plugin_reference_issue_ids=frozenset(plugin_reference_issue_ids),
@@ -5585,7 +5623,7 @@ def host_audit_inventory(
 
     if snapshot is None:
         snapshot = build_host_boundary_snapshot(workspace, scope=scope, cache=cache)
-    inventory = HostGrantsInventoryV8.model_validate(snapshot.inventory)
+    inventory = HostGrantsInventoryV9.model_validate(snapshot.inventory)
     if inventory.scope != scope:
         raise ValueError(
             f"Host boundary snapshot scope {inventory.scope!r} does not match {scope!r}"
@@ -5818,7 +5856,7 @@ def build_host_grants_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
             "grants": [compared_grant(grant) for grant in normalized["grants"]],
         },
     }
-    return HostGrantsBaselineV8.model_validate(payload).model_dump(mode="json")
+    return HostGrantsBaselineV9.model_validate(payload).model_dump(mode="json")
 
 
 def host_comparison_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
@@ -5877,7 +5915,7 @@ def load_host_grants_baseline_with_text(
                 "and repair or replace it deliberately."
             )
         return data, text
-    if version not in {"0.2", "0.3", "0.4", "0.5", "0.6", "0.7", HOST_GRANTS_BASELINE_SCHEMA_VERSION}:
+    if version not in {"0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", HOST_GRANTS_BASELINE_SCHEMA_VERSION}:
         raise ValueError(
             f"Host-grants baseline {path} has unsupported schema version "
             f"{version!r}. A human must review migration or replacement."
@@ -5886,7 +5924,7 @@ def load_host_grants_baseline_with_text(
         model = {"0.2": HostGrantsBaselineV2, "0.3": HostGrantsBaselineV3,
                  "0.4": HostGrantsBaselineV4, "0.5": HostGrantsBaselineV5,
                  "0.6": HostGrantsBaselineV6, "0.7": HostGrantsBaselineV7,
-                 "0.8": HostGrantsBaselineV8}[version]
+                 "0.8": HostGrantsBaselineV8, "0.9": HostGrantsBaselineV9}[version]
         parsed = model.model_validate(data).model_dump(mode="json")
     except ValidationError:
         return (
@@ -6713,7 +6751,7 @@ def _incomparable_payload(
         # and also route to a human before any first acknowledgement.
         "next_action": None,
     }
-    return HostGrantsDriftV8.model_validate(payload).model_dump(mode="json")
+    return HostGrantsDriftV9.model_validate(payload).model_dump(mode="json")
 
 
 #: Baseline versions a drift comparison reads as current. v0.5 only adds
@@ -6725,11 +6763,11 @@ def _incomparable_payload(
 #: checkout refs (#823); the rules below narrow which older baselines that
 #: acceptance still covers.
 _COMPARABLE_BASELINE_SCHEMA_VERSIONS = frozenset(
-    {"0.4", "0.5", "0.6", "0.7", HOST_GRANTS_BASELINE_SCHEMA_VERSION}
+    {"0.4", "0.5", "0.6", "0.7", "0.8", HOST_GRANTS_BASELINE_SCHEMA_VERSION}
 )
 
 #: Baselines without workflow grants retain the v0.6 replacement route (#819).
-OVERWRITABLE_BASELINE_SCHEMA_VERSIONS = frozenset({"0.6", "0.7", HOST_GRANTS_BASELINE_SCHEMA_VERSION})
+OVERWRITABLE_BASELINE_SCHEMA_VERSIONS = frozenset({"0.6", "0.7", "0.8", HOST_GRANTS_BASELINE_SCHEMA_VERSION})
 
 #: Baseline versions whose workflow grants never read step action references
 #: (#771). Such a grant's missing ``step_actions`` is not evidence that no
@@ -6843,7 +6881,7 @@ def _comparable_drift_payload(
         "incomparable_reasons": [],
         "next_action": None,
     }
-    return HostGrantsDriftV8.model_validate(payload).model_dump(mode="json")
+    return HostGrantsDriftV9.model_validate(payload).model_dump(mode="json")
 
 
 def build_host_comparison_payload(
