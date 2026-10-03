@@ -174,7 +174,10 @@ For an end-to-end exercise, register the sample policy, commit it as the base,
 then remove `enforcement: enforce` from its REST endpoint. Run:
 
 ```bash
-shipgate audit --host --workspace . --json
+# Save the base inventory before making the policy change:
+shipgate audit --host --workspace . --save-baseline --baseline-file /tmp/openshell-base.json --json
+# After making the change:
+shipgate audit --host --workspace . --drift --baseline-file /tmp/openshell-base.json --json
 shipgate diff --workspace . --base main --json
 shipgate check --agent codex --workspace . --base main --format agent-boundary-json
 shipgate verify --workspace . --base main --json
@@ -189,6 +192,22 @@ configured verification and SARIF, plus malformed input and Git-tree isolation.
 Validation is pinned to OpenShell v0.1.2/schema 1 and the supported comparison
 subset above. Gateway state, live enforcement, credentials, provider/global
 composition and native containment remain outside this static MVP.
+
+The [acceptance example](examples/openshell-review/README.md) includes a
+constructed Git history, exact source changes, captured comparison and
+receipt/control identities, and commands for generating fresh evidence.
+Its acceptance matrix names the conformance, routing and currency tests.
+It validates a source checkout; it does not claim an installed release or a
+running sandbox.
+
+Configured committed verification supports selected, contained file-link
+chains using selection read from the same verified Git object store as the
+application snapshot. A changed reference retains review independently of
+any supported policy expansion, including an expansion on the linked document.
+Unrelated links and submodules retain the application snapshot's refusal.
+Selected links that escape, cycle, exceed eight hops or resolve to directories
+are not admitted by that snapshot. Its manifest, baseline and policy-pack
+link guards are unchanged.
 
 The pre-commit hook recognizes OpenShell selection files. Its static filename
 filter cannot identify an arbitrary selected policy path on its own. Run

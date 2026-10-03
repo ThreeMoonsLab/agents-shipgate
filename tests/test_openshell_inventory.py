@@ -97,7 +97,7 @@ def test_unselected_yaml_is_not_a_policy(tmp_path: Path) -> None:
     assert host_audit_inventory(tmp_path)["grants"] == []
 
 
-@pytest.mark.parametrize("text", [
+REJECTED_POLICIES = [
     "", "[]", "version: 1\nversion: 1", "version: true", "version: 2",
     "version: 1\nunknown: true", "version: 1\nfilesystem_policy: null",
     "version: 1\nfilesystem_policy: {include_workdir: on}",
@@ -109,7 +109,10 @@ def test_unselected_yaml_is_not_a_policy(tmp_path: Path) -> None:
     "version: 1\nx: &a [1]\ny: *a", "version: 1\nfilesystem_policy: {<<: {read_only: [/usr]}}",
     "version: 1\n---\nversion: 1", "version: 1\nx: !!python/object:danger {}",
     '{"version": 1, "process": {"run_as_user": "\\ud800"}}',
-])
+]
+
+
+@pytest.mark.parametrize("text", REJECTED_POLICIES)
 def test_rejected_input_is_named_partial_not_empty_complete(tmp_path: Path, text: str) -> None:
     select(tmp_path).write_text(text)
     inventory = host_audit_inventory(tmp_path)

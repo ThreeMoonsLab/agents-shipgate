@@ -29,18 +29,21 @@ def assess_openshell_boundary(evidence: OpenShellBoundaryEvidence, changed: set[
             if issue.get("host") == "openshell" and issue.get("blocking"):
                 issues.append(BoundaryInputIssue(code="openshell_input_unresolved",
                     path=issue.get("source"), message=issue["message"]))
-    if touched & evidence.changed_links:
-        changes = [(None, None, path) for path in sorted(touched & evidence.changed_links)]
-    elif evidence.before is None or evidence.after is None:
-        changes = [(None, None, path) for path in sorted(touched)]
+    # A changed reference needs review independently of the captured policy
+    # bytes. It must not replace comparisons that can still establish a
+    # widening, either on the linked document or another selected policy.
+    changed_links = touched & evidence.changed_links
+    changes = [(None, None, path) for path in sorted(changed_links)]
+    if evidence.before is None or evidence.after is None:
+        changes.extend((None, None, path) for path in sorted(touched - changed_links))
     else:
         def grants(inventory):
             return {row["grant_id"]: row for row in inventory.get("grants", [])
                     if row.get("kind") == "openshell_policy"}
         before, after = grants(evidence.before), grants(evidence.after)
-        changes = [(before.get(key), after.get(key),
-                    (after.get(key) or before[key])["source"])
-                   for key in sorted(before.keys() | after.keys())]
+        changes.extend((before.get(key), after.get(key),
+                        (after.get(key) or before[key])["source"])
+                       for key in sorted(before.keys() | after.keys()))
     safe = set(touched) if not issues else set()
     for before, after, path in changes:
         result = compare_openshell_grants(before, after)

@@ -257,7 +257,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/verify/git.py",
         surface="attr_call:subprocess.Popen",
-        line=3110,
+        line=3165,
         snippet=(
             "subprocess.Popen(cmd, env=env, stderr=subprocess.PIPE, "
             "stdin=subprocess.PIPE if input is not None else "
@@ -280,7 +280,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/verify/git.py",
         surface="attr_call:subprocess.run",
-        line=3519,
+        line=3574,
         snippet=(
             "subprocess.run(cmd, capture_output=capture_output, check=check, "
             "env=env, input=input, stderr=stderr, stdin=stdin, stdout=stdout, "

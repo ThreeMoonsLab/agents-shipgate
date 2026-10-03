@@ -21,7 +21,7 @@ from agents_shipgate.cli.agent_mode import (
 )
 from agents_shipgate.cli.diagnostics import input_parse_recovery, top_next_actions
 from agents_shipgate.cli.verify.git import (
-    archive_tree,
+    archive_verification_tree,
     commit_date,
     commit_sha,
     diff_context,
@@ -313,7 +313,7 @@ def _build_plan(
     source_identity = resolve_source_head_identity(root, head_ref=head_ref)
     with tempfile.TemporaryDirectory(prefix="agents-shipgate-plan-") as tmp:
         snapshot = Path(tmp) / "snapshot"
-        archive_tree(root, head_ref, snapshot)
+        archive_verification_tree(root, head_ref, snapshot)
         # Resolve once the tree exists. The snapshot matches paths lexically, and
         # on macOS the temporary directory is reached through /var while every
         # path derived below resolves to /private/var — leaving them in two
@@ -487,6 +487,13 @@ def _captured_inputs(
                 verbose=False,
                 plugins_enabled=plugins_enabled,
             )
+            # Host selection can consume arbitrary policy filenames and link
+            # hops even when no selected file appears in this PR's diff.
+            # Read them while capture is active, just as configured verify
+            # does, so portable workers cannot accept an unbound retarget.
+            from agents_shipgate.core.host_grants import build_host_boundary_snapshot
+
+            build_host_boundary_snapshot(resolved_root)
             for candidate in (
                 *plan_inputs,
                 *(resolved_root / relative for relative in changed_files),

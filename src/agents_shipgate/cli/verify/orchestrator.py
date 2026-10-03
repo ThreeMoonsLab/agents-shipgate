@@ -212,7 +212,7 @@ from .git import (
     DiffContext,
     DiffInputError,
     active_replace_refs,
-    archive_tree,
+    archive_verification_tree,
     carries_manifest_like_yaml,
     collect_diff_context,
     commit_date,
@@ -1136,7 +1136,7 @@ def run_verify(
         if archive_head:
             head_tmp = tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-head-")
             head_tree_dir = Path(head_tmp.name) / "head"
-            archive_tree(git_root, head, head_tree_dir)
+            archive_verification_tree(git_root, head, head_tree_dir)
             # Resolve once the tree exists. The snapshot matches paths lexically,
             # and on macOS the temporary directory is reached through /var while
             # every adapter resolves its base directory to /private/var — two
@@ -1627,7 +1627,7 @@ def _prepare_base_report(
         base_tree_dir = tmp_root / "base"
         base_out = tmp_root / "reports"
         try:
-            archive_tree(git_root, base, base_tree_dir)
+            archive_verification_tree(git_root, base, base_tree_dir)
         except Exception as exc:  # noqa: BLE001 - optional base enrichment.
             return (
                 "archive_failed",
