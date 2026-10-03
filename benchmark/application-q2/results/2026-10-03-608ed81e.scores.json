@@ -1,0 +1,564 @@
+{
+  "corpus": "application-q2-development",
+  "build": "608ed81e3bc8f37ae8bcc7e2bb69aed29aa00ec5",
+  "scored": "2026-10-03; current-answer review and independent source audit",
+  "corpus_sha256": "bd6ef857e6c05806d791045a6742eda8e60f87f84a303bb085e626feeddf3105",
+  "previous_ledger": "2026-09-30-6ced6f70.scores.json",
+  "engine": {
+    "adapter_set_sha256": "sha256:51c0080dbca0912f38e54f043045fdb611304b6b5d796182841f0f1697b9c23f",
+    "dependency_set_sha256": "sha256:56f477cba2290b47faf0d913444119a443afa35fd088e0b3fb33a725619f7637",
+    "engine_distribution_sha256": "sha256:9a51d68e98c4a74d3bd7915c3bddfc32a6d0182223450747765548bad165184b",
+    "engine_requirement_id": "sha256:7c565a8ab909c6d38eab38c129f73089898158df3b5f0620d5c9b2a821e420ee",
+    "package": "agents-shipgate",
+    "platform": "darwin",
+    "plugin_set_sha256": "sha256:0d625c045f8795e1d638950e15ecc7efeba6ca727c6ad3ff45ee883e9b38f262",
+    "policy_catalog_sha256": "sha256:c37957953f97bd5a48ccb377d2604fdefc21029d6557d3966a5dae29f830adc3",
+    "python_implementation": "CPython",
+    "python_version": "3.12.13",
+    "version": "1.2.0"
+  },
+  "method": "Q0 source judgments are retained for the same frozen pins. Every current answer was re-read. All 65 established changed rows and nine added rows were independently checked against pinned source; row-bearing cases were checked for material omissions. No holdout score is inferred.",
+  "scores": {
+    "ITMO-NSS-team_FEDOT.MAS-30": {
+      "answer_id": "sha256:443d474f1effe351350a763976a388ec639edb37e20ea680514296cf92365b79",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. Agent 'adk_agent' occurs at different unpaired source paths; select --base-scope/--scope or review relocation."
+    },
+    "ITMO-NSS-team_FEDOT.MAS-36": {
+      "answer_id": "sha256:59e815a8a9854ba130fa0a24e6268fec193104937245f54dd71a1bbb88867f76",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. An object's tools, handoffs, MCP servers or sub-agents are changed at packages/fedotmas/src/fedotmas/mas/builder.py:37"
+    },
+    "ITMO-NSS-team_FEDOT.MAS-38": {
+      "answer_id": "sha256:39aa561eeda39a8a7e0ac554fc3e9996be19f1bb8a49d8714e0a0b9ff4018870",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. An object's tools, handoffs, MCP servers or sub-agents are changed at maw/builder.py:272"
+    },
+    "ITMO-NSS-team_FEDOT.MAS-42": {
+      "answer_id": "sha256:1528479e1e86e24980d5ae58e66c9c1aa1ae3adc9cb042e9b926a3f6910a3fec",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. Not Q1 (Q0 borderline): it changes which MCP servers the meta-agent's registry keeps and describes, so the tools generated agents receive; no row. First named limit: An object's tools, handoffs, MCP servers or sub-agents are changed at maw/builder.py:272"
+    },
+    "InseeFrLab_GRAAL-33": {
+      "answer_id": "sha256:d55196d53c165c2b405c8168ec15ae3ef83bc6ab1b3078a2fc4492bcc02c491a",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. Application comparison does not yet support langchain: agents/Code2ReText/regenerator.py"
+    },
+    "JSebastianIEU_voice-freight-negotiator-10": {
+      "answer_id": "sha256:cb81acf7efbd5ad6050459b895a7ba6476c9427531a5f6007ce07a217a353f4c",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: the agents are LiveKit Agents (`livekit.agents.Agent`), not the OpenAI Agents SDK or ADK."
+    },
+    "JinyanSu1_Agentic-AI-Scientist-2": {
+      "answer_id": "sha256:b9b3f8b96118bd85cb643839003e99a29c7f5173379b0cc714cc3a5d44dbb2d4",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: head binds recall_prior_rounds to ResearchAgent at ai_scientist/perform_research_agent.py:159, absent from base tools at :64-71. All 13 rows are candidates; the addition is not established."
+    },
+    "Lling0000_OpenCMO-41": {
+      "answer_id": "sha256:09558de4acde710d8205f7e4c864b41b41f14d6f82c6655424a59189f137a38b",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. A possibly reachable tool has an incomplete binding edge; provide a complete static graph or reviewed declaration."
+    },
+    "SponsioLabs_Sponsio-173": {
+      "answer_id": "sha256:5220e721be44346f7a5de9914c5dee3d05d4c65e00e8fa796ff83eb5fbcc0e88",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: library code; the only `tools=` edits are usage examples in docstrings, and no application agent's wiring changes."
+    },
+    "Tiendat2703_MIS_TALENT-5": {
+      "answer_id": "sha256:bb03680f406e4dce0e25fa3c4b99718c9793a5c4ede45d8093ca7805228dd85a",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the new Validator_Agent binds load_validation_evidence at app/Agent/validatorAgent.py:62, but no Validator row appears. Finance has only a candidate changed handoff binding; its condition changes from handoffs to want_handoff_tool."
+    },
+    "Tiendat2703_MIS_TALENT-6": {
+      "answer_id": "sha256:dce83bb947fe583a7679bf7585656e0780ff57f25c9d7fe5c665935b534baeca",
+      "q0": true,
+      "q1": true,
+      "q2": false,
+      "rationale": "Q1, not Q2: exactly the two tools of the new Finance_Agent_Preflight appear added (app/Agent/financeAgent.py:120). Existing Finance construction and its tools' own definitions are unchanged; callee-only changes do not count. The changed agent is absent at base."
+    },
+    "Tiendat2703_MIS_TALENT-7": {
+      "answer_id": "sha256:a31fdc7edc8137df39f0d68b3851b46faeddafdc6951f6e2be49a2c270e2263e",
+      "q0": true,
+      "q1": true,
+      "q2": true,
+      "rationale": "Q2: exactly three changes on existing Finance and Preflight agents: load_and_validate changed on both, load_service_catalog added on Preflight (app/Agent/financeAgent.py:100/:125; app/tools/FinanceAgent/tools.py:48/:74/:162). Each row names unresolved reach, including asyncio.to_thread at tools.py:56/:78."
+    },
+    "Tiendat2703_MIS_TALENT-8": {
+      "answer_id": "sha256:5ac934894d9cfa39fe581fcb6c3c177c7a12416a63349b636b59717ddaa9dc06",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: Finance rows now appear, but Decision replaces match_bank_product with list_bank_products at app/Agent/decisionAgent.py:63 and the new Validator binds load_validation_evidence at validatorAgent.py:62; neither change appears. Finance's handoff change remains a candidate. Risk wrapper edits are docstrings only and do not count."
+    },
+    "VRSEN_agency-swarm-796": {
+      "answer_id": "sha256:26945037cc06daec89e1dc32d2ac658ce34dc7ab287693ccc8b974ecbdcf9770",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: agent-framework internals (an MCP client refactor), not an application agent's wiring."
+    },
+    "VRSEN_agency-swarm-804": {
+      "answer_id": "sha256:e898a05a8395cd523a951f5968571a2ec42a69ced376f3f315d08929536cf625",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: agent-framework internals (MCP tool discovery), not an application agent's wiring."
+    },
+    "VidulaWickramasinghe_O.R.I.O.N-126": {
+      "answer_id": "sha256:2aee2317abb0fec14f54dd5214a1109c61db1578bc3c10d208c51a1bce826dee",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: 58 established changes coexist with 176 candidates. A bound callable gains name_override=\"apply_security_profile\" at backend/tools/security_policy_tools.py:55 (bound at api_main.py:959), but its old/new names are only candidate removal/addition; an actual interface change remains unestablished."
+    },
+    "YaroslavMarkivskyi_internstore-migrate-4": {
+      "answer_id": "sha256:36133a015a4338ad4423b08ebefaee70dc15557433a2589e428993e19e54a233",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: a hand-written ReAct loop (`ai_assistant.react_loop`); no OpenAI Agents SDK or ADK import in the changed code."
+    },
+    "ZeroRuntimeAI_zeroruntime-python-examples-1": {
+      "answer_id": "sha256:a3534a0b27e62f3fb960ced672c77144c9cab12f6a0cee899573f755c79750bf",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: ZeroRuntime agents (`from zrt import Agent`), not the OpenAI Agents SDK or ADK."
+    },
+    "ZeroRuntimeAI_zeroruntime-python-examples-5": {
+      "answer_id": "sha256:2f6620a461d110603011cf31ac0b1e69fdf37e8dde4d1b47f3b01e0c79aad176",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: ZeroRuntime agents (`from zeroruntime import Agent`), not the OpenAI Agents SDK or ADK."
+    },
+    "alliance-genome_agr_ai_curation-842": {
+      "answer_id": "sha256:92c9f9e47eff0e4a7490f2921479eb7debe5e60df36bc29faca99fb9b369be3d",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. An agent copy at backend/src/lib/agent_studio/custom_agent_service.py:638 passes its own tools, handoffs or MCP servers in a module that does not import the OpenAI Age…"
+    },
+    "alliance-genome_agr_ai_curation-858": {
+      "answer_id": "sha256:ec96107d0a3588ef9862d0cea0c94f8b42f9cd3da507e9211093f6570518600a",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. An agent copy at backend/src/lib/agent_studio/custom_agent_service.py:646 passes its own tools, handoffs or MCP servers in a module that does not import the OpenAI Age…"
+    },
+    "alliance-genome_agr_ai_curation-860": {
+      "answer_id": "sha256:1865847dc7929ada58ff876ad82500c772b97b4caec13a63a87c7a9b09b1c7d1",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. An agent copy at backend/src/lib/agent_studio/custom_agent_service.py:724 passes its own tools, handoffs or MCP servers in a module that does not import the OpenAI Age…"
+    },
+    "buriro-ezekia_cinescout-ai-9": {
+      "answer_id": "sha256:6338674c36a59b31e07308092f94c8330df057053d4f205e5b05b40a069c4542",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. Excluded candidate: {'type': 'mcp', 'path': '.vscode/mcp.json', 'reason': 'mcpServers-style MCP server config (host configuration), not an MCP tools-array export'}"
+    },
+    "carlosdaniel092015-crypto_pastoriza-66": {
+      "answer_id": "sha256:211114d67c47d6411c962b66d670ea6e449f1fce70fe104a5ff7c5655142908b",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. OpenAI Agents SDK agent constructed at agents/base.py:154 has no literal name, so it cannot be identified; its tools are not read."
+    },
+    "carlosdaniel092015-crypto_pastoriza-69": {
+      "answer_id": "sha256:9dd08f81a97ddada353cd49125407821fcc20d7c3c4594a830ac213dcf86e926",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. OpenAI Agents SDK agent constructed at agents/base.py:154 has no literal name, so it cannot be identified; its tools are not read."
+    },
+    "carlospolop_chack-agent-25": {
+      "answer_id": "sha256:896193e629107c9efb4cb1b56cbc0d010a6df796a7bb5a91b6fd32878c90badd",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. OpenAI Agents SDK agent 'agent' at chack_agent/backends/openai_compaction_backend.py:932 uses a dynamic tools expression"
+    },
+    "cianfhoghlaim_tuatha-1": {
+      "answer_id": "sha256:993a1c9a0e679048f057b0f6e4717807a3b7e22c33987895ee6d074c8ebb7da4",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: head replaces direct subject functions with factory-produced callables (tuatha/subjects/applied_mathematics.py:31-36; corpus_tools.py:189 onward). All 40 rows remain candidates; changed bindings do not appear."
+    },
+    "contributory_starchatter-telegram-4": {
+      "answer_id": "sha256:9c6f4e26a3126ffa9098471586df484f53801c761a4b442068a2c6d971139be2",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. Excluded candidate: {'type': 'mcp', 'path': '.bolt/mcp.json', 'reason': 'mcpServers-style MCP server config (host configuration), not an MCP tools-array export'}"
+    },
+    "cuppibla_adk_tutorial-7": {
+      "answer_id": "sha256:e2ad6e594cea4d870dbf875e7c5eb05578f3184e40c9eeae9195b80c34a5dcdb",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: every changed line updates a model string (`gemini-2.5-flash` -> `gemini-flash-latest`); no agent's tools, handoffs or sub-agents change."
+    },
+    "cuppibla_adk_tutorial-9": {
+      "answer_id": "sha256:a4183709fa00a8ce094255b04a6be8e2eb6f8b37f72484e50fb7756f4e08722a",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: head adds update_plan to refiner_agent at b3_loop_agent/agents.py:53; base :39 binds only google_search. The sole row remains a candidate because the base built-in is unresolved."
+    },
+    "evvyraine_skye-next-17": {
+      "answer_id": "sha256:fc9c444e41d31e3f50c6a8f70b541a8047df2fbec98c87b5e413e64d3296dffc",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. Application comparison does not yet support langchain: custom_agents.py"
+    },
+    "geroembser_livekit-agents-1": {
+      "answer_id": "sha256:d2b889cc67352c73fc8bbeaf9024eb20e136cbea27acd01ee6624c5202380627",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: LiveKit Agents (`livekit.agents`), not the OpenAI Agents SDK or ADK."
+    },
+    "hamzafarooq_multi-agent-course-63": {
+      "answer_id": "sha256:067d7836c08875f227fe71cc588fe0570568efc3de6532f12fc311f30e2aa7c4",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: the course's own `agent.Agent` class; no OpenAI Agents SDK or ADK import in the changed code."
+    },
+    "hamzafarooq_multi-agent-course-64": {
+      "answer_id": "sha256:438c7cf112c1715270dc0bf958efe4d941cef806206fda03bd732c307bbf2f1b",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: the course's own `agent.Agent` class; no OpenAI Agents SDK or ADK import in the changed code."
+    },
+    "jpka_attest-3": {
+      "answer_id": "sha256:379121206ce0416b97f26f72ba1e348b1ccc322b090a155b5581210c237383a5",
+      "q0": true,
+      "q1": true,
+      "q2": true,
+      "rationale": "Q2: exactly two tools added to the existing attest_orchestrator at agents/attest_orchestrator/agent.py:149-150. Each row names unresolved reach: MemoryBank.from_env at memory_bank.py:485/:531 and bank.generate_memories at :493 or bank.retrieve at :545."
+    },
+    "kkmiecik-coder_CRM-5": {
+      "answer_id": "sha256:e3bbb0bd004f3be94ceab931a4a58b8ab79d0b288ef5c96e0f70f864fd024c7f",
+      "q0": true,
+      "q1": true,
+      "q2": true,
+      "rationale": "Q2: existing Wycena binds NARZEDZIA_WYCENY, which adds wyslij_obraz at integrations/chat_bridge/bots_pro/narzedzia.py:616-620. Exactly three other bound functions change: policz_wycene (:207), policz_wysylke (:251), znajdz_klienta (:336). All four rows appear and name unresolved reach; unchanged Router/Wiedza handoff gaps omit no binding change."
+    },
+    "krevetka-is-afk_llm-agent-for-ai-studio-19": {
+      "answer_id": "sha256:9fcca417800c2e834e47c3dba345e9f2a4770bdbfa6819db6cd1d8b6d07e8767",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. An agent copy at conversation_state.py:129 passes its own tools, handoffs or MCP servers in a module that does not import the OpenAI Agents SDK; it is not read."
+    },
+    "krevetka-is-afk_llm-agent-for-ai-studio-20": {
+      "answer_id": "sha256:402a44111628919801b5e6be4e1f782c3bf17af54c8b9fd9f011f3cb793060db",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. An agent copy at conversation_state.py:173 passes its own tools, handoffs or MCP servers in a module that does not import the OpenAI Agents SDK; it is not read."
+    },
+    "krevetka-is-afk_llm-agent-for-ai-studio-23": {
+      "answer_id": "sha256:19ce454dbac374162ea9bb2571972291ce549dcb1653cf1dd902dc3342b0c922",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. Agent 'agent' occurs at different unpaired source paths; select --base-scope/--scope or review relocation."
+    },
+    "liauto-siada_siada-cli-6": {
+      "answer_id": "sha256:cf2b4ff69290734657e327cdb7e63ab7b8e6325966d541b67dda13fa02ba74ab",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. An object's tools, handoffs, MCP servers or sub-agents are changed at agent_hub/context_filter/api_message_transfer_filter.py:46"
+    },
+    "lifenyan_agent-desk-8": {
+      "answer_id": "sha256:0b3dc9de21a71ab226c5ba00f2e340e27df4b23b121993eb7267ac1e3f16dbbe",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. Application comparison does not yet support mcp_server_source: mcp_server"
+    },
+    "mezgoodle_Vesta-53": {
+      "answer_id": "sha256:85825cc360ddb3d266cb944bc655f409e65217232738bca45d892311a1a79e6c",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. Google ADK agent 'CalendarAgent' uses a dynamic tools expression."
+    },
+    "mezgoodle_Vesta-58": {
+      "answer_id": "sha256:141b63a690cd51af7d3b732592fc461505eed08c63b414a49b0a77a744044b9b",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. Google ADK agent 'KnowledgeAgent' uses a dynamic tools expression."
+    },
+    "mezgoodle_Vesta-70": {
+      "answer_id": "sha256:50cb8a99cd6b312b03e00fa4b14f2e3db7c5c9d512df52fea4550cd3b1e452d0",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. Google ADK agent 'KnowledgeAgent' uses a dynamic tools expression."
+    },
+    "mosnin_realestatecrm-612": {
+      "answer_id": "sha256:d62e591a2f68f6048c1991c7daaf82811aa666fcb5511bae73017412bea8275e",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. OpenAI Agents SDK agent 'Chippi (broker)' at chippi_broker.py:149 uses a dynamic tools expression"
+    },
+    "rustic-ai_rustic-ai-419": {
+      "answer_id": "sha256:a86b5da611f720695d7623ebbe5293b41dc971b3741b69eba19b70ef350a1396",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: rustic-ai guild agents (`rustic_ai.core.guild.agent.Agent`), not the OpenAI Agents SDK or ADK."
+    },
+    "surrealdb_agent-memory-openai-agents-sdk-1": {
+      "answer_id": "sha256:00f304b487a1965e84bbf18f018b1f0b0cca3037f32fbce43dad461f4d3f636d",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. OpenAI Agents SDK agent 'agent' at examples/01_quickstart.py:21 uses a dynamic tools expression"
+    },
+    "xju2_hepagent-72": {
+      "answer_id": "sha256:8ac34d0ae8862d20e6546c59539e01ca76e30bbc905543aa7054c92fce3ac18a",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the established request_slurm_interactive change is correct, but deleted SDK Textual wrapping is absent from the answer (base src/hepagent/agents/textual.py:325-329; textual_bash.py:23/:80; scripts/bash_textual.py:67-68). One correct row is incomplete."
+    },
+    "xju2_hepagent-74": {
+      "answer_id": "sha256:6e8c2cc24288256afcf70f6043eeed641f67a61918d15ce59b404c7c0b91a79c",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. OpenAI Agents SDK agent 'Explorer Agent' at agents/explorer.py:231 uses a dynamic tools expression"
+    }
+  },
+  "source_pins": {
+    "ITMO-NSS-team_FEDOT.MAS-30": {
+      "merge_base": "3f0c54bbe18c7ca10bd44e13d8aa339a2b746f3c",
+      "head": "706bc62529040ed9916c99fbff3bbd73f7c968d3"
+    },
+    "ITMO-NSS-team_FEDOT.MAS-36": {
+      "merge_base": "43ab0ae355d66340ef671ecc8d3d2c00f4431dcc",
+      "head": "f599cfd0c73f782c3a7b2209a818b37ad7c48efb"
+    },
+    "ITMO-NSS-team_FEDOT.MAS-38": {
+      "merge_base": "7d6ee1618dfd117ad50972595f3017f28f68e50a",
+      "head": "60a1e9645bec16616bf1500e498bcf996ce8352d"
+    },
+    "ITMO-NSS-team_FEDOT.MAS-42": {
+      "merge_base": "f2bf5d0e9b675850497ae0180bb0bffc95bfb989",
+      "head": "35f1aee6030105056efdd39ed10f01c53d20e9c8"
+    },
+    "InseeFrLab_GRAAL-33": {
+      "merge_base": "ec8bf2748933aca18965b8be043ba0ed484f2673",
+      "head": "f3c8737b96ded6da83b36ce6b179f2c4c692b641"
+    },
+    "JSebastianIEU_voice-freight-negotiator-10": {
+      "merge_base": "00c50bc54f5187314878767b560957de3fb6c42e",
+      "head": "51546cbcc69cdf7e280f7e95fa429c77904c3b9d"
+    },
+    "JinyanSu1_Agentic-AI-Scientist-2": {
+      "merge_base": "7fcba48f0acc7fcaa6eb6ce99abc5a8e0c4f41ca",
+      "head": "9704298fa60b59f9c4e4533cc1b2338883801711"
+    },
+    "Lling0000_OpenCMO-41": {
+      "merge_base": "2d2faf2e54365fd00b24810a0b12ffbfb0b23898",
+      "head": "4bba6fe228f877c804deee7174bf46033d8dc919"
+    },
+    "SponsioLabs_Sponsio-173": {
+      "merge_base": "6b7fa320c052bbf1698d57fb6221066235e5de66",
+      "head": "c05467defc49e624e55cf60dd0b0a6119fde5ca1"
+    },
+    "Tiendat2703_MIS_TALENT-5": {
+      "merge_base": "5b2806896f7f0c337fd6b0115bcfdb70e3120fff",
+      "head": "e0d908c3afb858823f2ef43ac922b2e4bd10c0de"
+    },
+    "Tiendat2703_MIS_TALENT-6": {
+      "merge_base": "06db17c5c977003c549fcb56952c1187e5979d55",
+      "head": "6d7a8f542e522ded38edddc1468a6f02fcc9f003"
+    },
+    "Tiendat2703_MIS_TALENT-7": {
+      "merge_base": "420f570c9b800d54b9d3c0b2857339b2eb12445c",
+      "head": "da7034ae6ea4fc492ceb969a759a7d156e435d56"
+    },
+    "Tiendat2703_MIS_TALENT-8": {
+      "merge_base": "5b2806896f7f0c337fd6b0115bcfdb70e3120fff",
+      "head": "279f081512c696eb57d6e86a56b9d020c27500aa"
+    },
+    "VRSEN_agency-swarm-796": {
+      "merge_base": "5e26b7ccdf686b0228df0939473b78bf801e6ff5",
+      "head": "07642c446c6fb470c3c803811c1a1cc74037af98"
+    },
+    "VRSEN_agency-swarm-804": {
+      "merge_base": "ffee5359a5687d0a1b0110bff3094e9a51930a1d",
+      "head": "af76a4da9d003700b5cdbe8a078c004da86ba210"
+    },
+    "VidulaWickramasinghe_O.R.I.O.N-126": {
+      "merge_base": "490515f623cfe287628020442c75eda5c949e467",
+      "head": "1e7e19d423ca4d824570028b26aff85bf13d2ace"
+    },
+    "YaroslavMarkivskyi_internstore-migrate-4": {
+      "merge_base": "2c046dbb5984a850e5d3db08eb5fa9458cd74eaa",
+      "head": "90cb54df8a094bea4b4b23584aa0263e9e9654be"
+    },
+    "ZeroRuntimeAI_zeroruntime-python-examples-1": {
+      "merge_base": "fa4f4c5a86171d378ea0570d10f7720031cc154f",
+      "head": "fa88cb7de58b23ea48b176bb542133b12b0ccfaf"
+    },
+    "ZeroRuntimeAI_zeroruntime-python-examples-5": {
+      "merge_base": "1fb6d9aff3da380275be422bd1f3d02cdbe5ad05",
+      "head": "35958ef0d2136db9a0c24ebc0d8ab70ba5cbb40a"
+    },
+    "alliance-genome_agr_ai_curation-842": {
+      "merge_base": "1923a477e372bb62ffb99f8c2547e0724a2690d3",
+      "head": "d37ec5fb4b4226fc5d118e3da8ebd2aefaf89935"
+    },
+    "alliance-genome_agr_ai_curation-858": {
+      "merge_base": "727d9bbdda28599c2db70aba95571f8e154a5f39",
+      "head": "48430990ab4d813f57ad9f31ff1765aff9433d8b"
+    },
+    "alliance-genome_agr_ai_curation-860": {
+      "merge_base": "9c1be6fbce1f7a79e37b8359b16d7b17f75dceb8",
+      "head": "e1fd3ca35a9cdf8d33d5744f0e52e25bdc979161"
+    },
+    "buriro-ezekia_cinescout-ai-9": {
+      "merge_base": "47a1cabd70ec48fdad5c5eee0560df006e400949",
+      "head": "24d9459d4db0d54f0e129fd2a014f4c4c2b15a87"
+    },
+    "carlosdaniel092015-crypto_pastoriza-66": {
+      "merge_base": "bcc87e4379348df317a4f4c226565839805eaf45",
+      "head": "d2595e7c3ea58eacff0e53e5a5aa36446e3e759c"
+    },
+    "carlosdaniel092015-crypto_pastoriza-69": {
+      "merge_base": "b9775c7b9e29013d7e7af57714111c0458bf0e1b",
+      "head": "b13886ebd37939e6a7823dde2765e730f81151e2"
+    },
+    "carlospolop_chack-agent-25": {
+      "merge_base": "dd79db40cf70694b7b7aa4837734016b8204a4e9",
+      "head": "4f1f176e952923e908fd083b81bf2bb2fcb4f305"
+    },
+    "cianfhoghlaim_tuatha-1": {
+      "merge_base": "375c6895b1acbde5d5b158a60a08494e77067418",
+      "head": "329c7fa68ced5798f8bfd5a525445385c85b07d8"
+    },
+    "contributory_starchatter-telegram-4": {
+      "merge_base": "8aaf80f63c5073472e9e05a8ef25407aaf2e2ac5",
+      "head": "0eaa9f234b1157609400508dc6e01efaffaa3540"
+    },
+    "cuppibla_adk_tutorial-7": {
+      "merge_base": "172f1c3fa47cb88d170bf6177ebb564ffed6ebfe",
+      "head": "2f53067088d93d813a5d9fb55e2358fa96702d72"
+    },
+    "cuppibla_adk_tutorial-9": {
+      "merge_base": "c57a9f3a06a085873a2bf3835f65029ab73c9224",
+      "head": "65678d1cf0eb6466e4a4a48287ddbf969965ca2e"
+    },
+    "evvyraine_skye-next-17": {
+      "merge_base": "72f0993442f6133a007c591d88ac17495089ae90",
+      "head": "4b7ed567456d04800d4bd918096b842e25f6574b"
+    },
+    "geroembser_livekit-agents-1": {
+      "merge_base": "6fbb50a75eb0376901ca12c426fa5db8ac64f7d5",
+      "head": "163597a3a27a283ef091ed76a60eaa4403f5fd58"
+    },
+    "hamzafarooq_multi-agent-course-63": {
+      "merge_base": "971479d83b34c3ba3db17f471d3bd3f6a70062f6",
+      "head": "43123042e226081ead5069869236fc247e72063b"
+    },
+    "hamzafarooq_multi-agent-course-64": {
+      "merge_base": "43123042e226081ead5069869236fc247e72063b",
+      "head": "3d22287de0c1da918eb33ba8df3b1821b05928f8"
+    },
+    "jpka_attest-3": {
+      "merge_base": "10e1f949d48b5349a180677c41c4ba30deab943d",
+      "head": "cab295001ec01e7fca388acee67842c6f53b5150"
+    },
+    "kkmiecik-coder_CRM-5": {
+      "merge_base": "dae503cc671cc4a3c6fae9aaa9520464cfdfd74d",
+      "head": "0935d0931c58a75294b8c54239eb8ddf642558ed"
+    },
+    "krevetka-is-afk_llm-agent-for-ai-studio-19": {
+      "merge_base": "881ed5c341841f64de0add1b40ca540a0c9ca3bc",
+      "head": "cd3c9f5dcd78e57f1f67a10509df687b9d3fb656"
+    },
+    "krevetka-is-afk_llm-agent-for-ai-studio-20": {
+      "merge_base": "cd3c9f5dcd78e57f1f67a10509df687b9d3fb656",
+      "head": "1868de9be838afedf3a24f5b9dbfa308d15ea333"
+    },
+    "krevetka-is-afk_llm-agent-for-ai-studio-23": {
+      "merge_base": "1868de9be838afedf3a24f5b9dbfa308d15ea333",
+      "head": "7a422b38f933274955e18125170c6c19d87a16b0"
+    },
+    "liauto-siada_siada-cli-6": {
+      "merge_base": "df883407eeab38e19207033fb02d4043909ee62e",
+      "head": "3c594a03f82a22d89a394e5668dbfca15eb788b9"
+    },
+    "lifenyan_agent-desk-8": {
+      "merge_base": "bda66ec745ce4f5ad74cb8bbc113501c8c33e8d9",
+      "head": "cb6e8a901aa548b9fc569a9fb3ac1220f6ec19c6"
+    },
+    "mezgoodle_Vesta-53": {
+      "merge_base": "fcf86c953a128de6f2fd2dfe9b4fed495b90285d",
+      "head": "e5095d3d5779f6827787086088c2cb56302f04d6"
+    },
+    "mezgoodle_Vesta-58": {
+      "merge_base": "96f08d6041ded0a5661e15424c0f005d2ae29ae9",
+      "head": "8626cba5bd1584eec6f804040139747deb44bf7c"
+    },
+    "mezgoodle_Vesta-70": {
+      "merge_base": "c19704f95563bdf21db71b77ab9265e2f9559749",
+      "head": "e15e6a7bc31789297a6aac301878eb39ed927931"
+    },
+    "mosnin_realestatecrm-612": {
+      "merge_base": "75113c0d68f40df0999d2dd470b831ffde3c3665",
+      "head": "051114d8e419144b02325362b54746d7a6330866"
+    },
+    "rustic-ai_rustic-ai-419": {
+      "merge_base": "f83e63bcdb5fefa68d1012a640b850753f73ca53",
+      "head": "a849e819e6548f3c725f8b563977dde17432c8e0"
+    },
+    "surrealdb_agent-memory-openai-agents-sdk-1": {
+      "merge_base": "6b79ad32efdfd7b95f737cb6968d7008def081f9",
+      "head": "8b2e269d4d321ca1050939c3d99cf37dd81f0033"
+    },
+    "xju2_hepagent-72": {
+      "merge_base": "1dcbe43111313278fefbab36508c0236b8a5f163",
+      "head": "ab189e95c240b3dee942625d67dc516bdf41c385"
+    },
+    "xju2_hepagent-74": {
+      "merge_base": "e2357b40e7461f5cd792aa8193523b4f578c9eef",
+      "head": "8d52e281145435aabf357b0c8540864319d25934"
+    }
+  }
+}
