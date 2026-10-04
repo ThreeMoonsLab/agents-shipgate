@@ -66,11 +66,60 @@ returned agent handle also keeps that handle incomplete.
 
 Computed access, ambiguous imports and dynamic import machinery are explicit
 limits. Known direct callers remain partial evidence beside unresolved callers.
-Foreign caller-local tool closures, list/dictionary-returning factories and
-`self.tools` remain unread for subsequent #874 increments. ADK's followed-list
+Foreign caller-local tool closures and `self.tools` remain unread for
+subsequent #874 increments. ADK's followed-list
 observations retain the existing distinction between comparable application
 bindings and trusted scan coverage; this change creates no authority, effect or
 agent-binding declarations.
+
+## Returned tool lists and dictionaries
+
+The next increment follows synchronous repository-local factories with one
+final return. It uses the same argument binding and caller census as agent
+builders, and the same list-expression membership reader. The supported prelude
+is limited to imports, a docstring and `pass`; executable statements, nested
+definitions and unresolved returned expressions remain unread. Literal list/tuple
+returns of direct names and literal-string-key projections of returned literal dictionaries
+are supported, including `groups["calendar"] + groups["email"]` and
+`groups.get("memory")`. A missing subscription key is a limit, not an empty
+list. Dictionary spreads, nonliteral keys and duplicate keys are limits.
+
+A `.get` default is evaluated eagerly even when the key exists. This entry
+accepts only `None`, literal lists/tuples of established function references,
+or an established function reference as that default; executable and unresolved
+defaults remain unread. A selected caller default retains its caller scope.
+Factory invocations contribute their own source locations and membership
+conditions; inherited caller conditions are recorded once.
+
+This bounded entry proves ownership of fresh returned containers. It checks the
+factory callable census, all eagerly evaluated member-name bindings, canonical
+returned-callable identities across their
+bounded borrower modules, and every retained container use, including projected
+values. Caller and sibling aliases and retaining bridge/package namespaces
+remain subject to the same ownership checks. Functions and class methods in a retaining module also carry its globals, so
+opaque uses of those namespace holders stay unread through bounded re-exports.
+Class values and constructors remain unread by this entry. This namespace mode has its own census cache; the
+ordinary shared-list census keeps its narrower import rules. Executable text and
+builtin execution machinery in a relevant borrower's import dependencies stay
+unread, using the resolver's existing module and import-step evidence. Patching or escaping the factory, renaming or
+handing on a returned callable, mutation, aliases, opaque consumers, dictionary
+views/copies/unions, starred calls and helper identity changes retain named
+limits. Strict helper proofs follow projections and wrappers instead of ending
+at indexing. Copies retain callable objects even when their list membership is
+fresh, so unknown uses of copied members remain incomplete. Equality, ordering,
+membership tests, opaque addition operands and comparator arguments are unread;
+identity tests and additions with established literal container shapes remain
+readable. A retained dictionary projection can supply an addition operand only
+from the same binding already under that ownership walk; unrelated retained
+dictionaries stay unread. Fresh factory shapes require the same callable census
+and whole-call binding proof. Builtin readers accept only a single container argument, so custom
+`isinstance` metaclass dispatch cannot acquire the list through this route.
+
+Imported dictionaries and module-owned literal dictionary projections remain
+unread. Returned members must be direct names in the factory's lexical module;
+foreign returned-list members, dotted/wrapper members, nested tool closures,
+foreign target-agent surfaces and runtime runner retention remain subsequent
+increments. This entry does not establish Vesta acceptance or complete #874.
 
 ## Read bounds and evidence
 

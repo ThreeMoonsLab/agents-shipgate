@@ -1282,6 +1282,11 @@ class _PythonAdkExtractor:
                 loaded.extend(self._extract_member(member, tools, agent_name, binding))
                 for tool_name, _ in binding.recording[at:]:
                     if tool_name in binding.tool_names:
+                        if member.invocation is not None:
+                            locations = binding.tool_sites.setdefault(tool_name, [])
+                            for location in member.invocation.locations:
+                                if location not in locations:
+                                    locations.append(location)
                         binding.when.add(tool_name, member.conditions)
                         if member.conditions:
                             conditioned.add((tool_name, " and ".join(member.conditions)))
@@ -1959,7 +1964,7 @@ class _PythonAdkExtractor:
         local = self._builder_calls.scopes(module).enclosing_bindings(member.expr, spelling.split(".", 1)[0]) if self._builder_calls else []
         if local and self._builder_calls is not None:
             resolution, long_running = self._builder_calls.resolve(module, member.expr), False
-            if resolution.definition is not None and resolution.definition not in module.tree.body:
+            if resolution.definition is not None and resolution.module is not None and resolution.definition not in resolution.module.tree.body:
                 resolution = Resolution(reference=spelling, reason=LOCAL_BINDING,
                                         detail=f"the caller-local tool at {module.ref}:{resolution.definition.lineno} has an enclosing closure, which this increment does not follow")
         else:

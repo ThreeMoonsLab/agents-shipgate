@@ -167,10 +167,10 @@ class BuilderCalls:
         self._scopes: dict[int, ScopeIndex] = {}
         self._censuses: dict[int, CallerCensus] = {}
         self._exports: dict[int, bool] = {}
-        self._borrowers: dict[tuple[int, str], tuple[PythonModule, ...]] = {}
-        self._borrower_aliases: dict[tuple[int, str], tuple[str, ...]] = {}
-        self._borrower_words: dict[tuple[int, str], frozenset[str]] = {}
-        self._borrower_paths: dict[tuple[int, str], frozenset[Path]] = {}
+        self._borrowers: dict[tuple[int, str, bool], tuple[PythonModule, ...]] = {}
+        self._borrower_aliases: dict[tuple[int, str, bool], tuple[str, ...]] = {}
+        self._borrower_words: dict[tuple[int, str, bool], frozenset[str]] = {}
+        self._borrower_paths: dict[tuple[int, str, bool], frozenset[Path]] = {}
         self._dynamic_imports: dict[int, ast.AST | None] = {}
 
     def scopes(self, module: PythonModule) -> ScopeIndex:
@@ -534,14 +534,14 @@ class BuilderCalls:
         self._exports[id(call)] = exported
         return exported
 
-    def borrowers(self, module: PythonModule, name: str) -> tuple[PythonModule, ...]:
+    def borrowers(self, module: PythonModule, name: str, *, namespace_carriers: bool = False) -> tuple[PythonModule, ...]:
         """Candidate importers of a shared module value, including re-exports.
 
         Membership still belongs to ListExpressions. It checks each candidate
         with the existing import-identity and mutation tests. Failure to finish
         this bounded census never establishes a borrowed list's contents.
         """
-        key = (id(module.tree), name)
+        key = (id(module.tree), name, namespace_carriers)
         if key in self._borrowers:
             return self._borrowers[key]
         names, words = {name}, _module_words(module.path)
@@ -555,7 +555,7 @@ class BuilderCalls:
                     continue  # Its own aliases/mutations are indexed by ListExpressions.
                 caller = self._module(path)
                 aliases, possible = self._expanding_imports(
-                    caller, names, words, related, subject=module.path
+                    caller, names, words, related, subject=module.path, namespace_carriers=namespace_carriers
                 )
                 if possible:
                     expanded.update(_module_words(path))
@@ -574,11 +574,16 @@ class BuilderCalls:
         )
 
     def borrower_spellings(
-        self, module: PythonModule, name: str
+        self, module: PythonModule, name: str, *, namespace_carriers: bool = False
     ) -> tuple[tuple[str, ...], frozenset[str]]:
-        self.borrowers(module, name)
-        key = (id(module.tree), name)
+        self.borrowers(module, name, namespace_carriers=namespace_carriers)
+        key = (id(module.tree), name, namespace_carriers)
         return self._borrower_aliases[key], self._borrower_words[key]
+
+    def retaining_modules(self, module: PythonModule, name: str, *, namespace_carriers: bool = False) -> frozenset[Path]:
+        """Modules whose globals can retain a subject through imports/re-exports."""
+        self.borrowers(module, name, namespace_carriers=namespace_carriers)
+        return self._borrower_paths[id(module.tree), name, namespace_carriers]
 
     def import_may_share(
         self,
@@ -587,10 +592,11 @@ class BuilderCalls:
         name: str,
         statement: ast.Import | ast.ImportFrom,
         alias: ast.alias,
+        *, namespace_carriers: bool = False,
     ) -> bool:
         """Whether one import may retain the subject list or its namespace."""
-        names, words = self.borrower_spellings(defining, name)
-        key = (id(defining.tree), name)
+        names, words = self.borrower_spellings(defining, name, namespace_carriers=namespace_carriers)
+        key = (id(defining.tree), name, namespace_carriers)
         _, possible = self._expanding_imports(
             caller,
             set(names),
@@ -599,6 +605,7 @@ class BuilderCalls:
             (statement,),
             subject=defining.path,
             selected_alias=alias,
+            namespace_carriers=namespace_carriers,
         )
         return possible
 
@@ -747,6 +754,7 @@ class BuilderCalls:
         *,
         subject: Path,
         selected_alias: ast.alias | None = None,
+        namespace_carriers: bool = False,
     ) -> tuple[set[str], bool]:
         """Expand aliases through related imports, not matching module basenames.
 
@@ -774,11 +782,12 @@ class BuilderCalls:
                 try:
                     if isinstance(statement, ast.ImportFrom):
                         container = self.resolver._from_base(caller, statement)
+                        relevant = namespace_carriers and container.module_path in related
                         if alias.name != "*":
                             child = self.resolver._locate(
                                 container.directory, alias.name.split("."), spelling=alias.name
                             )
-                            relevant = child is not None and child.module_path in related
+                            relevant |= child is not None and child.module_path in related
                     else:
                         container = self.resolver._absolute(caller, alias.name)
                         relevant = container.module_path in related
@@ -810,8 +819,7 @@ class BuilderCalls:
                             resolution.value is not None
                             or (
                                 resolution.definition is not None
-                                and resolution.module.path == subject
-                                and resolution.definition.name in names
+                                and (namespace_carriers or (resolution.module.path == subject and resolution.definition.name in names))
                             )
                         )
                     ):

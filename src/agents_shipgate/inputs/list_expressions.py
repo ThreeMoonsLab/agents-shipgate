@@ -40,6 +40,7 @@ from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
 
 from agents_shipgate.inputs.python_imports import (
+    MODULE_NOT_FOUND,
     ImportResolver,
     PythonModule,
     Resolution,
@@ -140,7 +141,7 @@ class ListResolution:
     def under(self, condition: str) -> ListResolution:
         return ListResolution(
             tuple(
-                ListMember(m.expr, m.module, (condition, *m.conditions), m.via, m.invocation)
+                ListMember(m.expr, m.module, tuple(dict.fromkeys((condition, *m.conditions))), m.via, m.invocation)
                 for m in self.members
             ),
             self.unresolved,
@@ -334,8 +335,27 @@ class ListCache:
     views: dict[tuple[int, bool], _View] = field(default_factory=dict)
     memo: dict[tuple[Any, ...], ListResolution] = field(default_factory=dict)
     changes: dict[tuple[int, bool, int, str], int | None] = field(default_factory=dict)
-    callees: dict[tuple[int, str], bool] = field(default_factory=dict)
+    callees: dict[tuple[int, str, bool], bool] = field(default_factory=dict)
     scopes: dict[int, ScopeIndex] = field(default_factory=dict)
+    callable_changes: dict[tuple, str | None] = field(default_factory=dict)
+    executable_modules: dict[int, bool] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class _Projection:
+    key: str
+    view: _View
+    invocation: Invocation | None
+    required: bool = True
+    default: ast.expr | None = None
+    caller_defaults: set[tuple[int, int]] = field(default_factory=set, compare=False)
+
+    @property
+    def identity(self) -> tuple:
+        return (
+            self.key, self.required, id(self.default), id(self.view.tree),
+            self.invocation.key if self.invocation else (),
+        )
 
 
 class ListExpressions:
@@ -365,6 +385,7 @@ class ListExpressions:
         self._builder_calls = builder_calls
         self._invocation: Invocation | None = None
         self._field = "tools"
+        self._projection: _Projection | None = None
         self._checking_returns: set[tuple[int, str]] = set()
         self._cache = cache if cache is not None else ListCache()
         self._visits = 0
@@ -582,7 +603,8 @@ class ListExpressions:
         )
 
     def _callee_leaves_alone(
-        self, view: _View, call: ast.Call, position: int | None, keyword: str | None
+        self, view: _View, call: ast.Call, position: int | None, keyword: str | None,
+        *, strict_container: bool = False,
     ) -> bool:
         """Whether the function ``call`` names never changes the argument it passes."""
 
@@ -614,10 +636,16 @@ class ListExpressions:
             return False
         defining = resolution.module
         assert defining is not None
-        key = (id(function), parameter)
+        key = (id(function), parameter, strict_container)
         if key not in self._cache.callees:
             # A recursive forwarding cycle is not a read-only proof.
             self._cache.callees[key] = False
+            if strict_container:
+                try:
+                    if calls.callers(defining, function).limits:
+                        return False
+                except CallLimit:
+                    return False
             foreign = self._foreign(defining)
             reads = self._call_reads(foreign)
 
@@ -626,16 +654,27 @@ class ListExpressions:
                     return not self._agent_result_changed(foreign, inner, field, borrowed=True)
                 return reads(inner, position, field)
 
-            self._cache.callees[key] = parameter_left_alone(
-                function,
-                parameter,
-                bindings_at(self._scopes(defining.tree), defining.bindings),
-                safe_read if self._module_agent_reads is not None else None,
-            )
+            if strict_container:
+                self._cache.callees[key] = all(
+                    isinstance(node.ctx, ast.Load) and self._container_read(foreign, node)
+                    for node in ast.walk(function)
+                    if isinstance(node, ast.Name) and node.id == parameter
+                ) and not any(
+                    isinstance(node, ast.Global | ast.Nonlocal) and parameter in node.names
+                    for node in ast.walk(function)
+                )
+            else:
+                self._cache.callees[key] = parameter_left_alone(
+                    function,
+                    parameter,
+                    bindings_at(self._scopes(defining.tree), defining.bindings),
+                    safe_read if self._module_agent_reads is not None else None,
+                )
         return self._cache.callees[key]
 
     def _agent_result_changed(
-        self, view: _View, call: ast.Call, keyword: str, *, borrowed: bool = False
+        self, view: _View, call: ast.Call, keyword: str, *, borrowed: bool = False,
+        strict_container: bool = False,
     ) -> bool:
         """Follow returned builder handles before proving a borrowed list read-only."""
         if reflective_access(view.tree) is not None:
@@ -660,7 +699,8 @@ class ListExpressions:
                 census = calls.callers(view.module, function)
                 return bool(census.limits) or any(
                     self._agent_result_changed(
-                        self._foreign(site.module), site.call, keyword, borrowed=borrowed
+                        self._foreign(site.module), site.call, keyword, borrowed=borrowed,
+                        strict_container=strict_container,
                     )
                     for site in census.sites
                 )
@@ -698,7 +738,8 @@ class ListExpressions:
                     census = calls.callers(view.module, function)
                     if census.limits or any(
                         self._agent_result_changed(
-                            self._foreign(site.module), site.call, keyword, borrowed=borrowed
+                            self._foreign(site.module), site.call, keyword, borrowed=borrowed,
+                            strict_container=strict_container,
                         )
                         for site in census.sites
                     ):
@@ -713,8 +754,9 @@ class ListExpressions:
                         return True
                     if not borrowed and not isinstance(use.ctx, ast.Load):
                         return True
-                    if isinstance(use.ctx, ast.Load) and not read_only_use(
-                        use, view.scopes.parents, self._call_reads(view)
+                    if isinstance(use.ctx, ast.Load) and not (
+                        self._container_read(view, use) if strict_container
+                        else read_only_use(use, view.scopes.parents, self._call_reads(view))
                     ):
                         return True
                 elif isinstance(use.ctx, ast.Load) and not read_only_use(
@@ -809,6 +851,11 @@ class ListExpressions:
             return self._stop(view, node, "the expression is larger than the reader follows")
         if depth > MAX_DEPTH:
             return self._stop(view, node, "the expression nests further than the reader follows")
+        if self._projection is not None:
+            if isinstance(node, ast.Dict):
+                return self._dictionary(node, view, depth, seen)
+            if not isinstance(node, ast.Name | ast.Attribute | ast.Call):
+                return self._stop(view, node, "the projected value is not a proven literal dictionary")
         if isinstance(node, ast.List | ast.Tuple):
             result = ListResolution()
             for item in node.elts:
@@ -831,6 +878,10 @@ class ListExpressions:
             return self._filtered_comprehension(node, view, depth, seen)
         if isinstance(node, ast.Call):
             return self._call(node, view, depth, seen)
+        if isinstance(node, ast.Subscript):
+            if not isinstance(node.slice, ast.Constant) or not isinstance(node.slice.value, str):
+                return self._stop(view, node, "a dictionary projection needs one literal string key")
+            return self._project(node.value, _Projection(node.slice.value, view, self._invocation), view, depth, seen)
         if isinstance(node, ast.Name):
             return self._name(node, view, depth, seen)
         if isinstance(node, ast.Attribute):
@@ -890,20 +941,475 @@ class ListExpressions:
 
     def _call(self, node: ast.Call, view: _View, depth: int, seen: frozenset) -> ListResolution:
         func = node.func
+        if self._projection is None and isinstance(func, ast.Attribute) and func.attr == "get":
+            if (
+                len(node.args) not in {1, 2} or node.keywords
+                or not isinstance(node.args[0], ast.Constant)
+                or not isinstance(node.args[0].value, str)
+            ):
+                return self._stop(view, node, "a dictionary get needs one literal string key and an optional positional default")
+            if len(node.args) == 2 and not self._nonexecuting_default(view, node.args[1]):
+                return self._stop(view, node, "a dictionary get default is evaluated eagerly and its executable or unresolved expression is not read")
+            return self._project(
+                func.value,
+                _Projection(node.args[0].value, view, self._invocation, required=False,
+                            default=node.args[1] if len(node.args) == 2 else None),
+                view, depth, seen,
+            )
         builtin = (
             func.id
             if isinstance(func, ast.Name) and not (view.lookup or bindings_at(view.scopes, view.bindings))(func.id, func)
             else None
         )
-        if builtin in _SAME_MEMBERS and len(node.args) == 1 and not node.keywords:
+        if self._projection is None and builtin in _SAME_MEMBERS and len(node.args) == 1 and not node.keywords:
             return self._resolve(node.args[0], view, depth + 1, seen)
-        if builtin == "filter" and len(node.args) == 2 and not node.keywords:
+        if self._projection is None and builtin == "filter" and len(node.args) == 2 and not node.keywords:
             predicate, iterable = node.args
             part = self._resolve(iterable, view, depth + 1, seen)
             if isinstance(predicate, ast.Constant) and predicate.value is None:
                 return part
             return part.under(f"the filter `{_condition(predicate)}` keeps it")
-        return self._stop(view, node, f"a call to `{_source(func)}`, whose result is not read")
+        return self._factory(node, view, depth, seen)
+
+    def _nonexecuting_default(self, view: _View, node: ast.expr) -> bool:
+        if isinstance(node, ast.Constant):
+            return node.value is None
+        if isinstance(node, ast.List | ast.Tuple):
+            return all(self._nonexecuting_default(view, item) for item in node.elts)
+        if isinstance(node, ast.Name | ast.Attribute) and view.module is not None and self.calls is not None:
+            resolution = self.calls.resolve(view.module, node)
+            return resolution.resolved and not resolution.caveats
+        return False
+
+    def _project(
+        self, node: ast.expr, projection: _Projection, view: _View, depth: int, seen: frozenset
+    ) -> ListResolution:
+        previous, self._projection = self._projection, projection
+        try:
+            return self._resolve(node, view, depth + 1, seen)
+        finally:
+            self._projection = previous
+
+    def _dictionary(self, node: ast.Dict, view: _View, depth: int, seen: frozenset) -> ListResolution:
+        projection = self._projection
+        assert projection is not None
+        keys: dict[str, ast.expr] = {}
+        for key, value in zip(node.keys, node.values, strict=True):
+            if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+                return self._stop(view, node, "dictionary spreads or nonliteral string keys may replace the projected entry")
+            if key.value in keys:
+                return self._stop(view, node, f"dictionary key {key.value!r} is defined more than once")
+            keys[key.value] = value
+        selected = keys.get(projection.key)
+        if selected is None and projection.required:
+            return self._stop(view, node, f"dictionary key {projection.key!r} is absent; subscription does not yield an empty list")
+        previous, self._projection = self._projection, None
+        invocation = self._invocation
+        try:
+            if selected is not None:
+                return self._resolve(selected, view, depth + 1, seen).through(
+                    f"dictionary key {projection.key!r} ({self._where(view, node)})"
+                )
+            if projection.default is None:
+                return ListResolution()
+            self._invocation = projection.invocation
+            result = self._resolve(projection.default, projection.view, depth + 1, seen)
+            projection.caller_defaults.update((id(member.expr), id(member.module)) for member in result.members)
+            return result
+        finally:
+            self._projection, self._invocation = previous, invocation
+
+    def _factory(self, node: ast.Call, view: _View, depth: int, seen: frozenset) -> ListResolution:
+        calls = self.calls
+        if calls is None or view.module is None:
+            return self._stop(view, node, f"a call to `{_source(node.func)}`, whose result is not read")
+        from agents_shipgate.inputs.builder_calls import CallLimit, CallSite, single_return
+
+        resolution = calls.resolve(view.module, node.func)
+        if not resolution.resolved:
+            return self._stop(view, node, f"a call to `{_source(node.func)}`, whose result is not read")
+        if resolution.caveats:
+            detail = "; ".join(resolution.caveats)
+            return self._stop(view, node, f"a call to `{_source(node.func)}`, whose result is not read: {detail}")
+        home, function = resolution.module, resolution.definition
+        assert home is not None and function is not None
+        returned = single_return(function)
+        if returned is None:
+            return self._stop(view, node, "the factory has no single final return expression")
+        key = ("factory", id(function))
+        if key in seen:
+            return self._stop(view, node, "the returned-list factory calls itself")
+        try:
+            census = calls.callers(home, function)
+            if census.limits:
+                return self._stop(view, node, "the factory callable is not established: " + "; ".join(census.limits))
+            invocation = calls.invoke(home, function, CallSite(view.module, node), self._invocation)
+        except CallLimit as exc:
+            return self._stop(view, node, f"the returned-list factory call is not established: {exc}")
+        if not self._inert_factory(function) or any(
+            not (established := calls.resolve(home, item)).resolved or established.caveats
+            for item in ast.walk(returned) if isinstance(item, ast.Name)
+        ):
+            return self._stop(view, node, "the factory needs an inert prelude and a literal list, tuple or dictionary return; executable or unresolved expressions are not read by this increment")
+        if self._factory_result_changed(view, node):
+            return self._stop(view, node, "the returned factory container or a projected member may be changed or handed on")
+        previous, self._invocation = self._invocation, invocation
+        try:
+            result = self._resolve(returned, self._foreign(home), depth + 1, seen | {key})
+        finally:
+            self._invocation = previous
+        changed = self._factory_member_change(
+            self._foreign(home), function, result,
+            caller_defaults=self._projection.caller_defaults if self._projection else frozenset(),
+        )
+        if changed is not None:
+            return self._stop(view, node, changed)
+        for condition in invocation.conditions:
+            result = result.under(condition)
+        return result.through(f"{function.name} returned at {self._where(view, node)}")
+
+    @staticmethod
+    def _inert_factory(function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+        """Limit outer statements and eager returned values to supported syntax."""
+        if not all(
+            isinstance(statement, ast.Import | ast.ImportFrom | ast.Pass)
+            or (isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Constant) and isinstance(statement.value.value, str))
+            for statement in function.body[:-1]
+        ):
+            return False
+
+        def literal(node: ast.expr) -> bool:
+            if isinstance(node, ast.List | ast.Tuple):
+                return all(isinstance(item, ast.Name) for item in node.elts)
+            if isinstance(node, ast.Dict):
+                return all(
+                    isinstance(key, ast.Constant) and isinstance(key.value, str)
+                    and (isinstance(value, ast.List | ast.Tuple) and literal(value) or isinstance(value, ast.Constant) and value.value is None)
+                    for key, value in zip(node.keys, node.values, strict=True)
+                )
+            return False
+
+        returned = function.body[-1]
+        return isinstance(returned, ast.Return) and returned.value is not None and literal(returned.value)
+
+    def _factory_result_changed(self, view: _View, call: ast.Call) -> bool:
+        if reflective_access(view.tree) is not None:
+            return True
+        if view.module is not None and self.calls is not None and self.calls.exported_elsewhere(view.module, call):
+            return True
+        parent = view.scopes.parents.get(call)
+        if not isinstance(parent, ast.Assign | ast.AnnAssign) or parent.value is not call:
+            return not self._container_read(view, call, dictionary=self._projection is not None)
+        targets = parent.targets if isinstance(parent, ast.Assign) else [parent.target]
+        if len(targets) != 1 or not isinstance(targets[0], ast.Name):
+            return True
+        return self._container_binding_changed(view, targets[0], dictionary=self._projection is not None)
+
+    def _container_binding_changed(self, view: _View, target: ast.Name, *, dictionary: bool = True) -> bool:
+        lookup = view.lookup or bindings_at(view.scopes, view.bindings)
+        owner = lookup(target.id, target)
+        return any(
+            not self._container_read(view, node, dictionary=dictionary)
+            for node in ast.walk(view.tree)
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+            and node.id == target.id and lookup(node.id, node) == owner
+        )
+
+    def _container_read(self, view: _View, node: ast.expr, *, dictionary: bool = False) -> bool:
+        """Read a retained container through its projection, never stop at indexing."""
+        parent = view.scopes.parents.get(node)
+        if isinstance(parent, ast.BoolOp) or (
+            isinstance(parent, ast.IfExp) and parent.test is not node
+        ):
+            return self._container_read(view, parent, dictionary=dictionary)
+        if isinstance(parent, ast.Starred) and parent.value is node:
+            outer = view.scopes.parents.get(parent)
+            return isinstance(outer, ast.List | ast.Tuple) and self._container_read(view, outer)
+        if isinstance(parent, ast.BinOp):
+            other = parent.right if parent.left is node else parent.left
+            return not dictionary and isinstance(parent.op, ast.Add) and self._list_operand(view, other, subject=node) and self._container_read(view, parent)
+        if isinstance(parent, ast.Compare):
+            return all(isinstance(operator, ast.Is | ast.IsNot) for operator in parent.ops)
+        if isinstance(parent, ast.Subscript) and parent.value is node:
+            return (
+                isinstance(parent.ctx, ast.Load) and isinstance(parent.slice, ast.Constant)
+                and dictionary and isinstance(parent.slice.value, str) and self._container_read(view, parent)
+            )
+        if isinstance(parent, ast.Attribute) and parent.value is node and parent.attr == "get":
+            call = view.scopes.parents.get(parent)
+            return (
+                isinstance(call, ast.Call) and call.func is parent and len(call.args) in {1, 2}
+                and not call.keywords and isinstance(call.args[0], ast.Constant)
+                and dictionary and isinstance(call.args[0].value, str) and self._container_read(view, call)
+            )
+        if dictionary and isinstance(parent, ast.Attribute | ast.BinOp):
+            # dict.copy/values/items and union retain the mutable values. A
+            # fresh list copy or list concatenation has separate membership.
+            return False
+        if isinstance(parent, ast.Attribute) and parent.value is node:
+            call = view.scopes.parents.get(parent)
+            if isinstance(call, ast.Call) and call.func is parent:
+                if parent.attr == "copy" and not call.args and not call.keywords:
+                    return self._container_read(view, call)
+                return parent.attr in {"count", "index"} and all(
+                    self._nonexecuting_default(view, argument) for argument in call.args
+                ) and not call.keywords
+            return False
+        call, position, keyword = None, None, None
+        if isinstance(parent, ast.keyword):
+            call, keyword = view.scopes.parents.get(parent), parent.arg
+        elif isinstance(parent, ast.Call):
+            call = parent
+            position = next((i for i, argument in enumerate(call.args) if argument is node), None)
+        if isinstance(call, ast.Call):
+            lookup = view.lookup or bindings_at(view.scopes, view.bindings)
+            if leaves_arguments_alone(call, lookup):
+                name = reference_spelling(call.func)
+                if name in {"list", "tuple"} and len(call.args) == 1 and not call.keywords:
+                    return dictionary or self._container_read(view, call)
+                return name in {"len", "repr", "str", "bool", "id", "hash", "type", "print"} and call.args == [node] and not call.keywords
+            if dictionary:
+                # A helper's old list-use proof stops at subscription and
+                # cannot show it leaves the dictionary's mutable values alone.
+                return False
+            if self._reads_agent(view, call, keyword):
+                return not self._agent_result_changed(view, call, str(keyword), borrowed=True, strict_container=True)
+            return self._callee_leaves_alone(view, call, position, keyword, strict_container=True)
+        # Iteration may retain the mutable projected list, and an alias may
+        # subsequently change it. Neither is a read-only ownership proof.
+        if isinstance(parent, ast.For | ast.AsyncFor | ast.comprehension):
+            return False
+        return read_only_use(node, view.scopes.parents, self._call_reads(view))
+
+    def _shape_value(self, view: _View, node: ast.expr, depth: int) -> tuple[ast.expr, _View] | None:
+        """Find a literal container shape without re-entering ownership checks."""
+        if depth > MAX_DEPTH:
+            return None
+        lookup = view.lookup or bindings_at(view.scopes, view.bindings)
+        if isinstance(node, ast.Name):
+            bindings = lookup(node.id, node)
+            if len(bindings) == 1:
+                value = getattr(bindings[0][1], "value", None)
+                if isinstance(value, ast.expr):
+                    return self._shape_value(view, value, depth + 1)
+            return None
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get":
+            return node, view
+        if isinstance(node, ast.Call) and self.calls is not None and view.module is not None:
+            from agents_shipgate.inputs.builder_calls import CallLimit, CallSite, single_return
+
+            resolution = self.calls.resolve(view.module, node.func)
+            if resolution.resolved and not resolution.caveats:
+                function = resolution.definition
+                returned = single_return(function)
+                if returned is not None and self._inert_factory(function):
+                    try:
+                        if self.calls.callers(resolution.module, function).limits:
+                            return None
+                        self.calls.invoke(resolution.module, function, CallSite(view.module, node), self._invocation)
+                    except CallLimit:
+                        return None
+                    return self._shape_value(self._foreign(resolution.module), returned, depth + 1)
+            return None
+        return node, view
+
+    @staticmethod
+    def _projection_base(node: ast.expr) -> ast.expr | None:
+        if isinstance(node, ast.Subscript):
+            return node.value
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get":
+            return node.func.value
+        return None
+
+    def _list_operand(self, view: _View, node: ast.expr, depth: int = 0, *, subject: ast.expr | None = None) -> bool:
+        shape = self._shape_value(view, node, depth)
+        if shape is None:
+            return False
+        node, view = shape
+        if isinstance(node, ast.List | ast.Tuple):
+            return True
+        if isinstance(node, ast.BoolOp):
+            return all(self._list_operand(view, value, depth + 1, subject=subject) for value in node.values)
+        if isinstance(node, ast.IfExp):
+            return self._list_operand(view, node.body, depth + 1, subject=subject) and self._list_operand(view, node.orelse, depth + 1, subject=subject)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            return self._list_operand(view, node.left, depth + 1, subject=subject) and self._list_operand(view, node.right, depth + 1, subject=subject)
+        base, key, default = None, None, None
+        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant):
+            base, key = node.value, node.slice.value
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get" and len(node.args) in {1, 2} and not node.keywords:
+            if isinstance(node.args[0], ast.Constant):
+                base, key = node.func.value, node.args[0].value
+                default = node.args[1] if len(node.args) == 2 else None
+        if base is None or not isinstance(key, str):
+            return False
+        if isinstance(base, ast.Name):
+            same = self._projection_base(subject) if subject is not None else None
+            lookup = view.lookup or bindings_at(view.scopes, view.bindings)
+            if not (isinstance(same, ast.Name) and same.id == base.id and lookup(same.id, same) == lookup(base.id, base)):
+                # Only the dictionary whose ownership this strict walk is
+                # checking can lend its shape through a retained projection.
+                return False
+        elif not isinstance(base, ast.Call):
+            return False
+        dictionary = self._shape_value(view, base, depth + 1)
+        if dictionary is None or not isinstance(dictionary[0], ast.Dict):
+            return False
+        literal, home = dictionary
+        keys = [item.value for item in literal.keys if isinstance(item, ast.Constant) and isinstance(item.value, str)]
+        if len(keys) != len(literal.keys) or len(set(keys)) != len(keys):
+            return False
+        if key in keys:
+            return self._list_operand(home, literal.values[keys.index(key)], depth + 1)
+        return default is not None and self._list_operand(view, default, depth + 1)
+
+    def _factory_member_change(
+        self, view: _View, function: ast.FunctionDef | ast.AsyncFunctionDef, result: ListResolution,
+        *, caller_defaults: set[tuple[int, int]] | frozenset = frozenset(),
+    ) -> str | None:
+        """Check canonical callable ownership across its bounded borrower scope.
+
+        The fresh container does not own a fresh function. A caller, sibling
+        importer or helper may still retain and change the same callable.
+        """
+        calls = self.calls
+        if calls is None:
+            return "the returned callable ownership census is unavailable"
+        targets: dict[tuple[int, int], Resolution] = {}
+        for member in result.members:
+            origin = member.module or self.entry.module
+            resolution = calls.resolve(origin, member.expr) if origin is not None else None
+            if resolution is None or not resolution.resolved or resolution.caveats:
+                return "the returned or caller-default callable ownership is not established"
+            if (id(member.expr), id(member.module)) not in caller_defaults:
+                local = member.module is view.module or (member.module is None and view.entry)
+                if not local or not isinstance(member.expr, ast.Name):
+                    return "the returned factory member's lexical callable ownership is not read by this increment"
+            targets[id(resolution.module), id(resolution.definition)] = resolution
+        key = (id(function), tuple(sorted(targets)))
+        if key not in self._cache.callable_changes:
+            self._cache.callable_changes[key] = self._retained_callable_changes(function, targets)
+        return self._cache.callable_changes[key]
+
+    def _executable_machinery(self, view: _View) -> bool:
+        """Follow existing import evidence for executable/reflection machinery."""
+        key = id(view.tree)
+        if key in self._cache.executable_modules:
+            return self._cache.executable_modules[key]
+        # A dependency cycle cannot serve as an absent-machinery proof.
+        self._cache.executable_modules[key] = True
+        names = {"eval", "exec", "compile", "__import__", "__builtins__", "__globals__", "__closure__", "cell_contents", "__getattribute__", "__getattr__", "getattr", "setattr", "delattr"}
+        for node in ast.walk(view.tree):
+            self._visits += 1
+            if self._visits > MAX_VISITS:
+                return True
+            if isinstance(node, ast.Name | ast.Attribute) and isinstance(node.ctx, ast.Load):
+                spelling = reference_spelling(node)
+                if spelling and spelling.rsplit(".", 1)[-1] in names:
+                    return True
+            if isinstance(node, ast.ImportFrom) and node.module == "builtins" and any(alias.name in names or alias.name == "*" for alias in node.names):
+                return True
+            if isinstance(node, ast.Import) and any(alias.name == "builtins" for alias in node.names):
+                return True
+            if self._resolver is None or self.calls is None or view.module is None:
+                continue
+            dependencies: set[str] = set()
+            if isinstance(node, ast.Name | ast.Attribute):
+                dependencies.update(step["path"] for step in self.calls.resolve(view.module, node).steps)
+            if isinstance(node, ast.Import | ast.ImportFrom):
+                try:
+                    containers = (
+                        [self._resolver._from_base(view.module, node)] if isinstance(node, ast.ImportFrom)
+                        else [self._resolver._absolute(view.module, alias.name) for alias in node.names]
+                    )
+                    dependencies.update(self._resolver.ref(container.module_path) for container in containers if container.module_path is not None)
+                except _Stop as exc:
+                    if exc.reason != MODULE_NOT_FOUND:
+                        return True
+            for ref in dependencies - {view.ref}:
+                try:
+                    module = self._resolver.module(self._resolver.scope_root / ref)
+                except (_Stop, ValueError):
+                    return True
+                if self._executable_machinery(self._foreign(module)):
+                    return True
+        self._cache.executable_modules[key] = False
+        return False
+
+    def _retained_callable_changes(
+        self, function: ast.FunctionDef | ast.AsyncFunctionDef, targets: dict[tuple[int, int], Resolution],
+    ) -> str | None:
+        from agents_shipgate.inputs.builder_calls import CallLimit
+
+        calls = self.calls
+        assert calls is not None
+        for target in targets.values():
+            home, defining = target.module, target.definition
+            assert home is not None and defining is not None
+            try:
+                borrowers = calls.borrowers(home, defining.name, namespace_carriers=True)
+                retaining = calls.retaining_modules(home, defining.name, namespace_carriers=True)
+            except CallLimit as exc:
+                return f"the returned callable ownership census is not established: {exc}"
+            for borrower in borrowers:
+                foreign = self._foreign(borrower)
+                lookup = foreign.lookup or bindings_at(foreign.scopes, foreign.bindings)
+                if reflective_access(borrower.tree) is not None or calls.dynamic_importer(borrower) is not None or self._executable_machinery(foreign):
+                    return "a returned callable's borrower has reflection, executable text, dynamic imports or unresolved namespace machinery"
+                for node in ast.walk(borrower.tree):
+                    self._visits += 1
+                    if self._visits > MAX_VISITS:
+                        return "the returned callable ownership guard is larger than the reader follows"
+                    if not isinstance(node, ast.Name | ast.Attribute):
+                        continue
+                    resolution = calls.resolve(borrower, node)
+                    owned = resolution.resolved and (
+                        resolution.module is home and resolution.definition is defining
+                    )
+                    parent = foreign.scopes.parents.get(node)
+                    spelling = reference_spelling(node)
+                    head = spelling.split(".", 1)[0] if spelling else None
+                    namespace = resolution.resolved and resolution.module.path in retaining
+                    if not resolution.resolved and borrower.path in retaining and head:
+                        namespace = any(isinstance(binding, ast.ClassDef) for binding, _ in lookup(head, node))
+                    if namespace and not owned and resolution.resolved and isinstance(parent, ast.Call) and parent.func is node:
+                        continue  # Its read body is in the same bounded borrower census.
+                    if not owned and not namespace:
+                        # A namespace may retain the defining module through a
+                        # bridge or parent package. Resolve its import identity,
+                        # not only the terminal module reported by resolve().
+                        if not resolution.resolved and not (
+                            isinstance(parent, ast.Attribute) and parent.value is node
+                        ):
+                            spelling = reference_spelling(node)
+                            head = spelling.split(".", 1)[0] if spelling else None
+                            for binding, statement in lookup(head, node) if head else ():
+                                if isinstance(binding, ast.alias) and isinstance(statement, ast.Import | ast.ImportFrom):
+                                    try:
+                                        retained = calls.import_may_share(borrower, home, defining.name, statement, binding, namespace_carriers=True)
+                                    except CallLimit as exc:
+                                        return f"the returned callable namespace census is not established: {exc}"
+                                    if retained:
+                                        return f"a namespace retaining a returned callable is used opaquely at {self._where(foreign, node)}"
+                        continue
+                    current: ast.AST = node
+                    while isinstance(foreign.scopes.parents.get(current), ast.List | ast.Tuple | ast.Dict | ast.Starred | ast.BinOp | ast.BoolOp | ast.IfExp):
+                        current = foreign.scopes.parents[current]
+                    outer = foreign.scopes.parents.get(current)
+                    if isinstance(outer, ast.Return) and outer is function.body[-1]:
+                        continue
+                    if current is not node and isinstance(current, ast.expr) and self._list_operand(foreign, current, subject=node):
+                        if self._container_read(foreign, current):
+                            continue
+                        if (
+                            isinstance(outer, ast.Call) and len(outer.args) == 2 and outer.args[1] is current
+                            and isinstance(outer.func, ast.Attribute) and outer.func.attr == "get"
+                            and self._nonexecuting_default(foreign, current) and self._container_read(foreign, outer)
+                        ):
+                            continue
+                    spelling = reference_spelling(node) or _source(node)
+                    return f"the returned callable {spelling!r} is invoked, changed or handed on at {self._where(foreign, node)}"
+        return None
 
     def _name(self, node: ast.Name, view: _View, depth: int, seen: frozenset) -> ListResolution:
         name = node.id
@@ -1045,6 +1551,10 @@ class ListExpressions:
             return self._stop(
                 view, statement, f"`{name}` may be changed in place after it is built"
             )
+        if self._projection is not None and self._container_binding_changed(view, binding):
+            return self._stop(view, statement, f"`{name}` or one of its projected values may be changed or handed on")
+        if self._projection is not None and statement in view.tree.body and isinstance(statement.value, ast.Dict):
+            return self._stop(view, statement, "module-owned dictionary projection is not an established fresh factory container")
         if view.module is not None and statement in view.tree.body:
             limit = self._shared_list_limit(view.module, name, view, node)
             if limit is not None:
@@ -1060,7 +1570,10 @@ class ListExpressions:
     ) -> ListResolution:
         """A name's value, read once however many lists spread it."""
 
-        memo = (key[0], view.entry, key[1], self._invocation.key if self._invocation else ())
+        memo = (
+            key[0], view.entry, key[1], self._invocation.key if self._invocation else (),
+            self._projection.identity if self._projection else (),
+        )
         cached = self._cache.memo.get(memo)
         if cached is None:
             cached = self._resolve(value, view, depth + 1, seen | {key})
@@ -1088,6 +1601,8 @@ class ListExpressions:
         return self._from_resolution(node, node.id, resolution, view, depth, seen)
 
     def _from_resolution(self, node, spelling, resolution, view, depth, seen) -> ListResolution:
+        if self._projection is not None:
+            return self._stop(view, node, "an imported dictionary container's projected ownership is not read by this increment")
         if resolution.definition is not None:
             return self._stop(view, node, f"`{spelling}` is a function, not a list of tools")
         value, defining = resolution.value, resolution.module

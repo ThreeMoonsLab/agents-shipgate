@@ -438,6 +438,7 @@ def _extract_agent_bindings(
             names: list[str] = []
             locators: dict[str, str] = {}
             tool_issues: dict[str, str] = {}
+            tool_sites: dict[str, list[str]] = {}
             when = Conditions()
             if listed.unresolved:
                 reason = unread_list_reason("OpenAI Agents SDK", target, pointer, listed)
@@ -559,6 +560,15 @@ def _extract_agent_bindings(
                     tool_issues.pop(tool.name, None)
                     continue
                 names.append(tool.name)
+                if context.invocation is not None or member.invocation is not None:
+                    locations = tool_sites.setdefault(tool.name, [])
+                    for location in (
+                        pointer,
+                        *(context.invocation.locations if context.invocation else ()),
+                        *(member.invocation.locations if member.invocation else ()),
+                    ):
+                        if location not in locations:
+                            locations.append(location)
                 when.add(tool.name, member.conditions)
                 if locator is not None:
                     locators[tool.name] = locator
@@ -628,8 +638,7 @@ def _extract_agent_bindings(
                     tool_locators=locators,
                     tool_issues=tool_issues,
                     tool_conditions=tool_conditions,
-                    tool_sites={name: list(dict.fromkeys((pointer, *context.invocation.locations)))
-                                for name in locators} if context.invocation else {},
+                    tool_sites={name: locations for name, locations in tool_sites.items() if name in locators},
                     handoff_names=handoff_names,
                     handoff_sites={name: list(dict.fromkeys((pointer, *context.invocation.locations)))
                                    for name in handoff_names} if context.invocation else {},

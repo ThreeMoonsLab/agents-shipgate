@@ -493,3 +493,19 @@ def test_coroutine_or_generator_builders_are_named_limits(tmp_path, kind):
         for context in contexts
         for limit in context.limits
     )
+
+
+@pytest.mark.parametrize('namespace_first', [False, True])
+def test_function_namespace_census_does_not_replace_shared_list_census(tmp_path, namespace_first):
+    resolver = ImportResolver(tmp_path)
+    module = _module(tmp_path, 'tools.py', 'def read():\n    return None\n', resolver)
+    _module(tmp_path, 'registry.py', 'from tools import read\ndef anchor():\n    return None\n', resolver)
+    _module(tmp_path, 'bridge.py', 'from registry import anchor\ndef carrier():\n    return None\n', resolver)
+    _module(tmp_path, 'sibling.py', 'from bridge import carrier\nconsume(carrier)\n', resolver)
+    calls = BuilderCalls(resolver)
+    results = {}
+    for namespace in [namespace_first, not namespace_first]:
+        results[namespace] = calls.retaining_modules(module, 'read', namespace_carriers=namespace)
+    assert tmp_path / 'sibling.py' in results[True]
+    assert tmp_path / 'sibling.py' not in results[False]
+    assert calls.retaining_modules(module, 'read') == results[False]
