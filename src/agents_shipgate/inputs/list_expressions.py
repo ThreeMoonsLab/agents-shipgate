@@ -378,10 +378,12 @@ class ListExpressions:
         cache: ListCache | None = None,
         builder_calls: BuilderCalls | None = None,
         module_agent_reads: Callable[[PythonModule, ast.Call, str | None], bool] | None = None,
+        nested_factory_functions: bool = False,
     ) -> None:
         self._resolver = resolver
         self._agent_reads = agent_reads
         self._module_agent_reads = module_agent_reads
+        self._nested_factory_functions = nested_factory_functions
         self._builder_calls = builder_calls
         self._invocation: Invocation | None = None
         self._field = "tools"
@@ -1046,7 +1048,7 @@ class ListExpressions:
             invocation = calls.invoke(home, function, CallSite(view.module, node), self._invocation)
         except CallLimit as exc:
             return self._stop(view, node, f"the returned-list factory call is not established: {exc}")
-        if not self._inert_factory(function) or any(
+        if not self._inert_factory(function, home) or any(
             not (established := calls.resolve(home, item)).resolved or established.caveats
             for item in ast.walk(returned) if isinstance(item, ast.Name)
         ):
@@ -1071,12 +1073,13 @@ class ListExpressions:
             result = result.under(condition)
         return result.through(f"{function.name} returned at {self._where(view, node)}")
 
-    @staticmethod
-    def _inert_factory(function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    def _inert_factory(self, function: ast.FunctionDef | ast.AsyncFunctionDef, module: PythonModule) -> bool:
         """Limit outer statements and eager returned values to supported syntax."""
         if not all(
             isinstance(statement, ast.Import | ast.ImportFrom | ast.Pass)
             or (isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Constant) and isinstance(statement.value.value, str))
+            or (self._nested_factory_functions and isinstance(statement, ast.FunctionDef | ast.AsyncFunctionDef)
+                and self._inert_definition(statement, module))
             for statement in function.body[:-1]
         ):
             return False
@@ -1094,6 +1097,47 @@ class ListExpressions:
 
         returned = function.body[-1]
         return isinstance(returned, ast.Return) and returned.value is not None and literal(returned.value)
+
+    def _inert_definition(self, function: ast.FunctionDef | ast.AsyncFunctionDef, module: PythonModule) -> bool:
+        """A nested definition creates a callable; its header runs eagerly.
+
+        The ADK reader opts into plain closures. This only admits headers that
+        cannot execute application code; the callable body is read elsewhere.
+        Every definition is checked, even an unselected dictionary member.
+        """
+        if function.decorator_list or getattr(function, "type_params", ()):
+            return False
+
+        def immutable(node: ast.expr) -> bool:
+            return isinstance(node, ast.Constant) or isinstance(node, ast.Tuple) and all(immutable(item) for item in node.elts)
+
+        if not all(immutable(value) for value in [*function.args.defaults, *[value for value in function.args.kw_defaults if value is not None]]):
+            return False
+        if any(isinstance(statement, ast.ImportFrom) and statement.module == "__future__"
+               and any(alias.name == "annotations" for alias in statement.names)
+               for statement in module.tree.body):
+            return True
+        scopes = self._scopes(module.tree)
+        lookup = bindings_at(scopes, module.bindings)
+        builtins = {"str", "int", "float", "bool", "bytes", "object", "list", "dict", "tuple", "set", "frozenset", "type"}
+
+        def annotation(node: ast.expr, *, union_operand: bool = False) -> bool:
+            if isinstance(node, ast.Constant):
+                return node.value is None or isinstance(node.value, str) and not union_operand
+            if isinstance(node, ast.Name):
+                return node.id in builtins and not lookup(node.id, node)
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+                if all(isinstance(operand, ast.Constant) and operand.value is None for operand in (node.left, node.right)):
+                    return False  # None | None raises when this header runs.
+                return annotation(node.left, union_operand=True) and annotation(node.right, union_operand=True)
+            if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id in {"list", "dict", "tuple", "set", "frozenset", "type"}:
+                return annotation(node.value) and (all(annotation(item) for item in node.slice.elts) if isinstance(node.slice, ast.Tuple) else annotation(node.slice))
+            return False
+
+        return all(annotation(value) for value in [
+            *[argument.annotation for argument in [*function.args.posonlyargs, *function.args.args, *function.args.kwonlyargs, *([function.args.vararg] if function.args.vararg else []), *([function.args.kwarg] if function.args.kwarg else [])] if argument.annotation is not None],
+            *([function.returns] if function.returns is not None else []),
+        ])
 
     def _factory_result_changed(self, view: _View, call: ast.Call) -> bool:
         if reflective_access(view.tree) is not None:
@@ -1205,7 +1249,7 @@ class ListExpressions:
             if resolution.resolved and not resolution.caveats:
                 function = resolution.definition
                 returned = single_return(function)
-                if returned is not None and self._inert_factory(function):
+                if returned is not None and self._inert_factory(function, resolution.module):
                     try:
                         if self.calls.callers(resolution.module, function).limits:
                             return None
@@ -1288,6 +1332,14 @@ class ListExpressions:
                 local = member.module is view.module or (member.module is None and view.entry)
                 if not local or not isinstance(member.expr, ast.Name):
                     return "the returned factory member's lexical callable ownership is not read by this increment"
+            if resolution.definition in function.body:
+                # A closure is a fresh callable at this factory invocation.
+                # Its outer header and retained container were checked above;
+                # ADK's existing factory-function proof checks its local uses.
+                # A module-global borrower census would conflate fresh calls.
+                if not self._nested_factory_functions:
+                    return "nested returned factory members are not read by this entry"
+                continue
             targets[id(resolution.module), id(resolution.definition)] = resolution
         key = (id(function), tuple(sorted(targets)))
         if key not in self._cache.callable_changes:
@@ -1591,6 +1643,7 @@ class ListExpressions:
         memo = (
             key[0], view.entry, key[1], self._invocation.key if self._invocation else (),
             self._projection.identity if self._projection else (),
+            self._nested_factory_functions,
         )
         cached = self._cache.memo.get(memo)
         if cached is None:

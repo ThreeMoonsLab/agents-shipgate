@@ -77,8 +77,9 @@ agent-binding declarations.
 The next increment follows synchronous repository-local factories with one
 final return. It uses the same argument binding and caller census as agent
 builders, and the same list-expression membership reader. The supported prelude
-is limited to imports, a docstring and `pass`; executable statements, nested
-definitions and unresolved returned expressions remain unread. Literal list/tuple
+is limited to imports, a docstring and `pass`; executable statements and
+unresolved returned expressions remain unread. The ADK closure extension below
+additionally admits supported nested definitions. Literal list/tuple
 returns of direct names and literal-string-key projections of returned literal dictionaries
 are supported, including `groups["calendar"] + groups["email"]` and
 `groups.get("memory")`. A missing subscription key is a limit, not an empty
@@ -121,9 +122,49 @@ and whole-call binding proof. Builtin readers accept only a single container arg
 
 Imported dictionaries and module-owned literal dictionary projections remain
 unread. Returned members must be direct names in the factory's lexical module;
-foreign returned-list members, dotted/wrapper members, nested tool closures,
-foreign target-agent surfaces and runtime runner retention remain subsequent
-increments. This entry does not establish Vesta acceptance or complete #874.
+foreign returned-list members, dotted/wrapper members, foreign target-agent
+surfaces and runtime runner retention remain subsequent increments. Plain
+nested ADK functions use the extension below. This entry does not establish
+Vesta acceptance or complete #874.
+
+## Returned plain ADK closures
+
+The ADK reader additionally follows plain functions defined directly inside
+those synchronous factories and returned in the same literal containers. For
+example, `make_tools(readonly)` can define `read`, capture `readonly`, and return
+`{"calendar": [read]}`. The selected binding retains the real factory, caller,
+agent construction and nested definition locations. OpenAI Agents SDK does not
+opt into this route; decorated nested tools remain unread.
+
+Every eager nested header is checked, including unselected dictionary members.
+Decorators, mutable defaults, executable defaults or annotations, shadowed
+builtin annotation names and unsupported headers are limits. Literal immutable
+defaults and supported builtin type annotations are readable. A module's
+`from __future__ import annotations` keeps annotations unevaluated. Function
+bodies are source evidence, never executed by this reader. Factory globals and
+retained containers keep their ownership checks even when a selected projection
+is empty, so an escaped namespace cannot establish a tool removal.
+
+Implementation evidence uses the factory code AST, excluding docstrings, and
+the actual bound argument values for each agent. Literal data can be named; dynamic values,
+named data aliases, captured callback functions or other objects, shared mutable
+defaults and mutable data forwarded through a parent parameter remain
+implementation gaps.
+A function's code alone does not prove the captured live callback's ownership.
+Immutable parent data is followed only through an invocation already established
+by capability fields, and only when its parameter cell is not rebound or
+deleted. Ordinary argument-only wrappers without that parent context stay
+unknown. Defaults retain their defining-module origin through every forwarding
+hop. Unknown captures do not invalidate a fresh callable's binding, but prevent
+a complete implementation comparison.
+Unknown capture diagnostics name the parameter and source location without
+publishing the argument's literal payload.
+
+The factory digest is conservative: changing another nested body or return
+shape can change an established implementation row. It does not assert semantic
+equivalence. Foreign agent targets, runtime runner retention and `self.tools`
+remain unread. This increment alone does not establish Vesta acceptance or
+complete #874.
 
 ## Read bounds and evidence
 

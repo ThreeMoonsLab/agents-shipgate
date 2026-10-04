@@ -1100,6 +1100,7 @@ class _PythonAdkExtractor:
                 and self._is_agent_call(call),
                 builder_calls=self._builder_calls,
                 module_agent_reads=self._module_agent_reads,
+                nested_factory_functions=True,
             )
         return self._lists
 
@@ -1949,6 +1950,17 @@ class _PythonAdkExtractor:
         """One member of an agent's tools list, read where it is written (#909)."""
 
         module = member.module
+        home = module or self.module
+        invocation = member.invocation
+        if home is not None and invocation is not None and invocation.module is home and self._builder_calls is not None:
+            resolution = self._builder_calls.resolve(home, member.expr)
+            factory = invocation.function
+            if resolution.definition in factory.body and isinstance(factory.body[-1], ast.Return):
+                returned = factory.body[-1]
+                if isinstance(returned.value, ast.List | ast.Tuple | ast.Dict):
+                    spelling = reference_spelling(member.expr) or source_text(member.expr)
+                    self._bind_returned_closure(member, home, returned, spelling, tools, agent_name, binding)
+                    return []
         if module is None:
             return self._extract_tool_expr(member.expr, tools, agent_name, binding)
         spelling = reference_spelling(member.expr)
@@ -1979,6 +1991,96 @@ class _PythonAdkExtractor:
             if issue not in binding.issues:
                 binding.issues.append(issue)
         return []
+
+    def _bind_returned_closure(
+        self, member: ListMember, home: PythonModule, returned: ast.Return, reference: str,
+        tools: list[Tool], agent_name: str, binding: _AdkAgentBinding,
+    ) -> None:
+        """Apply #865's fresh-function proof to a shared reader's invocation."""
+        invocation = member.invocation
+        assert invocation is not None
+        factory = invocation.function
+
+        def stop(detail: str) -> tuple[Resolution, bool]:
+            return Resolution(reference=reference, reason=FACTORY_RETURN,
+                              detail=f"{reference!r} is returned by {factory.name!r} ({home.ref}:{factory.lineno}), and {detail}"), False
+
+        allowed = frozenset(node for node in ast.walk(returned.value) if isinstance(node, ast.Name))
+        resolution = self._factory_function(member.expr, factory, home, returned, reference, stop, container_members=allowed)
+        if not resolution.resolved:
+            self._unresolved_reference(agent_name, reference, resolution)
+            issue = adk_unresolved_tool_warning(agent_name, reference) + f" {resolution.detail}."
+            if issue not in binding.issues:
+                binding.issues.append(issue)
+            return
+        values, unnamed = self._invocation_values(invocation)
+        digest = hashlib.sha256((_code_dump(factory) + values).encode()).hexdigest()
+        resolution = dataclasses.replace(resolution, steps=(
+            {**_step(home, factory, "factory"), "factory_ast": digest if unnamed is None else f"unknown:{digest}:{unnamed}"},
+            *resolution.steps,
+        ))
+        self._bind_resolved(resolution, tools, agent_name, binding, False, spelled_in=home)
+
+    def _invocation_values(self, invocation: Invocation) -> tuple[str, str | None]:
+        """Reuse #865 data evidence, following only this whole-call binding.
+
+        Dynamic or shared mutable captures remain implementation uncertainty,
+        even while the fresh callable's binding is established.
+        """
+        held: dict[str, str] = {}
+        unnamed: list[str] = []
+        for argument in invocation.arguments:
+            origin = invocation.argument(argument.parameter)
+            assert origin is not None
+            module, expression, parent = origin
+            shared_default = argument.default
+            forwarded_capture = False
+            seen: set[tuple[int, int]] = set()
+            while isinstance(expression, ast.Name) and parent is not None:
+                key = id(expression), id(parent)
+                if key in seen:
+                    break
+                seen.add(key)
+                found = self._scopes_for(module).enclosing_bindings(expression, expression.id)
+                parameter = found[0] if len(found) == 1 and isinstance(found[0], ast.arg) else None
+                owner = parent
+                supplied = None
+                while owner is not None and parameter is not None:
+                    supplied = next((value for value in owner.arguments if value.parameter is parameter), None)
+                    if supplied is not None:
+                        break
+                    owner = owner.parent
+                forwarded = owner.argument(parameter) if owner is not None and supplied is not None else None
+                if forwarded is None:
+                    break
+                owner_scopes = self._scopes_for(owner.module)
+                if _changed_at(owner.function, parameter.arg, owner_scopes.parents, bound=parameter, strict=False) is not None or any(
+                    isinstance(node, ast.Nonlocal | ast.Global) and parameter.arg in node.names
+                    for node in ast.walk(owner.function)
+                ):
+                    # Even immutable input data cannot name a cell that a
+                    # nested function rebinds/deletes through nonlocal.
+                    break
+                shared_default |= supplied.default
+                forwarded_capture = True
+                module, expression, parent = forwarded
+            # A parent's named parameter may have been changed or handed on.
+            # This entry proves immutable data, not mutable forwarding or
+            # callback ownership (code alone does not prove a live callback).
+            data = self._data(expression, module, expression) if _written_out(expression) and not (
+                (shared_default or forwarded_capture) and _holds_mutable(expression)
+            ) else None
+            if data is None:
+                detail = f"{argument.parameter.arg} capture at {module.ref}:{expression.lineno}"
+                if shared_default and _holds_mutable(expression):
+                    detail += " (shared mutable factory default)"
+                elif forwarded_capture:
+                    detail += " (forwarded capture ownership is not established)"
+                unnamed.append(detail)
+                held[argument.parameter.arg] = "<unknown " + _dump(expression) + module.sha256 + ">"
+            else:
+                held[argument.parameter.arg] = data
+        return json.dumps(sorted(held.items())), "; ".join(unnamed) or None
 
     def _extract_tool_expr(
         self,
@@ -3008,6 +3110,7 @@ class _PythonAdkExtractor:
         stop: Callable[[str], tuple[Resolution, bool]],
         *,
         wrapper: ast.Call | None = None,
+        container_members: frozenset[ast.Name] = frozenset(),
     ) -> Resolution:
         """The function a factory wraps or returns: a function nested in it,
         defined once, before its ``return`` and never changed or handed on
@@ -3052,7 +3155,8 @@ class _PythonAdkExtractor:
                     f"{', '.join(str(line) for line in same)}), so which one is the tool is not established"
                 )[0]
             changed = _changed_at(
-                factory, name, scopes.parents, bound=inner, returned=returned, wrapper=wrapper
+                factory, name, scopes.parents, bound=inner, returned=returned, wrapper=wrapper,
+                allowed=lambda node: node in container_members,
             )
             if changed is not None:
                 return stop(
