@@ -95,7 +95,9 @@ This bounded entry proves ownership of fresh returned containers. It checks the
 factory callable census, all eagerly evaluated member-name bindings, canonical
 returned-callable identities across their
 bounded borrower modules, and every retained container use, including projected
-values. Caller and sibling aliases and retaining bridge/package namespaces
+values at every established invocation. An opaque result from a different call
+may retain the same functions and their globals, so it makes the selected
+call incomplete too. Clean callers keep their own provenance. Caller and sibling aliases and retaining bridge/package namespaces
 remain subject to the same ownership checks. Functions and class methods in a retaining module also carry its globals, so
 opaque uses of those namespace holders stay unread through bounded re-exports.
 Class values and constructors remain unread by this entry. This namespace mode has its own census cache; the

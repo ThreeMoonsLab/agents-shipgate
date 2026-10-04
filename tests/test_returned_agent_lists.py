@@ -71,6 +71,34 @@ def test_changed_or_escaped_factory_callable_is_not_established(tmp_path, framew
 
 
 @pytest.mark.parametrize('framework', ['sdk', 'adk'])
+@pytest.mark.parametrize('other', [
+    'consume(make_tools())',
+    'other = make_tools()\nconsume(other)',
+    "other = make_tools()\nother[0].__name__ = 'renamed'",
+])
+def test_every_factory_result_retains_shared_callable_ownership(tmp_path, framework, other):
+    files = _files(framework, other + '\na = build(make_tools())\n')
+    files['app.py'] = files['app.py'].replace('from tools import read, write', 'from tools import read, write\nfrom factory import make_tools')
+    files['factory.py'] = 'from tools import read\ndef make_tools():\n    return [read]\n'
+    _write(tmp_path, files)
+    observations, warnings = _read(tmp_path, framework)
+    assert warnings and all(not item.tools_complete for item in observations)
+
+
+@pytest.mark.parametrize('framework', ['sdk', 'adk'])
+def test_unrelated_clean_factory_calls_keep_their_own_sites(tmp_path, framework):
+    files = _files(framework, 'a = build(make_tools())\nb = build(make_tools())\n')
+    files['app.py'] = files['app.py'].replace('from tools import read, write', 'from tools import read, write\nfrom factory import make_tools')
+    files['factory.py'] = 'from tools import read\ndef make_tools():\n    return [read]\n'
+    _write(tmp_path, files)
+    observations, warnings = _read(tmp_path, framework)
+    assert warnings == []
+    (observation,) = observations
+    assert observation.tools_complete and observation.tool_names == ['read']
+    assert {'app.py:5', 'app.py:6'} <= set(observation.tool_sites['read'])
+
+
+@pytest.mark.parametrize('framework', ['sdk', 'adk'])
 @pytest.mark.parametrize('body', [
     "    read.__name__ = 'renamed'\n    return {'calendar': [read]}",
     "    consume(read)\n    return {'calendar': [read]}",
@@ -492,7 +520,8 @@ def test_application_diff_factory_addition_retains_construction_and_definition(t
 
 @pytest.mark.parametrize('framework', ['sdk', 'adk'])
 @pytest.mark.parametrize('dictionary', [False, True])
-def test_application_diff_cannot_publish_removal_through_opaque_factory_retention(tmp_path, framework, dictionary):
+@pytest.mark.parametrize('retention', ['comparison', 'different_call'])
+def test_application_diff_cannot_publish_removal_through_opaque_factory_retention(tmp_path, framework, dictionary, retention):
     from tests.test_imported_tool_bindings import _commit, _compare, _git
 
     selected = "groups['calendar']" if dictionary else 'groups'
@@ -503,7 +532,7 @@ def test_application_diff_cannot_publish_removal_through_opaque_factory_retentio
     _git(tmp_path, 'init', '-q', '-b', 'main')
     base = _commit(tmp_path, files)
     field = 'name' if framework == 'sdk' else '__name__'
-    opaque = f"class Comparator:\n    def __eq__(self, tool):\n        tool.{field} = 'renamed'\n        return True\n{selected}.count(Comparator())\n"
+    opaque = 'consume(make_tools())\n' if retention == 'different_call' else f"class Comparator:\n    def __eq__(self, tool):\n        tool.{field} = 'renamed'\n        return True\n{selected}.count(Comparator())\n"
     head = _commit(tmp_path, {'factory.py': files['factory.py'].replace('[read, write]', '[read]'), 'app.py': files['app.py'] + opaque})
     result = _compare(tmp_path, base, head, '--scope', '.')
     rows = [row for row in result['rows'] if row['agent'] == 'Built' and row['tool'] == 'write']

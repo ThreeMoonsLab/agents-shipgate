@@ -1051,7 +1051,10 @@ class ListExpressions:
             for item in ast.walk(returned) if isinstance(item, ast.Name)
         ):
             return self._stop(view, node, "the factory needs an inert prelude and a literal list, tuple or dictionary return; executable or unresolved expressions are not read by this increment")
-        if self._factory_result_changed(view, node):
+        # Another invocation can hand on the same module callables (and their
+        # globals) before this call. A fresh container at the selected site
+        # cannot establish ownership while any other result escapes.
+        if any(self._factory_result_changed(self._foreign(site.module), site.call) for site in census.sites):
             return self._stop(view, node, "the returned factory container or a projected member may be changed or handed on")
         previous, self._invocation = self._invocation, invocation
         try:
