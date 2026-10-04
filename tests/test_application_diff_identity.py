@@ -69,7 +69,7 @@ UNREAD_CONSTRUCTIONS = {
     "subclass": SDK_SUBCLASS,
     "factory": SDK.replace(
         'agent = Agent(name="assistant", tools=TOOLS)',
-        'def build(tools):\n    return Agent(name="assistant", tools=tools)\nagent = build(TOOLS)',
+        'def build(**kwargs):\n    return Agent(name="assistant", tools=kwargs["tools"])\nagent = build(tools=TOOLS)',
     ),
     "clone": SDK.replace(
         'agent = Agent(name="assistant", tools=TOOLS)',
