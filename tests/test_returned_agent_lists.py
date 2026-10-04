@@ -578,3 +578,44 @@ def test_class_construction_does_not_supply_a_read_only_namespace_proof(tmp_path
     _write(tmp_path, files)
     observations, warnings = _read(tmp_path, framework)
     assert warnings and all(not item.tools_complete for item in observations)
+
+
+@pytest.mark.parametrize('framework', ['sdk', 'adk'])
+@pytest.mark.parametrize('carrier', ['helper', 'Helper', 'namespace', 'bridge'])
+def test_empty_factory_projection_cannot_establish_removal_with_escaped_namespace(tmp_path, framework, carrier):
+    from tests.test_imported_tool_bindings import _commit, _compare, _git
+
+    files = _files(framework, "groups = make_tools()\na = build(groups['selected'])\n")
+    files['app.py'] = files['app.py'].replace('from tools import read, write', 'from tools import read, write\nfrom factory import make_tools')
+    files['factory.py'] = (
+        "from tools import read, write\ndef make_tools():\n    return {'selected': [read], 'unused': [write]}\n"
+        + "def helper():\n    return None\nclass Helper:\n    def run(self):\n        return None\n"
+    )
+    files['bridge.py'] = 'from factory import helper\ndef carrier():\n    return None\n'
+    _git(tmp_path, 'init', '-q', '-b', 'main')
+    base = _commit(tmp_path, files)
+    escape = {
+        'helper': 'from factory import helper\nconsume(helper)\n',
+        'Helper': 'from factory import Helper\nconsume(Helper)\n',
+        'namespace': 'import factory\nconsume(factory)\n',
+        'bridge': 'from bridge import carrier\nconsume(carrier)\n',
+    }[carrier]
+    head = _commit(tmp_path, {'factory.py': files['factory.py'].replace("'selected': [read]", "'selected': []"), 'borrower.py': escape})
+    result = _compare(tmp_path, base, head, '--scope', '.')
+    assert not any(row['change'] == 'removed' for row in result['rows'])
+    assert result['head']['limits'] and result['head']['coverage_gaps']
+
+
+@pytest.mark.parametrize('framework', ['sdk', 'adk'])
+def test_clean_empty_factory_projection_still_establishes_removal(tmp_path, framework):
+    from tests.test_imported_tool_bindings import _commit, _compare, _git
+
+    files = _files(framework, "groups = make_tools()\na = build(groups['selected'])\n")
+    files['app.py'] = files['app.py'].replace('from tools import read, write', 'from tools import read, write\nfrom factory import make_tools')
+    files['factory.py'] = "from tools import read, write\ndef make_tools():\n    return {'selected': [read], 'unused': [write]}\n"
+    _git(tmp_path, 'init', '-q', '-b', 'main')
+    base = _commit(tmp_path, files)
+    head = _commit(tmp_path, {'factory.py': files['factory.py'].replace("'selected': [read]", "'selected': []")})
+    result = _compare(tmp_path, base, head, '--scope', '.')
+    assert [(row['tool'], row['change']) for row in result['rows']] == [('read', 'removed')]
+    assert result['comparison_status'] == 'compared'

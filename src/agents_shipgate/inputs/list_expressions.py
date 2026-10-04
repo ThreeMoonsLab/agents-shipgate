@@ -1292,6 +1292,18 @@ class ListExpressions:
         key = (id(function), tuple(sorted(targets)))
         if key not in self._cache.callable_changes:
             self._cache.callable_changes[key] = self._retained_callable_changes(function, targets)
+        changed = self._cache.callable_changes[key]
+        if changed is not None:
+            return changed
+        # Empty projections still depend on the factory's live namespace.
+        # A helper/class can retain that namespace even when no selected
+        # member remains to seed the returned-callable census.
+        factory = Resolution(reference=function.name, module=view.module, definition=function)
+        key = ("factory namespace", id(function))
+        if key not in self._cache.callable_changes:
+            self._cache.callable_changes[key] = self._retained_callable_changes(
+                function, {(id(view.module), id(function)): factory}, factory_calls=True,
+            )
         return self._cache.callable_changes[key]
 
     def _executable_machinery(self, view: _View) -> bool:
@@ -1341,6 +1353,7 @@ class ListExpressions:
 
     def _retained_callable_changes(
         self, function: ast.FunctionDef | ast.AsyncFunctionDef, targets: dict[tuple[int, int], Resolution],
+        *, factory_calls: bool = False,
     ) -> str | None:
         from agents_shipgate.inputs.builder_calls import CallLimit
 
@@ -1370,6 +1383,8 @@ class ListExpressions:
                         resolution.module is home and resolution.definition is defining
                     )
                     parent = foreign.scopes.parents.get(node)
+                    if owned and factory_calls and isinstance(parent, ast.Call) and parent.func is node:
+                        continue  # Every direct result is checked by the factory caller census.
                     spelling = reference_spelling(node)
                     head = spelling.split(".", 1)[0] if spelling else None
                     namespace = resolution.resolved and resolution.module.path in retaining
