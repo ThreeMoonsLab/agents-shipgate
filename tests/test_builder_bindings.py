@@ -959,3 +959,24 @@ def test_merged_equivalent_callers_keep_every_callers_caveat(tmp_path, framework
     (observation,) = observations
     assert observation.tool_names == ["read"]
     assert "__path__" in observation.tool_issues.get("read", "")
+
+
+@pytest.mark.parametrize("framework", ["sdk", "adk"])
+def test_application_diff_binding_location_is_the_construction(tmp_path, framework):
+    from tests.test_imported_tool_bindings import _commit, _compare, _git
+
+    _git(tmp_path, "init", "-q", "-b", "main")
+    base = _commit(tmp_path, _files(framework, "a = build([read])\n"))
+    head = _commit(tmp_path, _files(framework, "a = build([read, write])\n"))
+    result = _compare(tmp_path, base, head, "--scope", ".")
+    row = next(row for row in result["rows"] if row["agent"] == "Built" and row["tool"] == "write")
+    # ``app.py`` sorts before ``builders.py``; the row still points at the agent.
+    assert row["after"]["binding_location"] == "builders.py:3"
+    assert row["after"]["construction_sites"][0] == "builders.py:3"
+
+
+def test_adk_caller_supplied_duplicates_name_their_callers(tmp_path):
+    _write(tmp_path, _files("adk", "a = build([read])\nb = build([write])\n"))
+    _, warnings = _read(tmp_path, "adk")
+    (duplicate,) = [warning for warning in warnings if "constructed more than once" in warning]
+    assert "(builders.py:3, app.py:4, app.py:5)" in duplicate

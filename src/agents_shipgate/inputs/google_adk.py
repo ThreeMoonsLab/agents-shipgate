@@ -1060,9 +1060,11 @@ class _PythonAdkExtractor:
         # ordinal within one agent's tool list, never a line number.
         self.inline_slot_counts: dict[str, int] = {}
         self.agent_bindings: dict[str, _AdkAgentBinding] = {}
-        #: ``agent name -> {id(call): (line, signature)}`` for every construction
-        #: site with a literal tool list; equal signatures bind the same (#876).
-        self.agent_sites: dict[str, dict[int, tuple[int, object]]] = {}
+        #: ``agent name -> {(id(call), invocation): (line, signature, locations)}``
+        #: for every construction site with a literal tool list; equal
+        #: signatures bind the same (#876). ``locations``: the construction and
+        #: its callers', for a construction a caller's arguments supply (#874).
+        self.agent_sites: dict[str, dict[tuple, tuple[int, object, tuple[str, ...]]]] = {}
         # Reasons this module's tool surface was not proven complete (#393).
         # Empty at the end of ``extract`` is what earns ``SURFACE_ENUMERATED``.
         self.surface_gaps: list[str] = []
@@ -1192,7 +1194,7 @@ class _PythonAdkExtractor:
                         binding.issues.append(message)
                 if conditional:
                     # Not the same agent as another construction of its name.
-                    self.agent_sites.setdefault(agent_name, {})[(id(call), ())] = (call.lineno, call)
+                    self.agent_sites.setdefault(agent_name, {})[(id(call), ())] = (call.lineno, call, ())
                 continue
             if tools_expr is None:
                 # No tools, but a construction all the same: two of one name
@@ -1327,7 +1329,12 @@ class _PythonAdkExtractor:
             else call
         )
         site_key = (id(call), self._invocation.key if self._invocation else ())
-        self.agent_sites.setdefault(agent_name, {})[site_key] = (call.lineno, signature)
+        locations = (
+            (f"{self.source_ref}:{call.lineno}", *self._invocation.locations)
+            if self._invocation
+            else ()
+        )
+        self.agent_sites.setdefault(agent_name, {})[site_key] = (call.lineno, signature, locations)
         return loaded
 
     def _record_duplicate_constructions(self) -> None:
@@ -1340,12 +1347,25 @@ class _PythonAdkExtractor:
         """
 
         for agent_name, sites in self.agent_sites.items():
-            if len(sites) < 2 or len({signature for _, signature in sites.values()}) == 1:
+            if len(sites) < 2 or len({signature for _, signature, _ in sites.values()}) == 1:
                 continue
-            lines = ", ".join(str(line) for line in sorted(line for line, _ in sites.values()))
+            # One construction its callers supply is "constructed" once per
+            # caller: name those callers, not the same line twice (#874 review).
+            called = list(
+                dict.fromkeys(
+                    location
+                    for _, _, locations in sorted(sites.values(), key=lambda site: (site[0], site[2]))
+                    for location in locations
+                )
+            )
+            lines = (
+                ", ".join(called)
+                if called
+                else "lines " + ", ".join(str(line) for line in sorted(line for line, _, _ in sites.values()))
+            )
             reason = (
                 f"Google ADK agent {agent_name!r} is constructed more than once in "
-                f"{self.source_ref} (lines {lines}); which one runs is not established, "
+                f"{self.source_ref} ({lines}); which one runs is not established, "
                 "and their tools are compared as one agent, each row naming the "
                 "constructions that list its tool."
             )
@@ -1839,6 +1859,7 @@ class _PythonAdkExtractor:
         stay with the ``sub_agents`` artifact records that already own them.
         """
 
+        constructions = {f"{self.source_ref}:{call.lineno}" for _, call in self.agent_call_list}
         return [
             AgentBindingObservation(
                 agent=binding.agent,
@@ -1849,7 +1870,16 @@ class _PythonAdkExtractor:
                 tool_locators=dict(binding.tool_locators),
                 tool_issues=dict(binding.tool_issues),
                 tool_sites={
-                    name: sorted(lines, key=lambda location: (location.rsplit(":", 1)[0], int(location.rsplit(":", 1)[1])))
+                    # The construction first, as the SDK reader lists it: a
+                    # row's binding location is the agent's, not a caller's.
+                    name: sorted(
+                        lines,
+                        key=lambda location: (
+                            location not in constructions,
+                            location.rsplit(":", 1)[0],
+                            int(location.rsplit(":", 1)[1]),
+                        ),
+                    )
                     for name, lines in binding.tool_sites.items()
                 }
                 if len(self.agent_sites.get(binding.agent, {})) > 1 or any(len(locations) > 1 for locations in binding.tool_sites.values())
