@@ -174,6 +174,44 @@ def _select_policy(root: Path, path: str) -> None:
         "policies": [{"path": path, "role": "authored"}]}))
 
 
+@pytest.mark.parametrize("target", ["missing/../policy", "policy/", "afile/../policy"])
+def test_verification_snapshot_refuses_selected_links_the_filesystem_cannot_open(tmp_path, target):
+    # Each normalizes to `policy`, but opening the link fails at `missing`, or
+    # where a regular file is used as a directory.
+    root = _repo(tmp_path)
+    _select_policy(root, "link")
+    (root / "policy").write_text("version: 1")
+    (root / "afile").write_text("not a directory")
+    (root / "link").symlink_to(target)
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "selected link that does not open")
+    with pytest.raises(ConfigError, match="unsupported external binding at link "):
+        archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
+
+
+@pytest.mark.parametrize("links", [
+    {"link": "./policy"},
+    {"nested/link": "../policies/x.yaml"},
+    {"nested/link": "../middle", "middle": "./policies/../policies/x.yaml"},
+])
+def test_verification_snapshot_admits_selected_links_that_open_as_written(tmp_path, links):
+    root = _repo(tmp_path)
+    selected = next(iter(links))
+    _select_policy(root, selected)
+    (root / "policy").write_text("version: 1")
+    (root / "policies").mkdir()
+    (root / "policies/x.yaml").write_text("version: 1")
+    for link, target in links.items():
+        (root / link).parent.mkdir(parents=True, exist_ok=True)
+        (root / link).symlink_to(target)
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "selected links that open")
+    out = tmp_path / "snapshot"
+    archive_verification_tree(root, "HEAD", out)
+    assert (out / selected).read_text() == "version: 1"
+    assert {link: os.readlink(out / link) for link in links} == links
+
+
 @pytest.mark.parametrize("target", [b"\xff\xfe-target", b"bad\x00target"])
 def test_verification_snapshot_refuses_an_unrepresentable_unrelated_link(tmp_path, target):
     # Selection discovery recreates every link of a scoped tree. One it cannot

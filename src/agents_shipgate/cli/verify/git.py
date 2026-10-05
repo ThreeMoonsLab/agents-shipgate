@@ -2571,9 +2571,16 @@ def _admitted_selected_openshell_links(
         if "\0" not in text:
             link_texts[path] = text
     # A captured link target alone is insufficient: independently require its
-    # bounded lexical chain to end at a regular Git blob.
-    return {path for path in selected_links if path in link_texts
-            and tree_types.get(_resolve_tree_link(path, link_texts)) == "blob"}
+    # bounded chain to open, as written, a regular Git blob.
+    directories = {path for path, kind in tree_types.items() if kind == "tree"}
+    for path in tree_types:
+        parts = path.split("/")
+        directories.update("/".join(parts[:index]) for index in range(1, len(parts)))
+    return {
+        path
+        for path in selected_links
+        if _physical_tree_link_target(path, link_texts, tree_types, directories) is not None
+    }
 
 
 def _copy_verified_commit_graph(
@@ -2985,6 +2992,53 @@ def _resolve_tree_link(path_text: str, link_texts: dict[str, str]) -> str | None
             return None
         current = joined
     return current if current not in link_texts else None
+
+
+def _physical_tree_link_target(
+    path_text: str,
+    link_texts: dict[str, str],
+    tree_types: dict[str, str],
+    directories: set[str],
+) -> str | None:
+    """The regular blob a link opens, walked as the filesystem walks it, or ``None``.
+
+    Only selected-link admission asks this. :func:`_resolve_tree_link`
+    normalizes lexically, and the filesystem does not: ``missing/../one``
+    fails at ``missing``, ``afile/../one`` at a file used as a directory and
+    ``one/`` by asking for a directory, although each normalizes to ``one``.
+    Here every hop is walked from its link's own directory, one component at a
+    time, against the tree's listing: no component may be empty, each
+    intermediate one must be a directory the tree holds (``directories``, so
+    never a link), ``..`` never rises above the root, and the last must be a
+    regular blob or another link, within :data:`_MAX_TREE_LINK_HOPS` links.
+    """
+
+    current = path_text
+    for _ in range(_MAX_TREE_LINK_HOPS):
+        text = link_texts.get(current)
+        if not text or text.startswith("/"):
+            return None
+        *intermediate, final = text.split("/")
+        parts = current.split("/")[:-1]
+        for component in intermediate:
+            if not component:
+                return None
+            if component == "..":
+                if not parts:
+                    return None
+                parts.pop()
+            elif component != ".":
+                parts.append(component)
+                if "/".join(parts) not in directories:
+                    return None
+        if final in {"", ".", ".."}:
+            return None
+        current = "/".join([*parts, final])
+        if tree_types.get(current) == "blob":
+            return current
+        if tree_types.get(current) != "link":
+            return None
+    return None
 
 
 def _materialize_link_target_types(

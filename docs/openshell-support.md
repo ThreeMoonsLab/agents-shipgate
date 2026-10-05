@@ -206,8 +206,12 @@ application snapshot. A changed reference retains review independently of
 any supported policy expansion, including an expansion on the linked document.
 Unrelated links and submodules retain the application snapshot's refusal.
 Selected links that escape, cycle, exceed eight hops or resolve to directories
-are not admitted by that snapshot. Its manifest, baseline and policy-pack
-link guards are unchanged.
+are not admitted by that snapshot, nor are links that would not open as
+written: each hop is followed component by component, as the filesystem
+follows it, so a link through a missing name or a regular file, or with an
+empty component such as a trailing slash, is refused even when its text
+normalizes to a policy file. Its manifest, baseline and policy-pack link
+guards are unchanged.
 
 The pre-commit hook recognizes OpenShell selection files. Its static filename
 filter cannot identify an arbitrary selected policy path on its own. Run

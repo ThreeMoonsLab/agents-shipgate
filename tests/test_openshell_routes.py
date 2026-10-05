@@ -226,6 +226,24 @@ def test_portable_prepare_binds_unchanged_nested_selection_and_worker_rejects_dr
 
 
 @pytest.mark.skipif(os.name == "nt", reason="symbolic link fixtures")
+@pytest.mark.parametrize("text", ["missing/../one", "one/", "afile/../one", "./one"])
+def test_configured_verify_admits_a_selected_link_only_as_the_filesystem_opens_it(tmp_path, text):
+    root = _repository(tmp_path, {REGISTRATION: selection("policy-link"), "one": POLICY,
+        "afile": "not a directory", **configured_source()}, {"README.md": "change"},
+        links={"policy-link": text})
+    result = CliRunner().invoke(app, ["verify", "--base", "main", "--head", "HEAD", "--json",
+                                      "--workspace", str(root)])
+    if text == "./one":
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output)["head_status"] == "succeeded"
+    else:
+        # Each spelling normalizes to `one`, but the link itself does not open,
+        # so the committed snapshot keeps its refusal instead of passing.
+        assert result.exit_code == 2, result.output
+        assert "unsupported external binding at policy-link" in result.output
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic link fixtures")
 @pytest.mark.parametrize("command", ["verify", "prepare"])
 def test_unrepresentable_unrelated_link_keeps_the_configured_snapshot_refusal(tmp_path, command):
     root = tmp_path / "repo"
