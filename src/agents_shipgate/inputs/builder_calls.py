@@ -723,6 +723,15 @@ class BuilderCalls:
                     limits.append(
                         f"{where} has an unresolved reference at {caller.ref}:{node.lineno}: {resolution.detail}"
                     )
+        derived = self.resolver.derived_scope()
+        if derived is not None:
+            # The change chose this scope (#875); the repository around it is
+            # still the application. A caller there was not materialized, let
+            # alone read, so the callers read here cannot be all of them.
+            limits.append(
+                f"{where} is read in `{derived}`, a scope derived from the change; its callers "
+                "elsewhere in the repository are not read (select the application root with --scope)"
+            )
         if not sites:
             limits.append(f"no direct caller of {where} is established in the read scope")
         if len(sites) > MAX_CONTEXTS:

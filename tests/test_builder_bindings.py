@@ -725,3 +725,59 @@ def test_statically_unreachable_caller_is_a_named_limit(tmp_path, framework):
     _write(tmp_path, _files(framework, "if False:\n    a = build([read])\n"))
     observations, warnings = _read(tmp_path, framework)
     assert observations and warnings and all(not item.tools_complete for item in observations)
+
+
+def _package_files(framework, caller):
+    """``svc`` holds the builder and one caller; a root script calls it too."""
+    imported = (
+        "from agents import Agent, function_tool\n"
+        if framework == "sdk"
+        else "from google.adk.agents import Agent\n"
+    )
+    decorator = "@function_tool\n" if framework == "sdk" else ""
+    calls = "from svc.builders import build\nfrom svc.tools import read, write\n"
+    return {
+        "svc/__init__.py": "",
+        "svc/tools.py": imported
+        + decorator
+        + "def read():\n    return None\n"
+        + decorator
+        + "def write():\n    return None\n",
+        "svc/builders.py": imported
+        + "def build(tools):\n    return Agent(name='Built', tools=tools)\n",
+        "svc/default_agent.py": calls + f"agent = {caller}\n",
+        "main.py": calls + "admin_agent = build([read, write])\n",
+    }
+
+
+@pytest.mark.parametrize("framework", ["sdk", "adk"])
+def test_derived_scope_cannot_hide_a_caller_outside_it(tmp_path, framework):
+    from tests.test_imported_tool_bindings import _commit, _compare, _git
+
+    _git(tmp_path, "init", "-q", "-b", "main")
+    base = _commit(tmp_path, _package_files(framework, "build([read, write])"))
+    head = _commit(
+        tmp_path,
+        {
+            "svc/default_agent.py": _package_files(framework, "build([read])")[
+                "svc/default_agent.py"
+            ]
+        },
+    )
+    result = _compare(tmp_path, base, head)
+    assert result["scope_selection"]["mode"] == "derived"
+    assert result["scope_selection"]["scopes"] == ["svc"]
+    # ``main.py`` still binds ``write`` to the same builder's agent; the derived
+    # scope never materialized it, so the removal is not established.
+    assert result["comparison_status"] == "partial"
+    rows = [row for row in result["rows"] if row["agent"] == "Built" and row["tool"] == "write"]
+    assert rows and all(row["change"] == "not_established" for row in rows)
+    gaps = [gap["reason"] for side in ("base", "head") for gap in result[side]["coverage_gaps"]]
+    assert any("a scope derived from the change" in gap and "`svc`" in gap for gap in gaps)
+    # A declared application root keeps the read scope's callers as the census.
+    declared = _compare(tmp_path, base, head, "--scope", "svc")
+    assert not any(
+        "a scope derived from the change" in gap["reason"]
+        for side in ("base", "head")
+        for gap in declared[side]["coverage_gaps"]
+    )

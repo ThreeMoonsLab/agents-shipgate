@@ -373,8 +373,14 @@ def _batch_blobs(workspace: Path, pending: list[tuple[str, str, int]]) -> dict[s
     return texts
 
 
-def _git_layout(workspace: Path, commit: str, scope: str) -> RepositoryLayout:
-    """The commit's tree outside the scope, listed one directory at a time (#879 review)."""
+def _git_layout(
+    workspace: Path, commit: str, scope: str, *, derived: bool = False
+) -> RepositoryLayout:
+    """The commit's tree outside the scope, listed one directory at a time (#879 review).
+
+    ``derived``: the change chose the scope (#875); the code outside it is
+    still the application's, which a census of the scope cannot see (#874 review).
+    """
 
     listings: dict[str, tuple[frozenset[str], frozenset[str]] | None] = {}
     #: ``path -> (object, size)`` of every regular ``.py`` file listed.
@@ -455,7 +461,7 @@ def _git_layout(workspace: Path, commit: str, scope: str) -> RepositoryLayout:
             contents[path] = output.decode("utf-8", errors="replace") if output is not None else None
         return contents[path]
 
-    return RepositoryLayout("" if scope in {"", "."} else scope, entries, links, read)
+    return RepositoryLayout("" if scope in {"", "."} else scope, entries, links, read, derived)
 
 
 @dataclass
@@ -1756,8 +1762,8 @@ def _compare_scopes(
         # Each side's imports are read against its own commit's tree: the
         # materialized scope alone cannot say whether ``from common.patches
         # import ...`` is the application's code or an installed package.
-        old_layout = _git_layout(workspace, base_commit, old_scope)
-        new_layout = _git_layout(workspace, head_commit, scope)
+        old_layout = _git_layout(workspace, base_commit, old_scope, derived=derived)
+        new_layout = _git_layout(workspace, head_commit, scope, derived=derived)
         with repository_layout(old_layout):
             old_found = discover(
                 scratch / "base",

@@ -100,6 +100,11 @@ class RepositoryLayout:
     #: The text of one repository file outside the scope, or None: what the
     #: packages enclosing the scope run first (#879 review).
     read: Callable[[str], str | None] = lambda path: None
+    #: Whether the scope was derived from a change (#875) rather than declared
+    #: as the application's root. Code outside a derived scope is still the
+    #: application's: a census of the scope's files cannot establish what that
+    #: code calls (#874 review).
+    derived: bool = False
 
 
 _REPOSITORY: ContextVar[RepositoryLayout | None] = ContextVar("repository_layout", default=None)
@@ -315,6 +320,16 @@ class ImportResolver:
 
     def ref(self, path: Path) -> str:
         return path.relative_to(self.scope_root).as_posix()
+
+    def derived_scope(self) -> str | None:
+        """The read scope's repository path when a change derived it, below the root.
+
+        None for a declared scope (``--scope``, a scan's workspace) or the
+        repository root: every module of the application is then in the read.
+        """
+
+        layout = self._layout
+        return layout.scope if layout is not None and layout.derived and layout.scope else None
 
     def contains(self, path: Path) -> bool:
         return path.resolve().is_relative_to(self.scope_root)
