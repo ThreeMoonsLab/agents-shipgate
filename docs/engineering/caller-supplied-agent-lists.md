@@ -42,8 +42,9 @@ around the call, out through the `def` of every function it is made in.
 Statically unreachable callers — `if False:`, `while False:`, the `else` of
 `while True:`, `x if False else y`, `False and x`, or a function defined only
 in such a branch — are limits. An agent construction under a conditional
-statement or expression, a short-circuited operand, a loop, a comprehension or
-a handler is not followed through caller arguments in this increment. The
+statement or expression, a short-circuited operand, a loop, a comprehension, a
+handler or an assertion's message is not followed through caller arguments in
+this increment. The
 reader reports static construction and membership evidence, not execution or
 runtime behavior.
 

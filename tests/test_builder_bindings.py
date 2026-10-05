@@ -883,6 +883,7 @@ def test_a_parameter_handoff_never_names_an_agent_by_its_spelling(tmp_path, fram
         "    return Agent(name='Built', tools=tools) if enabled else None\n",
         "    return enabled and Agent(name='Built', tools=tools)\n",
         "    return [Agent(name='Built', tools=tools) for _ in range(2)][0]\n",
+        "    assert enabled, Agent(name='Built', tools=tools)\n",
     ],
 )
 def test_conditional_expression_construction_is_a_named_limit(tmp_path, framework, body):

@@ -1056,6 +1056,8 @@ def _conditional_construction(
             return f"{where} is an operand the `{'and' if isinstance(current.op, ast.And) else 'or'}` at {line} may not evaluate, which is not followed through caller arguments"
         if isinstance(current, _COMPREHENSIONS):
             return f"{where} is built in the comprehension at {line}, which is not followed through caller arguments"
+        if isinstance(current, ast.Assert) and child is not current.test:
+            return f"{where} is built only when the assertion at {line} fails, which is not followed through caller arguments"
         child, current = current, scopes.parents.get(current)
     return None
 
