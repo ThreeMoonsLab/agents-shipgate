@@ -28,14 +28,23 @@ from pathlib import Path
 CHANGE_KINDS = ("added", "removed", "changed", "not_established")
 #: What identifies the engine rather than its answer. ``comparison_id`` digests
 #: these too (version, Python, platform, build), so the same answer from
-#: another machine or release has another ``comparison_id``.
+#: another machine or release has another ``comparison_id``. A multi-scope
+#: answer repeats the engine block inside each of its ``comparisons``.
 ENGINE_FIELDS = ("engine", "comparison_id")
+
+
+def _without_engine(node: dict) -> dict:
+    return {key: value for key, value in node.items() if key not in ENGINE_FIELDS}
 
 
 def answer_id(payload: dict) -> str:
     """The digest of an answer: the engine's output without its own identity."""
 
-    answer = {key: value for key, value in payload.items() if key not in ENGINE_FIELDS}
+    answer = _without_engine(payload)
+    if isinstance(answer.get("comparisons"), list):
+        answer["comparisons"] = [
+            _without_engine(part) if isinstance(part, dict) else part for part in answer["comparisons"]
+        ]
     encoded = json.dumps(answer, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 

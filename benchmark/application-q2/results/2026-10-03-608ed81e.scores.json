@@ -202,7 +202,7 @@
       "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. OpenAI Agents SDK agent 'agent' at chack_agent/backends/openai_compaction_backend.py:932 uses a dynamic tools expression"
     },
     "cianfhoghlaim_tuatha-1": {
-      "answer_id": "sha256:993a1c9a0e679048f057b0f6e4717807a3b7e22c33987895ee6d074c8ebb7da4",
+      "answer_id": "sha256:fab149568a08fbdd7c43b31443bea9b7fc86f32d45dcd4182aea235bee646035",
       "q0": true,
       "q1": false,
       "q2": false,
@@ -311,21 +311,21 @@
       "q0": true,
       "q1": false,
       "q2": false,
-      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. Google ADK agent 'CalendarAgent' uses a dynamic tools expression."
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. Google ADK agent 'CalendarAgent' at agents/calendar_agent.py:30 uses a dynamic tools expression; its binding graph is incomplete. Not read: `tools` is a parameter of `create_calendar_agent`, so its value comes from a caller (agents/calendar_agent.py:39)."
     },
     "mezgoodle_Vesta-58": {
       "answer_id": "sha256:141b63a690cd51af7d3b732592fc461505eed08c63b414a49b0a77a744044b9b",
       "q0": true,
       "q1": false,
       "q2": false,
-      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. Google ADK agent 'KnowledgeAgent' uses a dynamic tools expression."
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. Google ADK agent 'KnowledgeAgent' at agents/knowledge_agent.py:48 uses a dynamic tools expression; its binding graph is incomplete. Not read: `tools` is a parameter of `create_knowledge_agent`, so its value comes from a caller (agents/knowledge_agent.py:59)."
     },
     "mezgoodle_Vesta-70": {
       "answer_id": "sha256:50cb8a99cd6b312b03e00fa4b14f2e3db7c5c9d512df52fea4550cd3b1e452d0",
       "q0": true,
       "q1": false,
       "q2": false,
-      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. Google ADK agent 'KnowledgeAgent' uses a dynamic tools expression."
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. Google ADK agent 'KnowledgeAgent' at agents/knowledge_agent.py:49 uses a dynamic tools expression; its binding graph is incomplete. Not read: `tools` is a parameter of `create_knowledge_agent`, so its value comes from a caller (agents/knowledge_agent.py:62)."
     },
     "mosnin_realestatecrm-612": {
       "answer_id": "sha256:d62e591a2f68f6048c1991c7daaf82811aa666fcb5511bae73017412bea8275e",
@@ -360,7 +360,7 @@
       "q0": true,
       "q1": false,
       "q2": false,
-      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. OpenAI Agents SDK agent 'Explorer Agent' at agents/explorer.py:231 uses a dynamic tools expression"
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row. OpenAI Agents SDK agent 'Explorer Agent' at agents/explorer.py:231 binds the tool expression `_create_exploration_tool(model_provider, model_name)`, which is not a reference this reader resolves."
     }
   },
   "source_pins": {

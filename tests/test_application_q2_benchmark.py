@@ -190,6 +190,28 @@ def test_a_score_survives_another_machine_or_release(tmp_path: Path) -> None:
     assert (totals["q2"], totals["stale_scores"]) == (0, ["a"])
 
 
+def test_a_multi_scope_score_survives_another_machine_or_release(tmp_path: Path) -> None:
+    # A multi-scope answer repeats the engine block inside each of its
+    # ``comparisons``; those copies identify the engine too, so tuatha#1's score
+    # went stale on any other machine (#961 review).
+    corpus = {"corpus": "toy", "members": [{"slug": "a", "repository": "o/a", "number": 1, "url": "u"}]}
+    here = {"version": "1.2.0", "platform": "darwin"}
+    scope = {"comparison_status": "partial", "rows": [{"change": "not_established"}], "engine": here}
+    answer = {"comparison_status": "partial", "rows": [{"change": "not_established"}] * 2,
+              "comparisons": [scope, {**scope, "rows": []}], "engine": here, "comparison_id": "sha256:1"}
+    score = {"answer_id": summarize.answer_id(answer), "q0": True, "q1": False, "q2": False, "rationale": "x"}
+    there = {"version": "1.3.0", "platform": "linux"}
+    elsewhere = {**answer, "engine": there, "comparison_id": "sha256:2",
+                 "comparisons": [{**part, "engine": there} for part in answer["comparisons"]]}
+    _write_run(tmp_path, [{"slug": "a", "status": "ok"}], {"a": elsewhere})
+    totals = summarize.totals(summarize.load_run(corpus, tmp_path), {"a": score})
+    assert (totals["scored"], totals["q0"], totals["stale_scores"]) == (1, 1, [])
+    moved = {**elsewhere, "comparisons": [elsewhere["comparisons"][0], {**elsewhere["comparisons"][1], "rows": [{"change": "changed"}]}]}
+    _write_run(tmp_path, [{"slug": "a", "status": "ok"}], {"a": moved})
+    totals = summarize.totals(summarize.load_run(corpus, tmp_path), {"a": score})
+    assert (totals["scored"], totals["stale_scores"]) == (0, ["a"])
+
+
 def test_the_readme_quotes_868s_levels_verbatim() -> None:
     for definition in (
         "**Q0 (relevant):** the PR changes an SDK/ADK agent's tools, handoffs or sub-agents in application code.",
