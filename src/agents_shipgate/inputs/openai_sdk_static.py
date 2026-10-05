@@ -609,6 +609,7 @@ def _extract_agent_bindings(
                     sdk_names=sdk_names,
                     resolver=imports.resolver if module is not None else None,
                     local_identities=local_identities,
+                    source_ref=source_ref,
                 )
                 if identity is None:
                     reason = (
@@ -933,14 +934,19 @@ def _handoff_identity(
     sdk_names: _SdkNames,
     resolver: ImportResolver | None,
     local_identities: set[str],
+    source_ref: str,
 ) -> tuple[str | None, str]:
     """The agent identity one handoff list member names, or why it names none.
 
     A member written in the module being read keeps the reader's rule: a name
     its scope binds to an agent it constructs is that agent's identity (#876
-    review); any other name is spelled through ``from`` import aliases. A
-    member of a list another module builds is followed into that module, to
-    the name its construction is assigned to (#909).
+    review); a module-level name is spelled through ``from`` import aliases,
+    and a function's own ``from`` import by the name it imports. Any other
+    function-local binding — a parameter, a loop variable, an assignment of
+    something else — says nothing about the agent it holds, so its spelling
+    never names a module-level agent (#874 review). A member of a list another
+    module builds is followed into that module, to the name its construction
+    is assigned to (#909).
     """
 
     item = member.expr
@@ -949,17 +955,21 @@ def _handoff_identity(
     if member.module is None:
         # A default is evaluated around its ``def`` (#874 review).
         found = scopes.enclosing_bindings(evaluation_site(scopes, item), item.id)
+        if not found:
+            return aliases.get(item.id, item.id), ""
         statement = scopes.statement_of(found[0]) if len(found) == 1 else None
         value = getattr(statement, "value", None)
         if (
-            isinstance(found[0] if found else None, ast.Name)
+            isinstance(found[0], ast.Name)
             and isinstance(value, ast.Call)
             and _denotes_agent(sdk_names, value)
         ):
             identity = identity_of(value)
             if identity is not None:
                 return identity, ""
-        return aliases.get(item.id, item.id), ""
+        if isinstance(found[0], ast.alias) and isinstance(statement, ast.ImportFrom):
+            return found[0].name, ""
+        return None, local_binding_detail(source_ref, item.id, found[0], rebound=len(found) > 1)
     if resolver is None:
         return None, f"it is written in {member.module.ref}, and imports are not followed here"
     resolution = resolver.resolve(member.module, item.id)

@@ -836,3 +836,41 @@ def test_handoff_default_is_read_around_its_def_not_in_the_body(tmp_path, framew
     assert list(built.handoff_sites) == [expected]
     if framework == "sdk":
         assert built.handoff_names == [expected] and built.handoffs_complete
+
+
+@pytest.mark.parametrize("framework", ["sdk", "adk"])
+@pytest.mark.parametrize(
+    "maker",
+    [
+        # A caller's own parameter, forwarded as one element of the list.
+        "BUILD\ndef make(target):\n    return build([read], FIELD=[target])\nx = make(reader)\n",
+        # A parameter spelled like a module-level agent, holding another one.
+        "BUILD\ndef make(reader=boss):\n    return build([read], FIELD=[reader])\nx = make()\n",
+        # The same parameter in a construction written in the function itself.
+        "def make(reader):\n    return Agent(name='Built', tools=[read], FIELD=[reader])\nx = make(boss)\n",
+    ],
+)
+def test_a_parameter_handoff_never_names_an_agent_by_its_spelling(tmp_path, framework, maker):
+    from tests.test_imported_tool_bindings import _adk, _sdk
+
+    field = "handoffs" if framework == "sdk" else "sub_agents"
+    build = f"def build(tools, {field}=None):\n    return Agent(name='Built', tools=tools, {field}={field})"
+    files = _files(framework, "")
+    files["builders.py"] = _imports(framework) + (
+        "from tools import read, write\n"
+        "reader = Agent(name='Reader', tools=[read])\n"
+        "boss = Agent(name='Boss', tools=[write])\n"
+        + maker.replace("BUILD", build).replace("FIELD", field)
+    )
+    files.pop("app.py")
+    _write(tmp_path, files)
+    if framework == "sdk":
+        result = _sdk(tmp_path, "builders.py")
+        (built,) = [item for item in result.binding_observations if item.agent == "Built"]
+        assert built.handoff_names == [] and not built.handoffs_complete
+        assert any("is bound by a parameter" in issue for issue in built.issues)
+    else:
+        _, artifacts = _adk(tmp_path, "builders.py")
+        (record,) = [item for item in artifacts.sub_agents if item["agent_name"] == "Built"]
+        assert record["sub_agents"] == []
+        assert record["unresolved_sub_agents"] in (["target"], ["reader"])

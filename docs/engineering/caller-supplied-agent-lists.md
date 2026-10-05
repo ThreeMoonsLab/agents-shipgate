@@ -42,10 +42,16 @@ static construction and membership evidence, not execution or runtime behavior.
 
 Tools can resolve across module boundaries. Handoffs and ADK sub-agents passed
 from a caller in the construction's own module retain their existing identity
-rules and now retain caller provenance even when there are no tools. A foreign
-caller target remains unread: its name alone cannot establish its actual agent
-construction and reachable tool surface. Following those complete target
-surfaces belongs to the next increment.
+rules and now retain caller provenance even when there are no tools. The
+nearest scope that binds an element's name decides its identity: an agent
+constructed there, or the name a function's own `from` import imports. A
+parameter — forwarded element by element or holding a default — a loop
+variable or any other local binding is not followed through the invocation;
+its spelling never names a module-level agent, so it is a named limit (an
+unresolved sub-agent for ADK), as an element-level tool parameter already is.
+A foreign caller target remains unread: its name alone cannot establish its
+actual agent construction and reachable tool surface. Following those complete
+target surfaces belongs to the next increment.
 
 ## Mutation and escape limits
 

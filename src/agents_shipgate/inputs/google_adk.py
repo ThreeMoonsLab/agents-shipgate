@@ -1788,9 +1788,32 @@ class _PythonAdkExtractor:
         this module does not define as an agent — an imported name, an
         ambiguous rebinding — which the caller reports as incomplete rather
         than binding to a name it cannot stand behind.
+
+        The nearest scope that binds a plain name decides, as Python does: a
+        parameter, a loop variable, a local import or any other local binding
+        shadows a module-level agent of that name and resolves to nothing; it
+        never names that agent by its spelling (#874 review). A default is
+        read around its ``def``.
         """
 
-        scope: ast.AST | None = self._scope_of(evaluation_site(self.scopes, call))
+        site = evaluation_site(self.scopes, call)
+        if isinstance(call, ast.Name):
+            found = self.scopes.enclosing_bindings(site, call.id)
+            if not found:
+                # Module scope: class bodies between it and the use do not
+                # bind names for the functions inside them.
+                return self.agent_names_by_variable.get((self.tree, variable))
+            statement = self.scopes.statement_of(found[0]) if len(found) == 1 else None
+            value = getattr(statement, "value", None)
+            if (
+                isinstance(found[0], ast.Name)
+                and isinstance(statement, ast.Assign | ast.AnnAssign)
+                and isinstance(value, ast.Call)
+                and self._is_agent_call(value)
+            ):
+                return self.agent_names_by_variable.get((self._scope_of(found[0]), call.id))
+            return None
+        scope: ast.AST | None = self._scope_of(site)
         while scope is not None:
             if (scope, variable) in self.agent_names_by_variable:
                 return self.agent_names_by_variable[(scope, variable)]
