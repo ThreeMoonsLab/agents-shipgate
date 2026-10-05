@@ -14,6 +14,7 @@ from agents_shipgate.cli.agent_result import agent_result_json_payload
 from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.agent_boundary import _structural_diff_issues
 from agents_shipgate.core.agent_control import derive_agent_control
+from agents_shipgate.core.boundary_diff import INVALID_DIFF_PATH
 from agents_shipgate.core.capabilities import build_capability_facts
 from agents_shipgate.core.capability_delta import diff_capability_fact_sets
 from agents_shipgate.core.capability_lattice import classify_tool_permission
@@ -294,20 +295,27 @@ def build_mcp_audit(
     diagnostics: list[AgentResultDiagnostic] = []
     rules, policy_version = _load_mcp_policy(policy, workspace, diagnostics)
     # `check`'s structural validation, over the records that name a recognized
-    # source. One with no hunks (a binary or header-only record), headers that
-    # contradict each other, or a path another record also names was never
-    # read, whatever text the resolver below reconstructs for it. Whether the
-    # diff names a source at all is `subject_evaluated`, so no diff text here.
+    # source or a path the parser could not read, which may be one. A record
+    # with no hunks (a binary or header-only record), headers that contradict
+    # each other, or a path another record also names was never read, whatever
+    # text the resolver below reconstructs for it. Whether the diff names a
+    # source at all is `subject_evaluated`, so no diff text here.
+    source_records = [
+        item
+        for item in diff_files
+        if any(
+            path
+            and (
+                path == INVALID_DIFF_PATH
+                or is_codex_config_path(path)
+                or is_mcp_json_path(path)
+            )
+            for path in (item.old_path, item.new_path)
+        )
+    ]
     for issue in _structural_diff_issues(
         workspace=workspace,
-        diff_files=[
-            item
-            for item in diff_files
-            if any(
-                path and (is_codex_config_path(path) or is_mcp_json_path(path))
-                for path in (item.old_path, item.new_path)
-            )
-        ],
+        diff_files=source_records,
         diff_text="",
     ):
         # `check`'s review route for a renamed-away trust root, not unread
@@ -321,6 +329,24 @@ def build_mcp_audit(
                 message=issue.message,
                 path=issue.path,
             )
+        )
+    # That validation accepts any rename on its headers, and the resolver reads
+    # a rename without hunks as byte-identical. Only git's 100% similarity
+    # proves that, and a binary record carries none of the content it changed.
+    for item in source_records:
+        if item.is_binary:
+            code = "boundary_input_binary"
+            message = "A recognized MCP source record is binary, so its change was not read."
+        elif item.is_rename and not item.hunks and item.similarity != 100:
+            code = "boundary_diff_content_missing"
+            message = (
+                "A recognized MCP source was renamed with no hunks and no 100% "
+                "similarity index; the supplied artifact cannot prove the change."
+            )
+        else:
+            continue
+        diagnostics.append(
+            AgentResultDiagnostic(level="warning", code=code, message=message, path=item.path)
         )
     base_tools: list[Tool] = []
     head_tools: list[Tool] = []

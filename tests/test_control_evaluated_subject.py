@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,7 +18,7 @@ from agents_shipgate.cli.main import app
 from agents_shipgate.cli.mcp import _agent_result_from_audit, build_mcp_audit
 from agents_shipgate.cli.verify.orchestrator import _derive_verifier_control
 from agents_shipgate.core.agent_control import AgentControlConsistencyError, derive_agent_control
-from agents_shipgate.core.codex_boundary import evaluate_codex_boundary_result
+from agents_shipgate.core.codex_boundary import evaluate_codex_boundary_result, parse_unified_diff
 from agents_shipgate.mcp_server.server import shipgate_check
 from agents_shipgate.schemas.agent_control import AGENT_CONTROL_ADAPTER, PERMISSION_FIELDS
 from agents_shipgate.schemas.current_control import CurrentControlProjection
@@ -266,6 +267,177 @@ def test_mcp_audit_still_evaluates_a_deletion_and_a_rename_out(tmp_path: Path) -
         assert audit["capability_delta"]["removed"]
         assert audit["subject_evaluated"] is True
         assert _agent_result_from_audit(audit).control.state == "complete"
+
+
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-c", "commit.gpgsign=false", *args],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+
+@pytest.mark.parametrize("flags", [(), ("--binary",)], ids=["binary_files", "git_binary_patch"])
+def test_mcp_audit_refuses_a_real_binary_rename(tmp_path: Path, flags: tuple[str, ...]) -> None:
+    # Under `*.json binary`, moving `.mcp.json` and adding a server prints a
+    # rename record with no hunks. Reading its head as both sides hid the server.
+    servers = {
+        f"srv{index}": {"command": "npx", "args": ["-y", f"@scope/pkg{index}", "v" * 15]}
+        for index in range(12)
+    }
+    _git(tmp_path, "init", "-q", "-b", "main")
+    _git(tmp_path, "config", "user.email", "test@example.invalid")
+    _git(tmp_path, "config", "user.name", "Test")
+    (tmp_path / ".gitattributes").write_text("*.json binary\n")
+    (tmp_path / ".mcp.json").write_text(json.dumps({"mcpServers": servers}, indent=2) + "\n")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-qm", "base")
+    (tmp_path / "pkg").mkdir()
+    _git(tmp_path, "mv", ".mcp.json", "pkg/.mcp.json")
+    servers["shell"] = {"command": "bash", "autoApprove": ["*"]}
+    (tmp_path / "pkg" / ".mcp.json").write_text(
+        json.dumps({"mcpServers": servers}, indent=2) + "\n"
+    )
+    _git(tmp_path, "add", "-A")
+    diff = _git(tmp_path, "diff", "--cached", "-M", *flags)
+    assert "rename to pkg/.mcp.json" in diff and "@@" not in diff
+
+    audit = build_mcp_audit(workspace=tmp_path, diff_text=diff)
+    assert ("warning", "boundary_input_binary") in {
+        (item["level"], item["code"]) for item in audit["diagnostics"]
+    }
+    assert audit["input_complete"] is False
+    assert not _agent_result_from_audit(audit).control.permissions.authorizes_anything
+
+
+# case -> (diff, the renamed file the workspace holds, the warning it raises)
+_UNPROVEN_RENAMES = {
+    "into_binary": (
+        "diff --git a/template.json b/.mcp.json\nsimilarity index 95%\n"
+        "rename from template.json\nrename to .mcp.json\nindex 1111111..2222222 100644\n"
+        "Binary files a/template.json and b/.mcp.json differ\n",
+        ".mcp.json",
+        "boundary_input_binary",
+    ),
+    "out_binary": (
+        "diff --git a/.mcp.json b/retired.json\nsimilarity index 95%\n"
+        "rename from .mcp.json\nrename to retired.json\nindex 1111111..2222222 100644\n"
+        "Binary files a/.mcp.json and b/retired.json differ\n",
+        "retired.json",
+        "boundary_input_binary",
+    ),
+    "below_100_without_hunks": (
+        "diff --git a/.mcp.json b/pkg/.mcp.json\nsimilarity index 95%\n"
+        "rename from .mcp.json\nrename to pkg/.mcp.json\n",
+        "pkg/.mcp.json",
+        "boundary_diff_content_missing",
+    ),
+    "no_similarity_without_hunks": (
+        "diff --git a/.mcp.json b/pkg/.mcp.json\nrename from .mcp.json\nrename to pkg/.mcp.json\n",
+        "pkg/.mcp.json",
+        "boundary_diff_content_missing",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_UNPROVEN_RENAMES))
+def test_mcp_audit_refuses_a_rename_not_proven_identical(tmp_path: Path, case: str) -> None:
+    diff, renamed, code = _UNPROVEN_RENAMES[case]
+    (tmp_path / renamed).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / renamed).write_text(_SHELL_SERVER + "\n")
+    audit = build_mcp_audit(workspace=tmp_path, diff_text=diff)
+
+    assert ("warning", code) in {(item["level"], item["code"]) for item in audit["diagnostics"]}
+    assert audit["input_complete"] is False
+    assert not _agent_result_from_audit(audit).control.permissions.authorizes_anything
+
+
+@pytest.mark.parametrize(
+    "source,target,state",
+    [
+        (".mcp.json", "pkg/.mcp.json", "complete"),
+        (".mcp.json", "retired.json", "complete"),
+        ("template.json", ".mcp.json", "review_publishable"),
+    ],
+    ids=["within", "out", "into"],
+)
+def test_mcp_audit_still_evaluates_a_byte_identical_rename(
+    tmp_path: Path, source: str, target: str, state: str
+) -> None:
+    (tmp_path / target).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / target).write_text(_SHELL_SERVER + "\n")
+    diff = (
+        f"diff --git a/{source} b/{target}\nsimilarity index 100%\n"
+        f"rename from {source}\nrename to {target}\n"
+    )
+    audit = build_mcp_audit(workspace=tmp_path, diff_text=diff)
+
+    assert audit["input_complete"] is True
+    assert audit["subject_evaluated"] is True
+    assert _agent_result_from_audit(audit).control.state == state
+
+
+def test_parser_records_binary_markers_and_similarity() -> None:
+    binary, patched, renamed, text = parse_unified_diff(
+        "diff --git a/a.json b/a.json\nindex 1111111..2222222 100644\n"
+        "Binary files a/a.json and b/a.json differ\n"
+        "diff --git a/b.json b/b.json\nindex 1111111..2222222 100644\n"
+        "GIT binary patch\nliteral 3\nKcmZ?b0000000\n\nliteral 0\nHcmV?d00001\n\n"
+        "diff --git a/c.json b/d.json\nsimilarity index 87%\nrename from c.json\nrename to d.json\n"
+        "diff --git a/e.json b/e.json\n--- a/e.json\n+++ b/e.json\n@@ -1 +1 @@\n-x\n+y\n"
+    )
+
+    assert [item.is_binary for item in (binary, patched, renamed, text)] == [
+        True,
+        True,
+        False,
+        False,
+    ]
+    assert (renamed.similarity, text.similarity) == (87, None)
+    assert (renamed.old_path, renamed.new_path, text.removed_lines) == ("c.json", "d.json", ["x"])
+
+
+@pytest.mark.parametrize(
+    "unreadable",
+    [
+        # What git prints for a `.mcp.json` under a directory name that is not UTF-8.
+        'diff --git "a/\\351/.mcp.json" "b/\\351/.mcp.json"\nnew file mode 100644\n'
+        'index 0000000..2222222\n--- /dev/null\n+++ "b/\\351/.mcp.json"\n'
+        f"@@ -0,0 +1 @@\n+{_SHELL_SERVER}\n",
+        # Halves naming different files, with no rename lines to split them.
+        "diff --git a/old dir/.mcp.json b/new dir/.mcp.json\n"
+        "--- a/old dir/.mcp.json\n+++ b/new dir/.mcp.json\n"
+        f"@@ -1 +1 @@\n-{{}}\n+{_SHELL_SERVER}\n",
+    ],
+    ids=["non_utf8_directory", "unsplittable_header"],
+)
+def test_mcp_audit_refuses_a_record_whose_path_cannot_be_read(
+    tmp_path: Path, unreadable: str
+) -> None:
+    diff = (
+        "diff --git a/.mcp.json b/.mcp.json\nnew file mode 100644\n"
+        '--- /dev/null\n+++ b/.mcp.json\n@@ -0,0 +1 @@\n+{"mcpServers": {}}\n'
+    ) + unreadable
+    assert parse_unified_diff(diff)[1].new_path == "\0invalid-diff-path"
+    check = build_agent_boundary_result(
+        agent="codex",
+        workspace=tmp_path,
+        diff_text=diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+        input_mode="provided_diff",
+    )
+    audit = build_mcp_audit(workspace=tmp_path, diff_text=diff)
+
+    assert "boundary_diff_path_invalid" in check.issues
+    assert ("warning", "boundary_diff_path_invalid") in {
+        (item["level"], item["code"]) for item in audit["diagnostics"]
+    }
+    assert audit["input_complete"] is False
+    assert not _agent_result_from_audit(audit).control.permissions.authorizes_anything
+
 
 
 @pytest.mark.parametrize(

@@ -19,6 +19,10 @@ from typing import Any, Literal
 from agents_shipgate.core.host_input_failure import HostInputFailure
 from agents_shipgate.schemas.agent_result_v1 import AgentResultDiagnostic
 
+#: The path a record carries when its headers do not name a file the parser
+#: can read. It is never a repository path, so it never matches an adapter.
+INVALID_DIFF_PATH = "\0invalid-diff-path"
+
 
 @dataclass(frozen=True)
 class DiffHunk:
@@ -40,6 +44,12 @@ class DiffFile:
     is_new: bool = False
     is_rename: bool = False
     metadata_changed: bool = False
+    #: Git printed ``Binary files ... differ`` or a ``GIT binary patch``: the
+    #: record names a content change and carries no text hunk for it.
+    is_binary: bool = False
+    #: Git's ``similarity index`` for a rename or copy, in percent. Only 100
+    #: says the two sides are byte-identical; ``None`` when not stated.
+    similarity: int | None = None
 
     @property
     def path(self) -> str:
@@ -150,8 +160,8 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
             # A header whose halves name different files, with no rename or
             # copy line to say where one name ends (#581). Refuse the record
             # rather than guess a split.
-            current["old_path"] = "\0invalid-diff-path"
-            current["new_path"] = "\0invalid-diff-path"
+            current["old_path"] = INVALID_DIFF_PATH
+            current["new_path"] = INVALID_DIFF_PATH
         files_out.append(
             DiffFile(
                 old_path=current.get("old_path"),
@@ -163,6 +173,8 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
                 is_new=bool(current.get("is_new")),
                 is_rename=bool(current.get("is_rename")),
                 metadata_changed=bool(current.get("metadata_changed")),
+                is_binary=bool(current.get("is_binary")),
+                similarity=current.get("similarity"),
             )
         )
         current = None
@@ -174,8 +186,8 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
             try:
                 pair = _parse_diff_git_header(raw_line[len("diff --git ") :])
             except (UnicodeDecodeError, ValueError):
-                old_path = "\0invalid-diff-path"
-                new_path = "\0invalid-diff-path"
+                old_path = INVALID_DIFF_PATH
+                new_path = INVALID_DIFF_PATH
             else:
                 if pair is None:
                     # The halves name different files: a rename or a copy
@@ -261,6 +273,13 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
                 current["is_rename"] = True
             else:
                 current["metadata_changed"] = True
+        elif raw_line.startswith("similarity index "):
+            match = re.fullmatch(r"(\d{1,3})%", raw_line[len("similarity index ") :], re.ASCII)
+            current["similarity"] = int(match.group(1)) if match else None
+        elif raw_line == "GIT binary patch" or (
+            raw_line.startswith("Binary files ") and raw_line.endswith(" differ")
+        ):
+            current["is_binary"] = True
         elif raw_line.startswith("--- "):
             value = _parse_git_path_value(raw_line[4:])
             parsed = None if value == "/dev/null" else _strip_diff_prefix(value)
@@ -271,7 +290,7 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
                     and parsed != current.get("header_old_path")
                 )
             ):
-                current["old_path"] = "\0invalid-diff-path"
+                current["old_path"] = INVALID_DIFF_PATH
             else:
                 current["old_path"] = parsed
         elif raw_line.startswith("+++ "):
@@ -284,7 +303,7 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
                     and parsed != current.get("header_new_path")
                 )
             ):
-                current["new_path"] = "\0invalid-diff-path"
+                current["new_path"] = INVALID_DIFF_PATH
             else:
                 current["new_path"] = parsed
             if value == "/dev/null":
@@ -350,7 +369,7 @@ def _parse_git_path_value(value: str) -> str:
             raise ValueError("unexpected path suffix")
         return token
     except (UnicodeDecodeError, ValueError):
-        return "\0invalid-diff-path"
+        return INVALID_DIFF_PATH
 
 
 def _bind_metadata_path(record: dict[str, Any], side: str, value: str) -> None:
@@ -365,7 +384,7 @@ def _bind_metadata_path(record: dict[str, Any], side: str, value: str) -> None:
     if not record.get("header_resolved", True) and record.get(header_key) is None:
         record[header_key] = value
     record[f"{side}_path"] = (
-        value if value == record.get(header_key) else "\0invalid-diff-path"
+        value if value == record.get(header_key) else INVALID_DIFF_PATH
     )
 
 
