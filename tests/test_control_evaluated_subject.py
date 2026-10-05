@@ -10,6 +10,7 @@ import pytest
 from jsonschema import Draft202012Validator
 from pydantic import TypeAdapter, ValidationError
 
+from agents_shipgate.cli.agent_result import build_agent_boundary_result
 from agents_shipgate.cli.mcp import _agent_result_from_audit, build_mcp_audit
 from agents_shipgate.cli.verify.orchestrator import _derive_verifier_control
 from agents_shipgate.core.agent_control import AgentControlConsistencyError, derive_agent_control
@@ -117,10 +118,131 @@ def test_invalid_server_mapping_is_not_complete_input(tmp_path: Path, body: str)
 
 
 def test_valid_empty_toml_is_an_evaluated_source(tmp_path: Path) -> None:
-    diff = "diff --git a/.codex/config.toml b/.codex/config.toml\nnew file mode 100644\n"
+    # The record `check` itself writes for an empty untracked file.
+    diff = (
+        "diff --git a/.codex/config.toml b/.codex/config.toml\nnew file mode 100644\n"
+        "--- /dev/null\n+++ b/.codex/config.toml\n@@ -0,0 +0,0 @@\n"
+    )
     audit = build_mcp_audit(workspace=tmp_path, diff_text=diff)
     assert audit["subject_evaluated"]
     assert _agent_result_from_audit(audit).control.state == "complete"
+
+
+_SHELL_SERVER = '{"mcpServers": {"shell": {"command": "bash", "autoApprove": ["*"]}}}'
+_ADD_SHELL_SERVER = (
+    "diff --git a/.mcp.json b/.mcp.json\nnew file mode 100644\n"
+    f"--- /dev/null\n+++ b/.mcp.json\n@@ -0,0 +1 @@\n+{_SHELL_SERVER}\n"
+)
+# case -> (diff, the issue `check` reports for it, whether the workspace holds
+# the edited `.mcp.json`, so that the resolver alone would read text for it).
+_UNPROVEN_SOURCE_RECORDS = {
+    # What `git diff` prints for a real edit under `.mcp.json binary`.
+    "binary_record": (
+        "diff --git a/.mcp.json b/.mcp.json\nindex 1111111..2222222 100644\n"
+        "Binary files a/.mcp.json and b/.mcp.json differ\n",
+        "boundary_diff_content_missing",
+        True,
+    ),
+    "header_only_record": (
+        "diff --git a/.mcp.json b/.mcp.json\nindex 1111111..2222222 100644\n"
+        "--- a/.mcp.json\n+++ b/.mcp.json\n",
+        "boundary_diff_content_missing",
+        True,
+    ),
+    "new_binary_toml": (
+        "diff --git a/.codex/config.toml b/.codex/config.toml\nnew file mode 100644\n"
+        "index 0000000..2222222\nBinary files /dev/null and b/.codex/config.toml differ\n",
+        "boundary_diff_shape_invalid",
+        False,
+    ),
+    "new_header_only_toml": (
+        "diff --git a/.codex/config.toml b/.codex/config.toml\nnew file mode 100644\n",
+        "boundary_diff_shape_invalid",
+        False,
+    ),
+    "added_then_deleted": (
+        _ADD_SHELL_SERVER
+        + "diff --git a/.mcp.json b/.mcp.json\ndeleted file mode 100644\n"
+        f"--- a/.mcp.json\n+++ /dev/null\n@@ -1 +0,0 @@\n-{_SHELL_SERVER}\n",
+        "boundary_diff_shape_invalid",
+        False,
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_UNPROVEN_SOURCE_RECORDS))
+def test_mcp_audit_refuses_a_source_record_check_cannot_prove(tmp_path: Path, case: str) -> None:
+    diff, code, edited_in_workspace = _UNPROVEN_SOURCE_RECORDS[case]
+    if edited_in_workspace:
+        (tmp_path / ".mcp.json").write_text(_SHELL_SERVER + "\n")
+    check = build_agent_boundary_result(
+        agent="codex",
+        workspace=tmp_path,
+        diff_text=diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+        input_mode="provided_diff",
+    )
+    audit = build_mcp_audit(workspace=tmp_path, diff_text=diff)
+
+    # One structural validation: the audit refuses each record `check` refuses.
+    assert check.issues == [code]
+    assert ("warning", code) in {(item["level"], item["code"]) for item in audit["diagnostics"]}
+    assert audit["input_complete"] is False
+    assert audit["subject_evaluated"] is False
+    result = _agent_result_from_audit(audit)
+    assert result.control.state == "human_review_required"
+    assert not result.control.permissions.authorizes_anything
+
+
+@pytest.mark.parametrize(
+    "zero,empty",
+    [
+        ("0" * 40, "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"),
+        ("0" * 64, "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"),
+    ],
+    ids=["sha1", "sha256"],
+)
+@pytest.mark.parametrize("mode", ["new", "deleted"])
+@pytest.mark.parametrize("path", [".mcp.json", ".codex/config.toml"])
+def test_empty_file_records_follow_check(
+    tmp_path: Path, zero: str, empty: str, mode: str, path: str
+) -> None:
+    # Git prints an empty file's addition or deletion without `---`/`+++` lines
+    # or hunks. `check` refuses that record whatever its blob id says, so the
+    # audit does too; the record `check` writes for an empty file is evaluated.
+    index = f"{zero}..{empty}" if mode == "new" else f"{empty}..{zero}"
+    diff = f"diff --git a/{path} b/{path}\n{mode} file mode 100644\nindex {index}\n"
+    check = build_agent_boundary_result(
+        agent="codex",
+        workspace=tmp_path,
+        diff_text=diff,
+        config=Path("shipgate.yaml"),
+        policy=None,
+        input_mode="provided_diff",
+    )
+    audit = build_mcp_audit(workspace=tmp_path, diff_text=diff)
+
+    assert check.issues == ["boundary_diff_shape_invalid"]
+    assert audit["input_complete"] is False
+    assert not _agent_result_from_audit(audit).control.permissions.authorizes_anything
+
+
+def test_mcp_audit_still_evaluates_a_deletion_and_a_rename_out(tmp_path: Path) -> None:
+    deletion = (
+        "diff --git a/.mcp.json b/.mcp.json\ndeleted file mode 100644\n"
+        f"--- a/.mcp.json\n+++ /dev/null\n@@ -1 +0,0 @@\n-{_SHELL_SERVER}\n"
+    )
+    (tmp_path / "retired.txt").write_text(_SHELL_SERVER + "\n")
+    rename_out = (
+        "diff --git a/.mcp.json b/retired.txt\nsimilarity index 100%\n"
+        "rename from .mcp.json\nrename to retired.txt\n"
+    )
+    for diff in (deletion, rename_out):
+        audit = build_mcp_audit(workspace=tmp_path, diff_text=diff)
+        assert audit["capability_delta"]["removed"]
+        assert audit["subject_evaluated"] is True
+        assert _agent_result_from_audit(audit).control.state == "complete"
 
 
 @pytest.mark.parametrize(

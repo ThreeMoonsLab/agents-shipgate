@@ -12,6 +12,7 @@ import yaml
 
 from agents_shipgate.cli.agent_result import agent_result_json_payload
 from agents_shipgate.cli.workspace_guard import require_workspace
+from agents_shipgate.core.agent_boundary import _structural_diff_issues
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.capabilities import build_capability_facts
 from agents_shipgate.core.capability_delta import diff_capability_fact_sets
@@ -291,6 +292,35 @@ def build_mcp_audit(
     diff_files = parse_unified_diff(diff_text)
     diagnostics: list[AgentResultDiagnostic] = []
     rules, policy_version = _load_mcp_policy(policy, workspace, diagnostics)
+    # `check`'s structural validation, over the records that name a recognized
+    # source. One with no hunks (a binary or header-only record), headers that
+    # contradict each other, or a path another record also names was never
+    # read, whatever text the resolver below reconstructs for it. Whether the
+    # diff names a source at all is `subject_evaluated`, so no diff text here.
+    for issue in _structural_diff_issues(
+        workspace=workspace,
+        diff_files=[
+            item
+            for item in diff_files
+            if any(
+                path and (is_codex_config_path(path) or is_mcp_json_path(path))
+                for path in (item.old_path, item.new_path)
+            )
+        ],
+        diff_text="",
+    ):
+        # `check`'s review route for a renamed-away trust root, not unread
+        # input: the loop below reads the source side of that rename.
+        if issue.code == "boundary_rename_out_requires_review":
+            continue
+        diagnostics.append(
+            AgentResultDiagnostic(
+                level="warning",
+                code=issue.code,
+                message=issue.message,
+                path=issue.path,
+            )
+        )
     base_tools: list[Tool] = []
     head_tools: list[Tool] = []
     servers: list[NormalizedMcpServer] = []
