@@ -505,6 +505,7 @@ def test_coroutine_or_generator_builders_are_named_limits(tmp_path, kind):
         ("def patch():\n    import builders\n    builders.build = alt\n", 3),
         ("import sys\nsys.modules['builders'].build([write])\n", 2),
         ("import sys\nsys.modules['builders'].build = alt\n", 2),
+        ("from unittest import mock\nmock.patch('builders.build', alt).start()\n", 2),
     ],
 )
 def test_rebinding_or_computed_access_through_a_namespace_is_a_limit(tmp_path, use, line):

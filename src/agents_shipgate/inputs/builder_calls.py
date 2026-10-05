@@ -659,8 +659,10 @@ class BuilderCalls:
                 if (
                     isinstance(node, ast.Constant)
                     and isinstance(node.value, str)
-                    and node.value in names
+                    and (node.value in names or _dotted_reference(node.value, names))
                 ):
+                    # ``getattr(m, "build")``; ``mock.patch("builders.build", alt)``
+                    # and ``pydoc.locate("builders.build")`` spell its path.
                     if id(node) not in exports:
                         limits.append(f"{where} is named in a string at {caller.ref}:{node.lineno}")
                     continue
@@ -1140,6 +1142,13 @@ def _caller_conditions(scopes: ScopeIndex, site: CallSite) -> list[str]:
             conditions.append("the caller reaches its comprehension")
         grandchild, child, current = child, current, scopes.parents.get(current)
     return conditions
+
+
+def _dotted_reference(value: str, names: set[str]) -> bool:
+    """Whether ``value`` spells a dotted path ending in one of ``names``."""
+
+    parts = value.split(".")
+    return len(parts) > 1 and parts[-1] in names and all(part.isidentifier() for part in parts)
 
 
 def _unestablished(resolution: Resolution) -> str:
