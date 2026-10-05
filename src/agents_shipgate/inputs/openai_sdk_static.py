@@ -733,12 +733,18 @@ def _extract_agent_bindings(
                 # The same agent either way: one observation, not two that the
                 # comparison would read as an ambiguous identity.
                 first = next(o for o in file_observations if o.agent == identity)
+                # A caveat one caller's binding carries is the merged agent's
+                # too, whichever caller sorts first (#874 review).
+                caveats: dict[str, set[str]] = {}
                 for other in file_observations:
                     if other.agent == identity:
                         for name, locations in other.tool_sites.items():
                             first.tool_sites[name] = list(dict.fromkeys((*first.tool_sites.get(name, []), *locations)))
                         for name, locations in other.handoff_sites.items():
                             first.handoff_sites[name] = list(dict.fromkeys((*first.handoff_sites.get(name, []), *locations)))
+                        for name, reason in other.tool_issues.items():
+                            caveats.setdefault(name, set()).add(reason)
+                first.tool_issues = {name: " ".join(sorted(reasons)) for name, reasons in sorted(caveats.items())}
                 file_observations = [
                     o for o in file_observations if o.agent != identity or o is first
                 ]

@@ -941,3 +941,21 @@ def test_monkeypatched_builder_is_a_named_limit(tmp_path, framework):
     observations, warnings = _read(tmp_path, framework)
     assert observations and warnings and all(not item.tools_complete for item in observations)
     assert any("patch.py:5" in warning for warning in warnings)
+
+
+@pytest.mark.parametrize("framework", ["sdk", "adk"])
+@pytest.mark.parametrize("caveated", ["a_caller.py", "z_caller.py"])
+def test_merged_equivalent_callers_keep_every_callers_caveat(tmp_path, framework, caveated):
+    files = _files(framework, "")
+    files.pop("app.py")
+    # ``pkga`` changes ``__path__``: the ``read`` it re-exports is the one
+    # tools.py defines, but that is not established. The other caller binds
+    # the same definition directly; caller file order must not decide.
+    files["pkga/__init__.py"] = "from tools import read\n__path__.append('elsewhere')\n"
+    files[caveated] = "from builders import build\nfrom pkga import read\nx = build([read])\n"
+    files["m_caller.py"] = "from builders import build\nfrom tools import read\ny = build([read])\n"
+    _write(tmp_path, files)
+    observations, _ = _read(tmp_path, framework)
+    (observation,) = observations
+    assert observation.tool_names == ["read"]
+    assert "__path__" in observation.tool_issues.get("read", "")

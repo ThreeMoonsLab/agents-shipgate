@@ -31,7 +31,8 @@ body, which may bind the same name to something else; a name rebound after the
 `def` stays unresolved. Supplied arguments are read in the caller. Caches
 include invocation identity. Different callers
 cannot borrow one another's tools or handoffs. Equivalent constructions retain
-all caller locations; differing constructions follow the existing ambiguity
+all caller locations and every caller's caveat on a binding, whatever order the
+callers are read in; differing constructions follow the existing ambiguity
 rules and never silently become one complete union.
 
 List spreads, concatenation, choices and filters keep #909's member conditions.
