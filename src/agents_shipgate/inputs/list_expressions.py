@@ -366,6 +366,9 @@ class ListExpressions:
         self._invocation: Invocation | None = None
         self._field = "tools"
         self._checking_returns: set[tuple[int, str]] = set()
+        #: ``(id(construction), field) -> changed`` for the agent a builder
+        #: holds before returning it: the same for every invocation.
+        self._builder_handles: dict[tuple[int, str], bool] = {}
         self._cache = cache if cache is not None else ListCache()
         self._visits = 0
         self.entry = self._view(ref, tree, scopes, bindings, module, entry=True)
@@ -764,9 +767,12 @@ class ListExpressions:
 
         if invocation is None:
             return None
-        if construction is not None and self._agent_result_changed(
-            self.entry, construction, field, follow_returns=False
-        ):
+        key = (id(construction), field)
+        if construction is not None and key not in self._builder_handles:
+            self._builder_handles[key] = self._agent_result_changed(
+                self.entry, construction, field, follow_returns=False
+            )
+        if construction is not None and self._builder_handles[key]:
             return (
                 f"the agent built at {self.entry.ref}:{construction.lineno} reaches code that may "
                 "change it before its builder returns it"
