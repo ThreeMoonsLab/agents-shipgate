@@ -1,7 +1,7 @@
 {
   "corpus": "application-q2-development",
   "build": "0e58e6ff24d7852af7c8bc3bb06e659ac597dd0f",
-  "scored": "2026-10-03; current-answer review and independent source audit",
+  "scored": "2026-10-03; current-answer review and independent source audit; four limit quotes refreshed to the current answers 2026-10-05",
   "corpus_sha256": "bd6ef857e6c05806d791045a6742eda8e60f87f84a303bb085e626feeddf3105",
   "previous_ledger": "2026-09-30-6ced6f70.scores.json",
   "engine": {
