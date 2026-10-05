@@ -635,9 +635,19 @@ class ListExpressions:
         return self._cache.callees[key]
 
     def _agent_result_changed(
-        self, view: _View, call: ast.Call, keyword: str, *, borrowed: bool = False
+        self,
+        view: _View,
+        call: ast.Call,
+        keyword: str,
+        *,
+        borrowed: bool = False,
+        follow_returns: bool = True,
     ) -> bool:
-        """Follow returned builder handles before proving a borrowed list read-only."""
+        """Follow returned builder handles before proving a borrowed list read-only.
+
+        ``follow_returns`` False: a ``return`` of the handle is left to the
+        caller's own check, which reads what each caller does with it.
+        """
         if reflective_access(view.tree) is not None:
             return True
         if (
@@ -648,6 +658,8 @@ class ListExpressions:
             return True
         parent = view.scopes.parents.get(call)
         if isinstance(parent, ast.Return):
+            if not follow_returns:
+                return False
             function = _enclosing_function(view.scopes, parent)
             calls = self.calls
             if function is None or calls is None or view.module is None:
@@ -684,6 +696,8 @@ class ListExpressions:
                 continue
             use = view.scopes.parents.get(node)
             if isinstance(use, ast.Return):
+                if not follow_returns:
+                    continue
                 # Follow ``agent = Agent(...); return agent`` with its actual
                 # source scope, never a synthetic AST lacking lexical parents.
                 function = _enclosing_function(view.scopes, use)
@@ -737,11 +751,31 @@ class ListExpressions:
 
     # -- resolution --------------------------------------------------------
 
-    def construction_changed(self, invocation: Invocation | None, field: str) -> bool:
-        """Guard an entire construction, including fields omitted by its source."""
-        return invocation is not None and self._agent_result_changed(
+    def construction_changed(
+        self, invocation: Invocation | None, field: str, construction: ast.Call | None = None
+    ) -> str | None:
+        """Why a followed construction's agent may change ``field``, or None.
+
+        Guards the entire construction, fields omitted by its source included:
+        the agent its builder holds before returning it — appended to a
+        module registry, handed to a consumer, aliased (#874 review) — and the
+        handle each caller receives.
+        """
+
+        if invocation is None:
+            return None
+        if construction is not None and self._agent_result_changed(
+            self.entry, construction, field, follow_returns=False
+        ):
+            return (
+                f"the agent built at {self.entry.ref}:{construction.lineno} reaches code that may "
+                "change it before its builder returns it"
+            )
+        if self._agent_result_changed(
             self._foreign(invocation.site.module), invocation.site.call, field
-        )
+        ):
+            return "the caller's returned agent handle may change it"
+        return None
 
     def resolve(
         self, expr: ast.expr | None, *, invocation: Invocation | None = None

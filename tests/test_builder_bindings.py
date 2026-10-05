@@ -980,3 +980,22 @@ def test_adk_caller_supplied_duplicates_name_their_callers(tmp_path):
     _, warnings = _read(tmp_path, "adk")
     (duplicate,) = [warning for warning in warnings if "constructed more than once" in warning]
     assert "(builders.py:3, app.py:4, app.py:5)" in duplicate
+
+
+@pytest.mark.parametrize("framework", ["sdk", "adk"])
+@pytest.mark.parametrize("escape", ["REGISTRY.append(agent)", "register(agent)"])
+def test_an_agent_its_builder_hands_on_is_not_established(tmp_path, framework, escape):
+    files = _files(
+        framework,
+        "a = build([read])\n",
+        body=f"    agent = Agent(name='Built', tools=tools)\n    {escape}\n    return agent\n",
+    )
+    files["builders.py"] = files["builders.py"].replace("def build", "REGISTRY = []\ndef build")
+    # Another module reaches the registered agent and adds a tool.
+    files["mutator.py"] = (
+        "from builders import REGISTRY\nfrom tools import write\nREGISTRY[0].tools.append(write)\n"
+    )
+    _write(tmp_path, files)
+    observations, warnings = _read(tmp_path, framework)
+    assert observations and warnings and all(not item.tools_complete for item in observations)
+    assert any("before its builder returns it" in warning for warning in warnings)

@@ -1135,9 +1135,17 @@ class _PythonAdkExtractor:
                 if message not in binding.issues:
                     binding.issues.append(message)
                 binding.handoffs_complete = False
-            if any(self.lists.construction_changed(self._invocation, field) for field in ("tools", "sub_agents")):
+            changed = next(
+                (
+                    reason
+                    for field in ("tools", "sub_agents")
+                    if (reason := self.lists.construction_changed(self._invocation, field, call))
+                ),
+                None,
+            )
+            if changed:
                 binding = self._binding_for(agent_name, call)
-                message = f"Google ADK agent {agent_name!r}: the caller's returned agent handle may change its capability lists."
+                message = f"Google ADK agent {agent_name!r}: {changed}, so its capability lists are not established."
                 self._surface_warning(message, SURFACE_GAP_DYNAMIC_TOOLS)
                 if message not in binding.issues:
                     binding.issues.append(message)

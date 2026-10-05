@@ -64,10 +64,12 @@ target surfaces belongs to the next increment.
 
 A returned agent handle is checked even for literal or omitted fields. In-place
 changes, aliases, unknown consumers, container retention, reflective access and
-imports of a returned handle into another module keep it incomplete. Exported
-handles are conservatively unread even when their importing module makes no
-visible change. Class-body callers, coroutine and generator builders are not
-followed.
+imports of a returned handle into another module keep it incomplete. The agent
+a builder holds before returning it is checked the same way: appending it to a
+module registry another module reads, or handing it to any consumer, keeps it
+incomplete. Exported handles are conservatively unread even when their
+importing module makes no visible change. Class-body callers, coroutine and
+generator builders are not followed.
 
 A borrowed module list is checked against a bounded census of its in-scope
 importers and re-exports. Mutation through a returned agent reaches every

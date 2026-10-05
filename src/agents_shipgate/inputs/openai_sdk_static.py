@@ -431,8 +431,11 @@ def _extract_agent_bindings(
             issues: list[str] = list(context.limits)
             warnings.extend(context.limits)
             tools_complete = not context.limits
-            if lists.construction_changed(context.invocation, "tools") or lists.construction_changed(context.invocation, "mcp_servers"):
-                reason = f"OpenAI Agents SDK agent {target!r}: the caller's returned agent handle may change its tools or MCP servers."
+            changed = lists.construction_changed(
+                context.invocation, "tools", call
+            ) or lists.construction_changed(context.invocation, "mcp_servers", call)
+            if changed:
+                reason = f"OpenAI Agents SDK agent {target!r}: {changed}, so its tools and MCP servers are not established."
                 issues.append(reason)
                 warnings.append(reason)
                 tools_complete = False
@@ -579,8 +582,9 @@ def _extract_agent_bindings(
             tool_conditions = when.only_when(duplicated)
             handoff_list = lists.resolve(_keyword(call, "handoffs"), invocation=context.invocation)
             handoffs_complete = not context.limits
-            if lists.construction_changed(context.invocation, "handoffs"):
-                reason = f"OpenAI Agents SDK agent {target!r}: the caller's returned agent handle may change its handoffs."
+            changed = lists.construction_changed(context.invocation, "handoffs", call)
+            if changed:
+                reason = f"OpenAI Agents SDK agent {target!r}: {changed}, so its handoffs are not established."
                 issues.append(reason)
                 warnings.append(reason)
                 handoffs_complete = False
