@@ -1362,13 +1362,13 @@ class _PythonAdkExtractor:
             called = list(
                 dict.fromkeys(
                     location
-                    for _, _, locations in sorted(sites.values(), key=lambda site: (site[0], site[2]))
-                    for location in locations
+                    for line, _, locations in sorted(sites.values(), key=lambda site: (site[0], site[2]))
+                    for location in locations or (f"{self.source_ref}:{line}",)
                 )
             )
             lines = (
                 ", ".join(called)
-                if called
+                if any(locations for _, _, locations in sites.values())
                 else "lines " + ", ".join(str(line) for line in sorted(line for line, _, _ in sites.values()))
             )
             reason = (

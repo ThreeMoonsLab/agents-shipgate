@@ -1000,3 +1000,12 @@ def test_an_agent_its_builder_hands_on_is_not_established(tmp_path, framework, e
     observations, warnings = _read(tmp_path, framework)
     assert observations and warnings and all(not item.tools_complete for item in observations)
     assert any("before its builder returns it" in warning for warning in warnings)
+
+
+def test_adk_duplicates_name_direct_and_caller_supplied_constructions(tmp_path):
+    files = _files("adk", "a = build([read])\n")
+    files["builders.py"] += "from tools import write\ndirect = Agent(name='Built', tools=[write])\n"
+    _write(tmp_path, files)
+    _, warnings = _read(tmp_path, "adk")
+    (duplicate,) = [warning for warning in warnings if "constructed more than once" in warning]
+    assert "(builders.py:3, app.py:4, builders.py:5)" in duplicate
