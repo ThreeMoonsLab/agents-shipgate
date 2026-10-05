@@ -1,11 +1,15 @@
 """Real CLI acceptance for the supported local OpenShell document review."""
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import socket
 import subprocess
+from pathlib import Path
 
 import pytest
+import yaml
 from test_openshell_inputs import POLICY, REGISTRATION, selection
 from test_openshell_inventory import REJECTED_POLICIES
 from test_openshell_routes import configured_source, invoke
@@ -107,3 +111,57 @@ def test_default_routes_do_not_execute_openshell_connect_or_retrieve_credentials
     assert scanned.exit_code == 0, scanned.output
     assert secret not in json.dumps(results) + scanned.output
     assert all(secret not in path.read_text() for path in (root / "agents-shipgate-reports").iterdir() if path.is_file())
+
+
+EXAMPLE = Path(__file__).resolve().parent.parent / "docs/examples/openshell-review"
+
+#: Git that ignores the caller's repository, hooks and configuration, so the
+#: import holds what any reader's fresh repository holds.
+_EXAMPLE_GIT_ENV = {
+    **{key: value for key, value in os.environ.items() if not key.startswith("GIT_")},
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_NOSYSTEM": "1",
+}
+
+
+def test_example_history_reproduces_its_recorded_source_identities(tmp_path):
+    """Pin what the example's history alone determines.
+
+    Engine, receipt and current-control identities in the capture are
+    historical, and `subject_id` also names the import directory, so none is
+    pinned here. Commits, trees, the patch, the changed paths and the source
+    digests depend on no engine build, date or directory name.
+    """
+
+    recorded = json.loads((EXAMPLE / "acceptance.json").read_text(encoding="utf-8"))
+    subject = recorded["subject"]["git"]
+    repo = tmp_path / "workspace"
+    repo.mkdir()
+
+    def git(*args: str, **kwargs) -> bytes:
+        return subprocess.run(["git", "-C", str(repo), *args], check=True,
+                              capture_output=True, env=_EXAMPLE_GIT_ENV, **kwargs).stdout
+
+    git("init", "-q")
+    with (EXAMPLE / "history.git-export").open("rb") as history:
+        git("fast-import", "--quiet", stdin=history)
+    base, head, base_tree, head_tree = git(
+        "rev-parse", "refs/heads/main", "refs/heads/audit-only",
+        "refs/heads/main^{tree}", "refs/heads/audit-only^{tree}").decode().split()
+    assert (base, base_tree, head, head_tree) == (
+        subject["base_commit_sha"], subject["base_tree_sha"],
+        subject["head_commit_sha"], subject["head_tree_sha"])
+    assert git("merge-base", base, head).decode().strip() == subject["merge_base_sha"]
+    assert subject["source_head_commit_sha"] == head
+    assert recorded["diff"]["base_commit"] == base
+    assert git("diff", base, head) == (EXAMPLE / "change.diff").read_bytes()
+    changed = git("diff", "--name-only", "-z", base, head).decode().split("\0")[:-1]
+    assert changed == recorded["source_changes"]
+    assert recorded["source_sha256"] == {
+        path: "sha256:" + hashlib.sha256(git("cat-file", "blob", f"{head}:{path}")).hexdigest()
+        for path in recorded["source_sha256"]
+    }
+    registration = json.loads(git("cat-file", "blob", f"{head}:.shipgate/openshell.json"))
+    policy = yaml.safe_load(git("cat-file", "blob", f"{head}:worker-policy.yaml"))
+    assert registration["runtime_version"] == recorded["runtime_version"]
+    assert policy["version"] == recorded["policy_schema_version"]

@@ -2,27 +2,36 @@
 
 This is a constructed local example, pinned to OpenShell v0.1.2 and policy
 schema 1. It changes the selected `worker-policy.yaml` REST endpoint from
-`enforcement: enforce` to `enforcement: audit`. That restores audit-only
-request restrictions and widens the supported declared permission relation.
-No application, OpenShell process, gateway or endpoint was executed. The
-application manifest and tool export are copied unchanged from the existing
-reviewed `samples/clean_read_only_agent` fixture.
+`enforcement: enforce` to `enforcement: audit`. That relaxes the endpoint's
+request enforcement to audit-only and widens the supported declared
+permission relation. No application, OpenShell process, gateway or endpoint
+was executed. The application manifest and tool export are copied unchanged
+from the existing reviewed `samples/clean_read_only_agent` fixture.
 
 [The patch](change.diff), [exact Git history](history.git-export) and
 [captured evidence](acceptance.json) identify the source and result. The capture
 records the engine distribution digest, not merely its package version:
 an unreleased source checkout can report the same version as a released wheel.
 These fixture identities are historical evidence and grant no authority in
-another workspace. A replay generates its own receipt and current control.
+another workspace. A replay generates its own receipt and current control,
+whose identities will differ from the captured ones: they bind the engine
+build and generated reports that record the absolute workspace path. The
+commits, trees, patch, changed paths and source digests do not vary;
+`test_example_history_reproduces_its_recorded_source_identities` imports the
+history and holds them to this capture.
 
 ## Reproduce from the exact history
 
-Import the data stream into an empty temporary directory; it is Git data,
-not a script. Use this repository's absolute `shipgate` launcher path when
-validating the development source. For an installed build, use
-`agents-shipgate` and record that build's own engine identity.
+Import the data stream into an empty temporary directory named `workspace`;
+it is Git data, not a script. The captured `repository_id` is
+`local:workspace`, taken from that directory's name, so the recorded
+`subject_id` reproduces only in a directory of that name. Use this
+repository's absolute `shipgate` launcher path when validating the
+development source. For an installed build, use `agents-shipgate` and record
+that build's own engine identity.
 
 ```sh
+cd "$(mktemp -d)" && mkdir workspace && cd workspace
 git init
 git fast-import < /absolute/path/to/history.git-export
 git checkout main
@@ -55,7 +64,7 @@ no invented purpose, effect, authority or agent-binding declarations.
 | Criterion | Source evidence |
 | --- | --- |
 | Explicit selected inputs, typed facts and v0.1.2/schema 1 limits | `test_openshell_inventory.py`; supported-version documentation |
-| Enforced restrictions become audit-only, with exact source and route | This committed fixture history and capture; `test_audit_diff_check_and_configured_verifier_agree[widened]` |
+| Enforced restrictions become audit-only, with exact source and route | This committed fixture history and capture, held to each other by `test_example_history_reproduces_its_recorded_source_identities`; `test_audit_diff_check_and_configured_verifier_agree[widened]` |
 | Equivalent/narrowed changes have no false expansion | The equivalent/narrowed cases of that same CLI parity test |
 | Reference changes retain every established expansion | `test_link_retarget_keeps_reference_review_and_every_supported_expansion`: linked and independent policy changes, all three callers, configured verification |
 | Every rejected policy in the inventory conformance corpus denies completion | Shared `REJECTED_POLICIES`, exercised by `test_conformance_rejections_deny_boundary_and_configured_completion`; missing-policy case is separate |
