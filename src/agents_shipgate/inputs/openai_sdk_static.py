@@ -28,6 +28,7 @@ from agents_shipgate.inputs.list_expressions import (
     ListCache,
     ListExpressions,
     ListMember,
+    evaluation_site,
     shared_lists,
     source_text,
     unread_list_reason,
@@ -486,8 +487,10 @@ def _extract_agent_bindings(
                     head = reference.split(".", 1)[0]
                     # Read where the reference is written: a module-level
                     # list's names are the module's, whatever the agent's
-                    # enclosing function binds (#879 review).
-                    found = scopes.enclosing_bindings(element, head)
+                    # enclosing function binds (#879 review). A builder's
+                    # default is evaluated around its ``def``, never in the
+                    # body that rebinds the name (#874 review).
+                    found = scopes.enclosing_bindings(evaluation_site(scopes, element), head)
                     local = found[0] if found else None
                     statement = scopes.statement_of(local) if local is not None else None
                     if len(found) > 1:
@@ -944,7 +947,8 @@ def _handoff_identity(
     if not isinstance(item, ast.Name):
         return None, "it is not a name"
     if member.module is None:
-        found = scopes.enclosing_bindings(item, item.id)
+        # A default is evaluated around its ``def`` (#874 review).
+        found = scopes.enclosing_bindings(evaluation_site(scopes, item), item.id)
         statement = scopes.statement_of(found[0]) if len(found) == 1 else None
         value = getattr(statement, "value", None)
         if (

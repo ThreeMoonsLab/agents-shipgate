@@ -781,3 +781,58 @@ def test_derived_scope_cannot_hide_a_caller_outside_it(tmp_path, framework):
         for side in ("base", "head")
         for gap in declared[side]["coverage_gaps"]
     )
+
+
+def _imports(framework):
+    return (
+        "from agents import Agent\n"
+        if framework == "sdk"
+        else "from google.adk.agents import Agent\n"
+    )
+
+
+@pytest.mark.parametrize("framework", ["sdk", "adk"])
+@pytest.mark.parametrize("forwarded", [False, True])
+def test_default_is_read_around_its_def_not_in_the_body(tmp_path, framework, forwarded):
+    files = _files(framework, "")
+    if forwarded:
+        # A forwarding function's default, in the builder's own module.
+        files["builders.py"] = _imports(framework) + (
+            "from tools import read\n"
+            "def build(tools):\n    return Agent(name='Built', tools=tools)\n"
+            "def forward(tools=[read]):\n    from tools import write as read\n    return build(tools)\n"
+        )
+        files["app.py"] = "from builders import forward\na = forward()\n"
+    else:
+        files["builders.py"] = _imports(framework) + (
+            "from tools import read\n"
+            "def build(tools=[read]):\n    from tools import write as read\n"
+            "    return Agent(name='Built', tools=tools)\n"
+        )
+        files["app.py"] = "from builders import build\na = build()\n"
+    _write(tmp_path, files)
+    observations, warnings = _read(tmp_path, framework)
+    assert warnings == []
+    (observation,) = observations
+    assert observation.tools_complete and observation.tool_names == ["read"]
+    assert observation.tool_locators["read"].startswith("tools.py#")
+
+
+@pytest.mark.parametrize("framework", ["sdk", "adk"])
+def test_handoff_default_is_read_around_its_def_not_in_the_body(tmp_path, framework):
+    field = "handoffs" if framework == "sdk" else "sub_agents"
+    files = _files(framework, "a = build([read])\n")
+    files["builders.py"] = _imports(framework) + (
+        "from tools import read\n"
+        "reader = Agent(name='Reader', tools=[read])\n"
+        f"def build(tools, {field}=[reader]):\n"
+        "    reader = Agent(name='Shadow')\n"
+        f"    return Agent(name='Built', tools=tools, {field}={field})\n"
+    )
+    _write(tmp_path, files)
+    observations, _ = _read(tmp_path, framework)
+    built = next(item for item in observations if item.agent == "Built")
+    expected = "reader" if framework == "sdk" else "Reader"
+    assert list(built.handoff_sites) == [expected]
+    if framework == "sdk":
+        assert built.handoff_names == [expected] and built.handoffs_complete

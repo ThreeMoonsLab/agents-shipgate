@@ -25,8 +25,11 @@ callers remain unread. Ordinary model, database and instruction argument values
 remain original AST expressions and need not be statically evaluated.
 
 Each invocation supplies all capability fields together. Forwarding builders
-keep the parent invocation. Defaults are read in the defining module, supplied
-arguments in the caller. Caches include invocation identity. Different callers
+keep the parent invocation. Defaults are read where Python evaluates them: in
+the scope around the `def` of the builder or forwarding function, never in its
+body, which may bind the same name to something else; a name rebound after the
+`def` stays unresolved. Supplied arguments are read in the caller. Caches
+include invocation identity. Different callers
 cannot borrow one another's tools or handoffs. Equivalent constructions retain
 all caller locations; differing constructions follow the existing ambiguity
 rules and never silently become one complete union.

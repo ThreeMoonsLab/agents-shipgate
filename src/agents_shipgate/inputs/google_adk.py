@@ -44,6 +44,7 @@ from agents_shipgate.inputs.list_expressions import (
     ListExpressions,
     ListMember,
     ListResolution,
+    evaluation_site,
     source_text,
     unread_list_reason,
     unread_parts,
@@ -1789,7 +1790,7 @@ class _PythonAdkExtractor:
         than binding to a name it cannot stand behind.
         """
 
-        scope: ast.AST | None = self._scope_of(call)
+        scope: ast.AST | None = self._scope_of(evaluation_site(self.scopes, call))
         while scope is not None:
             if (scope, variable) in self.agent_names_by_variable:
                 return self.agent_names_by_variable[(scope, variable)]
@@ -1858,7 +1859,7 @@ class _PythonAdkExtractor:
         if spelling is None:
             return False
         scopes = self._builder_calls.scopes(module)
-        local = scopes.enclosing_bindings(call.func, spelling.split(".", 1)[0])
+        local = scopes.enclosing_bindings(evaluation_site(scopes, call.func), spelling.split(".", 1)[0])
         if local:
             nodes = local
         else:
@@ -1956,7 +1957,12 @@ class _PythonAdkExtractor:
             if message not in binding.issues:
                 binding.issues.append(message)
             return []
-        local = self._builder_calls.scopes(module).enclosing_bindings(member.expr, spelling.split(".", 1)[0]) if self._builder_calls else []
+        scopes = self._builder_calls.scopes(module) if self._builder_calls else None
+        local = (
+            scopes.enclosing_bindings(evaluation_site(scopes, member.expr), spelling.split(".", 1)[0])
+            if scopes is not None
+            else []
+        )
         if local and self._builder_calls is not None:
             resolution, long_running = self._builder_calls.resolve(module, member.expr), False
             if resolution.definition is not None and resolution.definition not in module.tree.body:
@@ -2151,7 +2157,9 @@ class _PythonAdkExtractor:
         """
 
         name = spelling.split(".", 1)[0]
-        found = self.scopes.enclosing_bindings(node, name)
+        # A default is evaluated around its ``def``, never in the body that
+        # rebinds the name (#874 review).
+        found = self.scopes.enclosing_bindings(evaluation_site(self.scopes, node), name)
         if not found:
             return None
         if len(found) > 1:
@@ -2641,7 +2649,7 @@ class _PythonAdkExtractor:
             return None
         scopes = self._scopes_for(module)
         name = spelling.split(".", 1)[0]
-        found = scopes.enclosing_bindings(call.func, name)
+        found = scopes.enclosing_bindings(evaluation_site(scopes, call.func), name)
         callee: Resolution
         import_node: tuple[ast.Import | ast.ImportFrom, ast.alias] | None = None
         if len(found) > 1:
