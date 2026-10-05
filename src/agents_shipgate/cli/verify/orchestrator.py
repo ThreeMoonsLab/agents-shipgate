@@ -1104,9 +1104,11 @@ def run_verify(
             changed_files=changed_files,
         )
     except Exception:
-        if run_base is not None:
-            run_base.cleanup()
-        reset_static_input_snapshot(static_snapshot_token)
+        try:
+            if run_base is not None:
+                run_base.cleanup()
+        finally:
+            reset_static_input_snapshot(static_snapshot_token)
         raise
 
     try:

@@ -2775,6 +2775,43 @@ def test_internal_control_consistency_failure_clears_stale_handoff(
     assert active_static_input_snapshot() is prior_snapshot
 
 
+def test_base_preparation_failure_restores_input_context_when_cleanup_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tempfile
+
+    from agents_shipgate.core.static_inputs import active_static_input_snapshot
+
+    prior_snapshot = active_static_input_snapshot()
+    repo = _repo_with_manifest(tmp_path)
+    (repo / "README.md").write_text("change\n", encoding="utf-8")
+    _commit_all(repo, "head")
+    _patch_run_scan(monkeypatch, [], head_exit=0)
+
+    def fail_base_preparation(**kwargs: Any):
+        assert active_static_input_snapshot() is not prior_snapshot
+        kwargs["run_report_dir"]()  # The run-private base directory now exists.
+        raise RuntimeError("base preparation failed")
+
+    real_cleanup = tempfile.TemporaryDirectory.cleanup
+
+    def fail_run_base_cleanup(self) -> None:
+        real_cleanup(self)
+        if Path(self.name).name.startswith("agents-shipgate-verify-base-"):
+            raise OSError("run-private base directory cleanup failed")
+
+    monkeypatch.setattr(verify_orchestrator, "_prepare_base_report", fail_base_preparation)
+    monkeypatch.setattr(tempfile.TemporaryDirectory, "cleanup", fail_run_base_cleanup)
+    result = runner.invoke(
+        app,
+        ["verify", "--workspace", str(repo), "--config", "shipgate.yaml", "--base", "HEAD~1"],
+    )
+
+    assert result.exit_code == 4
+    assert "run-private base directory cleanup failed" in result.output
+    assert active_static_input_snapshot() is prior_snapshot
+
+
 def test_advisory_and_strict_change_only_exit_policy_not_control(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
