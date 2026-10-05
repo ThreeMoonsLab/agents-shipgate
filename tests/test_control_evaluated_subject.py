@@ -95,7 +95,8 @@ def test_missing_policy_denies_authority_on_a_readable_source(tmp_path: Path) ->
 
 
 @pytest.mark.parametrize(
-    "body", ["[]", "false", "- invalid_policy_root", "rules: {}", "rules: [false]"]
+    "body",
+    ["[]", "false", "- invalid_policy_root", "rules: {}", "rules: false", "rules: [false]"],
 )
 def test_invalid_policy_structure_is_not_complete_input(tmp_path: Path, body: str) -> None:
     (tmp_path / "policy.yaml").write_text(body)
@@ -106,6 +107,24 @@ def test_invalid_policy_structure_is_not_complete_input(tmp_path: Path, body: st
     audit = build_mcp_audit(workspace=tmp_path, diff_text=diff, policy=Path("policy.yaml"))
     assert not audit["input_complete"]
     assert not _agent_result_from_audit(audit).control.permissions.authorizes_anything
+
+
+@pytest.mark.parametrize(
+    "body",
+    ['version: "1"\nrules:\n', "rules:\n#  - id: MCP-UNKNOWN-TOOL-SCHEMA\n#    action: block\n"],
+    ids=["empty_rules", "commented_out_rules"],
+)
+def test_policy_with_null_rules_keeps_the_defaults(tmp_path: Path, body: str) -> None:
+    # Every entry commented out leaves `rules` null: no override, as if absent.
+    (tmp_path / "policy.yaml").write_text(body)
+    diff = (
+        "diff --git a/.mcp.json b/.mcp.json\nnew file mode 100644\n"
+        '--- /dev/null\n+++ b/.mcp.json\n@@ -0,0 +1 @@\n+{"mcpServers": {}}\n'
+    )
+    audit = build_mcp_audit(workspace=tmp_path, diff_text=diff, policy=Path("policy.yaml"))
+    assert [item for item in audit["diagnostics"] if item["level"] != "info"] == []
+    assert audit["input_complete"] is True
+    assert _agent_result_from_audit(audit).control.state == "complete"
 
 
 @pytest.mark.parametrize(

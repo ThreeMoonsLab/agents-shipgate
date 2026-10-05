@@ -157,7 +157,8 @@ def _load_mcp_policy(
     version = str(raw.get("version") or "1")
     raw_rules = raw.get("rules")
     if not isinstance(raw_rules, list):
-        if "rules" in raw:
+        # `rules:` with every entry commented out is YAML null: no overrides.
+        if raw_rules is not None:
             diagnostics.append(AgentResultDiagnostic(
                 level="warning", code="mcp_policy_parse_failed",
                 message="MCP permission policy rules must be a list; using built-in defaults.",
