@@ -12,17 +12,18 @@ construction, the caller and the tool definition locations.
 ## One invocation per construction
 
 `BuilderCalls` finds direct callers in the read scope, including local imports
-and repository-local re-exports that the import resolver establishes. The read
-scope is the census only when it is the application's root: the repository
-root, or a root declared with `--scope`. A scope that `diff --application`
-derives from the change (#875) holds the changed files' agents, not every
-caller of a builder they share, so below the repository root its census is a
-named limit for each construction it would have followed. It binds
+and repository-local re-exports that the import resolver establishes. It binds
 the complete Python call: positional-only and keyword-only arguments and
 defaults are supported; missing, duplicate, unknown, excess and unpacked
 arguments are limits. Variadic signatures, decorated builders and lambda
 callers remain unread. Ordinary model, database and instruction argument values
 remain original AST expressions and need not be statically evaluated.
+
+The read scope is the caller census only when it is the application's root:
+the repository root, or a root declared with `--scope`. A scope that
+`diff --application` derives from the change (#875) holds the changed files'
+agents, not every caller of a builder they share, so below the repository root
+its census is a named limit for each construction it would have followed.
 
 Each invocation supplies all capability fields together. Forwarding builders
 keep the parent invocation. Defaults are read where Python evaluates them: in
