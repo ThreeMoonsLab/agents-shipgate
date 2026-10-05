@@ -439,6 +439,24 @@ def test_mcp_audit_refuses_a_record_whose_path_cannot_be_read(
     assert not _agent_result_from_audit(audit).control.permissions.authorizes_anything
 
 
+def test_mcp_audit_stop_summary_names_its_own_reason(tmp_path: Path) -> None:
+    stopped = _agent_result_from_audit(build_mcp_audit(workspace=tmp_path, diff_text=""))
+    assert stopped.control.state == "human_review_required"
+    assert stopped.summary == stopped.control.reason == stopped.control.stop_reason
+
+    # An evaluated result keeps its decision's summary.
+    evaluated = _agent_result_from_audit(
+        build_mcp_audit(
+            workspace=tmp_path,
+            diff_text=(
+                "diff --git a/.mcp.json b/.mcp.json\nnew file mode 100644\n"
+                '--- /dev/null\n+++ b/.mcp.json\n@@ -0,0 +1 @@\n+{"mcpServers": {}}\n'
+            ),
+        )
+    )
+    assert evaluated.control.state == "complete"
+    assert evaluated.summary == evaluated.control.reason == "No MCP permission changes require action."
+
 
 @pytest.mark.parametrize(
     "body",

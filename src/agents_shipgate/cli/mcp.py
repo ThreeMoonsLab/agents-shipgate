@@ -784,6 +784,9 @@ def _agent_result_from_audit(audit: dict[str, Any]) -> AgentResultV2:
             "The MCP audit did not evaluate a recognized source with complete input. "
             "Supply readable MCP configuration and policy before relying on this result."
         )
+        # The decision's summary describes rules over input this stop did not
+        # trust ("No MCP permission changes require action."); say why it stops.
+        summary = why
         control = derive_agent_control(
             reason=why,
             next_action=HumanControlAction(kind="review", why=why),
