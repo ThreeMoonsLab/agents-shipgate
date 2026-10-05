@@ -186,7 +186,7 @@
       "rationale": "Not Q1: no row; first named limit: OpenAI Agents SDK agent 'agent' at chack_agent/backends/openai_compaction_backend.py:932 uses a dynamic tools expression"
     },
     "cianfhoghlaim_tuatha-1": {
-      "answer_id": "sha256:e291840038b3ab89bd3f48ef93b21c4d0f540e630ea2582afaae7c0b13238591",
+      "answer_id": "sha256:87f11d7a3fb3201455648386fb54d378a6dcc285cbb8082390378d5b8bafaef4",
       "q0": true,
       "q1": false,
       "q2": false,
