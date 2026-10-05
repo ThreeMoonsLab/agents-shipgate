@@ -604,6 +604,18 @@ class BuilderCalls:
                     limits.append(
                         f"{where} may be reached through a dynamic import at {caller.ref}:{node.lineno}"
                     )
+                if (
+                    isinstance(node, ast.Attribute)
+                    and node.attr in names
+                    and reference_spelling(node) is None
+                ):
+                    # ``sys.modules["builders"].build``, ``load().build = alt``:
+                    # a receiver the reader cannot name may be the builder's
+                    # module, whatever the access does.
+                    limits.append(
+                        f"{where} may be reached through a computed receiver at {caller.ref}:{node.lineno}"
+                    )
+                    continue
                 if isinstance(node, ast.Name | ast.Attribute) and isinstance(node.ctx, ast.Load):
                     spelling = reference_spelling(node)
                     if spelling is None:
@@ -655,7 +667,20 @@ class BuilderCalls:
                 if not (
                     (isinstance(node, ast.Name) and node.id in names)
                     or (isinstance(node, ast.Attribute) and node.attr in names)
-                ) or not isinstance(node.ctx, ast.Load):
+                ):
+                    continue
+                if not isinstance(node.ctx, ast.Load):
+                    # ``builders.build = alt``, ``del builders.build``: a store
+                    # through a namespace that may hold the builder rebinds it
+                    # for every caller reading it there. A module rebinding its
+                    # own name leaves the builder alone; that module's uses of
+                    # the name are then ambiguous, which their resolution names.
+                    if isinstance(node, ast.Attribute) and self._may_hold(
+                        caller, node.value, related
+                    ):
+                        limits.append(
+                            f"{where} may be rebound or deleted through a namespace at {caller.ref}:{node.lineno}"
+                        )
                     continue
                 resolution = self.resolve(caller, node)
                 if resolution.resolved and not resolution.caveats:
@@ -671,7 +696,7 @@ class BuilderCalls:
                         limits.append(f"{where} is used as a value at {caller.ref}:{node.lineno}")
                 elif not self._elsewhere(caller, node, resolution):
                     limits.append(
-                        f"{where} has an unresolved reference at {caller.ref}:{node.lineno}: {resolution.detail}"
+                        f"{where} has an unresolved reference at {caller.ref}:{node.lineno}: {_unestablished(resolution)}"
                     )
         derived = self.resolver.derived_scope()
         if derived is not None:
@@ -694,6 +719,30 @@ class BuilderCalls:
                 )
             ),
             tuple(dict.fromkeys(limits)),
+        )
+
+    def _may_hold(self, caller: PythonModule, receiver: ast.expr, related: set[Path]) -> bool:
+        """Whether ``receiver`` may be a namespace holding the subject: the
+        import of a related module, or of a package that can retain one.
+
+        Another library's module, a local object (``self``) and any
+        non-import binding cannot be the builder's module; a namespace bound
+        to a module value is a value use the census names already.
+        """
+
+        spelling = reference_spelling(receiver)
+        if spelling is None:
+            return True
+        scopes = self.scopes(caller)
+        head = spelling.split(".", 1)[0]
+        bindings = scopes.enclosing_bindings(evaluation_site(scopes, receiver), head) or [
+            item.node for item in caller.bindings.get(head, [])
+        ]
+        return any(
+            isinstance(binding, ast.alias)
+            and isinstance(statement := scopes.statement_of(binding), ast.Import | ast.ImportFrom)
+            and self._retained_namespace(caller, statement, binding, related)
+            for binding in bindings
         )
 
     def _expanding_imports(
@@ -1089,6 +1138,13 @@ def _caller_conditions(scopes: ScopeIndex, site: CallSite) -> list[str]:
             conditions.append("the caller reaches its comprehension")
         grandchild, child, current = child, current, scopes.parents.get(current)
     return conditions
+
+
+def _unestablished(resolution: Resolution) -> str:
+    """Why ``resolution`` does not establish its target: its detail, or the
+    caveats of one that resolved but cannot be relied on."""
+
+    return resolution.detail or "; ".join(resolution.caveats) or "its target is not established"
 
 
 def single_return(function: Function) -> ast.expr | None:

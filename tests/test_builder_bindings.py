@@ -928,3 +928,16 @@ def test_condition_around_a_callers_def_is_kept(tmp_path, framework, nested):
     (observation,) = observations
     assert observation.tools_complete and observation.tool_names == ["read"]
     assert observation.tool_conditions == {"read": ["the caller's condition `flag` holds"]}
+
+
+@pytest.mark.parametrize("framework", ["sdk", "adk"])
+def test_monkeypatched_builder_is_a_named_limit(tmp_path, framework):
+    files = _files(framework, "a = build([read])\n")
+    files["patch.py"] = (
+        "import builders\nfrom tools import write\n"
+        "def alt(tools):\n    return None\nbuilders.build = alt\n"
+    )
+    _write(tmp_path, files)
+    observations, warnings = _read(tmp_path, framework)
+    assert observations and warnings and all(not item.tools_complete for item in observations)
+    assert any("patch.py:5" in warning for warning in warnings)

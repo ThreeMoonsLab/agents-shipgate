@@ -493,3 +493,54 @@ def test_coroutine_or_generator_builders_are_named_limits(tmp_path, kind):
         for context in contexts
         for limit in context.limits
     )
+
+
+@pytest.mark.parametrize(
+    "use, line",
+    [
+        ("import builders\nbuilders.build = alt\n", 2),
+        ("import builders\ndel builders.build\n", 2),
+        ("import builders as b\nb.build += alt\n", 2),
+        ("import builders\ndef patch():\n    builders.build = alt\n", 3),
+        ("def patch():\n    import builders\n    builders.build = alt\n", 3),
+        ("import sys\nsys.modules['builders'].build([write])\n", 2),
+        ("import sys\nsys.modules['builders'].build = alt\n", 2),
+    ],
+)
+def test_rebinding_or_computed_access_through_a_namespace_is_a_limit(tmp_path, use, line):
+    resolver = ImportResolver(tmp_path)
+    module = _module(tmp_path, "builders.py", "def build(tools):\n    return None\n", resolver)
+    _module(tmp_path, "app.py", "from builders import build\na = build([read])\n", resolver)
+    _module(tmp_path, "patch.py", use, resolver)
+    census = BuilderCalls(resolver).callers(module, module.tree.body[0])
+    assert [site.location for site in census.sites] == ["app.py:2"]
+    assert any(f"patch.py:{line}" in limit for limit in census.limits)
+
+
+@pytest.mark.parametrize(
+    "use",
+    [
+        "import json\njson.build = alt\n",
+        "class Holder:\n    def __init__(self):\n        self.build = alt\n",
+        "import other\nother.build = alt\n",
+    ],
+)
+def test_a_store_to_another_namespace_is_not_a_limit(tmp_path, use):
+    resolver = ImportResolver(tmp_path)
+    module = _module(tmp_path, "builders.py", "def build(tools):\n    return None\n", resolver)
+    _module(tmp_path, "other.py", "value = 1\n", resolver)
+    _module(tmp_path, "app.py", "from builders import build\na = build([read])\n", resolver)
+    _module(tmp_path, "patch.py", use, resolver)
+    census = BuilderCalls(resolver).callers(module, module.tree.body[0])
+    assert [site.location for site in census.sites] == ["app.py:2"]
+    assert census.limits == ()
+
+
+def test_a_caveated_reference_names_its_caveat(tmp_path):
+    resolver = ImportResolver(tmp_path)
+    _module(tmp_path, "pkg/__init__.py", "__path__.append('elsewhere')\n", resolver)
+    module = _module(tmp_path, "pkg/builders.py", "def build(tools):\n    return None\n", resolver)
+    _module(tmp_path, "app.py", "from pkg.builders import build\na = build([read])\n", resolver)
+    census = BuilderCalls(resolver).callers(module, module.tree.body[0])
+    (limit,) = [limit for limit in census.limits if "app.py:2" in limit]
+    assert "__path__" in limit and not limit.endswith("None")

@@ -85,7 +85,12 @@ through the namespace remains readable. Importing a namespace that retains a
 returned agent handle also keeps that handle incomplete.
 
 Computed access, ambiguous imports and dynamic import machinery are explicit
-limits. Known direct callers remain partial evidence beside unresolved callers.
+limits, and so is any access through a receiver the reader cannot name
+(`sys.modules["builders"].build`). A store or `del` through a namespace that
+may hold the builder — `builders.build = alt`, also inside a function or after
+a local import — rebinds it for every caller and is a limit; a store to another
+library's module or to a local object (`self.build`) is not. Known direct
+callers remain partial evidence beside unresolved callers.
 Foreign caller-local tool closures, list/dictionary-returning factories and
 `self.tools` remain unread for subsequent #874 increments. ADK's followed-list
 observations retain the existing distinction between comparable application
