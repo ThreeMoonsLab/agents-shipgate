@@ -32,6 +32,7 @@ from agents_shipgate.core.codex_boundary import (
     DEFAULT_RULES as CODEX_DEFAULT_RULES,
 )
 from agents_shipgate.core.codex_boundary import (
+    UNEVALUATED_SUBJECT_REASON,
     CodexBoundaryPolicy,
     _affected_files_for,
     _agent_repair_instructions,
@@ -42,6 +43,7 @@ from agents_shipgate.core.codex_boundary import (
     _next_action_for,
     _pending_review_for,
     _repair_for,
+    _repair_for_control,
     _required_reviewers_for,
     _risk_for,
     _violation_fingerprint,
@@ -778,6 +780,7 @@ def _project_legacy(
             verification_replayable=verification_replayable,
             discovery_replayable=discovery_replayable,
         )
+        repair = _repair_for_control(repair, control)
     else:
         decision = legacy.decision
         risk = legacy.risk_level
@@ -789,7 +792,11 @@ def _project_legacy(
                     legacy.control.reason
                     if (
                         (not verification_replayable or not discovery_replayable)
-                        and legacy.control.verify_required
+                        and (
+                            legacy.control.verify_required
+                            # A stop for the input, not for a boundary finding.
+                            or legacy.control.reason == UNEVALUATED_SUBJECT_REASON
+                        )
                     )
                     else summary
                 )

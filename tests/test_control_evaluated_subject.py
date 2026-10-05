@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,12 +10,15 @@ from types import SimpleNamespace
 import pytest
 from jsonschema import Draft202012Validator
 from pydantic import TypeAdapter, ValidationError
+from typer.testing import CliRunner
 
 from agents_shipgate.cli.agent_result import build_agent_boundary_result
+from agents_shipgate.cli.main import app
 from agents_shipgate.cli.mcp import _agent_result_from_audit, build_mcp_audit
 from agents_shipgate.cli.verify.orchestrator import _derive_verifier_control
 from agents_shipgate.core.agent_control import AgentControlConsistencyError, derive_agent_control
 from agents_shipgate.core.codex_boundary import evaluate_codex_boundary_result
+from agents_shipgate.mcp_server.server import shipgate_check
 from agents_shipgate.schemas.agent_control import AGENT_CONTROL_ADAPTER, PERMISSION_FIELDS
 from agents_shipgate.schemas.current_control import CurrentControlProjection
 from agents_shipgate.schemas.verifier import VerifierDiffStatus
@@ -347,6 +351,35 @@ def test_detached_check_does_not_authorize_completion(tmp_path: Path, diff: str)
     )
     assert result.control.state == "human_review_required"
     assert not result.control.permissions.authorizes_anything
+
+
+@pytest.mark.parametrize(
+    "diff",
+    [
+        "",
+        "diff --git a/README.md b/README.md\n"
+        "--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-old\n+new\n",
+    ],
+    ids=["empty", "readme_only"],
+)
+def test_detached_check_stop_names_its_own_reason(tmp_path: Path, diff: str) -> None:
+    payload = shipgate_check(workspace=str(tmp_path), diff_text=diff)
+    control = payload["control"]
+    assert control["state"] == "human_review_required"
+    # The stop, its summary and its repair all say why it stops, and who acts.
+    assert control["reason"] == control["stop_reason"] == control["next_action"]["why"]
+    assert "does not establish an evaluated checkout state" in control["reason"]
+    assert payload["summary"] == payload["explanation"] == control["reason"]
+    assert payload["repair"]["actor"] == control["next_action"]["actor"] == "human"
+
+    (tmp_path / "change.diff").write_text(diff, encoding="utf-8")
+    envelope = CliRunner().invoke(
+        app,
+        ["check", "--workspace", str(tmp_path), "--diff", str(tmp_path / "change.diff"),
+         "--format", "agent-control-json"],
+    )
+    assert envelope.exit_code == 0, envelope.output
+    assert json.loads(envelope.output)["reason"] == control["reason"]
 
 
 def test_replayable_clean_check_remains_an_evaluated_result(tmp_path: Path) -> None:

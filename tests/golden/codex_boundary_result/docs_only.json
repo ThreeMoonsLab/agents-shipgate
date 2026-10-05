@@ -12,13 +12,13 @@
   "risk_level": "none",
   "audit_id": "agent_boundary_dd5101b321c43dac00967f8d",
   "policy_version": "1",
-  "summary": "No recognized coding-agent boundary change requires action.",
+  "summary": "The supplied input does not establish an evaluated checkout state. Re-run check against the intended worktree or with both --base and --head.",
   "changed_files": [
     "docs/readme.md"
   ],
   "control": {
     "state": "human_review_required",
-    "reason": "No recognized coding-agent boundary change requires action.",
+    "reason": "The supplied input does not establish an evaluated checkout state. Re-run check against the intended worktree or with both --base and --head.",
     "completion_allowed": false,
     "must_stop": true,
     "verify_required": false,
@@ -38,7 +38,7 @@
     "stop_reason": "The supplied input does not establish an evaluated checkout state. Re-run check against the intended worktree or with both --base and --head."
   },
   "repair": {
-    "actor": "coding_agent",
+    "actor": "human",
     "safe_to_attempt": false,
     "instructions": [],
     "forbidden_shortcuts": [
@@ -64,7 +64,7 @@
     }
   ],
   "required_reviewers": [],
-  "explanation": "No recognized coding-agent boundary change requires action.",
+  "explanation": "The supplied input does not establish an evaluated checkout state. Re-run check against the intended worktree or with both --base and --head.",
   "suggested_fixes": [],
   "agent_repair_instructions": [],
   "diagnostics": [],
