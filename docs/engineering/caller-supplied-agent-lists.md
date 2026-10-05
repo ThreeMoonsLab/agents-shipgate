@@ -35,10 +35,16 @@ all caller locations; differing constructions follow the existing ambiguity
 rules and never silently become one complete union.
 
 List spreads, concatenation, choices and filters keep #909's member conditions.
-Unknown caller branches add their own conditions. Statically unreachable
-callers are limits. An agent construction under a conditional, loop or handler
-is not followed through caller arguments in this increment. The reader reports
-static construction and membership evidence, not execution or runtime behavior.
+Unknown caller branches add their own conditions: an `if`, loop or handler, a
+conditional expression, a short-circuited `and`/`or` operand or a comprehension
+around the call, out through the `def` of every function it is made in.
+Statically unreachable callers — `if False:`, `while False:`, the `else` of
+`while True:`, `x if False else y`, `False and x`, or a function defined only
+in such a branch — are limits. An agent construction under a conditional
+statement or expression, a short-circuited operand, a loop, a comprehension or
+a handler is not followed through caller arguments in this increment. The
+reader reports static construction and membership evidence, not execution or
+runtime behavior.
 
 Tools can resolve across module boundaries. Handoffs and ADK sub-agents passed
 from a caller in the construction's own module retain their existing identity

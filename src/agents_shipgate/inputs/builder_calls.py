@@ -239,38 +239,7 @@ class BuilderCalls:
             raise CallLimit(f"{function.name!r} is decorated, so its body is not the callable")
         if isinstance(function, ast.AsyncFunctionDef) or _has_yield(function):
             raise CallLimit("a coroutine or generator builder is not followed")
-        scopes = self.scopes(site.module)
-        current = scopes.parents.get(site.call)
-        child: ast.AST = site.call
-        conditions: list[str] = []
-        while current is not None:
-            if isinstance(current, ast.ClassDef | ast.Lambda):
-                raise CallLimit("a class-body or lambda caller is not followed")
-            if isinstance(current, ast.FunctionDef | ast.AsyncFunctionDef | ast.Module):
-                break
-            if isinstance(current, ast.If):
-                positive = child in current.body
-                if isinstance(current.test, ast.Constant):
-                    if bool(current.test.value) != positive:
-                        raise CallLimit("the caller lies in a statically unreachable branch")
-                else:
-                    conditions.append(
-                        f"the caller's {'condition' if positive else 'negated condition'} `{ast.unparse(current.test)}` holds"
-                    )
-            elif isinstance(
-                current,
-                ast.For
-                | ast.AsyncFor
-                | ast.While
-                | ast.Try
-                | ast.TryStar
-                | ast.Match
-                | ast.With
-                | ast.AsyncWith,
-            ):
-                conditions.append(f"the caller reaches its {type(current).__name__.lower()} branch")
-            child = current
-            current = scopes.parents.get(current)
+        conditions = _caller_conditions(self.scopes(site.module), site)
         if parent is not None and len(parent.locations) >= MAX_DEPTH:
             raise CallLimit(f"argument flow exceeds {MAX_DEPTH} caller levels")
         return Invocation(
@@ -303,28 +272,9 @@ class BuilderCalls:
                     limits=("a nested or method builder's callers are not followed",)
                 ),
             )
-        current = self.scopes(module).parents.get(construction)
-        while current is not None and current is not function:
-            if isinstance(
-                current,
-                ast.If
-                | ast.For
-                | ast.AsyncFor
-                | ast.While
-                | ast.Try
-                | ast.TryStar
-                | ast.Match
-                | ast.With
-                | ast.AsyncWith,
-            ):
-                return (
-                    ConstructionContext(
-                        limits=(
-                            "a conditional, loop or handler construction is not followed through caller arguments",
-                        )
-                    ),
-                )
-            current = self.scopes(module).parents.get(current)
+        conditional = _conditional_construction(self.scopes(module), module, construction, function)
+        if conditional is not None:
+            return (ConstructionContext(limits=(conditional,)),)
         owned = {
             argument.arg
             for argument in (
@@ -1015,6 +965,130 @@ class BuilderCalls:
             except (InputParseError, ValueError) as exc:
                 raise CallLimit(f"{self.resolver.ref(path)} could not be read: {exc}") from None
         return self._texts[path]
+
+
+#: Statements whose body may run zero times, or not to completion.
+_BRANCHES = (
+    ast.If,
+    ast.For,
+    ast.AsyncFor,
+    ast.While,
+    ast.Try,
+    ast.TryStar,
+    ast.Match,
+    ast.With,
+    ast.AsyncWith,
+)
+_COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+
+
+def _conditional_construction(
+    scopes: ScopeIndex, module: PythonModule, construction: ast.Call, function: Function
+) -> str | None:
+    """Why the builder may not run ``construction`` on every call, or None.
+
+    A statement branch, loop or handler, one side of a conditional
+    expression, a short-circuited ``and``/``or`` operand and a comprehension
+    all decide per call whether the agent is built; this increment does not
+    follow such a construction through its callers' arguments.
+    """
+
+    child: ast.AST = construction
+    current = scopes.parents.get(construction)
+    where = f"the construction at {module.ref}:{construction.lineno}"
+    while current is not None and current is not function:
+        line = f"{module.ref}:{getattr(current, 'lineno', construction.lineno)}"
+        if isinstance(current, _BRANCHES):
+            kind = type(current).__name__.lower()
+            return f"{where} lies in the {kind} at {line}; a conditional, loop or handler construction is not followed through caller arguments"
+        if isinstance(current, ast.IfExp) and child is not current.test:
+            return f"{where} is one branch of the conditional expression at {line}, which is not followed through caller arguments"
+        if isinstance(current, ast.BoolOp) and child is not current.values[0]:
+            return f"{where} is an operand the `{'and' if isinstance(current.op, ast.And) else 'or'}` at {line} may not evaluate, which is not followed through caller arguments"
+        if isinstance(current, _COMPREHENSIONS):
+            return f"{where} is built in the comprehension at {line}, which is not followed through caller arguments"
+        child, current = current, scopes.parents.get(current)
+    return None
+
+
+def _caller_conditions(scopes: ScopeIndex, site: CallSite) -> list[str]:
+    """What must hold for the call at ``site`` to run, out to its module.
+
+    A function defined only under a condition is called only under it, so the
+    walk passes enclosing ``def``s and classes. A branch a constant never
+    takes — ``if False:``, ``while False:``, ``x if False else y``,
+    ``False and x`` — is statically unreachable: a limit, never a condition.
+    """
+
+    def unreachable(node: ast.AST) -> CallLimit:
+        return CallLimit(
+            f"the caller lies in a statically unreachable branch at {site.module.ref}:{node.lineno}"
+        )
+
+    def held(test: ast.expr, positive: bool) -> str:
+        return f"the caller's {'condition' if positive else 'negated condition'} `{ast.unparse(test)}` holds"
+
+    conditions: list[str] = []
+    grandchild: ast.AST | None = None
+    child: ast.AST = site.call
+    current = scopes.parents.get(site.call)
+    passed_function = False
+    while current is not None and not isinstance(current, ast.Module):
+        if isinstance(current, ast.FunctionDef | ast.AsyncFunctionDef):
+            passed_function = True
+        elif isinstance(current, ast.ClassDef | ast.Lambda):
+            if not passed_function:
+                raise CallLimit("a class-body or lambda caller is not followed")
+        elif isinstance(current, ast.If) and child is not current.test:
+            positive = child in current.body
+            if isinstance(current.test, ast.Constant):
+                if bool(current.test.value) != positive:
+                    raise unreachable(current)
+            else:
+                conditions.append(held(current.test, positive))
+        elif isinstance(current, ast.While) and child is not current.test:
+            positive = child in current.body
+            if isinstance(current.test, ast.Constant):
+                # ``while False:`` never runs its body; ``while True:`` never
+                # reaches its ``else``.
+                if bool(current.test.value) != positive:
+                    raise unreachable(current)
+                if positive:
+                    conditions.append("the caller reaches its while branch")
+            else:
+                conditions.append("the caller reaches its while branch")
+        elif isinstance(current, ast.For | ast.AsyncFor) and child is not current.iter:
+            conditions.append(f"the caller reaches its {type(current).__name__.lower()} branch")
+        elif isinstance(
+            current, ast.Try | ast.TryStar | ast.Match | ast.With | ast.AsyncWith
+        ):
+            conditions.append(f"the caller reaches its {type(current).__name__.lower()} branch")
+        elif isinstance(current, ast.IfExp) and child is not current.test:
+            positive = child is current.body
+            if isinstance(current.test, ast.Constant):
+                if bool(current.test.value) != positive:
+                    raise unreachable(current)
+            else:
+                conditions.append(held(current.test, positive))
+        elif isinstance(current, ast.BoolOp):
+            # ``a and b``: ``b`` runs only when ``a`` is true; ``a or b`` when false.
+            positive = isinstance(current.op, ast.And)
+            for operand in current.values[: current.values.index(child)]:
+                if isinstance(operand, ast.Constant):
+                    if bool(operand.value) != positive:
+                        raise unreachable(current)
+                else:
+                    conditions.append(held(operand, positive))
+        elif isinstance(current, ast.Assert) and child is not current.test:
+            conditions.append(held(current.test, False))
+        elif isinstance(current, _COMPREHENSIONS) and not (
+            current.generators
+            and child is current.generators[0]
+            and grandchild is current.generators[0].iter
+        ):
+            conditions.append("the caller reaches its comprehension")
+        grandchild, child, current = child, current, scopes.parents.get(current)
+    return conditions
 
 
 def single_return(function: Function) -> ast.expr | None:

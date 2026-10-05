@@ -874,3 +874,57 @@ def test_a_parameter_handoff_never_names_an_agent_by_its_spelling(tmp_path, fram
         (record,) = [item for item in artifacts.sub_agents if item["agent_name"] == "Built"]
         assert record["sub_agents"] == []
         assert record["unresolved_sub_agents"] in (["target"], ["reader"])
+
+
+@pytest.mark.parametrize("framework", ["sdk", "adk"])
+@pytest.mark.parametrize(
+    "body",
+    [
+        "    return Agent(name='Built', tools=tools) if enabled else None\n",
+        "    return enabled and Agent(name='Built', tools=tools)\n",
+        "    return [Agent(name='Built', tools=tools) for _ in range(2)][0]\n",
+    ],
+)
+def test_conditional_expression_construction_is_a_named_limit(tmp_path, framework, body):
+    _write(tmp_path, _files(framework, "a = build([read])\n", body=body))
+    observations, warnings = _read(tmp_path, framework)
+    assert observations and warnings and all(not item.tools_complete for item in observations)
+    assert any(
+        "builders.py:3" in issue and "not followed through caller arguments" in issue
+        for item in observations
+        for issue in item.issues
+    )
+
+
+@pytest.mark.parametrize("framework", ["sdk", "adk"])
+@pytest.mark.parametrize(
+    "calls",
+    [
+        "while False:\n    a = build([read])\n",
+        "while True:\n    pass\nelse:\n    a = build([read])\n",
+        "if False:\n    def make():\n        a = build([read])\n",
+    ],
+)
+def test_caller_in_a_never_run_branch_is_a_named_limit(tmp_path, framework, calls):
+    _write(tmp_path, _files(framework, calls))
+    observations, warnings = _read(tmp_path, framework)
+    assert observations and warnings and all(not item.tools_complete for item in observations)
+    assert any(
+        "statically unreachable branch at app.py:4" in issue
+        for item in observations
+        for issue in item.issues
+    )
+
+
+@pytest.mark.parametrize("framework", ["sdk", "adk"])
+@pytest.mark.parametrize("nested", [False, True])
+def test_condition_around_a_callers_def_is_kept(tmp_path, framework, nested):
+    calls = "if flag:\n    def make():\n        a = build([read])\n"
+    if nested:
+        calls = "def outer():\n" + "".join(f"    {line}\n" for line in calls.splitlines())
+    _write(tmp_path, _files(framework, calls))
+    observations, warnings = _read(tmp_path, framework)
+    assert warnings == []
+    (observation,) = observations
+    assert observation.tools_complete and observation.tool_names == ["read"]
+    assert observation.tool_conditions == {"read": ["the caller's condition `flag` holds"]}
