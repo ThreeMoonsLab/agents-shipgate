@@ -12,6 +12,14 @@ Preflight never returns `complete` or `review_publishable`. `0.5` stays frozen
 and readable. `minimum_control_contract_version` stays `21`. See
 [the migration note](#planning-only-preflight-610).
 
+Also unreleased, in runtime contract v42: `complete` requires an evaluated
+subject (#930). A detached `check` input (`--diff`, stdin or MCP `diff_text`)
+now returns `human_review_required` for every diff, an empty one included,
+and `mcp audit` grants nothing when its input was empty, named no recognized
+MCP source, or was unreadable or structurally incomplete, whatever its
+`decision` says. No schema or state changes. See
+[the migration note](#evaluated-subject-930).
+
 New in 1.2.0, #829 adds a source-local residual-prefix explanation to the existing
 host comparison row `why` text for supported Claude Code `git push` allows.
 It reads all compared head deny rules in that source, including unchanged
@@ -319,6 +327,48 @@ defaults. The stable/provisional inventory, the `1.x` rules and the migration
 from the shipped `v0.15.0` contract are in
 [`docs/report-1-0-contract.md`](docs/report-1-0-contract.md). Pin a version (or
 the Action tag) for reproducible CI.
+
+---
+
+<a id="evaluated-subject-930"></a>
+
+## Migration Note: Unreleased — completion requires an evaluated subject (contract v42, #930)
+
+**What was wrong.** A result that carried no obligation returned the shared
+`complete` state, whose permissions include `merge` and `report_complete`,
+whether or not anything had been evaluated. `mcp audit` returned it for an
+empty diff, an unparseable `.mcp.json` or `.codex/config.toml`, a missing
+policy or a binary record whenever its `decision` was `allow` or `warn`, and
+`check` returned it for a detached empty or irrelevant diff.
+
+**What changes.**
+
+- `check` on a detached input returns `human_review_required` with no
+  permission for every diff. When the diff has no boundary finding, an empty
+  one included, `reason` and `summary` say to re-run against the intended
+  worktree or with both `--base` and `--head`.
+- `mcp audit` denies every permission when its input was empty, named no
+  recognized MCP source, or left a source or policy unread. A record `check`
+  refuses as structurally incomplete — binary, header-only, an empty file's
+  record printed without hunks, or two records for one path — is unread
+  input. A readable empty server map, a deletion with hunks and a rename out
+  of a recognized path stay evaluated.
+- A `verify` run that skips the scan completes only on an evaluated negative
+  trigger over complete input.
+- The shared control, compact envelope and `current-control.json` readers
+  refuse a stored `permissions` object that omits any of the six fields, as
+  their published schemas already did.
+
+**Who must act.** A caller that finished on `check --diff` or MCP
+`shipgate.check` returning `complete` must run `check` against the checkout,
+or with both `--base` and `--head`, to complete. A writer of stored controls
+must state all six permissions.
+
+**What does not change.** No published schema or control state is added or
+removed; `mcp audit --format json` gains a `subject_evaluated` flag beside
+`input_complete`. A clean `check` against a worktree or a ref range, in an
+unconfigured repository too, still completes.
+`minimum_control_contract_version` stays `21`.
 
 ---
 

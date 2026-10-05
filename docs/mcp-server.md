@@ -55,10 +55,12 @@ inputs. Send one complete plan object or the applicable direct fields, never
 both; a mixed request is rejected rather than silently preferring one source.
 
 The `diff_text` accepted by `shipgate.check` is detached diagnostic input. It
-is not bound to a checkout state that `verify` can reconstruct, so a result
-that owes verification stops for human routing and authorizes no verify
-command. Re-run `shipgate check` locally against the intended worktree or a
-complete `base`/`head` ref range before following a verification route.
+is not bound to a checkout state that `verify` can reconstruct, so every
+`shipgate.check` result stops for human routing (`human_review_required`),
+authorizes no verify command and grants no permission, including for an empty
+`diff_text` or a diff with no boundary finding. Re-run `shipgate check` locally
+against the intended worktree or a complete `base`/`head` ref range before
+following a verification route or reporting completion.
 
 `shipgate.handoff` is a read-only projection over existing verifier artifacts.
 It never runs `verify`, shells out to git, or writes `agent-handoff.json`; it
