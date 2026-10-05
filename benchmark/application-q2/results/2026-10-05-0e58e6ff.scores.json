@@ -1,23 +1,23 @@
 {
   "corpus": "application-q2-development",
-  "build": "608ed81e3bc8f37ae8bcc7e2bb69aed29aa00ec5",
+  "build": "0e58e6ff24d7852af7c8bc3bb06e659ac597dd0f",
   "scored": "2026-10-03; current-answer review and independent source audit",
   "corpus_sha256": "bd6ef857e6c05806d791045a6742eda8e60f87f84a303bb085e626feeddf3105",
   "previous_ledger": "2026-09-30-6ced6f70.scores.json",
   "engine": {
     "adapter_set_sha256": "sha256:51c0080dbca0912f38e54f043045fdb611304b6b5d796182841f0f1697b9c23f",
     "dependency_set_sha256": "sha256:56f477cba2290b47faf0d913444119a443afa35fd088e0b3fb33a725619f7637",
-    "engine_distribution_sha256": "sha256:9a51d68e98c4a74d3bd7915c3bddfc32a6d0182223450747765548bad165184b",
-    "engine_requirement_id": "sha256:7c565a8ab909c6d38eab38c129f73089898158df3b5f0620d5c9b2a821e420ee",
+    "engine_distribution_sha256": "sha256:760c5ed0f436bb43acef1aa190a985e84384b171fac19184c227c0723fac2a80",
+    "engine_requirement_id": "sha256:0293e6fce82a9f1ec5b1cbc0acdc0a3661e8633b5eaa9b065b18c425291bb2ba",
     "package": "agents-shipgate",
     "platform": "darwin",
-    "plugin_set_sha256": "sha256:0d625c045f8795e1d638950e15ecc7efeba6ca727c6ad3ff45ee883e9b38f262",
+    "plugin_set_sha256": "sha256:6c3d1082d04859d114bb10bbdae1ac67daf45c41a5cc8891561375c712333013",
     "policy_catalog_sha256": "sha256:c37957953f97bd5a48ccb377d2604fdefc21029d6557d3966a5dae29f830adc3",
     "python_implementation": "CPython",
     "python_version": "3.12.13",
     "version": "1.2.0"
   },
-  "method": "Q0 source judgments are retained for the same frozen pins. Every current answer was re-read. All 65 established changed rows and nine added rows were independently checked against pinned source; row-bearing cases were checked for material omissions. No holdout score is inferred.",
+  "method": "Q0 source judgments are retained for the same frozen pins. Every current answer was re-read. All 65 established changed rows and nine added rows were independently checked against pinned source; row-bearing cases were checked for material omissions. No holdout score is inferred. The scores were judged against the answers of 608ed81e3 (PR #960's head, which does not change diff --application); re-run on 0e58e6ff24 on 2026-10-05, all 49 answer_ids are identical.",
   "scores": {
     "ITMO-NSS-team_FEDOT.MAS-30": {
       "answer_id": "sha256:443d474f1effe351350a763976a388ec639edb37e20ea680514296cf92365b79",

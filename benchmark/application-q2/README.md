@@ -179,11 +179,12 @@ ledger under [`results/`](results/), and records
 release in `docs/changelog/<version>.md`. While the holdout has no pins, that
 line says so instead of a number.
 
-The [2026-10-03 development ledger](results/2026-10-03-608ed81e.md)
-measures source build `608ed81e`: Q1 is 4/49 and Q2 is 3/49, each up by two
+The [2026-10-05 development ledger](results/2026-10-05-0e58e6ff.md)
+measures `main` at `0e58e6ff`: Q1 is 4/49 and Q2 is 3/49, each up by two
 against the prior ledger. The newly qualifying cases are MIS_TALENT#7 and
-CRM#5. All 49 scores bind the current answers and frozen source pins;
-the holdout has no pinned members or score in this measurement.
+CRM#5, so the 2026-09-30 worked example above no longer describes #7. All
+49 scores bind the current answers and frozen source pins; the holdout has
+no pinned members or score in this measurement.
 
 ## Files
 
