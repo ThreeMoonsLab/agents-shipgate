@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from test_openshell_inputs import POLICY, REGISTRATION, selection
-from test_partial_host_comparison import _git, _repository
+from test_partial_host_comparison import _git, _repository, _write
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
@@ -223,3 +223,30 @@ def test_portable_prepare_binds_unchanged_nested_selection_and_worker_rejects_dr
     assert isinstance(replay.exception, InputParseError)
     assert "changed since verification" in str(replay.exception)
     assert not (out / "changed-unit.json").exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic link fixtures")
+@pytest.mark.parametrize("command", ["verify", "prepare"])
+def test_unrepresentable_unrelated_link_keeps_the_configured_snapshot_refusal(tmp_path, command):
+    root = tmp_path / "repo"
+    root.mkdir()
+    _git(root, "init", "-q", "-b", "main")
+    for name, value in {REGISTRATION: selection("policy-link"), "one": POLICY,
+                        "README.md": "# demo\n", **configured_source()}.items():
+        _write(root, name, value)
+    (root / "policy-link").symlink_to("one")
+    _git(root, "add", "-A")
+    (tmp_path / "target").write_bytes(b"\xff\xfe-target")
+    blob = _git(root, "hash-object", "-w", "--no-filters", str(tmp_path / "target"))
+    _git(root, "update-index", "--add", "--cacheinfo", f"120000,{blob},unrelated")
+    _git(root, "commit", "-q", "-m", "base with a link no checkout can represent")
+    _git(root, "checkout", "-q", "-b", "change")
+    _write(root, "README.md", "change")
+    _git(root, "add", "README.md")
+    _git(root, "commit", "-q", "-m", "change")
+    args = (["verify", "--json"] if command == "verify"
+            else ["verification", "prepare", "--out", str(tmp_path / "plan.json")])
+    result = CliRunner().invoke(app, [*args, "--base", "main", "--head", "HEAD",
+                                      "--workspace", str(root)])
+    assert result.exit_code == 2, result.output
+    assert "unsupported external binding at policy-link" in result.output

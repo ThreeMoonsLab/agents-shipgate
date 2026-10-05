@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import zlib
 from pathlib import Path
@@ -161,6 +162,51 @@ def test_selected_policy_links_do_not_admit_submodules(tmp_path):
     _git(root, "update-index", "--add", "--cacheinfo", f"160000,{commit},vendor")
     _git(root, "commit", "-m", "add gitlink")
     with pytest.raises(ConfigError, match="unsupported external binding at vendor"):
+        archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
+
+
+def _select_policy(root: Path, path: str) -> None:
+    import json
+
+    registration = root / ".shipgate/openshell.json"
+    registration.parent.mkdir()
+    registration.write_text(json.dumps({"version": 1, "runtime_version": "0.1.2",
+        "policies": [{"path": path, "role": "authored"}]}))
+
+
+@pytest.mark.parametrize("target", [b"\xff\xfe-target", b"bad\x00target"])
+def test_verification_snapshot_refuses_an_unrepresentable_unrelated_link(tmp_path, target):
+    # Selection discovery recreates every link of a scoped tree. One it cannot
+    # decode or create leaves the generic refusal; it is not an internal error.
+    root = _repo(tmp_path)
+    _select_policy(root, "link")
+    (root / "policy").write_text("version: 1")
+    (root / "link").symlink_to("policy")
+    _git(root, "add", ".")
+    blob = subprocess.run(["git", "-C", str(root), "hash-object", "-w", "--stdin"],
+                          input=target, check=True, capture_output=True).stdout.decode().strip()
+    _git(root, "update-index", "--add", "--cacheinfo", f"120000,{blob},unrelated")
+    _git(root, "commit", "-m", "unrelated link no checkout can represent")
+    with pytest.raises(ConfigError, match="unsupported external binding at link "):
+        archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
+
+
+def test_verification_snapshot_refuses_selected_links_where_links_cannot_be_created(
+    tmp_path, monkeypatch
+):
+    root = _repo(tmp_path)
+    _select_policy(root, "link")
+    (root / "policy").write_text("version: 1")
+    (root / "link").symlink_to("policy")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "selected policy link")
+
+    def unavailable(*_args, **_kwargs):
+        # As on Windows without the symbolic-link privilege.
+        raise OSError("A required privilege is not held by the client")
+
+    monkeypatch.setattr(os, "symlink", unavailable)
+    with pytest.raises(ConfigError, match="unsupported external binding at link "):
         archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
 
 

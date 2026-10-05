@@ -2530,6 +2530,52 @@ def _selected_openshell_file_links(git_dir: Path, tree: str) -> set[str]:
                 if read.get("source") == "generated" and read.get("limit") is None}
 
 
+def _admitted_selected_openshell_links(
+    git_dir: Path,
+    tree: str,
+    listed: list[tuple[str, str, str, str]],
+    tree_types: dict[str, str],
+) -> set[str]:
+    """Selected policy links a full verification archive may recreate.
+
+    Admission is the one exception to the generic link refusal, so it fails
+    closed: whatever it cannot establish admits nothing, and the refusal then
+    names a link exactly as it does without a selection. Discovery decodes and
+    recreates every link of a scoped tree, so a link it cannot represent there
+    (a target that is not UTF-8 or holds NUL, or a platform that cannot create
+    links) is a refusal here, never an internal error.
+    """
+
+    if not any(mode == "120000" for mode, _, _, _ in listed) or not any(
+        path.casefold() == ".shipgate/openshell.json"
+        or path.casefold().endswith("/.shipgate/openshell.json")
+        for _, _, _, path in listed
+    ):
+        return set()
+    try:
+        selected_links = _selected_openshell_file_links(git_dir, tree)
+    except Exception:  # noqa: BLE001 - admission fails closed to the refusal.
+        return set()
+    if not selected_links:
+        return set()
+    object_format = _run_git_dir(git_dir, ["rev-parse", "--show-object-format"]).stdout.strip()
+    link_texts: dict[str, str] = {}
+    wanted = [(oid, path) for mode, _, oid, path in listed if mode == "120000"]
+    for (oid, path), blob in zip(wanted, _isolated_blobs(git_dir, wanted), strict=True):
+        if _git_object_id("blob", blob, algorithm=object_format) != oid:
+            raise ConfigError(f"Git blob failed object-ID validation: {path}")
+        try:
+            text = blob.decode("utf-8", errors="strict")
+        except UnicodeDecodeError:
+            continue
+        if "\0" not in text:
+            link_texts[path] = text
+    # A captured link target alone is insufficient: independently require its
+    # bounded lexical chain to end at a regular Git blob.
+    return {path for path in selected_links if path in link_texts
+            and tree_types.get(_resolve_tree_link(path, link_texts)) == "blob"}
+
+
 def _copy_verified_commit_graph(
     workspace: Path, *, commit: str, git_dir: Path, tree: str | None = None
 ) -> None:
@@ -2638,24 +2684,11 @@ def _materialize_isolated_tree(
         path_text = raw_path.decode("utf-8", errors="strict")
         tree_types[path_text] = "link" if mode == "120000" else object_type
         listed.append((mode, object_type, oid, path_text))
-    allowed_links: set[str] = set()
-    if (scope is None and allow_selected_openshell_links
-            and any(mode == "120000" for mode, _, _, _ in listed)
-            and any(path.casefold() == ".shipgate/openshell.json" or path.casefold().endswith("/.shipgate/openshell.json")
-                    for _, _, _, path in listed)):
-        selected_links = _selected_openshell_file_links(git_dir, tree)
-        if selected_links:
-            object_format = _run_git_dir(git_dir, ["rev-parse", "--show-object-format"]).stdout.strip()
-            link_texts = {}
-            wanted = [(oid, path) for mode, _, oid, path in listed if mode == "120000"]
-            for (oid, path), blob in zip(wanted, _isolated_blobs(git_dir, wanted), strict=True):
-                if _git_object_id("blob", blob, algorithm=object_format) != oid:
-                    raise ConfigError(f"Git blob failed object-ID validation: {path}")
-                link_texts[path] = blob.decode("utf-8", errors="strict")
-            # A captured link target alone is insufficient: independently
-            # require its bounded lexical chain to end at a regular Git blob.
-            allowed_links = {path for path in selected_links if path in link_texts
-                             and tree_types.get(_resolve_tree_link(path, link_texts)) == "blob"}
+    allowed_links = (
+        _admitted_selected_openshell_links(git_dir, tree, listed, tree_types)
+        if scope is None and allow_selected_openshell_links
+        else set()
+    )
     in_scope = (
         _scope_through_boundary_links(git_dir, listed, tree_types, scope)
         if scope is not None
