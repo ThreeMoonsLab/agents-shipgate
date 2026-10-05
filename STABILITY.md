@@ -17,7 +17,7 @@ subject (#930). A detached `check` input (`--diff`, stdin or MCP `diff_text`)
 now returns `human_review_required` for every diff, an empty one included,
 and `mcp audit` grants nothing when its input was empty, named no recognized
 MCP source, or was unreadable or structurally incomplete, whatever its
-`decision` says. No schema or state changes. See
+`decision` says. No published schema or control state changes. See
 [the migration note](#evaluated-subject-930).
 
 New in 1.2.0, #829 adds a source-local residual-prefix explanation to the existing
@@ -348,11 +348,14 @@ policy or a binary record whenever its `decision` was `allow` or `warn`, and
   one included, `reason` and `summary` say to re-run against the intended
   worktree or with both `--base` and `--head`.
 - `mcp audit` denies every permission when its input was empty, named no
-  recognized MCP source, or left a source or policy unread. A record `check`
-  refuses as structurally incomplete — binary, header-only, an empty file's
-  record printed without hunks, or two records for one path — is unread
-  input. A readable empty server map, a deletion with hunks and a rename out
-  of a recognized path stay evaluated.
+  recognized MCP source, or left a source or policy unread, and its `summary`
+  then says so. A record `check` refuses as structurally incomplete —
+  header-only, an empty file's record printed without hunks, two records for
+  one path, or a path that cannot be parsed — is unread input, and so is any
+  binary record and any rename without hunks that git does not report as 100%
+  similar. A readable empty server map, a deletion with hunks, a rename with
+  hunks and a 100% rename into, out of or within a recognized path stay
+  evaluated.
 - A `verify` run that skips the scan completes only on an evaluated negative
   trigger over complete input.
 - The shared control, compact envelope and `current-control.json` readers

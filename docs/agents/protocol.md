@@ -219,9 +219,10 @@ an unconfigured repository remains a valid negative boundary assessment.
 `mcp audit` likewise grants no authority for an empty or irrelevant diff, or
 when any requested source or policy was unreadable, whatever its diagnostic
 decision says. A source record `check` refuses as structurally incomplete — a
-binary or header-only record, or one of two records for the same path — is
-unreadable input there too. A recognized, readable empty server map is still
-an evaluated MCP subject.
+header-only record, one of two records for the same path, or a record whose
+path cannot be parsed — is unreadable input there too, as is any binary record
+and any rename without hunks that git does not report as 100% similar. A
+recognized, readable empty server map is still an evaluated MCP subject.
 
 Treat `check` as necessary but not sufficient for capability-expanding diffs.
 If a change adds dynamic, undeclared, or otherwise ambiguous tool capability,
