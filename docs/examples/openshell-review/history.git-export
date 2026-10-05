@@ -1,0 +1,165 @@
+blob
+mark :1
+data 25
+agents-shipgate-reports/
+
+blob
+mark :2
+data 143
+{
+  "version": 1,
+  "runtime_version": "0.1.2",
+  "policies": [
+    {
+      "path": "worker-policy.yaml",
+      "role": "authored"
+    }
+  ]
+}
+
+blob
+mark :3
+data 813
+version: "0.1"
+
+project:
+  name: clean-read-only-agent
+
+agent:
+  name: docs-assistant
+  declared_purpose:
+    - look up documentation metadata and answer policy questions
+
+environment:
+  target: local
+
+tool_sources:
+  - id: docs_tools
+    type: mcp
+    path: tools.json
+
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools:
+        - {tool: docs.lookup, source_id: docs_tools}
+      handoffs: []
+      reason: reviewed local fixture binding
+
+permissions:
+  scopes:
+    - docs:read
+
+action_surface:
+  actions:
+    - tool: docs.lookup
+      effect: read
+      scopes: [docs:read]
+      authority:
+        mode: scoped
+        auth_type: oauth2
+        credential_mode: delegated
+
+ci:
+  mode: advisory
+
+output:
+  directory: agents-shipgate-reports
+  formats:
+    - markdown
+    - json
+
+blob
+mark :4
+data 560
+{
+  "tools": [
+    {
+      "name": "docs.lookup",
+      "description": "Look up internal documentation metadata for an existing article.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "article_id": {
+            "type": "string"
+          }
+        },
+        "required": ["article_id"],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "auth": {
+        "type": "oauth2",
+        "scopes": ["docs:read"]
+      },
+      "owner": "docs-platform"
+    }
+  ]
+}
+
+blob
+mark :5
+data 365
+version: 1
+filesystem_policy:
+  include_workdir: false
+  read_only: [/usr, /lib, /etc]
+  read_write: [/tmp]
+landlock:
+  compatibility: hard_requirement
+network_policies:
+  github_read:
+    binaries:
+      - path: /usr/bin/gh
+    endpoints:
+      - host: api.github.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: read-only
+
+reset refs/heads/main
+commit refs/heads/main
+mark :6
+author Acceptance Fixture <fixture@example.test> 1791066512 -0700
+committer Acceptance Fixture <fixture@example.test> 1791066512 -0700
+data 30
+enforced request restrictions
+M 100644 :1 .gitignore
+M 100644 :2 .shipgate/openshell.json
+M 100644 :3 shipgate.yaml
+M 100644 :4 tools.json
+M 100644 :5 worker-policy.yaml
+
+blob
+mark :7
+data 363
+version: 1
+filesystem_policy:
+  include_workdir: false
+  read_only: [/usr, /lib, /etc]
+  read_write: [/tmp]
+landlock:
+  compatibility: hard_requirement
+network_policies:
+  github_read:
+    binaries:
+      - path: /usr/bin/gh
+    endpoints:
+      - host: api.github.com
+        port: 443
+        protocol: rest
+        enforcement: audit
+        access: read-only
+
+commit refs/heads/audit-only
+mark :8
+author Acceptance Fixture <fixture@example.test> 1791066513 -0700
+committer Acceptance Fixture <fixture@example.test> 1791066513 -0700
+data 40
+restore audit-only request restrictions
+from :6
+M 100644 :7 worker-policy.yaml

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import zlib
 from pathlib import Path
@@ -8,6 +9,7 @@ import pytest
 
 from agents_shipgate.cli.verify.git import (
     archive_tree,
+    archive_verification_tree,
     diff_revspec_context,
     repository_identity,
     working_tree_context,
@@ -58,6 +60,192 @@ def test_exact_snapshot_rejects_git_symlink_bindings(tmp_path: Path) -> None:
     _git(root, "commit", "-m", "fixture")
     with pytest.raises(ConfigError, match="unsupported external binding"):
         archive_tree(root, "HEAD", tmp_path / "snapshot")
+
+
+@pytest.mark.parametrize("policy", ["version: 1", "version: ["])
+@pytest.mark.parametrize("registration_path", [".shipgate/openshell.json", ".shipgate/OpenShell.json", "nested/.SHIPGATE/openshell.json"])
+def test_verification_snapshot_allows_only_selected_contained_policy_file_chains(tmp_path, policy, registration_path):
+    import json
+
+    root = _repo(tmp_path)
+    registration = root / registration_path
+    registration.parent.mkdir(parents=True)
+    registration.write_text(json.dumps({"version": 1, "runtime_version": "0.1.2",
+        "policies": [{"path": "link", "role": "authored"}]}))
+    (root / "policy").write_text(policy)
+    (root / "middle").symlink_to("policy")
+    (root / "link").symlink_to("middle")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "selected file chain")
+    out = tmp_path / "snapshot"
+    archive_verification_tree(root, "HEAD", out)
+    assert (out / "link").read_text() == policy
+    assert (out / "link").readlink() == Path("middle")
+    assert (out / "middle").readlink() == Path("policy")
+    with pytest.raises(ConfigError, match="unsupported external binding"):
+        archive_tree(root, "HEAD", tmp_path / "generic")
+
+
+@pytest.mark.parametrize("target", ["../outside", "/etc/passwd", "missing", "directory", "link"])
+def test_verification_snapshot_refuses_unresolved_selected_links(tmp_path, target):
+    import json
+
+    root = _repo(tmp_path)
+    registration = root / ".shipgate/openshell.json"
+    registration.parent.mkdir()
+    registration.write_text(json.dumps({"version": 1, "runtime_version": "0.1.2",
+        "policies": [{"path": "link", "role": "authored"}]}))
+    (root / "directory").mkdir()
+    (root / "directory/policy").write_text("version: 1")
+    (root / "link").symlink_to(target)
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "unresolved selected link")
+    with pytest.raises(ConfigError, match="unsupported external binding"):
+        archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
+
+
+def test_worktree_selection_cannot_authorize_an_unselected_committed_link(tmp_path):
+    import json
+
+    root = _repo(tmp_path)
+    registration = root / ".shipgate/openshell.json"
+    registration.parent.mkdir()
+    def selected(path):
+        return json.dumps({"version": 1, "runtime_version": "0.1.2",
+            "policies": [{"path": path, "role": "authored"}]})
+    registration.write_text(selected("policy"))
+    (root / "policy").write_text("version: 1")
+    (root / "link").symlink_to("policy")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "unselected link")
+    registration.write_text(selected("link"))
+    with pytest.raises(ConfigError, match="unsupported external binding"):
+        archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
+
+
+@pytest.mark.parametrize("hops", [7, 8, 9])
+def test_selected_policy_file_chain_uses_the_host_reader_hop_bound(tmp_path, hops):
+    import json
+
+    root = _repo(tmp_path)
+    registration = root / ".shipgate/openshell.json"
+    registration.parent.mkdir()
+    registration.write_text(json.dumps({"version": 1, "runtime_version": "0.1.2",
+        "policies": [{"path": "link-0", "role": "authored"}]}))
+    (root / "policy").write_text("version: 1")
+    for index in range(hops):
+        (root / f"link-{index}").symlink_to(f"link-{index + 1}" if index + 1 < hops else "policy")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "bounded selected chain")
+    if hops <= 8:
+        out = tmp_path / "snapshot"
+        archive_verification_tree(root, "HEAD", out)
+        assert (out / "link-0").read_text() == "version: 1"
+    else:
+        with pytest.raises(ConfigError, match="unsupported external binding"):
+            archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
+
+
+def test_selected_policy_links_do_not_admit_submodules(tmp_path):
+    import json
+
+    root = _repo(tmp_path)
+    registration = root / ".shipgate/openshell.json"
+    registration.parent.mkdir()
+    registration.write_text(json.dumps({"version": 1, "runtime_version": "0.1.2",
+        "policies": [{"path": "link", "role": "authored"}]}))
+    (root / "policy").write_text("version: 1")
+    (root / "link").symlink_to("policy")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "selected policy link")
+    commit = _git_output(root, "rev-parse", "HEAD")
+    _git(root, "update-index", "--add", "--cacheinfo", f"160000,{commit},vendor")
+    _git(root, "commit", "-m", "add gitlink")
+    with pytest.raises(ConfigError, match="unsupported external binding at vendor"):
+        archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
+
+
+def _select_policy(root: Path, path: str) -> None:
+    import json
+
+    registration = root / ".shipgate/openshell.json"
+    registration.parent.mkdir()
+    registration.write_text(json.dumps({"version": 1, "runtime_version": "0.1.2",
+        "policies": [{"path": path, "role": "authored"}]}))
+
+
+@pytest.mark.parametrize("target", ["missing/../policy", "policy/", "afile/../policy"])
+def test_verification_snapshot_refuses_selected_links_the_filesystem_cannot_open(tmp_path, target):
+    # Each normalizes to `policy`, but opening the link fails at `missing`, or
+    # where a regular file is used as a directory.
+    root = _repo(tmp_path)
+    _select_policy(root, "link")
+    (root / "policy").write_text("version: 1")
+    (root / "afile").write_text("not a directory")
+    (root / "link").symlink_to(target)
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "selected link that does not open")
+    with pytest.raises(ConfigError, match="unsupported external binding at link "):
+        archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
+
+
+@pytest.mark.parametrize("links", [
+    {"link": "./policy"},
+    {"nested/link": "../policies/x.yaml"},
+    {"nested/link": "../middle", "middle": "./policies/../policies/x.yaml"},
+])
+def test_verification_snapshot_admits_selected_links_that_open_as_written(tmp_path, links):
+    root = _repo(tmp_path)
+    selected = next(iter(links))
+    _select_policy(root, selected)
+    (root / "policy").write_text("version: 1")
+    (root / "policies").mkdir()
+    (root / "policies/x.yaml").write_text("version: 1")
+    for link, target in links.items():
+        (root / link).parent.mkdir(parents=True, exist_ok=True)
+        (root / link).symlink_to(target)
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "selected links that open")
+    out = tmp_path / "snapshot"
+    archive_verification_tree(root, "HEAD", out)
+    assert (out / selected).read_text() == "version: 1"
+    assert {link: os.readlink(out / link) for link in links} == links
+
+
+@pytest.mark.parametrize("target", [b"\xff\xfe-target", b"bad\x00target"])
+def test_verification_snapshot_refuses_an_unrepresentable_unrelated_link(tmp_path, target):
+    # Selection discovery recreates every link of a scoped tree. One it cannot
+    # decode or create leaves the generic refusal; it is not an internal error.
+    root = _repo(tmp_path)
+    _select_policy(root, "link")
+    (root / "policy").write_text("version: 1")
+    (root / "link").symlink_to("policy")
+    _git(root, "add", ".")
+    blob = subprocess.run(["git", "-C", str(root), "hash-object", "-w", "--stdin"],
+                          input=target, check=True, capture_output=True).stdout.decode().strip()
+    _git(root, "update-index", "--add", "--cacheinfo", f"120000,{blob},unrelated")
+    _git(root, "commit", "-m", "unrelated link no checkout can represent")
+    with pytest.raises(ConfigError, match="unsupported external binding at link "):
+        archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
+
+
+def test_verification_snapshot_refuses_selected_links_where_links_cannot_be_created(
+    tmp_path, monkeypatch
+):
+    root = _repo(tmp_path)
+    _select_policy(root, "link")
+    (root / "policy").write_text("version: 1")
+    (root / "link").symlink_to("policy")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "selected policy link")
+
+    def unavailable(*_args, **_kwargs):
+        # As on Windows without the symbolic-link privilege.
+        raise OSError("A required privilege is not held by the client")
+
+    monkeypatch.setattr(os, "symlink", unavailable)
+    with pytest.raises(ConfigError, match="unsupported external binding at link "):
+        archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
 
 
 def test_exact_snapshot_rejects_portable_filesystem_path_collisions(tmp_path: Path) -> None:

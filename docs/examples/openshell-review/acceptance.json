@@ -1,0 +1,208 @@
+{
+  "constructed": true,
+  "runtime_version": "0.1.2",
+  "policy_schema_version": 1,
+  "build_kind": "unreleased_source_checkout",
+  "engine": {
+    "adapter_set_sha256": "sha256:51c0080dbca0912f38e54f043045fdb611304b6b5d796182841f0f1697b9c23f",
+    "dependency_set_sha256": "sha256:56f477cba2290b47faf0d913444119a443afa35fd088e0b3fb33a725619f7637",
+    "engine_distribution_sha256": "sha256:d1e162bc8f77e8d51bd1a5b59f1b7461de092f618ce61721a6e3ac7be022a496",
+    "engine_requirement_id": "sha256:48b05dac0231baf28f89f4bf932d43e6cf5b0764898c1c90fec62d9aca7d0988",
+    "package": "agents-shipgate",
+    "platform": "darwin",
+    "plugin_set_sha256": "sha256:73d4e1c95a7638a3bf97bdd31a338104c002380d5610f127d2f3a2f259dc914a",
+    "policy_catalog_sha256": "sha256:c37957953f97bd5a48ccb377d2604fdefc21029d6557d3966a5dae29f830adc3",
+    "python_implementation": "CPython",
+    "python_version": "3.12.13",
+    "version": "1.2.0"
+  },
+  "subject": {
+    "git": {
+      "base_commit_sha": "7fe0b23b596d7ceea023c4ea63d7e6591ee9031f",
+      "base_ref": "main",
+      "base_tree_sha": "707db94a63f66f49129638b2033116b9301e0371",
+      "head_commit_sha": "fffcd706689ef63ff17f51cd3e4afcccc67622a8",
+      "head_ref": "HEAD",
+      "head_tree_sha": "ef5f04614c15565994342a8058ba8262dd1afd32",
+      "merge_base_sha": "7fe0b23b596d7ceea023c4ea63d7e6591ee9031f",
+      "repository_id": "local:workspace",
+      "snapshot_kind": "committed_tree",
+      "source_head_commit_sha": "fffcd706689ef63ff17f51cd3e4afcccc67622a8",
+      "worktree_overlay_sha256": null
+    },
+    "subject_id": "sha256:d69f8603a8d971300582ef752dd5267839b712d37cf18a138def6bdd993edfd8"
+  },
+  "source_changes": [
+    "worker-policy.yaml"
+  ],
+  "audit": {
+    "comparison_status": "comparable",
+    "expansion_signals": [
+      "openshell_authority_expanded: worker-policy.yaml: exact binary/destination/request grants"
+    ],
+    "has_drift": true
+  },
+  "diff": {
+    "base_ref": "main",
+    "base_commit": "7fe0b23b596d7ceea023c4ea63d7e6591ee9031f",
+    "comparison_status": "comparable",
+    "rows": [
+      {
+        "after": "authored, OpenShell 0.1.2, 1 endpoint(s), facts 74e520c95a07e7976e785eb3690dccaa32f9797b7cba9b4ada302260c47fe964",
+        "before": "authored, OpenShell 0.1.2, 1 endpoint(s), facts ef0051d001a88661d8460cacc1160fae710f6343eb6cdf921c19154fd63e554c",
+        "direction": "widened",
+        "disposition": null,
+        "expands": true,
+        "severity": "unknown",
+        "subject": "openshell worker-policy.yaml",
+        "why": "widens exact binary/destination/request grants; declared policy only; runtime enforcement and freshness are unverified"
+      }
+    ]
+  },
+  "diff_has_verdict": false,
+  "checks": {
+    "codex": {
+      "input_coverage": "complete",
+      "violations": [
+        {
+          "id": "HOST-PERMISSION-ALLOW-EXPANDED",
+          "check_id": "SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED",
+          "action": "require_review",
+          "risk_level": "high",
+          "title": "OpenShell declared policy requires review",
+          "path": "worker-policy.yaml",
+          "evidence": {
+            "kind": "openshell_policy_changed",
+            "direction": "widened",
+            "widened": [
+              "exact binary/destination/request grants"
+            ],
+            "narrowed": [],
+            "limits": [],
+            "explanation": "widens exact binary/destination/request grants"
+          },
+          "recommendation": "Have a human approve the new permission allow rule."
+        }
+      ],
+      "control_state": "review_publishable",
+      "permissions": {
+        "edit": true,
+        "commit": true,
+        "push": true,
+        "update_pr": true,
+        "merge": false,
+        "report_complete": false
+      }
+    },
+    "claude-code": {
+      "input_coverage": "complete",
+      "violations": [
+        {
+          "id": "HOST-PERMISSION-ALLOW-EXPANDED",
+          "check_id": "SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED",
+          "action": "require_review",
+          "risk_level": "high",
+          "title": "OpenShell declared policy requires review",
+          "path": "worker-policy.yaml",
+          "evidence": {
+            "kind": "openshell_policy_changed",
+            "direction": "widened",
+            "widened": [
+              "exact binary/destination/request grants"
+            ],
+            "narrowed": [],
+            "limits": [],
+            "explanation": "widens exact binary/destination/request grants"
+          },
+          "recommendation": "Have a human approve the new permission allow rule."
+        }
+      ],
+      "control_state": "review_publishable",
+      "permissions": {
+        "edit": true,
+        "commit": true,
+        "push": true,
+        "update_pr": true,
+        "merge": false,
+        "report_complete": false
+      }
+    },
+    "cursor": {
+      "input_coverage": "complete",
+      "violations": [
+        {
+          "id": "HOST-PERMISSION-ALLOW-EXPANDED",
+          "check_id": "SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED",
+          "action": "require_review",
+          "risk_level": "high",
+          "title": "OpenShell declared policy requires review",
+          "path": "worker-policy.yaml",
+          "evidence": {
+            "kind": "openshell_policy_changed",
+            "direction": "widened",
+            "widened": [
+              "exact binary/destination/request grants"
+            ],
+            "narrowed": [],
+            "limits": [],
+            "explanation": "widens exact binary/destination/request grants"
+          },
+          "recommendation": "Have a human approve the new permission allow rule."
+        }
+      ],
+      "control_state": "review_publishable",
+      "permissions": {
+        "edit": true,
+        "commit": true,
+        "push": true,
+        "update_pr": true,
+        "merge": false,
+        "report_complete": false
+      }
+    }
+  },
+  "configured_verification": {
+    "decision": "review_required",
+    "base_status": "succeeded",
+    "head_status": "succeeded",
+    "runtime_behavior_verified": false
+  },
+  "receipt_summary": {
+    "receipt_id": "sha256:fdafbd282197eb5e6b7cb362f6e78a6679dd596df5994be65484baf7457e39ad",
+    "subject_id": "sha256:d69f8603a8d971300582ef752dd5267839b712d37cf18a138def6bdd993edfd8",
+    "input_set_id": "sha256:a21af29b8b68005ac4907b74e1c1fa8c86e363114fe43e9dd0799eb2a151b046",
+    "engine_requirement_id": "sha256:48b05dac0231baf28f89f4bf932d43e6cf5b0764898c1c90fec62d9aca7d0988",
+    "decision": "review_required",
+    "merge_verdict": "human_review_required",
+    "can_merge_without_human": false
+  },
+  "receipt_sha256": "sha256:fb267c7a2118751b14fab226eaa204471e028e0aabd0c5406ba1996c44431a4f",
+  "current_control": {
+    "current_control_id": "sha256:7b97e8e0f43d9bbd447517451ae0efb713761947d84f55cc2a5da0d3b420c317",
+    "control_state": "review_publishable",
+    "permissions": {
+      "commit": true,
+      "edit": true,
+      "merge": false,
+      "push": true,
+      "report_complete": false,
+      "update_pr": true
+    },
+    "decision": "review_required",
+    "next_action": {
+      "actor": "human",
+      "command": null,
+      "expects": null,
+      "kind": "review",
+      "why": "This PR edits a release trust root (the manifest, CI gate, agent instructions, or trigger catalog used to evaluate it); a coding agent cannot self-approve that change \u2014 a human must review it."
+    }
+  },
+  "runtime_behavior_verified": false,
+  "package_published": false,
+  "source_sha256": {
+    ".shipgate/openshell.json": "sha256:f1e27a0ab7813c87025cef7f8b059002b7a13ef34a86fa3abbd1f347f7936fad",
+    "worker-policy.yaml": "sha256:102342e94ca4e097fe935926be25ad5074dfb2af89aa2865caa289b2785c7e8a",
+    "shipgate.yaml": "sha256:20d0c5d58b5359def8e4ff33280a8f6e46ad0fbf90472976fdbab509e0e8e253",
+    "tools.json": "sha256:bd82016175c38227f7b60bbc63e2183eb021fab27d19d4181d1658544f4b670f"
+  }
+}

@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
 
 import pytest
 from test_openshell_inputs import POLICY, REGISTRATION, selection
-from test_partial_host_comparison import _git, _repository
+from test_partial_host_comparison import _git, _repository, _write
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
+from agents_shipgate.core.errors import InputParseError
+
+
+def configured_source():
+    sample = Path(__file__).resolve().parent.parent / "samples/clean_read_only_agent"
+    return {".gitignore": "agents-shipgate-reports/\n",
+            **{name: (sample / name).read_text() for name in ("shipgate.yaml", "tools.json")}}
 
 
 def invoke(root, *args):
@@ -112,6 +121,8 @@ def test_configured_verifier_publishes_review_and_sarif_for_audit_transition(tmp
         "tools.json": (sample / "tools.json").read_text()},
         {"arbitrary.rules": POLICY.replace("enforcement: enforce", "enforcement: audit")})
     verified = invoke(root, "verify", "--base", "main", "--head", "HEAD", "--json")
+    assert verified["base_status"] == "succeeded"
+    assert verified["head_status"] == "succeeded"
     assert verified["release_decision"]["decision"] == "review_required"
     assert verified["control"]["permissions"]["merge"] is False
     report = json.loads((root / "agents-shipgate-reports/report.json").read_text())
@@ -119,3 +130,141 @@ def test_configured_verifier_publishes_review_and_sarif_for_audit_transition(tmp
     sarif = json.loads((root / "agents-shipgate-reports/report.sarif").read_text())
     assert any(row["ruleId"] == "SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED"
                for row in sarif["runs"][0]["results"])
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic link fixtures")
+@pytest.mark.parametrize("actor", ["codex", "claude-code", "cursor"])
+@pytest.mark.parametrize("expanded", ["policy-link", "independent.rules"])
+def test_link_retarget_keeps_reference_review_and_every_supported_expansion(tmp_path, actor, expanded):
+    audit = POLICY.replace("enforcement: enforce", "enforcement: audit")
+    registration = selection("policy-link")
+    registration["policies"].append({"path": "independent.rules", "role": "authored"})
+    root = _repository(tmp_path, {REGISTRATION: registration, "one": POLICY,
+        "two": audit if expanded == "policy-link" else POLICY,
+        "independent.rules": POLICY, **configured_source()},
+        {"independent.rules": audit} if expanded == "independent.rules" else {"README.md": "change"},
+        links={"policy-link": "one"})
+    (root / "policy-link").unlink()
+    (root / "policy-link").symlink_to("two")
+    _git(root, "add", "policy-link")
+    _git(root, "commit", "-m", "retarget selected policy")
+    checked = invoke(root, "check", "--agent", actor, "--base", "main", "--head", "HEAD",
+                     "--format", "agent-boundary-json")
+    assert any(row["path"] == "policy-link" and row["evidence"].get("direction") == "unknown"
+               for row in checked["violations"])
+    assert any(row["path"] == expanded and row["evidence"].get("direction") == "widened"
+               for row in checked["violations"])
+    assert checked["control"]["permissions"]["merge"] is False
+    assert checked["control"]["permissions"]["report_complete"] is False
+    diff = invoke(root, "diff", "--base", "main", "--json")
+    assert any(row["subject"] == f"openshell {expanded}" and row["expands"] for row in diff["rows"])
+    verified = invoke(root, "verify", "--base", "main", "--head", "HEAD", "--json")
+    assert verified["release_decision"]["decision"] == "review_required"
+    report = json.loads((root / "agents-shipgate-reports/report.json").read_text())
+    assert any(row["source"]["path"] == expanded and row["evidence"].get("direction") == "widened"
+               for row in report["findings"])
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic link fixtures")
+@pytest.mark.parametrize("mutation", ["retarget", "policy"])
+def test_committed_selected_link_receipt_binds_hops_and_rejects_live_drift(tmp_path, mutation):
+    from test_current_control import _live
+
+    from agents_shipgate.core.current_control import CurrentControlUnavailable, read_current_control
+
+    root = _repository(tmp_path, {REGISTRATION: selection("policy-link"), "one": POLICY,
+        "two": POLICY, **configured_source()},
+        {"two": POLICY.replace("enforcement: enforce", "enforcement: audit")},
+        links={"policy-link": "middle", "middle": "one"})
+    (root / "middle").unlink()
+    (root / "middle").symlink_to("two")
+    _git(root, "add", "middle")
+    _git(root, "commit", "-m", "retarget selected chain")
+    verified = invoke(root, "verify", "--base", "main", "--head", "HEAD", "--json")
+    assert verified["base_status"] == verified["head_status"] == "succeeded"
+    out = root / "agents-shipgate-reports"
+    plan = json.loads((out / "verification-plan.json").read_text())
+    dependencies = plan["inputs"]["options"]["dependency_inputs"]
+    assert {item["path"] for item in dependencies["links"]} == {"policy-link", "middle"}
+    assert {REGISTRATION, "two"} <= {item["path"] for item in dependencies["files"]}
+    read_current_control(out, live=lambda: _live(root))
+    if mutation == "retarget":
+        (root / "middle").unlink()
+        (root / "middle").symlink_to("one")
+    else:
+        (root / "two").write_text(POLICY)
+    with pytest.raises(CurrentControlUnavailable):
+        read_current_control(out, live=lambda: _live(root))
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic link fixtures")
+@pytest.mark.parametrize("mutation", ["retarget", "policy"])
+def test_portable_prepare_binds_unchanged_nested_selection_and_worker_rejects_drift(tmp_path, mutation):
+    registration = "project/.shipgate/openshell.json"
+    root = _repository(tmp_path, {registration: selection("selected-link"), "one": POLICY,
+        "two": POLICY, **configured_source()}, {"README.md": "unrelated change"},
+        links={"selected-link": "middle", "middle": "one"})
+    out = root / "agents-shipgate-reports"
+    plan_path = out / "verification-plan.json"
+    invoke(root, "verification", "prepare", "--base", "main", "--head", "HEAD", "--out", str(plan_path))
+    plan = json.loads(plan_path.read_text())
+    dependencies = plan["inputs"]["options"]["dependency_inputs"]
+    assert {item["path"] for item in dependencies["links"]} == {"selected-link", "middle"}
+    assert {registration, "one"} <= {item["path"] for item in dependencies["files"]}
+    invoke(root, "verification", "worker", "--plan", str(plan_path), "--out", str(out / "unit.json"))
+    if mutation == "retarget":
+        (root / "middle").unlink()
+        (root / "middle").symlink_to("two")
+    else:
+        (root / "one").write_text(POLICY.replace("enforcement: enforce", "enforcement: audit"))
+    replay = CliRunner().invoke(app, ["verification", "worker", "--workspace", str(root),
+        "--plan", str(plan_path), "--out", str(out / "changed-unit.json")])
+    assert replay.exit_code != 0
+    assert isinstance(replay.exception, InputParseError)
+    assert "changed since verification" in str(replay.exception)
+    assert not (out / "changed-unit.json").exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic link fixtures")
+@pytest.mark.parametrize("text", ["missing/../one", "one/", "afile/../one", "./one"])
+def test_configured_verify_admits_a_selected_link_only_as_the_filesystem_opens_it(tmp_path, text):
+    root = _repository(tmp_path, {REGISTRATION: selection("policy-link"), "one": POLICY,
+        "afile": "not a directory", **configured_source()}, {"README.md": "change"},
+        links={"policy-link": text})
+    result = CliRunner().invoke(app, ["verify", "--base", "main", "--head", "HEAD", "--json",
+                                      "--workspace", str(root)])
+    if text == "./one":
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output)["head_status"] == "succeeded"
+    else:
+        # Each spelling normalizes to `one`, but the link itself does not open,
+        # so the committed snapshot keeps its refusal instead of passing.
+        assert result.exit_code == 2, result.output
+        assert "unsupported external binding at policy-link" in result.output
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic link fixtures")
+@pytest.mark.parametrize("command", ["verify", "prepare"])
+def test_unrepresentable_unrelated_link_keeps_the_configured_snapshot_refusal(tmp_path, command):
+    root = tmp_path / "repo"
+    root.mkdir()
+    _git(root, "init", "-q", "-b", "main")
+    for name, value in {REGISTRATION: selection("policy-link"), "one": POLICY,
+                        "README.md": "# demo\n", **configured_source()}.items():
+        _write(root, name, value)
+    (root / "policy-link").symlink_to("one")
+    _git(root, "add", "-A")
+    (tmp_path / "target").write_bytes(b"\xff\xfe-target")
+    blob = _git(root, "hash-object", "-w", "--no-filters", str(tmp_path / "target"))
+    _git(root, "update-index", "--add", "--cacheinfo", f"120000,{blob},unrelated")
+    _git(root, "commit", "-q", "-m", "base with a link no checkout can represent")
+    _git(root, "checkout", "-q", "-b", "change")
+    _write(root, "README.md", "change")
+    _git(root, "add", "README.md")
+    _git(root, "commit", "-q", "-m", "change")
+    args = (["verify", "--json"] if command == "verify"
+            else ["verification", "prepare", "--out", str(tmp_path / "plan.json")])
+    result = CliRunner().invoke(app, [*args, "--base", "main", "--head", "HEAD",
+                                      "--workspace", str(root)])
+    assert result.exit_code == 2, result.output
+    assert "unsupported external binding at policy-link" in result.output

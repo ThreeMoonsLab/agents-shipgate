@@ -2421,6 +2421,7 @@ def archive_tree(
     scope: Callable[[str], bool] | None = None,
     record_gitlinks: bool = False,
     rescope: Callable[[Path], tuple[Path, Callable[[str], bool]] | None] | None = None,
+    _allow_selected_openshell_links: bool = False,
 ) -> dict[str, str]:
     """Materialize exact Git blobs without export-ignore or substitutions.
 
@@ -2477,6 +2478,7 @@ def archive_tree(
             destination=destination,
             scope=scope,
             record_gitlinks=record_gitlinks,
+            allow_selected_openshell_links=_allow_selected_openshell_links,
         )
         wider = rescope(destination) if rescope is not None and scope is not None else None
         if wider is None:
@@ -2492,6 +2494,93 @@ def archive_tree(
             scope=wider_scope,
             record_gitlinks=record_gitlinks,
         )
+
+
+def archive_verification_tree(workspace: Path, ref: str, destination: Path) -> dict[str, str]:
+    """Full verification snapshot, allowing only selected contained policy links.
+
+    Selection is read from this immutable tree's verified object store; the
+    worktree cannot authorize a link. Generic archives retain their refusal.
+    """
+
+    return archive_tree(workspace, ref, destination, _allow_selected_openshell_links=True)
+
+
+def _selected_openshell_file_links(git_dir: Path, tree: str) -> set[str]:
+    from agents_shipgate.cli.verify.host_tree import materialize_host_tree
+    from agents_shipgate.core.host_grants import build_host_boundary_snapshot
+
+    # Reuse the host reader's bounded selection and dependency discovery, on
+    # the very same fsck'd store as the full archive. No checkout is read.
+    def from_store(_workspace, _commit, destination, *, scope, rescope):
+        _materialize_isolated_tree(git_dir, tree=tree, destination=destination, scope=scope)
+        wider = rescope(destination)
+        if wider is not None:
+            again, wider_scope = wider
+            again.mkdir(parents=True)
+            _materialize_isolated_tree(git_dir, tree=tree, destination=again, scope=wider_scope)
+
+    with tempfile.TemporaryDirectory(prefix="agents-shipgate-policy-selection-") as tmp:
+        root = Path(tmp)
+        destination = root / "selection"
+        destination.mkdir()
+        selected, snapshot = materialize_host_tree(root, tree, destination, archive=from_store)
+        snapshot = snapshot or build_host_boundary_snapshot(selected)
+        return {path for path, read in snapshot.cache.openshell_input_reads.items()
+                if read.get("source") == "generated" and read.get("limit") is None}
+
+
+def _admitted_selected_openshell_links(
+    git_dir: Path,
+    tree: str,
+    listed: list[tuple[str, str, str, str]],
+    tree_types: dict[str, str],
+) -> set[str]:
+    """Selected policy links a full verification archive may recreate.
+
+    Admission is the one exception to the generic link refusal, so it fails
+    closed: whatever it cannot establish admits nothing, and the refusal then
+    names a link exactly as it does without a selection. Discovery decodes and
+    recreates every link of a scoped tree, so a link it cannot represent there
+    (a target that is not UTF-8 or holds NUL, or a platform that cannot create
+    links) is a refusal here, never an internal error.
+    """
+
+    if not any(mode == "120000" for mode, _, _, _ in listed) or not any(
+        path.casefold() == ".shipgate/openshell.json"
+        or path.casefold().endswith("/.shipgate/openshell.json")
+        for _, _, _, path in listed
+    ):
+        return set()
+    try:
+        selected_links = _selected_openshell_file_links(git_dir, tree)
+    except Exception:  # noqa: BLE001 - admission fails closed to the refusal.
+        return set()
+    if not selected_links:
+        return set()
+    object_format = _run_git_dir(git_dir, ["rev-parse", "--show-object-format"]).stdout.strip()
+    link_texts: dict[str, str] = {}
+    wanted = [(oid, path) for mode, _, oid, path in listed if mode == "120000"]
+    for (oid, path), blob in zip(wanted, _isolated_blobs(git_dir, wanted), strict=True):
+        if _git_object_id("blob", blob, algorithm=object_format) != oid:
+            raise ConfigError(f"Git blob failed object-ID validation: {path}")
+        try:
+            text = blob.decode("utf-8", errors="strict")
+        except UnicodeDecodeError:
+            continue
+        if "\0" not in text:
+            link_texts[path] = text
+    # A captured link target alone is insufficient: independently require its
+    # bounded chain to open, as written, a regular Git blob.
+    directories = {path for path, kind in tree_types.items() if kind == "tree"}
+    for path in tree_types:
+        parts = path.split("/")
+        directories.update("/".join(parts[:index]) for index in range(1, len(parts)))
+    return {
+        path
+        for path in selected_links
+        if _physical_tree_link_target(path, link_texts, tree_types, directories) is not None
+    }
 
 
 def _copy_verified_commit_graph(
@@ -2579,6 +2668,7 @@ def _materialize_isolated_tree(
     destination: Path,
     scope: Callable[[str], bool] | None = None,
     record_gitlinks: bool = False,
+    allow_selected_openshell_links: bool = False,
 ) -> dict[str, str]:
     listing_args = ["ls-tree", "-r", "-z"]
     if scope is not None:
@@ -2601,6 +2691,11 @@ def _materialize_isolated_tree(
         path_text = raw_path.decode("utf-8", errors="strict")
         tree_types[path_text] = "link" if mode == "120000" else object_type
         listed.append((mode, object_type, oid, path_text))
+    allowed_links = (
+        _admitted_selected_openshell_links(git_dir, tree, listed, tree_types)
+        if scope is None and allow_selected_openshell_links
+        else set()
+    )
     in_scope = (
         _scope_through_boundary_links(git_dir, listed, tree_types, scope)
         if scope is not None
@@ -2646,7 +2741,7 @@ def _materialize_isolated_tree(
             gitlinks[path_text] = oid
             continue
         if object_type != "blob" or mode == "160000" or (
-            mode == "120000" and scope is None
+            mode == "120000" and scope is None and path_text not in allowed_links
         ):
             raise ConfigError(
                 f"Git tree contains unsupported external binding at {path_text} "
@@ -2896,6 +2991,53 @@ def _resolve_tree_link(path_text: str, link_texts: dict[str, str]) -> str | None
         if any("/".join(parts[:index]) in link_texts for index in range(1, len(parts))):
             return None
         current = joined
+    return current if current not in link_texts else None
+
+
+def _physical_tree_link_target(
+    path_text: str,
+    link_texts: dict[str, str],
+    tree_types: dict[str, str],
+    directories: set[str],
+) -> str | None:
+    """The regular blob a link opens, walked as the filesystem walks it, or ``None``.
+
+    Only selected-link admission asks this. :func:`_resolve_tree_link`
+    normalizes lexically, and the filesystem does not: ``missing/../one``
+    fails at ``missing``, ``afile/../one`` at a file used as a directory and
+    ``one/`` by asking for a directory, although each normalizes to ``one``.
+    Here every hop is walked from its link's own directory, one component at a
+    time, against the tree's listing: no component may be empty, each
+    intermediate one must be a directory the tree holds (``directories``, so
+    never a link), ``..`` never rises above the root, and the last must be a
+    regular blob or another link, within :data:`_MAX_TREE_LINK_HOPS` links.
+    """
+
+    current = path_text
+    for _ in range(_MAX_TREE_LINK_HOPS):
+        text = link_texts.get(current)
+        if not text or text.startswith("/"):
+            return None
+        *intermediate, final = text.split("/")
+        parts = current.split("/")[:-1]
+        for component in intermediate:
+            if not component:
+                return None
+            if component == "..":
+                if not parts:
+                    return None
+                parts.pop()
+            elif component != ".":
+                parts.append(component)
+                if "/".join(parts) not in directories:
+                    return None
+        if final in {"", ".", ".."}:
+            return None
+        current = "/".join([*parts, final])
+        if tree_types.get(current) == "blob":
+            return current
+        if tree_types.get(current) != "link":
+            return None
     return None
 
 
