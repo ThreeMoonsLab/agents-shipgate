@@ -289,7 +289,7 @@ jobs:
       - name: Build package
         # `--no-isolation` for the same reason the release build uses it: with
         # isolation, `build` creates a fresh environment and re-resolves
-        # `hatchling>=1.31.0` from the index — twice, once per distribution —
+        # `hatchling>=1.32.4` from the index — twice, once per distribution —
         # so the artifact CI checks was produced by a backend nothing pinned,
         # even though the hashed closure is already installed in this job.
         run: |
