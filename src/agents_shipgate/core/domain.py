@@ -714,6 +714,8 @@ class AgentBindingObservation(BaseModel):
     #: has no entry. Source text, never evaluated.
     tool_conditions: dict[str, list[str]] = Field(default_factory=dict)
     handoff_names: list[str] = Field(default_factory=list)
+    #: Caller and construction locations for a resolved handoff/sub-agent.
+    handoff_sites: dict[str, list[str]] = Field(default_factory=dict)
     #: ``handoff_name -> [condition, ...]``: the same, for a handoff target.
     handoff_conditions: dict[str, list[str]] = Field(default_factory=dict)
     tools_complete: bool = True

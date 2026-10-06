@@ -887,7 +887,12 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
         for observation in item.binding_observations:
             site = (_source_path(root, observation.source), observation.agent)
             sites[site] = sites.get(site, 0) + 1
-            tool_sites.setdefault(site, {}).update(observation.tool_sites)
+            construction_locations = tool_sites.setdefault(site, {})
+            for name, locations in observation.tool_sites.items():
+                construction_locations[name] = list(dict.fromkeys((*construction_locations.get(name, []), *locations)))
+            for name, locations in observation.handoff_sites.items():
+                label = f"handoff:{name}"
+                construction_locations[label] = list(dict.fromkeys((*construction_locations.get(label, []), *locations)))
             held = bound_when.setdefault(site, {})
             for name in observation.tool_names:
                 _hold(held, name, observation.tool_conditions.get(name))
@@ -1055,6 +1060,11 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
         condition = bound_when.get(source, {}).get(f"handoff:{target[1]}")
         if condition:
             result.bindings[key]["bound_when"] = condition
+        listed = tool_sites.get(source, {}).get(f"handoff:{target[1]}")
+        if listed:
+            result.bindings[key]["binding_location"] = listed[0]
+            if len(listed) > 1:
+                result.bindings[key]["construction_sites"] = listed
 
 
 def _hold(held: dict[str, list[str] | None], name: str, alternatives: list[str] | None) -> None:
