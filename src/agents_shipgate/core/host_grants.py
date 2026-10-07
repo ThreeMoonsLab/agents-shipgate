@@ -145,9 +145,13 @@ _CREDENTIAL_CONTAINER_KEYS = frozenset({"headers"})
 _SECRET_ARG_RE = re.compile(
     r"(?i)(--?(?:api[-_]?key|auth|authorization|cookie|credential|password|secret|token))(=)(.+)"
 )
+#: A credential header's value, with the authentication scheme that may lead
+#: it: ``Authorization: Bearer <token>`` is redacted whole. Without the
+#: optional scheme the scheme word alone was taken as the value, and the token
+#: after it was published.
 _HEADER_SECRET_RE = re.compile(
     r"(?i)\b(authorization|proxy-authorization|cookie|set-cookie|x-api-key)"
-    r"(\s*:\s*)([^\s'\";,\)]+)"
+    r"(\s*:\s*)((?:(?:bearer|basic|digest|token|negotiate)\s+)?[^\s'\";,\)]+)"
 )
 _BEARER_SECRET_RE = re.compile(r"(?i)\b(bearer)(\s+)([^\s'\";,\)]+)")
 #: ``NAME=value`` whose name holds a credential word. The lookahead states what
@@ -166,7 +170,14 @@ _ASSIGNMENT_SECRET_RE = re.compile(
 )
 _SPACE_ARG_SECRET_RE = re.compile(
     r"(?i)(--?(?:api[-_]?key|auth|authorization|cookie|credential|password|secret|token))"
-    r"(\s+)([^\s'\";,\)]+)"
+    r"(\s+|=)([^\s'\";,\)]+)"
+)
+#: ``curl -u user:password`` and its spellings: the part after the first
+#: ``:`` is a password. Only a value holding ``:`` is read as one, so an
+#: unrelated ``-u`` flag (``sort -u file``) keeps its argument.
+_USER_ARG_SECRET_RE = re.compile(
+    r"(?i)((?:^|(?<=[\s(]))(?:-u|--user|--proxy-user|-U))(\s+|=)"
+    r"([^\s'\";,\):]+:)([^\s'\";,\)]+)"
 )
 _URL_RE = re.compile(r"(?:https?|wss?)://[^\s'\"<>]+")
 
@@ -499,6 +510,7 @@ def _sanitize_sensitive_string(
     value = _BEARER_SECRET_RE.sub(r"\1\2<redacted>", value)
     value = _ASSIGNMENT_SECRET_RE.sub(r"\1\2<redacted>", value)
     value = _SPACE_ARG_SECRET_RE.sub(r"\1\2<redacted>", value)
+    value = _USER_ARG_SECRET_RE.sub(r"\1\2\3<redacted>", value)
     match = _SECRET_ARG_RE.fullmatch(value)
     if match:
         return f"{match.group(1)}=<redacted>"
