@@ -616,17 +616,21 @@ def test_no_command_or_argument_text_reaches_any_output_or_artifact(tmp_path: Pa
 
 
 def test_a_rotated_value_the_display_never_redacted_is_still_a_row(tmp_path: Path) -> None:
-    """The digest sees what `config_sha256` sees: a positional token, `--secret-key`, a header's words after its scheme."""
+    """The digest sees what `config_sha256` sees: a positional token, `--secret-key`.
+
+    A bearer token after its header's scheme was in this list until the
+    redaction published it: it is now withheld, so its rotation is quiet like
+    any other redacted value (`DIGEST_REDACTED_ROTATIONS`).
+    """
 
     for name, before, after in (
         ("positional", f"bin/a.sh {GITHUB_TOKEN}", f"bin/a.sh {OTHER_TOKEN}"),
         ("secret-key", "bin/a.sh --secret-key first-canary", "bin/a.sh --secret-key second-canary"),
-        ("scheme", 'curl -H "Authorization: Bearer first-canary"', 'curl -H "Authorization: Bearer second-canary"'),
     ):
         (tmp_path / name).mkdir()
         repo = _repository(tmp_path / name, {SETTINGS: _stop_hook(before)}, {SETTINGS: _stop_hook(after)})
         text, payload = _diff(repo)
-        executable = "a.sh" if name != "scheme" else "curl"
+        executable = "a.sh"
         assert _table_entry(text, HOOK_HEADER)[1] == (
             f"Stop: command changed ({executable} {_digest(before)} → {executable} {_digest(after)})"
         ), name
@@ -643,6 +647,16 @@ DIGEST_REDACTED_ROTATIONS = {
     "hook --token": (SETTINGS, _stop_hook("bin/a.sh --token first-canary"), _stop_hook("bin/a.sh --token second-canary")),
     "hook --api-key": (SETTINGS, _stop_hook("bin/a.sh --api-key first-canary"), _stop_hook("bin/a.sh --api-key second-canary")),
     "hook --password=": (SETTINGS, _stop_hook("bin/a.sh --password=first-canary"), _stop_hook("bin/a.sh --password=second-canary")),
+    "hook Authorization: Bearer": (
+        SETTINGS,
+        _stop_hook('curl -H "Authorization: Bearer first-canary" https://example.invalid'),
+        _stop_hook('curl -H "Authorization: Bearer second-canary" https://example.invalid'),
+    ),
+    "hook curl -u": (
+        SETTINGS,
+        _stop_hook("curl -u deploy:first-canary https://example.invalid"),
+        _stop_hook("curl -u deploy:second-canary https://example.invalid"),
+    ),
     "hook X-Api-Key:": (
         SETTINGS,
         _stop_hook('curl -H "X-Api-Key: first-canary" https://example.invalid'),
