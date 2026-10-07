@@ -907,6 +907,78 @@ path), and when nothing outside it was read. A partial comparison is not
 comparable: `verify`'s control, `check`'s decision, the control envelope, the
 Stop hook, baselines and drift treat it as they treated the refusal.
 
+### Claude Code permission rules
+
+One rule model (`core/claude_permission_rules.py`, on the lattice in
+`core/permission_lattice.py`) reads every changed Claude Code `allow`, `ask`
+and `deny` rule, and `diff` (text and `--json`), `verify`'s
+`host_comparison`, `check` and `audit --host --drift` all read its answer
+(#918). It follows Claude Code's permissions page,
+<https://code.claude.com/docs/en/permissions> ("Wildcard patterns",
+"Tool name wildcards", "Read and Edit"), read 2026-10-06. A rule is compared
+only with rules of the same host, settings source and disposition; nothing is
+paired by likeness, and a pair it cannot decide stays a widening.
+
+- **Spelling.** A trailing `:*` is a trailing ` *`, and `Bash(*)` is `Bash`, so
+  `Bash(git add:*)` → `Bash(git add *)` is one `respelled` change, never a
+  widening; a `deny` rewritten that way removes no denial. The space is part
+  of the rule: `Bash(pnpm run lint *)` does not cover
+  `Bash(pnpm run lint:fix *)`. Nothing else is folded: a differently cased tool
+  name or a padded rule is another text, not another spelling.
+- **Coverage.** An added `allow` rule that an `allow` rule the same source
+  declared at the base already matches entirely is still a row, worded
+  `runs without a prompt, but adds nothing: allow: <rule>, declared in this
+  source at the base, already matches everything it matches`, and is not a
+  widening: an unchanged broad rule (#941), a departed broad rule replaced by
+  several proven subsets (#918, whose removed row then names the rules it was
+  narrowed to), or a bare tool name over a path-scoped rule
+  (`Edit` over `Edit(**/.env.example)`, #969). Coverage is decided only for a
+  Bash prefix or exact command, a whole tool, an MCP server or tool, or a path
+  prefix whose `*` stays inside one path segment. A command holding shell
+  syntax (`&&`, `|`, `;`, quotes, `$`, redirection), an exec wrapper the page
+  says a prefix rule does not approve (`watch`, `setsid`, `ionice`, `flock`,
+  `find -exec`/`-delete`), a leading assignment, a `**` or a `*` that would
+  have to cross a `/` is undecided, so the addition keeps its `⚠`. So does an
+  addition beside a deny or ask rule of the same tool the source no longer
+  imposes, a rule moved from `deny` or `ask` into `allow`, and anything an
+  unanchored allow glob such as `*` would cover: the page says such a glob
+  "doesn't auto-approve anything".
+- **Path-scoped rules Claude Code does not consult.** "Claude Code checks file
+  permissions against `Edit(path)` and `Read(path)` rules only": a path rule for
+  `Write`, `NotebookEdit`, `Glob` or `MultiEdit` is accepted and never
+  consulted (v2.1.210 and later). Adding or removing one is a row that says so —
+  `removes a path-scoped Write rule Claude Code never consulted …, so no
+  effective denial is removed` — and never a widening or a removed denial
+  (#938). A bare `Write` rule, and a pattern of nothing but stars such as
+  `Write(**)`, is still read as the whole tool: removing a bare `Write` deny
+  is a widening and raises `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED`.
+- **Scoped file globs are not whole-tool grants.** A file tool's leading `*`
+  stays inside the path segments the pattern names, so `Edit(**/.env.example)`
+  is a scoped rule (`medium`, `runs without a prompt`, and
+  `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` when it is new authority),
+  not `matches every target of this kind` and not the blocking wildcard rule.
+  Only `*`, `**`, `**/*`, `/**` and the like are every path (#969).
+- **Carve-outs.** "A deny or ask pattern that starts with `!` is a gitignore
+  negation. It carves the paths it matches out of the `path` or `./path` rules
+  listed before it", only within its own settings source, and "A `!` rule
+  listed first carves nothing out"; it cannot reach a rule anchored with `/`,
+  `~/` or `//`. The host inventory records, on every `Read(!…)` and
+  `Edit(!…)` deny or ask grant, the earlier relative-path rules of the same
+  tool and list it follows, as `carves_from` (host-grants `0.9`), so an edit
+  that only reorders the list but changes what an exception follows is a
+  `changed` row naming both lists. A carve-out is described as one —
+  `a carve-out: paths it matches are excepted from the earlier deny rules it
+  follows in this source (…)`, or `… listed before every deny rule it could
+  except paths from in this source, so it excepts nothing` — never as an
+  added denial (#974). Whether its pattern overlaps what an earlier rule
+  matches is not decided, so it is read as reaching every rule it can reach.
+  It widens (`deny_carve_out_added` / `_changed`, `ask_carve_out_…`) when it
+  now follows a rule the source already declared at the base that it did not
+  follow there, and `check` raises `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED`
+  with evidence kind `permission_deny_carved_out` for a deny list. Removing a
+  carve-out restricts more and is never a removed denial; one added together
+  with the rules it follows lifts nothing the base declared.
+
 ### Claude Code setting ratings
 
 One table in the engine (`core/host_settings.py`) rates every Claude Code

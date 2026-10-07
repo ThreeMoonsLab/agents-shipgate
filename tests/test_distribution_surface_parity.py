@@ -303,6 +303,14 @@ SURFACES: tuple[Surface, ...] = (
         # restates no answer and moves no row, severity or `check` decision;
         # `tests/test_mcp_launch_source.py` holds diff, verify, the PR comment
         # and check to it.
+        # A Claude Code permission rule row's direction, `expands` and `why`
+        # (#918, #941, #969, #974, #938), and the `respelled` change the text
+        # joins, read the engine's one rule model
+        # (`core/claude_permission_rules.py`) — the same reading drift's
+        # `expansion_signals` and `check`'s violations come from — so they
+        # restate no answer and add no claim;
+        # `tests/test_claude_permission_rule_model.py` holds diff, verify,
+        # check and drift to one table.
         {},
     ),
     Surface(
