@@ -519,7 +519,7 @@
                 "profile": "#/$defs/HostProfileGrantV2",
                 "requirement": "#/$defs/HostRequirementGrantV2",
                 "sandbox": "#/$defs/HostSandboxGrantV2",
-                "workflow": "#/$defs/HostWorkflowGrantV7"
+                "workflow": "#/$defs/HostWorkflowGrantV9"
               },
               "propertyName": "kind"
             },
@@ -552,7 +552,7 @@
                 "$ref": "#/$defs/HostRequirementGrantV2"
               },
               {
-                "$ref": "#/$defs/HostWorkflowGrantV7"
+                "$ref": "#/$defs/HostWorkflowGrantV9"
               },
               {
                 "$ref": "#/$defs/HostInstructionGrantV2"
@@ -1826,9 +1826,44 @@
       "title": "HostRequirementGrantV2",
       "type": "object"
     },
-    "HostReusableWorkflowCallV6": {
+    "HostReusableWorkflowCallV9": {
       "additionalProperties": false,
+      "description": "One job's reusable-workflow call; its job's ``permissions`` are a ceiling (#921).\n\n``callee_permissions`` says whether the called workflow's own declarations\nwere read: ``read``, or why not \u2014 ``not_read`` (not among the workflows\nread on this side, or a same-repository spelling GitHub does not run),\n``limited`` (a blocking limit on that file), ``cycle`` or ``too_deep``\n(past GitHub's ten levels of workflows, or this audit's bound on how many\nit follows). ``callee_write_scopes`` is present only when ``read``: the\nceiling's write scopes some called job may hold (``*`` for all); the\ncaller's ``effective_write_scopes`` for the job hold exactly those. When\nthe called workflow was not read the ceiling is assumed to reach it whole.",
       "properties": {
+        "callee_permissions": {
+          "anyOf": [
+            {
+              "enum": [
+                "read",
+                "not_read",
+                "limited",
+                "cycle",
+                "too_deep"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Callee Permissions"
+        },
+        "callee_write_scopes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Callee Write Scopes"
+        },
         "job": {
           "title": "Job",
           "type": "string"
@@ -1859,7 +1894,7 @@
         "uses",
         "secrets_inherit"
       ],
-      "title": "HostReusableWorkflowCallV6",
+      "title": "HostReusableWorkflowCallV9",
       "type": "object"
     },
     "HostReusableWorkflowSecretV6": {
@@ -2214,9 +2249,9 @@
       "title": "HostWorkflowCheckoutRefV7",
       "type": "object"
     },
-    "HostWorkflowGrantV7": {
+    "HostWorkflowGrantV9": {
       "additionalProperties": false,
-      "description": "A v0.6 workflow grant plus the agent launches, unread agent steps and checkout refs its steps declare.\n\nEach list is present only when a step declares one. In a v0.7 grant an\nabsent list means the steps were read and declare none; the schema\nversion, not the key, separates that from a legacy grant that never read\nthem. ``unread_agent_runs`` is a named limit and is never compared.\n``access`` and ``risk`` still describe the workflow's token and triggers\nalone.",
+      "description": "A v0.7 workflow grant whose same-repository reusable calls read their callee (#921).\n\n``access`` describes the job tokens alone: ``pull_request_target`` raises\n``risk``, and makes ``access`` ``write`` only where a job declares no\npermissions (#920).",
       "properties": {
         "access": {
           "enum": [
@@ -2291,7 +2326,7 @@
         },
         "reusable_calls": {
           "items": {
-            "$ref": "#/$defs/HostReusableWorkflowCallV6"
+            "$ref": "#/$defs/HostReusableWorkflowCallV9"
           },
           "title": "Reusable Calls",
           "type": "array"
@@ -2366,7 +2401,7 @@
         "effective_write_scopes",
         "reusable_calls"
       ],
-      "title": "HostWorkflowGrantV7",
+      "title": "HostWorkflowGrantV9",
       "type": "object"
     },
     "HostWorkflowPermissionsV4": {

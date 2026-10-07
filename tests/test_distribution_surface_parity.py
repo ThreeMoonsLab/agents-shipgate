@@ -303,6 +303,13 @@ SURFACES: tuple[Surface, ...] = (
         # protected-surface rule. `tests/test_hook_script_capture.py`,
         # `tests/test_hook_script_comparison_limits.py` and
         # `tests/test_hook_script_routing.py` hold diff, verify and `check`.
+        # A workflow row's token-scope wording (#920, #921, #924) restates the
+        # engine: `access`, the ceiling a same-repository callee's own
+        # permissions reduce (`callee_permissions`, `callee_write_scopes`) and
+        # the inherited-secret recipients are computed where the grant and its
+        # `expansion_signals` are built, and the row reads them back, so it
+        # adds no claim; `tests/test_actions_token_scope.py` holds diff,
+        # verify, check, the control envelope and drift to the same row.
         # An MCP row's launch-source note (#825) renders the display-only
         # `launch_source` pin the engine published on the grant, left out of
         # grant equality, the inventory digests and saved baselines, so it

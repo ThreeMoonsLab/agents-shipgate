@@ -3934,16 +3934,10 @@ def _workflow_grant(
                         for launch in job_launches
                     )
     pull_target = "pull_request_target" in triggers
-    write_all = any(entry.endswith(": write-all") for entry in effective_write_scopes)
-    unknown = not permission_contexts or any(
-        context["state"] != "explicit" for context in permission_contexts
-    )
-    has_read = any(context["permissions"] for context in permission_contexts)
-    inherits_secrets = any(call["secrets_inherit"] for call in reusable_calls)
     projection = {
         "triggers": triggers,
         "pull_request_target": pull_target,
-        "write_all": write_all,
+        "write_all": _has_write_all(effective_write_scopes),
         "write_scopes": sorted(write_scopes),
         "permission_contexts": permission_contexts,
         "effective_write_scopes": sorted(effective_write_scopes),
@@ -3961,23 +3955,260 @@ def _workflow_grant(
         projection["unread_agent_runs"] = unread_agent_runs
     if checkout_refs:
         projection["checkout_refs"] = checkout_refs
+    return _workflow_grant_from(projection, source=source)
+
+
+def _has_write_all(effective_write_scopes: list[str]) -> bool:
+    return any(entry.endswith(": write-all") for entry in effective_write_scopes)
+
+
+def _workflow_grant_from(projection: dict[str, Any], *, source: str) -> dict[str, Any]:
+    access, risk = _workflow_rating(projection)
     return {
         **_grant_base(
             host="github", scope="repository", source=source, kind="workflow",
-            identity=source, config={key: value for key, value in projection.items() if key != "write_scopes"},
-            access="admin" if write_all else (
-                "write" if effective_write_scopes or pull_target else (
-                    "external" if inherits_secrets else (
-                        "unknown" if unknown else ("read" if has_read else "none")
-                    )
-                )
-            ),
-            risk="critical" if write_all or pull_target else (
-                "high" if effective_write_scopes or inherits_secrets else ("unknown" if unknown else "low")
-            ),
+            identity=source, config=_workflow_config(projection), access=access, risk=risk,
         ),
         **projection,
     }
+
+
+def _workflow_config(projection: dict[str, Any]) -> dict[str, Any]:
+    """What a workflow grant's ``config_sha256`` is computed over: its projection, less ``write_scopes``."""
+
+    return {key: value for key, value in projection.items() if key != "write_scopes"}
+
+
+def _workflow_rating(projection: dict[str, Any]) -> tuple[str, str]:
+    """A workflow grant's ``access`` and ``risk``.
+
+    ``access`` describes the job tokens alone (#920). A privileged event is
+    not a token scope: ``pull_request_target`` raises ``risk`` to critical,
+    and makes ``access`` ``write`` only where a job declares no permissions,
+    since GitHub documents that event's token as read/write unless
+    permissions are declared. A workflow whose every job declares read-only
+    scopes reads ``read`` under any trigger.
+    """
+
+    contexts = projection["permission_contexts"]
+    effective = projection["effective_write_scopes"]
+    write_all = projection["write_all"]
+    pull_target = projection["pull_request_target"]
+    defaulted = any(context["state"] != "explicit" for context in contexts)
+    unknown = not contexts or defaulted
+    has_read = any(context["permissions"] for context in contexts)
+    inherits_secrets = any(call["secrets_inherit"] for call in projection["reusable_calls"])
+    access = "admin" if write_all else (
+        "write" if effective or (pull_target and defaulted) else (
+            "external" if inherits_secrets else (
+                "unknown" if unknown else ("read" if has_read else "none")
+            )
+        )
+    )
+    risk = "critical" if write_all or pull_target else (
+        "high" if effective or inherits_secrets else ("unknown" if unknown else "low")
+    )
+    return access, risk
+
+
+#: The two spellings GitHub documents for a reusable workflow in the same
+#: repository, both read from the caller's own commit and neither taking an
+#: ``@ref`` (#921).
+_LOCAL_REUSABLE_PREFIXES = ("./.github/workflows/", "$/.github/workflows/")
+#: GitHub connects at most ten levels of workflows: the caller and nine
+#: reusable workflows beneath it.
+_MAX_REUSABLE_LEVELS = 10
+#: Called workflows one inventory follows, however its calls are shaped. Past
+#: it every remaining call is ``too_deep``, so a pathological call graph costs
+#: a bounded read and never a guessed restriction.
+_MAX_REUSABLE_VISITS = 4096
+#: Fields a workflow grant holds beside its projection.
+_GRANT_BASE_KEYS = frozenset(
+    {"grant_id", "host", "scope", "source", "kind", "config_sha256", "access", "risk"}
+)
+
+CalleePermissions = Literal["read", "not_read", "limited", "cycle", "too_deep"]
+
+
+def local_reusable_target(uses: str, caller_source: str) -> str | None:
+    """The workflow file a same-repository reusable call names, ``""``, or ``None``.
+
+    ``None`` for any other call (``owner/repo/…@ref``), which is never read.
+    ``""`` for a same-repository spelling GitHub does not run, such as a
+    subdirectory or an ``@ref``: nothing is read for it. A workflow below the
+    repository root (a copy under ``samples/x/.github/workflows/``) resolves
+    within its own tree, as it would in the repository it was copied from.
+    """
+
+    prefix = next((item for item in _LOCAL_REUSABLE_PREFIXES if uses.startswith(item)), None)
+    if prefix is None:
+        return None
+    name = uses[len(prefix):]
+    if not name or "/" in name or "@" in name or not name.lower().endswith((".yml", ".yaml")):
+        return ""
+    root = caller_source.rpartition(".github/workflows/")[0]
+    return f"{root}.github/workflows/{name}"
+
+
+def _token_writes(permissions: dict[str, str]) -> frozenset[str]:
+    """The scopes one declaration grants ``write``; ``*`` is ``write-all``."""
+
+    return frozenset(scope for scope, level in permissions.items() if level == "write")
+
+
+def _writes_meet(ceiling: frozenset[str], declared: frozenset[str]) -> frozenset[str]:
+    """What a called job keeps: GitHub only maintains or reduces a passed token."""
+
+    if "*" in ceiling:
+        return declared
+    if "*" in declared:
+        return ceiling
+    return ceiling & declared
+
+
+def _writes_join(left: frozenset[str], right: frozenset[str]) -> frozenset[str]:
+    if "*" in left or "*" in right:
+        return frozenset({"*"})
+    return left | right
+
+
+def _write_entries(job: str, writes: frozenset[str]) -> list[str]:
+    return [f"{job}: " + ("write-all" if scope == "*" else f"{scope}: write") for scope in sorted(writes)]
+
+
+class _CalleeReader:
+    """Follows same-repository reusable calls through one side's workflow grants (#921).
+
+    Read, never run: a called workflow's declared ``permissions`` reduce what
+    the caller's ceiling grants its jobs, as GitHub documents — the caller's
+    token permissions "can be only downgraded (not elevated) by the called
+    workflow". A called job that declares nothing, or declares what this
+    audit could not read, keeps the whole ceiling, and so does a call this
+    audit does not follow (a remote one, a missing or limited file, a loop, a
+    chain past GitHub's ten levels): an unread restriction is never assumed.
+    """
+
+    def __init__(self, grants: list[dict[str, Any]], issues: list[dict[str, Any]]) -> None:
+        self.workflows = {
+            str(grant["source"]): grant
+            for grant in grants
+            if grant.get("kind") == "workflow" and "permission_contexts" in grant
+        }
+        self.limited = {
+            str(issue["source"]) for issue in issues
+            if issue.get("blocking") and issue.get("host") == "github"
+        }
+        self.visits = 0
+        self.settled: dict[tuple[str, frozenset[str]], tuple[int, frozenset[str]]] = {}
+
+    def reach(
+        self, target: str, ceiling: frozenset[str], *, level: int, chain: frozenset[str],
+    ) -> tuple[CalleePermissions, frozenset[str], bool]:
+        """What of ``ceiling`` any job ``target`` runs may hold, and how far it was read.
+
+        The third value says the answer depends on the chain that reached it
+        (a loop or a depth limit beneath), so it is not remembered.
+        """
+
+        grant = self.workflows.get(target) if target else None
+        if grant is None:
+            return "not_read", ceiling, False
+        if target in self.limited or any(
+            call.get("uses_redacted") for call in grant.get("reusable_calls", [])
+        ):
+            return "limited", ceiling, False
+        if target in chain:
+            return "cycle", ceiling, True
+        if level > _MAX_REUSABLE_LEVELS:
+            return "too_deep", ceiling, True
+        # An answer that met no loop and no depth limit holds at its level and
+        # any shallower one; a deeper call may meet the limit, so it reads again.
+        key = (target, ceiling)
+        settled = self.settled.get(key)
+        if settled is not None and level <= settled[0]:
+            return "read", settled[1], False
+        if self.visits >= _MAX_REUSABLE_VISITS:
+            return "too_deep", ceiling, True
+        self.visits += 1
+        calls = {str(call["job"]): call for call in grant.get("reusable_calls", [])}
+        reached: frozenset[str] = frozenset()
+        dependent = False
+        for context in grant["permission_contexts"]:
+            kept = (
+                _writes_meet(ceiling, _token_writes(context["permissions"]))
+                if context["state"] == "explicit"
+                else ceiling
+            )
+            call = calls.get(str(context["job"]))
+            if call is not None and kept:
+                nested = local_reusable_target(str(call["uses"]), target)
+                if nested is not None:
+                    _status, kept, beneath = self.reach(
+                        nested, kept, level=level + 1, chain=chain | {target},
+                    )
+                    dependent = dependent or beneath
+            reached = _writes_join(reached, kept)
+        if not dependent and (settled is None or level > settled[0]):
+            self.settled[key] = (level, reached)
+        return "read", reached, dependent
+
+
+def resolve_reusable_workflow_ceilings(
+    grants: list[dict[str, Any]], issues: list[dict[str, Any]],
+) -> None:
+    """Read a same-repository callee's restrictions into its caller's job token (#921).
+
+    A job that calls a reusable workflow runs no step itself: its
+    ``permissions`` are a ceiling on the called workflow's jobs. For a call
+    whose ceiling declares a ``write`` scope and whose target is a
+    same-repository workflow, the call gains ``callee_permissions`` (whether
+    the called workflow was read, or why not) and, when it was read,
+    ``callee_write_scopes`` (the ceiling's write scopes a called job may
+    hold). The caller's ``effective_write_scopes`` for that job then hold only
+    those. A remote call gains nothing and keeps its ceiling, and so does
+    every call this audit could not follow, so a restriction it did not read
+    never narrows a job. Grants are updated in place, with their digest,
+    access and risk.
+    """
+
+    reader = _CalleeReader(grants, issues)
+    for grant in reader.workflows.values():
+        contexts = {str(context["job"]): context for context in grant["permission_contexts"]}
+        resolved: dict[str, frozenset[str]] = {}
+        for call in grant.get("reusable_calls", []):
+            if call.get("uses_redacted"):
+                continue
+            target = local_reusable_target(str(call["uses"]), str(grant["source"]))
+            context = contexts.get(str(call["job"]))
+            if target is None or context is None or context["state"] != "explicit":
+                continue
+            ceiling = _token_writes(context["permissions"])
+            if not ceiling:
+                continue
+            status, reached, _dependent = reader.reach(
+                target, ceiling, level=2, chain=frozenset({str(grant["source"])}),
+            )
+            call["callee_permissions"] = status
+            if status == "read":
+                call["callee_write_scopes"] = sorted(reached)
+                resolved[str(call["job"])] = reached
+        if not resolved:
+            continue
+        effective: list[str] = []
+        for context in grant["permission_contexts"]:
+            job = str(context["job"])
+            writes = resolved.get(job)
+            if writes is None:
+                writes = _token_writes(context["permissions"])
+            effective.extend(_write_entries(job, writes))
+        grant["effective_write_scopes"] = sorted(effective)
+        grant["write_all"] = _has_write_all(grant["effective_write_scopes"])
+    for grant in reader.workflows.values():
+        if not any("callee_permissions" in call for call in grant.get("reusable_calls", [])):
+            continue
+        projection = {key: value for key, value in grant.items() if key not in _GRANT_BASE_KEYS}
+        grant["config_sha256"] = redacted_config_sha256(_workflow_config(projection))
+        grant["access"], grant["risk"] = _workflow_rating(projection)
 
 
 def _instruction_grant(*, host: str, scope: HostScope, source: str, data: str, structure: dict | None = None) -> dict[str, Any]:
@@ -5741,6 +5972,10 @@ def build_host_boundary_snapshot(
             [item for item in artifacts if item.get("host") != "claude-code"]
         ))
 
+    # Every workflow is read before any caller's ceiling is (#921): a called
+    # workflow's restrictions are read from this same side, never guessed.
+    resolve_reusable_workflow_ceilings(grants, issues)
+
     try:
         cache.finish()
     except IdentityReadBudgetExceeded:
@@ -6808,16 +7043,22 @@ def host_grant_expansion_signals(
                 if f"{entry.split(': ', 1)[0]}: write-all" not in old_writes
                 and entry.split(': ', 1)[0] not in unknown_before
             }
-            if added_writes or (
+            # The privileged event and the token are separate facts (#920).
+            # Gaining `pull_request_target` widens the event context whatever
+            # the scopes; it widens the token only where a job may write: a
+            # write scope, or a job declaring none, which that event runs with
+            # a read/write token where a fork's `pull_request` would not.
+            privileged = bool(
                 after.get("pull_request_target") and not previous.get("pull_request_target")
-            ):
+            )
+            may_write = bool(new_writes) or any(
+                context["state"] != "explicit" for context in after.get("permission_contexts", [])
+            )
+            if added_writes or (privileged and may_write):
                 signals.append(f"workflow_write_{prefix}: {after['source']}")
-            def inherited_calls(grant):
-                return {
-                    (call["job"], call["uses"])
-                    for call in grant.get("reusable_calls", []) if call["secrets_inherit"]
-                }
-            if inherited_calls(after) - inherited_calls(previous):
+            if privileged:
+                signals.append(f"workflow_pull_request_target_{prefix}: {after['source']}")
+            if inherited_recipients(after) - inherited_recipients(previous):
                 signals.append(f"workflow_secrets_inherited_{prefix}: {after['source']}")
             # Only a documented rule gained by a job's agent launches widens
             # (#823); every other agent-launch or checkout edit is a change.
@@ -7024,6 +7265,36 @@ def permission_rule_assessment(
         narrowed_into={key: sorted(value) for key, value in narrowed_into.items()},
         respelled_pairs=tuple(sorted(pairs)),
     )
+
+def reusable_call_target(uses: str) -> str:
+    """A reusable call's workflow without its ``@ref`` (#924).
+
+    ``owner/repo/path@main`` and ``owner/repo/path@<sha>`` name one called
+    workflow at two references. The reference is opaque text here: neither
+    what code it names nor whether two name the same code is established.
+    A same-repository call has no reference.
+    """
+
+    if local_reusable_target(uses, "") is not None:
+        return uses
+    target, at, _ref = uses.rpartition("@")
+    return target if at and target else uses
+
+
+def inherited_recipients(grant: dict[str, Any]) -> set[tuple[str, str]]:
+    """The jobs passing every caller secret, each with the workflow it calls (#685, #924).
+
+    Keyed by the called workflow, not its reference: re-pinning an inheriting
+    call from a branch to a commit SHA changes the code it names and passes
+    the same secrets to the same workflow, so it is not a new recipient. A new
+    inheriting job, another called workflow, or ``secrets: inherit`` added to
+    a call is.
+    """
+
+    return {
+        (str(call["job"]), reusable_call_target(str(call["uses"])))
+        for call in grant.get("reusable_calls", []) if call["secrets_inherit"]
+    }
 
 
 @dataclass(frozen=True)

@@ -20,6 +20,16 @@ MCP source, or was unreadable or structurally incomplete, whatever its
 `decision` says. No published schema or control state changes. See
 [the migration note](#evaluated-subject-930).
 
+Also unreleased: a GitHub workflow row states the event context, each job's
+token scopes and a calling job's permission ceiling apart (#920, #921, #924).
+A read-only `pull_request_target` workflow reads `access: read` and is never
+said to grant write; a same-repository reusable workflow's own `permissions`
+are read, so a ceiling it withholds is not a widening; and re-pinning an
+inheriting call to another reference is a `changed` row. Host-grants `0.9`,
+unreleased, gains two optional members on a reusable call. No control state
+or `check` decision changes. See
+[the migration note](#actions-token-scopes-921).
+
 New in 1.2.0, #829 adds a source-local residual-prefix explanation to the existing
 host comparison row `why` text for supported Claude Code `git push` allows.
 It reads all compared head deny rules in that source, including unchanged
@@ -329,6 +339,77 @@ from the shipped `v0.15.0` contract are in
 the Action tag) for reproducible CI.
 
 ---
+
+<a id="actions-token-scopes-921"></a>
+
+## Migration Note: Unreleased — GitHub Actions token scopes (host-grants `0.9`, #920, #921, #924)
+
+**What was wrong.** Published `1.2.0` fused three facts on a workflow row. A
+`pull_request_target` workflow whose jobs declare only `contents: read` and
+`pull-requests: read` read `access: write` and "grants write permissions to
+workflow jobs" (#920). A job that calls a reusable workflow had its
+`permissions` counted as its own write grant, so raising the caller's
+`contents: read` to `write` was a widening even when the unchanged called
+workflow declares `contents: read`, which GitHub lets it keep while reducing
+the passed token (#921). And re-pinning an inheriting call from `@main` to a
+commit was a new inherited-secret recipient, `critical widened` (#924).
+
+**What changes.**
+
+- **`access` describes the job tokens alone.** `pull_request_target` still
+  rates the grant `critical`, keeps the `uses the privileged
+  pull_request_target event context` reason, and widens when it arrives, but
+  it makes `access` `write` only where a job declares no permissions, whose
+  token GitHub documents as read/write under that event. An all-read workflow
+  reads `access: read` and its row says `every job declares read-only or no
+  token permissions`. `grants write permissions to workflow jobs` is said only
+  of a job that runs steps with a write scope.
+- **`expansion_signals`.** Gaining `pull_request_target` now emits
+  `workflow_pull_request_target_<added|changed>`. `workflow_write_<added|changed>`
+  is emitted for a new write scope as before, and beside the trigger only when
+  a job may write under it (a write scope, or a job declaring none). A
+  read-only workflow gaining the trigger therefore loses its
+  `workflow_write_*` signal and keeps `expands: true` through the new one.
+- **A calling job's permissions are a ceiling**, printed
+  `job: ceiling scope: level`. For a call whose ceiling holds a `write` scope
+  and whose target is `./.github/workflows/<file>` or
+  `$/.github/workflows/<file>`, the called workflow's own permissions are
+  read from the same side, through its same-repository calls, within GitHub's
+  ten levels and 4,096 called workflows per inventory. Host-grants `0.9` adds
+  `reusable_calls[].callee_permissions` (`read`, `not_read`, `limited`,
+  `cycle`, `too_deep`) and, when `read`, `callee_write_scopes`; both are
+  omitted on every other call, which keeps its earlier shape and digest.
+  `effective_write_scopes` for such a job then hold only the scopes a called
+  job may keep, and the grant's `access`, `risk` and `config_sha256` follow.
+  A call this audit does not follow, including every call to another
+  repository, keeps the whole ceiling, so it widens as before, and its row
+  says whether its jobs hold the scopes is not established. Removing a called
+  workflow's restriction widens its unchanged caller.
+- **Inherited-secret recipients are keyed by the called workflow, not its
+  reference.** A reference-only edit of an inheriting call is a `changed` row
+  whose `why` says `the called code reference changed` and names both
+  references, without asserting what either runs. A new inheriting job, a
+  different called workflow, or `secrets: inherit` added to a call still emits
+  `workflow_secrets_inherited_*`. This reverses the `1.0.0` note's "including
+  a changed reusable target/ref" for the reference alone (#685).
+
+**What does not change.** `check`'s workflow rules read declarations, so a
+raised ceiling still raises `SHIP-HOST-BOUNDARY-WORKFLOW-PERMISSIONS-EXPANDED`
+and a gained trigger `SHIP-HOST-BOUNDARY-PULL-REQUEST-TARGET-ADDED`; no control
+state, permission or `check` decision moves. Ordinary-job inheritance,
+named secret mappings (#693), step references (#771) and agent launches
+(#823) are compared as before. `diff`, `verify`'s `host_comparison`, the PR
+comment, `check` rows, the control envelope's `capability_rows`, drift and
+preflight read the same rows and signals.
+
+**Saved baselines.** A baseline saved before this change holds a calling
+job's ceiling in `effective_write_scopes` and no callee members. Against the
+new reading, a workflow with such a same-repository call reports one `changed`
+grant with no expansion signal, and `--fail-on-drift` exits `20` once; review
+it and save the baseline again. A `pull_request_target` workflow whose jobs
+all declare read-only scopes does the same, its `access` moving from `write`
+to `read`. Calls to another repository read as before.
+See [`docs/host-boundary-support.md`](docs/host-boundary-support.md#workflow-token-scopes).
 
 <a id="url-permission-rules-922"></a>
 

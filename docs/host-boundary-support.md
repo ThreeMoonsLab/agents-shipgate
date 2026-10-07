@@ -20,7 +20,7 @@ and `audit --host`.
 | Claude Code | first-class | `.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json`, `CLAUDE.md`, Claude skills | permission modes/rules, sandbox/network, additional paths, MCP restrictions, plugins and their marketplaces (`extraKnownMarketplaces`), hooks |
 | Cursor | first-class | `.cursor/cli.json`, `.cursor/mcp.json`, `.cursor/rules/**` | Shell/Read/Write rules, MCP declarations, instruction trust roots |
 | VS Code MCP | first-class | `.vscode/mcp.json` | MCP servers; `sandbox` and per-server `sandboxEnabled`; `${input:…}` references by name, never value; `envFile` recorded as a limit; other top-level keys partial |
-| Shared/GitHub | first-class | `AGENTS.md`, Shipgate policies/state, skills, `.github/workflows/*` | instruction/gate weakening, workflow permissions and triggers, remote step action references, named secret sources passed to reusable workflows, agent launches (documented agent action inputs, `run:` steps that are one plain `claude -p` / `codex exec` command, `run:` steps that mention an agent CLI in shell this audit does not parse, named as a limit) and `actions/checkout` refs |
+| Shared/GitHub | first-class | `AGENTS.md`, Shipgate policies/state, skills, `.github/workflows/*` | instruction/gate weakening, workflow permissions and triggers (the event context apart from job token scopes), reusable-call permission ceilings and the permissions of same-repository called workflows, remote step action references, named secret sources passed to reusable workflows, agent launches (documented agent action inputs, `run:` steps that are one plain `claude -p` / `codex exec` command, `run:` steps that mention an agent CLI in shell this audit does not parse, named as a limit) and `actions/checkout` refs |
 
 A registered adapter reports `complete`, `not_applicable`, `partial`, or
 `experimental` coverage. A relevant malformed, unreadable, binary, oversized,
@@ -59,6 +59,12 @@ the changed inputs the candidate rules at the end of this section name (#821):
   It runs inside the calling job, with that job's `permissions` and secrets, so
   adding a `run:` step to `.github/actions/<name>/action.yml` adds a command
   holding the caller's scopes. Only the workflow file is read (#701).
+- **A reusable workflow in another repository**
+  (`uses: owner/repo/.github/workflows/<file>@ref`). It is never fetched, so
+  its jobs, steps and own `permissions` are not read: the calling job's
+  ceiling is counted as reaching its jobs, and the row says that is not
+  established ([below](#workflow-token-scopes), #921). A same-repository
+  reusable workflow is read.
 - **A script outside the supported hook reference shapes** (for example a
   relative `.claude/hooks/session-start`, a wrapper's argument, or a dynamic
   shell expression). A filename alone establishes neither selection nor the
@@ -163,6 +169,70 @@ same unreadable form is not reported. A destination or source name, or a job's
 reusable `uses:` target, containing credential-shaped text is published
 redacted and refuses the same way a step reference does, so two values that
 redact alike never compare as unchanged.
+
+<a id="workflow-token-scopes"></a>
+
+A workflow row states three facts apart (#920, #921, #924): the event context,
+each job's token scopes, and a calling job's ceiling.
+
+- **The event context.** `pull_request_target` is privileged: the row says
+  `uses the privileged pull_request_target event context`, the grant is rated
+  `critical`, and a workflow gaining the trigger is a widening
+  (`workflow_pull_request_target_<added|changed>`). It is not a token scope.
+  GitHub computes a job's `GITHUB_TOKEN` from the repository default, then the
+  workflow's `permissions`, then the job's, and a declaration that names any
+  scope sets every scope it leaves out to `none`
+  ([workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions)).
+  So a workflow whose jobs all declare read-only scopes reads `access: read`
+  under any trigger, and its row says `every job declares read-only or no token
+  permissions`, never that it grants write. A job that declares nothing runs
+  under `pull_request_target` with the token GitHub documents as read/write
+  "even when it is triggered from a public fork", so it reads `access: write`,
+  says so, and gaining the trigger then also widens the token
+  (`workflow_write_<added|changed>`), as a write scope does.
+- **A calling job's ceiling.** A job that calls a reusable workflow runs no
+  step itself. Its `permissions` are a ceiling, printed `job: ceiling scope:
+  level`: GitHub passes the token to the called workflow, which "can be only
+  downgraded (not elevated)"
+  ([reusing workflow configurations](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations)).
+  For a call whose ceiling holds a `write` scope and whose target is a
+  workflow in the same repository (`./.github/workflows/<file>` or
+  `$/.github/workflows/<file>`, both read from the caller's own commit), that
+  workflow's declared `permissions` are read on the same side of the
+  comparison, through its own same-repository calls, up to GitHub's ten
+  levels of workflows and a bound of 4,096 called workflows per inventory.
+  The call publishes `callee_permissions` and, when it was read,
+  `callee_write_scopes`, the ceiling's write scopes some called job may hold;
+  the row prints them beside the call (`(called jobs hold no write scope)`,
+  `(called jobs may hold contents: write)`). A called job that declares no
+  permissions keeps the whole ceiling. A scope no called job keeps is not a
+  write the caller grants, so raising a ceiling that the called workflow
+  withholds is a `changed` row that says so, and removing the called
+  workflow's restriction widens the unchanged caller too. A call this audit
+  does not follow — a workflow in another repository, which is never fetched,
+  or a same-repository one that is not among the files read on that side (a
+  provided diff reads only changed files), carries a blocking limit, calls back
+  into its own chain or is past the bound (`callee_permissions` `not_read`,
+  `limited`, `cycle`, `too_deep`) — keeps the whole ceiling, and its row says
+  that whether its jobs hold the scopes is not established. That is the
+  direction the engine assumes, so a raised ceiling on such a call is still a
+  widening. Ordinary jobs keep the inheritance described above, and named
+  secret forwarding is unchanged.
+- **The called reference.** `secrets: inherit` passes every caller secret to
+  the called workflow, so a new inheriting job, a different called workflow, or
+  `secrets: inherit` added to a call is a widening
+  (`workflow_secrets_inherited_<added|changed>`). Re-pinning an inheriting
+  call to another reference of the same workflow (`…/cla.yml@main` →
+  `…/cla.yml@<sha>`) is not: it is a `changed` row that says `the called code
+  reference changed` and names both references. References are compared as
+  text, so the row asserts neither what either reference runs nor that they
+  run the same code.
+
+`check`'s workflow rules read declarations and are unchanged: a declared scope
+rising to `write`, including a calling job's ceiling, still requires review
+(`SHIP-HOST-BOUNDARY-WORKFLOW-PERMISSIONS-EXPANDED`), and so does a gained
+`pull_request_target` trigger, whatever the scopes. The rows beside them say
+what the declaration reaches.
 
 How a coding agent is launched inside a job is read (#823). Every value is
 compared as the text it declares, less what the host readers withhold (below);

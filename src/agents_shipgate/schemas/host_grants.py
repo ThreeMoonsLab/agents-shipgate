@@ -1166,6 +1166,41 @@ class HostPermissionRuleGrantV9(HostPermissionRuleGrantV2):
     """
 
     carves_from: list[str] | None = Field(default=None, exclude_if=lambda value: value is None)
+# v0.9 reads a same-repository reusable workflow's own restrictions (#921).
+# Both members are present only on a call whose target is a workflow in the
+# same repository and whose job declares a `write` scope, so every other call
+# keeps its v0.7 shape and digest.
+class HostReusableWorkflowCallV9(HostReusableWorkflowCallV6):
+    """One job's reusable-workflow call; its job's ``permissions`` are a ceiling (#921).
+
+    ``callee_permissions`` says whether the called workflow's own declarations
+    were read: ``read``, or why not — ``not_read`` (not among the workflows
+    read on this side, or a same-repository spelling GitHub does not run),
+    ``limited`` (a blocking limit on that file), ``cycle`` or ``too_deep``
+    (past GitHub's ten levels of workflows, or this audit's bound on how many
+    it follows). ``callee_write_scopes`` is present only when ``read``: the
+    ceiling's write scopes some called job may hold (``*`` for all); the
+    caller's ``effective_write_scopes`` for the job hold exactly those. When
+    the called workflow was not read the ceiling is assumed to reach it whole.
+    """
+
+    callee_permissions: Literal["read", "not_read", "limited", "cycle", "too_deep"] | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    callee_write_scopes: list[str] | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+
+class HostWorkflowGrantV9(HostWorkflowGrantV7):
+    """A v0.7 workflow grant whose same-repository reusable calls read their callee (#921).
+
+    ``access`` describes the job tokens alone: ``pull_request_target`` raises
+    ``risk``, and makes ``access`` ``write`` only where a job declares no
+    permissions (#920).
+    """
+
+    reusable_calls: list[HostReusableWorkflowCallV9]
 
 
 HostGrantV9 = Annotated[
@@ -1178,7 +1213,7 @@ HostGrantV9 = Annotated[
     | HostPluginGrantV2
     | HostProfileGrantV2
     | HostRequirementGrantV2
-    | HostWorkflowGrantV7
+    | HostWorkflowGrantV9
     | HostInstructionGrantV2
     | HostOpenShellPolicyGrantV9,
     Field(discriminator="kind"),
@@ -1193,7 +1228,7 @@ HostBaselineGrantV9 = Annotated[
     | HostPluginGrantV2
     | HostProfileGrantV2
     | HostRequirementGrantV2
-    | HostWorkflowGrantV7
+    | HostWorkflowGrantV9
     | HostInstructionGrantV2
     | HostOpenShellPolicyGrantV9,
     Field(discriminator="kind"),

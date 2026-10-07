@@ -1,0 +1,17 @@
+name: "870: [CALL] EVM Functional Tests"
+on:
+  workflow_call:
+    secrets:
+      access-token:
+        required: true
+permissions:
+  contents: read
+jobs:
+  evm-functional-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo fixture
+  set-failure-mode:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo fixture

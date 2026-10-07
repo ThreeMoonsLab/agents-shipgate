@@ -22,6 +22,7 @@
   "tests/test_action_scope_domain.py": 0.0,
   "tests/test_action_scope_projection.py": 3.4,
   "tests/test_action_surface_diff.py": 0.8,
+  "tests/test_actions_token_scope.py": 55.0,
   "tests/test_adapter_contracts.py": 0.2,
   "tests/test_adapter_entry_point_discovery.py": 5.1,
   "tests/test_adapter_registry.py": 0.1,

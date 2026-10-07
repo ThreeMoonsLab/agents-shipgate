@@ -45,11 +45,13 @@ from agents_shipgate.core.host_grants import (
     hook_loading_basis,
     host_grant_direction_unknown,
     host_grant_expansion_signals,
+    local_reusable_target,
     permission_rule_assessment,
     permission_rule_replacements,
     published_setting_value,
     published_workflow_label,
     pull_request_code_ref,
+    reusable_call_target,
     secret_mapping_key,
     step_action_key,
 )
@@ -582,6 +584,121 @@ RESPELLED = "respelled"
 DIRECTION_UNKNOWN = "authority direction is unknown"
 
 
+#: Why a same-repository called workflow's own permissions were not read (#921).
+_CALLEE_NOT_READ = {
+    "not_read": "was not read on this side",
+    "limited": "has a limit this audit cannot compare past",
+    "cycle": "calls back into its own chain of calls",
+    "too_deep": "is past the depth of calls this audit follows",
+}
+
+
+def _write_scopes_text(scopes: Sequence[str]) -> str:
+    return "write-all" if "*" in scopes else ", ".join(f"{scope}: write" for scope in sorted(scopes))
+
+
+def _callee_suffix(call: dict[str, Any]) -> str:
+    """What reading a same-repository callee established, beside its call (#921).
+
+    Shown on the call, so a change to the called workflow's restrictions alone
+    reads as a change on the caller's row and not as identical sides.
+    """
+
+    status = call.get("callee_permissions")
+    if status is None:
+        return ""
+    if status == "read":
+        scopes = call.get("callee_write_scopes") or []
+        return f" (called jobs may hold {_write_scopes_text(scopes)})" if scopes else " (called jobs hold no write scope)"
+    return " (called workflow not read)"
+
+
+def _ceiling_reasons(grant: dict[str, Any]) -> list[str]:
+    """A calling job's write scopes, said as the ceiling they are (#921).
+
+    The scopes a job that calls a reusable workflow declares bound what the
+    called workflow's jobs may hold; GitHub lets the called workflow keep or
+    reduce them, never raise them. Whether its jobs hold them is stated only
+    where the called workflow's own permissions were read.
+    """
+
+    contexts = {str(context["job"]): context for context in grant.get("permission_contexts") or []}
+    reasons: list[str] = []
+    for call in grant.get("reusable_calls") or []:
+        context = contexts.get(str(call["job"]))
+        if context is None or context["state"] != "explicit":
+            continue
+        ceiling = [scope for scope, level in context["permissions"].items() if level == "write"]
+        if not ceiling:
+            continue
+        lead = (
+            f"{call['job']}'s permissions are a ceiling for the workflow it calls "
+            f"({_write_scopes_text(ceiling)})"
+        )
+        status = call.get("callee_permissions")
+        if status == "read":
+            reached = call.get("callee_write_scopes") or []
+            if not reached:
+                reasons.append(
+                    f"{lead}; that workflow's own permissions give none of its jobs a write scope from it"
+                )
+            elif sorted(reached) == sorted(ceiling):
+                reasons.append(f"{lead}; a job in that workflow may hold all of it")
+            else:
+                reasons.append(
+                    f"{lead}; a job in that workflow may hold {_write_scopes_text(reached)}, "
+                    "and its own permissions withhold the rest"
+                )
+            continue
+        if status is None and local_reusable_target(str(call["uses"]), "") is None:
+            why_unread = "is in another repository and is not read"
+        else:
+            why_unread = _CALLEE_NOT_READ.get(str(status), "was not read")
+        reasons.append(
+            f"{lead}; that workflow {why_unread}, so whether its jobs hold them is not established"
+        )
+    return reasons
+
+
+#: One job's reusable call on each side of a changed workflow: job, before, after.
+CallChange = tuple[str, str, str]
+
+
+def _reusable_call_changes(
+    before: dict[str, Any] | None, after: dict[str, Any] | None
+) -> list[CallChange]:
+    """The jobs that call a different reusable target or reference on each side (#924)."""
+
+    if not _is_workflow_pair(before, after):
+        return []
+    assert before is not None and after is not None
+    old = {str(call["job"]): str(call["uses"]) for call in before.get("reusable_calls", [])}
+    new = {str(call["job"]): str(call["uses"]) for call in after.get("reusable_calls", [])}
+    return [(job, old[job], new[job]) for job in sorted(old.keys() & new.keys()) if old[job] != new[job]]
+
+
+def _call_change_reasons(changes: list[CallChange]) -> list[str]:
+    """A changed reusable reference, said as code named differently, never as authority (#924)."""
+
+    repinned = [item for item in changes if reusable_call_target(item[1]) == reusable_call_target(item[2])]
+    retargeted = [item for item in changes if item not in repinned]
+    reasons: list[str] = []
+    if repinned:
+        # The workflow is the same, so only its two references are printed.
+        pairs = ", ".join(
+            f"{job}: {old.rpartition('@')[2]} → {new.rpartition('@')[2]}" for job, old, new in repinned
+        )
+        reasons.append(
+            f"the called code reference changed ({pairs}); it adds no declared scope or secret, "
+            "and this audit compares references as text, so it establishes neither what either "
+            "one runs nor that they run the same code"
+        )
+    if retargeted:
+        pairs = ", ".join(f"{job}: {old} → {new}" for job, old, new in retargeted)
+        reasons.append(f"the called workflow changed ({pairs})")
+    return reasons
+
+
 def _grant_value(
     grant: dict[str, Any] | None,
     *,
@@ -617,17 +734,21 @@ def _grant_value(
         parts = [f"access: {access}"] if access else []
         if grant.get("write_all"):
             parts.append("write-all")
+        calling = {str(call["job"]) for call in grant.get("reusable_calls") or []}
         if "permission_contexts" in grant:
             for context in grant["permission_contexts"]:
+                # A calling job runs no step: its scopes are a ceiling for the
+                # workflow it calls, not its own token (#921).
+                ceiling = "ceiling " if str(context["job"]) in calling else ""
                 if context["state"] != "explicit":
                     reason = "repository defaults" if context["state"] == "repository_default" else "unresolved permissions"
-                    parts.append(f"{context['job']}: {reason} (unknown)")
+                    parts.append(f"{context['job']}: {ceiling}{reason} (unknown)")
                 elif not context["permissions"]:
-                    parts.append(f"{context['job']}: no token permissions")
+                    parts.append(f"{context['job']}: {ceiling}no token permissions")
                 else:
                     for scope, level in context["permissions"].items():
                         permission = f"{level}-all" if scope == "*" else f"{scope}: {level}"
-                        parts.append(f"{context['job']}: {permission}")
+                        parts.append(f"{context['job']}: {ceiling}{permission}")
         else:
             parts.extend(str(scope) for scope in grant.get("write_scopes") or [])
         if grant.get("pull_request_target"):
@@ -637,7 +758,7 @@ def _grant_value(
             parts.append("on: " + ", ".join(other_triggers))
         for call in grant.get("reusable_calls") or []:
             forwarding = "secrets: inherit → " if call.get("secrets_inherit") else "uses: "
-            parts.append(f"{call['job']}: {forwarding}{call['uses']}")
+            parts.append(f"{call['job']}: {forwarding}{call['uses']}{_callee_suffix(call)}")
         parts.extend(_secret_mapping_value(item) for item in secret_mappings or [])
         parts.extend(_step_action_value(item) for item in step_actions or [])
         parts.extend(_checkout_ref_value(item) for item in checkout_refs or [])
@@ -675,6 +796,7 @@ def _why(
     gone_secrets: list[SecretMapping] | None = None,
     new_secrets: list[SecretMapping] | None = None,
     agent_reasons: list[str] | None = None,
+    call_changes: list[CallChange] | None = None,
 ) -> str:
     """Why a reviewer should care, in the reviewer's terms.
 
@@ -709,12 +831,40 @@ def _why(
         return "runs without a prompt"
     if kind == "workflow":
         reasons = []
+        contexts = grant.get("permission_contexts")
+        # The event context, the job tokens and a calling job's ceiling are
+        # three facts, said apart (#920, #921): a read-only token under
+        # `pull_request_target` is not a write grant.
         if grant.get("pull_request_target"):
             reasons.append("uses the privileged pull_request_target event context")
-        if access in {"admin", "write"} or grant.get("write_all"):
-            reasons.append("grants write permissions to workflow jobs")
-        if any(context["state"] != "explicit" for context in grant.get("permission_contexts", [])):
+        if contexts is None:
+            # A legacy grant names its write scopes and nothing about jobs.
+            if access in {"admin", "write"} or grant.get("write_all"):
+                reasons.append("grants write permissions to workflow jobs")
+        else:
+            calling = {str(call["job"]) for call in grant.get("reusable_calls") or []}
+            if any(
+                context["state"] == "explicit" and str(context["job"]) not in calling
+                and "write" in context["permissions"].values()
+                for context in contexts
+            ):
+                reasons.append("grants write permissions to workflow jobs")
+            if grant.get("pull_request_target") and contexts and all(
+                context["state"] == "explicit" and "write" not in context["permissions"].values()
+                for context in contexts
+            ):
+                reasons.append("every job declares read-only or no token permissions")
+            if grant.get("pull_request_target") and any(
+                context["state"] == "repository_default" for context in contexts
+            ):
+                reasons.append(
+                    "a job that declares no token permissions may run with the token GitHub "
+                    "documents as read/write for pull_request_target runs, even from a fork"
+                )
+            reasons.extend(_ceiling_reasons(grant))
+        if any(context["state"] != "explicit" for context in contexts or []):
             reasons.append("some effective token permissions are unknown; repository defaults or unresolved declarations require review")
+        reasons.extend(_call_change_reasons(call_changes or []))
         for call in grant.get("reusable_calls") or []:
             if call.get("secrets_inherit"):
                 reasons.append(f"passes the caller's available secrets to {call['uses']}")
@@ -1726,6 +1876,7 @@ def capability_diff_rows(
             gone_steps=gone_steps, new_steps=new_steps,
             gone_secrets=gone_secrets, new_secrets=new_secrets,
             agent_reasons=agent_reasons,
+            call_changes=_reusable_call_changes(before_grant, after_grant),
         )
         kind = grant.get("kind")
         if kind == "openshell_policy":
