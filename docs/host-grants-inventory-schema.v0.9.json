@@ -514,7 +514,7 @@
                 "mcp_server": "#/$defs/HostMcpServerGrantV7",
                 "openshell_policy": "#/$defs/HostOpenShellPolicyGrantV9",
                 "permission_mode": "#/$defs/HostPermissionModeGrantV2",
-                "permission_rule": "#/$defs/HostPermissionRuleGrantV2",
+                "permission_rule": "#/$defs/HostPermissionRuleGrantV9",
                 "plugin_or_app": "#/$defs/HostPluginGrantV2",
                 "profile": "#/$defs/HostProfileGrantV2",
                 "requirement": "#/$defs/HostRequirementGrantV2",
@@ -528,7 +528,7 @@
                 "$ref": "#/$defs/HostMcpServerGrantV7"
               },
               {
-                "$ref": "#/$defs/HostPermissionRuleGrantV2"
+                "$ref": "#/$defs/HostPermissionRuleGrantV9"
               },
               {
                 "$ref": "#/$defs/HostPermissionModeGrantV2"
@@ -1441,8 +1441,9 @@
       "title": "HostPermissionModeGrantV2",
       "type": "object"
     },
-    "HostPermissionRuleGrantV2": {
+    "HostPermissionRuleGrantV9": {
       "additionalProperties": false,
+      "description": "A permission rule plus, for a Claude Code ``!`` deny or ask rule, what it follows (#974).\n\nClaude Code reads a deny or ask pattern that starts with ``!`` as a\ncarve-out from the relative-path rules of the same tool listed before it in\nthe same source (https://code.claude.com/docs/en/permissions#read-and-edit).\n``carves_from`` is those earlier rules, sorted: present (possibly empty) on\nevery such rule and absent on every other, so a grant that lacks it was read\nby a version that did not record its position. Whether the patterns\noverlap is not decided.",
       "properties": {
         "access": {
           "enum": [
@@ -1456,6 +1457,21 @@
           ],
           "title": "Access",
           "type": "string"
+        },
+        "carves_from": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Carves From"
         },
         "config_sha256": {
           "title": "Config Sha256",
@@ -1536,7 +1552,7 @@
         "disposition",
         "rule"
       ],
-      "title": "HostPermissionRuleGrantV2",
+      "title": "HostPermissionRuleGrantV9",
       "type": "object"
     },
     "HostPluginGrantV2": {

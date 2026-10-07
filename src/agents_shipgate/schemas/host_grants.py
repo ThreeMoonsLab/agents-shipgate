@@ -1153,8 +1153,51 @@ class HostOpenShellPolicyGrantV9(HostOpenShellPolicyGrantV8):
     facts: OpenShellPolicyFacts | OpenShellComposedPolicyFacts | OpenShellSnapshotFactsV2
 
 
-HostGrantV9 = Annotated[HostGrantV7 | HostOpenShellPolicyGrantV9, Field(discriminator="kind")]
-HostBaselineGrantV9 = Annotated[HostBaselineGrantV7 | HostOpenShellPolicyGrantV9, Field(discriminator="kind")]
+class HostPermissionRuleGrantV9(HostPermissionRuleGrantV2):
+    """A permission rule plus, for a Claude Code ``!`` deny or ask rule, what it follows (#974).
+
+    Claude Code reads a deny or ask pattern that starts with ``!`` as a
+    carve-out from the relative-path rules of the same tool listed before it in
+    the same source (https://code.claude.com/docs/en/permissions#read-and-edit).
+    ``carves_from`` is those earlier rules, sorted: present (possibly empty) on
+    every such rule and absent on every other, so a grant that lacks it was read
+    by a version that did not record its position. Whether the patterns
+    overlap is not decided.
+    """
+
+    carves_from: list[str] | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
+HostGrantV9 = Annotated[
+    HostMcpServerGrantV7
+    | HostPermissionRuleGrantV9
+    | HostPermissionModeGrantV2
+    | HostHookGrantV7
+    | HostSandboxGrantV2
+    | HostAdditionalPathGrantV2
+    | HostPluginGrantV2
+    | HostProfileGrantV2
+    | HostRequirementGrantV2
+    | HostWorkflowGrantV7
+    | HostInstructionGrantV2
+    | HostOpenShellPolicyGrantV9,
+    Field(discriminator="kind"),
+]
+HostBaselineGrantV9 = Annotated[
+    HostMcpServerGrantV2
+    | HostPermissionRuleGrantV9
+    | HostPermissionModeGrantV2
+    | HostHookComparisonV7
+    | HostSandboxGrantV2
+    | HostAdditionalPathGrantV2
+    | HostPluginGrantV2
+    | HostProfileGrantV2
+    | HostRequirementGrantV2
+    | HostWorkflowGrantV7
+    | HostInstructionGrantV2
+    | HostOpenShellPolicyGrantV9,
+    Field(discriminator="kind"),
+]
 
 
 class HostArtifactV9(HostArtifactV8):

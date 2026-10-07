@@ -28,12 +28,15 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from agents_shipgate.core.claude_permission_rules import is_carve_out
 from agents_shipgate.core.host_grants import (
     _PLAIN_TOKEN_RE,
     AGENT_RULE_INPUTS,
     DETAIL_NOT_SHOWN,
     UNTRUSTED_INPUT_TRIGGERS,
+    PermissionRuleAssessment,
     PermissionRuleReplacement,
+    _permission_key,
     agent_launch_key,
     agent_rule_gains,
     agent_rule_text,
@@ -42,6 +45,7 @@ from agents_shipgate.core.host_grants import (
     hook_loading_basis,
     host_grant_direction_unknown,
     host_grant_expansion_signals,
+    permission_rule_assessment,
     permission_rule_replacements,
     published_setting_value,
     published_workflow_label,
@@ -53,7 +57,9 @@ from agents_shipgate.core.host_settings import rate_claude_setting, setting_valu
 from agents_shipgate.core.openshell_compare import compare_openshell_grants
 from agents_shipgate.core.permission_lattice import (
     exec_equivalent_argument,
+    parse_rule,
     permission_pairing_group,
+    same_grant,
     subsumes,
 )
 from agents_shipgate.core.permission_residual import residual_prefix_note
@@ -565,6 +571,9 @@ ADDED = "added"
 REMOVED = "removed"
 WIDENED = "widened"
 CHANGED = "changed"
+#: A joined change only: a removed and an added rule Claude Code documents as
+#: one grant, such as `Bash(git add:*)` and `Bash(git add *)` (#918).
+RESPELLED = "respelled"
 #: The words a row's `why` ends with when the engine cannot establish which
 #: way an edit that may widen authority went (#820): an MCP or loaded-hook
 #: edit, an unestablished plugin enablement, or a setting no documented rule
@@ -1425,16 +1434,144 @@ def _permission_cell(value: str, grant: dict[str, Any] | None) -> str:
     return f"{grant['disposition']}: {value}"
 
 
+_RESTRICTION_NOUN = {"deny": "denial", "ask": "confirmation requirement"}
+
+
+def _rule_list(rules: Sequence[str], disposition: str) -> str:
+    """Rules as the cells print them, at most ``_NAME_LIMIT`` before a count."""
+
+    shown = [f"{disposition}: {rule}" for rule in list(rules)[:_NAME_LIMIT]]
+    rest = len(rules) - len(shown)
+    return ", ".join(shown) + (f" and {rest} more" if rest else "")
+
+
+def _permission_rule_why(
+    before: dict[str, Any] | None,
+    after: dict[str, Any] | None,
+    direction: str,
+    assessment: PermissionRuleAssessment,
+    *,
+    redacted: bool,
+    expands: bool,
+    paired: frozenset[tuple[str, str, str]] | set[tuple[str, str, str]] = frozenset(),
+) -> str | None:
+    """The rule model's reading of one Claude Code rule row, or ``None`` (#918, #938, #969, #974).
+
+    A route that redacts rule arguments names no other rule: it says what the
+    model established, and leaves the rules to the cells it may print.
+    ``paired`` is the arrivals of a narrowing the replacement pairing already
+    explains, which keep their wording.
+    """
+
+    grant = after or before
+    if not grant or grant.get("host") != "claude-code":
+        return None
+    key = _permission_key(grant)
+    disposition = str(grant.get("disposition"))
+    if key in assessment.unconsulted:
+        tool = parse_rule(str(grant["rule"])).tool.strip()
+        basis = "file permission checks read Read(path) and Edit(path) rules only"
+        if direction == REMOVED:
+            lost = "permission" if disposition == "allow" else _RESTRICTION_NOUN.get(disposition, "rule")
+            return (
+                f"removes a path-scoped {tool} rule Claude Code never consulted ({basis}), "
+                f"so no effective {lost} is removed"
+            )
+        return (
+            f"Claude Code accepts a path-scoped {tool} rule but never consults it ({basis}), "
+            "so it allows and restricts nothing"
+        )
+    if disposition in _RESTRICTION_NOUN and after is not None and _is_claude_carve_out(after):
+        follows = after.get("carves_from")
+        noun = _RESTRICTION_NOUN[disposition]
+        if not follows:
+            return (
+                f"a carve-out listed before every {disposition} rule it could except paths from "
+                "in this source, so it excepts nothing"
+                if follows is not None else
+                "a carve-out; which earlier rules of this source it follows was not recorded"
+            )
+        named = "" if redacted else f" ({_rule_list(follows, disposition)})"
+        reading = (
+            f"a carve-out: paths it matches are excepted from the earlier {disposition} "
+            f"rules it follows in this source{named}"
+        )
+        if expands:
+            return f"{reading}; it now excepts paths from a rule declared at the base, so part of a {noun} is lifted"
+        return f"{reading}; it lifts no {noun} the base declared"
+    if disposition in _RESTRICTION_NOUN and direction == REMOVED and _is_claude_carve_out(grant):
+        follows = grant.get("carves_from")
+        noun = "denied" if disposition == "deny" else "subject to confirmation"
+        if follows:
+            named = "" if redacted else f" from {_rule_list(follows, disposition)}"
+            return f"removes a carve-out; the paths it excepted{named} are {noun} again"
+        if follows is not None:
+            return "removes a carve-out that excepted nothing: it was listed before every rule it could carve from"
+        return f"removes a carve-out; whatever it excepted is {noun} again"
+    twin = assessment.respelled.get(key)
+    if twin is not None and direction == REMOVED:
+        named = "" if redacted else f": {disposition}: {twin}"
+        return f"removes this rule; the source still declares the same grant written another way{named}"
+    cover = assessment.covered.get(key)
+    if cover is not None and after is not None and (key[0], key[1], key[3]) not in paired:
+        if same_grant(cover, str(after["rule"])):
+            named = "" if redacted else f" as allow: {cover}"
+            return f"the same grant this source already declared at the base{named}, written another way; adds nothing"
+        named = (
+            f"allow: {cover}, declared in this source at the base,"
+            if not redacted else "an allow rule declared in this source at the base"
+        )
+        return f"runs without a prompt, but adds nothing: {named} already matches everything it matches"
+    narrowed = assessment.narrowed_into.get(key)
+    if narrowed and direction == REMOVED:
+        named = "" if redacted else f": {_rule_list(narrowed, 'allow')}"
+        return (
+            f"removes this allow rule; it is narrowed to {len(narrowed)} added rule(s) "
+            f"in this source that match only part of what it matched{named}"
+        )
+    return None
+
+
+def _is_claude_carve_out(grant: dict[str, Any]) -> bool:
+    return grant.get("host") == "claude-code" and is_carve_out(str(grant.get("rule") or ""))
+
+
+def _carve_out_change(
+    before: dict[str, Any] | None, after: dict[str, Any] | None, *, redacted: bool
+) -> str | None:
+    """A carve-out whose position changed: what it follows, then and now (#974)."""
+
+    if not before or not after or not _is_claude_carve_out(after):
+        return None
+    old, new = before.get("carves_from"), after.get("carves_from")
+    if old == new:
+        return None
+    if redacted:
+        return "the earlier rules this carve-out follows changed"
+    disposition = str(after.get("disposition"))
+
+    def listed(rules: list[str] | None) -> str:
+        if rules is None:
+            return "not recorded"
+        return _rule_list(rules, disposition) if rules else "no earlier rule"
+
+    return f"{disposition}: {after['rule']} follows {listed(old)} → {listed(new)}"
+
+
 def _link_rows(
     rows: list[CapabilityDiffRow],
     changes: list[dict[str, Any]],
     views: list[_RowView],
     replacements: list[PermissionRuleReplacement],
+    assessment: PermissionRuleAssessment | None = None,
 ) -> list[_RowView]:
-    """Join the rows of a replacement or move the engine established (#795).
+    """Join the rows of a replacement, respelling or move the engine established (#795).
 
     A replacement is exactly what `permission_rule_replacements` returns, the
-    pairs whose direction the permission lattice decided. A move is the exact
+    pairs whose direction the permission lattice decided. A respelling is a
+    removed and an added rule of one host, source and disposition that
+    Claude Code documents as one grant (`Bash(x:*)` and `Bash(x *)`), each the
+    only such rule on its side (#918). A move is the exact
     same rule text that left one disposition and arrived in one other, in one
     host and source, with no other removal or addition of that text there. A
     row both could claim joins the replacement, whose direction the engine
@@ -1474,6 +1611,21 @@ def _link_rows(
         )
         join(gone, arrived, item.direction, f"{reading}; {rows[arrived].why}")
 
+    for gone_key, arrived_key in assessment.respelled_pairs if assessment else ():
+        gone, arrived = removals.get(gone_key), additions.get(arrived_key)
+        if gone is None or arrived is None or gone in linked or arrived in linked:
+            continue
+        reading = (
+            "a trailing `:*` as a trailing ` *`"
+            if gone_key[3].endswith(":*)") or arrived_key[3].endswith(":*)")
+            else "`Bash(*)` as `Bash`"
+        )
+        join(
+            gone, arrived, RESPELLED,
+            f"the same grant written another way (Claude Code reads {reading}); it "
+            "matches exactly what it matched and adds nothing",
+        )
+
     by_text: dict[tuple[str, str, str], tuple[list[int], list[int]]] = {}
     for sink, side in ((removals, 0), (additions, 1)):
         for (host, source, _disposition, rule), index in sink.items():
@@ -1497,7 +1649,12 @@ def capability_diff_rows(
     """Every typed grant change in ``payload``, one row each."""
 
     expansions = set(payload.get("expansion_signals") or [])
-    replacements = permission_rule_replacements(payload.get("changes") or [])
+    # One reading of every changed Claude Code rule against its own source,
+    # shared with the drift signals above, the pairing and the wording (#918).
+    assessment = permission_rule_assessment(payload.get("changes") or [], current_grants or None)
+    replacements = permission_rule_replacements(
+        payload.get("changes") or [], assessment=assessment
+    )
     arrived_allows: dict[tuple[str, str], list[str]] = {}
     # Deny and ask rules are evaluated before allow in every settings file,
     # so one arriving for the same tool may take the matches away (#858).
@@ -1536,6 +1693,7 @@ def capability_diff_rows(
         # Classify original typed evidence; redaction affects display values only.
         expands = bool(expansions.intersection(host_grant_expansion_signals(
             [change], comparison_changes=payload.get("changes") or [],
+            assessment=assessment,
         )))
         # The public signal text has no source. An identical rule added in
         # another file must not mark this source's decided narrowing (#858).
@@ -1604,6 +1762,14 @@ def capability_diff_rows(
         ):
             # Wording only: ambiguity still forbids a pair or signal suppression.
             why = "removes this allow rule; another added allow rule still covers its matches"
+        if grant.get("kind") == "permission_rule" and (
+            rule_why := _permission_rule_why(
+                before_grant, after_grant, direction, assessment,
+                redacted=redact_permission_arguments, expands=expands,
+                paired=narrowed,
+            )
+        ):
+            why = rule_why
         if hook_dependency_only_change(before_grant, after_grant):
             # The digests are the change cell (`_hook_change`); the why names
             # the scripts once, so the text does not print them twice.
@@ -1667,6 +1833,9 @@ def capability_diff_rows(
             view = _RowView(
                 before=_permission_cell(row.before, before_grant),
                 after=_permission_cell(row.after, after_grant),
+                change=_carve_out_change(
+                    before_grant, after_grant, redacted=redact_permission_arguments
+                ),
             )
         elif kind == "mcp_server" and before_grant and after_grant:
             view = _RowView(
@@ -1702,7 +1871,7 @@ def capability_diff_rows(
         # Redacted rules read alike, so a joined `allow: Bash(<redacted-arguments>)
         # → allow: Bash(<redacted-arguments>)` would show a change whose sides
         # look identical. Those routes keep the removal and addition as two rows.
-        views = _link_rows(rows, changes, views, replacements)
+        views = _link_rows(rows, changes, views, replacements, assessment)
     for row, view in zip(rows, views, strict=True):
         object.__setattr__(row, _VIEW, view)
     return sorted(
