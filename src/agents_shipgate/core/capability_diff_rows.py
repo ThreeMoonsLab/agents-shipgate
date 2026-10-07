@@ -1470,7 +1470,7 @@ def _permission_rule_why(
     disposition = str(grant.get("disposition"))
     if key in assessment.unconsulted:
         tool = parse_rule(str(grant["rule"])).tool.strip()
-        basis = "file permission checks read Read(path) and Edit(path) rules only"
+        basis = "from Claude Code 2.1.210, file permission checks read Read(path) and Edit(path) rules only"
         if direction == REMOVED:
             lost = "permission" if disposition == "allow" else _RESTRICTION_NOUN.get(disposition, "rule")
             return (

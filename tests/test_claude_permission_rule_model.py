@@ -415,8 +415,8 @@ CASES: dict[str, Case] = {
         changes=4, decision="allow", violations=[], signals=[],
         why={
             "Write(.env)": (
-                "removes a path-scoped Write rule Claude Code never consulted (file permission "
-                "checks read Read(path) and Edit(path) rules only), so no effective denial is removed"
+                "removes a path-scoped Write rule Claude Code never consulted (from Claude Code "
+                "2.1.210, file permission checks read Read(path) and Edit(path) rules only), so no effective denial is removed"
             ),
         },
     ),
@@ -439,8 +439,8 @@ CASES: dict[str, Case] = {
         changes=1, decision="allow", violations=[], signals=[],
         why={
             "Write(docs/**)": (
-                "Claude Code accepts a path-scoped Write rule but never consults it (file "
-                "permission checks read Read(path) and Edit(path) rules only), so it allows "
+                "Claude Code accepts a path-scoped Write rule but never consults it (from "
+                "Claude Code 2.1.210, file permission checks read Read(path) and Edit(path) rules only), so it allows "
                 "and restricts nothing"
             ),
         },
