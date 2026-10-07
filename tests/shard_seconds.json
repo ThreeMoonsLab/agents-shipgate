@@ -255,6 +255,7 @@
   "tests/test_next_action_chains_terminate.py": 33.8,
   "tests/test_no_heuristics.py": 6.7,
   "tests/test_nonregular_evidence_readers.py": 5.5,
+  "tests/test_object_bound_tools.py": 113.0,
   "tests/test_openai_api.py": 0.4,
   "tests/test_openapi_fuzz.py": 0.1,
   "tests/test_openapi_operation_attribution.py": 1.8,

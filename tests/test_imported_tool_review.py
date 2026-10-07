@@ -330,7 +330,14 @@ def test_a_factory_local_toolset_is_still_read_as_a_toolset(repo):
     result = run(repo, base, head)
     reasons = " ".join(gap["reason"] for gap in result["head"]["coverage_gaps"])
     assert "unresolved tool 'toolset'" not in reasons
-    assert "admin.example" in reasons
+    # A toolset is a binding with an identity (#910): its new host is a
+    # changed row, not a gap that only names the endpoint.
+    (row,) = result["rows"]
+    assert (row["agent"], row["tool"], row["change"]) == ("ops", "toolset", "changed")
+    assert (row["before"]["object"]["host"], row["after"]["object"]["host"]) == (
+        ["readonly.example"],
+        ["admin.example"],
+    )
 
 
 def test_a_factory_local_wrapper_binds_its_function(repo):

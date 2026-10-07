@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -38,6 +39,14 @@ from agents_shipgate.inputs.list_expressions import (
     leaves_arguments_alone as _leaves_arguments_alone,
 )
 from agents_shipgate.inputs.list_expressions import read_only_use as _read_only_use
+from agents_shipgate.inputs.object_tools import (
+    SDK,
+    ObjectBinding,
+    ObjectTools,
+    Unread,
+    WrappedFunction,
+    object_bindings_rule,
+)
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.inputs.python_imports import (
     NOT_BOUND,
@@ -235,6 +244,9 @@ def _extract_agent_bindings(
     # every other file of this load (#909 review).
     list_cache = ListCache()
     builder_calls = BuilderCalls(imports.resolver)
+    # Tools bound as objects, read only for ``diff --application`` (#910).
+    object_rule = object_bindings_rule()
+    objects_reader = ObjectTools(SDK, imports.resolver, object_rule) if object_rule is not None else None
     module_sdk_names: dict[int, _SdkNames] = {}
 
     def module_agent_reads(home: PythonModule, call: ast.Call, keyword: str | None) -> bool:
@@ -448,6 +460,9 @@ def _extract_agent_bindings(
             locators: dict[str, str] = {}
             tool_issues: dict[str, str] = {}
             when = Conditions()
+            #: ``name -> payload`` of the tools this agent binds as objects (#910).
+            objects: dict[str, dict[str, Any]] = {}
+            slots: dict[str, int] = {}
             if listed.unresolved:
                 reason = unread_list_reason("OpenAI Agents SDK", target, pointer, listed)
                 warnings.append(reason)
@@ -462,10 +477,77 @@ def _extract_agent_bindings(
             # sees one name for both, so neither is bound (#879 review).
             duplicated: set[str] = set()
             first_location: dict[str, str] = {}
+            def bind_object(
+                found: ObjectBinding,
+                conditions: tuple[str, ...],
+                *,
+                target: str = target,
+                pointer: str = pointer,
+                objects: dict[str, dict[str, Any]] = objects,
+                slots: dict[str, int] = slots,
+                names: list[str] = names,
+                locators: dict[str, str] = locators,
+                tool_issues: dict[str, str] = tool_issues,
+                duplicated: set[str] = duplicated,
+                issues: list[str] = issues,
+                when: Conditions = when,
+            ) -> bool:
+                # An anonymous server is numbered by its place in the list.
+                name = found.name
+                if name is None:
+                    kind = str(found.identity.get("class"))
+                    slots[kind] = slots.get(kind, 0) + 1
+                    name = f"{kind}#{slots[kind]}"
+                if name in duplicated:
+                    return True
+                payload = found.payload()
+                held = objects.get(name)
+                if (held is not None and held["identity"] != payload["identity"]) or name in names:
+                    reason = (
+                        f"OpenAI Agents SDK agent {target!r} at {pointer} binds two different "
+                        f"tools named {name!r}; the model sees one tool name for both, so "
+                        "neither is resolved."
+                    )
+                    warnings.append(reason)
+                    issues.append(reason)
+                    duplicated.add(name)
+                    objects.pop(name, None)
+                    names[:] = [item for item in names if item != name]
+                    locators.pop(name, None)
+                    tool_issues.pop(name, None)
+                    return False
+                objects[name] = payload
+                when.add(name, conditions)
+                return True
+
             for member in listed.members:
                 element = member.expr
+                home = member.module if member.module is not None else module
+                object_found = (
+                    objects_reader.recognize(element, home)
+                    if objects_reader is not None and home is not None
+                    else None
+                )
+                if isinstance(object_found, ObjectBinding):
+                    if not bind_object(object_found, member.conditions):
+                        tools_complete = False
+                    continue
+                if isinstance(object_found, Unread):
+                    reason = (
+                        f"OpenAI Agents SDK agent {target!r} at {pointer} binds a tool object "
+                        f"that is not read: {object_found.reason}."
+                    )
+                    warnings.append(reason)
+                    issues.append(reason)
+                    tools_complete = False
+                    continue
                 reference = reference_spelling(element)
-                if reference is None:
+                if isinstance(object_found, WrappedFunction):
+                    # ``function_tool(f)``: the function it wraps, read as a
+                    # decorated one is (#910).
+                    tool, detail = imports.wrapped_tool(object_found), None
+                    reference = reference or tool.name
+                elif reference is None:
                     reason = (
                         f"OpenAI Agents SDK agent {target!r} at {pointer} binds the tool "
                         f"expression `{source_text(element)}`, which is not a reference this "
@@ -480,7 +562,7 @@ def _extract_agent_bindings(
                     ))
                     tools_complete = False
                     continue
-                if member.module is not None:
+                elif member.module is not None:
                     # A member of a list another module builds: its names are
                     # that module's (#909).
                     resolution = builder_calls.resolve(member.module, element)
@@ -551,6 +633,9 @@ def _extract_agent_bindings(
                 if tool.name in duplicated:
                     continue
                 bound = locators.get(tool.name)
+                if tool.name in objects:
+                    # A function and an object under one tool name (#910).
+                    bound = f"object:{tool.name}"
                 if bound is not None and locator is not None and bound != locator:
                     reason = (
                         f"OpenAI Agents SDK agent {target!r} at {pointer} binds two "
@@ -563,9 +648,10 @@ def _extract_agent_bindings(
                     issues.append(reason)
                     tools_complete = False
                     duplicated.add(tool.name)
-                    names = [name for name in names if name != tool.name]
+                    names[:] = [name for name in names if name != tool.name]
                     locators.pop(tool.name, None)
                     tool_issues.pop(tool.name, None)
+                    objects.pop(tool.name, None)
                     continue
                 names.append(tool.name)
                 when.add(tool.name, member.conditions)
@@ -627,6 +713,45 @@ def _extract_agent_bindings(
                     continue
                 handoff_names.append(identity)
                 handoff_when.add(identity, member.conditions)
+            if objects_reader is not None and module is None and _keyword(call, "mcp_servers") is not None:
+                reason = (
+                    f"OpenAI Agents SDK agent {target!r} at {pointer} has MCP servers this "
+                    "reader does not read outside the selected scope."
+                )
+                warnings.append(reason)
+                issues.append(reason)
+                tools_complete = False
+            if objects_reader is not None and module is not None:
+                # ``mcp_servers=[...]``: each server is a binding of the agent's
+                # (#910). Read only for the comparison; ``scan`` does not read
+                # the keyword.
+                servers = lists.resolve(_keyword(call, "mcp_servers"), invocation=context.invocation)
+                if servers.unresolved:
+                    reason = (
+                        f"OpenAI Agents SDK agent {target!r} at {pointer} has MCP servers it reads "
+                        f"only in part. Not read: {unread_parts(servers)}."
+                    )
+                    warnings.append(reason)
+                    issues.append(reason)
+                    tools_complete = False
+                for member in servers.members:
+                    home = member.module if member.module is not None else module
+                    server = objects_reader.recognize(member.expr, home)
+                    if isinstance(server, ObjectBinding) and server.identity.get("kind") == "mcp_server":
+                        if not bind_object(server, member.conditions):
+                            tools_complete = False
+                        continue
+                    spelled = reference_spelling(member.expr)
+                    reason = (
+                        f"OpenAI Agents SDK agent {target!r} at {pointer} binds the MCP server "
+                        + (f"`{spelled}`" if spelled else f"at {home.ref}:{member.expr.lineno}")
+                        + ", which is not one this reader identifies"
+                        + (f": {server.reason}." if isinstance(server, Unread) else ".")
+                    )
+                    warnings.append(reason)
+                    issues.append(reason)
+                    tools_complete = False
+            tool_conditions = when.only_when(duplicated)
             file_observations.append(
                 AgentBindingObservation(
                     agent=target,
@@ -634,11 +759,12 @@ def _extract_agent_bindings(
                     source=source_ref,
                     source_pointer=pointer,
                     tool_names=names,
+                    object_bindings=objects,
                     tool_locators=locators,
                     tool_issues=tool_issues,
                     tool_conditions=tool_conditions,
                     tool_sites={name: list(dict.fromkeys((pointer, *context.invocation.locations)))
-                                for name in locators} if context.invocation else {},
+                                for name in (*locators, *objects)} if context.invocation else {},
                     handoff_names=handoff_names,
                     handoff_sites={name: list(dict.fromkeys((pointer, *context.invocation.locations)))
                                    for name in handoff_names} if context.invocation else {},
@@ -722,6 +848,12 @@ def _extract_agent_bindings(
                     tuple(observation.tool_names),
                     tuple(sorted(observation.tool_locators.items())),
                     tuple(observation.handoff_names),
+                    tuple(
+                        sorted(
+                            (name, json.dumps(payload["identity"], sort_keys=True))
+                            for name, payload in observation.object_bindings.items()
+                        )
+                    ),
                     tuple(sorted((k, tuple(v)) for k, v in observation.tool_conditions.items())),
                     tuple(
                         sorted((k, tuple(v)) for k, v in observation.handoff_conditions.items())
@@ -795,6 +927,8 @@ class _ImportedTools:
             self.by_symbol.setdefault((tool.source_ref, tool.annotations.get("python_symbol")), tool)
         self.new_tools: list[Tool] = []
         self.new_guards: list[GuardDependencyEvidence] = []
+        #: ``(location, name override, options) -> tool`` for ``function_tool(f)`` (#910).
+        self.by_wrapper: dict[tuple[str, str | None, str | None], Tool] = {}
 
     def tool_for(
         self,
@@ -829,6 +963,50 @@ class _ImportedTools:
         if resolution.reason == NOT_BOUND:
             return None, f"{reference!r} is not bound at module level in {module.ref}"
         return self.tool_from_resolution(resolution)
+
+    def wrapped_tool(self, wrapped: WrappedFunction) -> Tool:
+        """The function ``function_tool(f)`` wraps, as one tool per definition
+        and name (#910): read as a decorated definition would be."""
+
+        node, defining = wrapped.definition, wrapped.module
+        location = f"{defining.ref}:{node.lineno}"
+        key = (location, wrapped.name_override, wrapped.options_sha256)
+        tool = self.by_wrapper.get(key)
+        if tool is None:
+            tool = _function_to_tool(node, self.source, defining.ref, set())
+            if wrapped.name_override:
+                tool = tool.model_copy(
+                    update={
+                        "id": stable_tool_id(wrapped.name_override),
+                        "name": wrapped.name_override,
+                        "function_signature": function_signature(
+                            wrapped.name_override, tool.parameters, node
+                        ),
+                    }
+                )
+            tool.extraction["wrapped_by"] = f"function_tool at {wrapped.location}"
+            if wrapped.options_sha256 is not None:
+                tool.extraction["wrapper_options_sha256"] = wrapped.options_sha256
+            self.by_wrapper[key] = tool
+            self.new_tools.append(tool)
+            source_sha256, within_limits = guard_module_metadata(defining.tree, defining.text)
+            self.new_guards.append(
+                read_guard_dependency(
+                    tree=defining.tree,
+                    source_sha256=source_sha256,
+                    source_within_limits=within_limits,
+                    path=defining.path,
+                    root=self.base_dir,
+                    tool=tool,
+                    definition=node,
+                )
+            )
+        if wrapped.resolution is not None:
+            evidence = wrapped.resolution.evidence()
+            recorded = tool.extraction.setdefault("import_resolutions", [])
+            if evidence not in recorded:
+                recorded.append(evidence)
+        return tool
 
     def tool_from_resolution(self, resolution: Resolution) -> tuple[Tool | None, str | None]:
         """The tool one import resolution reached, or None and why not.

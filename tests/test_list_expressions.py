@@ -517,7 +517,7 @@ def test_application_diff_reports_a_changed_tool_held_through_a_spread(tmp_path)
     head = _commit(tmp_path, {"tools.py": SDK_TOOLS.replace("    return path", "    return path.strip()")})
     result = _compare(tmp_path, base, head)
 
-    assert result["application_comparison_schema_version"] == "0.3"
+    assert result["application_comparison_schema_version"] == "0.4"
     assert result["comparison_status"] == "compared"
     assert _rows(result) == [("finance", "load_and_validate", "changed")]
 
