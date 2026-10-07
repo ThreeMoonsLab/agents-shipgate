@@ -73,6 +73,17 @@ the changed inputs the candidate rules at the end of this section name (#821):
   them while that subagent runs; no adapter reads the file. A skill's `hooks`
   frontmatter is type-checked with the skill's instructions, never read as a
   hook grant, so its events get no hook row (#714).
+- **Agent launch arguments in a repository script.** A script can start a
+  coding agent non-interactively with pre-approved tools, for example a Python
+  `subprocess` list running `claude -p --permission-mode acceptEdits
+  --allowedTools "Bash(*)"`. No adapter reads scripts for launch arguments, so
+  adding, widening or removing those flags gives no row and names no limit,
+  whether the script is run by a skill, a workflow step, a hook or a person.
+  This stays excluded by decision (#828, 2026-10-06): in a 23-PR sample, the
+  repositories behind 7 already held launchers with pre-approved or skipped
+  permissions in sandboxed test and evaluation harnesses that a script reader
+  would flag, and whether a launch runs against untrusted settings needs
+  dataflow analysis that is not bounded.
 - **An agent launched any way the workflow reader below does not read**
   (#823): an action outside its table, even one that takes `claude_args`; a
   composite action (#701); a script the step runs; a `run:` that is not one

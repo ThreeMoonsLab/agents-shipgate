@@ -103,6 +103,12 @@ def test_mcp_url_paths_are_named_as_unread() -> None:
     assert "(#772)" in section
 
 
+def test_script_agent_launch_arguments_are_named_as_unread() -> None:
+    section = _bullets()
+    assert "Agent launch arguments in a repository script" in section
+    assert "(#828, 2026-10-06)" in section
+
+
 def test_subagent_frontmatter_hooks_are_named_as_unread() -> None:
     section = _section()
     assert "Hooks in subagent frontmatter" in section
@@ -314,3 +320,54 @@ def test_an_unchanged_step_reference_fixture_stays_quiet(tmp_path: Path) -> None
     )
 
     assert payload["rows"] == []
+
+
+_AGENT_TASK = "import subprocess\n\nsubprocess.run({argv}, check=True)\n"
+
+
+def test_a_script_agent_launch_is_still_silent_beside_a_read_settings_change(
+    tmp_path: Path,
+) -> None:
+    """#828's own example: a script gains `--allowedTools Bash(*)` and no row says so.
+
+    The settings file in the same repository is the control: changing it does
+    produce a row, so the silence comes from the script, not an unread repo.
+    """
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "test@example.invalid")
+    _git(repo, "config", "user.name", "Test")
+    script = repo / "tools" / "agent_task.py"
+    script.parent.mkdir(parents=True)
+    script.write_text(_AGENT_TASK.format(argv='["claude", "-p", "Summarize this change"]'), encoding="utf-8")
+    settings = repo / ".claude" / "settings.json"
+    settings.parent.mkdir()
+    settings.write_text('{"permissions":{"allow":[]}}\n', encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "base")
+
+    script.write_text(
+        _AGENT_TASK.format(
+            argv='["claude", "-p", "--permission-mode", "acceptEdits", '
+            '"--allowedTools", "Bash(*)", "Summarize this change"]'
+        ),
+        encoding="utf-8",
+    )
+
+    def rows() -> list[dict]:
+        result = runner.invoke(app, ["diff", "--workspace", str(repo), "--base", "HEAD", "--json"])
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["comparison_status"] == "comparable", payload
+        return payload["rows"]
+
+    assert rows() == [], (
+        "A script's agent launch arguments now produce a row. The reader covers "
+        "them: remove the #828 entry from docs/host-boundary-support.md § Known "
+        "unread surfaces in this change."
+    )
+
+    settings.write_text('{"permissions":{"allow":["Bash(git status)"]}}\n', encoding="utf-8")
+    assert len(rows()) == 1
