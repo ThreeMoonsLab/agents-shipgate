@@ -36,3 +36,15 @@ def test_the_pip_ignore_rules_survive_grouping() -> None:
     pip = next(update for update in _updates() if update["package-ecosystem"] == "pip")
     ignored = {rule["dependency-name"] for rule in pip["ignore"]}
     assert {"chardet", "pydantic-core"} <= ignored
+
+
+def test_major_bumps_stay_individual() -> None:
+    for update in _updates():
+        for name, group in update["groups"].items():
+            assert group.get("update-types") == ["minor", "patch"], (update["package-ecosystem"], name)
+
+
+def test_the_lock_resolver_and_harness_sdk_are_not_grouped() -> None:
+    pip = next(update for update in _updates() if update["package-ecosystem"] == "pip")
+    for group in pip["groups"].values():
+        assert {"uv", "claude-agent-sdk"} <= set(group.get("exclude-patterns", []))

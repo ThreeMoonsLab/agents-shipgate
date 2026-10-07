@@ -116,12 +116,17 @@ stale fails there by name rather than as a puzzling import error. See
 [`docs/release-runbook.md`](docs/release-runbook.md#the-environment-is-locked-and-it-is-cis)
 for which job installs which lock.
 
-Dependabot groups its weekly version updates into one pull request per
-ecosystem; security updates stay ungrouped. A grouped pip PR edits the
-`constraints/*.txt` pins without recompiling them, so treat it as a request:
-raise the floors it names, rerun `python scripts/update_locks.py` with the
-resolver `constraints/release-publish.in` pins, and check the lock diff for
-dropped environment markers and extras-qualified pins before pushing.
+Dependabot groups each week's minor and patch version updates into one pull
+request per ecosystem. Major bumps, security updates, `uv` and the harness's
+`claude-agent-sdk` still arrive individually. Dependabot edits the hash locks
+as plain requirement files, so a grouped pip PR is a request, never merged
+as-is. To act on it, raise any floor it changes in `pyproject.toml` or a
+`constraints/*.in`, then recompile only the locks it touches, for example
+`python scripts/update_locks.py constraints/dev.txt`, with the `uv` version
+`constraints/release-publish.in` pinned before the PR. A recompile refreshes
+that lock's whole closure, not only the bumped pin, so check its diff for
+unrelated movement, dropped environment markers and extras-qualified pins
+before pushing.
 
 ## Changing the CHANGELOG
 
