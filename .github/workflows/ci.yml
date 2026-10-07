@@ -76,7 +76,7 @@ jobs:
         # copy in `test` alone would merely race it.
         run: python scripts/verify_dependency_lock.py
 
-      - name: Test (shard ${{ matrix.shard }} of 3)
+      - name: Test (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
         # Excludes the `perf` marker — the latency budget tests run in the
         # `test` job, alone, so their timing isn't disturbed by parallel load.
         #
