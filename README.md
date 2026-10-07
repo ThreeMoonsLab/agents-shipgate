@@ -350,7 +350,7 @@ come with.
 | A coding agent | [`AGENTS.md`](AGENTS.md), [`llms.txt`](llms.txt), [For coding agents](#for-coding-agents) | Machine-readable contracts, the read order, and the boundary you must not cross |
 | Adding this to CI | [`docs/integrations.md`](docs/integrations.md), [`examples/github-actions/`](examples/github-actions/) | Advisory-first workflows, then explicit merge policies |
 | Adopting it in a repo | [`docs/quickstart.md`](docs/quickstart.md#run-it-on-your-own-repository) | The zero-manifest host route and the manifest route, and how to tell which one you are on |
-| Contributing | [`CONTRIBUTING.md`](CONTRIBUTING.md), [`ROADMAP.md`](ROADMAP.md) | Surface discipline, the check catalog, and what is planned |
+| Contributing | [`CONTRIBUTING.md`](CONTRIBUTING.md#contribution-stance-2026-10-06), [`ROADMAP.md`](ROADMAP.md) | What contributions are welcome, surface discipline, the check catalog, and what is planned |
 
 Not sure it applies at all? The stdlib-only detector answers in one fetch, with
 no install:

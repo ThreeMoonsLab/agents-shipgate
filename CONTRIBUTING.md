@@ -1,6 +1,36 @@
 # Contributing
 
-Yes, please contribute.
+## Contribution stance (2026-10-06)
+
+**Scoped contributions are welcome; the engine stays maintainer-led.** Agents
+Shipgate has one maintainer ([MAINTAINERS.md](MAINTAINERS.md)), and its value
+rests on a deterministic, static trust model that every change has to keep
+intact. So:
+
+- **Wanted from anyone:** bug reports with a reproduction, adoption feedback,
+  false-positive or false-negative cases from real pull requests, and check
+  requests, through the [issue templates](.github/ISSUE_TEMPLATE/).
+- **Pull requests welcome without asking first:** issues labelled
+  [`good first issue`](https://github.com/ThreeMoonsLab/agents-shipgate/labels/good%20first%20issue)
+  (each names its file and its decision), documentation fixes, and new test
+  cases that pin existing behavior.
+- **Open an issue and agree the approach before writing code** for anything
+  that changes a reader, a check, a schema, a CLI command, a published JSON
+  field, or path, identity or containment handling (for example
+  `core/verification_identity.py`). An unsolicited pull request in these areas
+  may be closed with an explanation rather than merged, however good the code.
+  [Surface discipline](#surface-discipline) applies to every new surface.
+- **Agent-authored contributions** are treated like any other: say in the pull
+  request that a coding agent wrote it and which one, confirm that a person
+  read the diff, and expect the same review. Agents reporting product feedback
+  should use the [`agent_feedback`](.github/ISSUE_TEMPLATE/agent_feedback.yml)
+  template.
+- **Response:** the maintainer aims to reply to a new issue or pull request
+  within seven days. This is a single-person aim, not a service commitment;
+  [SECURITY.md](SECURITY.md) governs vulnerability reports.
+
+Revisit this stance at the 1.0 qualified release (#572) or on 2026-12-31,
+whichever comes first.
 
 Start architecture or release-contract work with the current
 [accepted-decision index](docs/decisions.md). It links the governing contracts,
