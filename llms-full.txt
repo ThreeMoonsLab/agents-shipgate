@@ -4097,6 +4097,11 @@ An MCP rule that names tools within one server, such as
 `mcp__github__*` grant every tool the server offers and still raise this
 check. Before #816 every MCP rule, being a bare token, reached it.
 
+A file tool's path pattern is a wildcard grant only when it is nothing but
+stars (`*`, `**`, `**/*`): `Edit(**/.env.example)` names `.env.example` files
+and raises `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` when it is new
+authority (#969).
+
 A wildcard grant over a read tool — `Read(**)`, `Glob`, `Grep(**)` — raises
 `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` instead. It is still an
 expansion and still reviewed, but it is not a release blocker: the agent
@@ -4132,7 +4137,12 @@ new and does not fire (#661). `Bash(npm:*)` and `Bash(npm *)` are two
 spellings of one rule, which also allows the bare `npm`, so replacing either
 with `Bash(npm test:*)` or `Bash(npm test)` does not fire (#816). The space
 before the star is part of the rule, so `Bash(npm run test:*)` does not cover
-`npm run test:unit`: adding that command fires.
+`npm run test:unit`: adding that command fires. Claude Code's coverage follows
+the [permission-rule model](host-boundary-support.md#claude-code-permission-rules)
+`diff` reads (#918, #941): an unanchored allow `*`, which Claude Code skips,
+covers nothing, and a command holding shell syntax or an exec wrapper is never
+proven covered. A path-scoped `Write`, `NotebookEdit`, `Glob` or `MultiEdit`
+rule, which Claude Code accepts and never consults, does not fire (#938).
 
 It also fires when a change sets any other value of a Claude Code setting the
 host inventory models, at the rating the engine's setting table gives that
@@ -4165,6 +4175,16 @@ raises these ratings with it; it cannot lower them.
 
 A changed Claude Code settings file drops an entry from `permissions.deny`.
 Have a human confirm the removed deny rule is no longer needed.
+
+It does not fire for a path-scoped `Write(...)` (or `NotebookEdit`, `Glob`,
+`MultiEdit`) rule, which Claude Code accepts and never consults (#938) — a bare
+`Write` deny still fires — for a `!` carve-out, whose removal restricts more,
+or for a rule the list still holds in its other documented spelling
+(`Bash(rm:*)` / `Bash(rm *)`). It also fires, with evidence kind
+`permission_deny_carved_out`, when a `Read(!…)` or `Edit(!…)` deny rule now
+follows an earlier relative-path rule of the same tool the file already
+denied: Claude Code carves the paths it matches out of the rules listed
+before it, so part of that denial is lifted (#974).
 
 ### SHIP-HOST-BOUNDARY-HOOK-CHANGED
 

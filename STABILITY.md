@@ -330,6 +330,69 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="claude-permission-rule-model-918"></a>
+
+## Migration Note: Unreleased — the Claude Code permission-rule model (host-grants `0.9`, #918, #941, #969, #974, #938)
+
+**What was wrong.** Published `1.2.0` compared Claude Code `allow`, `ask` and
+`deny` rules as set members. Respelling `Bash(git add:*)` as
+`Bash(git add *)`, replacing `Bash(gh pr *)` with four of its subcommands, and
+adding `Bash(git merge --no-ff -X ours:*)` beside an unchanged `Bash(git *)`
+were each reported as new authority; `Edit(**/.env.example)` was called a
+whole-tool grant that `check` blocked; a `Read(!.env.example)` carve-out after
+`Read(.env.*)` was called an added denial and an ordering-only change to it was
+not a row at all; and removing a path-scoped `Write(.env)` rule, which Claude
+Code accepts and never consults, was a removed effective denial.
+
+**What changes.** One rule model, `core/claude_permission_rules.py`, read by
+`diff`, `verify`'s `host_comparison`, `check` and `audit --host --drift`,
+following https://code.claude.com/docs/en/permissions as described in
+[Claude Code permission rules](docs/host-boundary-support.md#claude-code-permission-rules):
+
+- Every changed declaration stays a row. What moves is `direction` (a
+  documented respelling joins its two rows as one `respelled` change in the
+  text and `review`), `expands`, `why`, the widening count, drift's
+  `expansion_signals` and `check`'s violations.
+- An added `allow` rule that an `allow` rule the same source declared at the
+  base already matches, the same grant respelled, and any path-scoped
+  `Write`, `NotebookEdit`, `Glob` or `MultiEdit` rule lose `allow_rule_added`
+  (and `permission_widened`), and `check` raises nothing for them. A removed
+  deny or ask rule loses `deny_rule_removed` / `ask_rule_removed` when it is
+  such a path rule, a `!` carve-out, or still declared under its other
+  spelling; `check` raises no `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED` for
+  it.
+- New signals `deny_carve_out_added`, `deny_carve_out_changed`,
+  `ask_carve_out_added` and `ask_carve_out_changed` mark a `!` rule that now
+  follows a rule the source already declared at the base; `check` raises
+  `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED` with evidence kind
+  `permission_deny_carved_out` for a deny list.
+- Host-grants inventory and baseline `0.9`, unpublished before this release,
+  are extended in place: a Claude Code `Read(!…)`/`Edit(!…)` deny or ask grant
+  carries `carves_from`, the earlier rules it follows, so its position is
+  compared. No other grant changes shape.
+- A file tool's rule is a wildcard grant only when its pattern is nothing but
+  stars (`*`, `**`, `**/*`), so `Edit(**/.env.example)` is `medium`, worded
+  `runs without a prompt`, and raises `…-ALLOW-EXPANDED` rather than the
+  blocking `…-WILDCARD-ALLOW`.
+- Coverage is never claimed from an unanchored allow glob such as `*`, from a
+  differently cased tool name or a padded rule, or for a command holding shell
+  syntax, an exec wrapper, a `**` or a `*` crossing `/`: those additions keep
+  their `⚠`, including where `check` previously excused them.
+
+**Who must act.** Nobody, unless a saved `0.7` or `0.8` baseline holds a
+Claude Code `!` deny or ask rule: drift then reports it once as a `changed`
+grant, read as a widening because the old reading did not record what it
+follows. Review the row and re-save the baseline from the reviewed branch.
+A saved allow grant for a file glob such as `Edit(*.ts)`, recorded as a
+wildcard, reads as one `changed` grant with no expansion signal, as #816's
+re-rated MCP rules did.
+
+**What does not change.** No schema version, check ID, CLI flag, control
+state or permission is added. Cursor, Codex and VS Code rules keep their
+readers. `minimum_control_contract_version` stays `21`.
+
+---
+
 <a id="evaluated-subject-930"></a>
 
 ## Migration Note: Unreleased — completion requires an evaluated subject (contract v42, #930)

@@ -18,7 +18,7 @@ import re
 import stat
 import sys
 import tomllib
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
@@ -37,6 +37,14 @@ from agents_shipgate.core.boundary_registry import (
     is_claude_plugin_reference_path,
     is_explicit_boundary_file_path,
     is_hook_declaration_file_name,
+)
+from agents_shipgate.core.claude_permission_rules import (
+    carve_out_predecessors,
+    carve_out_widens,
+    covering_rule,
+    is_carve_out,
+    same_spelling,
+    unconsulted_path_rule,
 )
 from agents_shipgate.core.hook_script_capture import capture_hook_script
 from agents_shipgate.core.hook_script_reference import (
@@ -82,6 +90,7 @@ from agents_shipgate.core.openshell import (
 from agents_shipgate.core.openshell_compare import compare_openshell_grants
 from agents_shipgate.core.openshell_inputs import capture_openshell_input
 from agents_shipgate.core.permission_lattice import (
+    canonical_rule,
     exec_equivalent_argument,
     permission_pairing_group,
     scoped_risk,
@@ -1165,6 +1174,15 @@ def _permission_rule_grants(
         return []
     grants: list[dict[str, Any]] = []
     for disposition in ("allow", "ask", "deny"):
+        # A Claude Code `!` deny or ask rule carves paths out of the rules
+        # listed before it in the same list (#974). Grants are sorted, so the
+        # position that decides its effect is recorded on the grant itself:
+        # an ordering-only edit that changes what it carves is then a change.
+        carves = (
+            carve_out_predecessors(_string_entries(permissions.get(disposition)))
+            if host == "claude-code" and disposition in {"deny", "ask"}
+            else {}
+        )
         for raw_rule in sorted(_string_entries(permissions.get(disposition))):
             rule = _sanitize_sensitive_string(raw_rule)
             wildcard = disposition == "allow" and _is_wildcard_allow(raw_rule)
@@ -1188,6 +1206,12 @@ def _permission_rule_grants(
                 "disposition": disposition,
                 "rule": rule,
                 "wildcard": wildcard,
+                **(
+                    {"carves_from": sorted({
+                        _sanitize_sensitive_string(earlier) for earlier in carves[raw_rule]
+                    })}
+                    if raw_rule in carves else {}
+                ),
             })
     return grants
 
@@ -6436,6 +6460,10 @@ def host_grant_direction_unknown(
         return compare_openshell_grants(before, after).direction in {"unknown", "mixed"}
     if after is None or (before is not None and before.get("config_sha256") == after.get("config_sha256")):
         return False
+    if after.get("kind") == "permission_rule":
+        # The rule model decides every permission rule's direction or names
+        # it an expansion; none is unknown (and asking would rebuild it).
+        return False
     if host_grant_expansion_signals([change], comparison_changes=comparison_changes):
         return False
     kind = after.get("kind")
@@ -6453,15 +6481,24 @@ def host_grant_direction_unknown(
 
 def host_grant_expansion_signals(
     changes: list[dict[str, Any]], *, comparison_changes: list[dict[str, Any]] | None = None,
+    current_grants: Sequence[dict[str, Any]] | None = None,
+    assessment: PermissionRuleAssessment | None = None,
 ) -> list[str]:
     """Expansion evidence for these changes, with setting replacement context.
 
     Row projection asks about one change at a time; the full comparison is
     needed because setting identities include values, making an edit two rows.
+    ``current_grants`` is the head inventory's grants, so a permission rule
+    the source still declares unchanged is known to have been there at the
+    base (#941); without it only the changed rules are. A caller asking
+    about many changes of one comparison passes the ``assessment`` it built
+    once from that comparison.
     """
 
     context = changes if comparison_changes is None else comparison_changes
-    widened, narrowed_rules = _permission_direction_signals(changes)
+    if assessment is None:
+        assessment = permission_rule_assessment(context, current_grants)
+    widened, narrowed_rules = _permission_direction_signals(changes, assessment=assessment)
     signals: list[str] = list(widened)
     for change in changes:
         before = change.get("baseline")
@@ -6472,7 +6509,11 @@ def host_grant_expansion_signals(
                 signals.append(f"openshell_authority_expanded: {grant['source']}: {reason}")
             continue
         if after is None:
-            if before and before.get("kind") == "permission_rule" and before.get("disposition") in {"deny", "ask"}:
+            if (
+                before and before.get("kind") == "permission_rule"
+                and before.get("disposition") in {"deny", "ask"}
+                and not assessment.restriction_kept(_permission_key(before))
+            ):
                 signals.append(f"{before['disposition']}_rule_removed: {before['host']}:{before['rule']}")
             continue
         kind = after.get("kind")
@@ -6482,7 +6523,20 @@ def host_grant_expansion_signals(
             # server code/arguments will do. Neither wider nor narrower.
             if before is None:
                 signals.append(f"mcp_server_{prefix}: {after['host']}:{after['server']}")
+        elif kind == "permission_rule" and after.get("disposition") in {"deny", "ask"}:
+            if _permission_key(after) in assessment.carve_widened:
+                # A `!` rule now excepting paths from a restriction the base
+                # already had: part of a denial is gone (#974).
+                signals.append(
+                    f"{after['disposition']}_carve_out_{prefix}: {after['host']}:{after['rule']}"
+                )
         elif kind == "permission_rule" and after.get("disposition") == "allow":
+            if not assessment.grants_new(_permission_key(after)):
+                # Covered by an allow rule the source had at the base, the
+                # same grant spelled another way, or a path rule Claude Code
+                # never consults: the row stays, the expansion does not (#918,
+                # #941, #969, #938).
+                continue
             if (after["host"], after.get("source", ""), str(after["rule"])) in narrowed_rules:
                 # The narrower half of a replacement. This list is an
                 # expansion channel — `preflight` prefixes it with
@@ -6587,6 +6641,206 @@ def host_grant_expansion_signals(
     return sorted(set(signals))
 
 
+#: One permission rule as a comparison identifies it: host, source, disposition, rule text.
+PermissionKey = tuple[str, str, str, str]
+
+
+def _permission_key(grant: dict[str, Any]) -> PermissionKey:
+    return (
+        str(grant["host"]), str(grant.get("source", "")),
+        str(grant.get("disposition")), str(grant["rule"]),
+    )
+
+
+@dataclass(frozen=True)
+class PermissionRuleAssessment:
+    """What Claude Code's rule model says about each changed permission rule (#918).
+
+    Built once per comparison by :func:`permission_rule_assessment` and read by
+    the drift signals, the replacement pairing and the rows, so the three
+    cannot disagree. Every key is one host, source and disposition: nothing
+    here reaches across settings sources, and nothing pairs rules by likeness.
+
+    * ``covered`` — an added allow rule, to the allow rule the same source
+      declared at the base that already matches all of it (#918, #941, #969).
+    * ``respelled`` — a removed or added rule, to the other side's rule that is
+      the same documented grant spelled another way (`:*` and ` *`).
+    * ``unconsulted`` — a path-scoped rule Claude Code accepts and never
+      consults (#938).
+    * ``carve_widened`` — a `!` deny or ask rule that now excepts paths from a
+      restriction the source already declared at the base (#974).
+    * ``narrowed_into`` — a removed allow rule, to the added allow rules it
+      covered: the readable half of a one-to-many narrowing (#918).
+    * ``respelled_pairs`` — removed and added rule spelling one grant, each the
+      only such rule on its side, which a reader may print as one change.
+    """
+
+    covered: dict[PermissionKey, str] = field(default_factory=dict)
+    respelled: dict[PermissionKey, str] = field(default_factory=dict)
+    unconsulted: frozenset[PermissionKey] = frozenset()
+    carve_widened: frozenset[PermissionKey] = frozenset()
+    narrowed_into: dict[PermissionKey, list[str]] = field(default_factory=dict)
+    respelled_pairs: tuple[tuple[PermissionKey, PermissionKey], ...] = ()
+
+    def grants_new(self, key: PermissionKey) -> bool:
+        """Whether an added or changed allow rule may allow something the base did not."""
+
+        return key not in self.covered and key not in self.unconsulted
+
+    def restriction_kept(self, key: PermissionKey) -> bool:
+        """Whether a removed deny or ask rule leaves every restriction it imposed in place.
+
+        A path rule Claude Code never consults imposed none; a carve-out only
+        excepted paths, so removing it restricts more; and a rule whose other
+        spelling the source still declares is still declared.
+        """
+
+        return (
+            key in self.unconsulted
+            or key in self.respelled
+            or (key[0] == "claude-code" and key[2] in {"deny", "ask"} and is_carve_out(key[3]))
+        )
+
+    def set_aside(self, key: PermissionKey) -> bool:
+        """Not a candidate for a replacement pair (see :func:`permission_rule_replacements`)."""
+
+        return key in self.unconsulted or key in self.respelled
+
+
+def permission_rule_assessment(
+    changes: Sequence[dict[str, Any]], current_grants: Sequence[dict[str, Any]] | None = None,
+) -> PermissionRuleAssessment:
+    """Read every changed Claude Code permission rule against its own source (#918).
+
+    The base side of a source is its current rules less those the comparison
+    added, plus those it removed: an unchanged rule is in neither, and was
+    there at the base. Without ``current_grants`` only changed rules are known,
+    so fewer additions are proven covered — never more.
+    """
+
+    removed: dict[tuple[str, str, str], dict[str, dict[str, Any]]] = {}
+    added: dict[tuple[str, str, str], dict[str, dict[str, Any]]] = {}
+    head: dict[tuple[str, str, str], set[str]] = {}
+    changed: dict[PermissionKey, tuple[dict[str, Any], dict[str, Any]]] = {}
+    for change in changes:
+        before, after = change.get("baseline"), change.get("current")
+        for grant in (before, after):
+            if grant and grant.get("kind") == "permission_rule" and grant.get("host") == "claude-code":
+                break
+        else:
+            continue
+        if before is not None and after is not None:
+            changed[_permission_key(after)] = (before, after)
+            head.setdefault(_permission_key(after)[:3], set()).add(str(after["rule"]))
+        elif after is not None:
+            added.setdefault(_permission_key(after)[:3], {})[str(after["rule"])] = after
+            head.setdefault(_permission_key(after)[:3], set()).add(str(after["rule"]))
+        elif before is not None:
+            removed.setdefault(_permission_key(before)[:3], {})[str(before["rule"])] = before
+    for grant in current_grants or ():
+        if grant.get("kind") == "permission_rule" and grant.get("host") == "claude-code":
+            head.setdefault(_permission_key(grant)[:3], set()).add(str(grant["rule"]))
+    lists = set(head) | set(removed)
+    base = {
+        key: (head.get(key, set()) - set(added.get(key, {}))) | set(removed.get(key, {}))
+        for key in lists
+    }
+
+    unconsulted = frozenset(
+        (*key, rule)
+        for key in lists
+        for rule in (*added.get(key, {}), *removed.get(key, {}), *head.get(key, set()))
+        if unconsulted_path_rule(rule)
+    )
+
+    respelled: dict[PermissionKey, str] = {}
+    pairs: list[tuple[PermissionKey, PermissionKey]] = []
+    for key in lists:
+        gone, new = removed.get(key, {}), added.get(key, {})
+        for rule in gone:
+            twins = sorted(other for other in head.get(key, set()) if same_spelling(rule, other))
+            if twins:
+                respelled[(*key, rule)] = twins[0]
+        for rule in new:
+            twins = sorted(other for other in base[key] if same_spelling(rule, other))
+            if twins:
+                respelled[(*key, rule)] = twins[0]
+        for rule in gone:
+            arrivals = [other for other in new if same_spelling(rule, other)]
+            if len(arrivals) == 1 and [
+                other for other in gone if same_spelling(other, arrivals[0])
+            ] == [rule]:
+                pairs.append(((*key, rule), (*key, arrivals[0])))
+
+    carve_widened: set[PermissionKey] = set()
+    for key in lists:
+        if key[2] not in {"deny", "ask"}:
+            continue
+        sides = [(rule, None, grant) for rule, grant in added.get(key, {}).items()] + [
+            (item_key[3], before, after)
+            for item_key, (before, after) in changed.items() if item_key[:3] == key
+        ]
+        for rule, before, after in sides:
+            if not is_carve_out(rule):
+                continue
+            head_from = after.get("carves_from")
+            if head_from is None:
+                # Not recorded: read as reaching every rule the base had.
+                head_from = sorted(base[key])
+            base_from = before.get("carves_from") if before is not None else None
+            if carve_out_widens(head_from, base_from, base[key]):
+                carve_widened.add((*key, rule))
+
+    covered: dict[PermissionKey, str] = {}
+    narrowed_into: dict[PermissionKey, list[str]] = {}
+    for key in lists:
+        if key[2] != "allow":
+            continue
+        host, source = key[0], key[1]
+        restrictions_base = {
+            canonical_rule(rule)
+            for disposition in ("deny", "ask")
+            for rule in base.get((host, source, disposition), set())
+        }
+        # A restriction this source no longer imposes may be what an added
+        # allow rule now reaches past, so its tool's additions stay new.
+        lifted = {
+            permission_pairing_group(rule).lower()
+            for disposition in ("deny", "ask")
+            for rule in removed.get((host, source, disposition), {})
+            if not (
+                (host, source, disposition, rule) in unconsulted
+                or (host, source, disposition, rule) in respelled
+                or is_carve_out(rule)
+            )
+        } | {
+            permission_pairing_group(item[3]).lower()
+            for item in carve_widened if item[:2] == (host, source)
+        }
+        for rule in added.get(key, {}):
+            if (*key, rule) in unconsulted or canonical_rule(rule) in restrictions_base:
+                # A deny or ask rule moved into `allow` was restricted at the
+                # base: never covered, whatever else allowed it (#816).
+                continue
+            if lifted & {permission_pairing_group(rule).lower(), "*"}:
+                continue
+            cover = covering_rule(rule, base[key])
+            if cover is None:
+                continue
+            covered[(*key, rule)] = cover
+            if cover in removed.get(key, {}):
+                narrowed_into.setdefault((*key, cover), []).append(rule)
+
+    return PermissionRuleAssessment(
+        covered=covered,
+        respelled=respelled,
+        unconsulted=unconsulted,
+        carve_widened=frozenset(carve_widened),
+        narrowed_into={key: sorted(value) for key, value in narrowed_into.items()},
+        respelled_pairs=tuple(sorted(pairs)),
+    )
+
+
 @dataclass(frozen=True)
 class PermissionRuleReplacement:
     """One allow rule the lattice decided another replaced, in one host and source (#657, #816).
@@ -6604,11 +6858,12 @@ class PermissionRuleReplacement:
 
 
 def _permission_direction_signals(
-    changes: list[dict[str, Any]],
+    changes: list[dict[str, Any]], *, assessment: PermissionRuleAssessment | None = None,
 ) -> tuple[list[str], set[tuple[str, str, str]]]:
     """The expansion signals and narrowed rules of :func:`permission_rule_replacements`."""
 
-    replacements = permission_rule_replacements(changes)
+    assessment = assessment or permission_rule_assessment(changes)
+    replacements = permission_rule_replacements(changes, assessment=assessment)
     signals = [
         # Named as well as counted: `allow_rule_changed` says a rule
         # moved, this says which way and by how much. The add signal
@@ -6616,6 +6871,9 @@ def _permission_direction_signals(
         f"permission_widened: {item.host}:{item.before_rule} -> {item.after_rule}"
         for item in replacements
         if item.direction == "widened"
+        # Wider than the rule it replaced, yet inside another rule the source
+        # had at the base: nothing the base did not already allow (#941).
+        and assessment.grants_new((item.host, item.source, "allow", item.after_rule))
     ]
     # A narrowing earns no entry in an expansion list. What it earns
     # is silence there, which is what the caller uses this set for.
@@ -6627,7 +6885,7 @@ def _permission_direction_signals(
 
 
 def permission_rule_replacements(
-    changes: list[dict[str, Any]],
+    changes: list[dict[str, Any]], *, assessment: PermissionRuleAssessment | None = None,
 ) -> list[PermissionRuleReplacement]:
     """Name a replaced allow rule as widened or narrowed.
 
@@ -6655,14 +6913,22 @@ def permission_rule_replacements(
     that moved out of `allow` is set aside only when another allow rule in
     its group also left; when it is the only one, it is the rule the arrival replaced.
     Identity is the exact rule text: nothing is paired by likeness.
+
+    A path rule Claude Code never consults, and a rule that is the same grant
+    as one on the other side spelled another way, is not a candidate (#918,
+    #938): neither replaced anything, and counting either would leave a real
+    replacement beside it unpaired.
     """
 
+    assessment = assessment or permission_rule_assessment(changes)
     removed: dict[tuple[str, str, str], list[str]] = {}
     added: dict[tuple[str, str, str], list[str]] = {}
     for change in changes:
         before, after = change.get("baseline"), change.get("current")
         for grant, sink in ((before, removed), (after, added)):
             if grant and grant.get("kind") == "permission_rule":
+                if assessment.set_aside(_permission_key(grant)):
+                    continue
                 key = (grant["host"], grant.get("source", ""), str(grant.get("disposition")))
                 sink.setdefault(key, []).append(str(grant["rule"]))
     moved = {
@@ -6712,7 +6978,12 @@ def permission_rule_replacements(
         for before_rule, after_rule in pairs:
             if subsumes(after_rule, before_rule) is True:
                 direction: Literal["widened", "narrowed"] | None = "widened"
-            elif subsumes(before_rule, after_rule) is True:
+            elif subsumes(before_rule, after_rule) is True and (
+                # Claude Code skips an unanchored allow glob such as `*` and
+                # matches tool names exactly, so only a rule its model says
+                # covers the arrival makes the arrival a narrowing.
+                host != "claude-code" or covering_rule(after_rule, [before_rule]) is not None
+            ):
                 direction = "narrowed"
             else:
                 direction = None
@@ -6876,7 +7147,9 @@ def _comparable_drift_payload(
         "changes": changes,
         "artifact_changes": artifact_changes,
         "coverage_changes": coverage_changes,
-        "expansion_signals": host_grant_expansion_signals(changes),
+        "expansion_signals": host_grant_expansion_signals(
+            changes, current_grants=compared["grants"]
+        ),
         "issues": inventory.get("issues", []),
         "incomparable_reasons": [],
         "next_action": None,
