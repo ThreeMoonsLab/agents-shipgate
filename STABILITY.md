@@ -330,6 +330,44 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="url-permission-rules-922"></a>
+
+## Migration Note: Unreleased — a URL in a permission rule keeps its rule (#922)
+
+**What was wrong.** The settings reader published a URL inside a Claude Code
+or Cursor permission rule as its scheme and host followed by
+`/<redacted-path>`, and the redaction swallowed everything after the host up
+to the next space, the rule's closing `)` included. `Bash(curl -s
+http://localhost:8000/*)` and `Bash(curl -s http://localhost:8000/health)` both
+published as `Bash(curl -s http://localhost:8000/<redacted-path>`, so the two
+grants became one row and one change, a wildcard could not be told from one
+endpoint, and changing only a rule's path was not reported.
+
+**What changes.** A rule's `rule` text, in the host inventory, every row,
+`carves_from` and a workflow `settings` value's published rule, keeps the
+delimiters after a URL, its scheme and host as written and the wildcard each
+URL part ends with, and names a withheld query or fragment instead of dropping
+it (`<redacted-query>`, `<redacted-fragment>`, userinfo as `<redacted>@`). A
+part that is nothing but `*` and `/` is published as written. Where a URL part
+is withheld, the first marker carries `~` and a twelve-digit digest of the
+rule, in its documented spelling and with its credentials masked, so two rules
+that publish alike stay two grants, rows and changes on `diff`, `verify`, the
+PR comment, `check` and drift, `Bash(…:*)` and `Bash(… *)` stay one
+respelled grant, and a path-only change is a row. See [Claude Code permission rules](docs/host-boundary-support.md#claude-code-permission-rules).
+
+**Who must act.** Nobody, unless a saved baseline holds a rule with a URL path,
+query, fragment or userinfo: drift then reports each such rule once as removed
+and added under its new text, an `allow` rule as `allow_rule_added`. Review the
+rows and re-save the baseline from the reviewed branch.
+
+**What does not change.** No schema version, field, check ID, CLI flag,
+control state or permission. A rule with no URL is published as before, and so
+is one whose only redaction is a credential, which still rotates quietly.
+`check` still redacts every rule argument. `minimum_control_contract_version`
+stays `21`.
+
+---
+
 <a id="claude-permission-rule-model-918"></a>
 
 ## Migration Note: Unreleased — the Claude Code permission-rule model (host-grants `0.9`, #918, #941, #969, #974, #938)
