@@ -56,6 +56,7 @@ from agents_shipgate.core.host_grants import (
     step_action_key,
 )
 from agents_shipgate.core.host_settings import rate_claude_setting, setting_value_text
+from agents_shipgate.core.mcp_host_selection import UNATTRIBUTED_MCP_HOST
 from agents_shipgate.core.openshell_compare import compare_openshell_grants
 from agents_shipgate.core.permission_lattice import (
     exec_equivalent_argument,
@@ -778,10 +779,21 @@ def _grant_value(
     return kind or ABSENT
 
 
+#: Why an MCP row names no host (#936): its file is published under
+#: ``unknown`` because no declaration this entry reads selects it.
+MCP_HOST_NOT_ESTABLISHED = (
+    "host not established: no declaration this entry reads selects this file, "
+    "and another host's plugin manifest sits beside it"
+)
+
+
 def _subject(grant: dict[str, Any]) -> str:
     host = str(grant.get("host") or "")
     source = str(grant.get("source") or "")
     kind = str(grant.get("kind") or "")
+    if host == UNATTRIBUTED_MCP_HOST and source:
+        # A host-neutral subject (#936): `unknown` is not a host to name.
+        return source
     if source and host:
         return f"{host} {source}"
     return source or host or kind
@@ -1943,6 +1955,8 @@ def capability_diff_rows(
         )
         if note:
             why = f"{why}; {note}"
+        if grant.get("kind") == "mcp_server" and grant.get("host") == UNATTRIBUTED_MCP_HOST:
+            why = f"{why}; {MCP_HOST_NOT_ESTABLISHED}"
         if grant.get("kind") == "mcp_server" and (note := _mcp_source_note(before_grant, after_grant)):
             why = f"{why}; {note}"
         if grant.get("kind") == "hook" and (note := _inline_allow_note(after_grant)):

@@ -10,6 +10,7 @@ from agents_shipgate.core.domain import (
     Tool,
 )
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.mcp_host_selection import declared_component_paths
 from agents_shipgate.core.static_inputs import active_static_input_snapshot
 from agents_shipgate.inputs.common import (
     MAX_INPUT_FILE_BYTES,
@@ -826,12 +827,9 @@ def _component_paths(
     *,
     default: str | None = None,
 ) -> list[str]:
-    value = data.get(key)
-    paths: list[str] = []
-    if isinstance(value, str) and value.strip():
-        paths.append(value)
-    elif isinstance(value, list):
-        paths.extend(item for item in value if isinstance(item, str) and item.strip())
+    # One rule with the host reader, which attributes a `.mcp.json` to the
+    # Codex plugin whose `mcpServers` names it (#936).
+    paths = declared_component_paths(data.get(key))
     if not paths and default:
         candidate = root / default
         snapshot = active_static_input_snapshot()

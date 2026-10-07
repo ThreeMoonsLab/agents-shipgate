@@ -341,7 +341,8 @@
             "cursor",
             "vscode",
             "github",
-            "openshell"
+            "openshell",
+            "unknown"
           ],
           "title": "Host",
           "type": "string"
@@ -511,7 +512,7 @@
                 "additional_path": "#/$defs/HostAdditionalPathGrantV2",
                 "hook": "#/$defs/HostHookGrantV7",
                 "instruction_trust_root": "#/$defs/HostInstructionGrantV2",
-                "mcp_server": "#/$defs/HostMcpServerGrantV7",
+                "mcp_server": "#/$defs/HostMcpServerGrantV9",
                 "openshell_policy": "#/$defs/HostOpenShellPolicyGrantV9",
                 "permission_mode": "#/$defs/HostPermissionModeGrantV2",
                 "permission_rule": "#/$defs/HostPermissionRuleGrantV9",
@@ -525,7 +526,7 @@
             },
             "oneOf": [
               {
-                "$ref": "#/$defs/HostMcpServerGrantV7"
+                "$ref": "#/$defs/HostMcpServerGrantV9"
               },
               {
                 "$ref": "#/$defs/HostPermissionRuleGrantV9"
@@ -580,7 +581,7 @@
         },
         "issues": {
           "items": {
-            "$ref": "#/$defs/HostInventoryIssueV8"
+            "$ref": "#/$defs/HostInventoryIssueV9"
           },
           "title": "Issues",
           "type": "array"
@@ -1030,7 +1031,7 @@
       "title": "HostInstructionGrantV2",
       "type": "object"
     },
-    "HostInventoryIssueV8": {
+    "HostInventoryIssueV9": {
       "additionalProperties": false,
       "properties": {
         "blocking": {
@@ -1044,7 +1045,8 @@
             "cursor",
             "vscode",
             "github",
-            "openshell"
+            "openshell",
+            "unknown"
           ],
           "title": "Host",
           "type": "string"
@@ -1082,7 +1084,7 @@
         "message",
         "blocking"
       ],
-      "title": "HostInventoryIssueV8",
+      "title": "HostInventoryIssueV9",
       "type": "object"
     },
     "HostMcpLaunchSourceV7": {
@@ -1116,8 +1118,9 @@
       "title": "HostMcpLaunchSourceV7",
       "type": "object"
     },
-    "HostMcpServerGrantV7": {
+    "HostMcpServerGrantV9": {
       "additionalProperties": false,
+      "description": "An MCP server, published under the host whose declaration selects its file (#936).",
       "properties": {
         "access": {
           "enum": [
@@ -1184,7 +1187,8 @@
             "claude-code",
             "cursor",
             "vscode",
-            "github"
+            "github",
+            "unknown"
           ],
           "title": "Host",
           "type": "string"
@@ -1263,7 +1267,7 @@
         "package",
         "args_sha256"
       ],
-      "title": "HostMcpServerGrantV7",
+      "title": "HostMcpServerGrantV9",
       "type": "object"
     },
     "HostOpenShellPolicyGrantV9": {

@@ -512,6 +512,66 @@ readers. `minimum_control_contract_version` stays `21`.
 
 ---
 
+<a id="mcp-declaration-host-936"></a>
+
+## Migration Note: Unreleased — the host a `.mcp.json` belongs to (host-grants `0.9`, #936, #970)
+
+**What was wrong.** The boundary registry finds `.mcp.json` by its file name
+at any depth, and published `1.2.0` made every one a Claude Code declaration
+from that name alone. A `.mcp.json` only a Codex plugin manifest selects was
+printed `claude-code plugins/codex/firecrawl/.mcp.json`
+(firecrawl/firecrawl-mcp-server#468), and one beside a Grok plugin manifest
+that no Claude Code file names was printed `claude-code
+external_plugins/ceraph/.mcp.json` (xai-org/plugin-marketplace#1205).
+
+**What changes.** The servers are read exactly as before; the host they are
+published under follows what selects the file, as
+[Which host a `.mcp.json` belongs to](docs/host-boundary-support.md#which-host-a-mcpjson-belongs-to)
+describes, on `diff` (text and `--json`), `verify`'s `host_comparison` and the
+PR comment, `check` and `audit --host` (and `--drift`):
+
+- A `.mcp.json` a `.codex-plugin/plugin.json` selects is published under
+  `codex`; one a Claude Code plugin and a Codex plugin both select, under
+  both, one row each.
+- One no declaration this entry reads selects, in a directory holding another
+  host's plugin manifest, is published under the new host value `unknown`.
+  Its rows name no host before the path and say `host not established: …` in
+  their `why`, and its coverage item's `hosts` is `["unknown"]`, printed as
+  `(host not established)`. `audit --host` carries a non-blocking
+  `unsupported` issue naming the manifests beside it.
+- The root `.mcp.json`, a Claude Code plugin's and an unselected nested copy
+  keep `claude-code`.
+- Host-grants inventory, baseline and drift `0.9`, unpublished before this
+  release, are extended in place: an `mcp_server` grant, an `mcp` artifact and
+  an inventory issue may carry host `unknown`, which names no host and is
+  never a host this entry reads. No host coverage entry is published for it,
+  so a blocking limit on such a file leaves the inventory incomplete without
+  marking any host's coverage partial.
+- `check` decides exactly as before: every `.mcp.json` is routed by the
+  registry, the root one through its MCP rule and a nested one as a protected
+  surface. Its `affected_hosts` and `host_coverage` name the hosts the
+  inventory published the file under on either compared side, so a Codex
+  plugin's `.mcp.json` is `codex`'s and one whose host is not established
+  names none.
+- A Claude Code or Codex manifest's `mcpServers` that names only `.mcp.json`
+  files an inventory read is no longer a `plugin_manifest_mcp_servers`
+  unread item (#821): it decided their host.
+
+**Who must act.** Nobody, unless a saved baseline recorded such a file under
+`claude-code`: drift then reports its servers once as removed under
+`claude-code` and added under `codex` or `unknown`. Review those rows and
+re-save the baseline from the reviewed branch. A consumer that switches on an
+MCP grant's `host` should treat `unknown` as "not established", never as a
+host.
+
+**What does not change.** No schema version, check ID, CLI flag, control
+state, decision or permission is added or moved. No plugin is installed or
+fetched, and no runtime loading is inferred. `detect`'s host-boundary
+candidates still list a `.mcp.json` under `claude-code` from its file name.
+`minimum_control_contract_version` stays `21`.
+
+---
+
 <a id="evaluated-subject-930"></a>
 
 ## Migration Note: Unreleased — completion requires an evaluated subject (contract v42, #930)

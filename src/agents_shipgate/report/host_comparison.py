@@ -18,7 +18,14 @@ from agents_shipgate.core.capability_diff_rows import (
 )
 from agents_shipgate.core.host_comparison import reproduce_command
 from agents_shipgate.core.host_grants import _source_kind
+from agents_shipgate.core.mcp_host_selection import UNATTRIBUTED_MCP_HOST
 from agents_shipgate.schemas.host_comparison import HostComparison, HostComparisonCoverageItem
+
+
+def _host_label(host: str) -> str:
+    """A coverage item's host as printed: ``unknown`` names no host (#936)."""
+
+    return "host not established" if host == UNATTRIBUTED_MCP_HOST else single_line_text(host)
 
 
 def presented_changes(comparison: HostComparison) -> list[ReviewChange]:
@@ -602,7 +609,7 @@ def coverage_lines(
 
     item_lines = [
         f"{bullet}{_text(item.source, markdown=markdown)} "
-        f"({', '.join(single_line_text(host) for host in item.hosts)}): "
+        f"({', '.join(_host_label(host) for host in item.hosts)}): "
         f"{coverage_item_text(item, markdown=markdown, named_by_row=any(hook_script_named_by(row, item.source) for row in comparison.rows))}"
         for item in coverage.items
         if not _quiet(item)

@@ -85,6 +85,7 @@ from agents_shipgate.core.host_grants import (
     _sanitize_sensitive_string,
     public_host_path,
 )
+from agents_shipgate.core.mcp_host_selection import followed_mcp_member
 from agents_shipgate.core.privacy import redact_text
 
 #: Plugin manifests, relative to the plugin root, and the host each is for.
@@ -451,6 +452,26 @@ def discover_unread_inputs(
     return result
 
 
+def _mcp_member_read(
+    path: str, parsed: dict[str, dict[str, Any] | None], read_by_entry: Callable[[str], bool]
+) -> bool:
+    """Whether a Claude Code or Codex manifest's `mcpServers` is read on every side (#936).
+
+    It is when, on each side the manifest exists, the member names only
+    `.mcp.json` files by a path inside the plugin, and an inventory of this
+    comparison published each one: the host of that file's servers is then
+    decided from this member, so the member is not unread. An inline object, a
+    reference to any other file, or one to a file no inventory published
+    keeps it named.
+    """
+
+    for data in parsed.values():
+        targets = followed_mcp_member(path, data)
+        if targets is None or not all(read_by_entry(target) for target in targets):
+            return False
+    return True
+
+
 def _member_facts(
     candidate: _Candidate,
     sides: list[str],
@@ -484,6 +505,8 @@ def _member_facts(
             # A side without the file, or without the member, has no text:
             # adding or removing either is a difference, as is an edit.
             if texts.get("base") == texts.get("head"):
+                continue
+            if member == "mcpServers" and _mcp_member_read(path, parsed, read_by_entry):
                 continue
             kind = "plugin_manifest_mcp_servers" if member == "mcpServers" else "plugin_manifest_hooks"
             fact(f"{path}#{member}", _side(sorted(texts)) or "both", {candidate.host or ""}, kind)

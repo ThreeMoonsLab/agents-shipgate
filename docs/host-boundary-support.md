@@ -16,8 +16,8 @@ and `audit --host`.
 | Adapter | Status | Repository surfaces | Static semantics |
 |---|---|---|---|
 | OpenShell | static inventory | root/nested `.shipgate/openshell.json` selecting arbitrary repository policy files | [Pinned policy schema 1 inventory](openshell-support.md), authored/effective-snapshot roles, explicit/defaulted fields and named read limits; runtime enforcement and freshness remain unverified |
-| Codex | first-class | `.codex/config.toml`, `.codex/hooks.json` | sandbox, approvals, network, MCP/app approvals, hooks |
-| Claude Code | first-class | `.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json`, `CLAUDE.md`, Claude skills | permission modes/rules, sandbox/network, additional paths, MCP restrictions, plugins and their marketplaces (`extraKnownMarketplaces`), hooks |
+| Codex | first-class | `.codex/config.toml`, `.codex/hooks.json`, a `.mcp.json` a `.codex-plugin/plugin.json` selects | sandbox, approvals, network, MCP/app approvals, hooks |
+| Claude Code | first-class | `.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json` (the root one, a Claude Code plugin's, and a nested one nothing else selects), `CLAUDE.md`, Claude skills | permission modes/rules, sandbox/network, additional paths, MCP restrictions, plugins and their marketplaces (`extraKnownMarketplaces`), hooks |
 | Cursor | first-class | `.cursor/cli.json`, `.cursor/mcp.json`, `.cursor/rules/**` | Shell/Read/Write rules, MCP declarations, instruction trust roots |
 | VS Code MCP | first-class | `.vscode/mcp.json` | MCP servers; `sandbox` and per-server `sandboxEnabled`; `${input:…}` references by name, never value; `envFile` recorded as a limit; other top-level keys partial |
 | Shared/GitHub | first-class | `AGENTS.md`, Shipgate policies/state, skills, `.github/workflows/*` | instruction/gate weakening, workflow permissions and triggers (the event context apart from job token scopes), reusable-call permission ceilings and the permissions of same-repository called workflows, remote step action references, named secret sources passed to reusable workflows, agent launches (documented agent action inputs, `run:` steps that are one plain `claude -p` / `codex exec` command, `run:` steps that mention an agent CLI in shell this audit does not parse, named as a limit) and `actions/checkout` refs |
@@ -39,7 +39,54 @@ and it caused every widening the 1.0 host-config measurement missed.
 Path classification is case-insensitive so protected files cannot evade review
 on macOS or Windows. Nested `.codex/**`, `.mcp.json`, and
 `.github/workflows/**` copies remain protected for repository-wide drift and
-trust-root review, even when the host only loads the root copy.
+trust-root review, even when the host only loads the root copy. Which host a
+nested `.mcp.json` is reported under is decided by what selects it, below.
+
+### Which host a `.mcp.json` belongs to
+
+The registry finds `.mcp.json` by its file name at any depth, and its servers
+are read the same way wherever it is. The host they are published under comes
+from the declarations that select the file, not from its name (#936):
+
+1. The repository's root `.mcp.json` is Claude Code's project MCP
+   configuration.
+2. A Claude Code plugin selects the `.mcp.json` at its plugin root, the
+   directory of a `.claude-plugin/plugin.json` or a `./` plugin source an
+   in-repository `.claude-plugin/marketplace.json` lists, and any `.mcp.json`
+   its manifest's or marketplace entry's `mcpServers` names by a `./` path.
+3. A Codex plugin selects what its `.codex-plugin/plugin.json` `mcpServers`
+   names, a relative path or a list of them inside the plugin directory, and
+   the plugin root's `.mcp.json` when the member names no path: the rule the
+   Codex plugin reader of `scan` applies.
+4. A `.mcp.json` none of those selects, in a directory that holds another
+   plugin manifest — a format this entry does not read, such as
+   `.grok-plugin/plugin.json`, `.cursor-plugin/plugin.json`, any other
+   `.<name>-plugin/plugin.json` or `.github/plugin/plugin.json`, or a Codex
+   manifest that cannot be read as a JSON object or names other files — is published under host `unknown`: which host loads its
+   servers is not established, and nothing makes them Claude Code's. `diff`,
+   `verify` and the PR comment print its rows with no host before the path and
+   `host not established: …` in the reason, and its coverage line reads
+   `(host not established)`. `audit --host` names the manifests beside it in a
+   non-blocking coverage issue. A blocking limit on such a file is published
+   under `unknown` too: the inventory is incomplete as before, and no host's
+   coverage is marked partial for it.
+5. Any other nested `.mcp.json` stays under Claude Code, as the nested copy
+   kept under review described above.
+
+Rules 1 to 3 add up: a file a Claude Code plugin and a Codex plugin both
+select gives one row per host. Every declaration fact is kept whatever the
+host: the server, its command name or redacted URL, its package, the
+launch-source note and the `⚠`. A selection is what the repository declares,
+never that a plugin is installed or that a host loaded the file; nothing is
+fetched, a Codex manifest is the only manifest read for this, and a manifest of
+any other format is only noticed by its path. A manifest reference is matched
+to a file case-insensitively. A plugin manifest's `mcpServers` that names only
+`.mcp.json` files this entry read is no longer named as unread (below), since
+it decided their host. `check` routes every `.mcp.json` as before, the root
+one through its MCP rule and a nested one as a protected surface, and names in
+`affected_hosts` and `host_coverage` the hosts the inventory published it
+under on either compared side; one whose host is not established names none.
+`detect`'s host-boundary candidates are still listed from file names alone.
 
 The boundary is intentionally fail-closed above the adapters' specialized
 semantics. Most instruction, policy, skill, and workflow edits therefore route
@@ -827,7 +874,10 @@ widening, a `check` violation or a claim that a host loads the file.
 - **A plugin manifest's MCP servers** (`plugin_manifest_mcp_servers`): the
   `mcpServers` member of any of those manifests, inline or a reference, when
   its text differs between the sides. The file a reference names is not
-  followed.
+  followed, except that a Claude Code or Codex manifest's member naming only
+  `.mcp.json` files an inventory of this comparison read is not named: it
+  decided the host those files are published under
+  ([Which host a `.mcp.json` belongs to](#which-host-a-mcpjson-belongs-to)).
 - **A plugin manifest's hooks** (`plugin_manifest_hooks`): the `hooks` member
   of a Codex, Cursor or Copilot manifest, when its text differs. A Claude Code
   manifest's `hooks` is read, as described under the hook loading basis
@@ -878,7 +928,8 @@ listed or looked at, the block says so and names none. Ordinary
 documentation, an unrelated `*.json`, and a candidate the change did not touch
 produce nothing, and a shape outside this list — a root `plugin.json`, a
 Codex or Cursor marketplace, a hook file a manifest names under another file
-name, a file a `mcpServers` reference names — is still neither read nor named.
+name, a file other than a `.mcp.json` that a `mcpServers` reference names — is
+still neither read nor named.
 Each shape stays here until a reader exists for it (#663).
 
 ## Local-static audit scope
