@@ -29,8 +29,20 @@ updates:
       # ==2.46.5. Any independent bump is unsatisfiable at every update type,
       # so this one is ignored outright. Closed #382 on this.
       - dependency-name: "pydantic-core"
+    # One pull request per weekly cycle instead of one per package (#501):
+    # each grouped PR is one lock recompilation with scripts/update_locks.py.
+    # `applies-to: version-updates` keeps security updates out of the group,
+    # so an advisory still arrives promptly as its own pull request.
+    groups:
+      python-dependencies:
+        applies-to: version-updates
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        applies-to: version-updates
+        patterns: ["*"]

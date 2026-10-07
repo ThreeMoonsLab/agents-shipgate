@@ -116,6 +116,13 @@ stale fails there by name rather than as a puzzling import error. See
 [`docs/release-runbook.md`](docs/release-runbook.md#the-environment-is-locked-and-it-is-cis)
 for which job installs which lock.
 
+Dependabot groups its weekly version updates into one pull request per
+ecosystem; security updates stay ungrouped. A grouped pip PR edits the
+`constraints/*.txt` pins without recompiling them, so treat it as a request:
+raise the floors it names, rerun `python scripts/update_locks.py` with the
+resolver `constraints/release-publish.in` pins, and check the lock diff for
+dropped environment markers and extras-qualified pins before pushing.
+
 ## Changing the CHANGELOG
 
 Entries go under `## Unreleased`. Cutting a release renames that heading to
