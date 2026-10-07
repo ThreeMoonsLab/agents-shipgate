@@ -194,6 +194,12 @@ SURFACES: tuple[Surface, ...] = (
         # list member is held under, read and never evaluated: a fact about the
         # source, not an engine answer, so it adds no claim
         # (`tests/test_list_expressions.py`).
+        # A side's `object` (#910) is what a tool bound as an object is — an
+        # MCP server's transport, host and credential names, a wrapped agent, a
+        # built-in's name — read from source by import identity, and its
+        # `object_evidence` where the wrapped agent lives: facts about the
+        # source, not an engine answer, so neither adds a claim
+        # (`tests/test_object_bound_tools.py`).
         {},
     ),
     Surface(

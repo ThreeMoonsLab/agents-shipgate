@@ -25,13 +25,16 @@ from __future__ import annotations
 
 import ast
 import functools
+import hashlib
+import json
 import os
 import re
 import string
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
+from urllib.parse import urlsplit
 
 from agents_shipgate.core.privacy import (
     is_credential_key,
@@ -435,6 +438,34 @@ class Func:
 
     def __hash__(self) -> int:
         return hash((id(self.node), id(self.enclosing)))
+
+
+class _Class:
+    """A plain class the module defines, which an instance can be read from."""
+
+    __slots__ = ("module", "node")
+
+    def __init__(self, module: PythonModule, node: ast.ClassDef) -> None:
+        self.module = module
+        self.node = node
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _Class) and other.node is self.node
+
+    def __hash__(self) -> int:
+        return hash(("class", id(self.node)))
+
+
+class _Instance(_Class):
+    """An instance of a :class:`_Class` built with no arguments."""
+
+    __slots__ = ()
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _Instance) and other.node is self.node
+
+    def __hash__(self) -> int:
+        return hash(("instance", id(self.node)))
 
 
 _UNKNOWN = Op()
@@ -865,6 +896,56 @@ def _module_library(module: PythonModule, name: str) -> str | None:
     return _import_dotted(alias, statement)
 
 
+#: Methods that change what an instance's attribute holds, or how it is read.
+_INSTANCE_HOOKS = frozenset(
+    {
+        "__init__", "__new__", "__post_init__", "__getattr__", "__getattribute__",
+        "__setattr__", "__init_subclass__", "__set_name__", "__class_getitem__",
+    }
+)
+
+
+def _module_class(module: PythonModule, name: str) -> ast.ClassDef | None:
+    """The plain class ``name`` is, when the module binds it once to one (#910).
+
+    Plain: no base but ``object``, no metaclass or other class keyword, no
+    decorator but the standard library's ``dataclass``, no method that builds,
+    reads or sets an instance's attributes, and no method storing on ``self``.
+    An instance of such a class built with no arguments holds the class body's
+    defaults. Anything else — a pydantic ``BaseSettings`` reads the environment
+    by field name — is not read.
+    """
+
+    bindings = module.bindings.get(name, [])
+    if len(bindings) != 1 or not bindings[0].top_level or module.star_import:
+        return None
+    node = bindings[0].node
+    if not isinstance(node, ast.ClassDef) or node.keywords:
+        return None
+    if any(not (isinstance(base, ast.Name) and base.id == "object") for base in node.bases):
+        return None
+    for decorator in node.decorator_list:
+        target = decorator.func if isinstance(decorator, ast.Call) else decorator
+        spelling = reference_spelling(target)
+        head = spelling.split(".", 1)[0] if spelling else None
+        library = _module_library(module, head) if head else None
+        if library is None or f"{library}{spelling[len(head):]}" != "dataclasses.dataclass":
+            return None
+    for statement in node.body:
+        if isinstance(statement, ast.FunctionDef | ast.AsyncFunctionDef):
+            if statement.name in _INSTANCE_HOOKS:
+                return None
+            for item in ast.walk(statement):
+                if (
+                    isinstance(item, ast.Attribute)
+                    and isinstance(item.ctx, ast.Store | ast.Del)
+                    and isinstance(item.value, ast.Name)
+                    and item.value.id == "self"
+                ):
+                    return None
+    return node
+
+
 def _import_dotted(alias: ast.AST, statement: ast.AST) -> str | None:
     if not isinstance(alias, ast.alias):
         return None
@@ -885,8 +966,15 @@ class _Reach:
         mutated: dict[str, str] | None = None,
         whole: dict[str, str] | None = None,
         library: dict[str, str] | None = None,
+        *,
+        instances: bool = False,
     ) -> None:
         self.resolver = resolver
+        #: Read an attribute of a plain class instance built with no arguments
+        #: as the class body's default (#910): ``settings.url`` after
+        #: ``settings = Settings()``. Only an object binding's identity reads
+        #: it; a tool's reach does not.
+        self.instances = instances
         #: ``"json.dumps" -> "file:line"``: library attributes stored into.
         self.library = library or {}
         #: The attribute stored last through an object the scan does not
@@ -1819,12 +1907,16 @@ class _Reach:
                 named = self.module_name(frame.module, head.id)
                 if isinstance(named, Lib):
                     return Lib(f"{named.dotted}{spelling[len(head.id):]}")
+                if isinstance(named, _Instance) and node.value is head:
+                    return self.instance_attribute(named, node.attr)
                 resolved = self._resolved(frame.module, self.resolver.resolve(frame.module, spelling))
                 if resolved is not None:
                     return resolved
         base = self.value(node.value, frame)
         if isinstance(base, Lib):
             return Lib(f"{base.dotted}.{node.attr}")
+        if isinstance(base, _Instance):
+            return self.instance_attribute(base, node.attr)
         if isinstance(base, Client) and node.attr == "headers":
             return base.headers if base.headers is not None else Rec(())
         if isinstance(base, Op) and base.inert and not base.data:
@@ -2133,6 +2225,8 @@ class _Reach:
                 if name in _BUILTIN_NAMES and not module.star_import
                 else Op(what=name)
             )
+        elif self.instances and (plain := _module_class(module, name)) is not None:
+            value = _Class(module, plain)
         else:
             resolution = self.resolver.resolve(module, name)
             library = _module_library(module, name)
@@ -2335,7 +2429,38 @@ class _Reach:
             return _derived(*arguments, *keywords.values(), result=True)
         if isinstance(callee, Func):
             return self.returned(callee, call, frame)
+        if type(callee) is _Class and not call.args and not call.keywords:
+            return _Instance(callee.module, callee.node)
         return _derived(*arguments, *keywords.values(), result=True)
+
+    def instance_attribute(self, instance: _Instance, attribute: str) -> Any:
+        """``attribute`` of a plain class instance built with no arguments (#910).
+
+        The class body's one assignment of it, read in the defining module,
+        unless anything in the scope stores under that name: an instance's
+        attribute can be changed by any code holding it.
+        """
+
+        where = self.mutated.get(attribute) or self.whole.get("*")
+        if where is not None:
+            return Op(what=f"{instance.node.name}.{attribute}, which {where} changes")
+        values = [
+            statement.value
+            for statement in instance.node.body
+            if isinstance(statement, ast.Assign | ast.AnnAssign)
+            and statement.value is not None
+            for target in (statement.targets if isinstance(statement, ast.Assign) else [statement.target])
+            if isinstance(target, ast.Name) and target.id == attribute
+        ]
+        named = [
+            statement
+            for statement in instance.node.body
+            if isinstance(statement, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+            and statement.name == attribute
+        ]
+        if len(values) != 1 or named:
+            return Op(what=f"{instance.node.name}.{attribute}")
+        return self.value(values[0], self.module_frame(instance.module))
 
     def _method_value(self, receiver: Any, method: str, call: ast.Call, frame: _Frame) -> Any:
         arguments = [self.value(arg, frame) for arg in call.args]
@@ -3122,6 +3247,320 @@ def read_tool_reach(
         function,
         listed=len(reach.calls),
     )
+
+
+# -- object bindings (#910) ----------------------------------------------------
+
+
+@dataclass(frozen=True, eq=False)
+class ValueSite:
+    """Where an expression of an object construction is written.
+
+    ``function`` is the function it is written in (None: module level);
+    ``call`` and ``caller`` say how that function was entered, so its
+    parameters hold what the caller passes. Without them a parameter is a
+    value this read does not name.
+    """
+
+    module: PythonModule
+    function: ast.FunctionDef | ast.AsyncFunctionDef | None = None
+    call: ast.Call | None = None
+    caller: ValueSite | None = None
+
+
+def read_object_values(
+    resolver: ImportResolver,
+    items: list[tuple[ValueSite, ast.AST | None]],
+    *,
+    is_test: Callable[[str], bool] | None = None,
+) -> list[Any]:
+    """The values of an object construction's arguments, read as a tool's are.
+
+    One read for the whole construction: a URL, its headers, a command and its
+    arguments, a filter. Values follow the same rules as :func:`read_tool_reach`
+    — module constants through imports, ``os.getenv`` with its default, a
+    repository helper's return — and also read an attribute of a plain class
+    instance built with no arguments (``settings.url``), which is how an
+    application commonly configures a server. Nothing is imported or run.
+    """
+
+    test_rule = is_test or _looks_like_test
+    names, whole = scope_mutations(resolver.scope_root, test_rule)
+    reach = _Reach(
+        resolver, names, whole, scope_library_patches(resolver.scope_root, test_rule), instances=True
+    )
+    frames: dict[int, _Frame] = {}
+
+    def frame_of(site: ValueSite) -> _Frame:
+        found = frames.get(id(site))
+        if found is not None:
+            return found
+        if site.function is None:
+            frame = reach.module_frame(site.module)
+        else:
+            outer: _Frame | None = None
+            for enclosing in _enclosing_functions(site.module.tree, site.function):
+                outer = reach.frame(
+                    Func(site.module, enclosing, outer), _unnamed_parameters(enclosing), via=(), depth=0
+                )
+            func = Func(site.module, site.function, outer)
+            if site.call is not None and site.caller is not None:
+                args = reach.bind(func, site.call, frame_of(site.caller))
+            else:
+                args = _unnamed_parameters(site.function)
+            frame = reach.frame(func, args, via=(), depth=0)
+        frames[id(site)] = frame
+        return frame
+
+    return [None if node is None else reach.value(node, frame_of(site)) for site, node in items]
+
+
+def _unnamed_parameters(function: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, Any]:
+    arguments = function.args
+    return {
+        param.arg: Op(what=f"parameter {param.arg} of {function.name}")
+        for param in [
+            *arguments.posonlyargs,
+            *arguments.args,
+            *arguments.kwonlyargs,
+            *(item for item in (arguments.vararg, arguments.kwarg) if item),
+        ]
+    }
+
+
+def _enclosing_functions(
+    tree: ast.Module, function: ast.FunctionDef | ast.AsyncFunctionDef
+) -> list[ast.FunctionDef | ast.AsyncFunctionDef]:
+    """The functions that enclose ``function``, outermost first."""
+
+    stack: list[tuple[ast.AST, tuple[ast.AST, ...]]] = [(tree, ())]
+    while stack:
+        node, path = stack.pop()
+        for child in ast.iter_child_nodes(node):
+            if child is function:
+                return [item for item in path if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef)]
+            stack.append((child, (*path, child)))
+    return []
+
+
+def is_absent(value: Any) -> bool:
+    """Not given, or ``None``."""
+
+    return value is None or value == Lit(None)
+
+
+def _options(value: Any) -> tuple[Any, ...]:
+    return value.options if isinstance(value, Alt) else (value,)
+
+
+def _url_host(text: str) -> str | None:
+    try:
+        parts = urlsplit(text)
+        host = parts.hostname
+        port = parts.port
+    except ValueError:
+        return None
+    if parts.scheme.lower() not in {"http", "https", "ws", "wss"} or not host:
+        return None
+    if host.endswith(_CAPABILITY_HOST_SUFFIXES):
+        _label, dot, domain = host.partition(".")
+        host = f"{_REDACTED}{dot}{domain}"
+    return f"{host}:{port}" if port else host
+
+
+def object_hosts(url: Any) -> tuple[list[str], bool]:
+    """The hosts a URL value may name, never its path or query, and whether
+    some option's host is not read.
+
+    A literal (or a template whose host is written out) gives its host; a URL
+    taken whole from an environment variable, or built on one, gives
+    ``env NAME``. Anything else — a builder's parameter, a computed value, a
+    host spliced in — is not read.
+    """
+
+    hosts: set[str] = set()
+    unread = False
+    options: list[Any] = []
+    for option in _options(url):
+        if isinstance(option, Tpl) and isinstance(option.parts[0], Alt):
+            # ``f"{os.getenv('BASE', 'http://host:8080')}/sse"``: each way the
+            # base may be set, with the rest of the URL.
+            options.extend(_join([choice, *option.parts[1:]]) for choice in option.parts[0].options)
+        else:
+            options.append(option)
+    for option in options:
+        host: str | None = None
+        if isinstance(option, Lit) and isinstance(option.value, str):
+            host = _url_host(option.value)
+        elif isinstance(option, Tpl):
+            leading = _leading_literal(option)
+            _scheme, separator, rest = leading.partition("://")
+            # The host is read only when the literal runs past it.
+            if separator and ("/" in rest or "?" in rest):
+                host = _url_host(leading)
+            first = option.parts[0]
+            if host is None and isinstance(first, Op) and first.exact and len(first.envs) == 1 and not first.params:
+                host = "env " + next(iter(first.envs))
+        elif isinstance(option, Op) and option.exact and len(option.envs) == 1 and not option.params:
+            host = "env " + next(iter(option.envs))
+        if host is None:
+            unread = True
+        else:
+            hosts.add(host)
+    return sorted(hosts), unread
+
+
+def object_command(command: Any) -> tuple[list[str], bool]:
+    """The program a stdio server runs, by its file name only."""
+
+    names: set[str] = set()
+    unread = False
+    for option in _options(command):
+        if isinstance(option, Lit) and isinstance(option.value, str) and option.value.strip():
+            program = PurePosixPath(option.value.strip().split()[0].replace(os.sep, "/")).name
+            # A file name shaped like a key is withheld, as a URL's path piece is.
+            names.add(_REDACTED if _secret_piece(program) else program)
+        elif isinstance(option, Op) and option.exact and len(option.envs) == 1 and not option.params:
+            names.add("env " + next(iter(option.envs)))
+        else:
+            unread = True
+    return sorted(names), unread
+
+
+def object_credentials(
+    *, headers: Any = None, url: Any = None, env: Any = None
+) -> tuple[list[dict[str, Any]], bool]:
+    """Credential sources of a server connection, by name only (#872's rules).
+
+    Headers and a URL's query or userinfo are read as a request's are; a stdio
+    server's ``env`` entries whose names say they carry a secret are
+    ``server_env``. The second value is True when headers or an environment
+    are given but are not a dict this read can enumerate: a credential could
+    be in what is not read.
+    """
+
+    found = _credentials(None if is_absent(headers) else headers, None, None, url)
+    unread = False
+    for given in (headers, env):
+        if is_absent(given):
+            continue
+        records = _records(given)
+        # A module-level dict can be changed by any code (#872 review 9): its
+        # entries are not taken as written.
+        if records is None or any(record.open or record.shared for record in records):
+            unread = True
+    for option in _options(url):
+        if not (isinstance(option, Lit) and isinstance(option.value, str)):
+            continue
+        # A credential written into a literal URL: named, never printed.
+        try:
+            parts = urlsplit(option.value)
+        except ValueError:
+            continue
+        if parts.username or parts.password:
+            entry: dict[str, Any] = {"userinfo": None, "literal": True}
+            if entry not in found:
+                found.append(entry)
+        for pair in parts.query.split("&") if parts.query else ():
+            key = pair.partition("=")[0]
+            if key and _secret_name(key):
+                entry = {"query": key, "literal": True}
+                if entry not in found:
+                    found.append(entry)
+    for record in ([] if is_absent(env) else _records(env) or []):
+        for key, value in record.fields:
+            if key == "**" or not _secret_name(key):
+                continue
+            params, envs = _sources(value)
+            entry = {"server_env": key}
+            if envs:
+                entry["env"] = sorted(envs)
+            if params:
+                entry["from"] = sorted(params)
+            if _literal_fallback(value) or (not envs and not params and _literal_only(value)):
+                entry["literal"] = True
+            elif not envs and not params:
+                entry["computed"] = True
+            if entry not in found:
+                found.append(entry)
+    return found, unread
+
+
+def object_strings(value: Any) -> tuple[list[str] | None, bool]:
+    """A literal list of names (a tool filter), None when absent, and whether
+    it is not read."""
+
+    if is_absent(value):
+        return None, False
+    if isinstance(value, Seq) and all(
+        isinstance(item, Lit) and isinstance(item.value, str) for item in value.items
+    ):
+        return sorted({item.value for item in value.items}), False
+    return None, True
+
+
+def object_named(value: Any) -> bool:
+    """Whether a value is written out: literals, or an environment variable."""
+
+    if is_absent(value) or isinstance(value, Lit):
+        return True
+    if isinstance(value, Tpl):
+        return all(object_named(part) for part in value.parts)
+    if isinstance(value, Seq):
+        return all(object_named(item) for item in value.items)
+    if isinstance(value, Rec):
+        return not value.open and not value.shared and all(object_named(item) for _, item in value.fields)
+    if isinstance(value, Alt):
+        return all(object_named(option) for option in value.options)
+    if isinstance(value, Op):
+        return value.literal or (value.exact and bool(value.envs) and not value.params)
+    return False
+
+
+def object_record(value: Any) -> Rec | None:
+    """The one dict a value is (an SDK server's ``params``), or None."""
+
+    if not isinstance(value, Rec) or value.open or value.shared:
+        return None
+    return value
+
+
+def object_digest(*values: Any) -> str:
+    """A digest of values that names none of them: a literal secret is hashed,
+    never printed. Deterministic across runs and processes."""
+
+    return hashlib.sha256(
+        json.dumps([_canonical(value) for value in values], sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def _canonical(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, Lit):
+        item = value.value
+        return ["lit", item if item is None or isinstance(item, str | int | float | bool) else repr(item)]
+    if isinstance(value, Tpl):
+        return ["tpl", [_canonical(part) for part in value.parts]]
+    if isinstance(value, Rec):
+        return ["rec", [[key, _canonical(item)] for key, item in value.fields], value.open]
+    if isinstance(value, Seq):
+        return ["seq", [_canonical(item) for item in value.items]]
+    if isinstance(value, Alt):
+        return [
+            "alt",
+            sorted(json.dumps(_canonical(option), sort_keys=True) for option in value.options),
+            sorted(value.deciders),
+        ]
+    if isinstance(value, Op):
+        return ["op", sorted(value.params), sorted(value.envs), value.exact, value.literal]
+    if isinstance(value, Lib):
+        return ["lib", value.dotted]
+    if isinstance(value, Func):
+        return ["func", value.node.name]
+    if isinstance(value, _Class):
+        return ["class", value.node.name]
+    return ["value", type(value).__name__]
 
 
 #: Libraries whose behaviour a patch can change for every request.

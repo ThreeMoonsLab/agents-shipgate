@@ -139,13 +139,15 @@ An absent side names the missing scope and suggests `--base-scope`/`--scope`
 for relocation. If neither selected directory exists, the command refuses with
 exit 2. A removal describes the selected source path, not the entire repository.
 
-`--json` emits `application_comparison_schema_version: "0.3"`, engine identity,
+`--json` emits `application_comparison_schema_version: "0.4"`, engine identity,
 requested and compared refs/tree IDs, per-side scope/coverage, rows, source
 correspondence, `scope_selection`, `comparisons` when a derived change spans
 more than one application, and a deterministic `comparison_id`. Version 0.2 adds
 `reach`, `effect_evidence` and `construction_sites` to a row's sides (see
 [What a bound tool reaches](#what-a-bound-tool-reaches)); version 0.3 adds
-`bound_when` (see [Tools lists built by an expression](#tools-lists-built-by-an-expression)).
+`bound_when` (see [Tools lists built by an expression](#tools-lists-built-by-an-expression));
+version 0.4 adds `object` and `object_evidence` (see
+[Tools bound as objects](#tools-bound-as-objects)).
 This is a separate advisory
 artifact from the existing host diff JSON and verifier receipt.
 
@@ -285,8 +287,9 @@ relative `.agents` import is the project's own package.
 
 Discovery is bounded by `--max-python-files` (default 1000) and a 2 MB per-Python
 file limit. Partial discovery remains visible. The readers follow tools imported
-from other modules inside the selected scope (next section); dynamic factories,
-built-ins and imports they cannot follow remain explicit reader limitations. It
+from other modules inside the selected scope (next section) and identify tools
+bound as objects ([below](#tools-bound-as-objects)); dynamic factories and
+imports they cannot follow remain explicit reader limitations. It
 does not support other application frameworks yet. Indirect helper effects,
 runtime loading, deployed reachability and business authority are outside this
 comparison. It grants no release or merge permission and cannot stand in for a
@@ -586,6 +589,82 @@ so whether the agent now holds the tool more or less often is not established.
 When a part of the agent's list was not read, or the agent is constructed more
 than once differently, the row is `not_established` instead: the unread part
 may hold the tool another way.
+
+## Tools bound as objects
+
+Some capabilities are bound as objects, not as functions (#910): a remote MCP
+server, another agent exposed as a tool, a tool the framework hosts. Each is a
+binding of its agent, identified by what it is:
+
+| Kind | Read from | `object` |
+| --- | --- | --- |
+| MCP server or toolset | Google ADK `McpToolset` / `MCPToolset`; OpenAI Agents SDK `MCPServerStdio`, `MCPServerSse`, `MCPServerStreamableHttp` in `mcp_servers=` | `transport`; the URL's `host` or the `command`'s file name; `credential_sources`; `tool_filter`; `endpoint_sha256` |
+| Agent as a tool | SDK `agent.as_tool(...)`; ADK `AgentTool(agent=...)` | the wrapped `agent` and the `tool` name; `agent_class` when ADK wraps another kind of agent (`RemoteA2aAgent`, a workflow agent) |
+| Hosted or built-in tool | SDK `WebSearchTool`, `FileSearchTool`, `CodeInterpreterTool`, `ComputerTool`; ADK `google_search`, `built_in_code_execution`, `load_memory` | the `tool`; a hosted tool's argument names and a digest of their values |
+| Function wrapped as a value | SDK `function_tool(f)` (ADK's `FunctionTool(func=f)` [above](#tools-imported-from-other-modules)) | none: the row is the function's, as for a decorated one; the wrapper's other arguments (`needs_approval=`) are part of its implementation digest |
+
+```text
+ADDED  cinescout_phase1 → parallel_search
+  before: no observed binding
+  after: parallel_search at app/agent.py:31
+    MCP server (McpToolset, streamable_http); host env PARALLEL_MCP_URL or search.parallel.ai; tool filter ["web_fetch", "web_search"]; endpoint digest e262dcaf6404 at app/agent.py:21
+      credential: env PARALLEL_API_KEY → header Authorization
+```
+
+The row's name is the tool's own name (`generate_blog_content`,
+`load_memory`, `WebSearchTool`), or for an MCP server its `name=`, the variable
+it is bound to, the helper call it comes from (`create_toolset()`), or its
+class and place in the list (`MCPServerStdio#1`). Its `object` is the compared
+meaning: a different host, command, transport, credential name, filter, wrapped
+agent or tool name is a `changed` row, and adding one is `added`. Where it is
+built is evidence (`definition`), so moving it, or importing the same class
+from another module of the framework, is not a change. A tool's description,
+which tells the model about it, is not part of it.
+
+Nothing credential-shaped is printed. A host is shown, never a URL's path or
+query; a header, query key or a stdio server's `env` entry with a secret's name
+is a `credential_sources` entry naming the environment variables its value is
+made from (#872's rules), or `literal: true` with no value. A path, query,
+header value or command argument changes `endpoint_sha256`, a digest, and
+nothing else; a command's file name shaped like a key is withheld, as a URL's
+path piece is. Values are read as a tool's reach reads them — module constants
+through imports, `os.getenv` with its default, a repository helper's return —
+and an attribute of a plain class instance built with no arguments
+(`settings.url` after `settings = Settings()`, a dataclass with no base, no
+constructor of its own and nothing storing into that attribute) is the class
+body's default. A pydantic settings class is not read: it reads the
+environment by field name. A value from a module-level dict is not taken as
+written, as for a tool's reach.
+
+Identity is the import. A name is a built-in, and a call one of these classes,
+only when its one binding where it is used is an absolute import of the
+framework's package that no file in the read scope or the repository provides
+and nothing in the scope stores into. A same-named local function, a shadowed
+or reassigned import, a module-level import under `if TYPE_CHECKING:` or `try:`, a vendored
+`google/adk` package and another package's `load_memory` are not. A repository
+helper that returns one of these from its one unconditional `return` (its last
+statement; not decorated, `async` or a generator) is followed, up to eight
+steps deep, with its parameters bound to the caller's arguments: OpenCMO's
+`_multi_channel_tool(blog_expert, tool_name="generate_blog_content", ...)`
+is an agent tool wrapping `blog_expert`. Any other helper stays what it was, a
+named limit. An object changed after it is built — an attribute set
+(`toolset.tool_filter = [...]`) or changed through a method
+(`toolset.tool_filter.append(...)`), or its name rebound from a nested
+function — is a named limit.
+
+What is not read is never guessed. An `.as_tool` whose receiver is not an
+agent the reader identifies, or whose `tool_name` is not a literal, an
+`AgentTool` whose agent has no literal name, and an `mcp_servers=` member that is
+not an MCP server are named on the agent, which stays incomplete. A part of an
+object's identity the read cannot name — a host from a builder's parameter,
+headers built elsewhere, a computed filter — leaves the binding present and its
+addition or removal established, but names the part in a limit (the comparison
+is `partial`), and a change to that object is `not_established`, never
+`changed`. An SDK agent's `mcp_servers=` is read as its `tools=` is, member by
+member; a part it cannot read is named.
+
+These are read for `diff --application` only. `scan` reads what it read
+before, so no catalog, check or report changes.
 
 ## What a bound tool reaches
 
