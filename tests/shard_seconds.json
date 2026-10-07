@@ -280,6 +280,7 @@
   "tests/test_permission_lattice.py": 1.1,
   "tests/test_permission_residual.py": 8.0,
   "tests/test_permission_review_guidance.py": 15.7,
+  "tests/test_permission_rule_url_redaction.py": 55.5,
   "tests/test_plugin_validation.py": 4.9,
   "tests/test_plugins.py": 0.4,
   "tests/test_policy_evidence_architecture.py": 0.0,

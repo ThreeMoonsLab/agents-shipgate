@@ -310,7 +310,11 @@ SURFACES: tuple[Surface, ...] = (
         # `expansion_signals` and `check`'s violations come from — so they
         # restate no answer and add no claim;
         # `tests/test_claude_permission_rule_model.py` holds diff, verify,
-        # check and drift to one table.
+        # check and drift to one table. A rule's cell is the text the settings
+        # reader published (#922), a URL in it redacted there with its
+        # delimiters, trailing wildcard and a digest kept, so it restates no
+        # answer; `tests/test_permission_rule_url_redaction.py` holds every
+        # route to two rows for two rules that publish alike.
         {},
     ),
     Surface(

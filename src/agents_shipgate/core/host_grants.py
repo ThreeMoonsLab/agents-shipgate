@@ -491,8 +491,10 @@ def _sanitize_url(value: str) -> str:
     return urlunsplit((parsed.scheme, netloc, path, "", ""))
 
 
-def _sanitize_sensitive_string(value: str) -> str:
-    value = _URL_RE.sub(lambda match: _sanitize_url(match.group(0)), value)
+def _sanitize_sensitive_string(
+    value: str, *, url: Callable[[str], str] = _sanitize_url
+) -> str:
+    value = _URL_RE.sub(lambda match: url(match.group(0)), value)
     value = _HEADER_SECRET_RE.sub(r"\1\2<redacted>", value)
     value = _BEARER_SECRET_RE.sub(r"\1\2<redacted>", value)
     value = _ASSIGNMENT_SECRET_RE.sub(r"\1\2<redacted>", value)
@@ -504,6 +506,167 @@ def _sanitize_sensitive_string(value: str) -> str:
 
 
 _PATH_REDACTION_MARKER = re.compile(r"\[REDACTED:[^\]]+\]|<redacted>")
+
+
+def _redaction_digest(value: str) -> str:
+    """The short digest a redacted public label carries of its exact value (#590, #922).
+
+    Two values that redact alike stay two labels, and nothing of either is
+    published: twelve hex digits of the SHA-256 of the value as written.
+    """
+
+    return hashlib.sha256(value.encode("utf-8", "surrogateescape")).hexdigest()[:12]
+
+
+#: The wildcard a redacted URL component ends with, which is the scope a
+#: permission rule grants and holds nothing private: a segment wildcard
+#: (``/*``, ``/**``), a continuation (``*``) or the legacy prefix ``:*``.
+_URL_WILDCARD_SUFFIX = re.compile(r"(?:/\*+|:\*|\*+)$")
+
+#: Rule structure a URL match swallows: `_URL_RE` stops only at whitespace,
+#: quotes and angle brackets, so the ``)`` closing ``Bash(curl http://h/x)``,
+#: and a shell separator after a URL, would otherwise be read as URL text.
+_URL_TRAILING_DELIMITERS = frozenset(";,|&")
+
+
+def _closing_delimiters(text: str) -> int:
+    """Where a URL matched inside rule text ends, before the delimiters that follow it.
+
+    A trailing ``)`` is the rule's (or a shell group's) only when the URL
+    leaves it unbalanced, so ``https://h/wiki/Foo_(bar)`` keeps its own.
+    """
+
+    end = len(text)
+    surplus = text.count(")") - text.count("(")
+    while end:
+        last = text[end - 1]
+        if last == ")" and surplus > 0:
+            surplus -= 1
+        elif last not in _URL_TRAILING_DELIMITERS:
+            break
+        end -= 1
+    return end
+
+
+def _published_url_part(value: str, marker: str) -> str:
+    """A URL path, query or fragment as a permission rule publishes it (#922).
+
+    Nothing but stars and slashes (``/``, ``/*``, ``/**``) is scope, not a
+    private path, and is published as written. Anything else is ``marker``
+    followed by the wildcard it ends with, so `/api/*` and `/api/health`
+    read ``/<redacted-path>/*`` and ``/<redacted-path>``.
+    """
+
+    if set(value) <= {"*", "/"}:
+        return value
+    suffix = _URL_WILDCARD_SUFFIX.search(value)
+    return marker + (suffix.group(0) if suffix else "")
+
+
+def _compared_query(query: str) -> str:
+    """A query as a rule's identity reads it: a secret-named parameter's value masked.
+
+    As an MCP server's URL query is digested (#723): the parameters compare,
+    and rotating a token's value does not.
+    """
+
+    try:
+        pairs = parse_qsl(query, keep_blank_values=True)
+    except ValueError:
+        return query
+    if not pairs:
+        return query
+    return "&".join(f"{name}={'<secret>' if _is_secret_key(name) else item}" for name, item in pairs)
+
+
+def _rule_url(text: str, *, compared: bool) -> str:
+    """One URL inside a permission rule, as published or as compared (#922).
+
+    Published, the scheme and host (with its port) are as an MCP server's URL
+    publishes them (#723), and userinfo, a path, a query and a fragment never
+    are. Unlike :func:`_sanitize_url`, which publishes a whole value, this
+    keeps what the rule around the URL needs to be read: the delimiters after
+    it, each component's trailing wildcard, and a marker for each component
+    withheld, instead of dropping a query or fragment silently.
+
+    ``compared`` is the text a rule's identity digest reads instead: the
+    path, query and fragment that decide what the rule reaches, with userinfo
+    and a secret-named query value masked as credentials, so rotating one is
+    no change.
+    """
+
+    end = _closing_delimiters(text)
+    url, closing = text[:end], text[end:]
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return (url if compared else "<redacted-url>") + closing
+    if parsed.scheme not in {"http", "https", "ws", "wss", "sse"}:
+        return text
+    _userinfo, at, host = parsed.netloc.rpartition("@")
+    try:
+        _port = parsed.port
+    except ValueError:
+        # A port that is not a number may be anything, a credential included.
+        if not compared:
+            host = "<invalid-host>"
+    # The scheme and host as written: a rule matches text, and `urlsplit`
+    # lowercases a scheme, so `HTTP://h/` would publish a rule it is not.
+    rendered = f"{url[: len(parsed.scheme)]}://{'<redacted>@' if at else ''}{host}"
+    rendered += parsed.path if compared else _published_url_part(parsed.path, "/<redacted-path>")
+    # `urlsplit` drops an empty query or fragment; the rule text keeps its `?` or `#`.
+    if "?" in url.partition("#")[0]:
+        rendered += "?" + (
+            _compared_query(parsed.query)
+            if compared else _published_url_part(parsed.query, "<redacted-query>")
+        )
+    if "#" in url:
+        rendered += "#" + (
+            parsed.fragment
+            if compared else _published_url_part(parsed.fragment, "<redacted-fragment>")
+        )
+    return rendered + closing
+
+
+#: The URL markers :func:`public_permission_rule` stamps with the rule's digest.
+_RULE_URL_MARKER = re.compile(r"<redacted-(?:path|query|fragment|url)>|<invalid-host>")
+
+
+def public_permission_rule(rule: str) -> str:
+    """A permission rule as every host reader publishes and compares it (#922).
+
+    Credential-shaped text is redacted as in any other published value, and a
+    URL as :func:`_rule_url` publishes it, so the rule keeps its closing
+    delimiter and the scope its wildcards grant: ``Bash(curl
+    http://localhost:8000/*)`` is published as written, and the ``/health``
+    beside it as ``Bash(curl http://localhost:8000/<redacted-path>~…)``.
+
+    Where the published text withholds part of a URL that decides what the
+    rule reaches, its first URL marker carries a short digest of the rule as
+    compared, in its documented spelling
+    (``/<redacted-path>~1a2b3c4d5e6f``), as a redacted host path
+    carries one (#590): two rules that publish alike stay two grants, two
+    rows and two changes, and the digest publishes neither. It reads no
+    credential, so rotating a token, a password in userinfo or a
+    secret-named query value is no change, as before.
+
+    The published text is what every route compares, a saved baseline
+    included, so they cannot disagree. A marker is shell syntax to the
+    permission lattice, so a rule holding one is never proven covered by
+    another: the model reads it as a widening rather than guess.
+    """
+
+    published = _sanitize_sensitive_string(rule, url=lambda text: _rule_url(text, compared=False))
+    if published == rule:
+        return rule
+    compared = _sanitize_sensitive_string(rule, url=lambda text: _rule_url(text, compared=True))
+    if compared == published:
+        # Only credentials were withheld: the published text is the identity.
+        return published
+    # Of the documented spelling, so `…/x:*)` and `…/x *)` share a digest and
+    # still read as one grant respelled (#918), as their raw texts do.
+    digest = _redaction_digest(canonical_rule(compared))
+    return _RULE_URL_MARKER.sub(lambda match: f"{match.group(0)}~{digest}", published, count=1)
 
 
 def public_host_path(source: str) -> str:
@@ -525,7 +688,7 @@ def public_host_path(source: str) -> str:
     redacted = [_sanitize_sensitive_string(redact_text(part) or "") for part in components]
     if redacted == components:
         return source
-    digest = hashlib.sha256(source.encode("utf-8", "surrogateescape")).hexdigest()[:12]
+    digest = _redaction_digest(source)
     marked = [
         _PATH_REDACTION_MARKER.sub(lambda match: f"{match.group(0)}~{digest}", part)
         for part in redacted
@@ -1184,7 +1347,7 @@ def _permission_rule_grants(
             else {}
         )
         for raw_rule in sorted(_string_entries(permissions.get(disposition))):
-            rule = _sanitize_sensitive_string(raw_rule)
+            rule = public_permission_rule(raw_rule)
             wildcard = disposition == "allow" and _is_wildcard_allow(raw_rule)
             if wildcard:
                 # Not every whole-tool grant reaches the same thing. Rating
@@ -1208,7 +1371,7 @@ def _permission_rule_grants(
                 "wildcard": wildcard,
                 **(
                     {"carves_from": sorted({
-                        _sanitize_sensitive_string(earlier) for earlier in carves[raw_rule]
+                        public_permission_rule(earlier) for earlier in carves[raw_rule]
                     })}
                     if raw_rule in carves else {}
                 ),
@@ -2389,6 +2552,12 @@ _PUBLISHED_STRING_PATHS: frozenset[tuple[str, ...]] = frozenset({
 })
 
 
+#: The permission rule lists among them, published as :func:`public_permission_rule` publishes a rule.
+_PUBLISHED_RULE_PATHS: frozenset[tuple[str, ...]] = frozenset(
+    ("permissions", name) for name in ("allow", "ask", "deny")
+)
+
+
 def _withheld_string(value: str, label: str | None = None) -> str:
     """One string of a structured value as it is published (#823 review C2-F1).
 
@@ -2404,7 +2573,9 @@ def _withheld_string(value: str, label: str | None = None) -> str:
     withheld = f"<withheld:{redacted_config_sha256(value)[:12]}>"
     if label is None:
         return withheld
-    if label == _sanitize_sensitive_string(value) and not _url_capability_parts(value):
+    if label == value or (
+        label == _sanitize_sensitive_string(value) and not _url_capability_parts(value)
+    ):
         return label
     return f"{label} {withheld}"
 
@@ -2468,6 +2639,8 @@ def _json_shape(value: Any, path: tuple[str, ...] = ()) -> Any:
             items.append(_json_shape(item, path))
         return items
     if isinstance(value, str):
+        if path in _PUBLISHED_RULE_PATHS:
+            return _withheld_string(value, public_permission_rule(value))
         published = path in _PUBLISHED_STRING_PATHS
         return _withheld_string(value, _sanitize_sensitive_string(value) if published else None)
     return value

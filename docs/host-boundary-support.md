@@ -978,6 +978,27 @@ paired by likeness, and a pair it cannot decide stays a widening.
   with evidence kind `permission_deny_carved_out` for a deny list. Removing a
   carve-out restricts more and is never a removed denial; one added together
   with the rules it follows lifts nothing the base declared.
+- **A URL in a rule.** Every route compares a rule as the settings reader
+  publishes it (#922). A URL in it keeps its scheme, host and port, the `)` or
+  shell separator after it, and the wildcard each part ends with (`/*`, `*`,
+  `:*`); its path, query and fragment are published as `<redacted-path>`,
+  `<redacted-query>` and `<redacted-fragment>`, and userinfo as `<redacted>@`.
+  A part that is nothing but `*` and `/` is scope, not a private path, and is
+  published as written. So `Bash(curl -s http://localhost:8000/*)` is published
+  as written and `Bash(curl -s http://localhost:8000/api/*)` as
+  `Bash(curl -s http://localhost:8000/<redacted-path>~1a2b3c4d5e6f/*)`. Where a
+  URL part is withheld, the rule's first marker carries `~` and twelve hex
+  digits of the SHA-256 of the rule in its documented spelling with its
+  credentials masked, as a redacted host path carries one (#590), so two rules
+  that publish alike are two grants, two rows and two changes on every route,
+  `…:*` and `… *` stay one respelled grant, and changing only a path is a row.
+  The digest does not read userinfo or a secret-named query parameter's value,
+  so rotating one is no change, and a rule whose only redaction is a credential
+  (`Authorization: <redacted>`) carries none. It is a fingerprint, not
+  encryption: a guessable path can be confirmed against it. A marker is shell
+  syntax to the rule model, so a rule holding one is never proven covered and
+  keeps its `⚠`. `check` redacts every argument and lists each such rule as
+  its own `Bash(<redacted-arguments>)` row.
 
 ### Claude Code setting ratings
 
