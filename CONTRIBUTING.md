@@ -12,8 +12,9 @@ intact. So:
   requests, through the [issue templates](.github/ISSUE_TEMPLATE/).
 - **Pull requests welcome without asking first:** issues labelled
   [`good first issue`](https://github.com/ThreeMoonsLab/agents-shipgate/labels/good%20first%20issue)
-  (each names its file and its decision), documentation fixes, and new test
-  cases that pin existing behavior.
+  (each states its acceptance, and its approach is already agreed in the
+  issue), documentation fixes, and new test cases that pin existing behavior.
+  The `help wanted` label is reserved and not in use yet.
 - **Open an issue and agree the approach before writing code** for anything
   that changes a reader, a check, a schema, a CLI command, a published JSON
   field, or path, identity or containment handling (for example
@@ -26,11 +27,15 @@ intact. So:
   should use the [`agent_feedback`](.github/ISSUE_TEMPLATE/agent_feedback.yml)
   template.
 - **Response:** the maintainer aims to reply to a new issue or pull request
-  within seven days. This is a single-person aim, not a service commitment;
-  [SECURITY.md](SECURITY.md) governs vulnerability reports.
+  within seven days. This is a single-person aim, not a service commitment,
+  and support capacity is still pending acceptance in
+  [#494](https://github.com/ThreeMoonsLab/agents-shipgate/issues/494) (see
+  [MAINTAINERS.md](MAINTAINERS.md)); [SECURITY.md](SECURITY.md) governs
+  vulnerability reports.
 
-Revisit this stance at the 1.0 qualified release (#572) or on 2026-12-31,
-whichever comes first.
+Revisit this stance at the first qualified-gate release
+([#572](https://github.com/ThreeMoonsLab/agents-shipgate/issues/572)) or on
+2026-12-31, whichever comes first.
 
 Start architecture or release-contract work with the current
 [accepted-decision index](docs/decisions.md). It links the governing contracts,
@@ -162,6 +167,10 @@ receipt or release authority. These development fixtures are not qualification
 evidence. #569 still owns the actual report 1.0 freeze and migration fixtures.
 
 ## Contribution Areas
+
+These are the areas where contributions fit. Except for documentation and
+tests, start with an issue first, as the
+[contribution stance](#contribution-stance-2026-10-06) says.
 
 - new deterministic checks;
 - loader hardening and OpenAPI edge cases;
