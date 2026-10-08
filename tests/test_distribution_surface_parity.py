@@ -365,6 +365,12 @@ SURFACES: tuple[Surface, ...] = (
         # neither adds a claim or moves a row, severity or `check` decision;
         # `tests/test_mcp_row_bounded_wording.py` holds diff, verify, the PR
         # comment and both `check` routes to them.
+        # An MCP row's `env_vars` names (#795) render the display-only
+        # `env_var_names` the engine published on the grant, plain names only
+        # and never a value, left out of grant equality, the inventory digests
+        # and saved baselines, so they restate no answer and move no row,
+        # severity or `check` decision; `tests/test_mcp_env_var_names.py` holds
+        # diff, verify, the PR comment and check to the same entry.
         # An MCP row's subject and `why` naming the host whose declaration
         # selects its `.mcp.json`, or no host for one the inventory published
         # under `unknown` (#936), restate the inventory's attribution, the

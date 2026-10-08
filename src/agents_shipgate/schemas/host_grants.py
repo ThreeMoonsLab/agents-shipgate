@@ -1235,6 +1235,14 @@ class HostMcpServerGrantV9(HostMcpServerGrantV7):
 
     host: McpHostNameV9
     launch_source: HostMcpLaunchSourceV9 | None = None
+    #: The plain environment-variable names the server's ``env_vars`` list
+    #: declares, in declared order (#795): names only, never a value, and none
+    #: that the redaction ``config_sha256``'s input applies or the label
+    #: redaction would rewrite. An entry that is not such a name is not
+    #: published. Display-only, left out of grant equality, the inventory
+    #: digests and saved baselines, like ``package``. Extended in place: ``0.9``
+    #: has not shipped in a tagged release.
+    env_var_names: list[str] = Field(default_factory=list)
 
 
 class HostMcpServerBaselineGrantV9(HostMcpServerGrantV2):

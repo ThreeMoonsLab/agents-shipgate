@@ -101,6 +101,36 @@ into the npm cache only when the project does not depend on it
 `package.json`, lockfile, `node_modules` or cache is read to decide which
 applies, and the row's direction, `expands` and severity do not move.
 
+<a id="mcp-env-var-names"></a>
+
+An MCP server that passes environment variables through by name declares them
+in an `env_vars` list, apart from the `env` map whose keys `env_keys`
+publishes. A change confined to that list used to read as `no difference in
+the command name …, launch arguments, env key names or header key names; the
+change is in a detail this output does not show, such as the command's path or
+another setting` (openai/codex-security#1281 added
+`CODEX_SECURITY_PLUGIN_ROOT` to it, #795). The grant now publishes
+`env_var_names` (host-grants `0.9`), and the row names the names the list
+gained and lost, `codex-security: env_vars names +CODEX_SECURITY_PLUGIN_ROOT`,
+beside `env keys` and `header keys`: `env keys +API_BASE -DEBUG; env_vars names
++X -Y`. The label is the key the list is declared under, so the row claims no
+more for a name than that it is listed there: it does not say a variable is
+set, available to the server or read by it, or that either host honours the
+field. An entry is published only when it is a plain name,
+`[A-Za-z_][A-Za-z0-9_]{0,79}`, that neither the redaction `config_sha256`'s
+input applies nor the label redaction rewrites; a `NAME=value` entry, an
+object, a token-shaped string and the entry after a credential word such as
+`api_key` are not published, and a change confined to them still reads as a
+detail this output does not show. The list is digested in order, so the same
+names in another order are a row, and it reads `env_vars names in a different
+order`. No value is ever published: `env` and `headers` values are redacted
+whole in the digest's input, so rotating one is no row, and this entry adds no
+per-key value digest. Other fields a host may honour, such as `cwd`, a bearer
+token's variable name or a header taken from an environment variable, are not
+published. `env_var_names` is display-only: out of grant equality, the
+inventory digests and saved baselines, so no row, direction, `expands`,
+severity or `check` decision moves.
+
 The boundary is intentionally fail-closed above the adapters' specialized
 semantics. Most instruction, policy, skill, and workflow edits therefore route
 to human review unless a dedicated rule can prove the change safe. This can be

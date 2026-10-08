@@ -693,6 +693,58 @@ unknown`. A rotation the digest's input already redacts is still no row
 
 ---
 
+<a id="mcp-env-var-names-795"></a>
+
+## Migration Note: Unreleased — an MCP row names the `env_vars` that changed (host-grants `0.9`, #795)
+
+**What was wrong.** An MCP server grant published the keys of its `env` map
+and of its `headers` map, and nothing for an `env_vars` list. Replaying
+openai/codex-security#1281, a `.mcp.json` that added
+`CODEX_SECURITY_PLUGIN_ROOT` to a server's `env_vars` array and changed
+nothing else was a `changed` row reading `no difference in the command name
+…, launch arguments, env key names or header key names; the change is in a
+detail this output does not show, such as the command's path or another
+setting`, which pointed at the command's path for a change to a variable
+name.
+
+**What changes.** See [MCP environment-variable names](docs/host-boundary-support.md#mcp-env-var-names).
+
+- Host-grants inventory `0.9`, unpublished before this release, is extended in
+  place. An `mcp_server` grant adds `env_var_names`: the entries of its
+  `env_vars` list that are plain environment-variable names, in declared
+  order, and `[]` when none are. An entry is published only when it matches
+  `[A-Za-z_][A-Za-z0-9_]{0,79}` and neither the redaction `config_sha256`'s
+  input applies nor the label redaction rewrites it, so a `NAME=value` entry,
+  an object, a token-shaped string and the entry after a credential word are
+  not published. It is display-only, like `package` and `args_sha256`: out of
+  grant equality, the inventory digests and saved baselines.
+- A changed MCP row names the names the list gained and lost beside the
+  existing `env keys` and `header keys`: `codex-security: env_vars names
+  +CODEX_SECURITY_PLUGIN_ROOT`, `env keys +API_BASE -DEBUG; env_vars names +X
+  -Y`. The same names in another order read `env_vars names in a different
+  order`, because `config_sha256` reads the list in order. An added or removed
+  server's cell lists them (`docs (command name npx; env_vars names A B)`).
+  When no published field differs and either side lists a name, the `no
+  difference …` sentence names `env_vars names` among what was compared. A
+  change confined to an entry that is not published still says it is not
+  shown.
+- `diff` (text and `--json`), `verify`'s host comparison, the PR comment and
+  `check`'s rows print the same entry.
+
+**Who must act.** Nobody. A reader that matched the old sentence's text, or
+that validates `0.9` MCP grants against a schema generated before this change,
+updates to the new one.
+
+**What does not change.** No value is published or printed: `env` and
+`headers` values are redacted whole in `config_sha256`'s input, so rotating
+one is still no row, and no per-key value digest is added. The fact is
+display-only, so no row, row value, direction, `expands`, severity,
+expansion signal or `check` decision moves, and an MCP edit stays `authority
+direction is unknown`. No check ID, CLI flag, control state or permission is
+added. `minimum_control_contract_version` stays `21`.
+
+---
+
 <a id="url-permission-rules-922"></a>
 
 ## Migration Note: Unreleased — a URL in a permission rule keeps its rule (#922)

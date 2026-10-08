@@ -1354,6 +1354,7 @@ def _mcp_cell(value: str, grant: dict[str, Any] | None) -> str:
             _mcp_launch(grant),
             f"package {grant['package']}" if grant.get("package") else None,
             "env keys " + _names(_key_names(grant["env_keys"])) if grant.get("env_keys") else None,
+            f"{_ENV_VARS_LABEL} " + _names(_key_names(grant["env_var_names"])) if grant.get("env_var_names") else None,
             "header keys " + _names(_key_names(grant["header_keys"])) if grant.get("header_keys") else None,
         )
         if fact
@@ -1395,7 +1396,9 @@ def _mcp_change(name: str, before: dict[str, Any], after: dict[str, Any]) -> str
     confined to them says what was compared and that the change is
     elsewhere, rather than ``name → name`` or a claim that the command is
     unchanged. Two different endpoints that print alike, such as two URLs
-    neither of which is printed, read ``url changed (not shown)``.
+    neither of which is printed, read ``url changed (not shown)``. The names
+    an ``env_vars`` list gained and lost are named when both readings publish
+    them (#795); a value is never read.
     """
 
     if any(key not in grant for grant in (before, after) for key in _MCP_FIELDS):
@@ -1417,19 +1420,62 @@ def _mcp_change(name: str, before: dict[str, Any], after: dict[str, Any]) -> str
         kind = "url" if after.get("transport") == "url" else "command name"
         parts.append(f"{kind} changed ({_URL_NOT_SHOWN})")
     parts.extend(_mcp_args_change(before, after))
-    for field, label in (("env_keys", "env keys"), ("header_keys", "header keys")):
-        old, new = set(before[field] or []), set(after[field] or [])
-        added, removed = sorted(new - old), sorted(old - new)
-        if added or removed:
-            tokens = [f"+{key}" for key in _key_names(added)] + [f"-{key}" for key in _key_names(removed)]
-            parts.append(f"{label} {_names(tokens)}")
+    parts.extend(_key_set_change(before, after, "env_keys", "env keys"))
+    env_vars = _env_vars_compared(before, after)
+    if env_vars:
+        parts.extend(_key_set_change(before, after, "env_var_names", _ENV_VARS_LABEL, ordered=True))
+    parts.extend(_key_set_change(before, after, "header_keys", "header keys"))
     if not parts:
         compared = all("args_sha256" in grant for grant in (before, after))
-        return f"{name}: {_mcp_unshown_change(after, args_compared=compared)}"
+        return f"{name}: {_mcp_unshown_change(after, args_compared=compared, env_vars=env_vars)}"
     return f"{name}: " + "; ".join(parts)
 
 
-def _mcp_unshown_change(grant: dict[str, Any], *, args_compared: bool = False) -> str:
+#: What a row calls a server's ``env_vars`` list: the key it is declared under,
+#: so no meaning is claimed for a name beyond that it is listed there (#795).
+_ENV_VARS_LABEL = "env_vars names"
+
+
+def _env_vars_compared(before: dict[str, Any], after: dict[str, Any]) -> bool:
+    """Whether both readings publish ``env_var_names`` and either declares one.
+
+    A saved baseline, or a grant from an earlier schema, publishes none, so
+    nothing is claimed about the names it cannot show. Two readings that
+    declare none have nothing to say about them.
+    """
+
+    return all("env_var_names" in grant for grant in (before, after)) and bool(
+        before["env_var_names"] or after["env_var_names"]
+    )
+
+
+def _key_set_change(
+    before: dict[str, Any], after: dict[str, Any], field: str, label: str, *, ordered: bool = False
+) -> list[str]:
+    """The names a published list gained and lost, never a value (#795).
+
+    Names print through the #802 label redaction. ``ordered`` is for a list
+    whose order is part of its declaration (``env_vars``): the same names in
+    another order are said to be, rather than called no difference.
+    """
+
+    old_list, new_list = list(before[field] or []), list(after[field] or [])
+    old, new = set(old_list), set(new_list)
+    added, removed = sorted(new - old), sorted(old - new)
+    if added or removed:
+        tokens = [f"+{key}" for key in _key_names(added)] + [f"-{key}" for key in _key_names(removed)]
+        return [f"{label} {_names(tokens)}"]
+    if ordered and old_list != new_list:
+        # The same set of names: the declaration still differs, in its order
+        # or in how many times a name is listed.
+        same = sorted(old_list) == sorted(new_list)
+        return [f"{label} in a different order" if same else f"{label} listed a different number of times"]
+    return []
+
+
+def _mcp_unshown_change(
+    grant: dict[str, Any], *, args_compared: bool = False, env_vars: bool = False
+) -> str:
     """A change confined to what the grant does not publish, in the words of what was compared.
 
     Only the command's name, or the URL's recorded value, the launch
@@ -1457,8 +1503,9 @@ def _mcp_unshown_change(grant: dict[str, Any], *, args_compared: bool = False) -
     else:
         compared = launch or "command name"
         unshown = "the command's path or another setting" if arguments else "the command's path or arguments"
+    names = f"env key names, {_ENV_VARS_LABEL} or header key names" if env_vars else "env key names or header key names"
     return (
-        f"no difference in the {compared}, {arguments}env key names or header key names; the "
+        f"no difference in the {compared}, {arguments}{names}; the "
         f"change is in a detail this output does not show, such as {unshown}"
     )
 
