@@ -618,6 +618,35 @@
       "title": "HostGrantsInventoryV9",
       "type": "object"
     },
+    "HostHookArgsV9": {
+      "additionalProperties": false,
+      "description": "A hook handler's ``args``, without their text (#972).\n\n``script`` is the first argument shaped as a relative script path\n(segments of letters, digits, ``.``, ``_`` and ``-``, optionally led by\n``./``, ``${CLAUDE_PROJECT_DIR}/`` or ``${CLAUDE_PLUGIN_ROOT}/``, ending\nin a script extension such as ``.py``, ``.sh`` or ``.mjs``) when no\nredaction rule rewrites it, alone or after the three arguments before it,\nand ``None`` otherwise. It is a label, not a claim about what runs.\n``sha256`` is the digest of the declared ``args`` as ``config_sha256``'s\ninput holds them, with the published script replaced by a marker and its\nposition digested beside them, as an MCP server's ``args_sha256`` is, so\nit moves only when that digest does. No other argument text is published.",
+      "properties": {
+        "script": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Script"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "script",
+        "sha256"
+      ],
+      "title": "HostHookArgsV9",
+      "type": "object"
+    },
     "HostHookCommandV7": {
       "additionalProperties": false,
       "description": "A hook command as its grant publishes it: the executable's name and a digest of the whole command.\n\n``executable`` is the last path segment of the command's first\nwhitespace-separated word, when it is a plain token\n(``[A-Za-z0-9._+-]``, at most 80 characters) no redaction rule rewrites\nand the word is no shell reserved word and holds no ``://``, and\n``<not-shown>`` otherwise, so no part of a URL is named. It\nis a label, not a claim about what a host runs. ``sha256`` is the digest of the whole command as\n``config_sha256``'s input holds it, so it moves only when that digest\ndoes; a value that input redacts moves neither. The command's text is\nnever published.",
@@ -760,8 +789,61 @@
     },
     "HostHookHandlerV9": {
       "additionalProperties": false,
-      "description": "A hook handler plus, on a Claude Code tool event, whether its matcher can match a tool name (#940).\n\n``matcher_reach`` is present on every handler of a Claude Code\n``PreToolUse``, ``PostToolUse``, ``PostToolUseFailure``,\n``PermissionRequest`` or ``PermissionDenied`` hook, the events whose\nmatcher filters the tool name\n(https://code.claude.com/docs/en/hooks#matcher-patterns), and absent on\nevery other, so absence means not examined. ``no_tool_name``: every string\nthe declared matcher can match holds a character no built-in or MCP tool\nname holds, so the handler runs for no tool call, as with ``Bash(git\npush*)``, which Claude Code reads as a regular expression over the tool\nname. ``possible``: any other matcher, including one this reader does not\ndecide. Read from the declared matcher, not the published one, and left\nout of grant equality, the inventory digests and saved baselines like the\nrest of ``handlers``.",
+      "description": "A hook handler plus its ``args``, its documented settings and, on a Claude Code tool event, its matcher's reach.\n\n``args`` is present only on a handler that declares them\n(:class:`HostHookArgsV9`). ``type``, ``async``, ``asyncRewake``,\n``shell`` and ``once``, the documented boolean and enumerated handler\nsettings (https://code.claude.com/docs/en/hooks#common-fields), are each\npresent only when the handler declares a value other than ``null``, and\npublished as a timeout is: a boolean or finite number as declared, a\nstring as written when it is a plain token, and anything else as\n``<not-shown>`` (#971, #972). Other handler settings, such as ``if``,\n``statusMessage``, ``prompt``, ``model``, ``url`` and ``headers``, are not\npublished; a change confined to them is a row whose text says it is not\nshown.\n\n``matcher_reach`` is present on every handler of a Claude Code\n``PreToolUse``, ``PostToolUse``, ``PostToolUseFailure``,\n``PermissionRequest`` or ``PermissionDenied`` hook, the events whose\nmatcher filters the tool name\n(https://code.claude.com/docs/en/hooks#matcher-patterns), and absent on\nevery other, so absence means not examined. ``no_tool_name``: every string\nthe declared matcher can match holds a character no built-in or MCP tool\nname holds, so the handler runs for no tool call, as with ``Bash(git\npush*)``, which Claude Code reads as a regular expression over the tool\nname. ``possible``: any other matcher, including one this reader does not\ndecide. Read from the declared matcher, not the published one, and left\nout of grant equality, the inventory digests and saved baselines like the\nrest of ``handlers``.",
       "properties": {
+        "args": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostHookArgsV9"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "async": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Async"
+        },
+        "asyncRewake": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Asyncrewake"
+        },
         "command": {
           "anyOf": [
             {
@@ -826,6 +908,48 @@
           "default": null,
           "title": "Matcher Reach"
         },
+        "once": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Once"
+        },
+        "shell": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shell"
+        },
         "timeout": {
           "anyOf": [
             {
@@ -846,6 +970,27 @@
           ],
           "default": null,
           "title": "Timeout"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Type"
         }
       },
       "title": "HostHookHandlerV9",

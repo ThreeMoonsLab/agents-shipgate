@@ -171,6 +171,7 @@
   "tests/test_guard_dependency_verification.py": 88.2,
   "tests/test_headline_ranking.py": 11.7,
   "tests/test_heuristics.py": 0.0,
+  "tests/test_hook_args_and_settings.py": 87.2,
   "tests/test_hook_benign_session.py": 39.1,
   "tests/test_hook_matcher_reach.py": 28.2,
   "tests/test_hook_mcp_detail_fields.py": 248.6,

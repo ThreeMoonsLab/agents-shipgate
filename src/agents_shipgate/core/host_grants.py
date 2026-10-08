@@ -1530,6 +1530,108 @@ def _hook_command(value: Any) -> dict[str, str] | None:
     return {"executable": _plain_token(name), "sha256": redacted_config_sha256(value)}
 
 
+#: A script path a hook's ``args`` may publish, and nothing else of them
+#: (#972): a relative path, optionally led by ``./`` or the braced
+#: ``${CLAUDE_PROJECT_DIR}`` or ``${CLAUDE_PLUGIN_ROOT}`` placeholder, of
+#: segments of letters, digits, ``.``, ``_`` and ``-``, whose last segment ends
+#: in a script extension. No absolute path, URL, flag, assignment or other
+#: word is published, so a positional value no redaction rule recognises stays
+#: inside a digest, as an MCP server's arguments do (#819).
+_HOOK_SCRIPT_ARG_RE = re.compile(
+    r"(?:\$\{CLAUDE_(?:PROJECT_DIR|PLUGIN_ROOT)\}/|\./)?"
+    # No `.` or `..` segment: a path leaving the repository is never published.
+    r"(?:(?!\.\.?/)[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]*[A-Za-z0-9_-]"
+    r"\.(?:py|sh|bash|zsh|js|mjs|cjs|ts|mts|cts|rb|pl|php|ps1|lua)"
+)
+MAX_DETAIL_SCRIPT_CHARS = 200
+#: How many arguments before a script candidate are read with it, so a value
+#: only its neighbours mark as a credential (``Bearer <value>``, ``-u
+#: user:<value>``, ``Authorization: Bearer <value>``) is never published:
+#: every published-value pattern spans at most four words.
+_SCRIPT_ARG_CONTEXT = 3
+#: What the published script stands for in the digest of a hook's arguments,
+#: so a script change is named once, by the script.
+_SCRIPT_MARKER = "<script>"
+
+
+def _published_script_index(args: list[Any], redacted: list[Any]) -> int | None:
+    """The index of the argument a hook handler publishes as its script, or ``None`` (#972).
+
+    Only the first argument shaped as :data:`_HOOK_SCRIPT_ARG_RE` in full is a
+    candidate, so at most one is read. It is published when neither the
+    digest's input redaction (``redacted``, index for index) nor the
+    published-label redaction rewrites it, and the same rules, run over it
+    with the arguments before it, leave it whole at the end: ``["Bearer",
+    "x.py"]`` publishes no script. A neighbour that is not a string, or is
+    longer than :data:`MAX_DETAIL_MATCHER_INPUT_CHARS`, publishes none
+    either, so the label patterns, quadratic in their input, never read a long
+    one.
+    """
+
+    for index, item in enumerate(args):
+        if not (
+            isinstance(item, str)
+            and len(item) <= MAX_DETAIL_SCRIPT_CHARS
+            and _HOOK_SCRIPT_ARG_RE.fullmatch(item)
+        ):
+            continue
+        before = args[max(0, index - _SCRIPT_ARG_CONTEXT) : index]
+        if (
+            redacted[index] != item
+            or _detail_string_rules(item) != item
+            or not all(
+                isinstance(word, str) and len(word) <= MAX_DETAIL_MATCHER_INPUT_CHARS
+                for word in before
+            )
+        ):
+            return None
+        context = " ".join([*before, item])
+        published = _detail_string_rules(context)
+        if published != context and not published.endswith(" " + item):
+            return None
+        return index
+    return None
+
+
+def _hook_args(handler: dict[str, Any]) -> dict[str, Any]:
+    """A hook handler's published ``args`` (#972): a script path and a digest, never their text.
+
+    ``script`` is the argument :func:`_published_script_index` publishes, or
+    ``None``; ``sha256`` is the digest of the declared ``args`` as
+    ``config_sha256``'s input holds them (:func:`redacted_config_sha256`),
+    with the script replaced by :data:`_SCRIPT_MARKER` and its position
+    digested beside them, exactly as an MCP server's ``package`` and
+    ``args_sha256`` are (:func:`_mcp_launch_args`). So an edit to the script
+    alone names the script alone, and a value that input redacts moves
+    neither. ``args`` that is not a list is digested as declared.
+    """
+
+    args = handler["args"]
+    if isinstance(args, list):
+        index = _published_script_index(args, _redact_secret_values(args))
+        if index is not None:
+            marked = [*args[:index], _SCRIPT_MARKER, *args[index + 1 :]]
+            return {
+                "script": args[index],
+                "sha256": redacted_config_sha256({"args": marked, "script_index": index}),
+            }
+    return {"script": None, "sha256": redacted_config_sha256(args)}
+
+
+#: The documented boolean and enumerated hook handler settings a grant
+#: publishes, in the order a row names them (#971, #972): ``type``
+#: (``command``, ``http``, ``mcp_tool``, ``prompt`` or ``agent``), ``async``
+#: and ``asyncRewake`` (a background run, and one that wakes Claude on exit
+#: code 2), ``shell`` (``bash`` or ``powershell``) and ``once``
+#: (https://code.claude.com/docs/en/hooks#common-fields and
+#: #command-hook-fields). Each is published only when the handler declares
+#: it, by the rule a timeout is (:func:`_hook_timeout`), so a value that is
+#: not a boolean, a finite number or a plain token is
+#: :data:`DETAIL_NOT_SHOWN`. A value is a declaration, never a claim about
+#: when or how the hook runs.
+HOOK_HANDLER_SETTINGS: tuple[str, ...] = ("type", "async", "asyncRewake", "shell", "once")
+
+
 def _hook_handlers(config: Any, *, host: str | None = None, event: str | None = None) -> tuple[list[dict[str, Any]] | None, int]:
     """Every handler one hook event declares, as its grant publishes them (#819).
 
@@ -1543,7 +1645,10 @@ def _hook_handlers(config: Any, *, host: str | None = None, event: str | None = 
     under one long matcher reads it no more than once (#819 review, cycle 5).
     A Claude Code handler of an event whose matcher filters the tool name
     also carries ``matcher_reach``, whether that matcher can match any tool
-    name (#940, :mod:`agents_shipgate.core.hook_matcher_reach`).
+    name (#940, :mod:`agents_shipgate.core.hook_matcher_reach`). A handler
+    that declares ``args`` publishes them as a script path and a digest
+    (:func:`_hook_args`), and one that declares a setting of
+    :data:`HOOK_HANDLER_SETTINGS` publishes its value (#971, #972).
     """
 
     if not isinstance(config, list):
@@ -1574,6 +1679,12 @@ def _hook_handlers(config: Any, *, host: str | None = None, event: str | None = 
                 "matcher": published,
                 "command": _hook_command(handler.get("command")),
                 "timeout": _hook_timeout(handler.get("timeout")),
+                **({"args": _hook_args(handler)} if handler.get("args") is not None else {}),
+                **{
+                    setting: _hook_timeout(handler[setting])
+                    for setting in HOOK_HANDLER_SETTINGS
+                    if handler.get(setting) is not None
+                },
                 **(
                     inline_allow_facts(group, handler)
                     if host == "claude-code" and event == "PreToolUse" else {}

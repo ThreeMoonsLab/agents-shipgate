@@ -1227,8 +1227,45 @@ class HostInventoryIssueV9(HostInventoryIssueV8):
     host: HostNameV9
 
 
+class HostHookArgsV9(BaseModel):
+    """A hook handler's ``args``, without their text (#972).
+
+    ``script`` is the first argument shaped as a relative script path
+    (segments of letters, digits, ``.``, ``_`` and ``-``, optionally led by
+    ``./``, ``${CLAUDE_PROJECT_DIR}/`` or ``${CLAUDE_PLUGIN_ROOT}/``, ending
+    in a script extension such as ``.py``, ``.sh`` or ``.mjs``) when no
+    redaction rule rewrites it, alone or after the three arguments before it,
+    and ``None`` otherwise. It is a label, not a claim about what runs.
+    ``sha256`` is the digest of the declared ``args`` as ``config_sha256``'s
+    input holds them, with the published script replaced by a marker and its
+    position digested beside them, as an MCP server's ``args_sha256`` is, so
+    it moves only when that digest does. No other argument text is published.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    script: str | None = Field(max_length=200)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+#: A published hook handler setting: as a timeout is published (#971, #972).
+HookSettingValueV9 = bool | int | float | str | None
+
+
 class HostHookHandlerV9(HostHookHandlerV7):
-    """A hook handler plus, on a Claude Code tool event, whether its matcher can match a tool name (#940).
+    """A hook handler plus its ``args``, its documented settings and, on a Claude Code tool event, its matcher's reach.
+
+    ``args`` is present only on a handler that declares them
+    (:class:`HostHookArgsV9`). ``type``, ``async``, ``asyncRewake``,
+    ``shell`` and ``once``, the documented boolean and enumerated handler
+    settings (https://code.claude.com/docs/en/hooks#common-fields), are each
+    present only when the handler declares a value other than ``null``, and
+    published as a timeout is: a boolean or finite number as declared, a
+    string as written when it is a plain token, and anything else as
+    ``<not-shown>`` (#971, #972). Other handler settings, such as ``if``,
+    ``statusMessage``, ``prompt``, ``model``, ``url`` and ``headers``, are not
+    published; a change confined to them is a row whose text says it is not
+    shown.
 
     ``matcher_reach`` is present on every handler of a Claude Code
     ``PreToolUse``, ``PostToolUse``, ``PostToolUseFailure``,
@@ -1245,9 +1282,22 @@ class HostHookHandlerV9(HostHookHandlerV7):
     rest of ``handlers``.
     """
 
+    # `async` is a Python keyword: the field is published under its
+    # documented name.
+    model_config = ConfigDict(extra="forbid", serialize_by_alias=True)
+
     matcher_reach: Literal["possible", "no_tool_name"] | None = Field(
         default=None, exclude_if=lambda value: value is None,
     )
+    args: HostHookArgsV9 | None = Field(default=None, exclude_if=lambda value: value is None)
+    # `bool` first in each: pydantic's lax `int` would otherwise read `true` as `1`.
+    type: HookSettingValueV9 = Field(default=None, exclude_if=lambda value: value is None)
+    async_: HookSettingValueV9 = Field(
+        default=None, alias="async", exclude_if=lambda value: value is None,
+    )
+    asyncRewake: HookSettingValueV9 = Field(default=None, exclude_if=lambda value: value is None)
+    shell: HookSettingValueV9 = Field(default=None, exclude_if=lambda value: value is None)
+    once: HookSettingValueV9 = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class HostHookGrantV9(HostHookGrantV7):

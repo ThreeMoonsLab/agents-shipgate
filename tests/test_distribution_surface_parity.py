@@ -287,6 +287,13 @@ SURFACES: tuple[Surface, ...] = (
         # says a tool call may run, so every route restates one answer and
         # `check`'s decision does not move; `tests/test_hook_matcher_reach.py`
         # holds diff, verify, the PR comment, check, drift and preflight to it.
+        # A hook row's `args` and setting text (#972, #971) renders the
+        # display-only script path, argument digest and documented settings the
+        # engine published on each handler, which hold no other argument text
+        # and are left out of grant equality, the inventory digests and saved
+        # baselines, so it restates no answer and moves no row;
+        # `tests/test_hook_args_and_settings.py` holds diff, verify, the PR
+        # comment, check, drift and preflight to the same entry.
         # Its agent-launch cells and note (#823) restate no answer: direction
         # comes from the engine's
         # `workflow_agent_widened_*` expansion signal, itself read off the

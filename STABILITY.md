@@ -525,6 +525,59 @@ to mean a hook script should read `limit` (`unreadable` for a script,
 
 ---
 
+<a id="hook-args-and-settings-972"></a>
+
+## Migration Note: Unreleased — a hook row names its `args` and settings (host-grants `0.9`, #972, #971)
+
+**What was wrong.** Published `1.2.0` read a Claude Code command hook's
+exec-form `args`, and its `async` or `asyncRewake` setting, only through
+`config_sha256`. Changing `args: ["guard-readonly.py"]` to `["guard-write.py"]`,
+or `"async": true` to `"asyncRewake": true`, was a `changed` row whose text
+said `no difference in the matcher, command or timeout; the change is in a
+detail this output does not show`, so a reviewer could not tell which field
+changed without opening the file.
+
+**What changes.** See [hook arguments and settings](docs/host-boundary-support.md#hook-args-and-settings).
+
+- Host-grants inventory `0.9`, unpublished before this release, is extended
+  in place. A handler that declares `args` carries `args: {script, sha256}`:
+  `script` is the first argument shaped as a relative script path that no
+  redaction rule rewrites, alone or after the three arguments before it, and
+  `null` otherwise; `sha256` digests the arguments as `config_sha256`'s input
+  holds them, with the script's place marked, as an MCP server's
+  `args_sha256` does (#819). A handler that declares `type`, `async`,
+  `asyncRewake`, `shell` or `once`, the documented boolean and enumerated
+  handler settings (https://code.claude.com/docs/en/hooks#common-fields),
+  carries it as a timeout is published. A handler that declares none of
+  them has the shape it had, except that a declared `type` is now published.
+- A changed hook row names the field: `args script guard-readonly.py →
+  guard-write.py`, `args changed (sha256:… → sha256:…)`, `async true →
+  (none); asyncRewake (none) → true`, `type "prompt" → "agent"`. An added or
+  removed hook's cell lists them beside the matcher, command and timeout,
+  except a command handler's `type "command"`. The `no difference …`
+  sentence now lists every published field and names `if`, `statusMessage`
+  and the other unpublished fields, and the sentence for a declaration
+  outside the documented shape reads `matcher, command, args, timeout and
+  settings not shown`.
+- `diff` (text and `--json`), `verify`'s host comparison, the PR comment and
+  `check`'s rows print the same entry.
+
+**Who must act.** Nobody. A reader that matched the old sentences' text, or
+that validates `0.9` handlers against a schema generated before this change,
+updates to the new ones.
+
+**What does not change.** No other argument text is published: a flag, its
+value, an absolute path or a URL stays inside the digest. Like the rest of
+`handlers`, the new fields are left out of grant equality, the inventory
+digests and saved baselines, so no row, row value, direction, `expands`,
+severity, expansion signal, loading basis (#714), `matcher_reach` (#940) or
+`check` decision moves, and a hook edit stays `authority direction is
+unknown`. A rotation the digest's input already redacts is still no row
+(#987). No check ID, CLI flag, control state or permission is added.
+`minimum_control_contract_version` stays `21`.
+
+---
+
 <a id="url-permission-rules-922"></a>
 
 ## Migration Note: Unreleased — a URL in a permission rule keeps its rule (#922)
