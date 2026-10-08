@@ -382,6 +382,10 @@ def test_a_credential_no_rule_recognises_moves_the_digest_and_is_never_shown(
         # Not a relative script path.
         ["/Users/someone/guard.py"],
         ["https://example.invalid/guard.py"],
+        # A path that leaves the repository.
+        ["../guard.py"],
+        ["hooks/../../guard.py"],
+        ["./../guard.py"],
         ["guard.PY"],
         ["-m", "guards.readonly"],
         ["a" * MAX_DETAIL_SCRIPT_CHARS + ".py"],

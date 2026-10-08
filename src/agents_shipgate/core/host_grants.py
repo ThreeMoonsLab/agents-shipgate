@@ -1539,7 +1539,8 @@ def _hook_command(value: Any) -> dict[str, str] | None:
 #: inside a digest, as an MCP server's arguments do (#819).
 _HOOK_SCRIPT_ARG_RE = re.compile(
     r"(?:\$\{CLAUDE_(?:PROJECT_DIR|PLUGIN_ROOT)\}/|\./)?"
-    r"(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]*[A-Za-z0-9_-]"
+    # No `.` or `..` segment: a path leaving the repository is never published.
+    r"(?:(?!\.\.?/)[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]*[A-Za-z0-9_-]"
     r"\.(?:py|sh|bash|zsh|js|mjs|cjs|ts|mts|cts|rb|pl|php|ps1|lua)"
 )
 MAX_DETAIL_SCRIPT_CHARS = 200
