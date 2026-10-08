@@ -1480,6 +1480,13 @@
           "title": "Env Keys",
           "type": "array"
         },
+        "env_var_names": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Env Var Names",
+          "type": "array"
+        },
         "grant_id": {
           "title": "Grant Id",
           "type": "string"

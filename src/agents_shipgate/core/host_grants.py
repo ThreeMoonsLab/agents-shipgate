@@ -1259,6 +1259,40 @@ def _mcp_launch_args(config: dict[str, Any]) -> tuple[str | None, str | None]:
     return None, redacted_config_sha256(args)
 
 
+#: A name ``env_vars`` may publish: the shape of an environment variable's name
+#: and no more, so a ``NAME=value`` entry or any other text is never published
+#: (#795).
+_ENV_VAR_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,79}")
+
+
+def _mcp_env_var_names(config: dict[str, Any]) -> list[str]:
+    """The names an MCP server's ``env_vars`` list declares, as written (#795).
+
+    ``env_keys`` publishes the keys of the ``env`` map; a server that passes
+    variables through by name declares them in an ``env_vars`` list instead,
+    which the key names never held. A name is published only when it is a
+    plain environment-variable name that neither the redaction
+    ``config_sha256``'s input applies (:func:`_redact_secret_values`) nor the
+    label redaction (:func:`published_workflow_label`) rewrites, so a value, a
+    ``NAME=value`` entry, an object, a token-shaped string or the entry a
+    credential word before it makes the digest redact is not. Their declared
+    order is kept, so an edit that only reorders the list can be told from an
+    edit to its names. Display-only: the list is already in
+    ``config_sha256``'s input, which is where a change to any entry, published
+    or not, becomes a row.
+    """
+
+    declared = config.get("env_vars")
+    if not isinstance(declared, list):
+        return []
+    as_digested = _redact_secret_values(declared, parent_key="env_vars")
+    return [
+        item for item, digested in zip(declared, as_digested, strict=True)
+        if isinstance(item, str) and item == digested and _ENV_VAR_NAME.fullmatch(item)
+        and published_workflow_label(item) == item
+    ]
+
+
 def _mcp_launch_source(config: dict[str, Any]) -> dict[str, Any] | None:
     if _transport_hint(config) != "stdio" or "url" in config:
         return None
@@ -1374,6 +1408,7 @@ def _mcp_grants(
             "endpoint": _endpoint(config),
             "env_keys": sorted(str(key) for key in env),
             "header_keys": sorted(str(key) for key in headers),
+            "env_var_names": _mcp_env_var_names(config),
             "package": package,
             "args_sha256": args_sha256,
             "launch_source": _mcp_launch_source(config),
@@ -7007,7 +7042,7 @@ def diff_host_grants(baseline: dict[str, Any], current: dict[str, Any]) -> list[
 #: (:func:`build_host_grants_baseline`).
 DISPLAY_ONLY_GRANT_FIELDS: dict[str, frozenset[str]] = {
     "hook": frozenset({"handlers", "omitted_handlers"}),
-    "mcp_server": frozenset({"package", "args_sha256", "launch_source"}),
+    "mcp_server": frozenset({"package", "args_sha256", "launch_source", "env_var_names"}),
 }
 
 
