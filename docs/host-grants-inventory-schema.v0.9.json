@@ -510,7 +510,7 @@
             "discriminator": {
               "mapping": {
                 "additional_path": "#/$defs/HostAdditionalPathGrantV2",
-                "hook": "#/$defs/HostHookGrantV7",
+                "hook": "#/$defs/HostHookGrantV9",
                 "instruction_trust_root": "#/$defs/HostInstructionGrantV2",
                 "mcp_server": "#/$defs/HostMcpServerGrantV9",
                 "openshell_policy": "#/$defs/HostOpenShellPolicyGrantV9",
@@ -535,7 +535,7 @@
                 "$ref": "#/$defs/HostPermissionModeGrantV2"
               },
               {
-                "$ref": "#/$defs/HostHookGrantV7"
+                "$ref": "#/$defs/HostHookGrantV9"
               },
               {
                 "$ref": "#/$defs/HostSandboxGrantV2"
@@ -639,7 +639,7 @@
       "title": "HostHookCommandV7",
       "type": "object"
     },
-    "HostHookGrantV7": {
+    "HostHookGrantV9": {
       "additionalProperties": false,
       "properties": {
         "access": {
@@ -671,7 +671,7 @@
           "anyOf": [
             {
               "items": {
-                "$ref": "#/$defs/HostHookHandlerV7"
+                "$ref": "#/$defs/HostHookHandlerV9"
               },
               "type": "array"
             },
@@ -755,12 +755,12 @@
         "event",
         "handlers"
       ],
-      "title": "HostHookGrantV7",
+      "title": "HostHookGrantV9",
       "type": "object"
     },
-    "HostHookHandlerV7": {
+    "HostHookHandlerV9": {
       "additionalProperties": false,
-      "description": "One hook handler under an event: its group's matcher, its command and its timeout.\n\n``matcher`` is ``None`` when its group declares none, which the host reads\nas every tool or source, and ``<not-shown>`` when it is not a string or is\nlonger than 1,024 characters as ``config_sha256``'s input holds it;\notherwise it passes through the published-label redaction and is cut at\n120 characters. ``command`` is ``None`` for a handler with\nno command string, such as a ``prompt`` handler, whose prompt is not\npublished. ``timeout`` is the declared number or boolean; an integer of\nmore than 80 digits is published as its digits cut with ``\u2026``, a string\nas written when it is a plain token, and any other value, a non-finite\nfloat among them, as ``<not-shown>``. Other handler settings are not\npublished; a change confined to them is a row whose text says it is not\nshown.",
+      "description": "A hook handler plus, on a Claude Code tool event, whether its matcher can match a tool name (#940).\n\n``matcher_reach`` is present on every handler of a Claude Code\n``PreToolUse``, ``PostToolUse``, ``PostToolUseFailure``,\n``PermissionRequest`` or ``PermissionDenied`` hook, the events whose\nmatcher filters the tool name\n(https://code.claude.com/docs/en/hooks#matcher-patterns), and absent on\nevery other, so absence means not examined. ``no_tool_name``: every string\nthe declared matcher can match holds a character no built-in or MCP tool\nname holds, so the handler runs for no tool call, as with ``Bash(git\npush*)``, which Claude Code reads as a regular expression over the tool\nname. ``possible``: any other matcher, including one this reader does not\ndecide. Read from the declared matcher, not the published one, and left\nout of grant equality, the inventory digests and saved baselines like the\nrest of ``handlers``.",
       "properties": {
         "command": {
           "anyOf": [
@@ -810,6 +810,22 @@
           "default": null,
           "title": "Matcher"
         },
+        "matcher_reach": {
+          "anyOf": [
+            {
+              "enum": [
+                "possible",
+                "no_tool_name"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Matcher Reach"
+        },
         "timeout": {
           "anyOf": [
             {
@@ -832,7 +848,7 @@
           "title": "Timeout"
         }
       },
-      "title": "HostHookHandlerV7",
+      "title": "HostHookHandlerV9",
       "type": "object"
     },
     "HostHookScriptInputV7": {

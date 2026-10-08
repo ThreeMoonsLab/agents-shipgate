@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agents_shipgate.core.claude_permission_rules import is_carve_out
+from agents_shipgate.core.hook_matcher_reach import NO_TOOL_NAME
 from agents_shipgate.core.host_grants import (
     _PLAIN_TOKEN_RE,
     AGENT_RULE_INPUTS,
@@ -43,6 +44,7 @@ from agents_shipgate.core.host_grants import (
     checkout_ref_key,
     hook_dependency_only_change,
     hook_loading_basis,
+    hook_runs_for_no_tool_call,
     host_grant_direction_unknown,
     host_grant_expansion_signals,
     local_reusable_target,
@@ -910,8 +912,15 @@ def _why(
         # The basis, stated in the row, because the row is what a reviewer
         # reads: a parsed hook file is not proof a host loads it (#714).
         basis = hook_loading_basis(grant)
+        # A hook no tool name can trigger changes nothing around the agent's
+        # tool calls; the matcher note beside this names why (#940).
+        runs = (
+            _NO_TOOL_CALL
+            if direction != REMOVED and hook_runs_for_no_tool_call(grant)
+            else "changes what runs around the agent's actions"
+        )
         if basis == "host_configuration":
-            return "changes what runs around the agent's actions"
+            return runs
         if direction == REMOVED:
             # A removal is described from the baseline's grant, which may have
             # been recorded without its basis. Claim nothing about selection.
@@ -922,8 +931,8 @@ def _why(
         if basis == "project_enabled_plugin":
             # Loaded like a settings hook, so it reads as one, and names why.
             return (
-                "changes what runs around the agent's actions; this repository's project "
-                "settings enable the plugin that selects this hook"
+                f"{runs}; this repository's project settings enable the plugin that "
+                "selects this hook"
             )
         if basis == "declared_only":
             return (
@@ -1151,6 +1160,42 @@ def _mcp_source_note(before: dict[str, Any] | None, after: dict[str, Any] | None
     if old.get("pin") == "pinned":
         return f"launch source moved from pinned{label(old)} to mutable{label(source)}"
     return f"launch source is mutable{label(source)}"
+
+
+#: The `why` of an added or changed hook whose every matcher matches no tool name (#940).
+_NO_TOOL_CALL = "declares a hook no tool call can trigger"
+
+
+def _unmatched_matcher_note(grant: dict[str, Any] | None) -> str | None:
+    """The matchers of a hook grant that can match no tool name, named (#940).
+
+    Read from the ``matcher_reach`` the engine published on each handler,
+    never re-derived from the published matcher, which redaction and the
+    length bound may have changed. ``None`` when no handler's matcher is one.
+    """
+
+    if not grant or grant.get("kind") != "hook" or not isinstance(grant.get("handlers"), list):
+        return None
+    matchers = sorted({
+        published_workflow_label(str(handler.get("matcher")))
+        for handler in grant["handlers"]
+        if isinstance(handler, dict) and handler.get("matcher_reach") == NO_TOOL_NAME
+    })
+    if not matchers:
+        return None
+    shown = ", ".join(matchers[:3])
+    if len(matchers) > 3:
+        shown += f" (+{len(matchers) - 3} more)"
+    label = f"matcher {shown}" if len(matchers) == 1 else f"matchers {shown}"
+    if hook_runs_for_no_tool_call(grant):
+        partial = ""
+    else:
+        partial = f", so {'its' if len(matchers) == 1 else 'their'} handlers run for no tool call"
+    return (
+        f"{label} can match no tool name{partial} (Claude Code compares a "
+        f"{grant.get('event')} matcher with the tool's name; a permission rule "
+        "pattern belongs in a handler's if field)"
+    )
 
 
 def _inline_allow_note(grant: dict[str, Any] | None) -> str | None:
@@ -1958,6 +2003,8 @@ def capability_diff_rows(
         if grant.get("kind") == "mcp_server" and grant.get("host") == UNATTRIBUTED_MCP_HOST:
             why = f"{why}; {MCP_HOST_NOT_ESTABLISHED}"
         if grant.get("kind") == "mcp_server" and (note := _mcp_source_note(before_grant, after_grant)):
+            why = f"{why}; {note}"
+        if grant.get("kind") == "hook" and (note := _unmatched_matcher_note(after_grant)):
             why = f"{why}; {note}"
         if grant.get("kind") == "hook" and (note := _inline_allow_note(after_grant)):
             why = f"{why}; {note}"

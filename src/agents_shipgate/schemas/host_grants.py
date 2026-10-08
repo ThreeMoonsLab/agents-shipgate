@@ -1227,11 +1227,38 @@ class HostInventoryIssueV9(HostInventoryIssueV8):
     host: HostNameV9
 
 
+class HostHookHandlerV9(HostHookHandlerV7):
+    """A hook handler plus, on a Claude Code tool event, whether its matcher can match a tool name (#940).
+
+    ``matcher_reach`` is present on every handler of a Claude Code
+    ``PreToolUse``, ``PostToolUse``, ``PostToolUseFailure``,
+    ``PermissionRequest`` or ``PermissionDenied`` hook, the events whose
+    matcher filters the tool name
+    (https://code.claude.com/docs/en/hooks#matcher-patterns), and absent on
+    every other, so absence means not examined. ``no_tool_name``: every string
+    the declared matcher can match holds a character no built-in or MCP tool
+    name holds, so the handler runs for no tool call, as with ``Bash(git
+    push*)``, which Claude Code reads as a regular expression over the tool
+    name. ``possible``: any other matcher, including one this reader does not
+    decide. Read from the declared matcher, not the published one, and left
+    out of grant equality, the inventory digests and saved baselines like the
+    rest of ``handlers``.
+    """
+
+    matcher_reach: Literal["possible", "no_tool_name"] | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+
+class HostHookGrantV9(HostHookGrantV7):
+    handlers: list[HostHookHandlerV9] | None
+
+
 HostGrantV9 = Annotated[
     HostMcpServerGrantV9
     | HostPermissionRuleGrantV9
     | HostPermissionModeGrantV2
-    | HostHookGrantV7
+    | HostHookGrantV9
     | HostSandboxGrantV2
     | HostAdditionalPathGrantV2
     | HostPluginGrantV2
