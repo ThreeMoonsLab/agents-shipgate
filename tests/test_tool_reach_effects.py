@@ -49,6 +49,10 @@ def _whys(reach):
         ("WITH x AS (DELETE FROM t RETURNING *) SELECT * FROM x", True, "unknown", "WITH", "t"),
         ("SELECT 1; DROP TABLE users", True, "write", "SELECT", "users"),
         ("SELECT 1; SELECT 2", True, "read", "SELECT", None),
+        # A quoted or schema-qualified function name is still a call.
+        ("SELECT \"setval\"('s', 1)", True, "unknown", "SELECT", None),
+        ("SELECT app.count(*) FROM t", True, "unknown", "SELECT", "t"),
+        ("SELECT pg_catalog.count(*) FROM t", True, "read", "SELECT", "t"),
         ("BEGIN", True, None, "BEGIN", None),
         ("CALL refresh()", True, "unknown", "CALL", None),
         # The literal ends before the keyword or the table name does.
@@ -855,3 +859,34 @@ def test_effects_are_deterministic(tmp_path):
         '    sqlite3.connect("a.db").execute("UPDATE t SET a = ?", (name,))\n'
     )
     assert _reach(tmp_path, source) == _reach(tmp_path, source)
+
+
+def test_a_redis_command_outside_the_table_does_not_name_a_key(tmp_path):
+    reach = _reach(
+        tmp_path,
+        "import redis\n\n"
+        "def act(key: str) -> None:\n"
+        '    r = redis.Redis(host="cache")\n'
+        '    r.execute_command("FLUSHALL")\n'
+        "    r.get(key)\n",
+    )
+    assert _effects(reach) == [
+        ("database", "unknown", "client.execute_command", None),
+        ("database", "read", "client.get", "{key}"),
+    ]
+    assert "FLUSHALL" not in str(reach)
+
+
+def test_a_session_over_an_engine_built_elsewhere_is_configured_elsewhere(tmp_path):
+    reach = _reach(
+        tmp_path,
+        "from sqlalchemy import create_engine, select\n"
+        "from sqlalchemy.orm import Session\n\n"
+        'engine = create_engine("postgresql://db.internal/shop")\n\n'
+        "def act(user: str) -> list:\n"
+        "    with Session(engine) as session:\n"
+        "        return session.execute(select(User)).all()\n",
+    )
+    assert _effects(reach) == [("database", "read", "session.execute", None)]
+    assert any("built outside this function" in why for why in _whys(reach))
+    assert _claims(reach) == []

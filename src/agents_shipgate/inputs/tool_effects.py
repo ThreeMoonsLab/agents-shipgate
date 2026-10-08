@@ -734,6 +734,8 @@ _SQL_PARENTHESIZED = frozenset(
     }
 )
 _SQL_CALL = re.compile(r"([A-Za-z_][\w.$]*)\s*\(")
+#: A quoted name followed by a parenthesis: `SELECT "setval"('s', 1)` calls.
+_SQL_QUOTED_CALL = re.compile(r"[\"`\]]\s*\(")
 #: Words that make a `WITH` or `SELECT` statement more than a read.
 _SQL_WRITING_WORDS = re.compile(
     r"\b(INSERT|UPDATE|DELETE|REPLACE|MERGE|UPSERT|CREATE|DROP|ALTER|TRUNCATE|GRANT|REVOKE|INTO)\b",
@@ -802,10 +804,17 @@ def sql_operation(head: str, *, complete: bool) -> Statement:
             return Statement("unknown", keyword, table, False)
         rest = text[match.end():]
         writing = _SQL_WRITING_WORDS.search(rest)
+        names = {name.lower() for name in _SQL_CALL.findall(rest)}
+        # A qualified name is a user's function unless the catalog's own:
+        # `app.count(...)` need not be SQL's `count`.
         called = {
-            name.rsplit(".", 1)[-1].lower() for name in _SQL_CALL.findall(rest)
-        } - SQL_READ_FUNCTIONS - _SQL_PARENTHESIZED - {keyword.lower()}
-        if writing is not None or called:
+            name
+            for name in names
+            if (name.rsplit(".", 1)[-1] not in SQL_READ_FUNCTIONS or ("." in name and not name.startswith("pg_catalog.")))
+            and name not in _SQL_PARENTHESIZED
+            and name != keyword.lower()
+        }
+        if writing is not None or called or _SQL_QUOTED_CALL.search(rest):
             return Statement("unknown", keyword, table, not complete)
         return Statement("read", keyword, table, not complete)
     return Statement("unknown", keyword, table, not complete)

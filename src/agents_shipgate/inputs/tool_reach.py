@@ -2021,6 +2021,10 @@ class _Reach:
             position = effect_tables.BOTO3_BUCKET_POSITIONS.get(method)
             words = ("Bucket", "TableName", "FunctionName", "StreamName", "QueueName")
         elif handle.library == "redis":
+            # Only a method in the table names a key first: `execute_command`
+            # and `eval` take a command or a script there.
+            if effect_tables.method_rule("redis", handle.role, method) not in {"read", "write"}:
+                return None
             words, position = ("name", "key", "channel"), 0
         elif handle.library == "slack_sdk" and handle.role == "client":
             words = ("channel",)
@@ -2177,6 +2181,10 @@ class _Reach:
             engine = _handle_of(keywords.get("bind") or (arguments[0] if arguments else None))
             if engine is not None and engine.library == "sqlalchemy":
                 service, hosts, credentials = engine.service, list(engine.host), engine.credentials
+                if engine.built != built:
+                    # A session over an engine built elsewhere is configured
+                    # there: its event hooks can do more.
+                    built = engine.built
         return Handle(
             kind.family,
             kind.library,
