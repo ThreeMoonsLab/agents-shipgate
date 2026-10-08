@@ -242,6 +242,7 @@
   "tests/test_mcp_launch_source.py": 43.5,
   "tests/test_mcp_manifest.py": 0.2,
   "tests/test_mcp_permissions.py": 0.2,
+  "tests/test_mcp_row_bounded_wording.py": 104.0,
   "tests/test_mcp_server.py": 0.1,
   "tests/test_mcp_server_findings_table.py": 0.0,
   "tests/test_mcp_server_source.py": 1.6,

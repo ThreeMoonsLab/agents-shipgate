@@ -63,6 +63,13 @@ use: a changed manifest or marketplace present on a side but not read within
 its bound, or a manifest a hook file could be named by that was not read or
 did not parse as a JSON object, while no readable one names it. The one count
 covers both causes.
+
+A named input that may declare MCP servers in the head — a manifest's
+`mcpServers`, a manifest that did not parse, a plugin's `mcp.json` — is also
+kept as an :class:`UnreadMcpDeclaration`, its plugin directory and hosts,
+never published. It bounds the wording of a removed MCP server's row in the
+same comparison (#929), and nothing else: it is not read further, not matched
+by server name and not paired with any row.
 """
 
 from __future__ import annotations
@@ -146,6 +153,29 @@ class ChangedInputs:
     read: Callable[[str, Sequence[str]], Mapping[str, bytes]] = lambda _side, _paths: {}
 
 
+#: The candidate rules whose input can declare MCP servers: a plugin
+#: manifest's `mcpServers`, a manifest that did not parse (whether it declares
+#: `mcpServers` is not known) and a plugin's `mcp.json` (#929).
+MCP_DECLARING_CANDIDATES = frozenset(
+    {"plugin_manifest_mcp_servers", "unparsed_plugin_manifest", "plugin_mcp_config"}
+)
+
+
+@dataclass(frozen=True)
+class UnreadMcpDeclaration:
+    """A changed input no reader read that may declare MCP servers in the head (#929).
+
+    ``root`` is the published plugin directory it belongs to (``""`` for the
+    repository root): a manifest's plugin root, or the directory of a
+    plugin's `mcp.json`. ``hosts`` are the hosts its coverage item names.
+    Never published and never a row: it only bounds the wording of a removed
+    MCP server's row in the same comparison, and pairs that row with nothing.
+    """
+
+    root: str
+    hosts: frozenset[str]
+
+
 @dataclass
 class UnreadDiscovery:
     """What discovery found: coverage facts, and how many candidates it did not examine."""
@@ -153,6 +183,8 @@ class UnreadDiscovery:
     examined: bool
     facts: list[dict[str, Any]] = field(default_factory=list)
     not_examined: int = 0
+    #: The facts above that may declare MCP servers in the head (#929).
+    mcp_declarations: list[UnreadMcpDeclaration] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -409,6 +441,14 @@ def discover_unread_inputs(
                 "detail": detail,
             }
         )
+        if candidate in MCP_DECLARING_CANDIDATES and side in {"head", "both"}:
+            root = _mcp_declaration_root(source.split("#", 1)[0], candidate)
+            result.mcp_declarations.append(
+                UnreadMcpDeclaration(
+                    root=public_host_path(root) if root else "",
+                    hosts=frozenset(hosts) - {""},
+                )
+            )
 
     for candidate in candidates:
         path = candidate.path
@@ -450,6 +490,13 @@ def discover_unread_inputs(
         else:
             _member_facts(candidate, sides, contents, fact, result, read_by_entry)
     return result
+
+
+def _mcp_declaration_root(path: str, candidate: str) -> str:
+    """The plugin directory an MCP-declaring candidate belongs to (#929)."""
+
+    manifest = _manifest_host(path) if candidate != "plugin_mcp_config" else None
+    return manifest[0] if manifest is not None else posixpath.dirname(path)
 
 
 def _mcp_member_read(
@@ -533,8 +580,10 @@ def _member_facts(
 
 __all__ = [
     "MAX_UNREAD_CANDIDATES",
+    "MCP_DECLARING_CANDIDATES",
     "ChangedInputs",
     "UnreadDiscovery",
+    "UnreadMcpDeclaration",
     "discover_unread_inputs",
     "external_source_text",
 ]

@@ -75,8 +75,9 @@ def compare_host_refs(
     changed script itself.
 
     ``coverage=False`` is for `check` too: its result carries no coverage, so
-    it asks no identity question it would discard (#812), and lists no
-    changed files for unread inputs it would not name (#821).
+    it asks no identity question it would discard (#812), and lists the
+    changed files for unread inputs, which it does not name (#821), only
+    when a removed MCP server's row is worded from them (#929).
 
     A comparison that read no host artifact on either side is ``None`` as
     before, unless its coverage names a changed input this entry does not
@@ -206,7 +207,9 @@ def compare_host_refs(
             identities=identities,
             absent=absent,
             coverage=coverage,
-            changed_inputs=changed_inputs() if coverage else None,
+            # Without coverage (`check`) the set is listed only if a removed
+            # MCP server's row needs it (#929).
+            changed_inputs=changed_inputs() if coverage else changed_inputs,
             # A plugin directory a limit is bounded by is left uncompared and
             # named, and the rest compared (#808). Only where coverage names
             # it: `check` records none, so it refuses as before.
