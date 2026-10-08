@@ -81,7 +81,12 @@ from agents_shipgate.schemas.contract import (
 # them is the whole point of this module, which exists to stop a second
 # implementation of an answer the repository already gives. The same file owns
 # the reader-blank allowlist, so `@v<NEW>` cannot be mistaken for a bad ref.
-from tests.test_adopter_pins_resolve import PIN_SHAPES, READER_BLANK_REFS, _expected
+from tests.test_adopter_pins_resolve import (
+    PIN_SHAPES,
+    PRE_COMMIT_REV_PATTERN,
+    READER_BLANK_REFS,
+    _expected,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REGISTRY_DOC = REPO_ROOT / "docs" / "distribution-surfaces.md"
@@ -432,6 +437,15 @@ SURFACES: tuple[Surface, ...] = (
         },
     ),
     Surface(
+        "pre_commit_hook",
+        (".pre-commit-hooks.yaml",),
+        # The manifest pre-commit reads from this repository's root. It carries
+        # one executable pin, the `rev:` of the copyable consumer example in its
+        # header (#796); the hook ids, `entry:` commands and `files:` regex are
+        # held to the trigger catalog by `tests/test_public_surface_contract.py`.
+        {"executable_pin": ("test_executable_pin_resolves_in_a_published_channel",)},
+    ),
+    Surface(
         "examples",
         ("examples",),
         {"executable_pin": _PIN, "merge_verdict_vocabulary": _VOCABULARY},
@@ -532,7 +546,6 @@ NOT_A_DISTRIBUTION_SURFACE: dict[str, str] = {
     ".github": "this repository's CI and issue templates; not shipped to an adopter",
     ".gitattributes": "repository mechanics",
     ".gitignore": "repository mechanics",
-    ".pre-commit-hooks.yaml": "repository mechanics",
     ".well-known": "the channel metadata this registry reads; the source of truth for executable_pin, not a restatement of it",
     "ADOPTERS.md": "the opt-in public adopters registry; it publishes self-reported adopter claims, not an engine answer, and is pinned by tests/test_adopters_registry.py",
     "CHANGELOG.md": "repository documentation, pinned by tests/test_public_surface_contract.py",
@@ -1909,6 +1922,11 @@ def unresolvable_pins(text: str) -> list[tuple[str, str]]:
     for match in INSTALL_FLOOR_PATTERN.finditer(text):
         if _release(match.group(1)) > _release(LATEST_PUBLISHED_VERSION):
             found.append(("pip floor", match.group(1)))
+    for match in PRE_COMMIT_REV_PATTERN.finditer(text):
+        value = match.group(1)
+        if value in READER_BLANK_REFS or value == f"v{LATEST_PUBLISHED_VERSION}":
+            continue
+        found.append(("pre-commit rev", value))
     return found
 
 
@@ -1961,8 +1979,10 @@ def _pin_bearing_paths() -> list[Path]:
             continue
         for path in _surface_files(surface, (".md", ".yml", ".yaml", ".json", ".txt")):
             rendered = _rendered(path)
-            if any(pattern.search(rendered) for _label, pattern, _why in PIN_SHAPES) or (
-                INSTALL_FLOOR_PATTERN.search(rendered)
+            if (
+                any(pattern.search(rendered) for _label, pattern, _why in PIN_SHAPES)
+                or INSTALL_FLOOR_PATTERN.search(rendered)
+                or PRE_COMMIT_REV_PATTERN.search(rendered)
             ):
                 paths.append(path)
     return paths
@@ -2031,6 +2051,97 @@ def test_pin_scanner_catches_an_unreachable_install_floor():
         ("pip floor", "9.9")
     ]
     assert _release("0.15") == (0, 15, 0) == _release("0.15.0")
+
+
+def test_pin_scanner_catches_a_stale_pre_commit_rev():
+    """Negative control for the `rev:` of a pre-commit consumer example (#796).
+
+    `.pre-commit-hooks.yaml` named `v0.12.0` and two docs named `v1.0.0` while
+    the published release moved to `v1.2.0`, because no pin shape looked at a
+    `rev:` line. The repo URL anchors the match, so another project's `rev:` is
+    not judged, and the `rev: v<NEW>` blank the upgrade prompt prints is not a
+    ref.
+    """
+
+    current = f"v{LATEST_PUBLISHED_VERSION}"
+    repo = "https://github.com/ThreeMoonsLab/agents-shipgate"
+    assert unresolvable_pins(f"- repo: {repo}\n  rev: v0.12.0\n") == [
+        ("pre-commit rev", "v0.12.0")
+    ]
+    # The example inside the hook manifest's header comment.
+    assert unresolvable_pins(f"#     - repo: {repo}\n#       rev: v1.0.0\n") == [
+        ("pre-commit rev", "v1.0.0")
+    ]
+    assert unresolvable_pins(f"- repo: {repo}\n  rev: main\n") == [
+        ("pre-commit rev", "main")
+    ]
+    assert not unresolvable_pins(f"- repo: {repo}\n  rev: {current}\n")
+    assert not unresolvable_pins(f"- repo: {repo}\n  rev: v<NEW>\n")
+    assert not unresolvable_pins(
+        "- repo: https://github.com/astral-sh/ruff-pre-commit\n  rev: v0.12.0\n"
+    )
+
+
+#: The files that carried a stale pre-commit `rev:` when #796 was filed. The
+#: sweep below is repo-wide; this only keeps it from going vacuous if all three
+#: were reworded away from the pattern.
+_PRE_COMMIT_REV_FILES = (
+    ".pre-commit-hooks.yaml",
+    "docs/integrations.md",
+    "examples/pre-commit/README.md",
+)
+
+
+def _pre_commit_rev_files() -> dict[str, list[str]]:
+    """Every tracked file that names a `rev:` for this repository, and the revs.
+
+    Repository-wide rather than per registered surface: `docs/integrations.md`
+    is not a registered surface and still tells a reader which tag to clone.
+    `CHANGELOG.md` is history; it may quote a tag a release once recommended.
+    """
+
+    found: dict[str, list[str]] = {}
+    for rel in _tracked_files():
+        if rel == "CHANGELOG.md":
+            continue
+        try:
+            text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        revs = [m.group(1) for m in PRE_COMMIT_REV_PATTERN.finditer(text)]
+        if revs:
+            found[rel] = revs
+    return found
+
+
+def test_every_pre_commit_example_rev_names_the_published_release():
+    """A `rev:` a reader pastes into `.pre-commit-config.yaml` must be a real tag.
+
+    #796: the hook manifest's own example said `v0.12.0` and two docs said
+    `v1.0.0` after `v1.2.0` was published, outside every existing pin check.
+    The release runbook's step 8 needs no list of these: this fails once per
+    file until each moves with `LATEST_PUBLISHED_VERSION`.
+    """
+
+    found = _pre_commit_rev_files()
+    missing = [rel for rel in _PRE_COMMIT_REV_FILES if rel not in found]
+    assert not missing, (
+        f"{missing} no longer carry a pre-commit `rev:` example this sweep can "
+        "see; the sweep over them is vacuous. Update _PRE_COMMIT_REV_FILES if "
+        "the example moved."
+    )
+    expected = f"v{LATEST_PUBLISHED_VERSION}"
+    offenders = [
+        f"{rel}: rev {rev!r}"
+        for rel, revs in sorted(found.items())
+        for rev in revs
+        if rev != expected and rev not in READER_BLANK_REFS
+    ]
+    assert not offenders, (
+        f"pre-commit examples name a ref other than the published release "
+        f"{expected}: {offenders}. pre-commit clones this tag; move it with "
+        "the other pins (docs/release-runbook.md step 8)."
+    )
 
 
 def test_the_committed_sweep_adds_files_the_emitted_sweep_cannot_see():
