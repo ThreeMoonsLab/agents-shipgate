@@ -54,6 +54,12 @@ from agents_shipgate.schemas.surfaces import ActionEffect
 _EFFECT_VALUES = frozenset(_EFFECT_RANK)
 #: The effect claim source for a tool's own outbound HTTP calls (#872).
 REACH_CLAIM_SOURCE = "source_http_call"
+#: The effect claim source for what a tool's own code reaches through a
+#: recognised library beyond HTTP: a database, a process, a file, a cloud SDK
+#: or a message (#913).
+REACH_EFFECT_CLAIM_SOURCE = "source_library_call"
+#: Both sources a tool's reach supports a claim from.
+REACH_CLAIM_SOURCES = frozenset({REACH_CLAIM_SOURCE, REACH_EFFECT_CLAIM_SOURCE})
 MCP_SOURCE_TYPES = frozenset(
     {
         "mcp",
@@ -340,9 +346,10 @@ def _assess_effect(
         )
 
     # The outbound HTTP calls a static read of the tool's own code followed
-    # (#872): the method of a call that was made, or — only when every call
-    # was followed and every outbound call reads — ``read``. The reader
-    # decides which of the two it can support; this is the one place either
+    # (#872), and what it reaches through a recognised library beyond HTTP
+    # (#913): the effect of a call that was made, or — only when every call
+    # was followed and everything it reaches reads — ``read``. The reader
+    # decides which it can support; this is the one place any of them
     # becomes effect evidence.
     reach = tool.extraction.get("reach")
     if isinstance(reach, dict):
@@ -356,11 +363,16 @@ def _assess_effect(
                     "high",
                     "static_declaration",
                     "protocol_structure",
-                    REACH_CLAIM_SOURCE,
+                    REACH_EFFECT_CLAIM_SOURCE
+                    if "family" in item or "effects" in item
+                    else REACH_CLAIM_SOURCE,
                     item.get("at") or pointer,
                     {
                         key: item[key]
-                        for key in ("method", "url", "graphql", "calls")
+                        for key in (
+                            "method", "url", "graphql", "calls", "effects", "family",
+                            "operation", "call", "target",
+                        )
                         if key in item
                     },
                 )
@@ -520,6 +532,7 @@ def _assess_effect(
             "auth_scope",
             "action_scope",
             REACH_CLAIM_SOURCE,
+            REACH_EFFECT_CLAIM_SOURCE,
         }
         or (claim.policy_eligible and claim.basis == "typed_provider_fact")
     ]

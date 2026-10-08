@@ -147,7 +147,8 @@ more than one application, and a deterministic `comparison_id`. Version 0.2 adds
 [What a bound tool reaches](#what-a-bound-tool-reaches)); version 0.3 adds
 `bound_when` (see [Tools lists built by an expression](#tools-lists-built-by-an-expression));
 version 0.4 adds `object` and `object_evidence` (see
-[Tools bound as objects](#tools-bound-as-objects)).
+[Tools bound as objects](#tools-bound-as-objects)), and `reach.effects` (see
+[What a bound tool reaches beyond HTTP](#what-a-bound-tool-reaches-beyond-http)).
 This is a separate advisory
 artifact from the existing host diff JSON and verifier receipt.
 
@@ -670,8 +671,10 @@ before, so no catalog, check or report changes.
 
 A signature says what the model may pass, not what the call does. Each
 `before`/`after` side of a function tool also carries `reach`: the outbound
-HTTP calls the tool's own code makes. It is read statically from the function
-and the repository helpers it calls, up to three helper calls deep.
+HTTP calls the tool's own code makes, and what it reaches beyond HTTP (see
+[below](#what-a-bound-tool-reaches-beyond-http)). It is read statically from
+the function and the repository helpers it calls, up to three helper calls
+deep.
 
 ```text
 ADDED  tensorflow_pr_review_agent → submit_pr_code_review
@@ -884,6 +887,92 @@ the evidence status and the claims.
   are not listed but still count for the effect.
 - **Unread method or document.** When a request method or a GraphQL document is
   not a literal, it is a limit, and that call supports no effect.
+
+### What a bound tool reaches beyond HTTP
+
+Most tools do their work somewhere other than an HTTP endpoint. `reach.effects`
+names what the tool's own code (and the same helpers, within the same bound)
+reaches through a recognised library, by its import, never by a name alone:
+
+```text
+ADDED  Finance_Agent_Preflight → load_service_catalog
+  after: load_service_catalog() -> dict at app/Agent/financeAgent.py:117
+    implementation: app/tools/FinanceAgent/tools.py:48 (418c97358c98)
+    reaches: database read SELECT (postgresql, psycopg2 cursor.execute) at app/database/repository.py:80 via app/tools/FinanceAgent/tools.py:56 get_services → app/tools/FinanceAgent/finance_data.py:71 _fetch → app/tools/FinanceAgent/finance_data.py:40 query_db
+      host: aws-0-ap-southeast-1.pooler.supabase.com, env SUPABASE_DB_HOST
+      credential: env SUPABASE_DB_PASSWORD, env SUPABASE_PASSWORD → keyword password
+    effect: write (provisional: unknown effect)
+    reach limit: app/tools/FinanceAgent/tools.py:56 calls asyncio.to_thread, which is not read
+    reach limit: app/database/repository.py:73 calls init_db_pool, more than 3 helper calls from the tool; not read
+    reach limit: app/database/repository.py:80 the SELECT statement splices in a value the read does not name; a further statement in it is not read
+```
+
+The query reads Postgres; the tool is still not said to read, because other
+calls stay unread and the statement splices in a table name from a module-level
+dict.
+
+| Family | Recognised | Operation |
+| --- | --- | --- |
+| `database` | `sqlite3`, `psycopg2` (and its pools), `psycopg`, `asyncpg`, `pymysql`, SQLAlchemy engines, connections, sessions and queries, `pymongo`, `redis` | A literal SQL statement decides: `SELECT` (and `WITH`, `VALUES`, `SHOW`, `EXPLAIN`) reads, `INSERT`/`UPDATE`/`DELETE`/DDL writes. SQLAlchemy's `select()`/`insert()`/`update()`/`delete()` decide as their statement; `session.add` and `query.delete` write. MongoDB and Redis methods by their table (`find` reads, `insert_one` writes, an aggregation with `$out` or `$merge` writes). |
+| `process` | `subprocess.run`/`call`/`check_call`/`check_output`/`Popen`, `os.system`, `os.popen`, `os.exec*`, `os.spawn*`, `os.posix_spawn*`, `asyncio.create_subprocess_*` | `execute`, naming the literal program by its file name. |
+| `filesystem` | `open` (and `io.open`, `Path.open`), `pathlib.Path` reads and writes, `shutil` copies, moves and `rmtree`, `os.remove` and the like, `os.listdir`/`walk`/`scandir`/`stat` | A literal mode with `w`, `a`, `x` or `+` writes, any other reads; `Path.write_*`, `touch`, `unlink`, `rename` write; `read_*`, `glob` read. |
+| `cloud` | `boto3` clients and resources, `google.cloud` `storage`, `firestore` and `bigquery`, Vertex AI Memory Bank (`vertexai.Client(...).agent_engines.memories`, ADK's `VertexAiMemoryBankService`) | boto3 by the operation's verb (`get_`, `list_`, `describe_`, `head_` read; `put_`, `create_`, `delete_`, `update_`, `upload_` write); the Google clients and Memory Bank by their tables (`retrieve` reads, `generate` writes). |
+| `messaging` | `smtplib`, `slack_sdk` (`WebClient`, `WebhookClient`), `twilio` | Sending writes; a Slack read method (`conversations_history`) reads. |
+
+Each entry has `family`, `operation` (`read`, `write`, `execute` or `unknown`),
+`library`, `call` (the function, or the object's role and method:
+`cursor.execute`), `at` and `via`, and, where they are known:
+
+- `target`: the program, the table, the bucket, collection or Redis key, or a
+  path. A path is printed only relative: an absolute or home path, or one that
+  climbs out (`..`), is withheld, and so is any piece shaped like a key. A name
+  is printed only when it is plainly a name.
+- `statement`: a SQL statement's leading keyword. The statement itself is
+  never printed: `value_sha256` digests it, and digests a command's arguments
+  and any withheld target.
+- `service`: the database engine (`postgresql`, read off the library or a
+  SQLAlchemy URL's dialect), the boto3 service, `storage`, `memory_bank`,
+  `smtp`, `slack`.
+- `host` and `credential_sources`: read off the client's construction as a
+  request's are. A connection string's password is `literal: true`, never
+  printed.
+- `model_supplied`: the parameters that flow into the command, the statement,
+  its parameters, the path or the call's arguments.
+
+What an effect supports:
+
+- An effect that writes supports `write`; running a process supports
+  `code_execution`; sending a message supports `external_communication`. Each
+  is a `source_library_call` claim in `effect_evidence`.
+- `read` still needs everything the tool reaches, HTTP calls and effects alike,
+  to read, and nothing unresolved, exactly as above.
+- A library call outside the tables is a limit, as before. A method of a
+  recognised object outside its table is an effect with operation `unknown`,
+  and a limit: the family is established, the direction is not. So is a SQL
+  statement or file mode that is not a literal.
+- A `SELECT` reads only when nothing after its keyword could write: no
+  writing word (`SELECT … INTO` creates a table), one statement, and no
+  function call outside a list of SQL's own read functions
+  (`SELECT setval(…)` writes). A statement that splices in a value the read
+  does not name is a read, and a limit: a further statement could be spliced
+  in.
+- A database, cloud or messaging object built outside the function that reads
+  through it, or built with an argument the read does not see into (a factory
+  class), is named as a limit on that read, as an HTTP client built elsewhere
+  is: its configuration can add hooks. A file or process opened elsewhere (a
+  module's log file) has its writes named where the tool makes them, and a
+  `print(..., file=…)` writes to its file.
+- A module global set only by its own module's functions, each time to `None`
+  or the same kind of recognised object (the lazy pool pattern), holds that
+  object; nothing else in the scope may store into that name.
+- What a helper returns is read one call past the helper bound, so a pool a
+  fourth helper builds is still named; the call itself stays a limit.
+- A name-alike is not the library: a repository module or function spelled
+  `subprocess`, `open` or `connect`, another library's `run` or `WebClient`,
+  or a library function replaced anywhere in the scope.
+
+A repository class that wraps one of these libraries is not followed into: a
+method called on its instance stays a named limit.
 
 `reach` and `effect_evidence` are evidence, not compared meaning. A helper's
 changed endpoint does not make a binding `changed` on its own, and neither
