@@ -54,6 +54,7 @@ from agents_shipgate.inputs.python_imports import (
     RepositoryLayout,
     repository_layout,
 )
+from agents_shipgate.inputs.tool_effects import CLAIM_EFFECTS
 from agents_shipgate.inputs.tool_reach import read_tool_reach
 from agents_shipgate.schemas.manifest import ToolSourceConfig
 
@@ -1808,7 +1809,15 @@ def _reach_lines(binding: dict[str, Any]) -> list[str]:
             claim = next(
                 (c for c in claims if c["value"] == evidence["conservative_effect"]), claims[0]
             )
-            effect = next((item for item in effects if item["at"] == claim["at"]), None)
+            effect = next(
+                (
+                    item
+                    for item in effects
+                    if item["at"] == claim["at"]
+                    and CLAIM_EFFECTS.get((item["family"], item["operation"])) == claim["value"]
+                ),
+                None,
+            )
             if claim["value"] == "read":
                 basis = (
                     ": every call was followed, and everything it reaches reads"

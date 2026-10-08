@@ -896,11 +896,20 @@ reaches through a recognised library, by its import, never by a name alone:
 
 ```text
 ADDED  Finance_Agent_Preflight → load_service_catalog
+  after: load_service_catalog() -> dict at app/Agent/financeAgent.py:117
+    implementation: app/tools/FinanceAgent/tools.py:48 (418c97358c98)
     reaches: database read SELECT (postgresql, psycopg2 cursor.execute) at app/database/repository.py:80 via app/tools/FinanceAgent/tools.py:56 get_services → app/tools/FinanceAgent/finance_data.py:71 _fetch → app/tools/FinanceAgent/finance_data.py:40 query_db
       host: aws-0-ap-southeast-1.pooler.supabase.com, env SUPABASE_DB_HOST
-      credential: env SUPABASE_PASSWORD, env SUPABASE_DB_PASSWORD → keyword password
+      credential: env SUPABASE_DB_PASSWORD, env SUPABASE_PASSWORD → keyword password
+    effect: write (provisional: unknown effect)
+    reach limit: app/tools/FinanceAgent/tools.py:56 calls asyncio.to_thread, which is not read
+    reach limit: app/database/repository.py:73 calls init_db_pool, more than 3 helper calls from the tool; not read
     reach limit: app/database/repository.py:80 the SELECT statement splices in a value the read does not name; a further statement in it is not read
 ```
+
+The query reads Postgres; the tool is still not said to read, because other
+calls stay unread and the statement splices in a table name from a module-level
+dict.
 
 | Family | Recognised | Operation |
 | --- | --- | --- |

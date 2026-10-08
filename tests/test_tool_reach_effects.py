@@ -478,6 +478,20 @@ def test_a_path_outside_the_repository_is_digested_not_printed(tmp_path):
     assert "alice" not in str(reach) and "secrets" not in str(reach)
 
 
+def test_a_long_file_name_is_a_name_and_a_token_in_a_path_is_withheld(tmp_path):
+    reach = _reach(
+        tmp_path,
+        "def act() -> None:\n"
+        '    open("data/portfolio_demo_state.json", "w").close()\n'
+        '    open("keys/ghp_0123456789abcdefABCDEF0123456789.txt", "w").close()\n',
+    )
+    assert [item["target"] for item in reach["effects"]] == [
+        "data/portfolio_demo_state.json",
+        "keys/[REDACTED:sensitive_field]",
+    ]
+    assert "ghp_0123" not in str(reach)
+
+
 def test_a_mode_that_is_not_a_literal_is_a_named_limit(tmp_path):
     reach = _reach(
         tmp_path,

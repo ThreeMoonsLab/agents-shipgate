@@ -15,6 +15,11 @@ and records each outbound HTTP call made through ``requests``, ``httpx``,
 * for GraphQL, whether the document is a query or a mutation. Transport is not
   effect: a GraphQL query sent over POST reads.
 
+What the code reaches beyond HTTP — a database, a process, a file, a cloud SDK
+or a message — is read the same way, through the objects a recognised library
+builds (:class:`Handle`) and the tables in
+:mod:`agents_shipgate.inputs.tool_effects` (#913).
+
 Nothing is imported or run. A value the read cannot name is labelled as such,
 and a call it cannot follow is a named limit with its location, never a guess.
 A tool is said to read only when every call it makes was followed and every
@@ -3432,9 +3437,16 @@ def _path_text(value: Any) -> str | None:
     pieces = re.split(r"[\\/]", rendered)
     if ".." in pieces:
         return None
-    return "/".join(
-        piece if piece.startswith("{") or not _secret_piece(piece) else _REDACTED for piece in pieces
-    )
+    return "/".join(_REDACTED if _withheld_piece(piece) else piece for piece in pieces)
+
+
+def _withheld_piece(piece: str) -> bool:
+    """A path or name piece with a run shaped like a key, outside its
+    placeholders. Words joined by ``_`` are runs of their own, so
+    ``portfolio_demo_state.json`` is a name and ``ghp_<36 characters>`` is not."""
+
+    literal = re.sub(r"\{[^{}]*\}", " ", piece)
+    return any(_secret_piece(run) for run in re.split(r"[_\s]+", literal) if run)
 
 
 def _name_text(value: Any) -> str | None:
@@ -3449,7 +3461,7 @@ def _name_text(value: Any) -> str | None:
         return None
     literal = re.sub(r"\{[^{}]*\}", "", rendered)
     for piece in re.split(r"[/:.@#|]", literal):
-        if piece and (not re.fullmatch(r"[A-Za-z0-9_+-]+", piece) or _secret_piece(piece)):
+        if piece and (not re.fullmatch(r"[A-Za-z0-9_+-]+", piece) or _withheld_piece(piece)):
             return None
     return rendered
 

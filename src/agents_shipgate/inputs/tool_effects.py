@@ -604,7 +604,7 @@ NAMED_CHILDREN: dict[tuple[str, str], str] = {
 #: Roles whose every method only reads what an effect handed back: a query's
 #: rows, a MongoDB cursor, a BigQuery job.
 RESULTS = "results"
-#: Roles a call to builds the object a factory makes.
+#: Roles that, called, build another object: a `sessionmaker` builds a session.
 FACTORIES: dict[tuple[str, str], str] = {
     ("sqlalchemy", "session_factory"): "session",
     ("sqlalchemy", "session"): "session",
