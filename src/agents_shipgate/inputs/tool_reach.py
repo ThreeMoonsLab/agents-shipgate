@@ -1890,6 +1890,15 @@ class _Reach:
             if read.operation is None:
                 return  # transaction control: `BEGIN`, `COMMIT`
             operation = read.operation
+            if (
+                handle.library == "google.cloud.bigquery"
+                and operation == "read"
+                and arguments.take(1, "job_config") is not None
+            ):
+                # A query job's configuration can name a destination table:
+                # a `SELECT` with one writes.
+                operation = "unknown"
+                self.limit(frame, call, "the query job's configuration is not read; whether it writes is not read")
             statement, target = read.keyword, read.table
             supplied.append(("statement", text))
             digest = (text,)

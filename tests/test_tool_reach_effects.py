@@ -890,3 +890,16 @@ def test_a_session_over_an_engine_built_elsewhere_is_configured_elsewhere(tmp_pa
     assert _effects(reach) == [("database", "read", "session.execute", None)]
     assert any("built outside this function" in why for why in _whys(reach))
     assert _claims(reach) == []
+
+
+def test_a_bigquery_select_with_a_job_configuration_is_not_a_read(tmp_path):
+    reach = _reach(
+        tmp_path,
+        "from google.cloud import bigquery\n\n"
+        "def act(config) -> None:\n"
+        "    client = bigquery.Client()\n"
+        '    client.query("SELECT 1", job_config=config)\n',
+    )
+    assert _effects(reach) == [("cloud", "unknown", "client.query", None)]
+    assert any("job's configuration" in why for why in _whys(reach))
+    assert _claims(reach) == []
