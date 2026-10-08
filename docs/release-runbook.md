@@ -545,6 +545,10 @@ The shape that holds:
    then `.well-known`'s `release_status.latest_release` and every other surface
    that names the newest release — `tests/test_public_surface_contract.py`
    fails once per file until each does, so the suite enumerates them for you.
+   That includes the `rev: v<version>` of every pre-commit example
+   (`.pre-commit-hooks.yaml`'s header, `docs/integrations.md`,
+   `examples/pre-commit/README.md`): `tests/test_distribution_surface_parity.py`
+   sweeps the whole repository for them, so a new one is enumerated the same way.
    Two surfaces are measurements rather than pins, and are re-taken on the
    published build installed from PyPI into a clean virtualenv outside any
    checkout. The first is the README and quickstart `diff` answers: run that

@@ -403,7 +403,7 @@ Run Agents Shipgate locally on every commit that touches a tool-surface artifact
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/ThreeMoonsLab/agents-shipgate
-    rev: v1.0.0
+    rev: v1.2.0
     hooks:
       - id: agents-shipgate
 ```
