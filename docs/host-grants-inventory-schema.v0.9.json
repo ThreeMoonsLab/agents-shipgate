@@ -1248,8 +1248,9 @@
       "title": "HostInventoryIssueV9",
       "type": "object"
     },
-    "HostMcpLaunchSourceV7": {
+    "HostMcpLaunchSourceV9": {
       "additionalProperties": false,
+      "description": "#825's pin, and where the launcher finds the source when the declaration leaves it open (#933).\n\n``resolution`` is ``local_project_or_registry`` for an ``npx`` package\nnamed with no version specifier: npm runs the local project's dependency\nof that name when there is one and otherwise installs it from the\nregistry into its cache, and the declaration does not establish which. It\nis absent for every other source. ``pin`` keeps #825's meaning, a fact of\nthe declaration. Display-only, like the rest of ``launch_source``.\nExtended in place: ``0.9`` has not shipped in a tagged release.",
       "properties": {
         "package": {
           "anyOf": [
@@ -1271,12 +1272,25 @@
           ],
           "title": "Pin",
           "type": "string"
+        },
+        "resolution": {
+          "anyOf": [
+            {
+              "const": "local_project_or_registry",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolution"
         }
       },
       "required": [
         "pin"
       ],
-      "title": "HostMcpLaunchSourceV7",
+      "title": "HostMcpLaunchSourceV9",
       "type": "object"
     },
     "HostMcpServerGrantV9": {
@@ -1363,7 +1377,7 @@
         "launch_source": {
           "anyOf": [
             {
-              "$ref": "#/$defs/HostMcpLaunchSourceV7"
+              "$ref": "#/$defs/HostMcpLaunchSourceV9"
             },
             {
               "type": "null"

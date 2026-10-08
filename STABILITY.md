@@ -411,6 +411,57 @@ all declare read-only scopes does the same, its `access` moving from `write`
 to `read`. Calls to another repository read as before.
 See [`docs/host-boundary-support.md`](docs/host-boundary-support.md#workflow-token-scopes).
 
+<a id="mcp-row-wording-929-933"></a>
+
+## Migration Note: Unreleased — MCP rows bounded to the read declaration (host-grants `0.9`, #929, #933)
+
+**What was wrong.** Published `1.2.0` worded two MCP rows past what a static
+read establishes. A `.mcp.json` removed while the same server moved inline
+into a plugin manifest's `mcpServers`, which no reader reads, was a removal
+saying "an MCP tool surface is no longer offered to the agent" (#929). An
+`npx` package named with no version specifier was noted `launch source is
+mutable`, though npm documents that such a name runs the local project's
+dependency of that name when there is one, and is otherwise installed from the
+registry into the npm cache
+(https://docs.npmjs.com/cli/v11/commands/npm-exec#description) (#933).
+
+**What changes.**
+
+- A removed MCP server's `why` reads `the server is no longer declared in this
+  source; whether it is still offered through a changed declaration this
+  entry does not read is not established` when the same comparison names a
+  changed, unread input that may declare MCP servers in the head (#821's
+  `plugin_manifest_mcp_servers`, `unparsed_plugin_manifest` or
+  `plugin_mcp_config`, present in the head) whose plugin directory holds the
+  removed file and whose item names the server's host, or the server's host
+  is `unknown`. See [host-boundary support](docs/host-boundary-support.md#changed-inputs-named-but-not-read).
+- An added or changed MCP row for `npx [-y|--yes] NAME` ends `package spec
+  has no exact version; launch resolution not established: npx may resolve a
+  local project dependency or fall back to the registry/cache`, or `launch
+  source moved from pinned (…) to a package spec with no exact version; …`.
+  Host-grants inventory `0.9`, unpublished before this release, is extended in
+  place: such a grant's `launch_source` adds `resolution:
+  "local_project_or_registry"` beside `pin: "mutable"`, which keeps #825's
+  meaning. The member is display-only, like the rest of `launch_source`: out
+  of grant equality, the inventory digests and saved baselines.
+- `diff` (text and `--json`), `verify`'s host comparison, the PR comment and
+  `check`'s rows, by `--base` and by `--diff`, agree. `check` lists the
+  change's files to word a removal only when an MCP server is removed, and
+  names none of them; a provided diff states only the files it touches.
+
+**Who must act.** A consumer matching either `why` text exactly sees new
+text. Nobody else.
+
+**What does not change.** No row is added, removed or paired; direction,
+`expands`, severity, expansion signals and every `check` decision are as
+before. The unread input stays its own coverage item and is never read,
+matched by server name or treated as the replacement. No `package.json`,
+lockfile, workspace or cache is read. `@latest`, tags, ranges, exact versions,
+`bunx`, `pnpm dlx` and the other launchers keep #825's notes. No check ID,
+CLI flag, control state or permission is added.
+
+---
+
 <a id="hook-matcher-reach-940"></a>
 
 ## Migration Note: Unreleased — a hook whose matchers match no tool name is not a widening (host-grants `0.9`, #940)

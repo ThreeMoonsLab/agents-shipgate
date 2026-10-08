@@ -94,7 +94,10 @@ from agents_shipgate.core.mcp_host_selection import (
     plugin_reference,
     select_mcp_hosts,
 )
-from agents_shipgate.core.mcp_launch_source import launch_source_pin
+from agents_shipgate.core.mcp_launch_source import (
+    launch_source_pin,
+    launch_source_resolution,
+)
 from agents_shipgate.core.openshell import (
     OpenShellCollectionBudget,
     OpenShellReadError,
@@ -1269,7 +1272,13 @@ def _mcp_launch_source(config: dict[str, Any]) -> dict[str, Any] | None:
     # Reuse #819's exact publication gate. Bare names and Git URLs remain
     # withheld even when their pin state can be established.
     shown = _published_package_index(args, redacted)
-    return {"pin": pin, "package": args[index] if shown == index else None}
+    source: dict[str, Any] = {"pin": pin, "package": args[index] if shown == index else None}
+    # Where the launcher finds an unversioned `npx` package is not established
+    # by the declaration (#933): published beside the pin, never instead of it.
+    resolution = launch_source_resolution(command, args, index)
+    if resolution is not None:
+        source["resolution"] = resolution
+    return source
 
 
 #: VS Code's prompted-input reference, e.g. `"API_KEY": "${input:apiKey}"`.

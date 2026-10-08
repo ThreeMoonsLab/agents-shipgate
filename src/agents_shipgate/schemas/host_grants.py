@@ -1213,10 +1213,28 @@ HostNameV9 = Literal["codex", "claude-code", "cursor", "vscode", "github", "open
 McpHostNameV9 = Literal["codex", "claude-code", "cursor", "vscode", "github", "unknown"]
 
 
+class HostMcpLaunchSourceV9(HostMcpLaunchSourceV7):
+    """#825's pin, and where the launcher finds the source when the declaration leaves it open (#933).
+
+    ``resolution`` is ``local_project_or_registry`` for an ``npx`` package
+    named with no version specifier: npm runs the local project's dependency
+    of that name when there is one and otherwise installs it from the
+    registry into its cache, and the declaration does not establish which. It
+    is absent for every other source. ``pin`` keeps #825's meaning, a fact of
+    the declaration. Display-only, like the rest of ``launch_source``.
+    Extended in place: ``0.9`` has not shipped in a tagged release.
+    """
+
+    resolution: Literal["local_project_or_registry"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+
 class HostMcpServerGrantV9(HostMcpServerGrantV7):
     """An MCP server, published under the host whose declaration selects its file (#936)."""
 
     host: McpHostNameV9
+    launch_source: HostMcpLaunchSourceV9 | None = None
 
 
 class HostMcpServerBaselineGrantV9(HostMcpServerGrantV2):

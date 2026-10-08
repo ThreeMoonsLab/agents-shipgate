@@ -88,6 +88,19 @@ one through its MCP rule and a nested one as a protected surface, and names in
 under on either compared side; one whose host is not established names none.
 `detect`'s host-boundary candidates are still listed from file names alone.
 
+An added or changed server launched by a known package runner carries the
+[launch-source note](engineering/mcp-launch-source-notes.md) (#825). For
+`npx` given a package name with no version specifier, such as
+`npx -y @webiny/stdlib serve`, the note states the declaration fact and what
+it leaves open apart (#933): `package spec has no exact version; launch
+resolution not established: npx may resolve a local project dependency or
+fall back to the registry/cache`. npm documents that such a name "will be
+matched with whatever version exists in the local project", and is installed
+into the npm cache only when the project does not depend on it
+([npm exec](https://docs.npmjs.com/cli/v11/commands/npm-exec#description)). No
+`package.json`, lockfile, `node_modules` or cache is read to decide which
+applies, and the row's direction, `expands` and severity do not move.
+
 The boundary is intentionally fail-closed above the adapters' specialized
 semantics. Most instruction, policy, skill, and workflow edits therefore route
 to human review unless a dedicated rule can prove the change safe. This can be
@@ -1040,6 +1053,26 @@ Codex or Cursor marketplace, a hook file a manifest names under another file
 name, a file other than a `.mcp.json` that a `mcpServers` reference names — is
 still neither read nor named.
 Each shape stays here until a reader exists for it (#663).
+
+Such an item also bounds one row's wording (#929). A removed MCP server's row
+reads `an MCP tool surface is no longer offered to the agent` unless the same
+comparison names a changed, unread input that may declare MCP servers in the
+head — a plugin manifest's `mcpServers` (`added` or `changed`), a manifest that
+does not parse, or a plugin's `mcp.json` — in the **same plugin scope** (the
+removed server's file is in that input's plugin directory or below it, the
+repository root holding every file, compared case-insensitively) and for the
+**same host** (its item names the server's host, or the server was published
+under `unknown`). Then the row reads `the server is no longer declared in this
+source; whether it is still offered through a changed declaration this entry
+does not read is not established`. So a `.mcp.json` removed while
+`.claude-plugin/plugin.json` moves the same server inline is not reported as a
+capability loss, and is not reported as a move either: the unread input is
+never read, matched by server name or paired with the row, and stays named as
+its own item. Direction, `expands`, severity and `check`'s decision are
+unchanged. `check` lists the changed files for this only when a server is
+removed and names none of them; a provided diff (`check --diff`) states only
+the files it touches, so a plugin's `mcp.json` beside an untouched manifest
+does not bound its rows.
 
 ## Local-static audit scope
 

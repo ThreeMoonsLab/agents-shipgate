@@ -111,7 +111,8 @@ def grant(config):
 @pytest.mark.parametrize("before,after,phrase", [
     (None, {"command": "npx", "args": ["pkg@latest"]}, "launch source is mutable (pkg@latest)"),
     ({"command": "npx", "args": ["pkg@1.2.3"]}, {"command": "npx", "args": ["pkg@latest"]}, "launch source moved from pinned (pkg@1.2.3) to mutable (pkg@latest)"),
-    (None, {"command": "npx", "args": ["pkg"]}, "launch source is mutable"),
+    # An unversioned npx package names its resolution, not mutability (#933).
+    (None, {"command": "npx", "args": ["pkg"]}, "package spec has no exact version; launch resolution not established"),
     ({"command": "npx", "args": ["pkg@1.2.3"]}, {"command": "npx", "args": ["pkg@1.2.4"]}, None),
     (None, {"url": "https://example.com/mcp"}, None),
     (None, {"command": "node", "args": ["./server.js"]}, None),

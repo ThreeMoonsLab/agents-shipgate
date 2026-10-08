@@ -69,6 +69,7 @@ from agents_shipgate.core.permission_lattice import (
     subsumes,
 )
 from agents_shipgate.core.permission_residual import residual_prefix_note
+from agents_shipgate.core.unread_inputs import UnreadMcpDeclaration
 from agents_shipgate.schemas.capability_diff import CapabilityDiffRow as CapabilityDiffRow
 
 ABSENT = "—"
@@ -790,6 +791,49 @@ MCP_HOST_NOT_ESTABLISHED = (
 )
 
 
+#: The `why` of a removed MCP server.
+MCP_REMOVED_WHY = "an MCP tool surface is no longer offered to the agent"
+#: The `why` of a removed MCP server while a changed input this entry does
+#: not read may declare MCP servers for it (#929): what the removal
+#: establishes is about the read declaration, not about what is offered.
+MCP_REMOVED_UNREAD_DECLARATION = (
+    "the server is no longer declared in this source; whether it is still offered "
+    "through a changed declaration this entry does not read is not established"
+)
+
+
+def _unread_declaration_may_offer(
+    grant: dict[str, Any], declarations: Sequence[UnreadMcpDeclaration]
+) -> bool:
+    """Whether a changed, unread MCP declaration shares this removed server's host and plugin scope (#929).
+
+    One does when both hold:
+
+    - **plugin scope**: the removed server's file lies inside the
+      declaration's plugin directory, that directory or one below it (the
+      repository root holds every file), compared case-insensitively as #936
+      selects a `.mcp.json`; and
+    - **host**: the declaration's coverage item names the server's host, or
+      the server was published under ``unknown`` (#936), whose host is not
+      established to differ.
+
+    Paths are the published ones on both sides; a path component redaction
+    rewrote matches neither, so such a row keeps its wording. The declaration
+    is never read, matched by server name or paired with the row.
+    """
+
+    host = str(grant.get("host") or "")
+    path = str(grant.get("source") or "").split("#", 1)[0].casefold()
+    directory = path.rpartition("/")[0]
+    for declaration in declarations:
+        root = declaration.root.casefold()
+        if root and directory != root and not directory.startswith(root + "/"):
+            continue
+        if host == UNATTRIBUTED_MCP_HOST or host in declaration.hosts:
+            return True
+    return False
+
+
 def _subject(grant: dict[str, Any]) -> str:
     host = str(grant.get("host") or "")
     source = str(grant.get("source") or "")
@@ -826,7 +870,7 @@ def _why(
     wildcard = bool(grant.get("wildcard"))
     if kind == "mcp_server":
         if direction == REMOVED:
-            return "an MCP tool surface is no longer offered to the agent"
+            return MCP_REMOVED_WHY
         return "an MCP tool surface the agent may call has changed"
     if kind == "permission_rule":
         disposition = grant.get("disposition")
@@ -1150,6 +1194,17 @@ _PRINTABLE_URL = re.compile(r"(?:https?|wss?|sse)://[^\s/?#@]+(?:/|/<redacted-pa
 _URL_NOT_SHOWN = "not shown"
 
 
+#: The declaration fact for an `npx` package named with no version (#933).
+NO_EXACT_VERSION = "package spec has no exact version"
+#: What that declaration leaves open, as npm documents `npx` resolving it
+#: (https://docs.npmjs.com/cli/v11/commands/npm-exec#description). Said as a
+#: limit of this read, not as registry code selected on every launch.
+NPX_LOCAL_OR_REGISTRY = (
+    "launch resolution not established: npx may resolve a local project dependency "
+    "or fall back to the registry/cache"
+)
+
+
 def _mcp_source_note(before: dict[str, Any] | None, after: dict[str, Any] | None) -> str | None:
     source = (after or {}).get("launch_source")
     if not source or source.get("pin") != "mutable":
@@ -1158,6 +1213,15 @@ def _mcp_source_note(before: dict[str, Any] | None, after: dict[str, Any] | None
     def label(value: dict[str, Any]) -> str:
         package = value.get("package")
         return f" ({published_workflow_label(str(package))})" if package else ""
+    if source.get("resolution") == "local_project_or_registry":
+        # The observed declaration and the launch it leaves open, said apart
+        # (#933): an unversioned `npx` package is not "mutable" on its own.
+        if old.get("pin") == "pinned":
+            return (
+                f"launch source moved from pinned{label(old)} to a package spec with no "
+                f"exact version{label(source)}; {NPX_LOCAL_OR_REGISTRY}"
+            )
+        return f"{NO_EXACT_VERSION}{label(source)}; {NPX_LOCAL_OR_REGISTRY}"
     if old.get("pin") == "pinned":
         return f"launch source moved from pinned{label(old)} to mutable{label(source)}"
     return f"launch source is mutable{label(source)}"
@@ -1906,8 +1970,15 @@ def _link_rows(
 def capability_diff_rows(
     payload: dict[str, Any], *, redact_permission_arguments: bool = False,
     current_grants: Sequence[dict[str, Any]] = (),
+    unread_mcp_declarations: Sequence[UnreadMcpDeclaration] = (),
 ) -> list[CapabilityDiffRow]:
-    """Every typed grant change in ``payload``, one row each."""
+    """Every typed grant change in ``payload``, one row each.
+
+    ``unread_mcp_declarations`` are the changed inputs of the same comparison
+    no reader read that may declare MCP servers (#929). A removed MCP server
+    sharing one's host and plugin scope says only that it is no longer
+    declared in its source; it moves no direction, ``expands`` or severity.
+    """
 
     expansions = set(payload.get("expansion_signals") or [])
     # One reading of every changed Claude Code rule against its own source,
@@ -2054,6 +2125,8 @@ def capability_diff_rows(
         )
         if note:
             why = f"{why}; {note}"
+        if why == MCP_REMOVED_WHY and _unread_declaration_may_offer(grant, unread_mcp_declarations):
+            why = MCP_REMOVED_UNREAD_DECLARATION
         if grant.get("kind") == "mcp_server" and grant.get("host") == UNATTRIBUTED_MCP_HOST:
             why = f"{why}; {MCP_HOST_NOT_ESTABLISHED}"
         if grant.get("kind") == "mcp_server" and (note := _mcp_source_note(before_grant, after_grant)):

@@ -671,6 +671,16 @@ def _read_by_entry(before: dict[str, Any], after: dict[str, Any]) -> Callable[[s
     return read
 
 
+def _removes_mcp_server(payload: dict[str, Any]) -> bool:
+    """Whether a compared change removes an MCP server, whose row #929 may bound."""
+
+    return any(
+        change.get("current") is None
+        and (change.get("baseline") or {}).get("kind") == "mcp_server"
+        for change in payload.get("changes") or []
+    )
+
+
 def _unread(
     before: dict[str, Any], after: dict[str, Any], changed_inputs: ChangedInputs | None
 ) -> UnreadDiscovery | None:
@@ -1277,7 +1287,7 @@ def compare_host_inventories(
     unchanged: Callable[[str], bool] | None = None,
     identities: IdentityAnswers | None = None,
     coverage: bool = True,
-    changed_inputs: ChangedInputs | None = None,
+    changed_inputs: ChangedInputs | Callable[[], ChangedInputs] | None = None,
     plugin_scopes: PluginScopes | None = None,
     absent: Callable[[str], bool] | None = None,
 ) -> HostComparison:
@@ -1308,8 +1318,16 @@ def compare_host_inventories(
     way to look at it (#821). With it, coverage also names each changed input
     a documented candidate rule recognises and no reader of this entry read,
     and records whether the set could be listed. Without it, coverage records
-    nothing about such inputs. It never touches the rows, the reasons, the
-    limits or the digests.
+    nothing about such inputs. It never adds, removes or reorders a row, and
+    never touches a row's direction, severity, the reasons, the limits or the
+    digests.
+
+    The same discovery bounds one row's wording (#929): a removed MCP server
+    that a changed, unread MCP declaration of the same comparison shares a
+    host and plugin scope with says only that its source no longer declares
+    it. ``changed_inputs`` may be a function returning the set, called at
+    most once and only when it is needed: always with coverage, and without
+    it (`check`) only when a removed MCP server is among the changes.
 
     ``plugin_scopes`` are both readers' plugin reference graphs (#808). With
     them, and with coverage recorded, a comparison refused only by
@@ -1327,6 +1345,9 @@ def compare_host_inventories(
     reasons: list[str] = []
     limits: list[dict[str, str]] = []
     retained: _Retained | None = None
+    list_changed_inputs = None if isinstance(changed_inputs, ChangedInputs) else changed_inputs
+    if list_changed_inputs is not None:
+        changed_inputs = list_changed_inputs() if coverage else None
     # The digests are of what each side read; the comparison reads a script
     # whose bytes differ only as a checkout may make them as unchanged (#702).
     read_after = after
@@ -1403,6 +1424,13 @@ def compare_host_inventories(
             },
             unread,
         )
+    if unread is None and not refused and _removes_mcp_server(payload):
+        # Only to word a removed server's row; no coverage is recorded (#929).
+        unread = _unread(
+            before,
+            after,
+            list_changed_inputs() if list_changed_inputs is not None else changed_inputs,
+        )
     rows = (
         []
         if refused
@@ -1410,6 +1438,7 @@ def compare_host_inventories(
             payload,
             redact_permission_arguments=redact_permission_arguments,
             current_grants=(retained.after if retained is not None else after).get("grants", []),
+            unread_mcp_declarations=unread.mcp_declarations if unread is not None else (),
         )
     )
     return HostComparison(

@@ -346,7 +346,13 @@ SURFACES: tuple[Surface, ...] = (
         # grant equality, the inventory digests and saved baselines, so it
         # restates no answer and moves no row, severity or `check` decision;
         # `tests/test_mcp_launch_source.py` holds diff, verify, the PR comment
-        # and check to it.
+        # and check to it. Its unversioned-`npx` wording (#933) renders the
+        # display-only `resolution` beside that pin, and a removed MCP row's
+        # bounded wording (#929) restates the #821 unread-input discovery the
+        # comparator already ran, matching no server and pairing no row, so
+        # neither adds a claim or moves a row, severity or `check` decision;
+        # `tests/test_mcp_row_bounded_wording.py` holds diff, verify, the PR
+        # comment and both `check` routes to them.
         # An MCP row's subject and `why` naming the host whose declaration
         # selects its `.mcp.json`, or no host for one the inventory published
         # under `unknown` (#936), restate the inventory's attribution, the
