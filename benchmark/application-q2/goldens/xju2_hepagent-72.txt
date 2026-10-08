@@ -1,0 +1,49 @@
+Application comparison: partial (1dcbe4311131 → ab189e95c240)
+scope: src/hepagent (derived: src/hepagent: src/hepagent/agents/cli_repl.py is an agent file)
+Findings: 1 changed agent, 1 row (1 changed); effect evidence 1 code_execution (structural evidence).
+Skilled Agent [partial]: ~request_slurm_interactive (no new reach established; still reaches process execute tmux; not read beyond src/hepagent/tools/tmux.py:202)
+  ~request_slurm_interactive: implementation changed; still reaches process execute tmux (subprocess.run) at src/hepagent/tools/tmux.py:23 [model-supplied account → command; constraint → command; extra_args → command; and 5 more]; first unread: src/hepagent/tools/tmux.py:202 request_slurm_interactive is decorated with function_tool, which is not read (and 1 more)
+  Review: Do the changes to request_slurm_interactive (implementation) still match what Skilled Agent should be able to do?
+Also not read, and not tied to a row above: 13 limits on JFC Typesetter, Explorer Agent, agent, no single agent; first: OpenAI Agents SDK agent 'JFC Typesetter' at agents/jfc/executor.py:319 has a tools list it reads only in part; its binding graph is incomplete. Not read: a call to `get_jfc_tools`, whose result is not read (agents/jfc/executor.py:323).
+Detail:
+CHANGED  Skilled Agent → request_slurm_interactive
+  before: request_slurm_interactive(session_name, window_name, nodes, time_limit, qos, constraint, account, extra_args) -> str at src/hepagent/agents/skilled.py:32
+    implementation: src/hepagent/tools/tmux.py:192 (ace04f19f804)
+    imported: src/hepagent/agents/skilled.py:13 → src/hepagent/tools/tmux.py:192
+    reaches: process execute tmux (subprocess.run) at src/hepagent/tools/tmux.py:19 via src/hepagent/tools/tmux.py:234 _send_keys → src/hepagent/tools/tmux.py:31 _run, and 1 more call site
+      model-supplied: account → command; constraint → command; extra_args → command; nodes → command; qos → command; session_name → command; time_limit → command; window_name → command
+    effect: code_execution (structural evidence: process execute at src/hepagent/tools/tmux.py:19)
+    reach limit: src/hepagent/tools/tmux.py:191 request_slurm_interactive is decorated with function_tool, which is not read
+  after: request_slurm_interactive(session_name, window_name, nodes, time_limit, qos, constraint, account, extra_args) -> str at src/hepagent/agents/skilled.py:32
+    implementation: src/hepagent/tools/tmux.py:203 (c1293ae38b97)
+    imported: src/hepagent/agents/skilled.py:13 → src/hepagent/tools/tmux.py:203
+    reaches: process execute tmux (subprocess.run) at src/hepagent/tools/tmux.py:23 via src/hepagent/tools/tmux.py:247 _send_keys → src/hepagent/tools/tmux.py:35 _run, and 1 more call site
+      model-supplied: account → command; constraint → command; extra_args → command; nodes → command; qos → command; session_name → command; time_limit → command; window_name → command
+    effect: code_execution (structural evidence: process execute at src/hepagent/tools/tmux.py:23)
+    reach limit: src/hepagent/tools/tmux.py:202 request_slurm_interactive is decorated with function_tool, which is not read
+    reach limit: src/hepagent/tools/tmux.py:245 calls time.monotonic_ns, which is not read
+  The bound callable's interface or implementation changed; authority direction is not established.
+  Review: Should Skilled Agent have this changed binding to request_slurm_interactive? Review the before/after signature and implementation locations.
+  base limit: A possibly reachable tool has an incomplete binding edge; provide a complete static graph or reviewed declaration.
+  base limit: OpenAI Agents SDK agent 'Explorer Agent' at agents/explorer.py:231 binds the tool expression `_create_exploration_tool(model_provider, model_name)`, which is not a reference this reader resolves.
+  base limit: OpenAI Agents SDK agent 'JFC Typesetter' at agents/jfc/executor.py:319 has a tools list it reads only in part; its binding graph is incomplete. Not read: a call to `get_jfc_tools`, whose result is not read (agents/jfc/executor.py:323).
+  base limit: OpenAI Agents SDK agent 'agent' at agents/jfc/investigator.py:128 has a tools list it reads only in part; its binding graph is incomplete. Not read: a call to `get_jfc_tools`, whose result is not read (agents/jfc/investigator.py:137).
+  base limit: OpenAI Agents SDK agent 'agent' at agents/role.py:127 uses a dynamic tools expression; its binding graph is incomplete. Not read: `tools` may be changed in place after it is built (agents/role.py:117).
+  base limit: OpenAI Agents SDK agent constructed at agents/cli_repl.py:448 has no literal name, so it cannot be identified; its tools are not read.
+  base limit: OpenAI Agents SDK agent constructed at agents/jfc/executor.py:180 has no literal name, so it cannot be identified; its tools are not read.
+  base limit: OpenAI Agents SDK agent constructed at agents/jfc/executor.py:267 has no literal name, so it cannot be identified; its tools are not read.
+  base limit: OpenAI Agents SDK agent constructed at agents/jfc/fixer.py:65 has no literal name, so it cannot be identified; its tools are not read.
+  base limit: OpenAI Agents SDK agent constructed at agents/jfc/reviewers.py:66 has no literal name, so it cannot be identified; its tools are not read.
+  base limit: OpenAI Agents SDK agent constructed at agents/textual.py:325 has no literal name, so it cannot be identified; its tools are not read.
+  head limit: A possibly reachable tool has an incomplete binding edge; provide a complete static graph or reviewed declaration.
+  head limit: OpenAI Agents SDK agent 'Explorer Agent' at agents/explorer.py:231 binds the tool expression `_create_exploration_tool(model_provider, model_name)`, which is not a reference this reader resolves.
+  head limit: OpenAI Agents SDK agent 'JFC Typesetter' at agents/jfc/executor.py:319 has a tools list it reads only in part; its binding graph is incomplete. Not read: a call to `get_jfc_tools`, whose result is not read (agents/jfc/executor.py:323).
+  head limit: OpenAI Agents SDK agent 'agent' at agents/jfc/investigator.py:128 has a tools list it reads only in part; its binding graph is incomplete. Not read: a call to `get_jfc_tools`, whose result is not read (agents/jfc/investigator.py:137).
+  head limit: OpenAI Agents SDK agent 'agent' at agents/role.py:127 uses a dynamic tools expression; its binding graph is incomplete. Not read: `tools` may be changed in place after it is built (agents/role.py:117).
+  head limit: OpenAI Agents SDK agent constructed at agents/cli_repl.py:474 has no literal name, so it cannot be identified; its tools are not read.
+  head limit: OpenAI Agents SDK agent constructed at agents/jfc/executor.py:180 has no literal name, so it cannot be identified; its tools are not read.
+  head limit: OpenAI Agents SDK agent constructed at agents/jfc/executor.py:267 has no literal name, so it cannot be identified; its tools are not read.
+  head limit: OpenAI Agents SDK agent constructed at agents/jfc/fixer.py:65 has no literal name, so it cannot be identified; its tools are not read.
+  head limit: OpenAI Agents SDK agent constructed at agents/jfc/reviewers.py:66 has no literal name, so it cannot be identified; its tools are not read.
+  head limit: OpenAI Agents SDK agent copy at main.py:154 (clone) is not read: it passes its own tools, handoffs or MCP servers.
+This comparison is advisory evidence and supplies no release verdict or merge permission.

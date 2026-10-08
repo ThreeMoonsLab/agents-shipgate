@@ -181,6 +181,7 @@ SURFACES: tuple[Surface, ...] = (
         (
             "src/agents_shipgate/cli/application_diff.py",
             "src/agents_shipgate/cli/application_scope.py",
+            "src/agents_shipgate/cli/application_summary.py",
             "src/agents_shipgate/inputs/tool_reach.py",
         ),
         # Advisory source-wiring comparison, not host drift or an engine verdict.
@@ -209,6 +210,10 @@ SURFACES: tuple[Surface, ...] = (
         # `object_evidence` where the wrapped agent lives: facts about the
         # source, not an engine answer, so neither adds a claim
         # (`tests/test_object_bound_tools.py`).
+        # Its additive `summary` (#914) reads the rows and states nothing a row
+        # does not: no row, status, gap or exit code moves, and it is left out
+        # of the benchmark's `answer_id`, so it adds no claim either
+        # (`tests/test_application_summary.py`).
         {},
     ),
     Surface(

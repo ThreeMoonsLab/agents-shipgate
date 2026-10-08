@@ -1,0 +1,67 @@
+Application comparison: partial (420f570c9b80 → da7034ae6ea4)
+scope: . (derived: .: app/Agent/financeAgent.py is an agent file)
+  scope limit: Changed files are not related to a compared agent, so their effect is not compared: app/service/contract_service.py (no agent file reaches it within 6 import hops, and longer paths were not followed).
+Findings: 1 changed agent, 2 rows (1 added, 1 changed); effect evidence 2 write (provisional: unknown effect).
+Finance_Agent_Preflight [partial]: +load_service_catalog, ~load_and_validate (new reach: database read; not read beyond app/tools/FinanceAgent/tools.py:39)
+  +load_service_catalog: reaches database read SELECT (postgresql, psycopg2 cursor.execute) at app/database/repository.py:80 [host aws-0-ap-southeast-1.pooler.supabase.com, env SUPABASE_DB_HOST; credential env SUPABASE_DB_PASSWORD, env SUPABASE_PASSWORD → keyword password]; first unread: app/tools/FinanceAgent/tools.py:56 calls asyncio.to_thread, which is not read (and 9 more)
+  ~load_and_validate: implementation changed; no outbound call or library effect established, before or after; first unread: app/tools/FinanceAgent/tools.py:39 calls asyncio.to_thread, which is not read (and 83 more)
+  Review: Should Finance_Agent_Preflight reach database read SELECT (postgresql, psycopg2 cursor.execute) through load_service_catalog, sending env SUPABASE_DB_PASSWORD, env SUPABASE_PASSWORD → keyword password?
+  Review: Do the changes to load_and_validate (implementation) still match what Finance_Agent_Preflight should be able to do?
+Also not read, and not tied to a row above: 13 limits on Finance_Agent, no single agent, continuation_agent; first: OpenAI Agents SDK agent 'Finance_Agent' at app/Agent/financeAgent.py:91 uses a dynamic tools expression; its binding graph is incomplete. Not read: the caller's returned agent handle may change its capability list (app/Agent/financeAgent.py:99).
+Detail:
+CHANGED  Finance_Agent_Preflight → load_and_validate
+  before: load_and_validate() -> dict at app/Agent/financeAgent.py:112
+    implementation: app/tools/FinanceAgent/tools.py:48 (d9a88e789d41)
+    imported: app/Agent/financeAgent.py:110 → app/tools/FinanceAgent/tools.py:48
+    effect: write (provisional: unknown effect)
+    reach limit: app/tools/FinanceAgent/tools.py:39 calls asyncio.to_thread, which is not read
+    reach limit: app/tools/FinanceAgent/finance_data.py:47 calls _fetch, more than 3 helper calls from the tool; not read
+    reach limit: app/tools/FinanceAgent/finance_data.py:51 calls _fetch, more than 3 helper calls from the tool; not read
+    reach limit: and 78 more
+  after: load_and_validate() -> dict at app/Agent/financeAgent.py:117
+    implementation: app/tools/FinanceAgent/tools.py:74 (6020204afe40)
+    imported: app/Agent/financeAgent.py:111 → app/tools/FinanceAgent/tools.py:74
+    effect: write (provisional: unknown effect)
+    reach limit: app/tools/FinanceAgent/tools.py:39 calls asyncio.to_thread, which is not read
+    reach limit: app/tools/FinanceAgent/finance_data.py:47 calls _fetch, more than 3 helper calls from the tool; not read
+    reach limit: app/tools/FinanceAgent/finance_data.py:51 calls _fetch, more than 3 helper calls from the tool; not read
+    reach limit: and 81 more
+  The bound callable's interface or implementation changed; authority direction is not established.
+  Review: Should Finance_Agent_Preflight have this changed binding to load_and_validate? Review the before/after signature and implementation locations.
+ADDED  Finance_Agent_Preflight → load_service_catalog
+  before: no observed binding
+  after: load_service_catalog() -> dict at app/Agent/financeAgent.py:117
+    implementation: app/tools/FinanceAgent/tools.py:48 (418c97358c98)
+    imported: app/Agent/financeAgent.py:111 → app/tools/FinanceAgent/tools.py:48
+    reaches: database read SELECT (postgresql, psycopg2 cursor.execute) at app/database/repository.py:80 via app/tools/FinanceAgent/tools.py:56 get_services → app/tools/FinanceAgent/finance_data.py:71 _fetch → app/tools/FinanceAgent/finance_data.py:40 query_db
+      host: aws-0-ap-southeast-1.pooler.supabase.com, env SUPABASE_DB_HOST
+      credential: env SUPABASE_DB_PASSWORD, env SUPABASE_PASSWORD → keyword password
+    effect: write (provisional: unknown effect)
+    reach limit: app/tools/FinanceAgent/tools.py:56 calls asyncio.to_thread, which is not read
+    reach limit: app/database/repository.py:73 calls init_db_pool, more than 3 helper calls from the tool; not read
+    reach limit: app/database/repository.py:80 the SELECT statement splices in a value the read does not name; a further statement in it is not read
+    reach limit: and 7 more
+  The source now binds this callable to this agent.
+  Review: Should Finance_Agent_Preflight have this added binding to load_service_catalog? Review the before/after signature and implementation locations.
+  base limit: OpenAI Agents SDK agent 'Finance_Agent' at app/Agent/financeAgent.py:91 uses a dynamic tools expression; its binding graph is incomplete. Not read: the caller's returned agent handle may change its capability list (app/Agent/financeAgent.py:99).
+  base limit: OpenAI Agents SDK agent 'Finance_Agent' has dynamic handoffs at app/Agent/financeAgent.py:91. Not read: the caller's returned agent handle may change its capability list (app/Agent/financeAgent.py:100).
+  base limit: OpenAI Agents SDK agent 'Finance_Agent' is constructed more than once in app/Agent/financeAgent.py (app/Agent/financeAgent.py:91, app/Agent/financeAgent.py:91, app/Agent/financeAgent.py:91); its tools are not attributed to either construction.
+  base limit: OpenAI Agents SDK agent 'Finance_Agent': its builder's constructor or imports may change its capability lists.
+  base limit: OpenAI Agents SDK agent 'Finance_Agent': the caller's returned agent handle may change its handoffs.
+  base limit: OpenAI Agents SDK agent 'Finance_Agent': the caller's returned agent handle may change its tools or MCP servers.
+  base limit: OpenAI Agents SDK agent constructed at app/Agent/decisionAgent.py:53 has no literal name, so it cannot be identified; its tools are not read.
+  base limit: OpenAI Agents SDK agent constructed at app/Agent/risk_compliance_agent.py:35 has no literal name, so it cannot be identified; its tools are not read.
+  base limit: OpenAI Agents SDK agent constructed at app/Agent/validatorAgent.py:50 has no literal name, so it cannot be identified; its tools are not read.
+  base limit: OpenAI Agents SDK agent copy at app/service/approval.py:428 (clone) is not read: it passes its own tools, handoffs or MCP servers.
+  head limit: OpenAI Agents SDK agent 'Finance_Agent' at app/Agent/financeAgent.py:92 uses a dynamic tools expression; its binding graph is incomplete. Not read: the caller's returned agent handle may change its capability list (app/Agent/financeAgent.py:100).
+  head limit: OpenAI Agents SDK agent 'Finance_Agent' has dynamic handoffs at app/Agent/financeAgent.py:92. Not read: the caller's returned agent handle may change its capability list (app/Agent/financeAgent.py:101).
+  head limit: OpenAI Agents SDK agent 'Finance_Agent' is constructed more than once in app/Agent/financeAgent.py (app/Agent/financeAgent.py:92, app/Agent/financeAgent.py:92, app/Agent/financeAgent.py:92); its tools are not attributed to either construction.
+  head limit: OpenAI Agents SDK agent 'Finance_Agent': its builder's constructor or imports may change its capability lists.
+  head limit: OpenAI Agents SDK agent 'Finance_Agent': the caller's returned agent handle may change its handoffs.
+  head limit: OpenAI Agents SDK agent 'Finance_Agent': the caller's returned agent handle may change its tools or MCP servers.
+  head limit: OpenAI Agents SDK agent constructed at app/Agent/decisionAgent.py:53 has no literal name, so it cannot be identified; its tools are not read.
+  head limit: OpenAI Agents SDK agent constructed at app/Agent/risk_compliance_agent.py:35 has no literal name, so it cannot be identified; its tools are not read.
+  head limit: OpenAI Agents SDK agent constructed at app/Agent/validatorAgent.py:50 has no literal name, so it cannot be identified; its tools are not read.
+  head limit: OpenAI Agents SDK agent copy at app/service/approval.py:428 (clone) is not read: it passes its own tools, handoffs or MCP servers.
+Test files not read as the application (7): decision_agent_sample/test_decision_agent.py, tests/__init__.py, tests/test_contract_service.py, tests/test_finance_preflight.py, tests/test_pipeline_contracts.py, and 2 more
+This comparison is advisory evidence and supplies no release verdict or merge permission.

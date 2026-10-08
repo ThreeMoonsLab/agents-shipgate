@@ -11,8 +11,8 @@ outbound call or a hop the reach reader could not follow. The Q levels are
 not; they come from ``--scores``, written by hand against the source (see the
 README's scoring protocol), and are only joined, never derived. A score names
 the ``answer_id`` of the output it judged: the digest of the answer without
-the engine's own identity. When this run produced a different answer, the
-score is stale, listed as such and not counted, so a level cannot carry over
+the engine's own identity and without its ``summary``, a reading of the rows.
+When this run produced a different answer, the score is stale, listed as such and not counted, so a level cannot carry over
 onto an output nobody read.
 """
 
@@ -31,14 +31,19 @@ CHANGE_KINDS = ("added", "removed", "changed", "not_established")
 #: another machine or release has another ``comparison_id``. A multi-scope
 #: answer repeats the engine block inside each of its ``comparisons``.
 ENGINE_FIELDS = ("engine", "comparison_id")
+#: A reading of the rows, derived from them (#914). It restates no fact the
+#: rows lack, so a hand score that judged the rows keeps judging the answer
+#: whether or not the build that produced it added or reworded this block.
+PRESENTATION_FIELDS = ("summary",)
+NOT_THE_ANSWER = (*ENGINE_FIELDS, *PRESENTATION_FIELDS)
 
 
 def _without_engine(node: dict) -> dict:
-    return {key: value for key, value in node.items() if key not in ENGINE_FIELDS}
+    return {key: value for key, value in node.items() if key not in NOT_THE_ANSWER}
 
 
 def answer_id(payload: dict) -> str:
-    """The digest of an answer: the engine's output without its own identity."""
+    """The digest of an answer: the engine's output without its own identity or its summary."""
 
     answer = _without_engine(payload)
     if isinstance(answer.get("comparisons"), list):
