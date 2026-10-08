@@ -19,6 +19,12 @@ from typing import Any
 import typer
 
 from agents_shipgate.cli.application_scope import derive_scopes
+from agents_shipgate.cli.application_summary import (
+    DETAIL_ROW_LIMIT,
+    build_summary,
+    effect_phrase,
+    summary_lines,
+)
 from agents_shipgate.cli.discovery import detect_workspace
 from agents_shipgate.cli.discovery.artifacts import _candidate_files, _skip_part
 from agents_shipgate.cli.discovery.signals import _is_test_path
@@ -1659,34 +1665,11 @@ def _object_lines(binding: dict[str, Any]) -> list[str]:
     return lines
 
 
-#: Libraries whose effect is named by a function, not a method on an object.
-_FUNCTION_LIBRARIES = frozenset({"builtins", "subprocess", "os", "shutil", "asyncio", "io"})
-
-
-def _effect_phrase(effect: dict[str, Any]) -> str:
-    """One effect beyond HTTP as a reviewer reads it (#913)."""
-
-    words = [effect["family"], effect["operation"]]
-    if effect["family"] in {"cloud", "messaging"} and effect.get("service"):
-        words.append(effect["service"])
-    if effect.get("statement"):
-        words.append(effect["statement"] + (" on" if effect.get("target") else ""))
-    if effect.get("target"):
-        words.append(effect["target"])
-    if effect.get("shell"):
-        words.append("through a shell")
-    library = effect["library"]
-    call = effect["call"] if library in _FUNCTION_LIBRARIES else f"{library} {effect['call']}"
-    if effect["family"] == "database" and effect.get("service"):
-        call = f"{effect['service']}, {call}"
-    return " ".join(words) + f" ({call})"
-
-
 def _effect_lines(effects: list[dict[str, Any]]) -> list[str]:
     lines: list[str] = []
     groups: dict[str, list[dict[str, Any]]] = {}
     for effect in effects:
-        groups.setdefault(_effect_phrase(effect), []).append(effect)
+        groups.setdefault(effect_phrase(effect), []).append(effect)
     for phrase, group in groups.items():
         first = group[0]
         via = f" via {' → '.join(first['via'])}" if first["via"] else ""
@@ -1931,6 +1914,15 @@ def run_application_diff(
     else:
         payload = _combined(comparisons, sides, scope_selection, engine, max_python_files)
     payload = sanitize_report_payload(payload)
+    # The reviewer-first reading of the rows (#914): derived from the
+    # sanitized rows, so it names nothing the rows do not, and it sits before
+    # them so the JSON reads in the order the text does.
+    payload = {
+        "application_comparison_schema_version": payload.pop("application_comparison_schema_version"),
+        "comparison_status": payload.pop("comparison_status"),
+        "summary": build_summary(payload),
+        **payload,
+    }
     payload["comparison_id"] = _digest(payload)
     if json_output:
         typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -2156,10 +2148,25 @@ def _print_comparison(payload: dict[str, Any], base_commit: str, head_commit: st
             typer.echo(f"  scope limit: {_one_line(limit)}")
     if payload.get("comparisons") == []:
         typer.echo("The change touches no supported application agent; nothing was compared.")
-    for item in payload.get("comparisons", [payload]):
-        if "comparisons" in payload:
+    # What the reviewer decides comes first (#914); the rows follow it.
+    for line in summary_lines(payload["summary"]):
+        typer.echo(_one_line(line))
+    rows = len(payload["rows"])
+    if rows > DETAIL_ROW_LIMIT:
+        for item in payload.get("comparisons", []):
             typer.echo(f"Scope {item['head']['scope']}: {item['comparison_status']}")
-        _print_rows(item, _one_line)
+        typer.echo(
+            f"Detail: {rows} rows are not printed here. `--json` carries every row, gap and "
+            "reach limit, and the findings above name the rows they summarize."
+        )
+    else:
+        if rows:
+            typer.echo("Detail:")
+        for item in payload.get("comparisons", [payload]):
+            if "comparisons" in payload:
+                typer.echo(f"Scope {item['head']['scope']}: {item['comparison_status']}")
+            _print_rows(item, _one_line)
+    _print_excluded_tests(payload, _one_line)
     typer.echo(payload["limits"][-1])
 
 
@@ -2226,11 +2233,13 @@ def _print_rows(payload: dict[str, Any], _one_line: Any) -> None:
     for side in ("base", "head"):
         for limit in payload[side]["limits"]:
             typer.echo(f"  {side} limit: {_one_line(limit)}")
+
+
+def _print_excluded_tests(payload: dict[str, Any], _one_line: Any) -> None:
     # Test files are never the application (#876); say which were left
     # out, so a product module that only looks like a test is visible.
     excluded = sorted(
-        set(payload["base"].get("excluded_tests", []))
-        | set(payload["head"].get("excluded_tests", []))
+        set(payload["base"].get("excluded_tests", [])) | set(payload["head"].get("excluded_tests", []))
     )
     if excluded:
         shown = ", ".join(_one_line(path) for path in excluded[:5])

@@ -1,0 +1,29 @@
+Application comparison: compared (10e1f949d48b → cab295001ec0)
+scope: agents/attest_orchestrator (derived: agents/attest_orchestrator: agents/attest_orchestrator/agent.py is an agent file)
+Findings: 1 changed agent, 2 rows (2 added); effect evidence 2 write (provisional: unknown effect).
+attest_orchestrator [partial]: +recall_firm_memory, +remember_firm_finding (reach: none established; not read beyond agents/attest_orchestrator/memory_bank.py:531)
+  +recall_firm_memory: no outbound call or library effect established; first unread: agents/attest_orchestrator/memory_bank.py:531 calls MemoryBank.from_env ('MemoryBank' in memory_bank.py:233 is a class, not a function definition), which is not read (and 1 more)
+  +remember_firm_finding: no outbound call or library effect established; first unread: agents/attest_orchestrator/memory_bank.py:485 calls MemoryBank.from_env ('MemoryBank' in memory_bank.py:233 is a class, not a function definition), which is not read (and 1 more)
+  Review: Should attest_orchestrator be able to call recall_firm_memory, remember_firm_finding? What they reach was not read in full.
+Detail:
+ADDED  attest_orchestrator → recall_firm_memory
+  before: no observed binding
+  after: recall_firm_memory(crd, query, category, limit) -> dict at agents/attest_orchestrator/agent.py:97
+    implementation: agents/attest_orchestrator/memory_bank.py:501 (0da3315ab874)
+    imported: agents/attest_orchestrator/agent.py:22 → agents/attest_orchestrator/memory_bank.py:501
+    effect: write (provisional: unknown effect)
+    reach limit: agents/attest_orchestrator/memory_bank.py:531 calls MemoryBank.from_env ('MemoryBank' in memory_bank.py:233 is a class, not a function definition), which is not read
+    reach limit: agents/attest_orchestrator/memory_bank.py:545 calls bank.retrieve, which is not read
+  The source now binds this callable to this agent.
+  Review: Should attest_orchestrator have this added binding to recall_firm_memory? Review the before/after signature and implementation locations.
+ADDED  attest_orchestrator → remember_firm_finding
+  before: no observed binding
+  after: remember_firm_finding(crd, category, fact, roster_version) -> dict at agents/attest_orchestrator/agent.py:97
+    implementation: agents/attest_orchestrator/memory_bank.py:462 (2ae68435331b)
+    imported: agents/attest_orchestrator/agent.py:22 → agents/attest_orchestrator/memory_bank.py:462
+    effect: write (provisional: unknown effect)
+    reach limit: agents/attest_orchestrator/memory_bank.py:485 calls MemoryBank.from_env ('MemoryBank' in memory_bank.py:233 is a class, not a function definition), which is not read
+    reach limit: agents/attest_orchestrator/memory_bank.py:493 calls bank.generate_memories, which is not read
+  The source now binds this callable to this agent.
+  Review: Should attest_orchestrator have this added binding to remember_firm_finding? Review the before/after signature and implementation locations.
+This comparison is advisory evidence and supplies no release verdict or merge permission.

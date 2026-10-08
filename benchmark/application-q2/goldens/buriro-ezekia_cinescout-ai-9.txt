@@ -1,0 +1,37 @@
+Application comparison: partial (47a1cabd70ec → 24d9459d4db0)
+scope: . (derived: .: app/phase2/agent.py is an agent file)
+Findings: 1 changed agent, 1 row (1 not established).
+adk_agent [partial]: ?-create_parallel_search_toolset() (not read beyond app/phase2/agent.py:42)
+  ?-create_parallel_search_toolset() (candidate, not established): MCP server (McpToolset, streamable_http); host env PARALLEL_MCP_URL or search.parallel.ai; tool filter ["web_fetch", "web_search"]; endpoint digest e262dcaf6404 [credential: env PARALLEL_API_KEY → header Authorization]
+  this agent's binding graph is also incomplete: 1 limit (base); first: Google ADK agent 'adk_agent' is constructed more than once in app/phase2/agent.py (lines 35, 48, 61, 75, 88); which one runs is not established, and their tools are compared as one agent, each row naming the constructions that list its tool.
+Not established: 1 row has 5 causes.
+  - Google ADK agent 'adk_agent' at app/phase2/agent.py:42 uses a dynamic tools expression; its binding graph is incomplete. Not read: `tools` is a parameter of `_specialist_agent`, so its value comes from a caller (app/phase2/agent.py:49). [1 row, head]
+  - Google ADK agent 'adk_agent' at app/phase2/agent.py:42 uses a dynamic tools expression; its binding graph is incomplete. Not read: the caller's returned agent handle may change its capability list (app/phase2/agent.py:49). [1 row, head]
+  - Google ADK agent 'adk_agent': '_specialist_agent' (app/phase2/agent.py:32) may be reached through dynamic import machinery at scripts/check_phase1.py:6 [1 row, head]
+  - Google ADK agent 'adk_agent': the caller's returned agent handle may change its capability lists. [1 row, head]
+  - and 1 more causes (see --json summary.causes)
+  Review: Resolve the named causes before treating the 1 candidate change as a change.
+Also not read, and not tied to a row above: 1 limit on no single agent; first: Excluded candidate: {'type': 'mcp', 'path': '.vscode/mcp.json', 'reason': 'mcpServers-style MCP server config (host configuration), not an MCP tools-array export'}
+Detail:
+NOT_ESTABLISHED  adk_agent → create_parallel_search_toolset()
+  before: create_parallel_search_toolset() at app/phase2/agent.py:61
+    MCP server (McpToolset, streamable_http); host env PARALLEL_MCP_URL or search.parallel.ai; tool filter ["web_fetch", "web_search"]; endpoint digest e262dcaf6404 at app/phase2/tools.py:22
+      credential: env PARALLEL_API_KEY → header Authorization
+  after: binding presence not established
+  This candidate change cannot be established from the affected inputs; it is not a no-change result.
+  head uncertainty: Google ADK agent 'adk_agent' at app/phase2/agent.py:42 uses a dynamic tools expression; its binding graph is incomplete. Not read: `tools` is a parameter of `_specialist_agent`, so its value comes from a caller (app/phase2/agent.py:49).
+  head uncertainty: Google ADK agent 'adk_agent' at app/phase2/agent.py:42 uses a dynamic tools expression; its binding graph is incomplete. Not read: the caller's returned agent handle may change its capability list (app/phase2/agent.py:49).
+  head uncertainty: Google ADK agent 'adk_agent': '_specialist_agent' (app/phase2/agent.py:32) may be reached through dynamic import machinery at scripts/check_phase1.py:6
+  head uncertainty: Google ADK agent 'adk_agent': the caller's returned agent handle may change its capability lists.
+  head uncertainty: Google ADK agent at app/phase2/agent.py:42 has no literal or assigned identity; its caller-supplied name is not read.
+  Review: Resolve the named uncertainty before treating adk_agent.create_parallel_search_toolset() as removed.
+  base limit: Excluded candidate: {'type': 'mcp', 'path': '.vscode/mcp.json', 'reason': 'mcpServers-style MCP server config (host configuration), not an MCP tools-array export'}
+  base limit: Google ADK agent 'adk_agent' is constructed more than once in app/phase2/agent.py (lines 35, 48, 61, 75, 88); which one runs is not established, and their tools are compared as one agent, each row naming the constructions that list its tool.
+  head limit: Excluded candidate: {'type': 'mcp', 'path': '.vscode/mcp.json', 'reason': 'mcpServers-style MCP server config (host configuration), not an MCP tools-array export'}
+  head limit: Google ADK agent 'adk_agent' at app/phase2/agent.py:42 uses a dynamic tools expression; its binding graph is incomplete. Not read: `tools` is a parameter of `_specialist_agent`, so its value comes from a caller (app/phase2/agent.py:49).
+  head limit: Google ADK agent 'adk_agent' at app/phase2/agent.py:42 uses a dynamic tools expression; its binding graph is incomplete. Not read: the caller's returned agent handle may change its capability list (app/phase2/agent.py:49).
+  head limit: Google ADK agent 'adk_agent': '_specialist_agent' (app/phase2/agent.py:32) may be reached through dynamic import machinery at scripts/check_phase1.py:6
+  head limit: Google ADK agent 'adk_agent': the caller's returned agent handle may change its capability lists.
+  head limit: Google ADK agent at app/phase2/agent.py:42 has no literal or assigned identity; its caller-supplied name is not read.
+Test files not read as the application (7): tests/integration/test_agent_import.py, tests/integration/test_phase2_agent_import.py, tests/unit/test_configuration.py, tests/unit/test_evaluation_contract.py, tests/unit/test_phase2_contract.py, and 2 more
+This comparison is advisory evidence and supplies no release verdict or merge permission.

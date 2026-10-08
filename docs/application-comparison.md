@@ -34,6 +34,82 @@ A reviewer can inspect the new callable and decide whether that agent should
 receive it. A body change is a request to review the implementation; it does not
 establish widening, narrowing, business impact or runtime behavior.
 
+## Findings first
+
+The text opens with one **finding per changed agent**, then the rows. A finding
+names the tools the change added (`+`), removed (`-`) or changed (`~`); a
+leading `?` marks a candidate the comparison could not establish. Its first line
+stands alone. For [jpka/attest#3](https://github.com/jpka/attest/pull/3):
+
+```text
+Findings: 1 changed agent, 2 rows (2 added); effect evidence 2 write (provisional: unknown effect).
+attest_orchestrator [partial]: +recall_firm_memory, +remember_firm_finding (reach: none established; not read beyond agents/attest_orchestrator/memory_bank.py:531)
+  Review: Should attest_orchestrator be able to call recall_firm_memory, remember_firm_finding? What they reach was not read in full.
+Detail:
+```
+
+and for [MIS_TALENT#7](https://github.com/Tiendat2703/MIS_TALENT/pull/7), whose
+first finding line names a new database read before the rows that carry it:
+
+```text
+Finance_Agent_Preflight [partial]: +load_service_catalog, ~load_and_validate (new reach: database read; not read beyond app/tools/FinanceAgent/tools.py:39)
+```
+
+The committed goldens in
+[`benchmark/application-q2/goldens/`](../benchmark/application-q2/goldens/)
+hold the whole text of six real answers, among them these two and the 234-row
+[O.R.I.O.N#126](https://github.com/VidulaWickramasinghe/O.R.I.O.N/pull/126),
+which reads in 24 lines.
+
+What a finding states, and from where:
+
+- **Capability.** What the tool's code reaches (#872, #913) and what an object
+  tool is (#910): the outbound call or library effect, its host, the
+  credentials it sends by name, and the parameters the model controls. For a
+  changed tool only a difference is new reach (`now also reaches`); the same
+  call sending something new is `changed reach`; a reach the change left alone
+  is `still reaches`.
+- **The first unresolved hop.** A finding is `partial`, never `compared`, when
+  any of its tools has a reach the reader stopped short of, a binding it could
+  not establish or an agent whose binding graph is incomplete. It names the
+  first place reading stopped (`not read beyond …`) and, per tool, how many
+  more there are. `comparison_status` is unchanged and still speaks of
+  bindings only, so a `compared` answer can carry a `partial` finding.
+- **Effect evidence** is counted once for the whole answer instead of repeated
+  per row.
+- **Shared causes.** `not_established` rows with the same reason are one line
+  with a count, one example and the rows' number, however many tools and
+  agents share it. Two reasons are one cause when they differ only in the names
+  and places they quote. Limits no row states are one line, by agent.
+- **A question specific to the change**: a new write, process, network or
+  database reach ("should `agent` reach …?") with the credentials it sends and
+  the arguments the model controls; the same call newly sending a credential or
+  taking a model-controlled argument; a removed tool; or a changed one and what
+  changed ("arguments +units").
+
+The reading is presentation. It changes no row, status, direction, gap, scope
+or exit code, and states nothing a row does not: every finding, tool, cause and
+question names the `rows` it summarizes by index. The rows follow under
+`Detail:` for up to 10 of them. Above that the text says how many it did not
+print: `--json` always carries every row, with every reach limit.
+
+`summary` in the JSON is the content the text renders, and nothing else:
+
+| Field | Meaning |
+| --- | --- |
+| `counts` | `total`, `added`, `removed`, `changed`, `not_established` over `rows`. |
+| `findings[]` | One per agent with a row, in row order: `agent`, `agent_source`, `status` (`compared` or `partial`), `rows` (indexes into `rows`), `counts`, `first_unresolved` (`kind` `binding`, `agent` or `reach`; `text`, `at`, `row`; `null` when nothing was left unread), `capabilities` (new reach), `changed_capabilities`, `unchanged_capabilities`, `tools[]`, `causes` (indexes into `summary.causes`), `questions[]` (`question`, `rows`) and, when the agent's graph has limits no row states, `agent_limits`. |
+| `findings[].tools[]` | `row`, `tool`, `change`, `candidate_change`, `facts[]`, `unresolved` (`at`, `why`, `count`) and `effect`. A fact is `change` (what differs), `object`, or one of `reaches`, `reaches_new`, `reaches_dropped`, `reaches_same`, `reaches_changed`, each with `target`, `short`, `at` and, when present, `host`, `credentials` and `model_supplied` (for `reaches_changed`, what is new, and `dropped` what is gone). |
+| `effects[]` | `effect`, `status` and `count` over established rows. |
+| `causes[]` | One per shared reason: `pattern`, an `example`, how many distinct `reasons` share it, the `rows`, `sides` and `agents`. |
+| `not_read[]` | Limits no row states, by `agent` (`null` when no single agent): `count`, `sides`, `first`. |
+| `question` | Present when a row is `not_established`. |
+
+`summary` is derived from the sanitized rows and digested into `comparison_id`
+with them. With several applications (`comparisons`) it covers the combined
+top-level `rows`; each comparison keeps its own detail without one. `benchmark/application-q2/summarize.py` leaves it out of
+`answer_id`, so a hand score keeps judging the answer it read.
+
 ## A scope derived from the change
 
 Without `--scope`, the comparison does not read the whole repository, nor only
@@ -147,8 +223,10 @@ more than one application, and a deterministic `comparison_id`. Version 0.2 adds
 [What a bound tool reaches](#what-a-bound-tool-reaches)); version 0.3 adds
 `bound_when` (see [Tools lists built by an expression](#tools-lists-built-by-an-expression));
 version 0.4 adds `object` and `object_evidence` (see
-[Tools bound as objects](#tools-bound-as-objects)), and `reach.effects` (see
-[What a bound tool reaches beyond HTTP](#what-a-bound-tool-reaches-beyond-http)).
+[Tools bound as objects](#tools-bound-as-objects)), `reach.effects` (see
+[What a bound tool reaches beyond HTTP](#what-a-bound-tool-reaches-beyond-http))
+and the top-level `summary` (see [Findings first](#findings-first)); 0.4 is not
+yet released, so `summary` extends it rather than adding 0.5.
 This is a separate advisory
 artifact from the existing host diff JSON and verifier receipt.
 

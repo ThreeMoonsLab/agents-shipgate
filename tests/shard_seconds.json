@@ -59,6 +59,7 @@
   "tests/test_application_diff_unobserved.py": 232.0,
   "tests/test_application_q2_benchmark.py": 0.1,
   "tests/test_application_scope.py": 214.4,
+  "tests/test_application_summary.py": 25.6,
   "tests/test_apply_patches.py": 3.5,
   "tests/test_attest.py": 0.2,
   "tests/test_authorization_cli.py": 2.3,
