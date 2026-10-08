@@ -42,6 +42,7 @@ from agents_shipgate.core.privacy import (
     redact_text,
     redact_url_credentials,
 )
+from agents_shipgate.inputs import tool_effects as effect_tables
 from agents_shipgate.inputs.python_imports import (
     MODULE_NOT_FOUND,
     ImportResolver,
@@ -49,6 +50,7 @@ from agents_shipgate.inputs.python_imports import (
     Resolution,
     reference_spelling,
 )
+from agents_shipgate.schemas.action_effects import EFFECT_RISK_RANK
 
 #: Helper hops followed from the tool function.
 MAX_DEPTH = 3
@@ -165,9 +167,13 @@ _OBJECT_METHODS = frozenset(
         "with_suffix",
     }
 )
-#: Attributes of a library object that are plain data.
+#: Attributes of a library object that are plain data. A finished process's
+#: output and exit status are (#913).
 _DATA_ATTRIBUTES = frozenset(
-    {"content", "headers", "name", "ok", "reason", "status", "status_code", "stem", "suffix", "text", "url"}
+    {
+        "content", "headers", "name", "ok", "reason", "returncode", "status", "status_code", "stderr",
+        "stdout", "stem", "suffix", "text", "url",
+    }
 )
 #: Pure library calls whose result is an object rather than plain data.
 _OBJECT_FUNCTIONS = frozenset(
@@ -414,6 +420,31 @@ class Request:
     method: Any
 
 
+@dataclass(frozen=True)
+class Handle:
+    """An object a recognised library built, followed by its methods (#913).
+
+    A database connection, a cursor, a cloud client, a path, an open file. The
+    library is its import identity, never a spelling. ``target`` is the value
+    naming what it reaches where one is known (a path, a bucket, a
+    collection); ``extra`` carries a role's own detail (a boto3 paginator's
+    operation, a SQLAlchemy statement's keyword). ``built``: the function
+    that constructed it, ``0`` for module level, so a call through one built
+    elsewhere can be told apart. ``credentials`` and ``host`` are read off the
+    construction and published by name only.
+    """
+
+    family: str
+    library: str
+    role: str
+    service: str | None = None
+    target: Any = None
+    extra: Any = None
+    built: int = 0
+    credentials: tuple[tuple[tuple[str, Any], ...], ...] = ()
+    host: tuple[str, ...] = ()
+
+
 class Func:
     """A repository function, and the frame of the function that encloses it."""
 
@@ -495,6 +526,9 @@ def _sources(value: Any) -> tuple[frozenset[str], frozenset[str]]:
             stack.extend((item.url, item.data, item.headers, item.method))
         elif isinstance(item, Client):
             stack.extend((item.base_url, item.headers))
+        elif isinstance(item, Handle):
+            # A path made from a model-supplied name is made from it (#913).
+            stack.append(item.target)
     return frozenset(params), frozenset(envs)
 
 
@@ -554,6 +588,9 @@ def _is_quiet(value: Any) -> bool:
     """Plain data, or an object whose read-only methods reach nothing outside."""
 
     if isinstance(value, Op) and value.inert:
+        return True
+    if isinstance(value, Handle) and value.role == effect_tables.RESULTS:
+        # What an effect handed back: its methods only read it (#913).
         return True
     if isinstance(value, Alt):
         return all(_is_quiet(option) for option in value.options)
@@ -975,6 +1012,16 @@ class _Reach:
         #: ``settings = Settings()``. Only an object binding's identity reads
         #: it; a tool's reach does not.
         self.instances = instances
+        #: Follow the objects a recognised library builds and name their
+        #: effects (#913). An object binding's identity reads values the way
+        #: it did before: it names no effect.
+        self.effects_enabled = not instances
+        #: Effects beyond HTTP the tool's code reaches, and those past
+        #: :data:`MAX_CALLS`, which still count for the claims.
+        self.effects: list[dict[str, Any]] = []
+        self.dropped_effects: list[dict[str, Any]] = []
+        #: ``(id(module), name) -> value``: module globals read for identity.
+        self.globals: dict[tuple[int, str], Any] = {}
         #: ``"json.dumps" -> "file:line"``: library attributes stored into.
         self.library = library or {}
         #: The attribute stored last through an object the scan does not
@@ -1184,6 +1231,11 @@ class _Reach:
         """
 
         root = _root_name(target.value)
+        if self.effects_enabled and target.attr in effect_tables.HANDLE_SETTINGS:
+            owner = _handle_of(self.value(target.value, frame))
+            if owner is not None and owner.family == "database":
+                # `conn.row_factory = sqlite3.Row`: how rows come back.
+                return
         if (
             root is not None
             and root not in frame.args
@@ -1352,6 +1404,10 @@ class _Reach:
             method = func.attr
             if isinstance(receiver, Lib):
                 return self.library_call(call, frame, f"{receiver.dotted}.{method}")
+            handle = _handle_of(receiver) if self.effects_enabled else None
+            if handle is not None:
+                self.handle_call(call, frame, handle, method)
+                return None
             if isinstance(receiver, Client):
                 if method in _VERBS or method in {"request", "stream"}:
                     self.http(call, frame, receiver.library, method, receiver)
@@ -1427,12 +1483,24 @@ class _Reach:
             )
             return None
         if isinstance(callee, _Builtin):
+            if callee.name == "print" and self.effects_enabled and self._print_to_file(call, frame):
+                return None
             if callee.name in _PURE_BUILTINS:
                 return callee.name
+            if callee.name == "open" and self.effects_enabled:
+                self.function_effect(call, frame, "open", effect_tables.FUNCTIONS["open"])
+                return None
             if id(call) not in frame.raised:
                 self.limit(frame, call, f"calls {callee.name}, which is not read")
             return None
         if id(call) in frame.raised:
+            return None
+        if (
+            isinstance(callee, Handle)
+            and self.effects_enabled
+            and (callee.library, callee.role) in effect_tables.FACTORIES
+        ):
+            # `Session()` from a `sessionmaker`: it builds a session.
             return None
         if isinstance(callee, Op) and callee.what:
             self.limit(frame, call, f"calls {spelling} ({callee.what}), which is not read")
@@ -1597,6 +1665,21 @@ class _Reach:
             if id(call) not in frame.raised:
                 self.limit(frame, call, f"calls {dotted}, which {where} replaces; not read")
             return None
+        if self.effects_enabled:
+            spec = effect_tables.FUNCTIONS.get(dotted)
+            if spec is not None or dotted in effect_tables.CONSTRUCTORS:
+                if where is not None:
+                    # `subprocess.run = fake_run` elsewhere: not the library's.
+                    self.limit(frame, call, f"calls {dotted}, which {where} replaces; not read")
+                elif spec is not None:
+                    self.function_effect(call, frame, dotted, spec)
+                return None
+            if dotted in effect_tables.FILE_CODECS and self._codec_on_file(call, frame, dotted):
+                # `json.load(f)` on a file this read opened: the read is where
+                # it was opened.
+                return dotted
+            if dotted in effect_tables.STATEMENTS or dotted in effect_tables.SQL_TEXT:
+                return dotted
         library, _, verb = dotted.rpartition(".")
         if library in _HTTP_LIBRARIES and (verb in _VERBS or verb in {"request", "stream"}):
             self.http(call, frame, library, verb, None)
@@ -1611,6 +1694,609 @@ class _Reach:
         elif id(call) not in frame.raised:
             self.limit(frame, call, f"calls {dotted}, which is not read")
         return None
+
+    # -- effects beyond HTTP (#913) ----------------------------------------
+
+    def function_effect(
+        self, call: ast.Call, frame: _Frame, name: str, spec: effect_tables.Function
+    ) -> None:
+        """A library function that is itself an effect: a process or a file."""
+
+        arguments = _Arguments(call)
+        position, keyword = spec.target
+        node = arguments.take(position, keyword)
+        value = self.value(node, frame) if node is not None else None
+        others = [
+            self.value(item, frame)
+            for item in [*arguments.positional, *arguments.keywords.values()]
+            if item is not node
+        ]
+        library = name.split(".", 1)[0] if "." in name else "builtins"
+        if spec.family == "process":
+            shell_node = arguments.take(None, "shell")
+            shell = spec.shell or (
+                shell_node is not None and self.value(shell_node, frame) == Lit(True)
+            )
+            executable = arguments.take(None, "executable")
+            exec_form = name.startswith(("os.exec", "os.spawn", "os.posix_spawn", "os.startfile")) or (
+                name == "asyncio.create_subprocess_exec"
+            )
+            program = (
+                self.value(executable, frame)
+                if executable is not None
+                else value
+                if exec_form
+                else _command_program(value, shell)
+            )
+            names, unread = _program_names(program)
+            self.record_effect(
+                call,
+                frame,
+                family="process",
+                library=library,
+                operation="execute",
+                name=name,
+                target="|".join([*names, *(["{…}"] if unread or not names else [])]),
+                shell=shell,
+                supplied=[("command", value), ("command", program), ("arguments", _derived(*others))],
+                digest=(value, program),
+            )
+            return
+        operation = spec.operation
+        if operation == "mode":
+            operation = self._file_mode(arguments.take(1, "mode"), frame)
+        if value is None and name in {"os.listdir", "os.scandir", "os.walk"}:
+            value = Lit(".")
+        self.path_effect(call, frame, library, name, operation, value, others)
+        if operation == "unknown":
+            self.limit(frame, call, "the file mode is not a literal; whether it writes is not read")
+
+    def path_effect(
+        self,
+        call: ast.Call,
+        frame: _Frame,
+        library: str,
+        name: str,
+        operation: str,
+        path: Any,
+        others: list[Any],
+    ) -> None:
+        if isinstance(path, Handle):
+            path = path.target
+        shown = _path_text(path)
+        self.record_effect(
+            call,
+            frame,
+            family="filesystem",
+            library=library,
+            operation=operation,
+            name=name,
+            target=shown,
+            supplied=[("path", path), ("arguments", _derived(*others))],
+            digest=(path,) if shown is None and path is not None else None,
+        )
+
+    def _file_mode(self, node: ast.AST | None, frame: _Frame) -> str:
+        """``read`` or ``write`` from a literal mode, ``unknown`` otherwise."""
+
+        if node is None:
+            return "read"
+        operations: set[str] = set()
+        for option in _options(self.value(node, frame)):
+            if isinstance(option, Lit) and option.value is None:
+                operations.add("read")
+            elif isinstance(option, Lit) and isinstance(option.value, str):
+                operations.add(effect_tables.file_mode(option.value))
+            else:
+                return "unknown"
+        return "write" if "write" in operations else "read"
+
+    def _codec_on_file(self, call: ast.Call, frame: _Frame, dotted: str) -> bool:
+        """`json.dump(data, handle)` on a file object: its read or write is the
+        file's. On one opened elsewhere it is named here."""
+
+        arguments = _Arguments(call)
+        reads = dotted.endswith("load")
+        node = arguments.take(0 if reads else 1, "fp" if dotted.startswith("json") else "stream")
+        handle = _handle_of(self.value(node, frame)) if node is not None else None
+        if handle is None or handle.role != "file":
+            return False
+        if handle.built != _frame_key(frame):
+            self.path_effect(call, frame, handle.library, dotted, "read" if reads else "write", handle, [])
+        return True
+
+    def _print_to_file(self, call: ast.Call, frame: _Frame) -> bool:
+        """`print(..., file=f)` writes to ``f``: a file object, or a limit."""
+
+        node = _Arguments(call).take(None, "file")
+        if node is None:
+            return False
+        value = self.value(node, frame)
+        handle = _handle_of(value)
+        if handle is not None and handle.role == "file":
+            if handle.built != _frame_key(frame):
+                self.path_effect(call, frame, handle.library, "print", "write", handle, [])
+            return True
+        if is_absent(value) or (isinstance(value, Lib) and value.dotted in {"sys.stdout", "sys.stderr"}):
+            return False
+        self.limit(frame, call, f"prints to {_spelling(node) or 'an object'}, which is not read")
+        return True
+
+    def handle_call(self, call: ast.Call, frame: _Frame, handle: Handle, method: str) -> None:
+        """A method on an object a recognised library built: name its effect."""
+
+        spelling = _spelling(call.func) or method
+        replaced = self.replaced_methods.get(method) or self.library.get(f"*.{method}") or self.library.get("*")
+        if replaced is not None:
+            if id(call) not in frame.raised:
+                self.limit(frame, call, f"calls {spelling}, which {replaced} replaces; not read")
+            return
+        if handle.built != _frame_key(frame) and self._foreign_handle_call(call, frame, handle, method, spelling):
+            return
+        rule = effect_tables.method_rule(handle.library, handle.role, method)
+        if rule is not None and handle.role == effect_tables.RESULTS and method.startswith(_WRITING_VERBS):
+            rule = None
+        name = f"{handle.role}.{method}"
+        if rule is None:
+            if id(call) in frame.raised:
+                return
+            if handle.role != effect_tables.RESULTS:
+                given = self._effect_target(handle, _Arguments(call), frame, method)
+                self.record_effect(
+                    call,
+                    frame,
+                    operation="unknown",
+                    name=name,
+                    handle=handle,
+                    target=_name_text(given if given is not None else handle.target),
+                )
+            self.limit(
+                frame,
+                call,
+                f"calls {spelling} ({handle.library} {name}), which the {handle.family} table "
+                "does not name; what it does is not read",
+            )
+            return
+        if rule in {"pass", "same"} or rule.startswith("->"):
+            return
+        arguments = _Arguments(call)
+        statement: str | None = None
+        target: Any = None
+        operation = rule.split("->", 1)[0]
+        supplied: list[tuple[str, Any]] = []
+        digest: tuple[Any, ...] | None = None
+        if rule in {"sql", "statement", "script"}:
+            node = next(
+                (
+                    found
+                    for found in (
+                        arguments.take(0, word) for word in ("sql", "query", "operation", "statement")
+                    )
+                    if found is not None
+                ),
+                None,
+            )
+            if handle.role == "statement" and node is None:
+                # `select(User).execute()`: the statement is the object.
+                text: Any = handle
+            else:
+                text = self.value(node, frame) if node is not None else _UNKNOWN
+            read = _sql_statement(text)
+            if read.operation is None:
+                return  # transaction control: `BEGIN`, `COMMIT`
+            operation = read.operation
+            statement, target = read.keyword, read.table
+            supplied.append(("statement", text))
+            digest = (text,)
+            if read.operation == "unknown":
+                self.limit(
+                    frame,
+                    call,
+                    f"what the {read.keyword} statement does is not read"
+                    if read.keyword
+                    else "the SQL statement is not a literal; whether it writes is not read",
+                )
+            elif read.open and read.operation == "read":
+                self.limit(
+                    frame,
+                    call,
+                    f"the {read.keyword} statement splices in a value the read does not name; "
+                    "a further statement in it is not read",
+                )
+        elif rule == "aggregate":
+            operation = _pipeline_operation(self.value(arguments.take(0, "pipeline"), frame))
+            if operation == "unknown":
+                self.limit(frame, call, "the aggregation pipeline is not a literal; whether it writes is not read")
+        elif rule == "mode":
+            operation = self._file_mode(arguments.take(0, "mode"), frame)
+            if operation == "unknown":
+                self.limit(frame, call, "the file mode is not a literal; whether it writes is not read")
+        elif rule == "paginate":
+            name_value = handle.extra
+            found = (
+                effect_tables.boto3_operation(name_value.value)
+                if isinstance(name_value, Lit) and isinstance(name_value.value, str)
+                else None
+            )
+            operation = found or "unknown"
+            if operation == "unknown":
+                self.limit(frame, call, f"pages an operation the boto3 table does not name ({spelling}); not read")
+        if handle.family == "filesystem":
+            # `path.write_text(...)`: the path is the target.
+            self.path_effect(
+                call,
+                frame,
+                handle.library,
+                name,
+                operation,
+                handle,
+                [self.value(item, frame) for item in [*arguments.positional, *arguments.keywords.values()]],
+            )
+            return
+        given = self._effect_target(handle, arguments, frame, method)
+        if target is None:
+            target_value = given if given is not None else handle.target
+            target = _name_text(target_value) if target_value is not None else None
+            if target is None and target_value is not None:
+                digest = (*(digest or ()), target_value)
+        supplied.append(("target", handle.target))
+        sql = rule in {"sql", "statement", "script"}
+        for index, item in enumerate(arguments.positional):
+            if not (sql and index == 0):
+                supplied.append(("parameters" if sql else "arguments", self.value(item, frame)))
+        for word, item in arguments.keywords.items():
+            if not (sql and word in {"sql", "query", "operation", "statement"}):
+                supplied.append((f"argument {word}", self.value(item, frame)))
+        self.record_effect(
+            call,
+            frame,
+            operation=operation,
+            name=name,
+            handle=handle,
+            target=target,
+            statement=statement,
+            supplied=supplied,
+            digest=digest,
+        )
+        local = effect_tables.LOCAL_WRITES.get((handle.library, handle.role, method))
+        if local is not None:
+            # `s3.download_file(bucket, key, path)` also writes a local file.
+            node = arguments.take(*local)
+            if node is not None:
+                self.path_effect(call, frame, handle.library, name, "write", self.value(node, frame), [])
+        if (
+            operation == "read"
+            and handle.family in {"database", "cloud", "messaging"}
+            and handle.built != _frame_key(frame)
+        ):
+            # A client built elsewhere may be configured anywhere (#872's rule
+            # for HTTP clients): a hook or event listener can do more.
+            receiver = _spelling(call.func.value) if isinstance(call.func, ast.Attribute) else None
+            self.limit(
+                frame,
+                call,
+                f"reads through {receiver or 'an object'}, "
+                + (
+                    "built with an argument this read does not see into"
+                    if handle.built == _CONFIGURED
+                    else "built outside this function"
+                )
+                + "; its configuration is not read",
+            )
+
+    def _foreign_handle_call(
+        self, call: ast.Call, frame: _Frame, handle: Handle, method: str, spelling: str
+    ) -> bool:
+        """A file or process another function opened or started.
+
+        Its effect was not recorded where this tool can see it: a write to a
+        module-level log file is a write here (#913).
+        """
+
+        if handle.role == "file":
+            operation = effect_tables.FILE_IO.get(method)
+            if operation is None:
+                return False
+            self.path_effect(call, frame, handle.library, f"file.{method}", operation, handle, [])
+            return True
+        if handle.role == "process" and method not in {"__enter__", "poll", "wait"}:
+            self.record_effect(call, frame, operation="unknown", name=f"process.{method}", handle=handle)
+            self.limit(frame, call, f"calls {spelling} on a process started outside this function, which is not read")
+            return True
+        return False
+
+    def _effect_target(
+        self, handle: Handle, arguments: _Arguments, frame: _Frame, method: str = ""
+    ) -> Any:
+        """The argument naming what one call reaches, where the library has one."""
+
+        words: tuple[str, ...] = ()
+        position: int | None = None
+        if handle.library == "boto3" and handle.role == "client":
+            position = effect_tables.BOTO3_BUCKET_POSITIONS.get(method)
+            words = ("Bucket", "TableName", "FunctionName", "StreamName", "QueueName")
+        elif handle.library == "redis":
+            words, position = ("name", "key", "channel"), 0
+        elif handle.library == "slack_sdk" and handle.role == "client":
+            words = ("channel",)
+        for word in words:
+            node = arguments.take(position, word)
+            if node is not None:
+                return self.value(node, frame)
+        return None
+
+    def record_effect(
+        self,
+        call: ast.Call,
+        frame: _Frame,
+        *,
+        operation: str,
+        name: str,
+        handle: Handle | None = None,
+        family: str | None = None,
+        library: str | None = None,
+        target: str | None = None,
+        statement: str | None = None,
+        shell: bool = False,
+        supplied: list[tuple[str, Any]] | None = None,
+        digest: tuple[Any, ...] | None = None,
+    ) -> None:
+        family = family or (handle.family if handle else "unknown")
+        library = library or (handle.library if handle else "unknown")
+        at = f"{frame.module.ref}:{call.lineno}"
+        if len(self.effects) >= MAX_CALLS:
+            if not self.truncated:
+                self.truncated = True
+                self.limit(frame, call, f"the tool reaches more than {MAX_CALLS} library effects")
+            self.dropped_effects.append({"family": family, "operation": operation, "call": name, "at": at})
+            return
+        entry: dict[str, Any] = {
+            "family": family,
+            "operation": operation,
+            "library": library,
+            "call": name,
+        }
+        if handle is not None and handle.service:
+            entry["service"] = handle.service
+        if target:
+            entry["target"] = target
+        if statement:
+            entry["statement"] = statement
+        if shell:
+            entry["shell"] = True
+        if handle is not None and handle.host:
+            entry["host"] = list(handle.host)
+        entry["at"] = at
+        entry["via"] = list(frame.via)
+        if any(
+            (item["at"], item["via"], item["call"], item.get("target"), item["operation"])
+            == (at, entry["via"], name, entry.get("target"), operation)
+            for item in self.effects
+        ):
+            return
+        if handle is not None and handle.credentials:
+            entry["credential_sources"] = [_thawed(item) for item in handle.credentials]
+        into: dict[str, list[str]] = {}
+        for place, value in supplied or []:
+            if value is None:
+                continue
+            for param in sorted(_sources(value)[0]):
+                places = into.setdefault(param, [])
+                if place not in places:
+                    places.append(place)
+        if into:
+            entry["model_supplied"] = [
+                {"param": param, "into": place} for param, places in sorted(into.items()) for place in places
+            ]
+        if digest:
+            entry["value_sha256"] = object_digest(*digest)
+        self.effects.append(entry)
+
+    def library_value(
+        self, call: ast.Call, frame: _Frame, dotted: str, arguments: list[Any], keywords: dict[str, Any]
+    ) -> Any | None:
+        """What a recognised library call hands back, or None when not one."""
+
+        built = _frame_key(frame)
+        kind = effect_tables.CONSTRUCTORS.get(dotted)
+        if kind is not None:
+            if kind.family in {"database", "cloud", "messaging"} and any(
+                _unseen_argument(value) for value in [*arguments, *keywords.values()]
+            ):
+                # `sqlite3.connect(db, factory=Audited)`: built with an object
+                # whose behaviour this read does not see, like one built
+                # elsewhere.
+                built = _CONFIGURED
+            return self.construct(dotted, kind, arguments, keywords, built)
+        if dotted in effect_tables.STATEMENTS:
+            return Handle("database", "sqlalchemy", "statement", extra=effect_tables.STATEMENTS[dotted], built=built)
+        if dotted in effect_tables.SQL_TEXT:
+            return arguments[0] if arguments else keywords.get("text", _UNKNOWN)
+        spec = effect_tables.FUNCTIONS.get(dotted)
+        if spec is not None:
+            if dotted in {"asyncio.create_subprocess_exec", "asyncio.create_subprocess_shell"}:
+                return Handle("process", "subprocess", "process", built=built)
+            if dotted == "io.open":
+                path = arguments[0] if arguments else keywords.get("file", _UNKNOWN)
+                return Handle("filesystem", "builtins", "file", target=path, built=built)
+            plain = dotted in {
+                "subprocess.check_output", "subprocess.getoutput", "subprocess.getstatusoutput",
+                "os.system", "os.listdir", "os.walk",
+            }
+            return Op(what=f"what {dotted} returns", inert=True, data=plain)
+        if dotted in effect_tables.FILE_CODECS and dotted.endswith("load"):
+            return Op(what=f"what {dotted} returns", inert=True, data=True)
+        return None
+
+    def construct(
+        self,
+        dotted: str,
+        kind: effect_tables.Kind,
+        arguments: list[Any],
+        keywords: dict[str, Any],
+        built: int,
+    ) -> Handle:
+        service = kind.service
+        target: Any = None
+        spec = effect_tables.CONSTRUCTOR_TARGETS.get(dotted)
+        given: Any = None
+        if spec is not None:
+            position, word = spec
+            given = keywords.get(word)
+            if given is None and position is not None and position < len(arguments):
+                given = arguments[position]
+        if kind.library == "boto3":
+            if isinstance(given, Lit) and isinstance(given.value, str):
+                service = given.value
+        elif kind.library == "sqlalchemy" and kind.role == "engine":
+            # `create_engine("postgresql+psycopg2://…")`: the dialect.
+            url = arguments[0] if arguments else keywords.get("url")
+            if isinstance(url, Lit | Tpl):
+                scheme = _leading_literal(url).partition("://")
+                if scheme[1] and re.fullmatch(r"[a-z0-9]+(?:\+[a-z0-9_]+)?", scheme[0]):
+                    service = scheme[0].split("+", 1)[0]
+        elif kind.role == "path":
+            if dotted in {"pathlib.Path.cwd", "pathlib.Path.home"}:
+                target = _UNKNOWN
+            elif len(arguments) > 1:
+                target = _join([part for item in arguments for part in (item, Lit("/"))][:-1])
+            else:
+                target = given if given is not None else Lit(".")
+        hosts = _hosts(dotted, kind, arguments, keywords)
+        if kind.family == "messaging" and kind.library == "smtplib" and given is not None:
+            hosts = _hosts_of(given)
+        credentials = _construction_credentials(dotted, arguments, keywords)
+        if kind.library == "sqlalchemy" and kind.role in {"session", "session_factory"}:
+            # `sessionmaker(bind=engine)`: the engine's dialect, host and
+            # credentials.
+            engine = _handle_of(keywords.get("bind") or (arguments[0] if arguments else None))
+            if engine is not None and engine.library == "sqlalchemy":
+                service, hosts, credentials = engine.service, list(engine.host), engine.credentials
+        return Handle(
+            kind.family,
+            kind.library,
+            kind.role,
+            service,
+            target,
+            None,
+            built,
+            credentials,
+            tuple(hosts),
+        )
+
+    def handle_value(self, handle: Handle, method: str, call: ast.Call, frame: _Frame) -> Any:
+        """What a method on a recognised library's object hands back."""
+
+        rule = effect_tables.method_rule(handle.library, handle.role, method)
+        if rule is None or (handle.role == effect_tables.RESULTS and method.startswith(_WRITING_VERBS)):
+            return _derived(handle, result=True)
+        arguments = _Arguments(call)
+        if rule == "same":
+            if handle.role != "path":
+                return handle
+            if method == "joinpath" and not arguments.spread:
+                parts = [self.value(item, frame) for item in arguments.positional]
+                return replace(
+                    handle, target=_join([handle.target or _UNKNOWN, *(p for item in parts for p in (Lit("/"), item))])
+                )
+            return replace(handle, target=_UNKNOWN)
+        if "->" in rule:
+            role = rule.split("->", 1)[1]
+            first_node = arguments.positional[0] if arguments.positional else None
+            first = self.value(first_node, frame) if first_node is not None else None
+            if role == "paginator":
+                return replace(handle, role=role, extra=first)
+            if handle.library == "boto3" and handle.role == "session":
+                service = first.value if isinstance(first, Lit) and isinstance(first.value, str) else None
+                return replace(handle, role=role, service=service)
+            return replace(handle, role=role, target=_child_target(handle, role, first))
+        if rule == "pass":
+            if handle.role == effect_tables.RESULTS:
+                return handle
+            return Op(what=f"what {handle.role}.{method} returns", inert=True, data=True)
+        if rule == "mode":
+            # `path.open("w")`, `blob.open("wb")`: a file object whose reads
+            # and writes are the effect named where it was opened.
+            if handle.role == "path":
+                return Handle("filesystem", "builtins", "file", target=handle.target, built=_frame_key(frame))
+            return replace(handle, role="stream", built=_frame_key(frame))
+        if handle.library in {"sqlite3", "psycopg2", "psycopg", "pymysql"} or handle.role in {"raw_connection", "cursor"}:
+            if rule in {"sql", "script"}:
+                return replace(handle, role="cursor")
+        if handle.library in _PLAIN_RESULTS:
+            return Op(what=f"what {handle.role}.{method} returns", inert=True, data=True)
+        return replace(handle, role=effect_tables.RESULTS, target=None)
+
+    def handle_attribute(self, handle: Handle, attribute: str) -> Any:
+        role = effect_tables.attribute_role(handle.library, handle.role, attribute)
+        if role is not None:
+            return replace(handle, role=role)
+        child = effect_tables.NAMED_CHILDREN.get((handle.library, handle.role))
+        if child is not None and not attribute.startswith("_"):
+            return replace(handle, role=child, target=_child_target(handle, child, Lit(attribute)))
+        if handle.role == "path":
+            if attribute in effect_tables.PATH_ATTRIBUTES:
+                return replace(handle, target=_UNKNOWN)
+            return Op(what=f"the path's {attribute}", inert=True, data=True)
+        if handle.role in {"process", effect_tables.RESULTS, "file"}:
+            return Op(what=f"the {handle.role}'s {attribute}", inert=True)
+        return _derived(handle)
+
+    def global_value(self, module: PythonModule, name: str) -> Any | None:
+        """A module global the module's own functions set: the one library object it holds.
+
+        ``_pool = None`` at module level and ``global _pool; _pool =
+        psycopg2.pool.ThreadedConnectionPool(...)`` in a function is the lazy
+        singleton pattern. When every assignment in the module is ``None`` or
+        the same kind of recognised object, and nothing anywhere stores into
+        that name, the global holds that object. Its configuration is not
+        read: it is built outside the tool's function.
+        """
+
+        key = (id(module), name)
+        if key in self.globals:
+            return self.globals[key]
+        self.globals[key] = None
+        if self.mutated.get(name) or self.whole.get("*") or self.whole.get(_module_stem(module.ref)):
+            return None
+        sites: list[tuple[ast.expr, ast.FunctionDef | ast.AsyncFunctionDef | None]] = []
+        for statement in _module_level(module.tree.body):
+            for target, value in _bound_names(statement):
+                if target == name:
+                    if value is None:
+                        return None
+                    sites.append((value, None))
+        for function in ast.walk(module.tree):
+            if not isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            declared = any(
+                isinstance(node, ast.Global) and name in node.names for node in _own_nodes(function)
+            )
+            if not declared:
+                continue
+            for node in _own_nodes(function):
+                for target, value in _bound_names(node):
+                    if target == name:
+                        if value is None:
+                            return None
+                        sites.append((value, function))
+        values: list[Any] = []
+        for value, function in sites:
+            if function is None:
+                frame = self.module_frame(module)
+            else:
+                func = Func(module, function)
+                frame = self.frame(func, self.bind(func, None, None), via=(), depth=MAX_DEPTH + 1)
+            values.append(self.value(value, frame))
+        handles = [value for value in values if value != Lit(None)]
+        if not handles or not all(isinstance(value, Handle) for value in handles):
+            return None
+        first = handles[0]
+        if any((item.family, item.library, item.role) != (first.family, first.library, first.role) for item in handles):
+            return None
+        found = _handle_of(_alt([replace(item, built=0) for item in handles]))
+        self.globals[key] = found
+        return found
 
     # -- outbound calls ----------------------------------------------------
 
@@ -1800,6 +2486,15 @@ class _Reach:
             return _join(parts)
         if isinstance(node, ast.BinOp):
             left, right = self.value(node.left, frame), self.value(node.right, frame)
+            if (
+                isinstance(node.op, ast.Div)
+                and self.effects_enabled
+                and isinstance(left, Handle)
+                and left.role == "path"
+            ):
+                # `Path(root) / "out.json"` is a path.
+                base = left.target if left.target is not None else _UNKNOWN
+                return replace(left, target=_join([base, Lit("/"), right]))
             if isinstance(node.op, ast.Add) and (_is_text(left) or _is_text(right)):
                 return _join([left, right])
             return _derived(left, right)
@@ -1817,6 +2512,11 @@ class _Reach:
                 if isinstance(key, Lit) and isinstance(key.value, str):
                     return Op(envs=frozenset({key.value}), exact=True, data=True)
                 return _derived(key)
+            if self.effects_enabled and (handle := _handle_of(base)) is not None:
+                child = effect_tables.NAMED_CHILDREN.get((handle.library, handle.role))
+                if child is not None:
+                    # `client["shop"]["orders"]`: a database, a collection.
+                    return replace(handle, role=child, target=_child_target(handle, child, key))
             if isinstance(base, Rec) and base.shared:
                 return Op(what=f"{_spelling(node.value) or 'a module-level dict'}[…], a module-level dict")
             if isinstance(base, Rec) and isinstance(key, Lit) and isinstance(key.value, str):
@@ -1909,12 +2609,15 @@ class _Reach:
                     return Lib(f"{named.dotted}{spelling[len(head.id):]}")
                 if isinstance(named, _Instance) and node.value is head:
                     return self.instance_attribute(named, node.attr)
-                resolved = self._resolved(frame.module, self.resolver.resolve(frame.module, spelling))
-                if resolved is not None:
-                    return resolved
+                if not (self.effects_enabled and _handle_of(named) is not None):
+                    resolved = self._resolved(frame.module, self.resolver.resolve(frame.module, spelling))
+                    if resolved is not None:
+                        return resolved
         base = self.value(node.value, frame)
         if isinstance(base, Lib):
             return Lib(f"{base.dotted}.{node.attr}")
+        if self.effects_enabled and (handle := _handle_of(base)) is not None:
+            return self.handle_attribute(handle, node.attr)
         if isinstance(base, _Instance):
             return self.instance_attribute(base, node.attr)
         if isinstance(base, Client) and node.attr == "headers":
@@ -1936,7 +2639,8 @@ class _Reach:
             if scope.binds(name):
                 kinds = {kind for kind, _, _ in scope.local.get(name, [])}
                 if "global" in kinds:
-                    return Op(what=f"module global {name}")
+                    held = self.global_value(frame.module, name) if self.effects_enabled else None
+                    return held if held is not None else Op(what=f"module global {name}")
                 if "nonlocal" in kinds:
                     scope = scope.enclosing
                     continue
@@ -2342,6 +3046,8 @@ class _Reach:
                 callee = Lib(f"{receiver.dotted}.{func.attr}")
             elif isinstance(receiver, Client):
                 return Op(what="an HTTP response", inert=True)
+            elif self.effects_enabled and (handle := _handle_of(receiver)) is not None:
+                return self.handle_value(handle, func.attr, call, frame)
             else:
                 return self._method_value(receiver, func.attr, call, frame)
         else:
@@ -2360,6 +3066,10 @@ class _Reach:
             ):
                 # What the service answers is not made from the request.
                 return Op(what="an HTTP response", inert=True)
+            if self.effects_enabled and self.replaced(dotted) is None:
+                found = self.library_value(call, frame, dotted, arguments, keywords)
+                if found is not None:
+                    return found
             if dotted in _ENV_READERS:
                 name = arguments[0] if arguments else keywords.get("key")
                 default = arguments[1] if len(arguments) > 1 else keywords.get("default")
@@ -2418,6 +3128,17 @@ class _Reach:
                 )
             return _derived(*arguments, *keywords.values(), result=True)
         if isinstance(callee, _Builtin):
+            if callee.name == "open" and self.effects_enabled:
+                path = arguments[0] if arguments else keywords.get("file", _UNKNOWN)
+                return Handle("filesystem", "builtins", "file", target=path, built=_frame_key(frame))
+            if (
+                callee.name == "str"
+                and len(arguments) == 1
+                and isinstance(arguments[0], Handle)
+                and arguments[0].role == "path"
+            ):
+                # `str(path)` is the path's text.
+                return arguments[0].target if arguments[0].target is not None else _UNKNOWN
             if callee.name in {"str", "int", "float"} and len(arguments) == 1:
                 inner = arguments[0]
                 if isinstance(inner, Op | Lit | Tpl):
@@ -2431,6 +3152,10 @@ class _Reach:
             return self.returned(callee, call, frame)
         if type(callee) is _Class and not call.args and not call.keywords:
             return _Instance(callee.module, callee.node)
+        if self.effects_enabled and isinstance(callee, Handle):
+            role = effect_tables.FACTORIES.get((callee.library, callee.role))
+            if role is not None:
+                return replace(callee, role=role)
         return _derived(*arguments, *keywords.values(), result=True)
 
     def instance_attribute(self, instance: _Instance, attribute: str) -> Any:
@@ -2515,7 +3240,11 @@ class _Reach:
         return _derived(receiver, *arguments, result=True)
 
     def returned(self, func: Func, call: ast.Call, frame: _Frame) -> Any:
-        if frame.depth >= MAX_DEPTH or id(func.node) in self.stack:
+        # What a helper returns is read one call past the helper bound: reading
+        # a value records nothing, and the call itself stays a limit there
+        # (#913: `db = init_db_pool()` names the pool a query runs on).
+        bound = MAX_DEPTH + 1 if self.effects_enabled else MAX_DEPTH
+        if frame.depth >= bound or id(func.node) in self.stack:
             return Op(what=f"the value {func.node.name} returns")
         args = self.bind(func, call, frame)
         key = (func, tuple(sorted(args.items(), key=repr)))
@@ -2558,6 +3287,366 @@ class _Arguments:
         if index is not None and index < len(self.positional):
             return self.positional[index]
         return None
+
+
+# -- effects beyond HTTP: values (#913) ------------------------------------------
+
+#: Libraries whose effects hand back plain data (a reply, a value).
+_PLAIN_RESULTS = frozenset({"redis", "smtplib", "slack_sdk", "twilio"})
+#: Verbs no method on what an effect handed back is taken to only read.
+_WRITING_VERBS = (
+    "add", "append", "create", "delete", "drop", "insert", "post", "publish", "put", "remove",
+    "save", "send", "set", "update", "upload", "write",
+)
+
+
+def _frame_key(frame: _Frame) -> int:
+    """Which function built a library object: ``0`` for module level."""
+
+    return id(frame.node) if frame.node is not None else 0
+
+
+#: ``Handle.built`` of an object built with an argument this read does not see
+#: into: never local to any function.
+_CONFIGURED = -1
+
+
+def _unseen_argument(value: Any) -> bool:
+    """A constructor argument that may carry behaviour: not plain data, not a
+    recognised library object, not an inert library value."""
+
+    if value is None:
+        return False
+    for option in _options(value):
+        if isinstance(option, Lit | Handle) or _is_quiet(option):
+            continue
+        if isinstance(option, Lib) and (
+            _inert_library(option.dotted) or option.dotted in effect_tables.CONSTRUCTORS
+        ):
+            continue
+        return True
+    return False
+
+
+def _handle_of(value: Any) -> Handle | None:
+    """The one kind of library object a value is, ignoring ``None``, or None."""
+
+    if isinstance(value, Handle):
+        return value
+    if not isinstance(value, Alt):
+        return None
+    options = [option for option in value.options if not (isinstance(option, Lit) and option.value is None)]
+    if not options or not all(isinstance(option, Handle) for option in options):
+        return None
+    first = options[0]
+    if any((item.family, item.library, item.role) != (first.family, first.library, first.role) for item in options):
+        return None
+    if len(options) == 1:
+        return first
+
+    def agreed(attribute: str, default: Any) -> Any:
+        values = {repr(getattr(item, attribute)) for item in options}
+        return getattr(first, attribute) if len(values) == 1 else default
+
+    targets = [item.target for item in options]
+    return replace(
+        first,
+        service=agreed("service", None),
+        target=None if any(target is None for target in targets) else _alt(targets),
+        extra=agreed("extra", None),
+        built=agreed("built", -1),
+        credentials=tuple(dict.fromkeys(item for option in options for item in option.credentials)),
+        host=tuple(sorted({item for option in options for item in option.host})),
+    )
+
+
+def _child_target(handle: Handle, role: str, first: Any) -> Any:
+    """What a child object names: a MongoDB ``db.collection``, a bucket, a table."""
+
+    if handle.library == "pymongo":
+        if first is None:
+            return None
+        if role == "collection" and handle.target is not None:
+            return _join([handle.target, Lit("."), first])
+        return first
+    if role in {"bucket", "collection"} or (handle.library == "boto3" and handle.role == "resource"):
+        return first
+    return handle.target
+
+
+def _command_program(command: Any, shell: bool) -> Any:
+    """The program a command runs: an argument list's first item, or the string."""
+
+    options: list[Any] = []
+    for option in _options(command):
+        if isinstance(option, Seq):
+            options.append(option.items[0] if option.items else _UNKNOWN)
+        else:
+            options.append(option)
+    return options[0] if len(options) == 1 else Alt(tuple(options))
+
+
+def _program_names(program: Any) -> tuple[list[str], bool]:
+    """A command's program by file name only, never its arguments."""
+
+    names: set[str] = set()
+    unread = False
+    for option in _options(program):
+        if isinstance(option, Lib) and option.dotted == "sys.executable":
+            names.add("sys.executable")
+            continue
+        if isinstance(option, Tpl):
+            head = _leading_literal(option).lstrip()
+            tokens = head.split(None, 1)
+            # `f"git {verb}"`: the program is read only when its name ends
+            # inside the literal.
+            if tokens and (len(tokens) > 1 or head != head.rstrip()):
+                option = Lit(tokens[0])
+            else:
+                unread = True
+                continue
+        found, missing = object_command(option)
+        names.update(found)
+        unread = unread or missing
+    return sorted(names), unread
+
+
+def _path_text(value: Any) -> str | None:
+    """A path as a template, or None when it may name a place outside the repository.
+
+    An absolute or home-relative literal, or one that climbs (``..``), is
+    withheld (its digest is published instead); a piece shaped like a key is
+    withheld as a URL's is. A parameter, an environment variable or an unread
+    root is a placeholder.
+    """
+
+    if isinstance(value, Handle):
+        value = value.target
+    if not isinstance(value, Lit | Tpl | Op | Alt):
+        return None
+    rendered = _part(value)
+    if not rendered or rendered == "{…}" or len(rendered) > 160:
+        return None
+    if rendered.startswith(("/", "~", "\\")) or re.match(r"[A-Za-z]:", rendered):
+        return None
+    pieces = re.split(r"[\\/]", rendered)
+    if ".." in pieces:
+        return None
+    return "/".join(
+        piece if piece.startswith("{") or not _secret_piece(piece) else _REDACTED for piece in pieces
+    )
+
+
+def _name_text(value: Any) -> str | None:
+    """A table, bucket, collection, key or channel name, when it is plainly a name."""
+
+    if isinstance(value, Handle):
+        value = value.target
+    if not isinstance(value, Lit | Tpl | Op | Alt):
+        return None
+    rendered = _part(value)
+    if not rendered or rendered == "{…}" or len(rendered) > 128:
+        return None
+    literal = re.sub(r"\{[^{}]*\}", "", rendered)
+    for piece in re.split(r"[/:.@#|]", literal):
+        if piece and (not re.fullmatch(r"[A-Za-z0-9_+-]+", piece) or _secret_piece(piece)):
+            return None
+    return rendered
+
+
+def _sql_statement(value: Any) -> effect_tables.Statement:
+    """What a SQL value establishes, over every way it may be written."""
+
+    results: list[effect_tables.Statement] = []
+    for option in _options(value):
+        if isinstance(option, Lit) and isinstance(option.value, str):
+            results.append(effect_tables.sql_operation(option.value, complete=True))
+        elif (
+            isinstance(option, Tpl)
+            and option.parts
+            and isinstance(option.parts[0], Lit)
+            and isinstance(option.parts[0].value, str)
+        ):
+            results.append(effect_tables.sql_operation(option.parts[0].value, complete=False))
+        elif isinstance(option, Handle) and option.role == "statement" and isinstance(option.extra, str):
+            # A SQLAlchemy `select(...)`, `insert(...)`: the construct says.
+            operation = "read" if option.extra == "SELECT" else "write"
+            results.append(effect_tables.Statement(operation, option.extra, None, False))
+        else:
+            results.append(effect_tables.Statement("unknown", None, None, True))
+    operations = {item.operation for item in results}
+    operation = next((name for name in ("write", "unknown", "read") if name in operations), None)
+    keywords = sorted({item.keyword for item in results if item.keyword})
+    tables = sorted({item.table for item in results if item.table and not _secret_piece(item.table)})
+    return effect_tables.Statement(
+        operation,
+        "|".join(keywords) or None,
+        "|".join(tables) or None,
+        any(item.open for item in results),
+    )
+
+
+def _pipeline_operation(value: Any) -> str:
+    """A MongoDB aggregation's direction: ``$out`` and ``$merge`` write."""
+
+    if not isinstance(value, Seq):
+        return "unknown"
+    found = "read"
+    for stage in value.items:
+        if not isinstance(stage, Rec) or stage.open or stage.shared:
+            found = "unknown"
+            continue
+        keys = {key for key, _ in stage.fields}
+        if keys & {"$out", "$merge"}:
+            return "write"
+        if "**" in keys:
+            found = "unknown"
+    return found
+
+
+def _hosts_of(value: Any) -> list[str]:
+    """The hosts a host, URL or DSN value names: a literal, or an environment
+    variable by name. A host the read cannot name is left out."""
+
+    hosts: list[str] = []
+    for option in _options(value):
+        if isinstance(option, Lit) and isinstance(option.value, str):
+            text = option.value.strip()
+            host: str | None = None
+            if "://" in text:
+                try:
+                    host = urlsplit(text).hostname
+                except ValueError:
+                    host = None
+            elif re.search(r"(?:^|\s)host=", text):
+                match = re.search(r"(?:^|\s)host=(\S+)", text)
+                host = match.group(1) if match else None
+            elif re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,252}", text):
+                host = text
+            if host:
+                if host.endswith(_CAPABILITY_HOST_SUFFIXES):
+                    _label, dot, domain = host.partition(".")
+                    host = f"{_REDACTED}{dot}{domain}"
+                hosts.append(host)
+        elif isinstance(option, Op) and option.exact and len(option.envs) == 1 and not option.params:
+            hosts.append("env " + next(iter(option.envs)))
+    return hosts
+
+
+_HOST_LIBRARIES = frozenset({"psycopg2", "psycopg", "asyncpg", "pymysql", "sqlalchemy", "pymongo", "redis"})
+
+
+def _hosts(dotted: str, kind: effect_tables.Kind, arguments: list[Any], keywords: dict[str, Any]) -> list[str]:
+    if kind.library not in _HOST_LIBRARIES:
+        return []
+    candidates = [keywords[word] for word in ("host", "hostname", "dsn", "url", "conninfo") if word in keywords]
+    if arguments and not dotted.startswith("psycopg2.pool."):
+        candidates.append(arguments[0])
+    return sorted({host for candidate in candidates for host in _hosts_of(candidate)})
+
+
+def _construction_credentials(
+    dotted: str, arguments: list[Any], keywords: dict[str, Any]
+) -> tuple[tuple[tuple[str, Any], ...], ...]:
+    """What a client is built with as a credential, by name only (#872's rules)."""
+
+    found: list[dict[str, Any]] = []
+
+    def add(entry: dict[str, Any], value: Any) -> None:
+        params, envs = _sources(value)
+        if envs:
+            entry["env"] = sorted(envs)
+        if params:
+            entry["from"] = sorted(params)
+        if _literal_fallback(value) or (not envs and not params and _literal_only(value)):
+            entry["literal"] = True
+        elif not envs and not params:
+            entry["computed"] = True
+        if entry not in found:
+            found.append(entry)
+
+    for word, value in keywords.items():
+        if _secret_name(word) and not is_absent(value):
+            add({"keyword": word}, value)
+    for index, word in enumerate(effect_tables.POSITIONAL_CREDENTIALS.get(dotted, ())):
+        if index < len(arguments) and _secret_name(word):
+            add({"keyword": word}, arguments[index])
+    sources = [keywords[word] for word in ("dsn", "url", "conninfo", "host") if word in keywords]
+    if arguments:
+        sources.append(arguments[0])
+    for source in sources:
+        for option in _options(source):
+            if isinstance(option, Lit) and isinstance(option.value, str):
+                text = option.value
+                try:
+                    secret = "://" in text and bool(urlsplit(text).password)
+                except ValueError:
+                    secret = False
+                entry: dict[str, Any] | None = None
+                if secret:
+                    entry = {"userinfo": None, "literal": True}
+                elif re.search(r"(?:^|\s)password=", text):
+                    # A libpq `key=value` string: `"dbname=x password=…"`.
+                    entry = {"keyword": "password", "literal": True}
+                if entry is not None and entry not in found:
+                    found.append(entry)
+            elif isinstance(option, Tpl):
+                for entry in _credentials(None, None, None, option):
+                    if "userinfo" in entry and entry not in found:
+                        found.append(entry)
+    return tuple(_frozen(entry) for entry in found)
+
+
+def _frozen(entry: dict[str, Any]) -> tuple[tuple[str, Any], ...]:
+    return tuple((key, tuple(value) if isinstance(value, list) else value) for key, value in entry.items())
+
+
+def _thawed(entry: tuple[tuple[str, Any], ...]) -> dict[str, Any]:
+    return {key: list(value) if isinstance(value, tuple) else value for key, value in entry}
+
+
+def _own_nodes(function: ast.FunctionDef | ast.AsyncFunctionDef) -> Iterator[ast.AST]:
+    """A function's own nodes, not those of the functions and classes it defines."""
+
+    stack: list[ast.AST] = list(function.body)
+    while stack:
+        node = stack.pop()
+        yield node
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef | ast.Lambda):
+            continue
+        stack.extend(ast.iter_child_nodes(node))
+
+
+def _bound_names(node: ast.AST) -> Iterator[tuple[str, ast.expr | None]]:
+    """The names a statement binds, with the value when it is one plain assignment."""
+
+    if isinstance(node, ast.Assign):
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                yield target.id, node.value
+            else:
+                for name in _names(target):
+                    yield name, None
+    elif isinstance(node, ast.AnnAssign):
+        if isinstance(node.target, ast.Name) and node.value is not None:
+            yield node.target.id, node.value
+    elif isinstance(node, ast.AugAssign | ast.For | ast.AsyncFor | ast.Delete | ast.NamedExpr):
+        targets = node.targets if isinstance(node, ast.Delete) else [node.target]
+        for target in targets:
+            if isinstance(target, ast.Name):
+                yield target.id, None
+            for name in _names(target):
+                yield name, None
+    elif isinstance(node, ast.With | ast.AsyncWith):
+        for item in node.items:
+            if item.optional_vars is not None:
+                for name in _names(item.optional_vars):
+                    yield name, None
+    elif isinstance(node, ast.Import | ast.ImportFrom):
+        for alias in node.names:
+            yield alias.asname or alias.name.split(".", 1)[0], None
+    elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+        yield node.name, None
 
 
 def _described(value: Any) -> str | None:
@@ -2611,6 +3700,7 @@ def _inert_library(dotted: str) -> bool:
         or dotted in _CLIENTS
         or dotted in _REQUEST_CLASSES
         or dotted in _BASIC_AUTH
+        or dotted in effect_tables.ROW_FACTORIES
         or dotted.startswith("logging.")
     )
 
@@ -3246,6 +4336,8 @@ def read_tool_reach(
         module,
         function,
         listed=len(reach.calls),
+        effects=reach.effects + reach.dropped_effects,
+        listed_effects=len(reach.effects),
     )
 
 
@@ -3558,6 +4650,8 @@ def _canonical(value: Any) -> Any:
         return ["lib", value.dotted]
     if isinstance(value, Func):
         return ["func", value.node.name]
+    if isinstance(value, Handle):
+        return ["handle", value.library, value.role, value.service, _canonical(value.target)]
     if isinstance(value, _Class):
         return ["class", value.node.name]
     return ["value", type(value).__name__]
@@ -6002,17 +7096,25 @@ def summarize(
     function: ast.FunctionDef | ast.AsyncFunctionDef,
     *,
     listed: int | None = None,
+    effects: list[dict[str, Any]] | None = None,
+    listed_effects: int | None = None,
 ) -> dict[str, Any]:
     """The evidence, and the effect claims it supports.
 
     ``listed``: how many of ``calls`` are published; the rest are past the
-    call bound and count only for the effect.
+    call bound and count only for the effect. ``effects`` and
+    ``listed_effects`` are the same for what the tool reaches beyond HTTP
+    (#913).
 
     A call that writes supports ``write`` (or ``destructive``) wherever the
-    rest of the tool leads. ``read`` needs more: at least one outbound call,
-    every one of them a read, and nothing the read could not follow.
+    rest of the tool leads; so does a library effect that writes, and one
+    that runs a process supports ``code_execution``, one that sends a message
+    ``external_communication``. ``read`` needs more: at least one outbound
+    call or effect, every one of them a read, and nothing the read could not
+    follow.
     """
 
+    effects = effects or []
     claims: list[dict[str, Any]] = []
     seen: set[tuple[Any, ...]] = set()
     for item in calls:
@@ -6030,22 +7132,43 @@ def summarize(
                     **({"graphql": item["graphql"]} if "graphql" in item else {}),
                 }
             )
+    for item in effects:
+        effect = effect_tables.CLAIM_EFFECTS.get((item["family"], item["operation"]))
+        if effect is None:
+            continue
+        key = (effect, item["family"], item["call"], item.get("target"))
+        if key in seen:
+            continue
+        seen.add(key)
+        claims.append(
+            {
+                "effect": effect,
+                "at": item["at"],
+                "family": item["family"],
+                "operation": item["operation"],
+                "call": item["call"],
+                **({"target": item["target"]} if "target" in item else {}),
+            }
+        )
     if (
-        calls
+        (calls or effects)
         and not claims
         and not limits
         and not truncated
         and all(item["effect"] == "read" for item in calls)
+        and all(item["operation"] == "read" for item in effects)
     ):
         claims.append(
             {
                 "effect": "read",
                 "at": f"{module.ref}:{function.lineno}",
                 "calls": len(calls),
+                **({"effects": len(effects)} if effects else {}),
             }
         )
     result: dict[str, Any] = {
         "calls": calls[:listed] if listed is not None else calls,
+        **({"effects": effects[:listed_effects] if listed_effects is not None else effects} if effects else {}),
         "limits": limits,
         "effect": claims[0]["effect"] if len(claims) == 1 else _strongest(claims),
         "effect_claims": claims,
@@ -6056,8 +7179,5 @@ def summarize(
 
 
 def _strongest(claims: list[dict[str, Any]]) -> str | None:
-    effects = {claim["effect"] for claim in claims}
-    for effect in ("destructive", "write", "read"):
-        if effect in effects:
-            return effect
-    return None
+    effects = [claim["effect"] for claim in claims if claim["effect"] in EFFECT_RISK_RANK]
+    return max(effects, key=lambda effect: EFFECT_RISK_RANK[effect]) if effects else None

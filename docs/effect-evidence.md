@@ -48,8 +48,11 @@ No new report field or enum is introduced. For each
 `effect_evidence` (see [What a bound tool reaches](application-comparison.md#what-a-bound-tool-reaches)).
 There, the outbound HTTP calls read from the tool's own code are one more
 structural source, `source_http_call`. Such a call supports the effect of the
-call it makes. It supports `read` only when every call the tool makes was
-followed and every outbound call reads.
+call it makes. What the code reaches through a recognised database, process,
+file, cloud SDK or messaging library is another, `source_library_call`: a write
+supports `write`, running a process `code_execution` and sending a message
+`external_communication`. Either supports `read` only when every call the
+tool makes was followed and everything it reaches reads.
 
 Policy severity cannot turn a heuristic claim into typed evidence. Renderers
 leave claims, risk tags, severity, pass eligibility and the release decision

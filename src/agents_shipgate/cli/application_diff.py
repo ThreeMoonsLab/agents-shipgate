@@ -37,7 +37,11 @@ from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.domain import ANY_TOOL
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.privacy import sanitize_report_payload
-from agents_shipgate.core.semantic_assessment import REACH_CLAIM_SOURCE, assess_tool_semantics
+from agents_shipgate.core.semantic_assessment import (
+    REACH_CLAIM_SOURCE,
+    REACH_CLAIM_SOURCES,
+    assess_tool_semantics,
+)
 from agents_shipgate.core.verification_identity import build_engine_requirement
 from agents_shipgate.inputs.google_adk import adk_agent_subclasses, load_google_adk_artifacts
 from agents_shipgate.inputs.object_tools import object_display, reading_object_bindings
@@ -1595,6 +1599,20 @@ def _published_binding(binding: dict[str, Any] | None, scope: str) -> dict[str, 
                 }
                 for call in reach["calls"]
             ],
+            **(
+                {
+                    "effects": [
+                        {
+                            **effect,
+                            "at": _location(scope, effect["at"]),
+                            "via": [_location(scope, hop) for hop in effect["via"]],
+                        }
+                        for effect in reach["effects"]
+                    ]
+                }
+                if "effects" in reach
+                else {}
+            ),
             "limits": [{**item, "at": _location(scope, item["at"])} for item in reach["limits"]],
             "effect_claims": [
                 {**item, "at": _location(scope, item["at"])} for item in reach["effect_claims"]
@@ -1605,7 +1623,7 @@ def _published_binding(binding: dict[str, Any] | None, scope: str) -> dict[str, 
             **result["effect_evidence"],
             "claims": [
                 {**claim, "at": _location(scope, claim["at"])}
-                if claim["source"] == REACH_CLAIM_SOURCE
+                if claim["source"] in REACH_CLAIM_SOURCES
                 else claim
                 for claim in result["effect_evidence"]["claims"]
             ],
@@ -1637,6 +1655,73 @@ def _object_lines(binding: dict[str, Any]) -> list[str]:
         if item.get("literal"):
             sources.append("a literal (not printed)")
         lines.append(f"  credential: {', '.join(sources) or 'a computed value'} → {target}")
+    return lines
+
+
+#: Libraries whose effect is named by a function, not a method on an object.
+_FUNCTION_LIBRARIES = frozenset({"builtins", "subprocess", "os", "shutil", "asyncio", "io"})
+
+
+def _effect_phrase(effect: dict[str, Any]) -> str:
+    """One effect beyond HTTP as a reviewer reads it (#913)."""
+
+    words = [effect["family"], effect["operation"]]
+    if effect["family"] in {"cloud", "messaging"} and effect.get("service"):
+        words.append(effect["service"])
+    if effect.get("statement"):
+        words.append(effect["statement"] + (" on" if effect.get("target") else ""))
+    if effect.get("target"):
+        words.append(effect["target"])
+    if effect.get("shell"):
+        words.append("through a shell")
+    library = effect["library"]
+    call = effect["call"] if library in _FUNCTION_LIBRARIES else f"{library} {effect['call']}"
+    if effect["family"] == "database" and effect.get("service"):
+        call = f"{effect['service']}, {call}"
+    return " ".join(words) + f" ({call})"
+
+
+def _effect_lines(effects: list[dict[str, Any]]) -> list[str]:
+    lines: list[str] = []
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for effect in effects:
+        groups.setdefault(_effect_phrase(effect), []).append(effect)
+    for phrase, group in groups.items():
+        first = group[0]
+        via = f" via {' → '.join(first['via'])}" if first["via"] else ""
+        more = (
+            f", and {len(group) - 1} more call site{'s' if len(group) > 2 else ''}"
+            if len(group) > 1
+            else ""
+        )
+        lines.append(f"reaches: {phrase} at {first['at']}{via}{more}")
+        hosts = sorted({host for effect in group for host in effect.get("host", [])})
+        if hosts:
+            lines.append(f"  host: {', '.join(hosts)}")
+        supplied: list[str] = []
+        for effect in group:
+            for item in effect.get("model_supplied", []):
+                fact = f"{item['param']} → {item['into']}"
+                if fact not in supplied:
+                    supplied.append(fact)
+        if supplied:
+            lines.append("  model-supplied: " + "; ".join(supplied))
+        credentials: list[str] = []
+        for effect in group:
+            for item in effect.get("credential_sources", []):
+                target = next(
+                    (f"{kind} {item[kind]}" if item[kind] else kind for kind in ("keyword", "userinfo") if kind in item),
+                    "a credential",
+                )
+                sources = [f"env {name}" for name in item.get("env", [])]
+                if item.get("from"):
+                    sources.append("a value made from model-supplied " + ", ".join(item["from"]))
+                if item.get("literal"):
+                    sources.append("a literal (not printed)")
+                fact = f"  credential: {', '.join(sources) or 'a computed value'} → {target}"
+                if fact not in credentials:
+                    credentials.append(fact)
+        lines.extend(credentials)
     return lines
 
 
@@ -1711,21 +1796,29 @@ def _reach_lines(binding: dict[str, Any]) -> list[str]:
             # is not said of all of them.
             facts.append(fact if count >= len(group) else f"{fact} (at some call sites)")
         lines.extend(facts)
+    effects = reach.get("effects") or []
+    lines.extend(_effect_lines(effects))
     evidence = binding.get("effect_evidence")
-    if evidence and (calls or limits):
+    if evidence and (calls or effects or limits):
         status = evidence["status"]
         label = EFFECT_EVIDENCE_LABELS.get(status, status)
         basis = ""
-        claims = [c for c in evidence["claims"] if c["source"] == REACH_CLAIM_SOURCE]
+        claims = [c for c in evidence["claims"] if c["source"] in REACH_CLAIM_SOURCES]
         if status == "structural" and claims:
             claim = next(
                 (c for c in claims if c["value"] == evidence["conservative_effect"]), claims[0]
             )
-            basis = (
-                ": every call was followed, and every outbound call reads"
-                if claim["value"] == "read"
-                else f": outbound call at {claim['at']}"
-            )
+            effect = next((item for item in effects if item["at"] == claim["at"]), None)
+            if claim["value"] == "read":
+                basis = (
+                    ": every call was followed, and everything it reaches reads"
+                    if effects
+                    else ": every call was followed, and every outbound call reads"
+                )
+            elif claim["source"] != REACH_CLAIM_SOURCE and effect is not None:
+                basis = f": {effect['family']} {effect['operation']} at {claim['at']}"
+            else:
+                basis = f": outbound call at {claim['at']}"
         lines.append(f"effect: {evidence['conservative_effect']} ({label}{basis})")
     for item in limits[:3]:
         lines.append(f"reach limit: {item['at']} {item['why']}")
@@ -1839,7 +1932,7 @@ def run_application_diff(
 
 _LIMITS = [
     "Covers supported OpenAI Agents SDK and Google ADK source wiring only.",
-    "Deployment-root reachability, runtime behavior, effects other than the outbound HTTP calls a row names, and business authority are not established.",
+    "Deployment-root reachability, runtime behavior, effects other than the outbound HTTP calls and library effects a row names, and business authority are not established.",
     "This comparison is advisory evidence and supplies no release verdict or merge permission.",
 ]
 

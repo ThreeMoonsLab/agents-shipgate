@@ -163,15 +163,14 @@ def test_a_method_chosen_among_literals_claims_the_strongest(tmp_path):
     [
         ("db.delete(item)", "calls store.db.delete, which is not read"),
         # One unread chain is one limit, named where it starts.
-        ('open("/tmp/x", "w").write(item)', "calls open, which is not read"),
-        ("subprocess.run([item])", "calls subprocess.run, which is not read"),
+        ('shelve.open("/tmp/x").sync()', "calls shelve.open, which is not read"),
         ("Recorder(item)", "calls Recorder"),
     ],
 )
 def test_a_call_the_read_cannot_follow_is_a_limit_and_blocks_read(tmp_path, line, why):
     reach = _reach(
         tmp_path,
-        "import subprocess\nimport requests\nfrom store import db\n\n"
+        "import shelve\nimport requests\nfrom store import db\n\n"
         "class Recorder:\n    pass\n\n"
         "def act(item: str) -> dict:\n"
         f"    {line}\n"
@@ -182,6 +181,30 @@ def test_a_call_the_read_cannot_follow_is_a_limit_and_blocks_read(tmp_path, line
         item["at"] == "agent.py:9" and item["why"].startswith(why) for item in reach["limits"]
     )
     assert reach["effect_claims"] == []
+
+
+@pytest.mark.parametrize(
+    ("line", "family", "operation", "effect"),
+    [
+        # #913: these used to be limits; each is now a named effect, and a
+        # write or an execution still means the tool does not only read.
+        ('open("/tmp/x", "w").write(item)', "filesystem", "write", "write"),
+        ("subprocess.run([item])", "process", "execute", "code_execution"),
+    ],
+)
+def test_a_library_effect_beside_a_read_is_named_and_is_not_a_read(tmp_path, line, family, operation, effect):
+    reach = _reach(
+        tmp_path,
+        "import subprocess\nimport requests\n\n"
+        "def act(item: str) -> dict:\n"
+        f"    {line}\n"
+        '    return requests.get(f"https://x.test/{item}").json()\n',
+    )
+    assert reach["calls"][0]["effect"] == "read"
+    assert [(item["family"], item["operation"], item["at"]) for item in reach["effects"]] == [
+        (family, operation, "agent.py:5")
+    ]
+    assert [claim["effect"] for claim in reach["effect_claims"]] == [effect]
 
 
 def test_calls_with_no_effect_outside_the_process_are_passed_over(tmp_path):
@@ -962,7 +985,12 @@ def test_a_path_built_from_a_literal_is_not_a_string(tmp_path):
         '    pathlib.Path("audit.log").replace("audit.1.log")\n'
         '    return requests.get(f"https://x.test/{q}").json()\n',
     )
-    assert reach["limits"] and reach["effect_claims"] == []
+    # Its `replace` moves a file (#913: named, where it was a limit).
+    [effect] = reach["effects"]
+    assert (effect["family"], effect["operation"], effect["call"], effect["target"]) == (
+        "filesystem", "write", "path.replace", "audit.log"
+    )
+    assert [claim["effect"] for claim in reach["effect_claims"]] == ["write"]
 
 
 def test_a_library_call_handing_back_its_argument_is_not_plain_data(tmp_path):

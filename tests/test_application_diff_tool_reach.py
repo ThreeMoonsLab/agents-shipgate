@@ -408,3 +408,65 @@ def act(number: int) -> dict:
     _, _, (base, head) = _added(repo, body)
     text = _text(repo, base, head)
     assert "credential: env TOKEN → header Authorization (at some call sites)" in text
+
+
+def test_a_row_names_what_the_tool_reaches_beyond_http(repo):
+    # #913: a process, a database and a file, each named with its location;
+    # the strongest supports the effect evidence.
+    body = '''
+import sqlite3
+import subprocess
+
+
+@function_tool
+def act(number: int) -> dict:
+    subprocess.run(["git", "fetch", "origin", str(number)], check=True)
+    with sqlite3.connect("issues.db") as conn:
+        conn.execute("UPDATE issues SET seen = 1 WHERE number = ?", (number,))
+    with open(f"logs/{number}.txt", "a") as log:
+        log.write("seen")
+    return {"ok": True}
+'''
+    after, _, (base, head) = _added(repo, body)
+    effects = after["reach"]["effects"]
+    assert [(item["family"], item["operation"], item.get("target"), item["at"]) for item in effects] == [
+        ("process", "execute", "git", _line(body, "subprocess.run(")),
+        ("database", "write", "issues", _line(body, "conn.execute(")),
+        ("filesystem", "write", "logs/{number}.txt", _line(body, "with open(")),
+    ]
+    assert "fetch" not in json.dumps(effects) and "seen = 1" not in json.dumps(effects)
+    assert after["effect_evidence"]["conservative_effect"] == "code_execution"
+    assert after["effect_evidence"]["status"] == "structural"
+    sources = {claim["source"] for claim in after["effect_evidence"]["claims"]}
+    assert sources == {"source_library_call"}
+    text = _text(repo, base, head)
+    assert f"reaches: process execute git (subprocess.run) at {_line(body, 'subprocess.run(')}" in text
+    assert "  model-supplied: number → command" in text
+    assert (
+        "reaches: database write UPDATE on issues (sqlite, sqlite3 connection.execute) "
+        f"at {_line(body, 'conn.execute(')}"
+    ) in text
+    assert f"reaches: filesystem write logs/{{number}}.txt (open) at {_line(body, 'with open(')}" in text
+    assert (
+        "effect: code_execution (structural evidence: process execute at "
+        f"{_line(body, 'subprocess.run(')})"
+    ) in text
+
+
+def test_a_tool_that_only_reads_a_database_it_opens_reads(repo):
+    body = '''
+import sqlite3
+
+
+@function_tool
+def act(number: int) -> list:
+    with sqlite3.connect("issues.db") as conn:
+        return conn.execute("SELECT title FROM issues WHERE number = ?", (number,)).fetchall()
+'''
+    after, _, (base, head) = _added(repo, body)
+    assert after["reach"]["effect_claims"] == [
+        {"effect": "read", "at": _line(body, "def act("), "calls": 0, "effects": 1}
+    ]
+    assert after["effect_evidence"]["conservative_effect"] == "read"
+    text = _text(repo, base, head)
+    assert "effect: read (structural evidence: every call was followed, and everything it reaches reads)" in text
