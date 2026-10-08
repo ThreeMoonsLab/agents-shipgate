@@ -908,7 +908,7 @@ def test_release_does_not_weaken_the_coverage_floor() -> None:
         for step in ci["jobs"]["suite"]["steps"]
         if "SHIPGATE_TEST_SHARDS" in step.get("env", {})
     )
-    assert shards == list(range(1, int(count) + 1)) == [1, 2, 3, 4]
+    assert shards == list(range(1, int(count) + 1)) == [1, 2, 3, 4, 5]
 
 
 def test_adapter_static_only_lint_stays_covered_in_release() -> None:
