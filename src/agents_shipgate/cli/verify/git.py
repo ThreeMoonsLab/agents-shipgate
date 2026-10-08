@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 
 import yaml
 
+from agents_shipgate import _perf
 from agents_shipgate.core.boundary_registry import is_agent_boundary_path
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.privacy import redact_text
@@ -2465,35 +2466,40 @@ def archive_tree(
         # Peeled here, in the repository that certainly holds the commit: a
         # tree pack does not carry it, so `<commit>^{tree}` cannot be
         # resolved again inside the isolated store.
-        tree = _run_git(workspace, ["rev-parse", f"{commit}^{{tree}}"]).stdout.strip()
-        _copy_verified_commit_graph(
-            workspace,
-            commit=commit,
-            git_dir=git_dir,
-            tree=tree if scope is not None else None,
-        )
-        gitlinks = _materialize_isolated_tree(
-            git_dir,
-            tree=tree,
-            destination=destination,
-            scope=scope,
-            record_gitlinks=record_gitlinks,
-            allow_selected_openshell_links=_allow_selected_openshell_links,
-        )
-        wider = rescope(destination) if rescope is not None and scope is not None else None
+        with _perf.phase("archive.rev_parse_tree"):
+            tree = _run_git(workspace, ["rev-parse", f"{commit}^{{tree}}"]).stdout.strip()
+        with _perf.phase("archive.copy_verified_graph"):
+            _copy_verified_commit_graph(
+                workspace,
+                commit=commit,
+                git_dir=git_dir,
+                tree=tree if scope is not None else None,
+            )
+        with _perf.phase("archive.materialize_scoped"):
+            gitlinks = _materialize_isolated_tree(
+                git_dir,
+                tree=tree,
+                destination=destination,
+                scope=scope,
+                record_gitlinks=record_gitlinks,
+                allow_selected_openshell_links=_allow_selected_openshell_links,
+            )
+        with _perf.phase("archive.rescope"):
+            wider = rescope(destination) if rescope is not None and scope is not None else None
         if wider is None:
             return gitlinks
         again, wider_scope = wider
         again.mkdir(parents=True, exist_ok=True)
         if any(again.iterdir()):
             raise ConfigError("Git archive destination must be empty")
-        return _materialize_isolated_tree(
-            git_dir,
-            tree=tree,
-            destination=again,
-            scope=wider_scope,
-            record_gitlinks=record_gitlinks,
-        )
+        with _perf.phase("archive.materialize_wider"):
+            return _materialize_isolated_tree(
+                git_dir,
+                tree=tree,
+                destination=again,
+                scope=wider_scope,
+                record_gitlinks=record_gitlinks,
+            )
 
 
 def archive_verification_tree(workspace: Path, ref: str, destination: Path) -> dict[str, str]:
@@ -2608,42 +2614,44 @@ def _copy_verified_commit_graph(
         raise ConfigError(f"Could not initialize isolated Git store: {initialized.stderr.strip()}")
 
     pack_path = git_dir.parent / "reachable.pack"
-    with pack_path.open("wb") as output:
-        packed = _run_process(
-            [
-                "git",
-                "--no-replace-objects",
-                "-C",
-                str(workspace),
-                "pack-objects",
-                "--stdout",
-                "--revs",
-            ],
-            input=f"{tree or commit}\n".encode("ascii"),
-            stdout=output,
-            stderr=subprocess.PIPE,
-            check=False,
-            env=env,
-            timeout=120,
-        )
+    with _perf.phase("archive.copy.pack_objects"):
+        with pack_path.open("wb") as output:
+            packed = _run_process(
+                [
+                    "git",
+                    "--no-replace-objects",
+                    "-C",
+                    str(workspace),
+                    "pack-objects",
+                    "--stdout",
+                    "--revs",
+                ],
+                input=f"{tree or commit}\n".encode("ascii"),
+                stdout=output,
+                stderr=subprocess.PIPE,
+                check=False,
+                env=env,
+                timeout=120,
+            )
     if packed.returncode != 0:
         detail = packed.stderr.decode("utf-8", errors="replace").strip()
         raise ConfigError(f"Could not copy verified Git objects: {detail}")
-    with pack_path.open("rb") as source:
-        indexed = _run_process(
-            [
-                "git",
-                "--no-replace-objects",
-                f"--git-dir={git_dir}",
-                "index-pack",
-                "--stdin",
-            ],
-            stdin=source,
-            capture_output=True,
-            check=False,
-            env=env,
-            timeout=120,
-        )
+    with _perf.phase("archive.copy.index_pack"):
+        with pack_path.open("rb") as source:
+            indexed = _run_process(
+                [
+                    "git",
+                    "--no-replace-objects",
+                    f"--git-dir={git_dir}",
+                    "index-pack",
+                    "--stdin",
+                ],
+                stdin=source,
+                capture_output=True,
+                check=False,
+                env=env,
+                timeout=120,
+            )
     if indexed.returncode != 0:
         detail = indexed.stderr.decode("utf-8", errors="replace").strip()
         raise ConfigError(f"Copied Git objects failed index validation: {detail}")
@@ -2651,11 +2659,12 @@ def _copy_verified_commit_graph(
     # and asking for one that is not there fails the check for the wrong
     # reason; a tree also has no parents, which is why a scoped archive works
     # on a shallow clone where a commit walk crosses the graft (#683).
-    checked = _run_git_dir(
-        git_dir,
-        ["fsck", "--strict", "--no-reflogs", "--no-dangling", tree or commit],
-        check=False,
-    )
+    with _perf.phase("archive.copy.fsck"):
+        checked = _run_git_dir(
+            git_dir,
+            ["fsck", "--strict", "--no-reflogs", "--no-dangling", tree or commit],
+            check=False,
+        )
     if checked.returncode != 0:
         detail = checked.stderr.strip() or checked.stdout.strip()
         raise ConfigError(f"Copied Git object graph failed integrity validation: {detail}")
@@ -2673,7 +2682,8 @@ def _materialize_isolated_tree(
     listing_args = ["ls-tree", "-r", "-z"]
     if scope is not None:
         listing_args.append("-t")
-    listing = _run_git_dir(git_dir, [*listing_args, tree], text=False).stdout
+    with _perf.phase("archive.tree.list"):
+        listing = _run_git_dir(git_dir, [*listing_args, tree], text=False).stdout
     root = destination.resolve()
     entries: list[tuple[str, str, str]] = []
     links: list[tuple[str, str]] = []
@@ -2696,119 +2706,125 @@ def _materialize_isolated_tree(
         if scope is None and allow_selected_openshell_links
         else set()
     )
-    in_scope = (
-        _scope_through_boundary_links(git_dir, listed, tree_types, scope)
-        if scope is not None
-        else None
-    )
-    for mode, object_type, oid, path_text in listed:
-        if in_scope is not None and mode != "120000" and not in_scope(path_text):
-            # Out of scope is not merely unmaterialized, it is unexamined:
-            # the portability and collision checks below describe the tree
-            # this archive writes, and a name that never lands on the
-            # filesystem cannot collide there. A repository whose
-            # `src/templates/` holds `.AwS__CrEdEnTiAlS.html` beside
-            # `.aws__credentials.html` is comparable for its host surface.
-            # Symlinks are always examined: they are what conceals a
-            # boundary path from the reader.
-            continue
-        if "\\" in path_text:
-            raise ConfigError(f"Git tree path is not portable: {path_text}")
-        portable_key = _portable_tree_path_key(path_text)
-        prior = portable_paths.setdefault(portable_key, path_text)
-        if prior != path_text:
-            raise ConfigError(
-                "Git tree contains filesystem-colliding paths: "
-                f"{prior!r} and {path_text!r}"
-            )
-        if object_type == "tree" and scope is not None:
-            # A directory at a recognized configuration path is an invalid
-            # input, not an absent file. Preserve its kind even when none of
-            # its children are in scope so both inventories can refuse it.
-            target = (root / path_text).resolve()
-            if target == root or root not in target.parents:
-                raise ConfigError(f"Git tree path escapes destination: {path_text}")
-            target.mkdir(parents=True, exist_ok=True)
-            continue
-        if record_gitlinks and mode == "160000" and object_type == "commit":
-            # An unpopulated submodule: the directory a checkout leaves, with
-            # nothing written into it. What it would hold is not in this
-            # repository's object graph, and the caller names it as unread.
-            target = (root / path_text).resolve()
-            if target == root or root not in target.parents:
-                raise ConfigError(f"Git tree path escapes destination: {path_text}")
-            target.mkdir(parents=True, exist_ok=True)
-            gitlinks[path_text] = oid
-            continue
-        if object_type != "blob" or mode == "160000" or (
-            mode == "120000" and scope is None and path_text not in allowed_links
-        ):
-            raise ConfigError(
-                f"Git tree contains unsupported external binding at {path_text} "
-                f"(mode {mode}, type {object_type})."
-            )
-        if mode == "120000":
-            # Recreated as a link rather than refused, so the base tree
-            # presents the reader the same object the worktree does: a link,
-            # opened with O_NOFOLLOW, recorded as unreadable if it is a
-            # boundary path. Refusing instead made a third of a
-            # 12-repository sample uncomparable, several of them for a
-            # symlink no reader would ever open (#688).
-            #
-            # Nothing is written *through* a link. The escape this refusal
-            # used to cover needs a blob under a symlinked ancestor, which a
-            # valid tree cannot express — the name would be both a blob and
-            # a tree, a duplicate entry `fsck --strict` rejects before
-            # anything is written. Blobs are materialized before links
-            # regardless, so no write passes through one even if that check
-            # ever loosens.
-            links.append((oid, path_text))
-            continue
-        entries.append((mode, oid, path_text))
+    with _perf.phase("archive.tree.scope_through_links"):
+        in_scope = (
+            _scope_through_boundary_links(git_dir, listed, tree_types, scope)
+            if scope is not None
+            else None
+        )
+    with _perf.phase("archive.tree.classify"):
+        for mode, object_type, oid, path_text in listed:
+            if in_scope is not None and mode != "120000" and not in_scope(path_text):
+                # Out of scope is not merely unmaterialized, it is unexamined:
+                # the portability and collision checks below describe the tree
+                # this archive writes, and a name that never lands on the
+                # filesystem cannot collide there. A repository whose
+                # `src/templates/` holds `.AwS__CrEdEnTiAlS.html` beside
+                # `.aws__credentials.html` is comparable for its host surface.
+                # Symlinks are always examined: they are what conceals a
+                # boundary path from the reader.
+                continue
+            if "\\" in path_text:
+                raise ConfigError(f"Git tree path is not portable: {path_text}")
+            portable_key = _portable_tree_path_key(path_text)
+            prior = portable_paths.setdefault(portable_key, path_text)
+            if prior != path_text:
+                raise ConfigError(
+                    "Git tree contains filesystem-colliding paths: "
+                    f"{prior!r} and {path_text!r}"
+                )
+            if object_type == "tree" and scope is not None:
+                # A directory at a recognized configuration path is an invalid
+                # input, not an absent file. Preserve its kind even when none of
+                # its children are in scope so both inventories can refuse it.
+                target = (root / path_text).resolve()
+                if target == root or root not in target.parents:
+                    raise ConfigError(f"Git tree path escapes destination: {path_text}")
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            if record_gitlinks and mode == "160000" and object_type == "commit":
+                # An unpopulated submodule: the directory a checkout leaves, with
+                # nothing written into it. What it would hold is not in this
+                # repository's object graph, and the caller names it as unread.
+                target = (root / path_text).resolve()
+                if target == root or root not in target.parents:
+                    raise ConfigError(f"Git tree path escapes destination: {path_text}")
+                target.mkdir(parents=True, exist_ok=True)
+                gitlinks[path_text] = oid
+                continue
+            if object_type != "blob" or mode == "160000" or (
+                mode == "120000" and scope is None and path_text not in allowed_links
+            ):
+                raise ConfigError(
+                    f"Git tree contains unsupported external binding at {path_text} "
+                    f"(mode {mode}, type {object_type})."
+                )
+            if mode == "120000":
+                # Recreated as a link rather than refused, so the base tree
+                # presents the reader the same object the worktree does: a link,
+                # opened with O_NOFOLLOW, recorded as unreadable if it is a
+                # boundary path. Refusing instead made a third of a
+                # 12-repository sample uncomparable, several of them for a
+                # symlink no reader would ever open (#688).
+                #
+                # Nothing is written *through* a link. The escape this refusal
+                # used to cover needs a blob under a symlinked ancestor, which a
+                # valid tree cannot express — the name would be both a blob and
+                # a tree, a duplicate entry `fsck --strict` rejects before
+                # anything is written. Blobs are materialized before links
+                # regardless, so no write passes through one even if that check
+                # ever loosens.
+                links.append((oid, path_text))
+                continue
+            entries.append((mode, oid, path_text))
 
     object_format = _run_git_dir(git_dir, ["rev-parse", "--show-object-format"]).stdout.strip()
     expected_digests: dict[str, str] = {}
     entry_blobs = _isolated_blobs(git_dir, [(oid, path_text) for _mode, oid, path_text in entries])
-    for (mode, oid, path_text), blob in zip(entries, entry_blobs, strict=True):
-        target = (root / path_text).resolve()
-        if target == root or root not in target.parents:
-            raise ConfigError(f"Git tree path escapes destination: {path_text}")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if _git_object_id("blob", blob, algorithm=object_format) != oid:
-            raise ConfigError(f"Git blob failed object-ID validation: {path_text}")
-        target.write_bytes(blob)
-        expected_digests[path_text] = hashlib.sha256(blob).hexdigest()
-        if mode == "100755":
-            os.chmod(target, 0o755)
+    with _perf.phase("archive.tree.blobs_and_write"):
+        for (mode, oid, path_text), blob in zip(entries, entry_blobs, strict=True):
+            target = (root / path_text).resolve()
+            if target == root or root not in target.parents:
+                raise ConfigError(f"Git tree path escapes destination: {path_text}")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if _git_object_id("blob", blob, algorithm=object_format) != oid:
+                raise ConfigError(f"Git blob failed object-ID validation: {path_text}")
+            target.write_bytes(blob)
+            expected_digests[path_text] = hashlib.sha256(blob).hexdigest()
+            if mode == "100755":
+                os.chmod(target, 0o755)
 
     link_texts: dict[str, str] = {}
-    for (oid, path_text), blob in zip(links, _isolated_blobs(git_dir, links), strict=True):
-        target = root / path_text
-        if not _within(root, target.parent):
-            raise ConfigError(f"Git tree path escapes destination: {path_text}")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if _git_object_id("blob", blob, algorithm=object_format) != oid:
-            raise ConfigError(f"Git blob failed object-ID validation: {path_text}")
-        # The link's own text is the blob. It may point anywhere, including
-        # out of the tree — the reader opens it with O_NOFOLLOW and records
-        # the failure, which is exactly what it does on the live worktree.
-        link_text = blob.decode("utf-8", errors="strict")
-        os.symlink(link_text, target)
-        link_texts[path_text] = link_text
+    with _perf.phase("archive.tree.links"):
+        for (oid, path_text), blob in zip(links, _isolated_blobs(git_dir, links), strict=True):
+            target = root / path_text
+            if not _within(root, target.parent):
+                raise ConfigError(f"Git tree path escapes destination: {path_text}")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if _git_object_id("blob", blob, algorithm=object_format) != oid:
+                raise ConfigError(f"Git blob failed object-ID validation: {path_text}")
+            # The link's own text is the blob. It may point anywhere, including
+            # out of the tree — the reader opens it with O_NOFOLLOW and records
+            # the failure, which is exactly what it does on the live worktree.
+            link_text = blob.decode("utf-8", errors="strict")
+            os.symlink(link_text, target)
+            link_texts[path_text] = link_text
 
-    placeholders = (
-        _materialize_link_target_types(root, link_texts, tree_types)
-        if scope is not None
-        else set()
-    )
+    with _perf.phase("archive.tree.link_target_types"):
+        placeholders = (
+            _materialize_link_target_types(root, link_texts, tree_types)
+            if scope is not None
+            else set()
+        )
 
-    materialized = {
-        relative: hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in root.rglob("*")
-        if path.is_file()
-        and not path.is_symlink()
-        and (relative := path.relative_to(root).as_posix()) not in placeholders
-    }
+    with _perf.phase("archive.tree.verify_rglob"):
+        materialized = {
+            relative: hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in root.rglob("*")
+            if path.is_file()
+            and not path.is_symlink()
+            and (relative := path.relative_to(root).as_posix()) not in placeholders
+        }
     if materialized != expected_digests:
         raise ConfigError("Materialized Git tree differs from the verified object graph")
     return gitlinks

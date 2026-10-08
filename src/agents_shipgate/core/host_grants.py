@@ -27,6 +27,7 @@ from urllib.parse import parse_qsl, urlsplit, urlunsplit
 import yaml
 from pydantic import BaseModel, ValidationError
 
+from agents_shipgate import _perf
 from agents_shipgate.core.boundary_registry import (
     BOUNDARY_ADAPTERS,
     CLAUDE_PLUGIN_DEFAULT_HOOKS,
@@ -6078,14 +6079,15 @@ def build_host_boundary_snapshot(
     plugin_unread_links: set[str] = set()
     plugin_manifests: dict[str, tuple[Path, tuple[str, ...]]] = {}
     try:
-        repository_paths, _inventory_entries = _repository_paths(
-            root,
-            reader=cache.reader_for(root),
-            limits=cache.configured_limits,
-            plugin_candidates=plugin_candidates,
-            plugin_unread_links=plugin_unread_links,
-            plugin_manifests=plugin_manifests,
-        )
+        with _perf.phase("host.inventory_walk"):
+            repository_paths, _inventory_entries = _repository_paths(
+                root,
+                reader=cache.reader_for(root),
+                limits=cache.configured_limits,
+                plugin_candidates=plugin_candidates,
+                plugin_unread_links=plugin_unread_links,
+                plugin_manifests=plugin_manifests,
+            )
     except HostInventoryReadError as exc:
         repository_paths = []
         inventory_failures.append(exc.failure)
@@ -6147,58 +6149,59 @@ def build_host_boundary_snapshot(
             plugin_reference_issue_ids.add(item["issue_id"])
             bound_by_selecting_roots(item["issue_id"], source)
 
-    collected_claude_sources: set[str] = set()
-    openshell_budget = OpenShellCollectionBudget()
-    for path, source, host, kind, resolved_through in repository_paths:
-        if host == "openshell" and any(
-            adapter.id == "openshell" for adapter in boundary_adapters_for_path(source)
-        ):
-            _collect_openshell(
-                path=path, source=source, root=root, cache=cache,
+    with _perf.phase("host.collect_sources"):
+        collected_claude_sources: set[str] = set()
+        openshell_budget = OpenShellCollectionBudget()
+        for path, source, host, kind, resolved_through in repository_paths:
+            if host == "openshell" and any(
+                adapter.id == "openshell" for adapter in boundary_adapters_for_path(source)
+            ):
+                _collect_openshell(
+                    path=path, source=source, root=root, cache=cache,
+                    artifacts=artifacts, grants=grants, issues=issues,
+                    budget=openshell_budget,
+                    resolved_through=resolved_through,
+                )
+                continue
+            hook_basis: HookLoadingBasis = "host_configuration"
+            if host == "claude-code" and kind == "hooks":
+                # Claude Code documents no project `.claude/hooks/hooks.json`
+                # location; only plugin configuration can select one (#714).
+                hook_basis = (
+                    "project_enabled_plugin" if source in selection.enabled
+                    else "plugin_selected" if source in selected_hooks
+                    else "declared_only"
+                )
+                collected_claude_sources.add(source)
+            data = _collect_file(
+                path=path, source=source, host=host, scope="repository", kind=kind,
+                containment_root=root, cache=cache,
                 artifacts=artifacts, grants=grants, issues=issues,
-                budget=openshell_budget,
+                resolved_through=resolved_through, hook_basis=hook_basis,
+                plugin_root=(next(iter(selection.roots[source])) if len(selection.roots.get(source, ())) == 1 else None),
+            )
+            if hook_basis in {"plugin_selected", "project_enabled_plugin"}:
+                note_unusable_selected_hooks(data, source=source)
+        for source in sorted(set(selected_hooks) - collected_claude_sources):
+            path, resolved_through = plugin_candidates[source]
+            raised = len(issues)
+            data = _collect_file(
+                path=path, source=source, host="claude-code", scope="repository", kind="hooks",
+                containment_root=root, cache=cache,
+                artifacts=artifacts, grants=grants, issues=issues,
                 resolved_through=resolved_through,
+                hook_basis=(
+                    "project_enabled_plugin" if source in selection.enabled else "plugin_selected"
+                ),
+                plugin_root=(next(iter(selection.roots[source])) if len(selection.roots.get(source, ())) == 1 else None),
             )
-            continue
-        hook_basis: HookLoadingBasis = "host_configuration"
-        if host == "claude-code" and kind == "hooks":
-            # Claude Code documents no project `.claude/hooks/hooks.json`
-            # location; only plugin configuration can select one (#714).
-            hook_basis = (
-                "project_enabled_plugin" if source in selection.enabled
-                else "plugin_selected" if source in selected_hooks
-                else "declared_only"
-            )
-            collected_claude_sources.add(source)
-        data = _collect_file(
-            path=path, source=source, host=host, scope="repository", kind=kind,
-            containment_root=root, cache=cache,
-            artifacts=artifacts, grants=grants, issues=issues,
-            resolved_through=resolved_through, hook_basis=hook_basis,
-            plugin_root=(next(iter(selection.roots[source])) if len(selection.roots.get(source, ())) == 1 else None),
-        )
-        if hook_basis in {"plugin_selected", "project_enabled_plugin"}:
+            # Read only because a plugin selects it, so its read limits are
+            # plugin-reference limits. A registered hook path above keeps the
+            # limits 1.0.0 already gave it.
+            plugin_reference_issue_ids.update(item["issue_id"] for item in issues[raised:])
+            for item in issues[raised:]:
+                bound_by_selecting_roots(item["issue_id"], source)
             note_unusable_selected_hooks(data, source=source)
-    for source in sorted(set(selected_hooks) - collected_claude_sources):
-        path, resolved_through = plugin_candidates[source]
-        raised = len(issues)
-        data = _collect_file(
-            path=path, source=source, host="claude-code", scope="repository", kind="hooks",
-            containment_root=root, cache=cache,
-            artifacts=artifacts, grants=grants, issues=issues,
-            resolved_through=resolved_through,
-            hook_basis=(
-                "project_enabled_plugin" if source in selection.enabled else "plugin_selected"
-            ),
-            plugin_root=(next(iter(selection.roots[source])) if len(selection.roots.get(source, ())) == 1 else None),
-        )
-        # Read only because a plugin selects it, so its read limits are
-        # plugin-reference limits. A registered hook path above keeps the
-        # limits 1.0.0 already gave it.
-        plugin_reference_issue_ids.update(item["issue_id"] for item in issues[raised:])
-        for item in issues[raised:]:
-            bound_by_selecting_roots(item["issue_id"], source)
-        note_unusable_selected_hooks(data, source=source)
 
     excluded = [
         "invocation flags and transient approvals",
@@ -6239,10 +6242,12 @@ def build_host_boundary_snapshot(
 
     # Every workflow is read before any caller's ceiling is (#921): a called
     # workflow's restrictions are read from this same side, never guessed.
-    resolve_reusable_workflow_ceilings(grants, issues)
+    with _perf.phase("host.resolve_workflow_ceilings"):
+        resolve_reusable_workflow_ceilings(grants, issues)
 
     try:
-        cache.finish()
+        with _perf.phase("host.cache_finish"):
+            cache.finish()
     except IdentityReadBudgetExceeded:
         inventory_failures.append(cache.terminal_failure or HostInputFailure(
             reason="resource_bound_exceeded", phase="snapshot_validation",
@@ -6293,7 +6298,8 @@ def build_host_boundary_snapshot(
         "static_analysis_only": True,
         "runtime_session_verified": False,
     }
-    inventory = HostGrantsInventoryV9.model_validate(payload).model_dump(mode="json")
+    with _perf.phase("host.validate_inventory"):
+        inventory = HostGrantsInventoryV9.model_validate(payload).model_dump(mode="json")
     return HostBoundarySnapshot(
         inventory=inventory, cache=cache, input_failures=dict(cache.input_failures),
         plugin_reference_issue_ids=frozenset(plugin_reference_issue_ids),

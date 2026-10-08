@@ -20,6 +20,7 @@ from typing import NoReturn
 
 import typer
 
+from agents_shipgate import _perf
 from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.agent_control_envelope import single_line_text
 from agents_shipgate.core.capability_diff_rows import (
@@ -299,9 +300,11 @@ def run_capability_diff(
         workspace = ensure_git_workspace(workspace)
     except ConfigError as exc:
         raise typer.BadParameter(str(exc), param_hint="--workspace") from exc
-    base_ref, base_commit = _resolve_base(workspace, base)
+    with _perf.phase("diff.resolve_base"):
+        base_ref, base_commit = _resolve_base(workspace, base)
 
-    head = build_host_boundary_snapshot(workspace, cache=HostStaticParseCache())
+    with _perf.phase("diff.head_snapshot"):
+        head = build_host_boundary_snapshot(workspace, cache=HostStaticParseCache())
     with tempfile.TemporaryDirectory(prefix="shipgate-diff-base-") as scratch:
         from agents_shipgate.cli.verify.git import (
             PromisedObjectsMissingError,
@@ -312,17 +315,19 @@ def run_capability_diff(
         base_tree = Path(scratch) / "base"
         base_tree.mkdir()
         try:
-            base_tree, base_snapshot = materialize_host_tree(
-                workspace, base_commit, base_tree, archive=archive_fetched_tree,
-            )
+            with _perf.phase("diff.base_materialize"):
+                base_tree, base_snapshot = materialize_host_tree(
+                    workspace, base_commit, base_tree, archive=archive_fetched_tree,
+                )
         except PromisedObjectsMissingError:
             # The head is the working tree, so the base is the only side that
             # reads objects. Any other archive failure is raised as it was.
             _refuse_objects_missing(workspace, base_ref, base_commit)
         if base_snapshot is None:
-            base_snapshot = build_host_boundary_snapshot(
-                base_tree, cache=HostStaticParseCache(reference_workspace=workspace)
-            )
+            with _perf.phase("diff.base_snapshot"):
+                base_snapshot = build_host_boundary_snapshot(
+                    base_tree, cache=HostStaticParseCache(reference_workspace=workspace)
+                )
         base_inventory = base_snapshot.inventory
 
     from agents_shipgate.cli.verify.changed_inputs import comparison_changed_inputs
@@ -334,27 +339,31 @@ def run_capability_diff(
     )
     from agents_shipgate.core.host_comparison import compare_host_inventories
 
+    with _perf.phase("diff.changed_inputs"):
+        changed_inputs = comparison_changed_inputs(workspace, base_commit, None)
+
     # One comparison for diff, verify and check (#721). An unchanged partial or
     # experimental surface is named as a limit instead of refusing every row.
-    comparison = compare_host_inventories(
-        base_inventory,
-        head.inventory,
-        head_kind="worktree",
-        base_commit=base_commit,
-        # Named in the text output's reference line only; `--json` keeps its keys.
-        head_commit=commit_sha(workspace, "HEAD"),
-        unchanged=lambda source: blob_path_unchanged(workspace, base_commit, None, source),
-        # A hook script on neither side is an unchanged limit (#702).
-        absent=lambda path: tree_path_absent(workspace, base_commit, None, path),
-        identities=lambda paths: blob_path_identities(workspace, base_commit, None, paths),
-        # The change's own paths, so a changed input no reader reads is named
-        # rather than silent (#821).
-        changed_inputs=comparison_changed_inputs(workspace, base_commit, None),
-        # A plugin directory whose limit refuses the comparison is left
-        # uncompared and named, and the rest compared, where nothing outside
-        # it depends on it (#808).
-        plugin_scopes=(base_snapshot.plugin_scopes, head.plugin_scopes),
-    )
+    with _perf.phase("diff.compare"):
+        comparison = compare_host_inventories(
+            base_inventory,
+            head.inventory,
+            head_kind="worktree",
+            base_commit=base_commit,
+            # Named in the text output's reference line only; `--json` keeps its keys.
+            head_commit=commit_sha(workspace, "HEAD"),
+            unchanged=lambda source: blob_path_unchanged(workspace, base_commit, None, source),
+            # A hook script on neither side is an unchanged limit (#702).
+            absent=lambda path: tree_path_absent(workspace, base_commit, None, path),
+            identities=lambda paths: blob_path_identities(workspace, base_commit, None, paths),
+            # The change's own paths, so a changed input no reader reads is named
+            # rather than silent (#821).
+            changed_inputs=changed_inputs,
+            # A plugin directory whose limit refuses the comparison is left
+            # uncompared and named, and the rest compared, where nothing outside
+            # it depends on it (#808).
+            plugin_scopes=(base_snapshot.plugin_scopes, head.plugin_scopes),
+        )
     rows = list(comparison.rows)
     limits = [limit.model_dump(mode="json") for limit in comparison.unchanged_limits]
     payload = {
@@ -363,36 +372,37 @@ def run_capability_diff(
     }
 
     if json_output:
-        typer.echo(
-            json.dumps(
-                {
-                    "capability_diff_schema_version": DIFF_SCHEMA_VERSION,
-                    "workspace": str(workspace.resolve()),
-                    "base_ref": base_ref,
-                    "base_commit": base_commit,
-                    "comparison_status": payload.get("comparison_status"),
-                    "incomparable_reasons": payload.get("incomparable_reasons") or [],
-                    "rows": [row.as_dict() for row in rows],
-                    "unchanged_limits": limits,
-                    "coverage": (
-                        comparison.coverage.model_dump(mode="json")
-                        if comparison.coverage is not None
-                        else None
-                    ),
-                    # The same block `verifier.json` publishes, so the two
-                    # answer alike, and the counters here are the ones the text
-                    # prints below (#795).
-                    "review": (
-                        comparison.review.model_dump(mode="json")
-                        if comparison.review is not None
-                        else None
-                    ),
-                    "static_analysis_only": True,
-                },
-                indent=2,
-                sort_keys=True,
+        with _perf.phase("diff.render"):
+            typer.echo(
+                json.dumps(
+                    {
+                        "capability_diff_schema_version": DIFF_SCHEMA_VERSION,
+                        "workspace": str(workspace.resolve()),
+                        "base_ref": base_ref,
+                        "base_commit": base_commit,
+                        "comparison_status": payload.get("comparison_status"),
+                        "incomparable_reasons": payload.get("incomparable_reasons") or [],
+                        "rows": [row.as_dict() for row in rows],
+                        "unchanged_limits": limits,
+                        "coverage": (
+                            comparison.coverage.model_dump(mode="json")
+                            if comparison.coverage is not None
+                            else None
+                        ),
+                        # The same block `verifier.json` publishes, so the two
+                        # answer alike, and the counters here are the ones the text
+                        # prints below (#795).
+                        "review": (
+                            comparison.review.model_dump(mode="json")
+                            if comparison.review is not None
+                            else None
+                        ),
+                        "static_analysis_only": True,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
             )
-        )
         return 0
 
     partial = payload.get("comparison_status") == "partial"
