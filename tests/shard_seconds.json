@@ -132,6 +132,7 @@
   "tests/test_determinism_boundary.py": 0.1,
   "tests/test_diagnostics.py": 0.0,
   "tests/test_diff_input_status.py": 28.3,
+  "tests/test_diff_phase_timing.py": 13.3,
   "tests/test_directory_reader_identity.py": 1.2,
   "tests/test_discovery_scope.py": 269.7,
   "tests/test_distribution_surface_parity.py": 2.2,
