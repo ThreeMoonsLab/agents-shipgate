@@ -478,6 +478,22 @@ def test_a_path_outside_the_repository_is_digested_not_printed(tmp_path):
     assert "alice" not in str(reach) and "secrets" not in str(reach)
 
 
+def test_a_loop_over_paths_holds_paths(tmp_path):
+    # CubeSandbox#1508's shape: `Path.cwd()` and `is_file()` are no longer limits.
+    reach = _reach(
+        tmp_path,
+        "from pathlib import Path\n\n"
+        "def act() -> str:\n"
+        '    for path in (Path(__file__).with_name(".env"), Path.cwd() / ".env"):\n'
+        "        if path.is_file():\n"
+        "            return path.read_text()\n"
+        '    return ""\n',
+    )
+    assert _effects(reach) == [("filesystem", "read", "path.read_text", None)]
+    assert reach["limits"] == []
+    assert _claims(reach) == ["read"]
+
+
 def test_a_long_file_name_is_a_name_and_a_token_in_a_path_is_withheld(tmp_path):
     reach = _reach(
         tmp_path,

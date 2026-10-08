@@ -2746,7 +2746,17 @@ class _Reach:
             return _derived(previous, increment)
         if kind in {"unpacked", "iter"}:
             assert isinstance(value, ast.expr)
-            return _derived(self.value(value, frame))
+            iterated = self.value(value, frame)
+            if (
+                kind == "iter"
+                and self.effects_enabled
+                and isinstance(iterated, Seq)
+                and iterated.items
+                and all(isinstance(item, Handle) for item in iterated.items)
+            ):
+                # `for path in (Path("a"), Path.cwd() / "b")`: each is a path (#913).
+                return _alt(list(iterated.items))
+            return _derived(iterated)
         if kind == "def":
             assert isinstance(value, ast.FunctionDef | ast.AsyncFunctionDef)
             return Func(frame.module, value, frame)
