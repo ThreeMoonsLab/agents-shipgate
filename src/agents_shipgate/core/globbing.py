@@ -22,14 +22,22 @@ rather than by whichever name a caller happened to import.
 from __future__ import annotations
 
 import re
+from functools import lru_cache
+
+#: Distinct patterns whose compiled form is kept. The callers' patterns come
+#: from fixed registries and catalogs, so this bounds memory, not hit rate.
+_COMPILED_CACHE_SIZE = 4096
 
 
-def glob_match(pattern: str, path: str) -> bool:
-    """Return whether ``path`` matches the ``**``-extended ``pattern``."""
-    pattern = pattern.replace("\\", "/")
-    path = path.replace("\\", "/")
-    if not any(token in pattern for token in ("*", "?", "[")):
-        return path == pattern
+@lru_cache(maxsize=_COMPILED_CACHE_SIZE)
+def _compiled(pattern: str) -> re.Pattern[str]:
+    """The regular expression one normalized ``**``-extended pattern means.
+
+    Translating a pattern was most of the time `diff` spent classifying a
+    large base tree: every path re-translated the same 25 boundary globs
+    (#698). The translation is a pure function of the pattern, so it is
+    computed once per pattern.
+    """
 
     parts: list[str] = []
     i = 0
@@ -61,7 +69,16 @@ def glob_match(pattern: str, path: str) -> bool:
         else:
             parts.append(re.escape(pattern[i]))
             i += 1
-    return re.fullmatch("".join(parts), path) is not None
+    return re.compile("".join(parts))
+
+
+def glob_match(pattern: str, path: str) -> bool:
+    """Return whether ``path`` matches the ``**``-extended ``pattern``."""
+    pattern = pattern.replace("\\", "/")
+    path = path.replace("\\", "/")
+    if not any(token in pattern for token in ("*", "?", "[")):
+        return path == pattern
+    return _compiled(pattern).fullmatch(path) is not None
 
 
 def glob_match_ci(pattern: str, path: str) -> bool:
