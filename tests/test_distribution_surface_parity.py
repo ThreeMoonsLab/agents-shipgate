@@ -490,6 +490,7 @@ NOT_A_DISTRIBUTION_SURFACE: dict[str, str] = {
     "assets": "images",
     "benchmark": "the accuracy corpus; an input to measurement, not a published answer",
     "ci_sharding.py": "test-run mechanics",
+    "ci_timing.py": "test-run timing observation; no runtime engine answer or distributed command",
     "conftest.py": "test-run mechanics",
     "constraints": "hash-locked dependency pins",
     "hatch_build.py": "build-only source provenance producer; no runtime engine answer, covered by tests/test_wheel_candidate_build.py",

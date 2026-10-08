@@ -14,6 +14,7 @@ each other, so one machine's measurement balances another's runners.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -25,11 +26,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = REPO_ROOT / "tests" / "shard_seconds.json"
 
 
-def file_seconds(report: Path, root: Path = REPO_ROOT) -> dict[str, float]:
-    """Seconds per test file: each test case's setup, call and teardown summed."""
+def file_seconds(report: Path, root: Path = REPO_ROOT, *, report_bytes: bytes | None = None) -> dict[str, float]:
+    """Sum each mapped JUnit testcase time per test file."""
 
     totals: dict[str, float] = defaultdict(float)
-    for case in ET.parse(report).getroot().iter("testcase"):
+    tree = ET.parse(report).getroot() if report_bytes is None else ET.fromstring(report_bytes)
+    for case in tree.iter("testcase"):
         name = case.get("file") or _file_from_classname(case.get("classname", ""), root)
         if name:
             totals[name] += float(case.get("time") or 0.0)
@@ -57,7 +59,8 @@ def main(argv: list[str] | None = None) -> int:
         help="the checkout the report was made in (default: this one)",
     )
     args = parser.parse_args(argv)
-    files = file_seconds(args.report, args.root.resolve())
+    report_bytes = args.report.read_bytes()
+    files = file_seconds(args.report, args.root.resolve(), report_bytes=report_bytes)
     if not files:
         print(f"{args.report} holds no test cases", file=sys.stderr)
         return 1
@@ -68,7 +71,13 @@ def main(argv: list[str] | None = None) -> int:
         text=True,
         check=False,
     ).stdout.strip()
-    payload = {"measured_at": commit or None, "files": files}
+    payload = {"measured_at": commit or None, "files": files, "measurement": {
+        "source": "junit",
+        "report_sha256": hashlib.sha256(report_bytes).hexdigest(),
+        "case_count": sum(1 for _ in ET.fromstring(report_bytes).iter("testcase")),
+        "file_count": len(files),
+        "time_basis": "JUnit testcase time; phase accounting is selected by the runner",
+    }}
     OUTPUT.write_text(json.dumps(payload, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     print(f"wrote {len(files)} files, {sum(files.values()):.0f}s in total, to {OUTPUT}")
     return 0

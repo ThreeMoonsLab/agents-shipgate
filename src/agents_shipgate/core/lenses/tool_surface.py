@@ -12,6 +12,7 @@ from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
     OpenAIApiArtifacts,
 )
+from agents_shipgate.core.binding_comparison import binding_comparison_limits
 from agents_shipgate.core.domain import AgentRemoteBinding, Tool, ToolkitScopeBound
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.findings.identity import _canonicalize_for_fingerprint
@@ -218,7 +219,27 @@ def compute_tool_surface_diff(
     findings: list[Finding],
     *,
     reference: ToolSurfaceDiffReference | None = None,
+    head_binding_facts: AgentBindingGraphAssessment | None = None,
 ) -> ToolSurfaceDiff:
+    # Coverage limits constrain a requested comparison. A fresh scan with
+    # no base/reference has no absence or resolution claim to withhold.
+    limits = binding_comparison_limits(
+        head_binding_facts, reference.binding_facts if reference else None,
+    ) if base is not None or reference is not None else []
+    if limits:
+        # Tool-dependent changes can encode lost coverage even in a changed
+        # row. Withhold the whole comparison instead of asserting risk resolved.
+        return ToolSurfaceDiff(
+            enabled=False,
+            base=_diff_base(reference),
+            # Source predicate evidence has its own identity and completeness
+            # checks; it does not establish graph membership or clear findings.
+            guard_comparisons=compare_guard_dependencies(
+                current.guard_dependencies, base.guard_dependencies if base else [],
+            ),
+            notes=[*(reference.notes if reference else ()), *limits],
+        )
+
     if base is None:
         finding_deltas = (
             _finding_deltas(findings, reference.findings)

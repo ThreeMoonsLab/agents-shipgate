@@ -1048,6 +1048,16 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
         if source in ambiguous_agents or target in ambiguous_agents:
             continue
         key = (*source, f"handoff:{target[0]}:{target[1]}")
+        if not edge.complete:
+            # A readable candidate survives an incomplete construction. Its
+            # uncertainty belongs to this binding even when both sides list
+            # the same handoff, so the comparator cannot call it unchanged.
+            result.gap(
+                "This handoff binding was read from an incomplete construction.",
+                source=source[0],
+                agent=source[1],
+                tool=key[2],
+            )
         result.bindings[key] = {
             "agent": source[1],
             "agent_source": source[0],

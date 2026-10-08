@@ -31,7 +31,11 @@ from agents_shipgate.core.domain import (
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.privacy import is_credential_key, redact_url_credentials
 from agents_shipgate.core.source_warnings import adk_unresolved_tool_warning
-from agents_shipgate.inputs.builder_calls import BuilderCalls, ConstructionContext, Invocation
+from agents_shipgate.inputs.builder_calls import (
+    BuilderCalls,
+    ConstructionContext,
+    Invocation,
+)
 from agents_shipgate.inputs.common import (
     load_structured_file,
     load_text_file,
@@ -913,6 +917,8 @@ class _AdkAgentBinding:
     duplicated: set[str] = field(default_factory=set)
     #: ``tool_name -> why`` for a binding made on a guess (#879 review).
     tool_issues: dict[str, str] = field(default_factory=dict)
+    constructor_issue: str | None = None
+    constructor_issues: dict[str, str] = field(default_factory=dict)
     #: Why this agent's tool list is incomplete, when it is.
     issues: list[str] = field(default_factory=list)
     #: Every ``(tool, locator)`` one construction of this name asked to bind,
@@ -1098,8 +1104,8 @@ class _PythonAdkExtractor:
                 module=self.module,
                 resolver=self.resolver,
                 agent_reads=lambda call, keyword: self.module is not None
-                and keyword in {"tools", "sub_agents"}
-                and self._is_agent_call(call),
+                and keyword in {"tools", "sub_agents"} | CALLBACK_KEYS
+                and self._is_agent_call(call) and self._agent_constructor_issue(call) is None,
                 builder_calls=self._builder_calls,
                 module_agent_reads=self._module_agent_reads,
             )
@@ -1161,6 +1167,18 @@ class _PythonAdkExtractor:
             # The call is only ADK's ``Agent`` while the name still refers to
             # the import it was resolved through.
             self._require_proven_framework_symbol(call)
+            constructor_issue = self._agent_constructor_issue(call)
+            if constructor_issue is None and self.lists.constructor_namespace_changed():
+                constructor_issue = self.lists.constructor_namespace_issue or "an agent handle may change or hand on a tool carrying the constructor namespace"
+            if constructor_issue is not None:
+                binding = self._binding_for(agent_name, call)
+                message = f"Google ADK agent {agent_name!r}: its constructor identity is not established: {constructor_issue}."
+                self._surface_warning(message, SURFACE_GAP_SHADOWED_FRAMEWORK_SYMBOL)
+                if message not in binding.issues:
+                    binding.issues.append(message)
+                binding.constructor_issue = message
+                binding.constructor_issues[f"{self.source_ref}:{call.lineno}"] = message
+                binding.handoffs_complete = False
             if any(keyword.arg is None for keyword in call.keywords):
                 # ``Agent(**config)`` hides every keyword, ``tools`` included.
                 # Without ``tools=`` the agent silently records tool_count 0,
@@ -1250,6 +1268,13 @@ class _PythonAdkExtractor:
             loaded_sources.extend(
                 self._read_construction(call, agent_name, binding, members, tools, handoffs)
             )
+        for record in self.artifacts.sub_agents:
+            binding = self.agent_bindings.get(record.get("agent_name"))
+            if binding is not None and binding.constructor_issue is not None and "sub_agent_count" in record:
+                record["unresolved_sub_agents"] = list(dict.fromkeys(
+                    [*record.get("unresolved_sub_agents", []), *record.get("sub_agents", [])]
+                ))
+                record["unread"] = binding.constructor_issue
         self._record_duplicate_constructions()
         self._record_agent_subclasses()
         self._resolve_extraction_evidence(warnings_before, loaded_sources)
@@ -1294,6 +1319,11 @@ class _PythonAdkExtractor:
                 loaded.extend(self._extract_member(member, tools, agent_name, binding))
                 for tool_name, _ in binding.recording[at:]:
                     if tool_name in binding.tool_names:
+                        if member.invocation is not None:
+                            locations = binding.tool_sites.setdefault(tool_name, [])
+                            for location in member.invocation.locations:
+                                if location not in locations:
+                                    locations.append(location)
                         binding.when.add(tool_name, member.conditions)
                         if member.conditions:
                             conditioned.add((tool_name, " and ".join(member.conditions)))
@@ -1835,7 +1865,10 @@ class _PythonAdkExtractor:
                 source_pointer=binding.source_pointer,
                 tool_names=list(binding.tool_names),
                 tool_locators=dict(binding.tool_locators),
-                tool_issues=dict(binding.tool_issues),
+                tool_issues={**binding.tool_issues,
+                             **({name: "; ".join(filter(None, [binding.tool_issues.get(name), binding.constructor_issue]))
+                                 for name in binding.tool_names}
+                                if binding.constructor_issue is not None else {})},
                 tool_sites={
                     name: sorted(lines, key=lambda location: (location.rsplit(":", 1)[0], int(location.rsplit(":", 1)[1])))
                     for name, lines in binding.tool_sites.items()
@@ -1847,6 +1880,7 @@ class _PythonAdkExtractor:
                 handoffs_complete=binding.handoffs_complete,
                 handoff_sites=dict(binding.handoff_sites),
                 issues=list(binding.issues),
+                constructor_issues=dict(binding.constructor_issues),
             )
             for binding in self.agent_bindings.values()
             if binding.tool_names or binding.issues or binding.handoff_sites
@@ -1864,7 +1898,7 @@ class _PythonAdkExtractor:
         return calls
 
     def _module_agent_reads(self, module: PythonModule, call: ast.Call, keyword: str | None) -> bool:
-        if keyword not in {"tools", "sub_agents"} or self._builder_calls is None:
+        if keyword not in {"tools", "sub_agents"} | CALLBACK_KEYS or self._builder_calls is None:
             return False
         spelling = reference_spelling(call.func)
         if spelling is None:
@@ -1889,7 +1923,13 @@ class _PythonAdkExtractor:
             return False
         suffix = spelling.partition(".")[2]
         qualified = f"{imported}.{suffix}" if suffix else imported
-        return qualified in AGENT_CLASS_NAMES
+        return (qualified in AGENT_CLASS_NAMES and self.resolver is not None
+                and self._builder_calls.constructor_issue(module, call) is None)
+
+    def _agent_constructor_issue(self, call: ast.Call) -> str | None:
+        if self.module is not None and self._builder_calls is not None:
+            return self._builder_calls.constructor_issue(self.module, call)
+        return None if self._framework_symbol_is_proven(call) else "the constructor root is not bound by one import"
 
     def _is_agent_call(self, call: ast.Call) -> bool:
         return _qualified_name(call.func, self.aliases) in AGENT_CLASS_NAMES
@@ -1984,7 +2024,7 @@ class _PythonAdkExtractor:
         local = self._builder_calls.scopes(module).enclosing_bindings(member.expr, spelling.split(".", 1)[0]) if self._builder_calls else []
         if local and self._builder_calls is not None:
             resolution, long_running = self._builder_calls.resolve(module, member.expr), False
-            if resolution.definition is not None and resolution.definition not in module.tree.body:
+            if resolution.definition is not None and resolution.module is not None and resolution.definition not in resolution.module.tree.body:
                 resolution = Resolution(reference=spelling, reason=LOCAL_BINDING,
                                         detail=f"the caller-local tool at {module.ref}:{resolution.definition.lineno} has an enclosing closure, which this increment does not follow")
         else:

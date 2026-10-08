@@ -1,3 +1,5 @@
+import pytest
+
 from agents_shipgate.core.domain import (
     Tool,
     ToolRiskHint,
@@ -344,3 +346,74 @@ def test_build_tool_surface_facts_projects_controls_and_metadata():
         ("approval_policy", "stripe.refund"),
         ("idempotency_evidence", "stripe.refund"),
     }
+
+
+
+def test_incomplete_binding_comparison_cannot_report_risk_or_finding_removals():
+    from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, AgentBindingIssue
+
+    base = ToolSurfaceFacts(tools=[ToolSurfaceToolFact(
+        name="delete", source_type="mcp", risk_tags=["destructive"], auth_scopes=["admin"],
+    )], scopes=[ToolSurfaceScopeFact(kind="tool_required", scope="admin", tool_names=["delete"])],
+        controls=[ToolSurfaceControlFact(kind="approval_policy", tool="delete", source="manifest")])
+    partial = AgentBindingGraphAssessment(status="partial", issues=[AgentBindingIssue(
+        kind="partial_binding_evidence", message="Unread constructor", source="framework_constructor_ownership",
+        source_pointer="agent.py:8",
+    )])
+    complete = AgentBindingGraphAssessment(status="structural", pass_eligible=True)
+    for head_graph, base_graph in ((partial, complete), (complete, partial)):
+        diff = compute_tool_surface_diff(
+            ToolSurfaceFacts(), base, [], head_binding_facts=head_graph,
+            reference=ToolSurfaceDiffReference(kind="report", facts=base, binding_facts=base_graph),
+        )
+        assert not diff.enabled
+        assert not any((diff.tools, diff.scopes, diff.controls, diff.high_risk_effects, diff.metadata_changes))
+        assert diff.finding_deltas.resolved_findings == []
+        assert diff.summary.tools_removed == 0 and diff.summary.removed_high_risk_effects == 0
+        assert any("comparison incomplete" in note and "agent.py:8" in note for note in diff.notes)
+
+
+def test_unknown_catalog_and_fact_only_comparisons_still_report_real_removals():
+    from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, AgentBindingIssue
+
+    base = ToolSurfaceFacts(tools=[ToolSurfaceToolFact(name="delete", source_type="mcp")])
+    catalog = AgentBindingGraphAssessment(status="unknown", unbound_tool_ids=["delete"], issues=[
+        AgentBindingIssue(kind="ambiguous_root_agent", message="Catalog has no agent")])
+    for head_graph in (None, catalog):
+        diff = compute_tool_surface_diff(ToolSurfaceFacts(), base, [], head_binding_facts=head_graph)
+        assert diff.enabled and [(row.name, row.kind) for row in diff.tools] == [("delete", "removed")]
+
+
+@pytest.mark.parametrize("side", ["head", "base"])
+def test_findings_only_reference_cannot_claim_resolution_with_incomplete_bindings(side):
+    from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, AgentBindingIssue
+
+    partial = AgentBindingGraphAssessment(status="partial", issues=[AgentBindingIssue(
+        kind="partial_binding_evidence", message="Unread constructor", source_pointer="agent.py:3",
+    )])
+    reference = ToolSurfaceDiffReference(
+        kind="report", facts=None,
+        findings=[ToolSurfaceFindingDeltaItem(fingerprint="old", check_id="old", title="old", severity="high")],
+        binding_facts=partial if side == "base" else None,
+    )
+    diff = compute_tool_surface_diff(
+        ToolSurfaceFacts(), None, [], reference=reference,
+        head_binding_facts=partial if side == "head" else None,
+    )
+    assert not diff.enabled and diff.finding_deltas.resolved_findings == []
+    assert diff.summary.resolved_findings == 0
+    assert any("comparison incomplete on " + side in note for note in diff.notes)
+
+
+@pytest.mark.parametrize("status", ["partial", "conflicting"])
+def test_a_fresh_scan_does_not_claim_a_comparison_was_requested(status):
+    from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment
+
+    graph = AgentBindingGraphAssessment(status=status, possible_tool_ids=["unread"])
+    diff = compute_tool_surface_diff(
+        ToolSurfaceFacts(), None, [], head_binding_facts=graph,
+    )
+    assert not diff.enabled
+    assert diff.notes == ["No --diff-from report or v0.3 baseline snapshot was provided."]
+    assert diff.finding_deltas.resolved_findings == []
+    assert not any((diff.tools, diff.scopes, diff.controls, diff.high_risk_effects))

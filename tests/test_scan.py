@@ -960,7 +960,13 @@ def test_baseline_save_and_scan_matches_existing_findings(tmp_path):
     assert (
         second_report.release_decision.evidence_coverage.semantic_coverage.gap_count > 0
     )
-    assert second_report.tool_surface_diff.enabled is True
+    # The sample intentionally conflicts with its reviewed bindings; matching
+    # a baseline cannot establish a comparable capability surface.
+    assert second_report.binding_surface_facts.status == "conflicting"
+    assert second_report.tool_surface_diff.enabled is False
+    assert second_report.binding_surface_diff.base_comparison_requested
+    assert second_report.binding_surface_diff.enabled is False
+    assert any("comparison incomplete" in note for note in second_report.tool_surface_diff.notes)
     assert second_report.tool_surface_diff.base.kind == "baseline"
     assert all(finding.baseline_status in {None, "matched"} for finding in second_report.findings)
 
@@ -1012,7 +1018,11 @@ def test_scan_diff_from_prior_report_does_not_change_release_gate(tmp_path):
     assert with_diff.release_decision is not None
     assert without_diff.release_decision is not None
     assert with_diff.release_decision.decision == without_diff.release_decision.decision
-    assert with_diff.tool_surface_diff.enabled is True
+    assert with_diff.binding_surface_facts.status == "conflicting"
+    assert with_diff.tool_surface_diff.enabled is False
+    assert with_diff.binding_surface_diff.base_comparison_requested
+    assert with_diff.binding_surface_diff.enabled is False
+    assert any("comparison incomplete" in note for note in with_diff.tool_surface_diff.notes)
     assert with_diff.tool_surface_diff.base.kind == "report"
 
 

@@ -37,6 +37,11 @@ from agents_shipgate.schemas.manifest import AgentsShipgateManifest, ToolSourceC
 #: manifest location and the prose be rewritten freely (#329).
 TOOL_SOURCE_BINDING_DECLARATION = "tool_source_binding_declaration"
 
+#: A reader proved that construction ownership, independently of the tool
+#: inventory or declared wiring, remains unread. Only reader observations
+#: can emit this marker; warning wording and catalog annotations cannot.
+FRAMEWORK_CONSTRUCTOR_OWNERSHIP = "framework_constructor_ownership"
+
 _TOOL_EDGE_TYPES = {
     "direct_tool",
     "tool_node",
@@ -122,6 +127,7 @@ def resolve_agent_binding_graph(
         raw_handoffs,
         partials,
         invalid_annotations,
+        constructor_partials,
     ) = _observations(tools, artifacts, loaded_sources or [])
     declarations = manifest.agent_bindings.declarations if manifest is not None else []
     # A declaration may introduce an agent the extractors never saw — a
@@ -507,9 +513,14 @@ def resolve_agent_binding_graph(
                 )
             )
 
+    issues.extend(constructor_partials)
+
     tool_edges = _dedupe_tool_edges(tool_edges)
     handoff_edges = _dedupe_handoff_edges(handoff_edges)
     reachable_agents, paths = _reachable_agents(root, handoff_edges, surface_agent_ids)
+    candidate_agents, _ = _reachable_agents(
+        root, handoff_edges, surface_agent_ids, include_incomplete=True,
+    )
     for edge in handoff_edges:
         if edge.source_agent_id in reachable_agents and not edge.complete:
             issues.append(
@@ -535,7 +546,7 @@ def resolve_agent_binding_graph(
         {
             edge.tool_id
             for edge in tool_edges
-            if edge.agent_id in reachable_agents and not edge.complete
+            if edge.agent_id in candidate_agents
         }
         - set(reachable_ids)
     )
@@ -547,7 +558,7 @@ def resolve_agent_binding_graph(
     incomplete_by_tool = {
         edge.tool_id: edge
         for edge in tool_edges
-        if edge.agent_id in reachable_agents and not edge.complete
+        if edge.agent_id in candidate_agents and edge.tool_id not in reachable_ids
     }
     for tool_id in possible_ids:
         edge = incomplete_by_tool[tool_id]
@@ -555,7 +566,7 @@ def resolve_agent_binding_graph(
             AgentBindingIssue(
                 kind="partial_binding_evidence",
                 message=(
-                    "A possibly reachable tool has an incomplete binding edge; "
+                    "A possibly reachable tool has an incomplete binding path; "
                     "provide a complete static graph or reviewed declaration."
                 ),
                 agent_id=edge.agent_id,
@@ -652,12 +663,14 @@ def _observations(
     list[_RawHandoffEdge],
     set[str],
     set[str],
+    list[AgentBindingIssue],
 ]:
     agents: list[_AgentObservation] = []
     edges: list[_RawToolEdge] = []
     handoffs: list[_RawHandoffEdge] = []
     partials: set[str] = set()
     invalid_annotations: set[str] = set()
+    constructor_partials: dict[tuple[str, str, str], AgentBindingIssue] = {}
 
     for loaded in loaded_sources:
         for observation in loaded.binding_observations:
@@ -705,7 +718,19 @@ def _observations(
                         observation.handoffs_complete,
                     )
                 )
-            partials.update(observation.issues)
+            constructor_messages = set(observation.constructor_issues.values())
+            partials.update(message for message in observation.issues if message not in constructor_messages)
+            for pointer, message in observation.constructor_issues.items():
+                agent_id = _AgentObservation(
+                    observation.agent, observation.source_id,
+                    observation.source, observation.source_pointer, complete,
+                ).agent_id
+                key = (agent_id, pointer, message)
+                constructor_partials[key] = AgentBindingIssue(
+                    kind="partial_binding_evidence", message=message,
+                    agent_id=agent_id, source=FRAMEWORK_CONSTRUCTOR_OWNERSHIP,
+                    source_pointer=pointer,
+                )
 
     for tool in tools:
         for reason in _string_list(tool.annotations.get("binding_surface_partial")):
@@ -723,7 +748,7 @@ def _observations(
                     )
                     continue
                 source_id = raw.get("source_id") if isinstance(raw.get("source_id"), str) else tool.source_id
-                source = str(raw.get("source") or tool.source_ref or tool.source_type)
+                source = _annotation_source(raw, tool)
                 pointer = raw.get("source_pointer") if isinstance(raw.get("source_pointer"), str) else tool.source_location
                 raw_complete = raw.get("complete", True)
                 if type(raw_complete) is not bool:
@@ -775,7 +800,7 @@ def _observations(
                         target_agent,
                         _str(raw.get("source_id")) or tool.source_id,
                         str(raw.get("edge_type") or "handoff"),
-                        str(raw.get("source") or tool.source_ref or tool.source_type),
+                        _annotation_source(raw, tool),
                         _str(raw.get("source_pointer")) or tool.source_location,
                         raw_complete,
                     )
@@ -864,7 +889,7 @@ def _observations(
             for target in _string_list(record.get("sub_agents")):
                 if source_name:
                     agents.append(_AgentObservation(target, _str(record.get("source_id")), _str(record.get("source_ref")), _str(record.get("source_ref")), True))
-                    handoffs.append(_RawHandoffEdge(source_name, target, _str(record.get("source_id")), "subagent", _str(record.get("source_ref")) or "google_adk", _str(record.get("source_ref")), True))
+                    handoffs.append(_RawHandoffEdge(source_name, target, _str(record.get("source_id")), "subagent", _str(record.get("source_ref")) or "google_adk", _str(record.get("source_ref")), not bool(record.get("unread"))))
             # Only Python-entrypoint records carry ``sub_agent_count``; Agent
             # Config records describe sub-agents by config path instead.
             if "sub_agent_count" not in record:
@@ -912,7 +937,15 @@ def _observations(
             "Conductor workflow tool bindings include dynamic or unresolved surfaces."
         )
 
-    return agents, edges, handoffs, partials, invalid_annotations
+    return agents, edges, handoffs, partials, invalid_annotations, [
+        constructor_partials[key] for key in sorted(constructor_partials)
+    ]
+
+
+def _annotation_source(raw: dict[str, Any], tool: Tool) -> str:
+    source = str(raw.get("source") or tool.source_ref or tool.source_type)
+    # Catalog metadata cannot claim the internal constructor-cause producer.
+    return tool.source_type if source == FRAMEWORK_CONSTRUCTOR_OWNERSHIP else source
 
 
 def adk_unnamed_sub_agents(agent: str | None, record: dict[str, Any]) -> str:
@@ -1165,6 +1198,8 @@ def _reachable_agents(
     root: AgentBindingNode | None,
     handoffs: list[AgentHandoffBindingEdge],
     surface_agent_ids: frozenset[str] = frozenset(),
+    *,
+    include_incomplete: bool = False,
 ) -> tuple[set[str], dict[str, list[str]]]:
     """Walk the complete handoff graph from every declared entry point.
 
@@ -1182,7 +1217,7 @@ def _reachable_agents(
         return set(), {}
     outgoing: dict[str, list[str]] = defaultdict(list)
     for edge in handoffs:
-        if edge.complete:
+        if edge.complete or include_incomplete:
             outgoing[edge.source_agent_id].append(edge.target_agent_id)
     reachable = set(seeds)
     paths = {seed: [seed] for seed in seeds}
@@ -1204,8 +1239,15 @@ def _attach_binding_assessments(
     agent_paths: dict[str, list[str]],
 ) -> None:
     edges_by_tool: dict[str, list[AgentToolBindingEdge]] = defaultdict(list)
+    reachable_owners_by_tool: dict[str, set[str]] = defaultdict(set)
+    incomplete_tool_ids: set[str] = set()
     for edge in graph.tool_edges:
-        if edge.tool_id in graph.reachable_tool_ids:
+        if edge.agent_id in agent_paths:
+            reachable_owners_by_tool[edge.tool_id].add(edge.agent_id)
+        if not edge.complete:
+            incomplete_tool_ids.add(edge.tool_id)
+        if (edge.tool_id in graph.reachable_tool_ids and edge.complete
+                and edge.agent_id in agent_paths):
             edges_by_tool[edge.tool_id].append(edge)
     graph_issue_by_tool: dict[str, list[AgentBindingIssue]] = defaultdict(list)
     graph_issue_by_agent: dict[str, list[AgentBindingIssue]] = defaultdict(list)
@@ -1219,6 +1261,14 @@ def _attach_binding_assessments(
             edges_by_tool.get(tool.id, []),
             key=lambda edge: (edge.agent_id, edge.source, edge.source_pointer or ""),
         )
+        # Refusal causes belong to actual reachable owners, including an
+        # incomplete edge. Only complete edges below become binding claims.
+        constructor_owner_issues = [
+            issue
+            for agent_id in sorted(reachable_owners_by_tool.get(tool.id, set()))
+            for issue in graph_issue_by_agent.get(agent_id, [])
+            if issue.source == FRAMEWORK_CONSTRUCTOR_OWNERSHIP
+        ]
         if edges:
             edge = edges[0]
             claims = [
@@ -1238,6 +1288,11 @@ def _attach_binding_assessments(
                 )
                 for item in edges
             ]
+            owner_issues = [
+                issue for issue in graph_issue_by_agent.get(edge.agent_id, [])
+                if issue.source != FRAMEWORK_CONSTRUCTOR_OWNERSHIP
+            ]
+            owner_issues.extend(constructor_owner_issues)
             issues = [
                 SemanticIssue(
                     kind=issue.kind,
@@ -1248,7 +1303,7 @@ def _attach_binding_assessments(
                 )
                 for issue in [
                     *graph_issue_by_tool.get(tool.id, []),
-                    *graph_issue_by_agent.get(edge.agent_id, []),
+                    *owner_issues,
                 ]
             ]
             status = "declared" if any(item.provenance_kind == "static_declaration" for item in edges) else "structural"
@@ -1259,13 +1314,22 @@ def _attach_binding_assessments(
                 reachable_path=[*agent_paths.get(edge.agent_id, [edge.agent_id]), tool.id],
                 claims=claims,
                 issues=issues,
-                pass_eligible=not issues and all(item.complete for item in edges),
+                # Proven claims do not erase the same tool's unread owners.
+                # Keep the conservative eligibility boundary independently.
+                pass_eligible=not issues and tool.id not in incomplete_tool_ids,
             )
         else:
             tool.binding_assessment = BindingSemanticAssessment(
                 status="unknown",
                 confidence="low",
                 root_agent_id=graph.root_agent_id,
+                issues=[SemanticIssue(
+                    kind=issue.kind, dimension="binding", message=issue.message,
+                    source=issue.source, source_pointer=issue.source_pointer,
+                ) for issue in [
+                    *graph_issue_by_tool.get(tool.id, []),
+                    *constructor_owner_issues,
+                ]],
                 pass_eligible=False,
             )
 

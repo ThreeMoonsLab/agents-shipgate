@@ -227,3 +227,29 @@ def test_a_half_configured_shard_is_refused(shards: str, shard: str) -> None:
         check=False,
     )
     assert result.returncode != 0, result.stdout[-2000:]
+
+
+def test_remeasurement_records_provenance_from_the_same_report_bytes(tmp_path, monkeypatch):
+    import hashlib
+    import json
+
+    from scripts import measure_shard_seconds as measure
+
+    report = tmp_path / "junit.xml"
+    original = b'<testsuite><testcase file="tests/test_a.py" time="1.2"/><testcase file="tests/test_b.py" time="2.3"/></testsuite>'
+    report.write_bytes(original)
+    output = tmp_path / "weights.json"
+    monkeypatch.setattr(measure, "OUTPUT", output)
+    read = measure.file_seconds
+
+    def change_report_after_capture(path, root, *, report_bytes=None):
+        path.write_bytes(b'<testsuite><testcase file="tests/test_c.py" time="999"/></testsuite>')
+        return read(path, root, report_bytes=report_bytes)
+
+    monkeypatch.setattr(measure, "file_seconds", change_report_after_capture)
+    assert measure.main([str(report)]) == 0
+    payload = json.loads(output.read_text())
+    assert payload["files"] == {"tests/test_a.py": 1.2, "tests/test_b.py": 2.3}
+    assert payload["measurement"]["report_sha256"] == hashlib.sha256(original).hexdigest()
+    assert payload["measurement"]["case_count"] == payload["measurement"]["file_count"] == 2
+    assert payload["measurement"]["source"] == "junit"

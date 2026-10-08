@@ -244,7 +244,11 @@ Filename detection never establishes verified permissions.
 ## What your PR sees
 
 The same run writes `pr-comment.md`, the comment the GitHub Action posts.
-Abridged from the artifact:
+This abridged excerpt is from the published `v1.2.0` release. The current
+source tree withholds capability comparisons when agent binding coverage is
+incomplete; that coverage gap does not change the four blocking findings.
+
+Abridged from the released artifact:
 
 ```text
 ## Agents Shipgate

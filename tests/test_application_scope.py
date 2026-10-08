@@ -53,7 +53,13 @@ def test_a_tool_module_change_is_compared_in_the_package_that_holds_its_agent(re
     assert selection["scopes"] == ["backend/app"]
     assert result["head"]["scope"] == "backend/app"
     assert "backend/app/services/gemini_tools.py" in selection["reason"]
-    assert _rows(result) == [("support", "lookup", "changed")]
+    # Scope and candidate identity survive; the runtime Runner receives an
+    # agent handle whose constructor retention is not yet read.
+    assert _rows(result) == [("support", "lookup", "not_established")]
+    assert result["rows"][0]["candidate_change"] == "changed"
+    assert result["comparison_status"] == "partial"
+    assert any("constructor identity is not established" in gap["reason"]
+               and gap["source"] == "agents/support.py" for gap in result["head"]["coverage_gaps"])
 
 
 def test_the_scope_is_reported_in_the_text_output(repo):

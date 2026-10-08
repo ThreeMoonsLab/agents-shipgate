@@ -1145,3 +1145,22 @@ def test_evidence_gaps_deterministic_ordering():
         "alpha [langchain_function]",
         "zeta [langchain_function]",
     ]
+
+
+
+def test_requested_incomplete_binding_comparison_is_a_gap_even_without_tool_ids():
+    from agents_shipgate.schemas.bindings import BindingSurfaceDiff
+
+    report = _report(tools=[], summary_status="no_release_blockers_detected")
+    report.binding_surface_diff = BindingSurfaceDiff(
+        enabled=False, base_comparison_requested=True,
+        notes=["Capability comparison incomplete on base: partial_binding_evidence."],
+    )
+    decision = _build(report, ci_mode="advisory", tools=[])
+    assert decision.decision == "insufficient_evidence"
+    gaps = decision.evidence_coverage.evidence_gaps
+    comparison = [gap for gap in gaps if gap.source_ref == "--diff-from"]
+    assert len(comparison) == 1
+    assert comparison[0].next_action.kind == "provide_source"
+    assert comparison[0].next_action.command is None
+    assert "head or base" in comparison[0].why

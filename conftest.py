@@ -30,6 +30,20 @@ import pytest  # noqa: E402
 from ci_sharding import load_seconds, shard_assignment  # noqa: E402
 
 
+def pytest_configure(config) -> None:  # noqa: ANN001
+    """Stream hosted file timings without affecting test selection or results."""
+    if (os.environ.get("GITHUB_ACTIONS") != "true" or hasattr(config, "workerinput")
+            or config.getoption("collectonly")
+            or config.getoption("setuponly")
+            or not config.getoption("numprocesses", default=None)
+            or config.getoption("dist", default=None) != "load"
+            or config.pluginmanager.hasplugin("rerunfailures")):
+        return
+    from ci_timing import HostedTimings
+
+    config.pluginmanager.register(HostedTimings(config), "shipgate_hosted_timings")
+
+
 @pytest.fixture(autouse=True)
 def _scrub_agent_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep the suite hermetic when it runs inside a coding agent.

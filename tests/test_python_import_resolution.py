@@ -313,3 +313,81 @@ def test_resolution_never_executes_the_inspected_code(tmp_path):
     assert _definition(_resolve(tmp_path, "agent.py", "tool")) == "tools.py:4"
     assert not marker.exists()
     assert "tools" not in set(sys.modules) - before
+
+
+@pytest.mark.parametrize("resolved_before_entry", [False, True])
+def test_entry_preserves_canonical_scanned_module_and_function_identity(tmp_path, resolved_before_entry):
+    path = tmp_path / 'factory.py'
+    text = 'def build(tools):\n    return tools\n'
+    path.write_text(text)
+    resolver = ImportResolver(tmp_path)
+    scanned = resolver._patch_scan(path)
+    function = scanned.tree.body[0]
+    if resolved_before_entry:
+        assert resolver.module(path) is scanned
+    parsed_before = resolver._parsed
+    fresh_tree = ast.parse(text)
+    assert fresh_tree is not scanned.tree
+    registered = resolver.entry(path, fresh_tree, text)
+    assert registered is scanned and registered.tree.body[0] is function
+    assert resolver._scanned[path] is registered and resolver._modules[path] is registered
+    assert resolver.module(path) is registered and resolver._patch_scan(path) is registered
+    assert resolver._parsed == parsed_before
+
+
+def test_entry_does_not_reuse_scanned_identity_for_different_captured_text(tmp_path):
+    path = tmp_path / 'factory.py'
+    old_text = 'def build(tools):\n    return tools\n'
+    new_text = 'def replacement(tools):\n    return tools\n'
+    path.write_text(old_text)
+    resolver = ImportResolver(tmp_path)
+    scanned = resolver._patch_scan(path)
+    path.write_text(new_text)
+    tree = ast.parse(new_text)
+    registered = resolver.entry(path, tree, new_text)
+    assert registered is not scanned and registered.tree is tree
+    assert registered.text == new_text and registered.tree.body[0].name == 'replacement'
+    assert resolver._scanned[path] is scanned
+    assert resolver._patch_scan(path) is registered
+
+
+@pytest.mark.parametrize("stop_cache", ['_modules', '_scanned'])
+def test_entry_preserves_existing_external_parse_behavior_after_cached_stop(tmp_path, stop_cache):
+    path = tmp_path / 'factory.py'
+    text = 'def build(tools):\n    return tools\n'
+    path.write_text(text)
+    resolver = ImportResolver(tmp_path)
+    if stop_cache == '_modules':
+        old = resolver._patch_scan(path)
+        resolver._modules[path] = imports._Stop(imports.RESOLUTION_LIMIT, 'read budget exhausted')
+    else:
+        old = None
+        resolver._scanned[path] = imports._Stop(imports.UNREADABLE_MODULE, 'earlier input unread')
+    tree = ast.parse(text)
+    registered = resolver.entry(path, tree, text)
+    assert registered is not old and registered.tree is tree
+    assert registered.text == text and resolver._parsed == 0
+
+
+def test_scanned_resolution_promotion_without_entry_still_enforces_its_budget(tmp_path, monkeypatch):
+    path = tmp_path / 'factory.py'
+    text = 'def build(tools):\n    return tools\n'
+    path.write_text(text)
+    resolver = ImportResolver(tmp_path)
+    scanned = resolver._patch_scan(path)
+    monkeypatch.setattr(imports, 'MAX_MODULES', 0)
+    with pytest.raises(imports._Stop) as error:
+        resolver.module(path)
+    assert error.value.reason == imports.RESOLUTION_LIMIT
+    assert resolver._parsed == 0 and resolver._scanned[path] is scanned and path not in resolver._modules
+
+
+def test_entry_cannot_promote_a_scanned_module_outside_its_scope(tmp_path):
+    inside = tmp_path / 'inside'
+    inside.mkdir()
+    path = tmp_path / 'outside.py'
+    text = 'def build(tools):\n    return tools\n'
+    path.write_text(text)
+    resolver = ImportResolver(inside)
+    assert resolver.entry(path, ast.parse(text), text) is None
+    assert path not in resolver._modules and path not in resolver._scanned

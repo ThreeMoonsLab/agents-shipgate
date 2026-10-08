@@ -11,7 +11,10 @@ from agents_shipgate.ci.exit_policy import (
     effective_fail_on,
     exit_code_for_report,
 )
-from agents_shipgate.core.agent_bindings import TOOL_SOURCE_BINDING_DECLARATION
+from agents_shipgate.core.agent_bindings import (
+    FRAMEWORK_CONSTRUCTOR_OWNERSHIP,
+    TOOL_SOURCE_BINDING_DECLARATION,
+)
 from agents_shipgate.core.control_packs import is_mandatory_current_control
 from agents_shipgate.core.declaration_questions import (
     ANSWERABLE_ISSUE_KINDS,
@@ -668,6 +671,9 @@ def _binding_declaration_template(
                 for source_id in source_ids
             ]
         }
+    if issue.source == FRAMEWORK_CONSTRUCTOR_OWNERSHIP:
+        # A declaration cannot establish the constructor or its dependencies.
+        return None
     if issue.source == TOOL_SOURCE_BINDING_DECLARATION:
         # A reviewed source binding that reached no tool. It is raised against
         # the surface node, which is the graph's root whenever it is the only
@@ -897,6 +903,16 @@ def _binding_coverage(
                 "tools, or remove the binding declaration, then rerun "
                 "verification."
             )
+        elif issue.source == FRAMEWORK_CONSTRUCTOR_OWNERSHIP:
+            action_kind = "provide_source"
+            path = issue.source_pointer
+            accepted_values = []
+            expects = (
+                "Provide readable supported source for the constructor's "
+                "unread ownership route, or remove that route, then rerun "
+                "verification. A tool inventory or binding declaration "
+                "cannot establish constructor ownership."
+            )
         elif issue.kind in {"missing_binding_evidence", "unresolved_bound_tool"}:
             action_kind = "declare_agent_bindings"
             path = "shipgate.yaml#agent_bindings.declarations"
@@ -953,6 +969,8 @@ def _binding_coverage(
                     command=_SEMANTIC_RERUN_COMMAND,
                     path=path,
                     why=(
+                        "The constructor and its ownership route must be established before this can pass."
+                        if issue.source == FRAMEWORK_CONSTRUCTOR_OWNERSHIP else
                         "Every tool has to be traceable to an agent that can "
                         "call it before this can pass."
                     ),
@@ -1132,6 +1150,11 @@ def _newly_excluded_tool_gaps(report: ReadinessReport) -> list[EvidenceGap]:
 
     diff = report.binding_surface_diff
     graph = report.binding_surface_facts
+    # Existing persisted coverage fields keep this route in the frozen 1.0
+    # report. A requested comparison with neither graph nor tool comparison
+    # established stays incomplete even when no tool id could be named.
+    if diff.base_comparison_requested and not diff.enabled and not report.tool_surface_diff.enabled:
+        return [_incomplete_binding_comparison_gap(report)]
     if not diff.enabled:
         # A comparison was asked for and could not be performed, so "this tool
         # was already excluded before the change" is a claim about evidence
@@ -1193,6 +1216,29 @@ def _newly_excluded_tool_gaps(report: ReadinessReport) -> list[EvidenceGap]:
             )
         )
     return gaps
+
+
+def _incomplete_binding_comparison_gap(report: ReadinessReport) -> EvidenceGap:
+    return EvidenceGap(
+        kind="missing_binding_evidence",
+        subject=unavailable_base_subject(report),
+        source_ref="--diff-from",
+        why=(
+            "The requested capability comparison has incomplete binding evidence "
+            "on the head or base. It cannot establish additions, removals or "
+            "whether an excluded capability predates this change."
+        ),
+        next_action=EvidenceGapAction(
+            kind="provide_source",
+            path="--diff-from",
+            why="Both compared binding surfaces need readable evidence.",
+            expects=(
+                "Resolve the named head/base binding coverage gaps; regenerate "
+                "the base report in its source workspace and rerun the head "
+                "comparison with --diff-from. Keep the requested comparison."
+            ),
+        ),
+    )
 
 
 def _unavailable_base_gap(report: ReadinessReport) -> EvidenceGap:
@@ -1730,6 +1776,16 @@ def _semantic_gap(
         ]
         action_why = "Free-form source labels are not evidence of policy eligibility."
         expects = "Use a typed first-party evidence producer and rerun verification."
+    elif kind == "partial_binding_evidence" and issue_source == FRAMEWORK_CONSTRUCTOR_OWNERSHIP:
+        action_kind = "provide_source"
+        accepted_values = []
+        action_why = "The constructor and its ownership route must be established before this can pass."
+        expects = (
+            "Provide readable supported source for the constructor's unread "
+            "ownership route, or remove that route, then rerun verification. "
+            "A tool inventory or binding declaration cannot establish "
+            "constructor ownership."
+        )
     elif kind in {
         "missing_binding_evidence",
         "partial_binding_evidence",
@@ -2216,7 +2272,8 @@ def _semantic_gap(
         next_action=EvidenceGapAction(
             kind=action_kind,  # type: ignore[arg-type]
             command=_SEMANTIC_RERUN_COMMAND,
-            path=_semantic_gap_path(kind, tool, issue_source),
+            path=(source_ref if kind == "partial_binding_evidence" and issue_source == FRAMEWORK_CONSTRUCTOR_OWNERSHIP
+                  else _semantic_gap_path(kind, tool, issue_source)),
             why=action_why,
             # Decided by what the template says, never by which branch above
             # built it. The two are the same judgement — "did the scan fill

@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
 
@@ -48,9 +48,13 @@ from agents_shipgate.inputs.python_imports import (
     PythonModule,
     Resolution,
     ScopeIndex,
+    _external_constructor_paths,
+    _independent_foreign_class_slot_write,
     _Stop,
+    _unused_reflection_import,
     reference_spelling,
     reflective_access,
+    replaces_builtin_namespace,
 )
 from agents_shipgate.inputs.python_static import dotted_name
 
@@ -161,7 +165,7 @@ class ListResolution:
     def under(self, condition: str) -> ListResolution:
         return ListResolution(
             tuple(
-                ListMember(m.expr, m.module, (condition, *m.conditions), m.via, m.invocation)
+                ListMember(m.expr, m.module, tuple(dict.fromkeys((condition, *m.conditions))), m.via, m.invocation)
                 for m in self.members
             ),
             self.unresolved,
@@ -318,6 +322,17 @@ def read_only_use(
     return False
 
 
+def _source_slot_context(rows: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    """Bound supplemental refusal text; it never supplies an ownership fact."""
+    return tuple(dict.fromkeys(row[:1024] for row in rows))[:2]
+
+
+def _record_constructor_refusal(rows: list[str] | None, message: str) -> bool:
+    if rows is not None:
+        rows[:] = _source_slot_context((*rows, message))
+    return False
+
+
 @dataclass
 class _View:
     """One module as this resolver reads it."""
@@ -338,11 +353,13 @@ class _View:
     #: Imports whose binding some code changes in place, wherever in the
     #: module: the list they import is changed, whatever name reaches it.
     changed_imports: list[tuple[ast.alias, ast.stmt]] = field(default_factory=list)
+    changed_import_context: dict[tuple[ast.alias, ast.stmt], tuple[str, ...]] = field(default_factory=dict)
     #: ``bindings_at`` for this module, built once.
     lookup: BindingsAt | None = None
     #: Imported namespace paths visibly replaced, resolved at each store's
     #: evaluation site so two aliases of one namespace share the obligation.
     qualified_patches: set[str] = field(default_factory=set)
+    family_qualified_patches: dict[str, set[str]] = field(default_factory=dict)
     #: A visible write may replace a builtin namespace getter too.
     namespace_builtins_changed: set[str] = field(default_factory=set)
     fresh_dictionaries: dict[tuple[int, bool], bool] = field(default_factory=dict)
@@ -354,6 +371,7 @@ class _View:
     returned_instances: dict[int, bool] = field(default_factory=dict)
     selected_instance_call: ast.Call | None = None
     constructor_reads: dict[tuple[Any, ...], bool] = field(default_factory=dict)
+    constructor_read_contexts: dict[tuple[Any, ...], tuple[str, ...]] = field(default_factory=dict)
 
 
 _NAMESPACE_ALIAS_LIMIT = 128
@@ -396,6 +414,8 @@ def _unprovided_root(view: _View, provider: str) -> bool:
         for _ in layout.scope.split("/") if layout.scope else ():
             root = root.parent
         snapshot = active_static_input_snapshot()
+        if snapshot is not None and root != snapshot.root and not snapshot.contains(root):
+            snapshot = None  # A disjoint materialized tree has its own input identity.
         for base in resolver._import_roots():
             # Inspect each prefix so a missing root is distinguished from an
             # unread/linked root. A verifier cannot use an unbound external
@@ -544,6 +564,27 @@ def _agent_instance(view: _View, owner: ast.expr) -> bool:
             return False
         owner = value
     return False
+
+
+def _direct_alias_constructor(view: _View, owner: ast.expr) -> ast.Call | None:
+    """Resolve only unique plain aliases of one actual direct Agent call."""
+    lookup = view.lookup or bindings_at(view.scopes, view.bindings)
+    seen: set[int] = set()
+    while isinstance(owner, ast.Name):
+        if id(owner) in seen or len(seen) >= _NAMESPACE_ALIAS_LIMIT:
+            return None
+        seen.add(id(owner))
+        found = lookup(owner.id, owner)
+        if len(found) != 1:
+            return None
+        _, statement = found[0]
+        if not isinstance(statement, ast.Assign | ast.AnnAssign):
+            return None
+        targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+        if len(targets) != 1 or not isinstance(targets[0], ast.Name):
+            return None
+        owner = statement.value
+    return owner if isinstance(owner, ast.Call) and _direct_agent_instance(view, owner) else None
 
 
 def _namespace_call_reference(view: _View, call: ast.Call) -> str | None:
@@ -696,18 +737,56 @@ def _imported_references(
     return references
 
 
+def _constructor_family(view: _View, call: ast.Call) -> str | None:
+    """Take a family only from this construction or its exact direct receiver."""
+    qualified = _namespace_call_reference(view, call)
+    receiver = None
+    if isinstance(call.func, ast.Attribute) and call.func.attr == "clone":
+        receiver = call.func.value
+    elif qualified in {"dataclasses.replace", "copy.replace"} and len(call.args) == 1:
+        receiver = call.args[0]
+    if receiver is not None:
+        if not isinstance(receiver, ast.Name):
+            return None
+        lookup = view.lookup or bindings_at(view.scopes, view.bindings)
+        found = lookup(receiver.id, receiver)
+        owner = getattr(found[0][1], "value", None) if len(found) == 1 else None
+        if not isinstance(owner, ast.Call) or not _direct_agent_instance(view, owner):
+            return None
+        qualified = _namespace_call_reference(view, owner)
+    return next((family for family in ("agents", "openai_agents", "google.adk")
+                 if qualified in _external_constructor_paths(family)), None)
+
+
+def _constructor_patches(view: _View, family: str | None) -> set[str]:
+    if family is None:
+        return view.qualified_patches
+    if family not in view.family_qualified_patches:
+        # Primitive stability is a fixed point of this family's exact write
+        # census. Never reuse another family's exclusions or builtin flags.
+        independent = replace(view, namespace_builtins_changed=set(), fresh_dictionaries={},
+                              family_qualified_patches={}, returned_instances={})
+        view.family_qualified_patches[family] = _qualified_attribute_patches(independent, family=family)
+    return view.family_qualified_patches[family]
+
+
 def _constructor_unchanged(
-    view: _View, call: ast.Call, *, qualified: str | None = None,
+    view: _View, call: ast.Call, *, qualified: str | None = None, family: str | None = None,
+    refused_context: list[str] | None = None,
 ) -> bool:
     # An import's canonical spelling does not prove the callee stayed the
     # framework's constructor: a visible store may replace any prefix.
+    def refused(phase: str) -> bool:
+        return _record_constructor_refusal(refused_context, f"constructor namespace in {view.ref}: {phase}")
+
     spelling = qualified or reference_spelling(call.func)
+    patches = _constructor_patches(view, family or _constructor_family(view, call))
     if view.module is not None and spelling is not None:
         if (
-            _UNREAD_NAMESPACE_ALIAS in view.qualified_patches
-            or f"{_UNREAD_NAMESPACE_ALIAS}.*" in view.qualified_patches
+            _UNREAD_NAMESPACE_ALIAS in patches
+            or f"{_UNREAD_NAMESPACE_ALIAS}.*" in patches
         ):
-            return False
+            return refused('unread namespace replacement')
         fields = _CONSTRUCTOR_FIELDS | {item.arg for item in call.keywords if item.arg is not None}
         if any(
             patch.startswith(_UNREAD_NAMESPACE_ALIAS + ".") and (
@@ -715,36 +794,36 @@ def _constructor_unchanged(
                 or name.startswith("_")
                 or name.startswith("model_")
             )
-            for patch in view.qualified_patches
+            for patch in patches
         ):
-            return False
+            return refused('unread constructor field')
         parts = spelling.split(".")
         if any(
             ".".join(parts[:length]) in view.module.attribute_patches
             for length in range(2, len(parts) + 1)
         ):
-            return False
-        if view.qualified_patches:
+            return refused('visible constructor prefix replacement')
+        if patches:
             references = {qualified} if qualified is not None else {
                 spelling, *_imported_references(view, spelling, call.func)
             }
             for reference in references:
                 parts = reference.split(".")
-                if any(f"{_UNREAD_NAMESPACE_ALIAS}.{part}" in view.qualified_patches for part in parts):
-                    return False
+                if any(f"{_UNREAD_NAMESPACE_ALIAS}.{part}" in patches for part in parts):
+                    return refused('visible or unread constructor namespace patch')
                 if any(
-                    ".".join(parts[:length]) + ".*" in view.qualified_patches
+                    ".".join(parts[:length]) + ".*" in patches
                     for length in range(1, len(parts) + 1)
                 ):
-                    return False
+                    return refused('visible or unread constructor namespace patch')
                 if any(
-                    ".".join(parts[:length]) in view.qualified_patches
+                    ".".join(parts[:length]) in patches
                     for length in range(2, len(parts) + 1)
                 ):
-                    return False
-                if any(patch.startswith(reference + ".") for patch in view.qualified_patches):
+                    return refused('visible or unread constructor namespace patch')
+                if any(patch.startswith(reference + ".") for patch in patches):
                     # Constructor implementation fields are not immutable.
-                    return False
+                    return refused('visible or unread constructor namespace patch')
     return True
 
 
@@ -753,18 +832,24 @@ def _constructor_imports_unchanged(
     *, checked_modules: frozenset[object] = frozenset(),
     additional_callers: tuple[_View, ...] = (),
     qualified: str | None = None,
+    family: str | None = None,
+    refused_context: list[str] | None = None,
 ) -> bool:
     """Census source-local import effects before granting a returned instance."""
+    def refused(phase: str) -> bool:
+        return _record_constructor_refusal(refused_context, f"constructor imports in {view.ref}: {phase}")
+
     resolver, calls = view.resolver, view.builder_calls
     if resolver is None or calls is None or view.module is None or constructor.module is None:
-        return False
+        return refused('missing scoped constructor reader')
     qualified = qualified or _namespace_call_reference(constructor, returned)
+    family = family or _constructor_family(constructor, returned)
     if qualified is None or qualified.startswith(_UNREAD_NAMESPACE_ALIAS):
-        return False
+        return refused('unread canonical constructor receiver')
     try:
         above = resolver._above_scope()
         if above.unread or above.patched or above.tables:
-            return False
+            return refused('above-scope import context is unread or patched')
         pending = [constructor.module, view.module, *(
             caller.module for caller in additional_callers if caller.module is not None
         )]
@@ -779,7 +864,7 @@ def _constructor_imports_unchanged(
             if module.path in seen:
                 continue
             if len(seen) >= _NAMESPACE_ALIAS_LIMIT or calls.dynamic_importer(module) is not None:
-                return False
+                return refused('module census bound or unread dynamic importer')
             seen.add(module.path)
             scopes = calls.scopes(module)
             other = _View(module.ref, module.tree, scopes, module.bindings, module, set())
@@ -797,8 +882,10 @@ def _constructor_imports_unchanged(
             if module.tree is view.tree:
                 other.selected_instance_call = invocation
             other.qualified_patches = _qualified_attribute_patches(other)
-            if module.path not in checked_modules and not _constructor_unchanged(other, returned, qualified=qualified):
-                return False
+            if module.path not in checked_modules and not _constructor_unchanged(
+                other, returned, qualified=qualified, family=family, refused_context=refused_context,
+            ):
+                return refused(f'namespace patch refusal in {module.ref}')
             paths = resolver._enclosing_packages(module.path)
             for node in ast.walk(module.tree):
                 if not isinstance(node, ast.Import | ast.ImportFrom):
@@ -810,15 +897,101 @@ def _constructor_imports_unchanged(
                         or isinstance(node, ast.ImportFrom) and node.level
                         or not _unprovided_root(other, spelling.partition(".")[0])
                     ):
-                        return False
+                        return refused(f'unread import {module.ref}:{node.lineno}: {stop.reason}: {stop.detail}')
                 paths.extend(imported)
             pending.extend(resolver._patch_scan(path) for path in paths if path not in seen)
-    except _Stop:
-        return False
+    except _Stop as stop:
+        return refused(f"{stop.reason}: {stop.detail}")
     return True
 
 
-def _qualified_attribute_patches(view: _View, *, primitive_pass: int = 0) -> set[str]:
+def _independent_plain_class_slot_write(view: _View, node: ast.Attribute) -> bool:
+    """An inert source-local class owns only its exact ordinary init store."""
+    if node.attr != "__init__" or not isinstance(node.ctx, ast.Store) or view.resolver is None or view.module is None:
+        return False
+    parent = view.scopes.parents.get(node)
+    if not ((isinstance(parent, ast.Assign) and parent.targets == [node])
+            or (isinstance(parent, ast.AnnAssign) and parent.target is node)):
+        return False
+    spelling = reference_spelling(node.value)
+    if spelling is None:
+        return False
+    root = spelling.partition(".")[0]
+    if view.scopes.enclosing_bindings(evaluation_site(view.scopes, node), root):
+        return False
+    bindings = view.bindings.get(root, [])
+    if (len(bindings) != 1 or not bindings[0].top_level or not isinstance(bindings[0].node, ast.alias)
+            or bindings[0].statement not in view.tree.body):
+        return False
+    outcome = view.resolver._constructor_reference(view.module, node.value, view.scopes)
+    definition, home = outcome.get("retained_class"), outcome.get("module")
+    if (set(outcome) != {"retained_class", "module"} or not isinstance(home, PythonModule)
+            or not isinstance(definition, ast.ClassDef) or definition not in home.tree.body
+            or definition.bases or definition.decorator_list or definition.keywords
+            or getattr(definition, "type_params", [])
+            or len(definition.body) != 1 or not isinstance(definition.body[0], ast.Pass)):
+        return False
+    owners = home.bindings.get(definition.name, [])
+    return len(owners) == 1 and owners[0].node is definition and owners[0].top_level
+
+
+def _provisional_agent_list_clear(view: _View, call: ast.Call) -> bool:
+    """Separate an exact literal-list clear from dictionary namespace writes.
+
+    This AST-only role does not grant ownership. Calling the final member
+    proof while constructing its mutation census would make it recursive.
+    """
+    if (not isinstance(call.func, ast.Attribute) or call.func.attr != "clear"
+            or call.args or call.keywords or not isinstance(view.scopes.parents.get(call), ast.Expr)):
+        return False
+    field = call.func.value
+    if not isinstance(field, ast.Attribute) or field.attr not in CAPABILITY_FIELDS:
+        return False
+    lookup = view.lookup or bindings_at(view.scopes, view.bindings)
+
+    def direct(owner: ast.expr) -> ast.Call | None:
+        if not isinstance(owner, ast.Name):
+            return None
+        found = lookup(owner.id, owner)
+        if len(found) != 1:
+            return None
+        _, statement = found[0]
+        if not isinstance(statement, ast.Assign | ast.AnnAssign):
+            return None
+        targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+        value = statement.value
+        return value if (len(targets) == 1 and isinstance(targets[0], ast.Name)
+                         and isinstance(value, ast.Call) and _direct_agent_instance(view, value)) else None
+
+    def literal(value: ast.expr | None) -> bool:
+        if isinstance(value, ast.Name):
+            found = lookup(value.id, value)
+            if len(found) != 1:
+                return False
+            value = getattr(found[0][1], "value", None)
+        return isinstance(value, ast.List)
+
+    owner = direct(field.value)
+    if owner is None or not literal(next((item.value for item in owner.keywords if item.arg == field.attr), None)):
+        return False
+    for node in ast.walk(view.tree):
+        if (not isinstance(node, ast.Attribute) or node.attr != field.attr
+                or not isinstance(node.ctx, ast.Store | ast.Del) or direct(node.value) is not owner):
+            continue
+        statement = view.scopes.parents.get(node)
+        if not (isinstance(node.ctx, ast.Store)
+                and ((isinstance(statement, ast.Assign) and statement.targets == [node])
+                     or (isinstance(statement, ast.AnnAssign) and statement.target is node))
+                and literal(statement.value)):
+            return False
+    return True
+
+
+def _qualified_attribute_patches(
+    view: _View, *, primitive_pass: int = 0, family: str | None = None,
+    raw_namespaces: bool = False,
+    patch_producers: dict[str, set[ast.AST | None]] | None = None,
+) -> set[str]:
     """Retain visible namespace mutations without flattening lexical imports.
 
     Multiple possible import owners keep every possibility: uncertainty cannot
@@ -830,7 +1003,12 @@ def _qualified_attribute_patches(view: _View, *, primitive_pass: int = 0) -> set
     changed: set[str] = set()
     nodes = list(ast.walk(view.tree))
 
-    def record(owner: ast.expr, attribute: str | None) -> None:
+    def emit(marker: str, producer: ast.AST | None) -> None:
+        changed.add(marker)
+        if patch_producers is not None:
+            patch_producers.setdefault(marker, set()).add(producer)
+
+    def record(owner: ast.expr, attribute: str | None, producer: ast.AST) -> None:
         dictionary_owner = _namespace_dictionary_owner(view, owner)
         if dictionary_owner is not None:
             owner = dictionary_owner
@@ -854,38 +1032,44 @@ def _qualified_attribute_patches(view: _View, *, primitive_pass: int = 0) -> set
             if reference.startswith(_UNREAD_NAMESPACE_ALIAS + "."):
                 # An unread owner may be any namespace; a literal stored
                 # field is still known. A computed field can replace any one.
-                changed.add(f"{_UNREAD_NAMESPACE_ALIAS}.{attribute or '*'}")
+                emit(f"{_UNREAD_NAMESPACE_ALIAS}.{attribute or '*'}", producer)
             else:
-                changed.add(reference.replace(".__dict__.", "."))
+                emit(reference.replace(".__dict__.", "."), producer)
 
-    def dictionary_fields(owner: ast.expr, arguments: list[ast.expr], keywords: list[ast.keyword]) -> None:
+    def dictionary_fields(owner: ast.expr, arguments: list[ast.expr], keywords: list[ast.keyword], producer: ast.AST) -> None:
         if _fresh_dictionary(view, owner):
             return
         for argument in arguments:
             if isinstance(argument, ast.Dict):
                 for key in argument.keys:
-                    record(owner, key.value if isinstance(key, ast.Constant) and isinstance(key.value, str) else None)
+                    record(owner, key.value if isinstance(key, ast.Constant) and isinstance(key.value, str) else None, producer)
             else:
-                record(owner, None)
+                record(owner, None, producer)
         for keyword in keywords:
-            record(owner, keyword.arg)
+            record(owner, keyword.arg, producer)
 
     dictionary_methods = {"__init__", "update", "clear", "pop", "popitem", "setdefault", "__setitem__", "__delitem__", "__ior__"}
 
-    def dictionary_mutation(owner: ast.expr, method: str, arguments: list[ast.expr], keywords: list[ast.keyword]) -> None:
+    def dictionary_mutation(owner: ast.expr, method: str, arguments: list[ast.expr], keywords: list[ast.keyword], producer: ast.AST) -> None:
         if _fresh_dictionary(view, owner):
             return
         if method in {"__init__", "update", "__ior__"}:
-            dictionary_fields(owner, arguments, keywords)
+            dictionary_fields(owner, arguments, keywords, producer)
         elif method in {"clear", "popitem"} or not arguments:
-            record(owner, None)
+            record(owner, None, producer)
         else:
             key = arguments[0]
-            record(owner, key.value if isinstance(key, ast.Constant) and isinstance(key.value, str) else None)
+            record(owner, key.value if isinstance(key, ast.Constant) and isinstance(key.value, str) else None, producer)
 
     for node in nodes:
         if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store | ast.Del):
-            if (
+            if not raw_namespaces and ((
+                view.resolver is not None
+                and family is not None
+                and _independent_foreign_class_slot_write(view.resolver, view.module, node, view.scopes, family)
+            ) or _independent_plain_class_slot_write(view, node)):
+                continue  # Only this exact foreign slot store; other loads and RHS still count.
+            if (not raw_namespaces and
                 isinstance(node.ctx, ast.Store)
                 and isinstance(view.scopes.parents.get(node), ast.Assign | ast.AnnAssign)
                 and node.attr in {"tools", "handoffs", "mcp_servers", "sub_agents"}
@@ -895,16 +1079,16 @@ def _qualified_attribute_patches(view: _View, *, primitive_pass: int = 0) -> set
                 # does not write its constructor class or a sibling's list.
                 # The existing handle/list census still checks this instance.
                 continue
-            record(node.value, node.attr)
+            record(node.value, node.attr, node)
         elif isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Store | ast.Del):
             if _fresh_dictionary(view, node.value):
                 continue
             key = node.slice
             if isinstance(key, ast.Constant) and not isinstance(key.value, str):
                 continue
-            record(node.value, key.value if isinstance(key, ast.Constant) else None)
+            record(node.value, key.value if isinstance(key, ast.Constant) else None, node)
         elif isinstance(node, ast.AugAssign) and isinstance(node.op, ast.BitOr):
-            dictionary_fields(node.target, [node.value], [])
+            dictionary_fields(node.target, [node.value], [], node)
         elif isinstance(node, ast.Call):
             reference = _namespace_call_reference(view, node)
             raw = reference_spelling(node.func)
@@ -918,34 +1102,36 @@ def _qualified_attribute_patches(view: _View, *, primitive_pass: int = 0) -> set
             ):
                 # No established receiver position: never infer a mutation
                 # owner from an unpacked payload or a missing argument.
-                changed.add(f"{_UNREAD_NAMESPACE_ALIAS}.*")
+                emit(f"{_UNREAD_NAMESPACE_ALIAS}.*", node)
                 continue
             if len(node.args) >= 2 and (setter or reference in _NAMESPACE_SETTERS):
                 key = node.args[1]
                 if (setter and reference not in _NAMESPACE_SETTERS) or reference in view.namespace_builtins_changed or (
                     reference is not None and reference.startswith("operator.") and not _standard_operator(view)
                 ):
-                    changed.add(f"{_UNREAD_NAMESPACE_ALIAS}.*")
+                    emit(f"{_UNREAD_NAMESPACE_ALIAS}.*", node)
                 else:
                     record(node.args[0], key.value if isinstance(key, ast.Constant)
-                           and isinstance(key.value, str) else None)
+                           and isinstance(key.value, str) else None, node)
             elif reference == "operator.ior" and node.args:
                 if reference in view.namespace_builtins_changed or not _standard_operator(view):
-                    changed.add(f"{_UNREAD_NAMESPACE_ALIAS}.*")
+                    emit(f"{_UNREAD_NAMESPACE_ALIAS}.*", node)
                 else:
-                    dictionary_fields(node.args[0], node.args[1:], node.keywords)
+                    dictionary_fields(node.args[0], node.args[1:], node.keywords, node)
             elif unbound_dictionary:
                 if "builtins.dict" in view.namespace_builtins_changed or not node.args:
-                    changed.add(f"{_UNREAD_NAMESPACE_ALIAS}.*")
+                    emit(f"{_UNREAD_NAMESPACE_ALIAS}.*", node)
                 else:
-                    dictionary_mutation(node.args[0], reference.rsplit(".", 1)[-1], node.args[1:], node.keywords)
+                    dictionary_mutation(node.args[0], reference.rsplit(".", 1)[-1], node.args[1:], node.keywords, node)
             elif isinstance(node.func, ast.Attribute) and node.func.attr in dictionary_methods:
-                dictionary_mutation(node.func.value, node.func.attr, node.args, node.keywords)
+                if not raw_namespaces and _provisional_agent_list_clear(view, node):
+                    continue  # Membership and retained members still need the final owner proof.
+                dictionary_mutation(node.func.value, node.func.attr, node.args, node.keywords, node)
         elif isinstance(node, ast.Attribute) and node.attr in dictionary_methods:
             parent = view.scopes.parents.get(node)
             if not (isinstance(parent, ast.Call) and parent.func is node) and not _fresh_dictionary(view, node.value):
                 # An exported mutator may later write any key.
-                record(node.value, None)
+                record(node.value, None, node)
     # A getter's spelling is trustworthy only if its actual namespace remains
     # unchanged. Unknown keys/mapping arguments retain namespace wildcards;
     # unrelated foreign/fresh dictionary fields do not poison builtin names.
@@ -963,10 +1149,14 @@ def _qualified_attribute_patches(view: _View, *, primitive_pass: int = 0) -> set
     }
     if not unstable <= view.namespace_builtins_changed:
         if primitive_pass >= len(_NAMESPACE_PRIMITIVES):
-            return changed | {_UNREAD_NAMESPACE_ALIAS}
+            emit(_UNREAD_NAMESPACE_ALIAS, None)
+            return changed
         view.namespace_builtins_changed.update(unstable)
         view.fresh_dictionaries.clear()
-        return _qualified_attribute_patches(view, primitive_pass=primitive_pass + 1)
+        return _qualified_attribute_patches(
+            view, primitive_pass=primitive_pass + 1, family=family, raw_namespaces=raw_namespaces,
+            patch_producers=patch_producers,
+        )
     return changed
 
 
@@ -983,8 +1173,28 @@ class ListCache:
     views: dict[tuple[int, bool], _View] = field(default_factory=dict)
     memo: dict[tuple[Any, ...], ListResolution] = field(default_factory=dict)
     changes: dict[tuple[int, bool, int, str], int | None] = field(default_factory=dict)
-    callees: dict[tuple[int, str, tuple], bool] = field(default_factory=dict)
+    change_contexts: dict[tuple[int, bool, int, str], tuple[str, ...]] = field(default_factory=dict)
+    callees: dict[tuple[int, str, tuple, bool, bool], bool] = field(default_factory=dict)
     scopes: dict[int, ScopeIndex] = field(default_factory=dict)
+    callable_changes: dict[tuple, str | None] = field(default_factory=dict)
+    executable_modules: dict[int, bool] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class _Projection:
+    key: str
+    view: _View
+    invocation: Invocation | None
+    required: bool = True
+    default: ast.expr | None = None
+    caller_defaults: set[tuple[int, int]] = field(default_factory=set, compare=False)
+
+    @property
+    def identity(self) -> tuple:
+        return (
+            self.key, self.required, id(self.default), id(self.view.tree),
+            self.invocation.key if self.invocation else (),
+        )
 
 
 class ListExpressions:
@@ -1011,10 +1221,22 @@ class ListExpressions:
         self._resolver = resolver
         self._agent_reads = agent_reads
         self._module_agent_reads = module_agent_reads
+        self._checking_constructor_namespaces = False
+        self._checking_handle_owners: set[tuple[int, int, str, bool, bool]] = set()
+        self._constructor_owner_results: dict[tuple[int, int, str, bool, bool], bool] = {}
+        self._constructor_container_results: dict[tuple[int, int, bool | None], bool] = {}
+        self._checking_container_owners: set[tuple[int, int, bool | None]] = set()
+        self._constructor_owner_work = 0
+        self._constructor_namespace_result: tuple[object, bool] | None = None
+        self._constructor_namespace_refusal: tuple[object, tuple[str, ...]] | None = None
+        self.constructor_namespace_issue: str | None = None
+        self._constructor_change_context: tuple[ast.Call, tuple, tuple[str, ...]] | None = None
         self._builder_calls = builder_calls
         self._invocation: Invocation | None = None
         self._field = "tools"
+        self._projection: _Projection | None = None
         self._checking_returns: set[tuple[int, str]] = set()
+        self._checking_member_receivers: set[tuple[int, int]] = set()
         self._cache = cache if cache is not None else ListCache()
         self._visits = 0
         self.entry = self._view(ref, tree, scopes, bindings, module, entry=True)
@@ -1082,6 +1304,13 @@ class ListExpressions:
             scopes = self._cache.scopes[id(tree)] = ScopeIndex(tree)
         return scopes
 
+    def _reflection(self, view: _View) -> ast.AST | None:
+        excluded = (
+            self.calls.runtime_exclusions(view.module)
+            if self.calls is not None and view.module is not None else frozenset()
+        )
+        return reflective_access(view.tree, excluded=excluded)
+
     def _index_changes(self, view: _View) -> None:
         """Mark every binding some code may change in place (#879 review)."""
 
@@ -1106,12 +1335,14 @@ class ListExpressions:
             }
             | {argument.arg for argument in ast.walk(view.tree) if isinstance(argument, ast.arg)}
         )
-        if reflective_access(view.tree) is not None:
+        if self._reflection(view) is not None:
             # ``globals()["TOOLS"]``, ``vars()`` and ``sys.modules[__name__]``
             # reach a module list without spelling its name.
             view.changed.update(("module", name) for name in tracked)
-        call_reads = self._call_reads(view)
+        refused_reads: list[str] = []
+        call_reads = self._call_reads(view, refused_reads=refused_reads)
         for node in ast.walk(view.tree):
+            refused_reads.clear()
             if isinstance(node, ast.Global):
                 view.changed.update(("module", name) for name in node.names)
             elif isinstance(node, ast.Nonlocal):
@@ -1148,7 +1379,7 @@ class ListExpressions:
                         parent, ast.AugAssign | ast.NamedExpr
                     )
                 if not unchanged:
-                    self._mark_changed(view, node)
+                    self._mark_changed(view, node, refused_context=_source_slot_context(refused_reads))
         # Shared-list holders and namespace reflection can mark an imported
         # binding without loading that name directly. Publish those changes
         # to every other importer of the same list as well.
@@ -1166,7 +1397,9 @@ class ListExpressions:
         # that otherwise bounded work quadratic in the number of agents.
         view.changed_imports = list(dict.fromkeys(view.changed_imports))
 
-    def _mark_changed(self, view: _View, node: ast.Name) -> None:
+    def _mark_changed(
+        self, view: _View, node: ast.Name, *, refused_context: tuple[str, ...] = (),
+    ) -> None:
         """Mark every binding a change at ``node`` may reach (#909 review).
 
         The name is looked up where Python evaluates it: a default, decorator
@@ -1182,11 +1415,19 @@ class ListExpressions:
             view.changed.add(id(binding))
             statement = view.scopes.statement_of(binding)
             if isinstance(binding, ast.alias) and isinstance(statement, ast.Import | ast.ImportFrom):
-                view.changed_imports.append((binding, statement))
+                pair = (binding, statement)
+                view.changed_imports.append(pair)
+                view.changed_import_context[pair] = _source_slot_context(
+                    (*view.changed_import_context.get(pair, ()), *refused_context)
+                )
         if not found:
             for item in view.bindings.get(node.id, []):
                 if isinstance(item.node, ast.alias) and isinstance(item.statement, ast.Import | ast.ImportFrom):
-                    view.changed_imports.append((item.node, item.statement))
+                    pair = (item.node, item.statement)
+                    view.changed_imports.append(pair)
+                    view.changed_import_context[pair] = _source_slot_context(
+                        (*view.changed_import_context.get(pair, ()), *refused_context)
+                    )
         scope = _nearest_scope(view.scopes, site)
         walrus = isinstance(view.scopes.parents.get(node), ast.NamedExpr)
         if isinstance(scope, ast.ClassDef) or walrus:
@@ -1216,7 +1457,7 @@ class ListExpressions:
                 keys |= shared_lists(view.scopes, view.bindings, fields)
         return keys
 
-    def _call_reads(self, view: _View) -> CallReads:
+    def _call_reads(self, view: _View, *, refused_reads: list[str] | None = None) -> CallReads:
         bindings = view.lookup or bindings_at(view.scopes, view.bindings)
 
         def reads(call: ast.Call, position: int | None, keyword: str | None) -> bool:
@@ -1224,14 +1465,24 @@ class ListExpressions:
                 return True
             # Another module's ``Agent`` may be its own class: only the module
             # the agent is built in says which constructions are the framework's.
-            if self._reads_agent(view, call, keyword):
+            staged: list[str] = []
+            if self._reads_agent(view, call, keyword, refused_context=staged):
                 return True
-            return self._callee_leaves_alone(view, call, position, keyword)
+            unchanged = self._callee_leaves_alone(view, call, position, keyword)
+            if not unchanged and refused_reads is not None:
+                refused_reads[:] = _source_slot_context((*refused_reads, *staged))
+            return unchanged
 
         return reads
 
-    def _reads_agent(self, view: _View, call: ast.Call, keyword: str | None) -> bool:
-        if not _constructor_unchanged(view, call):
+    def _reads_agent(
+        self, view: _View, call: ast.Call, keyword: str | None, *, refused_context: list[str] | None = None,
+    ) -> bool:
+        def refused(phase: str) -> bool:
+            return _record_constructor_refusal(refused_context, f"constructor read in {view.ref}: {phase}")
+
+        family = _constructor_family(view, call)
+        if not _constructor_unchanged(view, call, family=family, refused_context=refused_context):
             return False
         recognized = (view.entry and self._agent_reads(call, keyword)) or bool(
             view.module is not None
@@ -1241,7 +1492,23 @@ class ListExpressions:
         if not recognized or view.module is None:
             # Pure-AST callers supply their own consumer predicate. File
             # adapters establish a scoped module before granting that role.
-            return bool(recognized)
+            result = bool(recognized)
+            if not result:
+                refused("source consumer predicate did not recognize this construction")
+                if view.module is not None and view.builder_calls is not None:
+                    issue = view.builder_calls.cached_constructor_issue(view.module, call)
+                    if issue:
+                        refused(f"cached constructor issue: {issue}")
+            return result
+        if self.constructor_namespace_changed():
+            result = self._constructor_namespace_result
+            refusal = self._constructor_namespace_refusal
+            if (refused_context is not None and result is not None and result[1]
+                    and refusal is not None and refusal[0] == result[0]):
+                refused_context[:] = _source_slot_context((*refused_context, *refusal[1]))
+            elif refused_context is not None:
+                refused("retained constructor namespace ownership census refused")
+            return False
         # Ordinary constructions have the same import-effect obligation as a
         # returned instance. Reuse the existing view's own mutation census;
         # rebuilding it would discard its established instance roles.
@@ -1297,25 +1564,281 @@ class ListExpressions:
         # The dependency census compares one canonical constructor and its
         # keyword fields in immutable module views, not a particular return
         # value. Many equivalent ordinary reads can reuse that same proof.
-        key = (qualified, tuple(sorted(item.arg for item in call.keywords if item.arg is not None)),
+        key = (qualified, family, tuple(sorted(item.arg for item in call.keywords if item.arg is not None)),
                tuple(id(caller.tree) for caller in callers))
         if key not in view.constructor_reads:
             view.constructor_reads[key] = False
-            checked = frozenset(
-                item.module.path for item in callers if item.module is not None
-                and _constructor_unchanged(item, call, qualified=qualified)
-            )
+            view.constructor_read_contexts[key] = ()
+            staged: list[str] = []
+            checked_paths: set[object] = set()
+            for item in callers:
+                if item.module is not None and _constructor_unchanged(
+                    item, call, qualified=qualified, family=family, refused_context=staged,
+                ):
+                    checked_paths.add(item.module.path)
+            checked = frozenset(checked_paths)
             if any(caller.module is not None and caller.module.path not in checked for caller in callers):
-                return False
-            view.constructor_reads[key] = _constructor_imports_unchanged(
-                view, view, call, call, checked_modules=checked,
-                additional_callers=tuple(callers[1:]),
-                qualified=qualified,
+                view.constructor_read_contexts[key] = _source_slot_context(staged)
+            else:
+                staged = []
+                view.constructor_reads[key] = _constructor_imports_unchanged(
+                    view, view, call, call, checked_modules=checked,
+                    additional_callers=tuple(callers[1:]),
+                    qualified=qualified,
+                    family=family,
+                    refused_context=staged,
+                )
+                view.constructor_read_contexts[key] = (
+                    () if view.constructor_reads[key] else _source_slot_context(staged)
+                )
+        if not view.constructor_reads[key] and refused_context is not None:
+            refused_context[:] = _source_slot_context(
+                (*refused_context, *view.constructor_read_contexts.get(key, ()))
             )
         return view.constructor_reads[key]
 
+    def constructor_namespace_changed(self) -> bool:
+        """Known agent destinations must retain constructor-carrying tools safely.
+
+        Every instance retains its class, even when its tools are empty. Local
+        tool functions also carry module globals. Prove all receiving handles
+        and containers before granting the import reader's retention exception.
+        """
+        if self._resolver is None:
+            return False
+        if self._checking_constructor_namespaces:
+            # Known constructor retention is checked by the outer census. A
+            # recursive handle edge is separately refused by the owner guard.
+            return False
+        def inventory() -> tuple[int, int, int, int, int, int, int]:
+            return (len(self._resolver._constructor_namespace_owners), len(self._resolver._constructor_container_owners),
+                    len(self._resolver._constructor_member_sinks), len(self._resolver._constructor_decorator_owners),
+                    len(self._resolver._constructor_dictionary_sinks), len(self._resolver._constructor_unused_namespace_sinks),
+                    len(self._resolver._constructor_dictionary_class_sinks))
+
+        generation = inventory()
+        context = (self._invocation.key if self._invocation else (),
+                   self._projection.identity if self._projection else ())
+        cache_key = (generation, context)
+        if self._constructor_namespace_result is not None and self._constructor_namespace_result[0] == cache_key:
+            return self._constructor_namespace_result[1]
+        self._checking_constructor_namespaces = True
+        self._constructor_namespace_refusal = None
+        self.constructor_namespace_issue = None
+        self._constructor_owner_results.clear()
+        self._constructor_container_results.clear()
+        self._constructor_owner_work = 0
+        checked: set[tuple[int, str]] = set()
+        try:
+            while True:
+                owners = [(*owner, True) for owner in self._resolver._constructor_namespace_owners.values()]
+                owners += [(module, expression, "container", False)
+                           for module, expression in self._resolver._constructor_container_owners.values()]
+                owners += [(module, expression, "member_sink", False)
+                           for module, expression in self._resolver._constructor_member_sinks.values()]
+                owners += [(module, expression, "decorator_handle", False)
+                           for module, expression in self._resolver._constructor_decorator_owners.values()]
+                owners += [(module, expression, "dictionary_sink:" + family, False)
+                           for module, expression, family in self._resolver._constructor_dictionary_sinks.values()]
+                owners += [(module, expression, "unused_namespace_sink", False)
+                           for module, expression in self._resolver._constructor_unused_namespace_sinks.values()]
+                owners += [(module, expression, "dictionary_class_sink:" + family, False)
+                           for module, expression, family, _ in self._resolver._constructor_dictionary_class_sinks.values()]
+                pending = [owner for owner in owners if (id(owner[1]), owner[2]) not in checked]
+                if not pending:
+                    self._constructor_namespace_result = ((
+                        inventory(),
+                        context,
+                    ), False)
+                    return False
+                if len(checked) + len(pending) > 1024:
+                    self.constructor_namespace_issue = "the constructor namespace census exceeds 1024 owners"
+                    return True
+                current_generation = inventory()
+                if current_generation != generation:
+                    self._constructor_owner_results.clear()
+                    self._constructor_container_results.clear()
+                    generation = current_generation
+                for module, expression, field, is_handle in pending:
+                    checked.add((id(expression), field))
+                    view = self._foreign(module)
+                    refused_models: list[str] = []
+                    if is_handle:
+                        changed = self._agent_result_changed(view, expression, field, strict_container=True)
+                    elif field == "member_sink":
+                        changed = not (
+                            self._uncalled_member_sink(view, expression, refused_models=refused_models)
+                            or self._member_receiver_owned(view, expression)
+                        )
+                    elif field == "decorator_handle":
+                        changed = self._retained_callable_changes(expression, {
+                            (id(module), id(expression)): Resolution(reference=expression.name, module=module, definition=expression),
+                        }, factory_return=False) is not None
+                    elif field.startswith("dictionary_sink:"):
+                        changed = not self._dictionary_function_sink_owned(view, expression, field.removeprefix("dictionary_sink:"))
+                    elif field == "unused_namespace_sink":
+                        changed = not self._unused_namespace_sink_owned(view, expression)
+                    elif field.startswith("dictionary_class_sink:"):
+                        family = field.removeprefix("dictionary_class_sink:")
+                        _, _, _, canonical = self._resolver._constructor_dictionary_class_sinks[(family, id(expression))]
+                        changed = not self._dictionary_class_sink_owned(view, expression, family, canonical)
+                    else:
+                        changed = self._factory_result_changed(view, expression)
+                    if changed:
+                        self._constructor_namespace_result = (cache_key, True)
+                        owner_phase = f"constructor namespace owner {field} in {module.ref}:{expression.lineno} refused"
+                        self._constructor_namespace_refusal = (
+                            self._constructor_namespace_result[0],
+                            _source_slot_context((*refused_models, owner_phase)),
+                        )
+                        return True
+        finally:
+            self._checking_constructor_namespaces = False
+
+    def _uncalled_member_sink(
+        self, view: _View, expression: ast.expr, *, refused_models: list[str] | None = None,
+    ) -> bool:
+        """Discharge only a sink in a function with a complete empty census."""
+        staged: list[str] = []
+        calls = self.calls
+        if calls is None or view.module is None:
+            return False
+        function = calls.function_at(view.module, expression)
+        if function is None:
+            return False
+        census = calls.callers(view.module, function, allow_empty=True, confined_dictionary_data=True,
+                               unused_namespace_data=True)
+        if not census.limits and not census.sites:
+            return True
+        if not census.sites:
+            from agents_shipgate.inputs.builder_calls import CallLimit
+
+            try:
+                if calls.uncalled_source_slot(view.module, function, refused_models=staged):
+                    return True
+                recorded = (self._resolver._constructor_member_sinks.get(id(expression))
+                            if self._checking_constructor_namespaces and self._resolver is not None else None)
+                if (recorded is not None
+                        and recorded[0] is view.module and recorded[1] is expression):
+                    for home, data, family in tuple(self._resolver._constructor_dictionary_sinks.values()):
+                        if (calls._fresh_unbound_dictionary_edge(home, data) is None
+                                and calls._absent_field_dictionary_edge(home, data) is None):
+                            continue
+                        if self._fresh_dictionary_function_sink_owned(
+                            self._foreign(home), data, family,
+                            expected_module=view.module, expected_function=function,
+                        ):
+                            return True
+            except CallLimit as exc:
+                self._constructor_limit((str(exc),))
+        if refused_models is not None:
+            refused_models[:] = _source_slot_context((*refused_models, *staged))
+        return False
+
+    def _fresh_dictionary_function_sink_owned(
+        self, view: _View, expression: ast.expr, family: str, *,
+        expected_module: PythonModule | None = None,
+        expected_function: ast.FunctionDef | ast.AsyncFunctionDef | None = None,
+    ) -> bool:
+        calls = self.calls
+        if calls is None or view.module is None:
+            return False
+        with calls.fresh_unbound_dictionary_receipt(view.module, expression, family) as receipt:
+            if receipt is None:
+                return self._absent_field_dictionary_function_sink_owned(
+                    view, expression, family, expected_module=expected_module, expected_function=expected_function,
+                )
+            resolution = receipt.proof.resolve(view.module, expression)
+            if (not resolution.resolved or resolution.caveats or resolution.module is None
+                    or not isinstance(resolution.definition, ast.FunctionDef | ast.AsyncFunctionDef)):
+                return False
+            if expected_module is not None or expected_function is not None:
+                if resolution.module is not expected_module or resolution.definition is not expected_function:
+                    return False
+            census = receipt.proof._census(
+                resolution.module, resolution.definition, allow_empty=True,
+                confined_dictionary_data=True, unused_namespace_data=True,
+                confined_primitive_dictionary_values=receipt.values,
+            )
+            if census.sites or census.limits:
+                return False
+            receipt.reconfirm()
+            return True
+
+    def _absent_field_dictionary_function_sink_owned(
+        self, view: _View, expression: ast.expr, family: str, *,
+        expected_module: PythonModule | None = None,
+        expected_function: ast.FunctionDef | ast.AsyncFunctionDef | None = None,
+    ) -> bool:
+        calls = self.calls
+        if calls is None or view.module is None:
+            return False
+        with calls.absent_field_dictionary_receipt(view.module, expression, family) as receipt:
+            if receipt is None:
+                return False
+            if expected_module is not None or expected_function is not None:
+                if receipt.roles.home is not expected_module or receipt.roles.function is not expected_function:
+                    return False
+            census = receipt.census()
+            if census.sites or census.limits:
+                return False
+            receipt.reconfirm()
+            return True
+
+    def _dictionary_function_sink_owned(self, view: _View, expression: ast.expr, family: str) -> bool:
+        from agents_shipgate.inputs.builder_calls import CallLimit
+
+        calls = self.calls
+        if calls is None or view.module is None:
+            return False
+        try:
+            if not calls.confined_dictionary_value(view.module, expression):
+                return self._fresh_dictionary_function_sink_owned(view, expression, family)
+        except CallLimit as exc:
+            self._constructor_limit((str(exc),))
+            return False
+        resolution = calls.resolve(view.module, expression)
+        if (not resolution.resolved or resolution.caveats or resolution.module is None
+                or not isinstance(resolution.definition, ast.FunctionDef | ast.AsyncFunctionDef)):
+            return False
+        census = calls.callers(resolution.module, resolution.definition, allow_empty=True,
+                               confined_dictionary_data=True, unused_namespace_data=True)
+        return not census.sites and not census.limits
+
+    def _dictionary_class_sink_owned(
+        self, view: _View, expression: ast.expr, family: str, canonical: str,
+    ) -> bool:
+        from agents_shipgate.inputs.builder_calls import CallLimit
+
+        calls = self.calls
+        if calls is None or view.module is None or self._resolver is None:
+            return False
+        try:
+            if not calls.confined_dictionary_value(view.module, expression):
+                return False
+        except CallLimit as exc:
+            self._constructor_limit((str(exc),))
+            return False
+        # Identity only: the outer namespace/import/mutation census remains
+        # mandatory. Never ask this passive token to prove a receiving call.
+        outcome = self._resolver._constructor_reference(view.module, expression, calls.scopes(view.module))
+        return (canonical in _external_constructor_paths(family)
+                and outcome.get("external_constructor") == canonical)
+
+    def _unused_namespace_sink_owned(self, view: _View, expression: ast.expr) -> bool:
+        from agents_shipgate.inputs.builder_calls import CallLimit
+
+        if self.calls is None or view.module is None:
+            return False
+        try:
+            return self.calls.unused_namespace_value(view.module, expression)
+        except CallLimit as exc:
+            self._constructor_limit((str(exc),))
+            return False
+
     def _callee_leaves_alone(
-        self, view: _View, call: ast.Call, position: int | None, keyword: str | None
+        self, view: _View, call: ast.Call, position: int | None, keyword: str | None,
+        *, strict_container: bool = False,
     ) -> bool:
         """Whether the function ``call`` names never changes the argument it passes."""
 
@@ -1355,10 +1878,18 @@ class ListExpressions:
             return False
         defining = resolution.module
         assert defining is not None
-        key = (id(function), parameter, invocation.key)
+        key = (id(function), parameter, invocation.key,
+               strict_container, self._checking_constructor_namespaces)
         if key not in self._cache.callees:
             # A recursive forwarding cycle is not a read-only proof.
             self._cache.callees[key] = False
+            if strict_container:
+                try:
+                    if self._constructor_limit(calls.callers(defining, function).limits):
+                        return False
+                except CallLimit as exc:
+                    self._constructor_limit((str(exc),))
+                    return False
             foreign = self._foreign(defining)
             reads = self._call_reads(foreign)
 
@@ -1369,27 +1900,65 @@ class ListExpressions:
 
             previous, self._invocation = self._invocation, invocation
             try:
-                self._cache.callees[key] = parameter_left_alone(
-                    function,
-                    parameter,
-                    bindings_at(self._scopes(defining.tree), defining.bindings),
-                    safe_read if self._module_agent_reads is not None else None,
-                )
+                if strict_container:
+                    self._cache.callees[key] = all(
+                        isinstance(node.ctx, ast.Load) and self._container_read(foreign, node)
+                        for node in ast.walk(function)
+                        if isinstance(node, ast.Name) and node.id == parameter
+                    ) and not any(
+                        isinstance(node, ast.Global | ast.Nonlocal) and parameter in node.names
+                        for node in ast.walk(function)
+                    )
+                else:
+                    self._cache.callees[key] = parameter_left_alone(
+                        function,
+                        parameter,
+                        bindings_at(self._scopes(defining.tree), defining.bindings),
+                        safe_read if self._module_agent_reads is not None else None,
+                    )
             finally:
                 self._invocation = previous
         return self._cache.callees[key]
 
     def _agent_result_changed(
-        self, view: _View, call: ast.Call, keyword: str, *, borrowed: bool = False
+        self, view: _View, call: ast.Call, keyword: str, *, borrowed: bool = False,
+        strict_container: bool = False,
+    ) -> bool:
+        key = (id(view.tree), id(call), keyword, borrowed, strict_container)
+        if key in self._checking_handle_owners or len(self._checking_handle_owners) >= 128:
+            if self._checking_constructor_namespaces:
+                self.constructor_namespace_issue = "recursive constructor-handle ownership or more than 128 retained edges"
+            return True
+        if self._checking_constructor_namespaces:
+            if key in self._constructor_owner_results:
+                return self._constructor_owner_results[key]
+            self._constructor_owner_work += 1
+            if self._constructor_owner_work > 4096:
+                self.constructor_namespace_issue = "the constructor ownership traversal exceeds 4096 edges"
+                return True
+        self._checking_handle_owners.add(key)
+        try:
+            result = self._agent_result_changed_inner(view, call, keyword, borrowed=borrowed,
+                                                     strict_container=strict_container)
+            if self._checking_constructor_namespaces:
+                self._constructor_owner_results[key] = result
+            return result
+        finally:
+            self._checking_handle_owners.remove(key)
+
+    def _agent_result_changed_inner(
+        self, view: _View, call: ast.Call, keyword: str, *, borrowed: bool = False,
+        strict_container: bool = False,
     ) -> bool:
         """Follow returned builder handles before proving a borrowed list read-only."""
-        if reflective_access(view.tree) is not None:
+        if self._reflection(view) is not None:
             return True
         if (
             view.module is not None
             and self.calls is not None
             and self.calls.exported_elsewhere(view.module, call)
         ):
+            self._constructor_limit((self.calls.export_limit(call),))
             return True
         parent = view.scopes.parents.get(call)
         if isinstance(parent, ast.Return):
@@ -1402,17 +1971,24 @@ class ListExpressions:
                 return True
             self._checking_returns.add(key)
             try:
-                census = calls.callers(view.module, function)
-                return bool(census.limits) or any(
+                census = calls.callers(view.module, function, allow_empty=self._checking_constructor_namespaces)
+                return self._constructor_limit(census.limits) or any(
                     self._agent_result_changed(
-                        self._foreign(site.module), site.call, keyword, borrowed=borrowed
+                        self._foreign(site.module), site.call, keyword, borrowed=borrowed,
+                        strict_container=strict_container,
                     )
                     for site in census.sites
                 )
             finally:
                 self._checking_returns.remove(key)
         if not isinstance(parent, ast.Assign | ast.AnnAssign) or parent.value is not call:
-            return not isinstance(parent, ast.Expr)
+            return not isinstance(parent, ast.Expr) and not (
+                strict_container and (
+                    self._field_data_read(view, call) if keyword == "field_data"
+                    else self._toolset_data_read(view, call) if keyword == "toolset_data"
+                    else self._container_read(view, call)
+                )
+            )
         targets = parent.targets if isinstance(parent, ast.Assign) else [parent.target]
         if len(targets) != 1 or not isinstance(targets[0], ast.Name):
             return True
@@ -1427,7 +2003,15 @@ class ListExpressions:
                 and lookup(node.id, node) == owner
             ):
                 continue
+            if (self._checking_constructor_namespaces and self._resolver is not None
+                    and id(node) in self._resolver._constructor_wrapped_operands
+                    and keyword in {"func", "wrapper_class"}):
+                continue  # This exact operand loads the function before wrapping it.
             use = view.scopes.parents.get(node)
+            if (keyword in {"__class__", *CAPABILITY_FIELDS} and strict_container
+                    and self._checking_constructor_namespaces
+                    and self._agent_copy_receiver_read(view, node, keyword)):
+                continue
             if isinstance(use, ast.Return):
                 # Follow ``agent = Agent(...); return agent`` with its actual
                 # source scope, never a synthetic AST lacking lexical parents.
@@ -1440,30 +2024,49 @@ class ListExpressions:
                     return True
                 self._checking_returns.add(key)
                 try:
-                    census = calls.callers(view.module, function)
-                    if census.limits or any(
+                    census = calls.callers(view.module, function, allow_empty=self._checking_constructor_namespaces)
+                    if self._constructor_limit(census.limits) or any(
                         self._agent_result_changed(
-                            self._foreign(site.module), site.call, keyword, borrowed=borrowed
+                            self._foreign(site.module), site.call, keyword, borrowed=borrowed,
+                            strict_container=strict_container,
                         )
                         for site in census.sites
                     ):
                         return True
                 finally:
                     self._checking_returns.remove(key)
+            elif keyword == "field_data":
+                if not self._field_data_read(view, node):
+                    return True
+            elif keyword == "toolset_data":
+                if not self._toolset_data_read(view, node):
+                    return True
             elif isinstance(use, ast.Attribute):
                 if use.attr == "__dict__":
                     return True
+                if keyword == "__class__" and use.attr in CAPABILITY_FIELDS:
+                    # Membership changes do not change the instance's class.
+                    # Retained class-carrying members have their own ownership
+                    # edges; their namespace use must remain proved separately.
+                    continue
                 if use.attr == keyword:
                     if isinstance(view.scopes.parents.get(use), ast.AugAssign):
                         return True
+                    if (strict_container and self._checking_constructor_namespaces
+                            and isinstance(use.ctx, ast.Store | ast.Del)):
+                        if isinstance(use.ctx, ast.Store) and not self._member_list_shape(view, use):
+                            return True
+                        continue  # Dropping members does not export their identity.
                     if not borrowed and not isinstance(use.ctx, ast.Load):
                         return True
-                    if isinstance(use.ctx, ast.Load) and not read_only_use(
-                        use, view.scopes.parents, self._call_reads(view)
+                    if isinstance(use.ctx, ast.Load) and not (
+                        self._container_read(view, use) if strict_container
+                        else read_only_use(use, view.scopes.parents, self._call_reads(view))
                     ):
                         return True
-                elif isinstance(use.ctx, ast.Load) and not read_only_use(
-                    node, view.scopes.parents, self._call_reads(view)
+                elif isinstance(use.ctx, ast.Load) and not (
+                    self._container_read(view, use) if strict_container
+                    else read_only_use(node, view.scopes.parents, self._call_reads(view))
                 ):
                     return True
             elif isinstance(use, ast.Call) and reference_spelling(use.func) in {
@@ -1474,23 +2077,155 @@ class ListExpressions:
             }:
                 return True
             elif isinstance(use, ast.Assign | ast.AnnAssign | ast.NamedExpr):
+                if (strict_container and self._checking_constructor_namespaces
+                        and keyword in {"__class__", *CAPABILITY_FIELDS}
+                        and self._direct_alias_stores_owned(view, node)):
+                    continue
                 # An alias can subsequently reach the same mutable list.
                 return True
-            elif not read_only_use(node, view.scopes.parents, self._call_reads(view)):
+            elif not (self._container_read(view, node) if strict_container
+                      else read_only_use(node, view.scopes.parents, self._call_reads(view))):
                 return True
         return False
+
+    def _direct_alias_stores_owned(self, view: _View, node: ast.Name) -> bool:
+        """An exact direct-instance alias may only replace owned list fields."""
+        calls = self.calls
+        constructor = _direct_alias_constructor(view, node)
+        if constructor is None or calls is None or view.module is None:
+            return False
+        lookup = view.lookup or bindings_at(view.scopes, view.bindings)
+
+        def scope(at: ast.AST) -> ast.AST:
+            current = view.scopes.parents.get(evaluation_site(view.scopes, at))
+            while current is not None:
+                if isinstance(current, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef | ast.Lambda):
+                    return current
+                current = view.scopes.parents.get(current)
+            return view.tree
+
+        origin_scope = scope(node)
+        if scope(constructor) is not origin_scope:
+            return False  # A captured instance does not receive this local-store role.
+        pending = [node]
+        checked: set[int] = set()
+        stores = 0
+        work = 0
+        while pending:
+            source = pending.pop()
+            parent = view.scopes.parents.get(source)
+            if not isinstance(parent, ast.Assign | ast.AnnAssign) or parent.value is not source:
+                return False
+            targets = parent.targets if isinstance(parent, ast.Assign) else [parent.target]
+            if len(targets) != 1 or not isinstance(targets[0], ast.Name):
+                return False
+            target = targets[0]
+            if id(parent) in checked or len(checked) >= _NAMESPACE_ALIAS_LIMIT:
+                return False
+            checked.add(id(parent))
+            bindings = lookup(target.id, target)
+            if (len(bindings) != 1 or bindings[0][1] is not parent
+                    or calls.exported_elsewhere(view.module, source)):
+                return False
+            for use in ast.walk(view.tree):
+                work += 1
+                if work > MAX_VISITS:
+                    return False
+                if (not isinstance(use, ast.Name) or not isinstance(use.ctx, ast.Load)
+                        or use.id != target.id or lookup(use.id, use) != bindings):
+                    continue
+                if scope(use) is not origin_scope or _direct_alias_constructor(view, use) is not constructor:
+                    return False
+                destination = view.scopes.parents.get(use)
+                if isinstance(destination, ast.Assign | ast.AnnAssign) and destination.value is use:
+                    pending.append(use)
+                elif (isinstance(destination, ast.Attribute) and destination.value is use
+                      and destination.attr in CAPABILITY_FIELDS and isinstance(destination.ctx, ast.Store)
+                      and self._member_list_shape(view, destination)):
+                    stores += 1
+                else:
+                    return False
+        return stores > 0
+
+    def _agent_copy_receiver_read(self, view: _View, node: ast.Name, keyword: str) -> bool:
+        """Retain an exact SDK copy receiver only through its owned result."""
+        parent = view.scopes.parents.get(node)
+        if isinstance(parent, ast.Attribute) and parent.value is node and parent.attr == "clone":
+            call = view.scopes.parents.get(parent)
+            if not isinstance(call, ast.Call) or call.func is not parent:
+                return False
+        elif (isinstance(parent, ast.Call) and parent.args == [node]
+              and _namespace_call_reference(view, parent) in {"dataclasses.replace", "copy.replace"}):
+            call = parent
+        else:
+            return False
+        # The existing consumer proof checks the direct Agent receiver, its
+        # actual imports and providers, and class/protocol mutations. A copy
+        # must also retain its class safely through every use of its result.
+        return (
+            self._reads_agent(view, call, "tools")
+            and not self._agent_result_changed(view, call, "__class__", strict_container=True)
+            and (keyword == "__class__" or not self._agent_result_changed(
+                view, call, keyword, strict_container=True,
+            ))
+        )
+
+    @staticmethod
+    def _field_data_read(view: _View, node: ast.expr) -> bool:
+        """FieldInfo is data carrying a shared class, never a builtin container."""
+        parent = view.scopes.parents.get(node)
+        return isinstance(parent, ast.Expr) or (
+            isinstance(parent, ast.Compare)
+            and all(isinstance(operator, ast.Is | ast.IsNot) for operator in parent.ops)
+        )
+
+    def _toolset_data_read(self, view: _View, node: ast.expr) -> bool:
+        """A toolset instance only reaches the existing Agent.tools destination.
+
+        Literal list/tuple packaging does not make this object a builtin
+        container: methods, indexing, aliases and other consumers stay unread.
+        Returned factories are followed by the surrounding handle census.
+        """
+        parent = view.scopes.parents.get(node)
+        if isinstance(parent, ast.Expr) or (
+            isinstance(parent, ast.Compare) and all(isinstance(operator, ast.Is | ast.IsNot) for operator in parent.ops)
+        ):
+            return True
+        current: ast.AST = node
+        while isinstance(view.scopes.parents.get(current), ast.List | ast.Tuple):
+            current = view.scopes.parents[current]
+        keyword = view.scopes.parents.get(current)
+        call = view.scopes.parents.get(keyword)
+        return bool(
+            isinstance(keyword, ast.keyword) and keyword.arg == "tools" and isinstance(call, ast.Call)
+            and self._reads_agent(view, call, keyword.arg)
+            and not self._agent_result_changed(view, call, keyword.arg, borrowed=True, strict_container=True)
+        )
 
     # -- resolution --------------------------------------------------------
 
     def constructor_changed(self, call: ast.Call, invocation: Invocation | None) -> bool:
         """A bound construction must retain its constructor even for literals."""
+        self._constructor_change_context = None
         if invocation is None:
             return False
         previous, self._invocation = self._invocation, invocation
         try:
-            return not self._reads_agent(self.entry, call, "tools")
+            staged: list[str] = []
+            changed = not self._reads_agent(self.entry, call, "tools", refused_context=staged)
+            self._constructor_change_context = (
+                (call, invocation.key, _source_slot_context(staged)) if changed else None
+            )
+            return changed
+        except BaseException:
+            self._constructor_change_context = None
+            raise
         finally:
             self._invocation = previous
+
+    def constructor_refusal_context(self, call: ast.Call, invocation: Invocation | None) -> tuple[str, ...]:
+        row = self._constructor_change_context
+        return row[2] if row is not None and row[0] is call and invocation is not None and row[1] == invocation.key else ()
 
     def construction_changed(self, invocation: Invocation | None, field: str) -> bool:
         """Guard an entire construction, including fields omitted by its source."""
@@ -1564,6 +2299,11 @@ class ListExpressions:
             return self._stop(view, node, "the expression is larger than the reader follows")
         if depth > MAX_DEPTH:
             return self._stop(view, node, "the expression nests further than the reader follows")
+        if self._projection is not None:
+            if isinstance(node, ast.Dict):
+                return self._dictionary(node, view, depth, seen)
+            if not isinstance(node, ast.Name | ast.Attribute | ast.Call):
+                return self._stop(view, node, "the projected value is not a proven literal dictionary")
         if isinstance(node, ast.List | ast.Tuple):
             result = ListResolution()
             for item in node.elts:
@@ -1586,6 +2326,10 @@ class ListExpressions:
             return self._filtered_comprehension(node, view, depth, seen)
         if isinstance(node, ast.Call):
             return self._call(node, view, depth, seen)
+        if isinstance(node, ast.Subscript):
+            if not isinstance(node.slice, ast.Constant) or not isinstance(node.slice.value, str):
+                return self._stop(view, node, "a dictionary projection needs one literal string key")
+            return self._project(node.value, _Projection(node.slice.value, view, self._invocation), view, depth, seen)
         if isinstance(node, ast.Name):
             return self._name(node, view, depth, seen)
         if isinstance(node, ast.Attribute):
@@ -1645,20 +2389,905 @@ class ListExpressions:
 
     def _call(self, node: ast.Call, view: _View, depth: int, seen: frozenset) -> ListResolution:
         func = node.func
+        if self._projection is None and isinstance(func, ast.Attribute) and func.attr == "get":
+            if (
+                len(node.args) not in {1, 2} or node.keywords
+                or not isinstance(node.args[0], ast.Constant)
+                or not isinstance(node.args[0].value, str)
+            ):
+                return self._stop(view, node, "a dictionary get needs one literal string key and an optional positional default")
+            if len(node.args) == 2 and not self._nonexecuting_default(view, node.args[1]):
+                return self._stop(view, node, "a dictionary get default is evaluated eagerly and its executable or unresolved expression is not read")
+            return self._project(
+                func.value,
+                _Projection(node.args[0].value, view, self._invocation, required=False,
+                            default=node.args[1] if len(node.args) == 2 else None),
+                view, depth, seen,
+            )
         builtin = (
             func.id
             if isinstance(func, ast.Name) and not (view.lookup or bindings_at(view.scopes, view.bindings))(func.id, func)
             else None
         )
-        if builtin in _SAME_MEMBERS and len(node.args) == 1 and not node.keywords:
+        if self._projection is None and builtin in _SAME_MEMBERS and len(node.args) == 1 and not node.keywords:
             return self._resolve(node.args[0], view, depth + 1, seen)
-        if builtin == "filter" and len(node.args) == 2 and not node.keywords:
+        if self._projection is None and builtin == "filter" and len(node.args) == 2 and not node.keywords:
             predicate, iterable = node.args
             part = self._resolve(iterable, view, depth + 1, seen)
             if isinstance(predicate, ast.Constant) and predicate.value is None:
                 return part
             return part.under(f"the filter `{_condition(predicate)}` keeps it")
-        return self._stop(view, node, f"a call to `{_source(func)}`, whose result is not read")
+        return self._factory(node, view, depth, seen)
+
+    def _nonexecuting_default(self, view: _View, node: ast.expr) -> bool:
+        if isinstance(node, ast.Constant):
+            return node.value is None
+        if isinstance(node, ast.List | ast.Tuple):
+            return all(self._nonexecuting_default(view, item) for item in node.elts)
+        if isinstance(node, ast.Name | ast.Attribute) and view.module is not None and self.calls is not None:
+            resolution = self.calls.resolve(view.module, node)
+            return resolution.resolved and not resolution.caveats
+        return False
+
+    def _project(
+        self, node: ast.expr, projection: _Projection, view: _View, depth: int, seen: frozenset
+    ) -> ListResolution:
+        previous, self._projection = self._projection, projection
+        try:
+            return self._resolve(node, view, depth + 1, seen)
+        finally:
+            self._projection = previous
+
+    def _dictionary(self, node: ast.Dict, view: _View, depth: int, seen: frozenset) -> ListResolution:
+        projection = self._projection
+        assert projection is not None
+        keys: dict[str, ast.expr] = {}
+        for key, value in zip(node.keys, node.values, strict=True):
+            if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+                return self._stop(view, node, "dictionary spreads or nonliteral string keys may replace the projected entry")
+            if key.value in keys:
+                return self._stop(view, node, f"dictionary key {key.value!r} is defined more than once")
+            keys[key.value] = value
+        selected = keys.get(projection.key)
+        if selected is None and projection.required:
+            return self._stop(view, node, f"dictionary key {projection.key!r} is absent; subscription does not yield an empty list")
+        previous, self._projection = self._projection, None
+        invocation = self._invocation
+        try:
+            if selected is not None:
+                return self._resolve(selected, view, depth + 1, seen).through(
+                    f"dictionary key {projection.key!r} ({self._where(view, node)})"
+                )
+            if projection.default is None:
+                return ListResolution()
+            self._invocation = projection.invocation
+            result = self._resolve(projection.default, projection.view, depth + 1, seen)
+            projection.caller_defaults.update((id(member.expr), id(member.module)) for member in result.members)
+            return result
+        finally:
+            self._projection, self._invocation = previous, invocation
+
+    def _factory(self, node: ast.Call, view: _View, depth: int, seen: frozenset) -> ListResolution:
+        calls = self.calls
+        if calls is None or view.module is None:
+            return self._stop(view, node, f"a call to `{_source(node.func)}`, whose result is not read")
+        from agents_shipgate.inputs.builder_calls import CallLimit, CallSite, single_return
+
+        resolution = calls.resolve(view.module, node.func)
+        if not resolution.resolved:
+            return self._stop(view, node, f"a call to `{_source(node.func)}`, whose result is not read")
+        if resolution.caveats:
+            detail = "; ".join(resolution.caveats)
+            return self._stop(view, node, f"a call to `{_source(node.func)}`, whose result is not read: {detail}")
+        home, function = resolution.module, resolution.definition
+        assert home is not None and function is not None
+        returned = single_return(function)
+        if returned is None:
+            return self._stop(view, node, "the factory has no single final return expression")
+        key = ("factory", id(function))
+        if key in seen:
+            return self._stop(view, node, "the returned-list factory calls itself")
+        try:
+            census = calls.callers(home, function)
+            if census.limits:
+                return self._stop(view, node, "the factory callable is not established: " + "; ".join(census.limits))
+            invocation = calls.invoke(home, function, CallSite(view.module, node), self._invocation)
+        except CallLimit as exc:
+            return self._stop(view, node, f"the returned-list factory call is not established: {exc}")
+        if not self._inert_factory(function) or any(
+            not (established := calls.resolve(home, item)).resolved or established.caveats
+            for item in ast.walk(returned) if isinstance(item, ast.Name)
+        ):
+            return self._stop(view, node, "the factory needs an inert prelude and a literal list, tuple or dictionary return; executable or unresolved expressions are not read by this increment")
+        # Another invocation can hand on the same module callables (and their
+        # globals) before this call. A fresh container at the selected site
+        # cannot establish ownership while any other result escapes.
+        if any(self._factory_result_changed(self._foreign(site.module), site.call) for site in census.sites):
+            return self._stop(view, node, "the returned factory container or a projected member may be changed or handed on")
+        previous, self._invocation = self._invocation, invocation
+        try:
+            result = self._resolve(returned, self._foreign(home), depth + 1, seen | {key})
+        finally:
+            self._invocation = previous
+        changed = self._factory_member_change(
+            self._foreign(home), function, result,
+            caller_defaults=self._projection.caller_defaults if self._projection else frozenset(),
+        )
+        if changed is not None:
+            return self._stop(view, node, changed)
+        for condition in invocation.conditions:
+            result = result.under(condition)
+        return result.through(f"{function.name} returned at {self._where(view, node)}")
+
+    @staticmethod
+    def _inert_factory(function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+        """Limit outer statements and eager returned values to supported syntax."""
+        if not all(
+            isinstance(statement, ast.Import | ast.ImportFrom | ast.Pass)
+            or (isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Constant) and isinstance(statement.value.value, str))
+            for statement in function.body[:-1]
+        ):
+            return False
+
+        def literal(node: ast.expr) -> bool:
+            if isinstance(node, ast.List | ast.Tuple):
+                return all(isinstance(item, ast.Name) for item in node.elts)
+            if isinstance(node, ast.Dict):
+                return all(
+                    isinstance(key, ast.Constant) and isinstance(key.value, str)
+                    and (isinstance(value, ast.List | ast.Tuple) and literal(value) or isinstance(value, ast.Constant) and value.value is None)
+                    for key, value in zip(node.keys, node.values, strict=True)
+                )
+            return False
+
+        returned = function.body[-1]
+        return isinstance(returned, ast.Return) and returned.value is not None and literal(returned.value)
+
+    def _constructor_limit(self, limits: tuple[str | None, ...]) -> bool:
+        reasons = [reason for reason in limits if reason]
+        if reasons and self._checking_constructor_namespaces:
+            self.constructor_namespace_issue = self.constructor_namespace_issue or "; ".join(reasons)
+        return bool(reasons)
+
+    def _factory_result_changed(self, view: _View, call: ast.expr, *, dictionary: bool | None = None) -> bool:
+        if not self._checking_constructor_namespaces:
+            return self._factory_result_changed_inner(view, call, dictionary=dictionary)
+        key = (id(view.tree), id(call), dictionary)
+        if key in self._checking_container_owners or len(self._checking_container_owners) >= 128:
+            self.constructor_namespace_issue = "recursive constructor-container ownership or more than 128 retained edges"
+            return True
+        if key in self._constructor_container_results:
+            return self._constructor_container_results[key]
+        self._constructor_owner_work += 1
+        if self._constructor_owner_work > 4096:
+            self.constructor_namespace_issue = "the constructor ownership traversal exceeds 4096 edges"
+            return True
+        self._checking_container_owners.add(key)
+        try:
+            result = self._factory_result_changed_inner(view, call, dictionary=dictionary)
+            self._constructor_container_results[key] = result
+            return result
+        finally:
+            self._checking_container_owners.remove(key)
+
+    def _factory_result_changed_inner(self, view: _View, call: ast.expr, *, dictionary: bool | None = None) -> bool:
+        if self._reflection(view) is not None:
+            return True
+        if view.module is not None and self.calls is not None and self.calls.exported_elsewhere(view.module, call):
+            self._constructor_limit((self.calls.export_limit(call),))
+            if not (self._checking_constructor_namespaces and isinstance(call, ast.List | ast.Tuple)
+                    and self._imported_members_owned(view, call)):
+                return True
+        parent = view.scopes.parents.get(call)
+        if dictionary is None:
+            dictionary = isinstance(call, ast.Dict) or self._projection is not None
+        if isinstance(parent, ast.Return):
+            function = _enclosing_function(view.scopes, parent)
+            if function is None or view.module is None or self.calls is None:
+                return True
+            key = (id(function), "namespace_dictionary" if dictionary else "namespace_result")
+            if key in self._checking_returns or len(self._checking_returns) >= 4:
+                return True
+            self._checking_returns.add(key)
+            try:
+                census = self.calls.callers(view.module, function, allow_empty=self._checking_constructor_namespaces)
+                return self._constructor_limit(census.limits) or any(
+                    self._factory_result_changed(self._foreign(site.module), site.call, dictionary=dictionary)
+                    for site in census.sites
+                )
+            finally:
+                self._checking_returns.remove(key)
+        if not isinstance(parent, ast.Assign | ast.AnnAssign) or parent.value is not call:
+            return not self._container_read(view, call, dictionary=dictionary)
+        targets = parent.targets if isinstance(parent, ast.Assign) else [parent.target]
+        if (self._checking_constructor_namespaces and len(targets) == 1
+                and isinstance(targets[0], ast.Attribute) and targets[0].attr in CAPABILITY_FIELDS):
+            return not self._container_read(view, call, dictionary=dictionary)
+        if len(targets) != 1 or not isinstance(targets[0], ast.Name):
+            return True
+        return self._container_binding_changed(view, targets[0], dictionary=dictionary)
+
+    def _container_binding_changed(self, view: _View, target: ast.Name, *, dictionary: bool = True) -> bool:
+        lookup = view.lookup or bindings_at(view.scopes, view.bindings)
+        owner = lookup(target.id, target)
+        return any(
+            not self._container_read(view, node, dictionary=dictionary)
+            for node in ast.walk(view.tree)
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+            and node.id == target.id and lookup(node.id, node) == owner
+        )
+
+    def _container_read(self, view: _View, node: ast.expr, *, dictionary: bool = False) -> bool:
+        """Read a retained container through its projection, never stop at indexing."""
+        parent = view.scopes.parents.get(node)
+        if isinstance(parent, ast.arguments):
+            function = view.scopes.parents.get(parent)
+            if (view.module is None or self.calls is None or not isinstance(function, ast.FunctionDef)
+                    or function.decorator_list
+                    or any(isinstance(item, ast.Yield | ast.YieldFrom | ast.GeneratorExp) for item in ast.walk(function))):
+                return False
+            positional = [*parent.posonlyargs, *parent.args]
+            defaults = list(zip(positional[len(positional) - len(parent.defaults):], parent.defaults, strict=True))
+            defaults += list(zip(parent.kwonlyargs, parent.kw_defaults, strict=True))
+            parameter = next((argument for argument, value in defaults if value is node), None)
+            if parameter is None:
+                return False
+            key = (id(function), "namespace_default:" + parameter.arg)
+            if key in self._checking_returns or len(self._checking_returns) >= 4:
+                return False
+            from agents_shipgate.inputs.builder_calls import CallLimit
+            self._checking_returns.add(key)
+            try:
+                census = self.calls.callers(
+                    view.module, function, allow_empty=self._checking_constructor_namespaces,
+                )
+                if self._constructor_limit(census.limits):
+                    return False
+                for site in census.sites:
+                    self.calls.invoke(view.module, function, site)
+                uses = [
+                    (item, view.scopes.enclosing_bindings(evaluation_site(view.scopes, item), item.id))
+                    for item in ast.walk(function) if isinstance(item, ast.Name) and item.id == parameter.arg
+                ]
+                return not any(
+                    isinstance(item, ast.Global | ast.Nonlocal) and parameter.arg in item.names
+                    for item in ast.walk(function)
+                ) and all(
+                    bindings == [parameter] and isinstance(item.ctx, ast.Load)
+                    and self._container_read(view, item, dictionary=dictionary)
+                    for item, bindings in uses if parameter in bindings
+                )
+            except CallLimit as exc:
+                self._constructor_limit((str(exc),))
+                return False
+            finally:
+                self._checking_returns.remove(key)
+        if isinstance(parent, ast.Return):
+            return not self._factory_result_changed(view, node, dictionary=dictionary)
+        if isinstance(parent, ast.Dict) and node in parent.values:
+            return all(isinstance(key, ast.Constant) and isinstance(key.value, str) for key in parent.keys) and self._container_read(view, parent, dictionary=True)
+        if isinstance(parent, ast.List | ast.Tuple) and node in parent.elts:
+            return self._container_read(view, parent)
+        known_copy = (isinstance(node, ast.Call) and not node.keywords and len(node.args) == 1
+                      and reference_spelling(node.func) in {"list", "tuple"}
+                      and leaves_arguments_alone(node, view.lookup or bindings_at(view.scopes, view.bindings)))
+        known_copy = known_copy or (
+            not dictionary and isinstance(node, ast.Call) and not node.args and not node.keywords
+            and isinstance(node.func, ast.Attribute) and node.func.attr == "copy"
+            and self._member_list_shape(view, node.func.value, tuple_ok=True)
+        )
+        if ((isinstance(node, ast.List | ast.Tuple | ast.Dict | ast.BoolOp | ast.IfExp | ast.BinOp) or known_copy)
+                and isinstance(parent, ast.Assign | ast.AnnAssign) and parent.value is node):
+            targets = parent.targets if isinstance(parent, ast.Assign) else [parent.target]
+            if (self._checking_constructor_namespaces and len(targets) == 1
+                    and isinstance(targets[0], ast.Attribute) and targets[0].attr in CAPABILITY_FIELDS):
+                # Prove the sink after the current handle walk has completed;
+                # recursively asking the same handle now would reject even an
+                # owned replacement. The outer census validates this exact edge.
+                if self._resolver is None or view.module is None:
+                    return False
+                self._resolver._constructor_member_sinks[id(targets[0])] = (view.module, targets[0])
+                return self._member_list_shape(view, targets[0])
+            return (len(targets) == 1 and isinstance(targets[0], ast.Name)
+                    and not self._container_binding_changed(view, targets[0], dictionary=dictionary))
+        if isinstance(parent, ast.BoolOp) or (
+            isinstance(parent, ast.IfExp) and parent.test is not node
+        ):
+            return self._container_read(view, parent, dictionary=dictionary)
+        if isinstance(parent, ast.Starred) and parent.value is node:
+            outer = view.scopes.parents.get(parent)
+            if (isinstance(outer, ast.Call) and outer.args == [parent] and not outer.keywords
+                    and reference_spelling(outer.func) == "print"
+                    and leaves_arguments_alone(outer, view.lookup or bindings_at(view.scopes, view.bindings))):
+                return True
+            return isinstance(outer, ast.List | ast.Tuple) and self._container_read(view, outer)
+        if isinstance(parent, ast.BinOp):
+            other = parent.right if parent.left is node else parent.left
+            return not dictionary and isinstance(parent.op, ast.Add) and self._list_operand(view, other, subject=node) and self._container_read(view, parent)
+        if isinstance(parent, ast.Compare):
+            return all(isinstance(operator, ast.Is | ast.IsNot) for operator in parent.ops)
+        if isinstance(parent, ast.Subscript) and parent.value is node:
+            return (
+                isinstance(parent.ctx, ast.Load) and isinstance(parent.slice, ast.Constant)
+                and dictionary and isinstance(parent.slice.value, str) and self._container_read(view, parent)
+            )
+        if isinstance(parent, ast.Attribute) and parent.value is node and parent.attr == "get":
+            call = view.scopes.parents.get(parent)
+            return (
+                isinstance(call, ast.Call) and call.func is parent and len(call.args) in {1, 2}
+                and not call.keywords and isinstance(call.args[0], ast.Constant)
+                and dictionary and isinstance(call.args[0].value, str) and self._container_read(view, call)
+            )
+        if dictionary and isinstance(parent, ast.Attribute | ast.BinOp):
+            # dict.copy/values/items and union retain the mutable values. A
+            # fresh list copy or list concatenation has separate membership.
+            return False
+        if isinstance(parent, ast.Attribute) and parent.value is node:
+            call = view.scopes.parents.get(parent)
+            if isinstance(call, ast.Call) and call.func is parent:
+                if parent.attr == "copy" and not call.args and not call.keywords:
+                    return self._container_read(view, call)
+                if self._checking_constructor_namespaces and self._member_mutation(view, node, call):
+                    return True
+                return parent.attr in {"count", "index"} and all(
+                    self._nonexecuting_default(view, argument) for argument in call.args
+                ) and not call.keywords
+            return False
+        if (isinstance(parent, ast.Call) and isinstance(parent.func, ast.Attribute)
+                and parent.func.attr == "get" and len(parent.args) == 2 and not parent.keywords
+                and parent.args[1] is node and isinstance(parent.args[0], ast.Constant)
+                and isinstance(parent.args[0].value, str) and self._nonexecuting_default(view, node)):
+            shape = self._shape_value(view, parent.func.value, 0)
+            if shape is not None and isinstance(shape[0], ast.Dict):
+                keys = [key.value for key in shape[0].keys if isinstance(key, ast.Constant) and isinstance(key.value, str)]
+                if len(keys) == len(shape[0].keys) and len(set(keys)) == len(keys):
+                    return self._container_read(view, parent)
+        call, position, keyword = None, None, None
+        if isinstance(parent, ast.keyword):
+            call, keyword = view.scopes.parents.get(parent), parent.arg
+        elif isinstance(parent, ast.Call):
+            call = parent
+            position = next((i for i, argument in enumerate(call.args) if argument is node), None)
+        if isinstance(call, ast.Call):
+            if (self._checking_constructor_namespaces and isinstance(call.func, ast.Attribute)
+                    and node in call.args and call.func.attr in {"append", "insert", "extend"}
+                    and self._member_mutation(view, call.func.value, call)):
+                if self._resolver is None or view.module is None:
+                    return False
+                self._resolver._constructor_member_sinks[id(call.func.value)] = (view.module, call.func.value)
+                return True
+            lookup = view.lookup or bindings_at(view.scopes, view.bindings)
+            if leaves_arguments_alone(call, lookup):
+                name = reference_spelling(call.func)
+                if name in {"list", "tuple"} and len(call.args) == 1 and not call.keywords:
+                    return dictionary or self._container_read(view, call)
+                return name in {"len", "repr", "str", "bool", "id", "hash", "type", "print"} and call.args == [node] and not call.keywords
+            if dictionary:
+                # A helper's old list-use proof stops at subscription and
+                # cannot show it leaves the dictionary's mutable values alone.
+                return False
+            if self._reads_agent(view, call, keyword):
+                return not self._agent_result_changed(view, call, str(keyword), borrowed=True, strict_container=True)
+            return self._callee_leaves_alone(view, call, position, keyword, strict_container=True)
+        # Iteration may retain the mutable projected list, and an alias may
+        # subsequently change it. Neither is a read-only ownership proof.
+        if isinstance(parent, ast.For | ast.AsyncFor | ast.comprehension):
+            return False
+        return read_only_use(node, view.scopes.parents, self._call_reads(view))
+
+    def _member_mutation(self, view: _View, receiver: ast.expr, call: ast.Call) -> bool:
+        """Membership edits may preserve contained objects, only on builtin lists."""
+        if (not isinstance(view.scopes.parents.get(call), ast.Expr) or call.keywords
+                or any(isinstance(argument, ast.Starred) for argument in call.args)
+                or not isinstance(call.func, ast.Attribute)):
+            return False
+        method = call.func.attr
+        signature = (
+            method == "append" and len(call.args) == 1
+            or method == "insert" and len(call.args) == 2
+            and isinstance(call.args[0], ast.Constant) and type(call.args[0].value) is int
+            or method in {"clear", "reverse"} and not call.args
+            or method == "extend" and len(call.args) == 1
+            and self._member_list_shape(view, call.args[0], tuple_ok=True)
+        )
+        return bool(signature) and self._member_list_shape(view, receiver)
+
+    def _member_list_shape(
+        self, view: _View, node: ast.expr, invocation: Invocation | None = None,
+        *, tuple_ok: bool = False, depth: int = 0, seen: frozenset[int] = frozenset(),
+    ) -> bool:
+        """Prove receiver type and replacement history without granting membership."""
+        if depth > MAX_DEPTH or id(node) in seen:
+            return False
+        self._constructor_owner_work += 1
+        if self._constructor_owner_work > 4096:
+            self.constructor_namespace_issue = "the constructor ownership traversal exceeds 4096 edges"
+            return False
+        seen = seen | {id(node)}
+
+        def shape(other: ast.expr, source: _View = view, context: Invocation | None = invocation) -> bool:
+            return self._member_list_shape(source, other, context, tuple_ok=tuple_ok, depth=depth + 1, seen=seen)
+
+        if isinstance(node, ast.List):
+            return True
+        if isinstance(node, ast.Tuple):
+            return tuple_ok
+        if isinstance(node, ast.BoolOp):
+            return all(shape(value) for value in node.values)
+        if isinstance(node, ast.IfExp):
+            return shape(node.body) and shape(node.orelse)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            return shape(node.left) and shape(node.right)
+        lookup = view.lookup or bindings_at(view.scopes, view.bindings)
+        if isinstance(node, ast.Call) and leaves_arguments_alone(node, lookup):
+            return (reference_spelling(node.func) == "list" and not node.keywords
+                    and len(node.args) <= 1 and (not node.args or self._member_list_shape(
+                        view, node.args[0], invocation, tuple_ok=True, depth=depth + 1, seen=seen)))
+        if isinstance(node, ast.Name):
+            bindings = lookup(node.id, node)
+            if len(bindings) != 1:
+                return False
+            binding, statement = bindings[0]
+            if isinstance(binding, ast.arg):
+                origin = invocation.argument(binding) if invocation is not None else None
+                if origin is not None:
+                    home, value, context = origin
+                    return shape(value, self._foreign(home), context)
+                function = view.scopes.parents.get(view.scopes.parents.get(binding))
+                if view.module is None or self.calls is None or not isinstance(function, ast.FunctionDef):
+                    return False
+                from agents_shipgate.inputs.builder_calls import CallLimit
+                try:
+                    census = self.calls.callers(view.module, function)
+                    if self._constructor_limit(census.limits):
+                        return False
+                    for site in census.sites:
+                        context = self.calls.invoke(view.module, function, site)
+                        origin = context.argument(binding)
+                        if origin is None or not shape(origin[1], self._foreign(origin[0]), origin[2]):
+                            return False
+                    return bool(census.sites)
+                except CallLimit as exc:
+                    self._constructor_limit((str(exc),))
+                    return False
+            if isinstance(binding, ast.alias) and view.module is not None and self.calls is not None:
+                resolution = self.calls.resolve(view.module, node)
+                return (resolution.module is not None and resolution.value is not None and not resolution.caveats
+                        and shape(resolution.value, self._foreign(resolution.module), None))
+            value = getattr(statement, "value", None)
+            return isinstance(binding, ast.Name) and isinstance(value, ast.expr) and shape(value)
+        if isinstance(node, ast.Attribute) and node.attr in CAPABILITY_FIELDS and isinstance(node.value, ast.Name):
+            bindings = lookup(node.value.id, node.value)
+            if len(bindings) != 1:
+                return False
+            binding, statement = bindings[0]
+            value = getattr(statement, "value", None)
+            if not isinstance(binding, ast.Name):
+                return False
+            if isinstance(node.ctx, ast.Store):
+                # Replacing a field owns the new container, even when the
+                # constructor omitted that field. This grants no initial-field
+                # read or mutation role, and no returned/copied alias role.
+                direct = _direct_alias_constructor(view, node.value)
+                write = view.scopes.parents.get(node)
+                if (direct is not None and self._reads_agent(view, direct, node.attr)
+                        and ((isinstance(write, ast.Assign) and write.targets == [node])
+                             or (isinstance(write, ast.AnnAssign) and write.target is node))):
+                    return shape(write.value)
+            if not isinstance(value, ast.Call):
+                return False
+            field = self._member_agent_field(view, value, node.attr, invocation, depth, seen)
+            if field is None or not shape(field[1], field[0], field[2]):
+                return False
+            # Every lexical write to this exact field must retain builtin type.
+            for use in ast.walk(view.tree):
+                if (isinstance(use, ast.Attribute) and use.attr == node.attr and isinstance(use.value, ast.Name)
+                        and use.value.id == node.value.id and lookup(use.value.id, use.value) == bindings
+                        and isinstance(use.ctx, ast.Store)):
+                    write = view.scopes.parents.get(use)
+                    replacement = getattr(write, "value", None)
+                    if not isinstance(write, ast.Assign | ast.AnnAssign) or not isinstance(replacement, ast.expr) or not shape(replacement):
+                        return False
+            return True
+        return False
+
+    def _member_agent_field(
+        self, view: _View, call: ast.Call, field: str, invocation: Invocation | None,
+        depth: int, seen: frozenset[int],
+    ) -> tuple[_View, ast.expr, Invocation | None] | None:
+        if depth > 4 or view.module is None or self.calls is None:
+            return None
+        if self._reads_agent(view, call, field):
+            values = [keyword.value for keyword in call.keywords if keyword.arg == field]
+            return (view, values[0], invocation) if len(values) == 1 else None
+        from agents_shipgate.inputs.builder_calls import CallLimit, CallSite, single_return
+        resolution = self.calls.resolve(view.module, call.func)
+        if resolution.module is None or resolution.definition is None or resolution.caveats:
+            return None
+        try:
+            if self._constructor_limit(self.calls.callers(resolution.module, resolution.definition).limits):
+                return None
+            context = self.calls.invoke(resolution.module, resolution.definition, CallSite(view.module, call), invocation)
+        except CallLimit as exc:
+            self._constructor_limit((str(exc),))
+            return None
+        returned = single_return(resolution.definition)
+        foreign = self._foreign(resolution.module)
+        if isinstance(returned, ast.Name):
+            bindings = (foreign.lookup or bindings_at(foreign.scopes, foreign.bindings))(returned.id, returned)
+            returned = getattr(bindings[0][1], "value", None) if len(bindings) == 1 else None
+        if not isinstance(returned, ast.Call) or id(returned) in seen:
+            return None
+        return self._member_agent_field(foreign, returned, field, context, depth + 1, seen | {id(returned)})
+
+    def _member_receiver_owned(self, view: _View, receiver: ast.expr) -> bool:
+        key = (id(view.tree), id(receiver))
+        if key in self._checking_member_receivers or len(self._checking_member_receivers) >= 128:
+            return False
+        if not self._member_list_shape(view, receiver):
+            return False
+        self._checking_member_receivers.add(key)
+        try:
+            lookup = view.lookup or bindings_at(view.scopes, view.bindings)
+            if isinstance(receiver, ast.Attribute) and isinstance(receiver.value, ast.Name):
+                bindings = lookup(receiver.value.id, receiver.value)
+                value = getattr(bindings[0][1], "value", None) if len(bindings) == 1 else None
+                if isinstance(receiver.ctx, ast.Store):
+                    value = _direct_alias_constructor(view, receiver.value) or value
+                return isinstance(value, ast.Call) and not self._agent_result_changed(
+                    view, value, receiver.attr, borrowed=True, strict_container=True)
+            if not isinstance(receiver, ast.Name):
+                return False
+            bindings = lookup(receiver.id, receiver)
+            if len(bindings) != 1:
+                return False
+            binding, statement = bindings[0]
+            if isinstance(binding, ast.arg):
+                function = view.scopes.parents.get(view.scopes.parents.get(binding))
+                if not isinstance(function, ast.FunctionDef):
+                    return False
+                return all(
+                    isinstance(item.ctx, ast.Load) and self._container_read(view, item)
+                    for item in ast.walk(function) if isinstance(item, ast.Name)
+                    and lookup(item.id, item) == bindings
+                )
+            if isinstance(binding, ast.alias) and view.module is not None and self.calls is not None:
+                resolution = self.calls.resolve(view.module, receiver)
+                return (resolution.module is not None and isinstance(resolution.value, ast.List | ast.Tuple)
+                        and not self._factory_result_changed(self._foreign(resolution.module), resolution.value))
+            value = getattr(statement, "value", None)
+            return isinstance(value, ast.expr) and not self._factory_result_changed(view, value)
+        finally:
+            self._checking_member_receivers.remove(key)
+
+    def _imported_members_owned(self, view: _View, value: ast.expr) -> bool:
+        """Use the shared-list census, then inspect object identity through every use."""
+        if view.module is None or self.calls is None:
+            return False
+        names = [name for name, bindings in view.module.bindings.items()
+                 if len(bindings) == 1 and bindings[0].top_level and getattr(bindings[0].statement, "value", None) is value]
+        if len(names) != 1:
+            return False
+        from agents_shipgate.inputs.builder_calls import CallLimit
+        try:
+            borrowers = self.calls.borrowers(view.module, names[0], namespace_carriers=True)
+            retaining = self.calls.retaining_modules(view.module, names[0], namespace_carriers=True)
+            families = {key[0] for key in self._resolver._constructor_namespace_owners} if self._resolver is not None else set()
+            if self._resolver is not None:
+                steps = [{"path": module.ref, "name": "Agent"} for module in borrowers if module.path in retaining]
+                for family in families:
+                    if self._resolver._no_import_patch({"module": view.module}, steps, external_symbol=family):
+                        return False
+            for module in borrowers:
+                if self.calls.dynamic_importer(module) is not None or self._reflection(self._foreign(module)) is not None:
+                    return False
+                foreign = self._foreign(module)
+                lookup = foreign.lookup or bindings_at(foreign.scopes, foreign.bindings)
+                for node in ast.walk(module.tree):
+                    if not isinstance(node, ast.Name | ast.Attribute) or not isinstance(node.ctx, ast.Load):
+                        continue
+                    self._constructor_owner_work += 1
+                    if self._constructor_owner_work > 4096:
+                        self.constructor_namespace_issue = "the constructor ownership traversal exceeds 4096 edges"
+                        return False
+                    parent = foreign.scopes.parents.get(node)
+                    if isinstance(parent, ast.Attribute) and parent.value is node:
+                        continue
+                    resolution = self.calls.resolve(module, node)
+                    subject = node
+                    if (isinstance(node, ast.Attribute) and isinstance(parent, ast.Call) and parent.func is node
+                            and self._member_mutation(foreign, node.value, parent)):
+                        subject = node.value
+                        resolution = self.calls.resolve(module, subject)
+                    if resolution.module is view.module and resolution.value is value:
+                        if resolution.caveats or not self._container_read(foreign, subject):
+                            return False
+                        continue
+                    if (resolution.module is not None and not resolution.caveats
+                            and isinstance(resolution.value, ast.List | ast.Tuple)
+                            and all(isinstance(item, ast.Constant) or (
+                                isinstance(item, ast.Name | ast.Attribute)
+                                and (member := self.calls.resolve(resolution.module, item)).definition is not None
+                                and not member.caveats
+                            ) for item in resolution.value.elts)):
+                        continue  # Another literal retains no shared list or namespace.
+                    spelling = reference_spelling(node)
+                    head = spelling.split(".", 1)[0] if spelling else None
+                    for binding, statement in lookup(head, node) if head else ():
+                        if not isinstance(binding, ast.alias) or not isinstance(statement, ast.Import | ast.ImportFrom):
+                            continue
+                        if self.calls.import_may_share(module, view.module, names[0], statement, binding, namespace_carriers=True):
+                            # A direct callable still carries its globals.
+                            # Only an owned receiving edge clears this exact
+                            # imported namespace-carrier refusal.
+                            if (resolution.resolved and not resolution.caveats
+                                    and isinstance(resolution.definition, ast.FunctionDef | ast.AsyncFunctionDef)
+                                    and self._container_read(foreign, node)):
+                                continue
+                            return False  # An unread namespace can retain or project a member.
+            return True
+        except (CallLimit, _Stop) as exc:
+            self._constructor_limit((getattr(exc, "detail", str(exc)),))
+            return False
+
+    def _shape_value(self, view: _View, node: ast.expr, depth: int) -> tuple[ast.expr, _View] | None:
+        """Find a literal container shape without re-entering ownership checks."""
+        if depth > MAX_DEPTH:
+            return None
+        lookup = view.lookup or bindings_at(view.scopes, view.bindings)
+        if isinstance(node, ast.Name):
+            bindings = lookup(node.id, node)
+            if len(bindings) == 1:
+                value = getattr(bindings[0][1], "value", None)
+                if isinstance(value, ast.expr):
+                    return self._shape_value(view, value, depth + 1)
+            return None
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get":
+            return node, view
+        if isinstance(node, ast.Call) and self.calls is not None and view.module is not None:
+            from agents_shipgate.inputs.builder_calls import CallLimit, CallSite, single_return
+
+            resolution = self.calls.resolve(view.module, node.func)
+            if resolution.resolved and not resolution.caveats:
+                function = resolution.definition
+                returned = single_return(function)
+                if returned is not None and self._inert_factory(function):
+                    try:
+                        if self.calls.callers(resolution.module, function).limits:
+                            return None
+                        self.calls.invoke(resolution.module, function, CallSite(view.module, node), self._invocation)
+                    except CallLimit:
+                        return None
+                    return self._shape_value(self._foreign(resolution.module), returned, depth + 1)
+            return None
+        return node, view
+
+    @staticmethod
+    def _projection_base(node: ast.expr) -> ast.expr | None:
+        if isinstance(node, ast.Subscript):
+            return node.value
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get":
+            return node.func.value
+        return None
+
+    def _list_operand(self, view: _View, node: ast.expr, depth: int = 0, *, subject: ast.expr | None = None) -> bool:
+        shape = self._shape_value(view, node, depth)
+        if shape is None:
+            return False
+        node, view = shape
+        if isinstance(node, ast.List | ast.Tuple):
+            return True
+        if isinstance(node, ast.BoolOp):
+            return all(self._list_operand(view, value, depth + 1, subject=subject) for value in node.values)
+        if isinstance(node, ast.IfExp):
+            return self._list_operand(view, node.body, depth + 1, subject=subject) and self._list_operand(view, node.orelse, depth + 1, subject=subject)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            return self._list_operand(view, node.left, depth + 1, subject=subject) and self._list_operand(view, node.right, depth + 1, subject=subject)
+        base, key, default = None, None, None
+        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant):
+            base, key = node.value, node.slice.value
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get" and len(node.args) in {1, 2} and not node.keywords:
+            if isinstance(node.args[0], ast.Constant):
+                base, key = node.func.value, node.args[0].value
+                default = node.args[1] if len(node.args) == 2 else None
+        if base is None or not isinstance(key, str):
+            return False
+        if isinstance(base, ast.Name):
+            same = self._projection_base(subject) if subject is not None else None
+            lookup = view.lookup or bindings_at(view.scopes, view.bindings)
+            if not (isinstance(same, ast.Name) and same.id == base.id and lookup(same.id, same) == lookup(base.id, base)):
+                # Only the dictionary whose ownership this strict walk is
+                # checking can lend its shape through a retained projection.
+                return False
+        elif not isinstance(base, ast.Call):
+            return False
+        dictionary = self._shape_value(view, base, depth + 1)
+        if dictionary is None or not isinstance(dictionary[0], ast.Dict):
+            return False
+        literal, home = dictionary
+        keys = [item.value for item in literal.keys if isinstance(item, ast.Constant) and isinstance(item.value, str)]
+        if len(keys) != len(literal.keys) or len(set(keys)) != len(keys):
+            return False
+        if key in keys:
+            return self._list_operand(home, literal.values[keys.index(key)], depth + 1)
+        return default is not None and self._list_operand(view, default, depth + 1)
+
+    def _factory_member_change(
+        self, view: _View, function: ast.FunctionDef | ast.AsyncFunctionDef, result: ListResolution,
+        *, caller_defaults: set[tuple[int, int]] | frozenset = frozenset(),
+    ) -> str | None:
+        """Check canonical callable ownership across its bounded borrower scope.
+
+        The fresh container does not own a fresh function. A caller, sibling
+        importer or helper may still retain and change the same callable.
+        """
+        calls = self.calls
+        if calls is None:
+            return "the returned callable ownership census is unavailable"
+        targets: dict[tuple[int, int], Resolution] = {}
+        for member in result.members:
+            origin = member.module or self.entry.module
+            resolution = calls.resolve(origin, member.expr) if origin is not None else None
+            if resolution is None or not resolution.resolved or resolution.caveats:
+                return "the returned or caller-default callable ownership is not established"
+            if (id(member.expr), id(member.module)) not in caller_defaults:
+                local = member.module is view.module or (member.module is None and view.entry)
+                if not local or not isinstance(member.expr, ast.Name):
+                    return "the returned factory member's lexical callable ownership is not read by this increment"
+            targets[id(resolution.module), id(resolution.definition)] = resolution
+        key = (id(function), tuple(sorted(targets)))
+        if key not in self._cache.callable_changes:
+            self._cache.callable_changes[key] = self._retained_callable_changes(function, targets)
+        changed = self._cache.callable_changes[key]
+        if changed is not None:
+            return changed
+        # Empty projections still depend on the factory's live namespace.
+        # A helper/class can retain that namespace even when no selected
+        # member remains to seed the returned-callable census.
+        factory = Resolution(reference=function.name, module=view.module, definition=function)
+        key = ("factory namespace", id(function))
+        if key not in self._cache.callable_changes:
+            self._cache.callable_changes[key] = self._retained_callable_changes(
+                function, {(id(view.module), id(function)): factory}, factory_calls=True,
+            )
+        return self._cache.callable_changes[key]
+
+    def _executable_machinery(self, view: _View) -> bool:
+        """Follow existing import evidence for executable/reflection machinery."""
+        key = id(view.tree)
+        if key in self._cache.executable_modules:
+            return self._cache.executable_modules[key]
+        # A dependency cycle cannot serve as an absent-machinery proof.
+        self._cache.executable_modules[key] = True
+        names = {"eval", "exec", "compile", "__import__", "__builtins__", "__globals__", "__closure__", "cell_contents", "__getattribute__", "__getattr__", "getattr", "setattr", "delattr"}
+        for node in ast.walk(view.tree):
+            self._visits += 1
+            if self._visits > MAX_VISITS:
+                return True
+            if replaces_builtin_namespace(node, view.scopes):
+                return True
+            if isinstance(node, ast.Name | ast.Attribute) and isinstance(node.ctx, ast.Load):
+                spelling = reference_spelling(node)
+                if spelling and spelling.rsplit(".", 1)[-1] in names:
+                    return True
+            unused_reflection = (
+                self._resolver is not None and view.module is not None
+                and _unused_reflection_import(self._resolver, view.module, node)
+            )
+            if isinstance(node, ast.ImportFrom) and node.module == "builtins" and any(alias.name in names or alias.name == "*" for alias in node.names):
+                if not unused_reflection:
+                    return True
+            if isinstance(node, ast.Import) and any(alias.name == "builtins" for alias in node.names):
+                if not unused_reflection:
+                    return True
+            if self._resolver is None or self.calls is None or view.module is None:
+                continue
+            dependencies: set[str] = set()
+            if isinstance(node, ast.Name | ast.Attribute):
+                dependencies.update(step["path"] for step in self.calls.resolve(view.module, node).steps)
+            if isinstance(node, ast.Import | ast.ImportFrom):
+                try:
+                    containers = (
+                        [self._resolver._from_base(view.module, node)] if isinstance(node, ast.ImportFrom)
+                        else [self._resolver._absolute(view.module, alias.name) for alias in node.names]
+                    )
+                    dependencies.update(self._resolver.ref(container.module_path) for container in containers if container.module_path is not None)
+                except _Stop as exc:
+                    if exc.reason != MODULE_NOT_FOUND:
+                        return True
+            for ref in dependencies - {view.ref}:
+                try:
+                    module = self._resolver.module(self._resolver.scope_root / ref)
+                except (_Stop, ValueError):
+                    return True
+                if self._executable_machinery(self._foreign(module)):
+                    return True
+        self._cache.executable_modules[key] = False
+        return False
+
+    def _retained_callable_changes(
+        self, function: ast.FunctionDef | ast.AsyncFunctionDef, targets: dict[tuple[int, int], Resolution],
+        *, factory_calls: bool = False, factory_return: bool = True,
+    ) -> str | None:
+        from agents_shipgate.inputs.builder_calls import CallLimit
+
+        calls = self.calls
+        assert calls is not None
+        for target in targets.values():
+            home, defining = target.module, target.definition
+            assert home is not None and defining is not None
+            try:
+                borrowers = calls.borrowers(home, defining.name, namespace_carriers=True)
+                retaining = calls.retaining_modules(home, defining.name, namespace_carriers=True)
+            except CallLimit as exc:
+                return f"the returned callable ownership census is not established: {exc}"
+            for borrower in borrowers:
+                foreign = self._foreign(borrower)
+                lookup = foreign.lookup or bindings_at(foreign.scopes, foreign.bindings)
+                if self._reflection(foreign) is not None or calls.dynamic_importer(borrower) is not None or self._executable_machinery(foreign):
+                    return "a returned callable's borrower has reflection, executable text, dynamic imports or unresolved namespace machinery"
+                for node in ast.walk(borrower.tree):
+                    self._visits += 1
+                    if self._visits > MAX_VISITS:
+                        return "the returned callable ownership guard is larger than the reader follows"
+                    if not isinstance(node, ast.Name | ast.Attribute):
+                        continue
+                    resolution = calls.resolve(borrower, node)
+                    owned = resolution.resolved and (
+                        resolution.module is home and resolution.definition is defining
+                    )
+                    parent = foreign.scopes.parents.get(node)
+                    if self._checking_constructor_namespaces and self._resolver is not None and isinstance(parent, ast.keyword) and parent.arg == "is_enabled":
+                        decorator = foreign.scopes.parents.get(parent)
+                        owner = foreign.scopes.parents.get(decorator)
+                        recorded = self._resolver._constructor_decorator_owners.get(id(owner))
+                        if recorded is not None and recorded == (borrower, owner) and decorator in owner.decorator_list:
+                            continue  # The outer census owns this exact SDK callback edge.
+                    if owned and factory_calls and isinstance(parent, ast.Call) and parent.func is node:
+                        continue  # Every direct result is checked by the factory caller census.
+                    spelling = reference_spelling(node)
+                    head = spelling.split(".", 1)[0] if spelling else None
+                    namespace = resolution.resolved and resolution.module.path in retaining
+                    if not resolution.resolved and borrower.path in retaining and head:
+                        namespace = any(isinstance(binding, ast.ClassDef) for binding, _ in lookup(head, node))
+                    if namespace and not owned and resolution.resolved and isinstance(parent, ast.Call) and parent.func is node:
+                        continue  # Its read body is in the same bounded borrower census.
+                    if not owned and not namespace:
+                        # A namespace may retain the defining module through a
+                        # bridge or parent package. Resolve its import identity,
+                        # not only the terminal module reported by resolve().
+                        if not resolution.resolved and not (
+                            isinstance(parent, ast.Attribute) and parent.value is node
+                        ):
+                            spelling = reference_spelling(node)
+                            head = spelling.split(".", 1)[0] if spelling else None
+                            for binding, statement in lookup(head, node) if head else ():
+                                if isinstance(binding, ast.alias) and isinstance(statement, ast.Import | ast.ImportFrom):
+                                    try:
+                                        retained = calls.import_may_share(borrower, home, defining.name, statement, binding, namespace_carriers=True)
+                                    except CallLimit as exc:
+                                        return f"the returned callable namespace census is not established: {exc}"
+                                    if retained:
+                                        return f"a namespace retaining a returned callable is used opaquely at {self._where(foreign, node)}"
+                        continue
+                    current: ast.AST = node
+                    while isinstance(foreign.scopes.parents.get(current), ast.List | ast.Tuple | ast.Dict | ast.Starred | ast.BinOp | ast.BoolOp | ast.IfExp):
+                        current = foreign.scopes.parents[current]
+                    outer = foreign.scopes.parents.get(current)
+                    if factory_return and isinstance(outer, ast.Return) and outer is function.body[-1]:
+                        continue
+                    if current is not node and isinstance(current, ast.expr) and self._list_operand(foreign, current, subject=node):
+                        if self._container_read(foreign, current):
+                            continue
+                        if (
+                            isinstance(outer, ast.Call) and len(outer.args) == 2 and outer.args[1] is current
+                            and isinstance(outer.func, ast.Attribute) and outer.func.attr == "get"
+                            and self._nonexecuting_default(foreign, current) and self._container_read(foreign, outer)
+                        ):
+                            continue
+                    spelling = reference_spelling(node) or _source(node)
+                    return f"the returned callable {spelling!r} is invoked, changed or handed on at {self._where(foreign, node)}"
+        return None
 
     def _name(self, node: ast.Name, view: _View, depth: int, seen: frozenset) -> ListResolution:
         name = node.id
@@ -1800,6 +3429,10 @@ class ListExpressions:
             return self._stop(
                 view, statement, f"`{name}` may be changed in place after it is built"
             )
+        if self._projection is not None and self._container_binding_changed(view, binding):
+            return self._stop(view, statement, f"`{name}` or one of its projected values may be changed or handed on")
+        if self._projection is not None and statement in view.tree.body and isinstance(statement.value, ast.Dict):
+            return self._stop(view, statement, "module-owned dictionary projection is not an established fresh factory container")
         if view.module is not None and statement in view.tree.body:
             limit = self._shared_list_limit(view.module, name, view, node)
             if limit is not None:
@@ -1815,7 +3448,10 @@ class ListExpressions:
     ) -> ListResolution:
         """A name's value, read once however many lists spread it."""
 
-        memo = (key[0], view.entry, key[1], self._invocation.key if self._invocation else ())
+        memo = (
+            key[0], view.entry, key[1], self._invocation.key if self._invocation else (),
+            self._projection.identity if self._projection else (),
+        )
         cached = self._cache.memo.get(memo)
         if cached is None:
             cached = self._resolve(value, view, depth + 1, seen | {key})
@@ -1843,6 +3479,8 @@ class ListExpressions:
         return self._from_resolution(node, node.id, resolution, view, depth, seen)
 
     def _from_resolution(self, node, spelling, resolution, view, depth, seen) -> ListResolution:
+        if self._projection is not None:
+            return self._stop(view, node, "an imported dictionary container's projected ownership is not read by this increment")
         if resolution.definition is not None:
             return self._stop(view, node, f"`{spelling}` is a function, not a list of tools")
         value, defining = resolution.value, resolution.module
@@ -1883,7 +3521,8 @@ class ListExpressions:
                 return self._stop(
                     view,
                     node,
-                    f"`{name}` in {foreign.ref} may be changed in place at {other.ref}:{changer}",
+                    f"`{name}` in {foreign.ref} may be changed in place at {other.ref}:{changer}"
+                    + self._change_refusal_suffix(other, defining, name),
                 )
         statement = bindings[0].statement
         key = (id(foreign.tree), id(statement))
@@ -1915,7 +3554,8 @@ class ListExpressions:
                     return self._stop(
                         view,
                         node,
-                        f"`{name}` in {defining.ref} may be changed in place at {other.ref}:{changer}",
+                        f"`{name}` in {defining.ref} may be changed in place at {other.ref}:{changer}"
+                        + self._change_refusal_suffix(other, defining, name),
                     )
         except CallLimit as exc:
             return self._stop(view, node, f"`{name}` has an incomplete shared-list census: {exc}")
@@ -1957,10 +3597,23 @@ class ListExpressions:
             return None
         key = (id(view.tree), view.entry, id(defining.tree), name)
         if key not in self._cache.changes:
-            self._cache.changes[key] = self._first_change_reaching(view, defining, name)
+            selected: list[tuple[ast.alias, ast.stmt]] = []
+            self._cache.changes[key] = self._first_change_reaching(view, defining, name, selected_import=selected)
+            self._cache.change_contexts[key] = (
+                view.changed_import_context.get(selected[0], ())
+                if self._cache.changes[key] is not None and selected else ()
+            )
         return self._cache.changes[key]
 
-    def _first_change_reaching(self, view: _View, defining: PythonModule, name: str) -> int | None:
+    def _change_refusal_suffix(self, view: _View, defining: PythonModule, name: str) -> str:
+        key = (id(view.tree), view.entry, id(defining.tree), name)
+        rows = self._cache.change_contexts.get(key, ())
+        return " Additional constructor refusal context: " + "; ".join(rows) if rows else ""
+
+    def _first_change_reaching(
+        self, view: _View, defining: PythonModule, name: str, *,
+        selected_import: list[tuple[ast.alias, ast.stmt]] | None = None,
+    ) -> int | None:
         """An import changed in ``view`` that is the list, or the module holding it."""
 
         assert self._resolver is not None and view.module is not None
@@ -1976,11 +3629,16 @@ class ListExpressions:
             if self.calls is not None
             else ((name,), frozenset())
         )
+        def selected_line(alias: ast.alias, statement: ast.stmt) -> int:
+            if selected_import is not None:
+                selected_import.append((alias, statement))
+            return statement.lineno
+
         for alias, statement in view.changed_imports:
             local = alias.asname or alias.name.split(".", 1)[0]
             direct = self._resolver.resolve_local_import(view.module, statement, alias, local)
             if direct.module is defining and _value_name(direct) == name:
-                return statement.lineno
+                return selected_line(alias, statement)
             if (
                 direct.module is not None
                 and not direct.caveats
@@ -2029,12 +3687,12 @@ class ListExpressions:
                         view.module, statement, alias, spelling
                     )
                 if resolution.module is defining and _value_name(resolution) == name:
-                    return statement.lineno
+                    return selected_line(alias, statement)
                 if possible and resolution.reason == NOT_A_FUNCTION:
                     # A namespace can reach another namespace under a renamed
                     # export. This imported binding was marked as possibly
                     # mutated, including opaque consumers and computed access.
-                    return statement.lineno
+                    return selected_line(alias, statement)
                 if (
                     possible
                     and resolution.reason is not None
@@ -2049,7 +3707,7 @@ class ListExpressions:
                     # An ambiguous/unread changed import may be this list.
                     # Failure to establish its identity is not proof it cannot
                     # mutate a holder elsewhere.
-                    return statement.lineno
+                    return selected_line(alias, statement)
         return None
 
     def _attribute(self, node: ast.Attribute, view: _View, depth: int, seen: frozenset) -> ListResolution:

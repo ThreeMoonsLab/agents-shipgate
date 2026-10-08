@@ -127,6 +127,28 @@ def test_read_only_constructor_import_is_resolved_where_a_header_is_evaluated(
 
 
 @pytest.mark.parametrize("framework", ["sdk", "adk"])
+@pytest.mark.parametrize("keyword_only", [False, True])
+@pytest.mark.parametrize("use", ["unused", "called", "metadata", "opaque_consumer", "reflection", "mutating_parameter"])
+def test_constructor_default_retains_function_and_parameter_use_checks(tmp_path, framework, keyword_only, use):
+    declaration = "*, value" if keyword_only else "value"
+    body = "    value.tools.append(write)\n" if use == "mutating_parameter" else "    return None\n"
+    suffix = {
+        "unused": "",
+        "called": "unused()\n",
+        "metadata": "saved = unused.__kwdefaults__\n" if keyword_only else "saved = unused.__defaults__\n",
+        "opaque_consumer": "consumer(unused)\n",
+        "reflection": "globals()\n",
+        "mutating_parameter": "unused()\n",
+    }[use]
+    built, warnings = _namespace_mutation_observations(
+        tmp_path, framework, "from tools import write\n"
+        + f"def unused({declaration}=framework.Agent(name='Default', tools=SHARED)):\n"
+        + body + suffix,
+    )
+    _assert_namespace_mutation_result(built, warnings, use not in {"unused", "called"})
+
+
+@pytest.mark.parametrize("framework", ["sdk", "adk"])
 @pytest.mark.parametrize("aliased", [False, True])
 @pytest.mark.parametrize("patch", ["clean", "attribute", "setattr", "unrelated"])
 def test_replaced_framework_constructor_is_not_a_read_only_list_borrower(
@@ -535,6 +557,39 @@ def test_fresh_dictionary_key_writes_do_not_replace_namespace_slots(
 
 
 @pytest.mark.parametrize("framework", ["sdk", "adk"])
+@pytest.mark.parametrize("use,extra", [
+    ("", None),
+    ("saved = slots['Agent']\n", None),
+    ("slots['Agent'](name='Used', tools=SHARED)\n", None),
+    ("def capture():\n    return slots\n", None),
+    ("__all__ = ['slots']\n", None),
+    ("", {"consumer.py": "from helper import slots\n"}),
+    ("framework.Agent.__init__ = fake.Agent\n", None),
+    ("framework.Agent = fake.Agent\n", None),
+])
+def test_literal_constructor_dictionary_grants_only_confined_data(tmp_path, framework, use, extra):
+    built, warnings = _namespace_mutation_observations(
+        tmp_path, framework, "slots = {'Agent': framework.Agent}\nslots['Agent'] = fake.Agent\n" + use, extra,
+    )
+    _assert_namespace_mutation_result(built, warnings, bool(use or extra))
+
+
+@pytest.mark.parametrize("framework", ["sdk", "adk"])
+@pytest.mark.parametrize("use", ["", "fake.Agent(name='Used', tools=SHARED)\n", "saved = fake.Agent\n"])
+def test_literal_function_dictionary_keeps_the_original_callable_census(tmp_path, framework, use):
+    package = "agents" if framework == "sdk" else "google.adk.agents"
+    # Both fixtures carry an actual constructor namespace. Plain ADK tools
+    # do not acquire one merely by being imported from tools.py.
+    extra = {"fake.py": f"import {package} as canonical\nfrom tools import write\n"
+             "def Agent(name, tools):\n    tools.append(write)\n"}
+    built, warnings = _namespace_mutation_observations(
+        tmp_path, framework, "slots = {'Agent': fake.Agent}\nslots['Agent'] = fake.Agent\n" + use,
+        extra,
+    )
+    _assert_namespace_mutation_result(built, warnings, bool(use))
+
+
+@pytest.mark.parametrize("framework", ["sdk", "adk"])
 @pytest.mark.parametrize("spelling", ["export", "attribute"])
 @pytest.mark.parametrize("field", ["Agent", "unrelated"])
 def test_exported_namespace_identity_cannot_be_proved_by_its_import_path(
@@ -584,6 +639,68 @@ def test_fresh_dictionary_provenance_stops_at_its_proof_bound(tmp_path, framewor
         tmp_path, framework, declarations + f"slots_{length - 1}['Agent'] = fake.Agent\n"
     )
     _assert_namespace_mutation_result(built, warnings, exceeds_bound)
+
+
+@pytest.mark.parametrize("use,extra", [
+    ("slots['Agent'](name='Used', tools=SHARED)\n", None),
+    ("saved = slots['Agent']\n", None),
+    ("consumer(slots)\n", None),
+    ("def capture():\n    return slots\n", None),
+    ("", {"consumer.py": "from helper import slots\n"}),
+    ("fake.Agent(name='Used', tools=SHARED)\n", None),
+    ("fake.Agent.__globals__['changed'] = framework\n", None),
+])
+def test_fresh_dictionary_function_sink_keeps_other_namespace_uses_partial(tmp_path, use, extra):
+    built, warnings = _namespace_mutation_observations(
+        tmp_path, "sdk", "slots = {}\nslots['Agent'] = fake.Agent\n" + use, extra,
+    )
+    _assert_namespace_mutation_result(built, warnings, True)
+
+
+@pytest.mark.parametrize("write", ["slots.update(Agent=fake.Agent)", "slots.update({'Agent': fake.Agent})",
+                                  "slots |= {'Agent': fake.Agent}"])
+@pytest.mark.parametrize("use", ["", "saved = slots['Agent']\n", "fake.Agent(name='Used', tools=SHARED)\n"])
+def test_fresh_dictionary_update_sink_keeps_function_use_ownership(tmp_path, write, use):
+    built, warnings = _namespace_mutation_observations(
+        tmp_path, "sdk", "original = {}\nslots = original\n" + write + "\n" + use,
+    )
+    _assert_namespace_mutation_result(built, warnings, bool(use))
+
+
+@pytest.mark.parametrize("write", [
+    "saved = slots.update(Agent=fake.Agent)",
+    "saved = slots.update\nsaved(Agent=fake.Agent)",
+    "slots.update(**{'Agent': fake.Agent})",
+    "slots.update(*[{'Agent': fake.Agent}])",
+    "slots.update({key(): fake.Agent})",
+    "slots |= {key(): fake.Agent}",
+    "slots.update(Agent=fake)",
+    "slots.update(Agent=fake.Replacement)",
+    "slots |= {'Agent': fake.Replacement}",
+    "slots.update(Agent=lambda: fake.Agent)",
+])
+def test_fresh_dictionary_update_sink_does_not_grant_protocol_or_nonfunction_values(tmp_path, write):
+    built, warnings = _namespace_mutation_observations(
+        tmp_path, "sdk", "slots = {}\n" + write + "\n",
+        {"fake.py": "from tools import write\ndef Agent(name, tools):\n    tools.append(write)\nclass Replacement:\n    pass\n"},
+    )
+    _assert_namespace_mutation_result(built, warnings, True)
+
+
+@pytest.mark.parametrize("framework", ["sdk", "adk"])
+@pytest.mark.parametrize("use,extra", [
+    ("", None),
+    ("consumer(other)\n", None),
+    ("saved = other.Agent\n", None),
+    ("def capture():\n    return other\n", None),
+    ("del other\n", None),
+    ("", {"consumer.py": "from helper import other\n"}),
+])
+def test_unused_namespace_copy_has_no_read_capture_or_export_authority(tmp_path, framework, use, extra):
+    built, warnings = _namespace_mutation_observations(
+        tmp_path, framework, "other = framework\n" + use, extra,
+    )
+    _assert_namespace_mutation_result(built, warnings, bool(use or extra))
 
 
 @pytest.mark.parametrize("framework", ["sdk", "adk"])
@@ -689,7 +806,10 @@ def test_saved_bare_builtin_alias_keeps_its_lexical_terminal(
     built, warnings = _namespace_mutation_observations(
         tmp_path, framework, f"replace = {primitive}\n" + mutations[primitive]
     )
-    _assert_namespace_mutation_result(built, warnings, same_namespace)
+    # Deletion has no same-function source-slot proof: destroying a function
+    # may release metadata or callbacks. A foreign receiver alone does not
+    # establish this operation; setters and mapping writes keep their roles.
+    _assert_namespace_mutation_result(built, warnings, same_namespace or primitive == "delattr")
 
 
 @pytest.mark.parametrize("framework", ["sdk", "adk"])
@@ -2263,7 +2383,9 @@ def test_filter_predicate_parameters_do_not_create_builder_dependencies(tmp_path
     )
     _write(tmp_path, files)
     observations, warnings = _read(tmp_path, framework)
-    assert warnings == [] and observations[0].tools_complete
+    assert any("anonymous callable or generator" in warning for warning in warnings)
+    assert not observations[0].tools_complete and not observations[0].handoffs_complete
+    assert not any("builder dependenc" in warning or "missing argument" in warning for warning in warnings)
     assert observations[0].tool_names == ["read"]
     assert observations[0].tool_conditions
 

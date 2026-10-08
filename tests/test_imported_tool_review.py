@@ -10,7 +10,9 @@ module-binding walk whose cost grew with nesting depth.
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
+import sys
 import time
 
 import pytest
@@ -27,6 +29,33 @@ SUPPORT_SDK = "from agents import function_tool\n\n\n@function_tool\ndef lookup(
 
 def _rows(result):
     return [(r["agent"], r["tool"], r["change"]) for r in result["rows"]]
+
+
+def _constructor_candidate(result, agent, tool, direction, *, repo, source, reason=None):
+    """Preserve readable interface identity without granting constructor wiring."""
+    assert result["comparison_status"] == "partial"
+    assert all(row["change"] == "not_established" for row in result["rows"])
+    row, = [item for item in result["rows"] if item["agent"] == agent and item["tool"] == tool]
+    assert row["candidate_change"] == direction
+    observed = row["before"] if direction == "removed" else row["after"]
+    assert observed is not None and observed["definition"]["source"] == source
+    tree = ast.parse((repo / source).read_text())
+    definition, = [node for node in ast.walk(tree)
+                   if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name == tool]
+    if (definition.body and isinstance(definition.body[0], ast.Expr)
+            and isinstance(definition.body[0].value, ast.Constant)
+            and isinstance(definition.body[0].value.value, str)):
+        definition.body = definition.body[1:]
+    dumped = ast.dump(definition, include_attributes=False,
+                      **({"show_empty": True} if sys.version_info >= (3, 13) else {}))
+    expected = hashlib.sha256(json.dumps(dumped, separators=(",", ":")).encode()).hexdigest()
+    assert observed["definition"]["line"] == definition.lineno
+    assert observed["definition"]["implementation_sha256"] == expected
+    reasons = [gap["reason"] for side in ("base", "head") for gap in result[side]["coverage_gaps"]]
+    assert any("constructor identity is not established" in value for value in reasons)
+    if reason is not None:
+        assert any(reason in value for value in reasons)
+    return row
 
 
 def test_sdk_two_definitions_under_one_name_bind_neither(repo):
@@ -297,8 +326,9 @@ def test_nonlocal_follows_the_outer_function_binding(repo):
     base = commit(repo, {"agent.py": source, "billing.py": BILLING_SDK, "support.py": SUPPORT_SDK})
     head = commit(repo, {"support.py": SUPPORT_SDK.replace("'support'", "q.upper()")})
     result = run(repo, base, head)
-    assert _rows(result) == [("agent", "lookup", "changed")]
-    assert result["rows"][0]["after"]["definition"]["source"] == "support.py"
+    _constructor_candidate(result, "agent", "lookup", "changed", repo=repo, source="support.py",
+                           reason="'inner' (agent.py:8) is decorated, nested, or rebound")
+    assert _rows(result) == [("agent", "lookup", "not_established")]
 
 
 @pytest.mark.parametrize(
@@ -653,8 +683,11 @@ def test_a_guessed_binding_is_never_an_established_addition_or_removal(repo, dir
     head = commit(repo, {"agent.py": with_lookup if direction == "added" else without})
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial"
-    assert _rows(result) == [("app", "lookup", "not_established")]
-    assert result["rows"][0]["candidate_change"] == direction
+    _constructor_candidate(result, "app", "lookup", direction, repo=repo, source="agent.py",
+                           reason="'lookup' is bound more than once")
+    _constructor_candidate(result, "app", "other", "changed", repo=repo, source="agent.py",
+                           reason="executable or reflective machinery")
+    assert _rows(result) == [("app", "lookup", "not_established"), ("app", "other", "not_established")]
 
 
 def test_a_guessed_name_keeps_the_agents_other_findings_in_scan(tmp_path):
@@ -682,6 +715,14 @@ def test_a_guessed_name_keeps_the_agents_other_findings_in_scan(tmp_path):
     assert ("SHIP-SCHEMA-FREEFORM-OUTPUT", "delete_customer_account") in {
         (finding["check_id"], finding.get("tool_name")) for finding in report["findings"]
     }
+    finding = next(item for item in report["findings"]
+                   if item["check_id"] == "SHIP-SCHEMA-FREEFORM-OUTPUT"
+                   and item.get("tool_name") == "delete_customer_account")
+    assert finding["evidence"]["binding_status"] == "unknown"
+    assert finding["evidence"]["binding_established"] is False
+    assert finding["source"]["ref"] == "agent.py"
+    assert report["tool_inventory"] == []
+    assert report["release_decision"]["decision"] != "passed"
 
 
 @pytest.mark.parametrize(
@@ -817,7 +858,11 @@ def test_an_import_fallback_does_not_hide_the_agents_other_changes(repo, directi
     base = commit(repo, {"agent.py": without if direction == "added" else with_delete})
     head = commit(repo, {"agent.py": with_delete if direction == "added" else without})
     result = run(repo, base, head)
-    assert ("app", "delete_customer_account", direction) in _rows(result)
+    _constructor_candidate(result, "app", "delete_customer_account", direction, repo=repo, source="agent.py")
+    _constructor_candidate(result, "app", "search", "changed", repo=repo, source="agent.py",
+                           reason="'search' is bound more than once")
+    assert _rows(result) == [("app", "delete_customer_account", "not_established"),
+                             ("app", "search", "not_established")]
 
 
 @pytest.mark.parametrize(
@@ -841,10 +886,28 @@ def test_sdk_list_passed_to_a_helper_is_dynamic_only_when_it_can_change(repo, he
     result = run(repo, base, head)
     if dynamic:
         assert result["comparison_status"] == "partial"
+    elif "base_agent.clone(tools=TOOLS)" in helper:
+        # The unread copy owns its limit; passing TOOLS does not mutate the
+        # list or erase the two independently declared agents' tool changes.
+        assert result["comparison_status"] == "partial"
+        assert _rows(result) == [("agent", "lookup", "changed"),
+                                 ("base_agent", "lookup", "changed")]
+        for side in ("base", "head"):
+            gaps = result[side]["coverage_gaps"]
+            assert len(gaps) == 1
+            assert gaps[0]["agent"] == "variant"
+            assert "agent copy at agent.py:6 (clone) is not read" in gaps[0]["reason"]
+            assert gaps[0]["affects"] == "binding_presence"
     else:
-        # The list stays established. A copy passing its own tools is a limit on
-        # the copy (#876), never on the agent whose list it reads.
-        assert ("agent", "lookup", "changed") in _rows(result)
+        # These consumers can retain a callable's constructor namespace even
+        # when the old membership-only proof regarded them as reads.
+        assert result["comparison_status"] == "partial"
+        assert all(row["change"] == "not_established" for row in result["rows"])
+        assert any(gap.get("agent") == "agent" and "dynamic tools expression" in gap["reason"]
+                   for gap in result["head"]["coverage_gaps"])
+        assert any("constructor identity is not established" in gap["reason"]
+                   for gap in result["head"]["coverage_gaps"])
+        assert any(item["path"] == "agent.py" for item in result["head"]["sources"])
 
 
 def test_a_package_that_reexports_many_modules_does_not_exhaust_the_budget(repo):
@@ -1484,7 +1547,10 @@ def test_a_package_hook_is_established_only_when_it_returns_the_submodule(repo, 
     base = commit(repo, files)
     head = commit(repo, {"agent.py": LAZY_AGENT})
     result = run(repo, base, head)
-    if established:
+    if established and "import importlib" in hook:
+        _constructor_candidate(result, "x", "remember", "added", repo=repo, source="pkg/memory.py",
+                               reason="builtin or dynamic import machinery in pkg/__init__.py")
+    elif established:
         assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
         assert _rows(result) == [("x", "remember", "added")]
     else:
@@ -1787,8 +1853,8 @@ def test_a_sys_modules_store_is_read_by_what_it_can_name(repo, store, outcome):
     head = commit(repo, {"svc/app/agent.py": AGENT_LOOKUP})
     result = run(repo, base, head, "--scope", "svc/app")
     if outcome == "added":
-        assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
-        assert _rows(result) == [("x", "lookup", "added")]
+        _constructor_candidate(result, "x", "lookup", "added", repo=repo, source="svc/app/tools.py",
+                               reason="reflective namespace access in loader.py")
     elif outcome == "not_established":
         assert _rows(result) == [("x", "lookup", "not_established")]
         assert any("computed name" in gap["reason"] for gap in result["head"]["coverage_gaps"])
@@ -1895,8 +1961,8 @@ def test_the_module_table_and_namespace_are_read_by_allow_list(repo, package, ou
     head = commit(repo, {"agent.py": LAZY_AGENT})
     result = run(repo, base, head)
     if outcome == "added":
-        assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
-        assert _rows(result) == [("x", "remember", "added")]
+        _constructor_candidate(result, "x", "remember", "added", repo=repo, source="pkg/memory.py",
+                               reason="reflective namespace access in pkg/__init__.py")
     elif outcome == "not_established":
         assert _rows(result) == [("x", "remember", "not_established")]
     else:
@@ -1976,12 +2042,13 @@ SUPPORT_ADK_AGENT = (
 @pytest.mark.parametrize(
     "above",
     [
-        {"app/__init__.py": "from ._version import version as __version__  # noqa: F401\n"},
+        {"app/__init__.py": "from ._version import version as __version__  # noqa: F401\n", "app/_version.py": "version = '0'\n"},
         {
             "app/__init__.py": (
                 "try:\n    from ._version import version as __version__  # noqa: F401\n"
                 "except ImportError:\n    __version__ = '0'\n"
-            )
+            ),
+            "app/_version.py": "version = '0'\n",
         },
         {
             "app/__init__.py": "from .routers import users  # noqa: F401\n",
@@ -2010,6 +2077,30 @@ def test_ordinary_packages_above_the_scope_change_nothing(repo, above):
     result = run(repo, base, head, "--scope", "app/agents/support")
     assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
     assert _rows(result) == [("x", "refund", "added")]
+
+
+@pytest.mark.parametrize("guarded", [False, True])
+@pytest.mark.parametrize("provider", ["missing", "literal", "constructor-patch"])
+def test_an_above_scope_version_import_requires_readable_constructor_ownership(repo, guarded, provider):
+    init = "from ._version import version as __version__\n"
+    if guarded:
+        init = "try:\n    from ._version import version as __version__\nexcept ImportError:\n    __version__ = '0'\n"
+    files = {**SUPPORT_LAYOUT, "app/__init__.py": init,
+             "app/agents/support/agent.py": SUPPORT_ADK_AGENT.format(tools="lookup")}
+    if provider != "missing":
+        files["app/_version.py"] = "version = '0'\n"
+    if provider == "constructor-patch":
+        files["app/_version.py"] += "from abc import ABCMeta\ndef replacement(*args, **kwargs):\n    return None\nABCMeta.__call__ = replacement\n"
+    base = commit(repo, files)
+    head = commit(repo, {"app/agents/support/agent.py": SUPPORT_ADK_AGENT.format(tools="lookup, refund")})
+    result = run(repo, base, head, "--scope", "app/agents/support")
+    if provider == "literal":
+        assert result["comparison_status"] == "compared"
+        assert _rows(result) == [("x", "refund", "added")]
+    else:
+        assert result["comparison_status"] == "partial"
+        assert result["head"]["coverage_gaps"]
+        assert all(row["change"] == "not_established" for row in result["rows"])
 
 
 @pytest.mark.parametrize(
@@ -2045,10 +2136,14 @@ def test_ordinary_packages_above_the_scope_change_nothing(repo, above):
                 "    return sum(1 for v in vars if '\\n' in v)\n"
             ),
         },
+        {
+            "svc/app/__init__.py": "from . import debug\n",
+            "svc/app/debug.py": "import traceback\ndef dump(*args):\n    vars = traceback.extract_stack()[-2][-3]\n    return sum([1 for v in vars if '\\n' in v])\n",
+        },
     ],
     ids=[
         "forward-refs", "type-hints-namespace", "starred-namespace", "path-iteration", "test-helpers",
-        "a-local-named-vars",
+        "a-local-named-vars-generator", "a-local-named-vars-list",
     ],
 )
 def test_namespace_reads_in_the_chain_are_not_patches(repo, files):
@@ -2063,8 +2158,17 @@ def test_namespace_reads_in_the_chain_are_not_patches(repo, files):
     base = commit(repo, {**layout, "svc/app/agent.py": agent.format(tools="lookup")})
     head = commit(repo, {"svc/app/agent.py": agent.format(tools="lookup, refund")})
     result = run(repo, base, head, "--scope", "svc/app")
-    assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
-    assert _rows(result) == [("x", "refund", "added")]
+    if "svc/app/debug.py" in files and "return sum([" in files["svc/app/debug.py"]:
+        assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
+        assert _rows(result) == [("x", "refund", "added")]
+    else:
+        _constructor_candidate(result, "x", "refund", "added", repo=repo, source="svc/app/tools.py")
+        _constructor_candidate(result, "x", "lookup", "changed", repo=repo, source="svc/app/tools.py")
+        assert any("reflective namespace access" in gap["reason"]
+                   or "builtin or dynamic import machinery" in gap["reason"]
+                   or "unread class construction hook" in gap["reason"]
+                   or "generator retains the constructor namespace" in gap["reason"]
+                   for gap in result["head"]["coverage_gaps"])
 
 
 def test_a_stdlib_named_module_on_a_plain_import_root_is_the_applications(repo):
@@ -2228,8 +2332,13 @@ def test_a_namespace_declaration_above_the_scope_changes_nothing(repo, init):
     base = commit(repo, _svc({"svc/__init__.py": init}))
     head = commit(repo, {"svc/app/agent.py": SCOPED_LOOKUP_AGENT.format(tools="lookup")})
     result = run(repo, base, head, "--scope", "svc/app")
-    assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
-    assert _rows(result) == [("x", "lookup", "added")]
+    if "__import__" in init:
+        assert result["comparison_status"] == "partial"
+        assert all(row["change"] == "not_established" for row in result["rows"])
+        assert any("executable or reflective machinery" in gap["reason"] for gap in result["head"]["coverage_gaps"])
+    else:
+        assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
+        assert _rows(result) == [("x", "lookup", "added")]
 
 
 @pytest.mark.parametrize(
@@ -2278,7 +2387,8 @@ def test_globals_handed_positionally_to_get_type_hints_is_a_read(repo):
     base = commit(repo, _svc({"svc/app/tools.py": tools}))
     head = commit(repo, {"svc/app/agent.py": SCOPED_LOOKUP_AGENT.format(tools="lookup")})
     result = run(repo, base, head, "--scope", "svc/app")
-    assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
+    _constructor_candidate(result, "x", "lookup", "added", repo=repo, source="svc/app/tools.py",
+                           reason="reflective namespace access in tools.py")
 
 
 # ---------------------------------------------------------------------------
@@ -2299,8 +2409,7 @@ def test_a_logging_helper_reading_its_callers_frame_changes_nothing(repo, helper
     base = commit(repo, _svc({"svc/app/tools.py": tools, "svc/app/log.py": helper}))
     head = commit(repo, {"svc/app/agent.py": SCOPED_LOOKUP_AGENT.format(tools="lookup")})
     result = run(repo, base, head, "--scope", "svc/app")
-    assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
-    assert _rows(result) == [("x", "lookup", "added")]
+    _constructor_candidate(result, "x", "lookup", "added", repo=repo, source="svc/app/tools.py", reason="machinery in log.py")
 
 
 # ---------------------------------------------------------------------------
@@ -2377,8 +2486,17 @@ def test_the_real_readers_still_read(repo, reader, established):
     base = commit(repo, {"tools.py": tools, "agent.py": agent.replace("BIND", "lookup").replace("READER", reader).replace("[lookup, lookup]", "[lookup]")})
     head = commit(repo, {"agent.py": agent.replace("BIND", "execute").replace("READER", reader)})
     result = run(repo, base, head)
-    assert (result["comparison_status"] == "compared") is established, result["head"]["limits"]
-    assert _rows(result) == [("agent", "execute", "added")]
+    if reader.startswith("print("):
+        assert (result["comparison_status"] == "compared") is established, result["head"]["limits"]
+        assert _rows(result) == [("agent", "execute", "added")]
+    else:
+        # Library readers need an explicit retained-namespace proof; a named
+        # mutable list cannot enumerate its members under that uncertainty.
+        assert result["comparison_status"] == "partial"
+        assert result["rows"] == []
+        assert any("dynamic tools expression" in gap["reason"] for gap in result["head"]["coverage_gaps"])
+        assert any("constructor identity is not established" in gap["reason"]
+                   for gap in result["head"]["coverage_gaps"])
 
 
 def test_a_lazy_hook_importing_another_submodule_under_the_name_is_not_the_idiom(repo):
