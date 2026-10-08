@@ -164,6 +164,7 @@
   "tests/test_github_action_annotations.py": 0.0,
   "tests/test_github_action_outputs.py": 0.1,
   "tests/test_github_check_run.py": 0.0,
+  "tests/test_globbing_cache.py": 1.0,
   "tests/test_go_tool_descriptions.py": 0.1,
   "tests/test_google_adk.py": 4.4,
   "tests/test_governance_benchmark.py": 53.9,
