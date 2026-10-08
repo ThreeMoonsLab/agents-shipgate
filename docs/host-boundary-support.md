@@ -700,6 +700,61 @@ see #987) is still no row. A value no rule redacts, such as a bare positional
 token, or a password split from its `-u` into the next argument, moves the
 digest, so its rotation is a row of digests that prints neither value.
 
+<a id="hook-command-shape"></a>
+
+An inline hook command is described by its structure, not its text (host-grants
+`0.9`, #934). A command that opens with an assignment, pipes through `sed` or
+branches on `grep` has no executable name to show, and a digest alone told a
+reviewer neither whether the edit added a program nor whether it needs the file
+open. Each handler's `command` now carries `shape`, read from the command as
+`config_sha256`'s input holds it by a bounded, static reader that never runs it.
+The reader accepts simple commands; `|`, `|&`, `&&`, `||`, `;`, `&` and
+newlines; `( … )` and `{ … }` groups; `if`/`elif`/`then`/`else`/`fi`,
+`while`/`until`/`for`/`do`/`done`, `!` and `[[ … ]]`; `NAME=value` prefixes;
+`$( … )` substitutions; quoting; the redirects `>`, `>>`, `<`, `2>&1` and `&>`;
+and a literal `bash -c '…'` script, read inside to two levels. It publishes
+`commands`, the programs named at command positions in order (at most 12; each
+a plain token that no redaction rule rewrites, never a URL or a token that
+looks generated; `commands_more` counts the rest and `unnamed` the command
+positions whose word is a variable, a substitution, a quoted or glob word);
+`statements`, `pipes`, `substitutions`, `control_flow` (the `if`, `elif`,
+`while`, `until` and `for` keywords) and `quoted` (quoted strings), as counts;
+`redirects`, each `> target`, `>> target` or `< target` (at most 8), the target
+only when it is `/dev/null` or a repository-relative path of letters, digits,
+`.`, `_` and `-` with no `..` segment that no redaction rule rewrites, and
+`<not-shown>` otherwise; and `script`, the path of a command word shaped as a
+relative script path, or of the first such argument of an interpreter such as
+`python3`, `node` or `bash`, by the rule `args` use (#972). It follows no
+wrapper (`env`, `sudo`, `xargs`) and no alias, so a wrapper is named and what it
+runs is not. No argument, quoted string, variable, URL or absolute path is
+published, and a backslash-continued line is read joined, so a value the string
+rule leaves on the next line is withheld too.
+
+The reader refuses what it does not read, whole: a here-document or
+here-string, a backquote, `$(( … ))`, `$'…'`, a process substitution, `case`,
+`select`, `coproc`, a function definition, an array assignment, an unterminated
+quote or group, nesting past 8 levels, more than 2,000 words, or more than
+8,192 characters. The handler then carries `shape_limit` (`unsupported_syntax`
+or `too_long`) instead, and a `shell` setting other than `bash` or `sh` is
+`unsupported_shell`. A changed command's row names how the shapes differ —
+`command changed (<not-shown> sha256:f23acba4b10f → <not-shown>
+sha256:3f1dc36980b7; same programs (cat, printf, sed, grep, echo, true); simple
+commands 15 → 25; pipes 5 → 9; conditionals and loops 4 → 7; quoted strings
+18 → 32)`, `programs +sh; pipes 1 → 2`, `redirects +>> logs/x.log`, `script
+a.py → b.py` — and says so when they do not: `same programs and structure; the
+change is in an argument or in quoted text this output does not show, open the
+config to read the change`, or, when either command is not described, `not
+described: head command uses shell syntax this output does not describe; the
+digest moved, open the config to read the change`. One program replaced by
+another is left to the two executables. An added or removed hook's cell lists
+what a command of more than one program is made of (`runs cat, jq, sh; 2 pipes;
+1 redirect (>> logs/x.log)`) and names a script path beside a single program.
+A shape claims nothing about what a command does, whether a host runs it, or
+which way an edit moves authority: the row's direction stays unknown. Like the
+rest of `handlers` it is left out of grant equality, the inventory digests and
+saved baselines, and it is a function of the same text the digest is, so a
+value that text redacts (#987) moves neither, and rotating one is still no row.
+
 <a id="hook-matcher-reach"></a>
 
 A Claude Code hook on a tool event — `PreToolUse`, `PostToolUse`,

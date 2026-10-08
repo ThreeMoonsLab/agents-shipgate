@@ -29,12 +29,15 @@ from dataclasses import dataclass
 from typing import Any
 
 from agents_shipgate.core.claude_permission_rules import is_carve_out
+from agents_shipgate.core.hook_command_shape import MAX_COMMAND_CHARS
 from agents_shipgate.core.hook_matcher_reach import NO_TOOL_NAME
 from agents_shipgate.core.host_grants import (
     _PLAIN_TOKEN_RE,
     AGENT_RULE_INPUTS,
     DETAIL_NOT_SHOWN,
     HOOK_HANDLER_SETTINGS,
+    MAX_SHAPE_COMMANDS,
+    MAX_SHAPE_REDIRECTS,
     UNTRUSTED_INPUT_TRIGGERS,
     PermissionRuleAssessment,
     PermissionRuleReplacement,
@@ -1483,6 +1486,171 @@ def _command_text(command: dict[str, Any]) -> str:
     return f"{command.get('executable') or DETAIL_NOT_SHOWN} {_digest_text(command.get('sha256'))}"
 
 
+#: Why a hook command is not described, in the words a row uses (#934).
+_SHAPE_LIMIT_TEXT = {
+    "too_long": f"is longer than {MAX_COMMAND_CHARS:,} characters",
+    "unsupported_syntax": "uses shell syntax this output does not describe",
+    "unsupported_shell": "is written for a shell this output does not describe",
+}
+#: The counts a command's shape publishes, with the words a row names them by.
+_SHAPE_COUNTS = (
+    ("statements", "simple commands"),
+    ("pipes", "pipes"),
+    ("substitutions", "command substitutions"),
+    ("control_flow", "conditionals and loops"),
+    ("quoted", "quoted strings"),
+    ("unnamed", "commands with no plain name"),
+)
+_OPEN_THE_CONFIG = "open the config to read the change"
+
+
+def _shape_limit_text(limit: Any) -> str:
+    return _SHAPE_LIMIT_TEXT.get(str(limit), "is not described")
+
+
+def _plain_shape(command: dict[str, Any], *, ignore_script: bool = False) -> bool:
+    """Whether a described command is one program with arguments only (#934).
+
+    One command, no pipe, substitution, conditional or redirect, a program
+    name the row already prints as its executable, and (unless
+    ``ignore_script``) no script path: a shape would repeat what
+    ``executable`` says.
+    """
+
+    shape = command.get("shape")
+    if not isinstance(shape, dict):
+        return False
+    names = list(shape.get("commands") or [])
+    executable = command.get("executable")
+    keys = ("pipes", "substitutions", "control_flow", "redirects") + (() if ignore_script else ("script",))
+    return (
+        shape.get("statements") == 1
+        and not any(shape.get(key) for key in keys)
+        and (names == [executable] or (not names and shape.get("unnamed") == 1))
+    )
+
+
+def _shape_summary(command: dict[str, Any]) -> str:
+    """What an added or removed hook's command is made of, beyond its first word (#934).
+
+    Empty for a plain command whose program name and digest already say all
+    its shape would: one program, no script path, pipe, redirect,
+    substitution or conditional. A command that is not described says so, and
+    that the config has to be opened to read it.
+    """
+
+    limit = command.get("shape_limit")
+    if limit:
+        return f"not described: it {_shape_limit_text(limit)}; open the config to read it"
+    shape = command.get("shape")
+    if not isinstance(shape, dict) or _plain_shape(command):
+        return ""
+    names = list(shape.get("commands") or [])
+    items: list[str] = []
+    if _plain_shape(command, ignore_script=True):
+        # One program and its script path: the executable already names the program.
+        return f"script {shape['script']}"
+    if names:
+        items.append("runs " + ", ".join(names) + _more(int(shape.get("commands_more") or 0), "other program"))
+    if shape.get("unnamed"):
+        items.append(_count(int(shape["unnamed"]), "command") + " with no plain name")
+    if shape.get("script"):
+        items.append(f"script {shape['script']}")
+    for key, noun in (("pipes", "pipe"), ("substitutions", "command substitution")):
+        if shape.get(key):
+            items.append(_count(int(shape[key]), noun))
+    if shape.get("control_flow"):
+        items.append(_count(int(shape["control_flow"]), "conditional or loop keyword"))
+    redirects = list(shape.get("redirects") or [])
+    if redirects:
+        total = len(redirects) + int(shape.get("redirects_more") or 0)
+        shown = redirects[:_NAME_LIMIT]
+        items.append(f"{_count(total, 'redirect')} ({', '.join(shown)}{', …' if total > len(shown) else ''})")
+    return "; ".join(items)
+
+
+def _count(count: int, noun: str) -> str:
+    return f"{count} {noun}{'' if count == 1 else 's'}"
+
+
+def _shape_differences(old: dict[str, Any], new: dict[str, Any], *, programs: bool = True) -> list[str]:
+    """How two described commands differ in what a shape publishes (#934), in a reviewer's words.
+
+    ``programs`` is false when one program replaced another, which the
+    executables already say.
+    """
+
+    facts: list[str] = []
+    old_names, new_names = list(old.get("commands") or []), list(new.get("commands") or [])
+    gained = [name for name in new_names if name not in old_names]
+    lost = [name for name in old_names if name not in new_names]
+    if programs and (gained or lost):
+        shown = [*(f"+{name}" for name in gained), *(f"-{name}" for name in lost)]
+        facts.append(
+            "programs " + ", ".join(shown[:_NAME_LIMIT]) + _more(max(0, len(shown) - _NAME_LIMIT), "other change")
+        )
+    if int(old.get("commands_more") or 0) != int(new.get("commands_more") or 0):
+        facts.append(
+            f"programs past the first {MAX_SHAPE_COMMANDS}: "
+            f"{int(old.get('commands_more') or 0)} → {int(new.get('commands_more') or 0)}"
+        )
+    if old.get("script") != new.get("script"):
+        facts.append(f"script {old.get('script') or '(none)'} → {new.get('script') or '(none)'}")
+    for key, noun in _SHAPE_COUNTS:
+        before, after = int(old.get(key) or 0), int(new.get(key) or 0)
+        if before != after:
+            facts.append(f"{noun} {before} → {after}")
+    old_redirects, new_redirects = list(old.get("redirects") or []), list(new.get("redirects") or [])
+    if old_redirects != new_redirects or old.get("redirects_more") != new.get("redirects_more"):
+        gained_redirects = [item for item in new_redirects if item not in old_redirects]
+        lost_redirects = [item for item in old_redirects if item not in new_redirects]
+        shown = [*(f"+{item}" for item in gained_redirects), *(f"-{item}" for item in lost_redirects)]
+        facts.append(
+            "redirects " + (", ".join(shown[:_NAME_LIMIT]) or "reordered or past the first "
+                            f"{MAX_SHAPE_REDIRECTS}")
+            + _more(max(0, len(shown) - _NAME_LIMIT), "other change")
+        )
+    if facts and new_names and new_names == old_names:
+        facts.insert(0, "same programs (" + ", ".join(new_names) + ")")
+    return facts
+
+
+def _command_shape_change(old: dict[str, Any], new: dict[str, Any]) -> str:
+    """What the shapes of two commands add to ``command changed``, or nothing for a grant that has none (#934).
+
+    The digests moved, so the commands differ. When both are described and
+    differ in what a shape publishes, the differences are named. When they do
+    not, or when either is not described, the change is in text this output
+    does not show, and the row says the config has to be opened to read it.
+    """
+
+    old_limit, new_limit = old.get("shape_limit"), new.get("shape_limit")
+    old_shape, new_shape = old.get("shape"), new.get("shape")
+    if not (old_limit or isinstance(old_shape, dict)) or not (new_limit or isinstance(new_shape, dict)):
+        return ""
+    if old_limit or new_limit:
+        reasons = [
+            f"{side} command {_shape_limit_text(limit)}"
+            for side, limit in (("base", old_limit), ("head", new_limit))
+            if limit
+        ]
+        return f"; not described: {' and '.join(reasons)}; the digest moved, {_OPEN_THE_CONFIG}"
+    # One program replaced by another: the executables already say so.
+    replaced = (
+        _plain_shape(old, ignore_script=True) and _plain_shape(new, ignore_script=True)
+        and old.get("executable") != new.get("executable")
+    )
+    facts = _shape_differences(old_shape, new_shape, programs=not replaced)
+    if replaced and not facts:
+        return ""
+    if facts:
+        return "; " + "; ".join(facts)
+    return (
+        "; same programs and structure; the change is in an argument or in quoted text this "
+        f"output does not show, {_OPEN_THE_CONFIG}"
+    )
+
+
 def _args_text(args: dict[str, Any]) -> str:
     """A hook's published ``args`` as one line: the script path it publishes and its digest (#972)."""
 
@@ -1522,7 +1690,8 @@ def _handler_value(field: str, value: Any) -> str:
     if value is None:
         return "(none)"
     if field == "command":
-        return _command_text(value)
+        summary = _shape_summary(value)
+        return _command_text(value) + (f" ({summary})" if summary else "")
     if field == "args":
         return _args_text(value)
     if field == "matcher" and value == "":
@@ -1588,6 +1757,19 @@ def _published_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, ensure_ascii=False)
 
 
+def _compared_json(field: str, value: Any) -> str:
+    """A handler field as two readings of it are compared (#934).
+
+    A command's shape is read from the same text its digest is, so it adds
+    no difference of its own; it is rendered beside a change of the command.
+    A shell setting that moves it is its own difference, named on its own.
+    """
+
+    if field == "command" and isinstance(value, dict):
+        return _published_json({key: value.get(key) for key in ("executable", "sha256")})
+    return _published_json(value)
+
+
 def _handler_changes(before: list[dict[str, Any]], after: list[dict[str, Any]]) -> list[str] | None:
     """Field differences between two readings of one event's handlers (#819).
 
@@ -1611,11 +1793,14 @@ def _handler_changes(before: list[dict[str, Any]], after: list[dict[str, Any]]) 
         for index, (old, new) in enumerate(zip(before, after, strict=True), start=1):
             for field in _HANDLER_FIELDS:
                 old_value, new_value = old.get(field), new.get(field)
-                if _published_json(old_value) == _published_json(new_value):
+                if _compared_json(field, old_value) == _compared_json(field, new_value):
                     continue
                 label = f"handler {index} {field}" if several else field
                 if field == "command" and old_value and new_value:
-                    parts.append(f"{label} changed ({_command_text(old_value)} → {_command_text(new_value)})")
+                    parts.append(
+                        f"{label} changed ({_command_text(old_value)} → {_command_text(new_value)}"
+                        f"{_command_shape_change(old_value, new_value)})"
+                    )
                 elif field == "args" and old_value and new_value:
                     parts.extend(_args_changes(label, old_value, new_value))
                 else:

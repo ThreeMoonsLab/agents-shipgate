@@ -1245,6 +1245,71 @@ class HostInventoryIssueV9(HostInventoryIssueV8):
     host: HostNameV9
 
 
+class HostHookCommandShapeV9(BaseModel):
+    """What a hook's inline command is made of, without any of its text (#934).
+
+    Read by a bounded, static reading of the command as ``config_sha256``'s
+    input holds it, never run. ``commands`` lists, in the order they are
+    written, the first 12 distinct programs named at a command position, each
+    a plain token (``[A-Za-z0-9._+-]``, at most 80 characters) no redaction
+    rule rewrites, the last ``/`` segment of the word; ``commands_more`` counts
+    the distinct programs past those, and ``unnamed`` the command positions
+    whose word is not such a token (a variable, a substitution, a quoted or
+    glob word), both left out when 0. ``statements`` counts the simple
+    commands, ``pipes`` the ``|`` and ``|&`` operators, ``substitutions`` the
+    ``$( … )`` command substitutions, ``control_flow`` the ``if``, ``elif``,
+    ``while``, ``until`` and ``for`` keywords and ``quoted`` the quoted
+    strings, each across the whole command. ``redirects`` lists, in order, at
+    most 8 redirects to a file as ``> target``, ``>> target`` or ``< target``,
+    the target only when it is ``/dev/null`` or a repository-relative path of
+    letters, digits, ``.``, ``_`` and ``-`` with no ``..`` segment that no
+    redaction rule rewrites, ``<not-shown>`` otherwise; ``redirects_more``
+    counts those past them. ``script`` is a script path published as a
+    handler's ``args`` publish one: a command word shaped as a relative script
+    path, or the first such argument of an interpreter. A command that runs
+    ``bash -c '…'`` with a literal script is read inside that script too.
+
+    No argument, quoted string, variable or absolute path is published. It
+    describes the command's structure and claims nothing about what it does,
+    whether a host runs it, or in which direction a change moves authority.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    commands: list[str]
+    commands_more: int | None = Field(default=None, exclude_if=lambda value: value is None)
+    unnamed: int | None = Field(default=None, exclude_if=lambda value: value is None)
+    statements: int
+    pipes: int
+    substitutions: int
+    control_flow: int
+    quoted: int
+    redirects: list[str] | None = Field(default=None, exclude_if=lambda value: value is None)
+    redirects_more: int | None = Field(default=None, exclude_if=lambda value: value is None)
+    script: str | None = Field(default=None, max_length=200, exclude_if=lambda value: value is None)
+
+
+class HostHookCommandV9(HostHookCommandV7):
+    """A hook command plus the shape of the inline command, or why it has none (#934).
+
+    Exactly one of ``shape`` and ``shape_limit`` is present. ``shape_limit``
+    says why the command is not described and the digest is all there is to
+    compare: ``too_long`` (more than 8,192 characters as ``config_sha256``'s
+    input holds it), ``unsupported_shell`` (the handler's ``shell`` setting is
+    neither ``bash`` nor ``sh``) or ``unsupported_syntax`` (a form the bounded
+    reading refuses whole: a here-document, a backquote, ``$(( … ))``,
+    ``case``, a function definition, an unterminated quote or group, or a
+    command past its word or nesting bound). A row then says so and that the
+    config has to be opened to read the change. Left out of grant equality,
+    the inventory digests and saved baselines, like the rest of ``handlers``.
+    """
+
+    shape: HostHookCommandShapeV9 | None = Field(default=None, exclude_if=lambda value: value is None)
+    shape_limit: Literal["too_long", "unsupported_shell", "unsupported_syntax"] | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+
 class HostHookArgsV9(BaseModel):
     """A hook handler's ``args``, without their text (#972).
 
@@ -1273,7 +1338,8 @@ HookSettingValueV9 = bool | int | float | str | None
 class HostHookHandlerV9(HostHookHandlerV7):
     """A hook handler plus its ``args``, its documented settings and, on a Claude Code tool event, its matcher's reach.
 
-    ``args`` is present only on a handler that declares them
+    ``command`` also carries the shape of an inline command, or why it has
+    none (:class:`HostHookCommandV9`, #934). ``args`` is present only on a handler that declares them
     (:class:`HostHookArgsV9`). ``type``, ``async``, ``asyncRewake``,
     ``shell`` and ``once``, the documented boolean and enumerated handler
     settings (https://code.claude.com/docs/en/hooks#common-fields), are each
@@ -1304,6 +1370,7 @@ class HostHookHandlerV9(HostHookHandlerV7):
     # documented name.
     model_config = ConfigDict(extra="forbid", serialize_by_alias=True)
 
+    command: HostHookCommandV9 | None = None
     matcher_reach: Literal["possible", "no_tool_name"] | None = Field(
         default=None, exclude_if=lambda value: value is None,
     )

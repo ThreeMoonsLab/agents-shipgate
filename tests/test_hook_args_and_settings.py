@@ -182,7 +182,14 @@ def test_the_grant_publishes_the_args_and_settings_the_rows_render(tmp_path: Pat
     assert hook["handlers"] == [
         {
             "matcher": "Bash",
-            "command": {"executable": "python3", "sha256": redacted_config_sha256("python3")},
+            "command": {
+                "executable": "python3",
+                "sha256": redacted_config_sha256("python3"),
+                "shape": {
+                    "commands": ["python3"], "statements": 1, "pipes": 0, "substitutions": 0,
+                    "control_flow": 0, "quoted": 0,
+                },
+            },
             "timeout": None,
             # #826: a PreToolUse handler with `args` is outside the inline-allow grammar.
             "inline_allow": False,
