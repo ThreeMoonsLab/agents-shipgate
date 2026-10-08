@@ -1076,10 +1076,38 @@ row is attributed to this path` there, never that no compared grant changed:
 those settings decide the loading basis of the hooks in the directory, which
 were not compared.
 
+A plain instruction document past the instruction classifier's 256 KiB bound
+is withheld the same way (#973). `AGENTS.md`, `AGENTS.override.md` and
+`CLAUDE.md` outside a command, subagent or rule directory are read as
+guidance: within the bound every such file classifies alike whatever it says,
+and no grant is published for it, so no other source's grant can depend on its
+text. Past the bound it is `unsupported` (`instruction_text_limit`). When both
+sides read it directly at the same path for the same hosts, that limit is its
+only blocking issue, no hook runs it as a script, and it is not proven
+unchanged, the document is left uncompared on both sides and named as its own
+`scope` (`limit: unsupported`; a withheld hook script's own-path `scope` is
+`unreadable`), led by `Not compared: <document>, an instruction document
+longer than this entry reads (…)`. An unchanged one is still named in
+`unchanged_limits` (#721), and a comparison it alone limits stays
+`comparable`. Everything else about such a file still refuses: a skill, a
+command or a Cursor rule past the bound (they declare `allowed-tools`, `hooks`
+or activation), a role this entry does not read, a NUL byte, a document on one
+side only (added, removed, grown past or shrunk within the bound), one read
+through an in-tree link, and a change where nothing else was read.
+
+A blocking limit both sides carry says whether its file changed: its
+coverage `detail` ends with `This file changed in this change.`, `This file is
+byte-identical in base and head.` or `Whether this file changed in this change
+is not established.` (a link, a redacted path, a checkout conversion, a
+provided diff), and its line ends `; it changed in this change` and so on, on
+a refusal as on a partial comparison. A side-specific limit carries none; its
+side already says the two differ.
+
 Independence is read off the reference graph, never off directory names. The
 comparison refuses as before when a limit is neither a bounded plugin
-reference nor unchanged (an unreadable settings file, an instruction file
-whose structure could not be established, a link that is not read through),
+reference, a withheld document nor unchanged (an unreadable settings file, an
+instruction file whose structure could not be established for any other
+reason, a link that is not read through),
 when a reference names a path outside its plugin, when the plugin is at the
 repository root, when its directory holds `.claude/settings.json` or
 `.claude/settings.local.json`, which decide every plugin hook's loading basis,

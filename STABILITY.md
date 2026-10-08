@@ -458,6 +458,73 @@ state or permission is added. `minimum_control_contract_version` stays `21`.
 
 ---
 
+<a id="oversized-instruction-document-973"></a>
+
+## Migration Note: Unreleased — a long plain instruction document no longer hides the rest (#973)
+
+**What was wrong.** saleor/storefront#1252 adds `.mcp.json` and
+`.cursor/mcp.json`, each launching `next-devtools-mcp@latest`, and
+regenerates `skills/saleor-paper-storefront/AGENTS.md`, a 346,349-byte
+compiled document past the instruction classifier's 256 KiB bound on both
+sides. `diff`, `verify` and the manifest-free PR comment printed `Cannot
+compare … base_inventory_incomplete; head_inventory_incomplete` with no row,
+and named the file only as `unsupported in base and head, so neither inventory
+is complete`, which was read as naming an unchanged file. An unchanged one has
+been named in `unchanged_limits` since #721; this one changed (blob `aa159c2`
+→ `cf87eaa`).
+
+**What changes.**
+
+- A plain instruction document — `AGENTS.md`, `AGENTS.override.md` or
+  `CLAUDE.md` outside a command, subagent or rule directory — that both sides
+  read directly at the same path for the same hosts, whose only blocking issue
+  is `unsupported` with `instruction_text_limit`, that no hook runs as a
+  script and that Git does not prove unchanged, is left uncompared on both
+  sides, and the comparison is `partial` (#808's status and member). Its
+  `blocking_limit` item names the document itself as `scope`, with `limit:
+  unsupported`; a withheld hook script's own-path `scope` (#702) is
+  `unreadable`, so the two read apart. Within the bound that profile
+  classifies as `guidance` with one digest whatever the text says, and the
+  reader publishes no grant for it, so no compared row depends on its text.
+  The text leads with `Not compared: <document>, an instruction document longer
+  than this entry reads (a kind it treats as guidance, which declares no grant
+  it compares), so a change to it is not shown and nothing is claimed about
+  it.`, and its item reads `unsupported in base and head (longer than this
+  entry reads), so this document was not compared; it changed in this
+  change`.
+- A blocking limit both sides carry, on a refused or partial comparison, ends
+  its coverage `detail` with `This file changed in this change.`, `This file
+  is byte-identical in base and head.` or `Whether this file changed in this
+  change is not established.`, from the Git identity question coverage
+  already asks (a link, a redacted or member path, a checkout conversion and a
+  provided diff are not established), and its line ends `; it changed in this
+  change`, `; it is byte-identical in base and head` or `; whether it changed
+  in this change is not established`. A side-specific limit carries none.
+
+**What does not change.** An unchanged such document is still named in
+`unchanged_limits`, and a comparison it alone limits is still `comparable`.
+Every other shape still refuses: a skill, command or Cursor rule past the bound
+(they declare `allowed-tools`, `hooks` or activation), a role this entry does
+not read, a NUL byte, a document on one side only (added, removed, grown past
+or shrunk within the bound), one read through an in-tree link, one a hook runs
+as its script, any other limit the change touched, and a change where nothing
+else was read. `check` records no coverage, so it refuses its comparison and
+decides exactly as before; `verify`'s control, the control envelope's
+`capability_rows`, the Stop hook, baselines and drift read a partial
+comparison as the refusal it was. The classifier itself is unchanged, so
+`check` and `preflight` still treat an edit to such a document as structure
+they could not establish. No schema version, member, enumeration value, check
+ID, CLI flag, control state or permission is added; `minimum_control_contract_version`
+stays `21`.
+
+**Who must act.** Nobody. A consumer that reads every status but `comparable`
+as not comparable is unaffected; one that took a `scope` equal to its `source`
+to mean a hook script should read `limit` (`unreadable` for a script,
+`unsupported` for a document). A consumer comparing a blocking limit's
+`detail` to the inventory issue message should compare its prefix.
+
+---
+
 <a id="url-permission-rules-922"></a>
 
 ## Migration Note: Unreleased — a URL in a permission rule keeps its rule (#922)
