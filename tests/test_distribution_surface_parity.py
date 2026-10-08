@@ -303,6 +303,13 @@ SURFACES: tuple[Surface, ...] = (
         # baselines, so it restates no answer and moves no row;
         # `tests/test_hook_args_and_settings.py` holds diff, verify, the PR
         # comment, check, drift and preflight to the same entry.
+        # A changed inline command's structure text (#934) renders the
+        # display-only `command.shape` or `shape_limit` the engine published,
+        # read from the text the digest holds and left out of grant equality,
+        # the inventory digests and saved baselines, so it restates no answer
+        # and moves no row, direction, severity or expansion signal;
+        # `tests/test_hook_command_shape.py` holds diff, verify, the PR
+        # comment, check and drift to the same entry.
         # Its agent-launch cells and note (#823) restate no answer: direction
         # comes from the engine's
         # `workflow_agent_widened_*` expansion signal, itself read off the

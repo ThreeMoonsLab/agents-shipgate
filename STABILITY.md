@@ -576,6 +576,70 @@ to mean a hook script should read `limit` (`unreadable` for a script,
 
 ---
 
+<a id="hook-command-shape-934"></a>
+
+## Migration Note: Unreleased — a hook row describes an inline command's structure, or says to open the config (host-grants `0.9`, #934)
+
+**What was wrong.** Published `1.2.0` showed an inline hook command as the name
+of its first word and a digest. CirrusRedOrg/EntityFrameworkCore.Jet#303 changed
+one `PreToolUse` command and the row read `command changed (<not-shown>
+sha256:f23acba4b10f → <not-shown> sha256:3f1dc36980b7)`: two digests, and no
+name because the script opens with an assignment. A reviewer could not tell
+whether the edit added a program, a branch or only text, and no row
+distinguished an edit that explains itself from one that needs the file open.
+
+**What changes.** See [hook command shape](docs/host-boundary-support.md#hook-command-shape).
+
+- Host-grants inventory `0.9`, unpublished before this release, is extended in
+  place. A handler's `command` carries `shape` or `shape_limit`. `shape` is
+  read by a bounded, static reader of the command as `config_sha256`'s input
+  holds it, never run: the plain-token program names at command positions
+  (`commands`, at most 12, with `commands_more` and `unnamed` counting the
+  rest), the counts of `statements`, `pipes`, `substitutions`,
+  `control_flow` keywords and `quoted` strings, the `redirects` to a file as
+  `> target` (at most 8; the target only when it is `/dev/null` or a
+  repository-relative path), and a `script` path published as `args` publish
+  one (#972). `shape_limit` says why there is none: `too_long` (more than 8,192
+  characters), `unsupported_shell` (a `shell` setting other than `bash` or
+  `sh`) or `unsupported_syntax` (a here-document, backquote, `$(( … ))`,
+  `case`, function definition, unterminated quote or group, or a command past
+  the reader's word or nesting bound). No argument, quoted string, variable,
+  URL or absolute path is published, and a token that looks generated is not
+  named.
+- A changed command's row names what the shapes differ in: `command changed
+  (<not-shown> sha256:f23acba4b10f → <not-shown> sha256:3f1dc36980b7; same
+  programs (cat, printf, sed, grep, echo, true); simple commands 15 → 25; pipes
+  5 → 9; conditionals and loops 4 → 7; quoted strings 18 → 32)` for the Jet
+  pair, `programs +sh; pipes 1 → 2` for an added pipeline stage, `redirects
+  +>> logs/x.log`, `script a.py → b.py`. When the shapes are the same it says
+  `same programs and structure; the change is in an argument or in quoted text
+  this output does not show, open the config to read the change`, and when
+  either command is not described, `not described: head command uses shell
+  syntax this output does not describe; the digest moved, open the config to
+  read the change`. An added or removed hook's cell lists what a command that
+  is more than one program and its arguments is made of (`runs cat, jq, sh; 2
+  pipes; 1 redirect (>> logs/x.log)`).
+- `diff` (text and `--json`), `verify`'s host comparison, the PR comment and
+  `check`'s rows print the same entry.
+
+**Who must act.** Nobody. A reader that matched the exact `command changed
+(…)` text, or that validates `0.9` handlers against a schema generated before
+this change, updates to the new text and schema.
+
+**What does not change.** The shape is a function of the command as
+`config_sha256`'s input holds it and, like the rest of `handlers`, is left out
+of grant equality, the inventory digests and saved baselines, so no row, row
+value, direction, `expands`, severity, expansion signal, loading basis (#714),
+`matcher_reach` (#940) or `check` decision moves, and a hook edit stays `hook
+edit; authority direction is unknown`: a shape names programs and counts, never
+what a command does, whether a host runs it or which way an edit moves
+authority. A value the digest's input redacts is withheld from the shape too,
+so rotating one is still no row (#987). No schema file present in a tagged
+release changes. No check ID, CLI flag, control state or permission is added.
+`minimum_control_contract_version` stays `21`.
+
+---
+
 <a id="hook-args-and-settings-972"></a>
 
 ## Migration Note: Unreleased — a hook row names its `args` and settings (host-grants `0.9`, #972, #971)

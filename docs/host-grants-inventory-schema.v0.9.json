@@ -647,9 +647,116 @@
       "title": "HostHookArgsV9",
       "type": "object"
     },
-    "HostHookCommandV7": {
+    "HostHookCommandShapeV9": {
       "additionalProperties": false,
-      "description": "A hook command as its grant publishes it: the executable's name and a digest of the whole command.\n\n``executable`` is the last path segment of the command's first\nwhitespace-separated word, when it is a plain token\n(``[A-Za-z0-9._+-]``, at most 80 characters) no redaction rule rewrites\nand the word is no shell reserved word and holds no ``://``, and\n``<not-shown>`` otherwise, so no part of a URL is named. It\nis a label, not a claim about what a host runs. ``sha256`` is the digest of the whole command as\n``config_sha256``'s input holds it, so it moves only when that digest\ndoes; a value that input redacts moves neither. The command's text is\nnever published.",
+      "description": "What a hook's inline command is made of, without any of its text (#934).\n\nRead by a bounded, static reading of the command as ``config_sha256``'s\ninput holds it, never run. ``commands`` lists, in the order they are\nwritten, the first 12 distinct programs named at a command position, each\na plain token (``[A-Za-z0-9._+-]``, at most 80 characters) no redaction\nrule rewrites, the last ``/`` segment of the word; ``commands_more`` counts\nthe distinct programs past those, and ``unnamed`` the command positions\nwhose word is not such a token (a variable, a substitution, a quoted or\nglob word), both left out when 0. ``statements`` counts the simple\ncommands, ``pipes`` the ``|`` and ``|&`` operators, ``substitutions`` the\n``$( \u2026 )`` command substitutions, ``control_flow`` the ``if``, ``elif``,\n``while``, ``until`` and ``for`` keywords and ``quoted`` the quoted\nstrings, each across the whole command. ``redirects`` lists, in order, at\nmost 8 redirects to a file as ``> target``, ``>> target`` or ``< target``,\nthe target only when it is ``/dev/null`` or a repository-relative path of\nletters, digits, ``.``, ``_`` and ``-`` with no ``..`` segment that no\nredaction rule rewrites, ``<not-shown>`` otherwise; ``redirects_more``\ncounts those past them. ``script`` is a script path published as a\nhandler's ``args`` publish one: a command word shaped as a relative script\npath, or the first such argument of an interpreter. A command that runs\n``bash -c '\u2026'`` with a literal script is read inside that script too.\n\nNo argument, quoted string, variable or absolute path is published. It\ndescribes the command's structure and claims nothing about what it does,\nwhether a host runs it, or in which direction a change moves authority.",
+      "properties": {
+        "commands": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Commands",
+          "type": "array"
+        },
+        "commands_more": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commands More"
+        },
+        "control_flow": {
+          "title": "Control Flow",
+          "type": "integer"
+        },
+        "pipes": {
+          "title": "Pipes",
+          "type": "integer"
+        },
+        "quoted": {
+          "title": "Quoted",
+          "type": "integer"
+        },
+        "redirects": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Redirects"
+        },
+        "redirects_more": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Redirects More"
+        },
+        "script": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Script"
+        },
+        "statements": {
+          "title": "Statements",
+          "type": "integer"
+        },
+        "substitutions": {
+          "title": "Substitutions",
+          "type": "integer"
+        },
+        "unnamed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unnamed"
+        }
+      },
+      "required": [
+        "commands",
+        "statements",
+        "pipes",
+        "substitutions",
+        "control_flow",
+        "quoted"
+      ],
+      "title": "HostHookCommandShapeV9",
+      "type": "object"
+    },
+    "HostHookCommandV9": {
+      "additionalProperties": false,
+      "description": "A hook command plus the shape of the inline command, or why it has none (#934).\n\nExactly one of ``shape`` and ``shape_limit`` is present. ``shape_limit``\nsays why the command is not described and the digest is all there is to\ncompare: ``too_long`` (more than 8,192 characters as ``config_sha256``'s\ninput holds it), ``unsupported_shell`` (the handler's ``shell`` setting is\nneither ``bash`` nor ``sh``) or ``unsupported_syntax`` (a form the bounded\nreading refuses whole: a here-document, a backquote, ``$(( \u2026 ))``,\n``case``, a function definition, an unterminated quote or group, or a\ncommand past its word or nesting bound). A row then says so and that the\nconfig has to be opened to read the change. Left out of grant equality,\nthe inventory digests and saved baselines, like the rest of ``handlers``.",
       "properties": {
         "executable": {
           "title": "Executable",
@@ -659,13 +766,41 @@
           "pattern": "^[0-9a-f]{64}$",
           "title": "Sha256",
           "type": "string"
+        },
+        "shape": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostHookCommandShapeV9"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "shape_limit": {
+          "anyOf": [
+            {
+              "enum": [
+                "too_long",
+                "unsupported_shell",
+                "unsupported_syntax"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shape Limit"
         }
       },
       "required": [
         "executable",
         "sha256"
       ],
-      "title": "HostHookCommandV7",
+      "title": "HostHookCommandV9",
       "type": "object"
     },
     "HostHookGrantV9": {
@@ -789,7 +924,7 @@
     },
     "HostHookHandlerV9": {
       "additionalProperties": false,
-      "description": "A hook handler plus its ``args``, its documented settings and, on a Claude Code tool event, its matcher's reach.\n\n``args`` is present only on a handler that declares them\n(:class:`HostHookArgsV9`). ``type``, ``async``, ``asyncRewake``,\n``shell`` and ``once``, the documented boolean and enumerated handler\nsettings (https://code.claude.com/docs/en/hooks#common-fields), are each\npresent only when the handler declares a value other than ``null``, and\npublished as a timeout is: a boolean or finite number as declared, a\nstring as written when it is a plain token, and anything else as\n``<not-shown>`` (#971, #972). Other handler settings, such as ``if``,\n``statusMessage``, ``prompt``, ``model``, ``url`` and ``headers``, are not\npublished; a change confined to them is a row whose text says it is not\nshown.\n\n``matcher_reach`` is present on every handler of a Claude Code\n``PreToolUse``, ``PostToolUse``, ``PostToolUseFailure``,\n``PermissionRequest`` or ``PermissionDenied`` hook, the events whose\nmatcher filters the tool name\n(https://code.claude.com/docs/en/hooks#matcher-patterns), and absent on\nevery other, so absence means not examined. ``no_tool_name``: every string\nthe declared matcher can match holds a character no built-in or MCP tool\nname holds, so the handler runs for no tool call, as with ``Bash(git\npush*)``, which Claude Code reads as a regular expression over the tool\nname. ``possible``: any other matcher, including one this reader does not\ndecide. Read from the declared matcher, not the published one, and left\nout of grant equality, the inventory digests and saved baselines like the\nrest of ``handlers``.",
+      "description": "A hook handler plus its ``args``, its documented settings and, on a Claude Code tool event, its matcher's reach.\n\n``command`` also carries the shape of an inline command, or why it has\nnone (:class:`HostHookCommandV9`, #934). ``args`` is present only on a handler that declares them\n(:class:`HostHookArgsV9`). ``type``, ``async``, ``asyncRewake``,\n``shell`` and ``once``, the documented boolean and enumerated handler\nsettings (https://code.claude.com/docs/en/hooks#common-fields), are each\npresent only when the handler declares a value other than ``null``, and\npublished as a timeout is: a boolean or finite number as declared, a\nstring as written when it is a plain token, and anything else as\n``<not-shown>`` (#971, #972). Other handler settings, such as ``if``,\n``statusMessage``, ``prompt``, ``model``, ``url`` and ``headers``, are not\npublished; a change confined to them is a row whose text says it is not\nshown.\n\n``matcher_reach`` is present on every handler of a Claude Code\n``PreToolUse``, ``PostToolUse``, ``PostToolUseFailure``,\n``PermissionRequest`` or ``PermissionDenied`` hook, the events whose\nmatcher filters the tool name\n(https://code.claude.com/docs/en/hooks#matcher-patterns), and absent on\nevery other, so absence means not examined. ``no_tool_name``: every string\nthe declared matcher can match holds a character no built-in or MCP tool\nname holds, so the handler runs for no tool call, as with ``Bash(git\npush*)``, which Claude Code reads as a regular expression over the tool\nname. ``possible``: any other matcher, including one this reader does not\ndecide. Read from the declared matcher, not the published one, and left\nout of grant equality, the inventory digests and saved baselines like the\nrest of ``handlers``.",
       "properties": {
         "args": {
           "anyOf": [
@@ -847,7 +982,7 @@
         "command": {
           "anyOf": [
             {
-              "$ref": "#/$defs/HostHookCommandV7"
+              "$ref": "#/$defs/HostHookCommandV9"
             },
             {
               "type": "null"

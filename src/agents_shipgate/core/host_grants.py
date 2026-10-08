@@ -49,6 +49,10 @@ from agents_shipgate.core.claude_permission_rules import (
     same_spelling,
     unconsulted_path_rule,
 )
+from agents_shipgate.core.hook_command_shape import (
+    UnsupportedCommand,
+    parse_command,
+)
 from agents_shipgate.core.hook_matcher_reach import (
     CLAUDE_TOOL_NAME_EVENTS,
     NO_TOOL_NAME,
@@ -1506,8 +1510,8 @@ _SHELL_RESERVED_WORDS = frozenset({
 })
 
 
-def _hook_command(value: Any) -> dict[str, str] | None:
-    """A hook's command as its grant publishes it: the executable's name and a digest (#819).
+def _hook_command(value: Any, shell: Any = None) -> dict[str, Any] | None:
+    """A hook's command as its grant publishes it: the executable's name, a digest and a shape (#819, #934).
 
     The command's text is never published. ``sha256`` is the digest of the
     whole command as ``config_sha256``'s input holds it
@@ -1523,12 +1527,16 @@ def _hook_command(value: Any) -> dict[str, str] | None:
     is never named: that input keeps a URL's host and drops the rest, so its
     last segment would be the host (#819 review, cycle 5). It is a label, not
     a claim about what a host runs.
+
+    ``shape`` or ``shape_limit`` (#934) says what is in a command beyond its
+    first word, as :func:`_command_shape` reads it.
     """
 
     if not isinstance(value, str) or not value.strip():
         return None
     written = value.split(maxsplit=1)[0]
-    words = _sanitize_sensitive_string(value).split(maxsplit=1)
+    sanitized = _sanitize_sensitive_string(value)
+    words = sanitized.split(maxsplit=1)
     first = words[0] if words else ""
     named = (
         first not in _SHELL_RESERVED_WORDS
@@ -1537,7 +1545,170 @@ def _hook_command(value: Any) -> dict[str, str] | None:
         and "://" not in first
     )
     name = re.split(r"[/\\]", first)[-1].strip("'\"") if named else ""
-    return {"executable": _plain_token(name), "sha256": redacted_config_sha256(value)}
+    return {
+        "executable": _plain_token(name),
+        "sha256": redacted_config_sha256(value),
+        **_command_shape(value, sanitized, shell),
+    }
+
+
+#: How many distinct program names, and how many redirects, a command's shape lists.
+MAX_SHAPE_COMMANDS = 12
+MAX_SHAPE_REDIRECTS = 8
+#: The text a command is read from keeps these markers in place of a withheld
+#: value; a marker holds ``<`` and ``>``, which a shell reads as redirects.
+_REDACTION_MARKER_RE = re.compile(r"<(?:redacted(?:-[a-z]+)?|invalid-host)>")
+#: What a marker is read as: a character no plain token holds, so a word
+#: carrying one is never named (#934).
+_MARKER_WORD = "\N{REPLACEMENT CHARACTER}"
+#: A line continuation, which a shell removes before it reads the words.
+_LINE_CONTINUATION_RE = re.compile(r"\\\r?\n")
+#: A token of this length or longer that is only letters and digits and holds
+#: both is read as a generated key (a hex digest, a base64-like secret), not
+#: a program's or a file's name, whatever shape no redaction rule knows it by
+#: (#934). A name with a separator (``-``, ``_``, ``.``) is not read so.
+_GENERATED_TOKEN_CHARS = 20
+_ALNUM_RE = re.compile(r"[A-Za-z0-9]+")
+
+
+def _path_looks_generated(path: str) -> bool:
+    """Whether any segment of a path, or any part of one between dots, looks generated."""
+
+    return any(_looks_generated(part) for part in re.split(r"[/.]", path))
+
+
+def _looks_generated(token: str) -> bool:
+    return (
+        len(token) >= _GENERATED_TOKEN_CHARS
+        and _ALNUM_RE.fullmatch(token) is not None
+        and any(char.isdigit() for char in token)
+        and any(char.isalpha() for char in token)
+    )
+#: Programs that run the script named by one of their arguments (#934).
+_SCRIPT_INTERPRETER_RE = re.compile(
+    r"(?:python[0-9.]*|pythonw|py|node|nodejs|deno|bun|tsx|ts-node|ruby|perl|php|lua|"
+    r"bash|sh|zsh|dash|ksh|pwsh|powershell)"
+)
+
+
+def _redirect_target(target: str | None) -> str:
+    """A redirect's target as a shape publishes it: a repository-relative path, ``/dev/null``, or nothing.
+
+    A path of the shape :data:`_HOOK_SCRIPT_ARG_RE` publishes for a script,
+    without its extension requirement, that no redaction rule rewrites. An
+    absolute path, a path through ``..`` or ``~``, a variable, a quoted
+    string and any other word is :data:`DETAIL_NOT_SHOWN`.
+    """
+
+    if target == "/dev/null":
+        return target
+    if (
+        target is not None
+        and len(target) <= MAX_DETAIL_SCRIPT_CHARS
+        and _REDIRECT_TARGET_RE.fullmatch(target)
+        and _detail_string_rules(target) == target
+        and not _path_looks_generated(target)
+    ):
+        return target
+    return DETAIL_NOT_SHOWN
+
+
+def _command_script(statements: list[Any]) -> str | None:
+    """The script path a command runs, as a hook's ``args`` publish one (#972, #934).
+
+    The first command whose own word is a script path, or whose program is an
+    interpreter (:data:`_SCRIPT_INTERPRETER_RE`) with a script path among its
+    first arguments, by the rule :func:`_published_script_index` applies to
+    ``args``: nothing a redaction rule rewrites, alone or after the arguments
+    before it, and no path that leaves the repository. A path argument of any
+    other program is not a script that runs.
+    """
+
+    for statement in statements:
+        word = statement.word
+        if word is None:
+            continue
+        if (
+            len(word) <= MAX_DETAIL_SCRIPT_CHARS
+            and _HOOK_SCRIPT_ARG_RE.fullmatch(word)
+            and _detail_string_rules(word) == word
+        ):
+            return word
+        if _SCRIPT_INTERPRETER_RE.fullmatch(word.rsplit("/", 1)[-1]):
+            args = list(statement.args)
+            index = _published_script_index(args, _redact_secret_values(args))
+            if index is not None:
+                return args[index]
+    return None
+
+
+def _command_shape(value: str, sanitized: str, shell: Any) -> dict[str, Any]:
+    """What a hook's inline command is made of, or why it is not described (#934).
+
+    Read from the command as ``config_sha256``'s input holds it
+    (``sanitized``), so a value that input withholds is withheld here and a
+    rotation it ignores changes nothing. A command that continues a line with
+    a backslash is read with the lines joined, as a shell reads it, and
+    withheld again from that: the string rule takes the backslash for the
+    value of ``--token \\`` and leaves the value on the next line, where it
+    would be a command's name. Returned as ``{"shape": {…}}`` or
+    ``{"shape_limit": reason}``, never both: ``too_long`` (past
+    :data:`~agents_shipgate.core.hook_command_shape.MAX_COMMAND_CHARS`),
+    ``unsupported_shell`` (a ``shell`` setting other than ``bash`` or ``sh``)
+    and ``unsupported_syntax`` (a form the bounded reader of
+    :mod:`agents_shipgate.core.hook_command_shape` refuses whole).
+
+    Only plain tokens (:func:`_plain_token`), counts and a script or redirect
+    path of the strict shapes above are published; a word, an argument and a
+    quoted string never are. A program that is not a plain token (a variable,
+    a substitution, a quoted or glob word) is counted in ``unnamed``. Nothing
+    here says what a command does, whether a host runs it, or in which
+    direction an edit moves authority.
+    """
+
+    if shell is not None and shell not in {"bash", "sh"}:
+        return {"shape_limit": "unsupported_shell"}
+    if _LINE_CONTINUATION_RE.search(value):
+        sanitized = _sanitize_sensitive_string(_LINE_CONTINUATION_RE.sub("", value))
+    try:
+        structure = parse_command(_REDACTION_MARKER_RE.sub(_MARKER_WORD, sanitized))
+    except UnsupportedCommand as refusal:
+        return {"shape_limit": refusal.limit}
+    names: dict[str, None] = {}
+    unnamed = 0
+    for statement in structure.statements:
+        # A URL's last segment would be its host, which the sanitized text keeps.
+        name = (
+            _plain_token(statement.word.rsplit("/", 1)[-1])
+            if statement.word is not None and "://" not in statement.word else DETAIL_NOT_SHOWN
+        )
+        if name == DETAIL_NOT_SHOWN or _looks_generated(name):
+            unnamed += 1
+        else:
+            names.setdefault(name)
+    listed = list(names)[:MAX_SHAPE_COMMANDS]
+    redirects = [
+        f"{operator} {_redirect_target(target)}" for operator, target in structure.redirects
+    ]
+    script = _command_script(structure.statements)
+    if script is not None and _path_looks_generated(script):
+        script = None
+    return {"shape": {
+        "commands": listed,
+        **({"commands_more": len(names) - len(listed)} if len(names) > len(listed) else {}),
+        **({"unnamed": unnamed} if unnamed else {}),
+        "statements": len(structure.statements),
+        "pipes": structure.pipes,
+        "substitutions": structure.substitutions,
+        "control_flow": structure.control,
+        "quoted": structure.quoted,
+        **({"redirects": redirects[:MAX_SHAPE_REDIRECTS]} if redirects else {}),
+        **(
+            {"redirects_more": len(redirects) - MAX_SHAPE_REDIRECTS}
+            if len(redirects) > MAX_SHAPE_REDIRECTS else {}
+        ),
+        **({"script": script} if script else {}),
+    }}
 
 
 #: A script path a hook's ``args`` may publish, and nothing else of them
@@ -1554,6 +1725,12 @@ _HOOK_SCRIPT_ARG_RE = re.compile(
     r"\.(?:py|sh|bash|zsh|js|mjs|cjs|ts|mts|cts|rb|pl|php|ps1|lua)"
 )
 MAX_DETAIL_SCRIPT_CHARS = 200
+#: A redirect target a command's shape may publish (#934): the script path
+#: above without its extension and without ``..`` segments.
+_REDIRECT_TARGET_RE = re.compile(
+    r"(?:\$\{CLAUDE_(?:PROJECT_DIR|PLUGIN_ROOT)\}/|\./)?"
+    r"(?:(?!\.\.?/)[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]*[A-Za-z0-9_-]"
+)
 #: How many arguments before a script candidate are read with it, so a value
 #: only its neighbours mark as a credential (``Bearer <value>``, ``-u
 #: user:<value>``, ``Authorization: Bearer <value>``) is never published:
@@ -1687,7 +1864,7 @@ def _hook_handlers(config: Any, *, host: str | None = None, event: str | None = 
         handlers.extend(
             {
                 "matcher": published,
-                "command": _hook_command(handler.get("command")),
+                "command": _hook_command(handler.get("command"), handler.get("shell")),
                 "timeout": _hook_timeout(handler.get("timeout")),
                 **({"args": _hook_args(handler)} if handler.get("args") is not None else {}),
                 **{
