@@ -1,0 +1,21 @@
+name: "800: [CALL] MATS Tests"
+on:
+  workflow_call:
+permissions:
+  id-token: write
+  actions: read
+  pull-requests: write
+  statuses: write
+  checks: write
+  contents: read
+jobs:
+  commit-info:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo fixture
+  compile-and-spotless:
+    uses: ./.github/workflows/802-call-compile-and-spotless-check.yaml
+  set-failure-mode:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo fixture

@@ -1,0 +1,13 @@
+name: "855: [CALL] Extract CITR Vars"
+on:
+  workflow_call:
+    secrets:
+      github-token:
+        required: true
+permissions:
+  contents: read
+jobs:
+  extract-citr-vars:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo fixture

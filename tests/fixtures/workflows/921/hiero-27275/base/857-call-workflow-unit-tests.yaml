@@ -1,0 +1,11 @@
+name: "857: [CALL] Workflow Unit Tests"
+on:
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  test-gomplate-templates:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo fixture

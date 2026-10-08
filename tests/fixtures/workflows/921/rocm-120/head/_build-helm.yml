@@ -1,0 +1,12 @@
+name: Build helm
+on:
+  workflow_call:
+permissions:
+  contents: read
+  actions: write
+jobs:
+  build-helm:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo fixture
