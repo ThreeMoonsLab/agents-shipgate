@@ -411,6 +411,53 @@ all declare read-only scopes does the same, its `access` moving from `write`
 to `read`. Calls to another repository read as before.
 See [`docs/host-boundary-support.md`](docs/host-boundary-support.md#workflow-token-scopes).
 
+<a id="hook-matcher-reach-940"></a>
+
+## Migration Note: Unreleased — a hook whose matchers match no tool name is not a widening (host-grants `0.9`, #940)
+
+**What was wrong.** Published `1.2.0` counted every added Claude Code hook a
+settings file declares as a widening, whatever its matcher. A `PreToolUse`
+group with `matcher: "Bash(git push*)"` — a permission-rule pattern written
+where Claude Code expects a tool name — was a `⚠ high added` row and one
+widening, though Claude Code reads that matcher as a regular expression over
+the tool name, and no tool name can match it
+(https://code.claude.com/docs/en/hooks#matcher-patterns).
+
+**What changes.** See [matcher reach](docs/host-boundary-support.md#hook-matcher-reach).
+
+- Host-grants inventory `0.9`, unpublished before this release, is extended
+  in place: each handler of a Claude Code `PreToolUse`, `PostToolUse`,
+  `PostToolUseFailure`, `PermissionRequest` or `PermissionDenied` hook carries
+  `matcher_reach`, `no_tool_name` or `possible`, and no other handler carries
+  it. Like the rest of `handlers`, it is left out of grant equality, the
+  inventory digests and saved baselines, so it adds no row and no saved
+  baseline drifts.
+- A hook every one of whose handlers is `no_tool_name` loses `hook_added`
+  (and its `basis`-gained `hook_changed`): the row stays, with `expands:
+  false`, no `⚠`, no widening count, and a `why` that names the matcher.
+  Adding such a handler to an event that already has hooks loses
+  `hook_changed`, and the row is a change of unknown direction.
+- One case gains a signal: a `no_tool_name` matcher edited into one a tool
+  name can match is `hook_changed`, a widening, where `1.2.0` called a
+  same-count hook edit a change of unknown direction. Without it, a hook
+  could be added unable to run and then made to run with no widening shown.
+- `diff` (text and `--json`), `verify`'s host comparison, the PR comment,
+  `check`'s rows, `audit --host --drift`'s `expansion_signals` and
+  `preflight`'s expansion reasons agree.
+
+**Who must act.** Nobody. A reader of `expansion_signals` sees fewer
+`hook_added` entries only for such hooks.
+
+**What does not change.** `check`'s decision: `SHIP-HOST-BOUNDARY-HOOK-CHANGED`
+still asks for review of every changed hook declaration, so no `check`
+decision becomes more permissive. Any matcher the reader does not decide —
+one that may match a built-in or MCP tool name, or one JavaScript would
+reject — keeps the `1.2.0` reading. Other events, other hosts, a hook's
+severity and its loading basis are unchanged. No check ID, CLI flag, control
+state or permission is added. `minimum_control_contract_version` stays `21`.
+
+---
+
 <a id="url-permission-rules-922"></a>
 
 ## Migration Note: Unreleased — a URL in a permission rule keeps its rule (#922)

@@ -272,6 +272,14 @@ SURFACES: tuple[Surface, ...] = (
         # baselines, so it restates no answer and moves no row, severity or
         # `check` decision; `tests/test_inline_hook_allow.py` holds diff,
         # verify, the PR comment and check to it.
+        # A hook row's matcher-reach `why` and note (#940) read the
+        # display-only `matcher_reach` the engine published on a Claude Code
+        # tool event's handler, left out of grant equality, the inventory
+        # digests and saved baselines; the expansion signal is the engine's own
+        # `host_grant_expansion_signals`, which counts the handlers that fact
+        # says a tool call may run, so every route restates one answer and
+        # `check`'s decision does not move; `tests/test_hook_matcher_reach.py`
+        # holds diff, verify, the PR comment, check, drift and preflight to it.
         # Its agent-launch cells and note (#823) restate no answer: direction
         # comes from the engine's
         # `workflow_agent_widened_*` expansion signal, itself read off the

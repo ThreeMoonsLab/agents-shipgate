@@ -639,6 +639,66 @@ publishes no handlers, and its row says the matcher, command and timeout are
 not shown; when only one side is outside it, the row names that side and lists
 the other side's handlers.
 
+<a id="hook-matcher-reach"></a>
+
+A Claude Code hook on a tool event — `PreToolUse`, `PostToolUse`,
+`PostToolUseFailure`, `PermissionRequest` or `PermissionDenied` — runs only
+for a tool whose name its group's matcher matches, and a matcher is compared
+with the tool's name, not its arguments
+([matcher patterns](https://code.claude.com/docs/en/hooks#matcher-patterns)).
+`*`, an empty or an omitted matcher matches every tool; a matcher of only
+letters, digits, `_`, `-`, spaces, `,` and `|` is a list of exact names; any
+other matcher is an unanchored JavaScript regular expression. So
+`Bash(git push*)`, a permission-rule pattern written as a matcher, is a
+regular expression every match of which holds `git pus` and its space, and it
+matches no tool name; a permission-rule pattern filters a handler through its
+[`if` field](https://code.claude.com/docs/en/hooks#common-fields) instead
+(#940). Each handler of such an event publishes `matcher_reach`
+(host-grants `0.9`): `no_tool_name` when every string its declared matcher
+can match holds a character no tool name holds, and `possible` otherwise. A
+tool name is a built-in one
+([tools reference](https://code.claude.com/docs/en/tools-reference), all
+letters) or an MCP tool's `mcp__<server>__<tool>`; every tool name is what
+Claude is given the tool as, which the Claude API restricts to letters,
+digits, `_` and `-`
+([define tools](https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools)),
+and Claude Code rewrites any other character of a plugin MCP tool's name to
+`_` ([plugin MCP tool names](https://code.claude.com/docs/en/mcp)). The
+reader also counts `.` as a tool-name character, so a decided matcher holds a
+character outside letters, digits, `_`, `-` and `.` in every match, and no
+built-in or MCP tool, present or added later, can match it.
+
+The matcher is read, never run: a bounded, linear parser decides only ASCII
+literals, `.`, classes, groups, lookarounds, anchors, quantifiers and the
+escapes whose meaning does not depend on the pattern's flags, which the
+documentation does not state. Anything else is `possible`: a pattern
+JavaScript would reject (`Edit(*.ts)`, `Bash(git push` — what Claude Code
+then does is not documented), a named or modifier group, a backreference, a
+`\x`, `\u` or `\c` escape, a non-ASCII character, groups nested more than 32
+deep, a matcher published as `<not-shown>`. A matcher with only exact-name
+characters is read both as names and as a pattern, and one with surrounding
+white space both trimmed and as written; it is `no_tool_name` only when every
+reading is. So `Bash git push` is decided, `Bash, Edit` and `Bash|` are not,
+and neither is `Bash(git:*)`, which matches the `Bashgit` an MCP tool's name
+may hold. `Bash`, `Edit|Write`, `.*`, `Ba.*`, `mcp__.*`,
+`mcp__github__.*` and `Bash(git push*)|Edit` are all `possible`.
+
+A hook every one of whose handlers is `no_tool_name` runs for no tool call.
+Adding it, or a plugin's selection of it becoming loaded, is still a row, with
+no `⚠` and no expansion signal; its `why` is `declares a hook no tool call can
+trigger` and names the matcher. Adding a `no_tool_name` handler to an event
+that already has hooks is a `changed` row of unknown direction, as any other
+hook edit without a gained handler is. A handler past the bound of 16, or one a
+saved snapshot recorded without `matcher_reach`, counts as one a tool call may
+run. The direction moves both ways: a `no_tool_name` matcher edited into one
+that can match a tool name gains a handler a tool call runs, so it is a
+widening (`hook_changed`). A row whose hook also has handlers that can run
+keeps its `⚠` and names the matchers that cannot. Other events, whose matcher
+filters a session source, an agent type or nothing, and other hosts' hooks are
+unchanged. `diff`, `verify`'s host comparison, the PR comment, `check`'s rows
+and `audit --host --drift` read the one published fact, and `check`'s decision
+does not move: it still asks for review of every changed hook declaration.
+
 <a id="hook-script-dependencies"></a>
 
 Selected hook executables have a separate, bounded byte comparison (#702).
@@ -720,7 +780,8 @@ file exists, not that a host loads it, so hooks are published four ways:
 - **Declared by a file the host loads for this scope**: Claude Code
   settings (`.claude/settings.json`, `.claude/settings.local.json`, user or
   managed settings) or Codex `.codex/hooks.json`. `access: execute`,
-  `risk: high`, and adding or changing one is an expansion.
+  `risk: high`, and adding or changing one is an expansion, unless no tool
+  call can trigger it ([matcher reach](#hook-matcher-reach)).
 - **Selected by a plugin this repository's project settings enable.** A
   project settings file (`.claude/settings.json` or
   `.claude/settings.local.json`) sets `enabledPlugins` `<plugin>@<marketplace>`

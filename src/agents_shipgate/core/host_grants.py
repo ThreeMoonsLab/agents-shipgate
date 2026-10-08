@@ -48,6 +48,12 @@ from agents_shipgate.core.claude_permission_rules import (
     same_spelling,
     unconsulted_path_rule,
 )
+from agents_shipgate.core.hook_matcher_reach import (
+    CLAUDE_TOOL_NAME_EVENTS,
+    NO_TOOL_NAME,
+    POSSIBLE,
+    claude_tool_matcher_reach,
+)
 from agents_shipgate.core.hook_script_capture import capture_hook_script
 from agents_shipgate.core.hook_script_reference import (
     MAX_HOOK_SCRIPT_HANDLERS,
@@ -1535,6 +1541,9 @@ def _hook_handlers(config: Any, *, host: str | None = None, event: str | None = 
     and only those are read for publishing: a group's matcher is read once,
     and only when one of its handlers is listed, so a file of many handlers
     under one long matcher reads it no more than once (#819 review, cycle 5).
+    A Claude Code handler of an event whose matcher filters the tool name
+    also carries ``matcher_reach``, whether that matcher can match any tool
+    name (#940, :mod:`agents_shipgate.core.hook_matcher_reach`).
     """
 
     if not isinstance(config, list):
@@ -1556,6 +1565,10 @@ def _hook_handlers(config: Any, *, host: str | None = None, event: str | None = 
             continue
         matcher = group.get("matcher")
         published = None if matcher is None else _published_matcher(matcher)
+        reach = (
+            {"matcher_reach": _matcher_reach(matcher, published)}
+            if host == "claude-code" and event in CLAUDE_TOOL_NAME_EVENTS else {}
+        )
         handlers.extend(
             {
                 "matcher": published,
@@ -1565,10 +1578,27 @@ def _hook_handlers(config: Any, *, host: str | None = None, event: str | None = 
                     inline_allow_facts(group, handler)
                     if host == "claude-code" and event == "PreToolUse" else {}
                 ),
+                **reach,
             }
             for handler in listed
         )
     return handlers, max(0, declared - MAX_HOOK_HANDLERS)
+
+
+def _matcher_reach(matcher: Any, published: str | None) -> str:
+    """Whether a Claude Code tool-event matcher can match any tool name, as its handler publishes it (#940).
+
+    Decided on the declared matcher, never on the published label, which
+    redaction and the length cut may have changed. A matcher published as
+    :data:`DETAIL_NOT_SHOWN` (longer than the bound as ``config_sha256``'s
+    input holds it, or not a string) is ``possible``: the bound is the
+    published matcher's, so two matchers that input holds alike decide
+    alike, and a row never names a mismatch it cannot show.
+    """
+
+    if published == DETAIL_NOT_SHOWN:
+        return POSSIBLE
+    return claude_tool_matcher_reach(matcher)
 
 
 def _hook_timeout(timeout: Any) -> bool | int | float | str | None:
@@ -6970,10 +7000,53 @@ def _hook_handler_count(grant: dict) -> int | None:
     return len(handlers) + omitted
 
 
-def _hook_handlers_grew(before: dict, after: dict) -> bool:
-    """One event declares more handlers than it did: a hook was added to it (#820)."""
+def _hook_reachable_count(grant: dict) -> int | None:
+    """How many of a hook grant's handlers a tool call may run (#940), or ``None`` where it does not say.
 
-    old, new = _hook_handler_count(before), _hook_handler_count(after)
+    A handler whose ``matcher_reach`` is ``no_tool_name`` runs for no tool
+    call, so it is not counted; every other handler is, and so is every
+    handler past the bound, whose matcher was not read. A Claude Code
+    tool event's handler without ``matcher_reach`` was not examined (a grant
+    a saved snapshot or an earlier reader holds), so that grant does not say;
+    another host's or event's handlers are all counted.
+    """
+
+    count = _hook_handler_count(grant)
+    if count is None:
+        return None
+    if grant.get("host") != "claude-code" or grant.get("event") not in CLAUDE_TOOL_NAME_EVENTS:
+        return count
+    handlers = grant["handlers"]
+    if not all(isinstance(handler, dict) and "matcher_reach" in handler for handler in handlers):
+        return None
+    unreachable = sum(1 for handler in handlers if handler["matcher_reach"] == NO_TOOL_NAME)
+    return count - unreachable
+
+
+def hook_runs_for_no_tool_call(grant: dict[str, Any] | None) -> bool:
+    """A Claude Code tool-event hook none of whose handlers any tool name can trigger (#940).
+
+    True only when the grant lists every handler it declares, at least one,
+    and each one's matcher is ``no_tool_name``.
+    """
+
+    return bool(grant) and grant.get("kind") == "hook" and (
+        _hook_handler_count(grant) or 0
+    ) > 0 and _hook_reachable_count(grant) == 0
+
+
+def _hook_handlers_grew(before: dict, after: dict) -> bool:
+    """One event declares more handlers a tool call may run than it did (#820, #940).
+
+    A hook was added to it, or a handler that no tool name could trigger now
+    has a matcher one may. Counted over the handlers a tool call may run when
+    both sides say, so a handler whose matcher matches no tool name adds
+    nothing; otherwise over every handler, as before #940.
+    """
+
+    old, new = _hook_reachable_count(before), _hook_reachable_count(after)
+    if old is None or new is None:
+        old, new = _hook_handler_count(before), _hook_handler_count(after)
     return old is not None and new is not None and new > old
 
 
@@ -7111,10 +7184,15 @@ def host_grant_expansion_signals(
             # becoming established is still a gain in declared execution, and
             # so is one more handler on an event that already had some: hook
             # grants are one per event, so that added hook is a `changed` one.
+            # A hook whose every matcher matches no tool name runs for no
+            # tool call, so adding it, or establishing its basis, gains
+            # nothing (#940); it is still a row that names the mismatch.
             if hook_loading_basis(after) in LOADED_HOOK_BASES and (
-                before is None
-                or hook_loading_basis(before) in {"declared_only", "plugin_selected"}
-                or _hook_handlers_grew(before, after)
+                (
+                    (before is None or hook_loading_basis(before) in {"declared_only", "plugin_selected"})
+                    and not hook_runs_for_no_tool_call(after)
+                )
+                or (before is not None and _hook_handlers_grew(before, after))
             ):
                 signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
         elif kind in {"permission_mode", "sandbox"}:
