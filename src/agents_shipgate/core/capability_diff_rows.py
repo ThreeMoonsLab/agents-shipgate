@@ -34,6 +34,7 @@ from agents_shipgate.core.host_grants import (
     _PLAIN_TOKEN_RE,
     AGENT_RULE_INPUTS,
     DETAIL_NOT_SHOWN,
+    HOOK_HANDLER_SETTINGS,
     UNTRUSTED_INPUT_TRIGGERS,
     PermissionRuleAssessment,
     PermissionRuleReplacement,
@@ -1389,13 +1390,27 @@ _HOOK_SHAPE_REASON = (
     "the declaration is not a list of matcher groups whose hooks are objects and whose "
     "commands are strings"
 )
+#: A hook handler's published fields, in the order a row names them: its
+#: group's matcher, its command, its ``args`` and timeout (#819, #972), and the
+#: documented settings the reader publishes (#971, #972).
+_HANDLER_FIELDS = ("matcher", "command", "args", "timeout", *HOOK_HANDLER_SETTINGS)
+
 #: What a hook row says when its declaration is outside that shape.
-_HOOK_SHAPE_NOT_READ = f"matcher, command and timeout not shown: {_HOOK_SHAPE_REASON}"
+_HOOK_SHAPE_NOT_READ = f"matcher, command, args, timeout and settings not shown: {_HOOK_SHAPE_REASON}"
+
+#: What a row says it compared when no published handler field differs.
+_HOOK_COMPARED = "the " + ", ".join(_HANDLER_FIELDS[:-1]) + f" or {_HANDLER_FIELDS[-1]}"
 
 #: What a hook's published handlers do not show, and so where a change the
-#: rows cannot name may be (#819). The command is digested whole, so no part
-#: of it is among them.
-_HOOK_UNSHOWN = "another hook setting or a redacted or shortened matcher or timeout"
+#: rows cannot name may be (#819). The command and the arguments are digested
+#: whole, so no part of either is among them; a setting such as ``if`` or
+#: ``statusMessage`` is not published (#972).
+_HOOK_UNSHOWN = (
+    "the if or statusMessage field or another field not published, or a matcher, timeout or "
+    "setting published redacted or shortened"
+)
+#: A handler's cell when it publishes no field.
+_NO_HANDLER_FACTS = "no matcher, command, args, timeout or setting"
 
 
 def _command_text(command: dict[str, Any]) -> str:
@@ -1404,38 +1419,73 @@ def _command_text(command: dict[str, Any]) -> str:
     return f"{command.get('executable') or DETAIL_NOT_SHOWN} {_digest_text(command.get('sha256'))}"
 
 
+def _args_text(args: dict[str, Any]) -> str:
+    """A hook's published ``args`` as one line: the script path it publishes and its digest (#972)."""
+
+    return f"{args.get('script') or DETAIL_NOT_SHOWN} {_digest_text(args.get('sha256'))}"
+
+
+def _args_changes(label: str, old: dict[str, Any], new: dict[str, Any]) -> list[str]:
+    """The difference in two readings of one handler's ``args`` (#972).
+
+    The digest stands for every argument but the published script, so an edit
+    to the script alone names the script alone, as an MCP server's package is
+    named (:func:`_mcp_args_change`).
+    """
+
+    parts: list[str] = []
+    old_script, new_script = old.get("script"), new.get("script")
+    if old_script != new_script:
+        parts.append(f"{label} script {old_script or '(none shown)'} → {new_script or '(none shown)'}")
+    if old.get("sha256") != new.get("sha256"):
+        parts.append(
+            f"{label} changed ({_digest_text(old.get('sha256'))} → {_digest_text(new.get('sha256'))})"
+        )
+    return parts
+
+
 def _handler_value(field: str, value: Any) -> str:
     """A published handler field as a row prints it (#819).
 
-    A timeout is printed as its JSON reads, so one written as text is quoted
-    and ``5`` → ``"5"`` or ``true`` → ``"true"`` never reads as the same value
-    twice (#819 review, cycles 5 and 6). Only the bounded text of an integer
-    too long to publish, and ``<not-shown>``, are printed bare: neither is a
-    plain token, so no string timeout is published as either.
+    A timeout, and a setting (#971, #972), is printed as its JSON reads, so
+    one written as text is quoted and ``5`` → ``"5"`` or ``true`` →
+    ``"true"`` never reads as the same value twice (#819 review, cycles 5 and
+    6). Only the bounded text of an integer too long to publish, and
+    ``<not-shown>``, are printed bare: neither is a plain token, so no string
+    value is published as either.
     """
 
     if value is None:
         return "(none)"
     if field == "command":
         return _command_text(value)
+    if field == "args":
+        return _args_text(value)
     if field == "matcher" and value == "":
         return '""'
-    if field == "timeout" and (not isinstance(value, str) or _PLAIN_TOKEN_RE.fullmatch(value)):
+    if field in _JSON_HANDLER_FIELDS and (
+        not isinstance(value, str) or _PLAIN_TOKEN_RE.fullmatch(value)
+    ):
         return json.dumps(value, ensure_ascii=False)
     return str(value)
 
 
-#: A hook handler's published fields, in the order a row names them.
-_HANDLER_FIELDS = ("matcher", "command", "timeout")
+#: The handler fields printed as their JSON reads.
+_JSON_HANDLER_FIELDS = frozenset({"timeout", *HOOK_HANDLER_SETTINGS})
 
 
 def _handler_facts(handler: dict[str, Any]) -> list[str]:
-    """What one published handler declares, in a reviewer's words."""
+    """What one published handler declares, in a reviewer's words.
+
+    A handler whose command is published is a command handler, so its
+    ``type "command"`` is not repeated beside it; any other type is named.
+    """
 
     return [
         f"{field} {_handler_value(field, handler.get(field))}"
         for field in _HANDLER_FIELDS
         if handler.get(field) is not None
+        and not (field == "type" and handler[field] == "command" and handler.get("command"))
     ]
 
 
@@ -1460,9 +1510,9 @@ def _listed_handlers(grant: dict[str, Any]) -> str:
     if not total:
         return "no handlers"
     if total == 1 and handlers:
-        return "; ".join(_handler_facts(handlers[0])) or "a handler with no matcher, command or timeout"
+        return "; ".join(_handler_facts(handlers[0])) or f"a handler with {_NO_HANDLER_FACTS}"
     listed = [
-        f"handler {index}: {', '.join(_handler_facts(handler)) or 'no matcher, command or timeout'}"
+        f"handler {index}: {', '.join(_handler_facts(handler)) or _NO_HANDLER_FACTS}"
         for index, handler in enumerate(handlers[:_HANDLER_LIMIT], start=1)
     ]
     return "; ".join(listed) + _more(total - len(listed), "handler")
@@ -1481,7 +1531,8 @@ def _handler_changes(before: list[dict[str, Any]], after: list[dict[str, Any]]) 
     order. With the same number of handlers, handler N is compared with
     handler N and each differing field is named with its before and after; a
     command by its executable's name and digest, since its text is never
-    published. Otherwise the handlers only one side declares are listed as
+    published, and ``args`` by the script path and digest they publish
+    (#972). Otherwise the handlers only one side declares are listed as
     removed or added, since nothing establishes which of them another
     replaced. Values compare as the JSON publishes them: a timeout of ``5``
     and one of ``5.0`` are two values there, and the row names both.
@@ -1501,6 +1552,8 @@ def _handler_changes(before: list[dict[str, Any]], after: list[dict[str, Any]]) 
                 label = f"handler {index} {field}" if several else field
                 if field == "command" and old_value and new_value:
                     parts.append(f"{label} changed ({_command_text(old_value)} → {_command_text(new_value)})")
+                elif field == "args" and old_value and new_value:
+                    parts.extend(_args_changes(label, old_value, new_value))
                 else:
                     parts.append(
                         f"{label} {_handler_value(field, old_value)} → {_handler_value(field, new_value)}"
@@ -1517,7 +1570,7 @@ def _handler_changes(before: list[dict[str, Any]], after: list[dict[str, Any]]) 
     added = [handler for _text, handler in remaining]
     for sign, handlers in (("-", removed), ("+", added)):
         for handler in handlers:
-            facts = ", ".join(_handler_facts(handler)) or "no matcher, command or timeout"
+            facts = ", ".join(_handler_facts(handler)) or _NO_HANDLER_FACTS
             parts.append(f"{sign}handler ({facts})")
     return parts
 
@@ -1586,8 +1639,8 @@ def _hook_change(event: str, before: dict[str, Any], after: dict[str, Any]) -> s
     handlers twice. When the published handlers are the same ones in a
     different order, the text says so, and that a detail it does not show may
     differ too: equal published handlers never establish equal handlers,
-    since a setting such as ``async`` is not published (#819 review, cycle
-    4). When either side lists fewer handlers than it declares, only the
+    since a field such as ``if`` is not published (#819 review, cycle 4;
+    #972). When either side lists fewer handlers than it declares, only the
     first ones were compared, and a handler past them is named among what is
     not shown (#819 review). When only one side's declaration is outside the
     documented shape, that side is named and the other side's handlers are
@@ -1606,7 +1659,8 @@ def _hook_change(event: str, before: dict[str, Any], after: dict[str, Any]) -> s
     if old is None or new is None:
         unread, read, grant = ("base", "head", after) if old is None else ("head", "base", before)
         return (
-            f"{event}: {unread} matcher, command and timeout not shown ({_HOOK_SHAPE_REASON}); "
+            f"{event}: {unread} matcher, command, args, timeout and settings not shown "
+            f"({_HOOK_SHAPE_REASON}); "
             f"{read} ({_listed_handlers(grant)})"
         )
     changes = _handler_changes(old, new)
@@ -1627,7 +1681,7 @@ def _hook_change(event: str, before: dict[str, Any], after: dict[str, Any]) -> s
     if not parts:
         compared = f" of the first {bound} handlers" if past else ""
         return (
-            f"{event}: no difference in the matcher, command or timeout{compared}; the change is "
+            f"{event}: no difference in {_HOOK_COMPARED}{compared}; the change is "
             f"in a detail this output does not show, such as {past}{_HOOK_UNSHOWN}"
         )
     shown = parts[:_NAME_LIMIT]

@@ -215,6 +215,8 @@ def test_the_grants_publish_the_detail_the_rows_render(tmp_path: Path) -> None:
         "timeout": 30,
         # A Claude Code tool event's handler says whether its matcher can match a tool name (#940).
         "matcher_reach": "possible",
+        # A documented setting the handler declares is published as declared (#972).
+        "type": "command",
     }]
     assert hook["omitted_handlers"] == 0
     # The digest is of the command as `config_sha256`'s input holds it: here,
@@ -289,28 +291,29 @@ def test_several_handlers_name_which_one_changed(tmp_path: Path) -> None:
 
 
 #: What a reorder says: equal published handlers never establish equal
-#: handlers, since a setting such as `async` is not published (#819 review,
-#: cycle 4).
+#: handlers, since a field such as `statusMessage` is not published (#819
+#: review, cycle 4; #972 publishes `async`).
 REORDERED = (
     "PreToolUse: the published handlers in a different order; a detail this output does not "
-    "show may also differ, such as another hook setting or a redacted or shortened matcher or "
-    "timeout"
+    "show may also differ, such as the if or statusMessage field or another field not "
+    "published, or a matcher, timeout or setting published redacted or shortened"
 )
 
 
 def test_a_reorder_says_a_detail_it_does_not_show_may_also_differ_on_every_route(tmp_path: Path) -> None:
-    """`bin/a.sh`, `bin/lint.sh` (`async: false`) → `bin/lint.sh` (`async: true`), `bin/a.sh` (#819 review, cycle 4).
+    """`bin/a.sh`, `bin/lint.sh` (`statusMessage: a`) → `bin/lint.sh` (`statusMessage: b`), `bin/a.sh` (#819 review, cycle 4).
 
     Every route printed `the same handlers in a different order`, which the
-    hidden `async` edit made false.
+    hidden edit made false. The issue's own example was `async`, which #972
+    publishes, so the unpublished field is now `statusMessage`.
     """
 
     base = _pre_tool_use(
         {"type": "command", "command": "bin/a.sh"},
-        {"type": "command", "command": "bin/lint.sh", "async": False},
+        {"type": "command", "command": "bin/lint.sh", "statusMessage": "Linting"},
     )
     head = _pre_tool_use(
-        {"type": "command", "command": "bin/lint.sh", "async": True},
+        {"type": "command", "command": "bin/lint.sh", "statusMessage": "Checking"},
         {"type": "command", "command": "bin/a.sh"},
     )
     repo = _repository(tmp_path, {SETTINGS: base}, {SETTINGS: head})
@@ -870,9 +873,11 @@ def test_a_change_past_the_handler_bound_says_only_the_first_handlers_were_compa
     assert (len(hook["handlers"]), hook["omitted_handlers"]) == (MAX_HOOK_HANDLERS, 1)
     text, payload = _diff(repo)
     assert _table_entry(text, HOOK_HEADER)[1] == (
-        "PostToolUse: no difference in the matcher, command or timeout of the first 16 handlers; "
-        "the change is in a detail this output does not show, such as a handler past the first "
-        "16, another hook setting or a redacted or shortened matcher or timeout"
+        "PostToolUse: no difference in the matcher, command, args, timeout, type, async, "
+        "asyncRewake, shell or once of the first 16 handlers; the change is in a detail this "
+        "output does not show, such as a handler past the first 16, the if or statusMessage "
+        "field or another field not published, or a matcher, timeout or setting published "
+        "redacted or shortened"
     )
     assert len(payload["rows"]) == 1
 
@@ -1548,8 +1553,8 @@ def test_a_declaration_outside_the_documented_shape_names_the_limit(tmp_path: Pa
 
     text, payload = _diff(repo)
     assert _table_entry(text, HOOK_HEADER)[1] == (
-        "PostToolUse: matcher, command and timeout not shown: the declaration is not a list "
-        "of matcher groups whose hooks are objects and whose commands are strings"
+        "PostToolUse: matcher, command, args, timeout and settings not shown: the declaration "
+        "is not a list of matcher groups whose hooks are objects and whose commands are strings"
     )
     assert "example.invalid" not in text
     assert len(payload["rows"]) == 1
@@ -1575,8 +1580,8 @@ def test_one_side_outside_the_documented_shape_names_that_side_and_lists_the_oth
     repo = _repository(tmp_path, {SETTINGS: base}, {SETTINGS: head})
     other = "head" if side == "base" else "base"
     change = (
-        f"PostToolUse: {side} matcher, command and timeout not shown (the declaration is not a "
-        f"list of matcher groups whose hooks are objects and whose commands are strings); {other} "
+        f"PostToolUse: {side} matcher, command, args, timeout and settings not shown (the "
+        f"declaration is not a list of matcher groups whose hooks are objects and whose commands are strings); {other} "
         f"(matcher Edit; command a.sh "
         f"{_digest('bin/a.sh')}; timeout 10)"
     )
@@ -1590,11 +1595,14 @@ def test_a_change_to_an_unpublished_hook_setting_says_it_is_not_shown(tmp_path: 
     def hook(**extra: object) -> dict:
         return {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "bin/stop.sh", **extra}]}]}}
 
-    repo = _repository(tmp_path, {SETTINGS: hook()}, {SETTINGS: hook(**{"async": True})})
+    # `async` was this test's setting until #972 published it; `statusMessage` is not.
+    repo = _repository(tmp_path, {SETTINGS: hook()}, {SETTINGS: hook(statusMessage="Stopping")})
     text, payload = _diff(repo)
     assert _table_entry(text, HOOK_HEADER)[1] == (
-        "Stop: no difference in the matcher, command or timeout; the change is in a detail this "
-        "output does not show, such as another hook setting or a redacted or shortened matcher or "
-        "timeout"
+        "Stop: no difference in the matcher, command, args, timeout, type, async, asyncRewake, "
+        "shell or once; the change is in a detail this output does not show, such as the if or "
+        "statusMessage field or another field not published, or a matcher, timeout or setting "
+        "published redacted or shortened"
     )
+    assert "Stopping" not in text
     assert len(payload["rows"]) == 1

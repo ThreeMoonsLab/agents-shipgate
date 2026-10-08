@@ -639,6 +639,54 @@ publishes no handlers, and its row says the matcher, command and timeout are
 not shown; when only one side is outside it, the row names that side and lists
 the other side's handlers.
 
+<a id="hook-args-and-settings"></a>
+
+A handler's exec-form `args` and its documented boolean and enumerated settings
+are published too (host-grants `0.9`, #972, #971), so an edit confined to them
+is named instead of read as a detail the output does not show. A command
+hook's `args` is the argument vector its `command` is spawned with, without a
+shell, and `async`, `asyncRewake` and `shell` are command-hook fields; `type`
+and `once` are common to every handler
+([command hook fields](https://code.claude.com/docs/en/hooks#command-hook-fields),
+[common fields](https://code.claude.com/docs/en/hooks#common-fields)). `args`
+is published as an MCP server's arguments are: `script`, the first argument
+shaped as a relative script path — segments of letters, digits, `.`, `_` and
+`-`, optionally led by `./`, `${CLAUDE_PROJECT_DIR}/` or
+`${CLAUDE_PLUGIN_ROOT}/`, ending in a script extension such as `.py`, `.sh`,
+`.js`, `.mjs` or `.ts`, at most 200 characters — when no redaction rule
+rewrites it, alone or read after the three arguments before it (so `Bearer`,
+`Authorization:` or `--token` just before it withholds it), and `sha256`, a digest of the
+arguments as `config_sha256`'s input holds them with the script's place
+marked. No other argument text, no absolute path and no URL is published. So
+`command: python3, args: ["guard-readonly.py"]` → `["guard-write.py"]` reads
+`PreToolUse: args script guard-readonly.py → guard-write.py`, an edit to the
+other arguments `args changed (sha256:… → sha256:…)`, and a handler that gains
+`args` `args (none) → guard.py sha256:…`. Reordering the arguments is a change,
+since their order is the vector's; writing the same handler with its keys in
+another order is not. `type`, `async`, `asyncRewake`, `shell` and `once` are
+published only when declared, as a timeout is: a boolean or number as
+declared, a plain-token string quoted, anything else `<not-shown>`. So
+`"async": true` → `"asyncRewake": true` reads `PostToolUse: async true →
+(none); asyncRewake (none) → true`, and a `prompt` handler made an `agent`
+handler `type "prompt" → "agent"`. A cell lists them beside the matcher,
+command and timeout, except a command handler's `type "command"`, which its
+command already says. A value is the declaration, never a claim about when or
+how the hook runs or what its script does, and the row's direction stays
+unknown. Other handler fields — `if`, `statusMessage`, a prompt, a model, a URL
+or headers — are still not published, and a change confined to them, or to a
+value published redacted or shortened, reads `no difference in the matcher,
+command, args, timeout, type, async, asyncRewake, shell or once; the change is
+in a detail this output does not show, such as the if or statusMessage field or
+another field not published, or a matcher, timeout or setting published
+redacted or shortened`. Like the rest of `handlers`, these fields are left out
+of grant equality, the inventory digests and saved baselines, so they add no
+row, and a rotation of a value the digest's input redacts (the value after
+`--token`, `--api-key` or `--password`, a `--password=…` value, or the
+credential in one argument holding `Authorization: Bearer …` or `-u user:…`,
+#987) is still no row. A value no rule redacts, such as a bare positional
+token, or a password split from its `-u` into the next argument, moves the
+digest, so its rotation is a row of digests that prints neither value.
+
 <a id="hook-matcher-reach"></a>
 
 A Claude Code hook on a tool event — `PreToolUse`, `PostToolUse`,
