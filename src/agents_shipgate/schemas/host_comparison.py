@@ -37,6 +37,19 @@ class HostComparisonLimit(BaseModel):
 #: ``omitted_items`` counts the rest.
 MAX_COVERAGE_ITEMS = 10
 
+#: The sentence a blocking limit's ``detail`` ends with when both sides carry
+#: it (#973), keyed by whether Git shows the file changed in this change:
+#: ``False`` changed, ``True`` byte-identical, ``None`` neither shown (a link,
+#: a redacted or member path, a checkout conversion, a provided diff). A
+#: refusal naming a file only as "unsupported in base and head" was read as
+#: naming an unchanged one, so the fact is stated, never left to inference.
+#: A side-specific limit carries none: its side already says it differs.
+BLOCKING_SOURCE_IDENTITY_NOTES: dict[bool | None, str] = {
+    False: "This file changed in this change.",
+    True: "This file is byte-identical in base and head.",
+    None: "Whether this file changed in this change is not established.",
+}
+
 #: The issue kinds a host inventory publishes, as a blocking limit may name them.
 CoverageLimitKind = Literal[
     "parse_failed",
@@ -145,8 +158,16 @@ class HostComparisonCoverageItem(BaseModel):
       directory that holds it. For a selected hook script either side could
       not read (#702), unless both read it alike and it is proven unchanged
       or on neither side,
-      ``scope`` is the script's own path, equal to ``source``: only its bytes
-      were not compared, and the hook declaring it still was.
+      ``scope`` is the script's own path, equal to ``source``, and ``limit``
+      is ``unreadable``: only its bytes were not compared, and the hook
+      declaring it still was. For a plain instruction document (``AGENTS.md``,
+      ``AGENTS.override.md``, ``CLAUDE.md``) both sides read directly and
+      only its size bound left ``unsupported`` (#973), ``scope`` is likewise
+      the document's own path and ``limit`` is ``unsupported``: that document
+      was not compared, and no grant this entry compares depends on it. When
+      both sides carry the limit, ``detail`` ends with a sentence saying
+      whether the file changed in this change, is byte-identical, or neither
+      is established.
     - ``changed_not_read``: a path in the comparison's own changed-file set
       that a documented candidate rule names, and that no reader of this entry
       read (#821). ``candidate`` names the rule. The source is the file, or a
@@ -198,7 +219,8 @@ class HostComparisonCoverageItem(BaseModel):
     ]
     rows: int = Field(default=0, ge=0)
     limit: CoverageLimitKind | None = None
-    #: A blocking limit's published issue message, for an
+    #: A blocking limit's published issue message — followed, when both sides
+    #: carry it, by one of :data:`BLOCKING_SOURCE_IDENTITY_NOTES` (#973) — for an
     #: ``external_plugin_source`` the source it names, redacted and bounded,
     #: or for ``script_not_resolved`` the handlers it names (#702).
     detail: str | None = None
@@ -208,7 +230,9 @@ class HostComparisonCoverageItem(BaseModel):
     #: blocking limit (#808). The limit is bounded by the plugin directory
     #: whose manifest or hook file raised it, since the reader follows a
     #: reference only inside its plugin; the scope is that directory, or the
-    #: outermost withheld plugin directory holding it. No source under it is
+    #: outermost withheld plugin directory holding it; for a withheld hook
+    #: script (#702) or plain instruction document (#973), that file's own
+    #: path, equal to ``source``. No source under it is
     #: a row, and none is an item except such a limit or a changed input no
     #: reader read (#821). ``None`` on every other item, and on every item of
     #: a comparable or incomparable comparison.
@@ -459,12 +483,14 @@ class HostComparison(BaseModel):
       bounds, or the inputs could not be compared; no rows.
     - ``partial`` (#808): an inventory is incomplete, at least one of its
       blocking limits is bounded by a plugin directory whose contents no
-      compared source depends on, and every other one is a limit both sides
+      compared source depends on — or is a selected hook script's bytes
+      (#702), or a plain instruction document only its size bound left
+      unread (#973) — and every other one is a limit both sides
       share on an unchanged source, named in ``unchanged_limits`` as on a
-      comparable comparison. Each such directory is left uncompared on both
-      sides — each limit it bounds is a ``blocking_limit`` coverage item
-      naming it as ``scope`` — and the ``rows`` are the changes established
-      outside it. ``incomparable_reasons`` still names which inventory is
+      comparable comparison. Each such directory or file is left uncompared
+      on both sides — each limit it bounds is a ``blocking_limit`` coverage
+      item naming it as ``scope`` — and the ``rows`` are the changes
+      established outside it. ``incomparable_reasons`` still names which inventory is
       incomplete. It is never a complete comparison: read it as
       ``incomparable`` for any decision, and its rows as what is known, not
       as the whole change.

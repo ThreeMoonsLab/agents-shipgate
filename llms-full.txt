@@ -1642,6 +1642,16 @@ directory, still refuses its comparison. A `0.20` verifier claiming a partial
 comparison or a `scope` is refused. See
 [the migration note](../STABILITY.md#partial-host-comparison-808).
 
+Unreleased, still contract v42: a plain instruction document (`AGENTS.md`,
+`AGENTS.override.md`, `CLAUDE.md`) that both sides read directly and that is
+refused only because it is past the 256 KiB instruction bound is withheld the
+same way (#973): the comparison is `partial`, and the document's own path is
+the `scope` of its `blocking_limit` item, with `limit: unsupported` (a hook
+script's own-path scope is `unreadable`). A blocking limit both sides carry
+ends its `detail` with whether Git shows the file changed in this change, is
+byte-identical, or neither. Treat `partial` as before. See
+[the migration note](../STABILITY.md#oversized-instruction-document-973).
+
 Runtime contract v41, extended in place, also reads how a coding agent is
 launched inside a workflow job (#823). Host-grants `0.6` shipped in 1.1.0, so
 host-grants inventory, baseline and drift schemas move to `0.7`, and a workflow

@@ -273,6 +273,7 @@
   "tests/test_org_governance.py": 0.1,
   "tests/test_out_path_resolution.py": 58.2,
   "tests/test_output_directory_content.py": 350.3,
+  "tests/test_oversized_instruction_document_partial.py": 74.3,
   "tests/test_p0_binding_canaries.py": 0.1,
   "tests/test_p0_policy_evidence_canaries.py": 0.0,
   "tests/test_p0_safety_canaries.py": 1.4,

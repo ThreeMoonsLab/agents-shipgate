@@ -45,6 +45,7 @@ from agents_shipgate.core.unread_inputs import (
     discover_unread_inputs,
 )
 from agents_shipgate.schemas.host_comparison import (
+    BLOCKING_SOURCE_IDENTITY_NOTES,
     COVERAGE_LIMIT_ORDER,
     MAX_COVERAGE_ITEMS,
     HostComparison,
@@ -268,6 +269,133 @@ def _withheld_scripts(
         ),
         without_hook_dependency_bytes(
             after, issue_ids={key[1] for key in scope_of if key[0] == "head"}, dependencies=withheld
+        ),
+        scope_of,
+    )
+
+
+#: The one unresolved instruction structure a comparison may leave uncompared
+#: beside the rest (#973): a plain instruction document (``AGENTS.md``,
+#: ``AGENTS.override.md``, ``CLAUDE.md``) refused only because its text is past
+#: the classifier's size bound. Read within the bound, that profile is
+#: ``guidance`` with one digest whatever the text says, and the reader
+#: publishes no grant for it, so no other source's grant can depend on what it
+#: says. Every other unresolved structure keeps refusing: a skill or command
+#: can declare ``allowed-tools`` and ``hooks``, a Cursor rule its activation,
+#: a role this entry does not read anything at all, and a NUL byte or text
+#: that could not be captured whole is not "readable but long".
+_WITHHOLDABLE_DOCUMENT = {
+    "profile": "plain_instruction/v1",
+    "status": "unresolved",
+    "reason": "instruction_text_limit",
+}
+
+
+def _withholdable_document(artifact: dict[str, Any]) -> bool:
+    """Whether one artifact is a plain instruction document past the size bound, read directly (#973)."""
+
+    structure = artifact.get("instruction_structure") or {}
+    return (
+        artifact.get("kind") == "instructions"
+        and artifact.get("parse_status") == "unsupported"
+        and not artifact.get("resolved_through")
+        and all(structure.get(key) == value for key, value in _WITHHOLDABLE_DOCUMENT.items())
+    )
+
+
+def _withheld_documents(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    unchanged: Callable[[str], bool] | None,
+) -> tuple[dict[str, Any], dict[str, Any], dict[tuple[str, str], str]] | None:
+    """Both inventories without each plain instruction document only its size bound refused (#973).
+
+    The document is left uncompared on both sides and its path is the scope a
+    ``partial`` comparison names. It qualifies only when every one of these
+    holds, and is otherwise left to refuse the comparison as before:
+
+    - both sides publish it at the same path, read directly (no in-tree link,
+      #700/#822), for the same hosts, and every blocking issue either side
+      raises at that path is ``unsupported`` from such an artifact — so it is
+      neither added nor removed, unreadable, parse-failed, behind a link, or
+      a skill, command, Cursor rule or unread role at a familiar name;
+    - its path publishes as itself, so the scope names that file;
+    - no hook names it as a script whose bytes are compared (#702), and no
+      grant but its own instruction grant is published at its path;
+    - ``unchanged`` does not prove it identical: an unchanged one is named in
+      ``unchanged_limits`` exactly as #721 names it, and a comparison that
+      is otherwise complete stays ``comparable``.
+
+    Returns both inventories and ``{(side, issue id): the document's path}``,
+    or ``None`` when no document is withheld.
+    """
+
+    def documents(inventory: dict[str, Any]) -> dict[str, tuple[frozenset[str], frozenset[str]]]:
+        """``{path: (hosts, blocking issue ids)}`` for each withholdable document."""
+
+        published: dict[str, list[dict[str, Any]]] = {}
+        for artifact in inventory.get("artifacts", []):
+            published.setdefault(str(artifact.get("path")), []).append(artifact)
+        raised: dict[str, list[dict[str, Any]]] = {}
+        for issue in inventory.get("issues", []):
+            if issue.get("blocking"):
+                raised.setdefault(str(issue.get("source")), []).append(issue)
+        found: dict[str, tuple[frozenset[str], frozenset[str]]] = {}
+        for path, issues in raised.items():
+            artifacts = published.get(path, [])
+            hosts = frozenset(str(artifact.get("host")) for artifact in artifacts)
+            if (
+                artifacts
+                and all(_withholdable_document(artifact) for artifact in artifacts)
+                and all(issue.get("kind") == "unsupported" for issue in issues)
+                and {str(issue.get("host")) for issue in issues} == hosts
+            ):
+                found[path] = (hosts, frozenset(str(issue["issue_id"]) for issue in issues))
+        return found
+
+    base, head = documents(before), documents(after)
+    # A hook script's bytes are an input of its hook's grant (#702), and
+    # withholding a path withholds every grant published there, so only the
+    # document's own instruction grant may name it.
+    depended_on = {
+        str(entry["path"])
+        for inventory in (before, after)
+        for grant in inventory.get("grants", [])
+        for entry in grant.get("script_inputs") or []
+        if entry.get("path")
+    } | {
+        str(grant.get("source"))
+        for inventory in (before, after)
+        for grant in inventory.get("grants", [])
+        if grant.get("kind") != "instruction_trust_root"
+    }
+    paths = {
+        path
+        for path in base.keys() & head.keys()
+        if base[path][0] == head[path][0]
+        and _bounded(path)
+        and public_host_path(path) == path
+        and path not in depended_on
+        and not (unchanged is not None and unchanged(path))
+    }
+    if not paths:
+        return None
+
+    def withheld(source: str) -> bool:
+        return source in paths
+
+    scope_of = {
+        (side, issue_id): path
+        for side, found in (("base", base), ("head", head))
+        for path in paths
+        for issue_id in found[path][1]
+    }
+    return (
+        without_host_sources(
+            before, issue_ids={key[1] for key in scope_of if key[0] == "base"}, withheld=withheld
+        ),
+        without_host_sources(
+            after, issue_ids={key[1] for key in scope_of if key[0] == "head"}, withheld=withheld
         ),
         scope_of,
     )
@@ -555,6 +683,7 @@ def _blocking_facts(
     before: dict[str, Any],
     after: dict[str, Any],
     scope_of: Mapping[tuple[str, str], str] | None = None,
+    identities: IdentityAnswers | None = None,
 ) -> dict[tuple[str, str, str, str | None], dict[str, Any]]:
     """The blocking issues behind a refused or partial comparison, as coverage facts (#812).
 
@@ -563,6 +692,11 @@ def _blocking_facts(
     id): the directory a partial comparison left uncompared}`` (#808) — only
     those issues, each naming its directory as ``scope``: any other blocking
     issue of a partial comparison is an unchanged limit, named there instead.
+
+    A limit both sides carry has its ``detail`` end with one of
+    :data:`BLOCKING_SOURCE_IDENTITY_NOTES` (#973): whether ``identities``
+    shows the file changed in this change, proves it identical, or neither.
+    Without ``identities`` (a provided diff) it is never established.
     """
 
     Found = dict[tuple[str, str, str], tuple[str, str | None]]
@@ -582,6 +716,18 @@ def _blocking_facts(
         return found
 
     base, head = blocking("base", before), blocking("head", after)
+    # Whether each source both sides limit changed in this change (#973): a
+    # refusal that names a file only as "unsupported in base and head" was
+    # read as naming an unchanged one. One question for all of them, asked
+    # only of a path that names one file; anything else is not established.
+    shared = sorted({
+        key[0]
+        for key in set(base) & set(head)
+        if "#" not in key[0]
+        and not _PATH_REDACTION_MARKER.search(key[0])
+        and not _REDACTION_DIGEST.search(key[0])
+    })
+    answers = identities(shared) if identities is not None and shared else {}
     facts: dict[tuple[str, str, str, str | None], dict[str, Any]] = {}
     for key in sorted(set(base) | set(head)):
         source, kind, host = key
@@ -589,6 +735,8 @@ def _blocking_facts(
         # The head's message first, as a refused comparison has always named
         # it, and with it the directory the head's limit is bounded by.
         message, scope = head.get(key) or base[key]
+        if side == "both":
+            message = f"{message} {BLOCKING_SOURCE_IDENTITY_NOTES[answers.get(source)]}"
         item = facts.setdefault(
             (source, "blocking_limit", side, kind),
             {
@@ -609,7 +757,10 @@ def _blocking_facts(
 
 
 def _blocking_coverage(
-    before: dict[str, Any], after: dict[str, Any], unread: UnreadDiscovery | None = None
+    before: dict[str, Any],
+    after: dict[str, Any],
+    unread: UnreadDiscovery | None = None,
+    identities: IdentityAnswers | None = None,
 ) -> HostComparisonCoverage:
     """The sources behind a refused comparison, each with its limit and side (#812).
 
@@ -619,7 +770,7 @@ def _blocking_coverage(
     read (#821) is named beside them: it is not a source either side compared.
     """
 
-    return _group_coverage(_blocking_facts(before, after), unread)
+    return _group_coverage(_blocking_facts(before, after, identities=identities), unread)
 
 
 #: The digest `public_host_path` stamps after a redacted component. A source
@@ -944,27 +1095,38 @@ def _retained_comparison(
     unchanged: Callable[[str], bool] | None,
     absent: Callable[[str], bool] | None = None,
 ) -> _Retained | None:
-    """What a refused comparison can still compare, or ``None`` (#808, #702).
+    """What a refused comparison can still compare, or ``None`` (#808, #702, #973).
 
     First each selected hook script a limit leaves unproven is withheld
-    (:func:`_withheld_scripts`), then any plugin directory a limit is bounded
-    by (:func:`_independent_of_plugin_scopes`). Every other blocking limit
-    must be one ``unchanged`` proves, as on a comparable comparison.
+    (:func:`_withheld_scripts`), then each plain instruction document only
+    its size bound refused (:func:`_withheld_documents`), then any plugin
+    directory a limit is bounded by (:func:`_independent_of_plugin_scopes`).
+    Every other blocking limit must be one ``unchanged`` proves, as on a
+    comparable comparison.
     """
 
     withheld = _withheld_scripts(before, after, unchanged, absent)
     scripts: dict[tuple[str, str], str] = {}
     if withheld is not None:
         before, after, scripts = withheld
+    documents: dict[tuple[str, str], str] = {}
+    unread_documents = _withheld_documents(before, after, unchanged)
+    if unread_documents is not None:
+        before, after, documents = unread_documents
     if scopes is not None:
         plugins = _independent_of_plugin_scopes(before, after, scopes, unchanged, absent)
         if plugins is not None:
             return replace(
                 plugins,
-                scopes=tuple(sorted({*plugins.scopes, *scripts.values()})),
-                scope_of={**scripts, **plugins.scope_of},
+                scopes=tuple(sorted({*plugins.scopes, *scripts.values(), *documents.values()})),
+                scope_of={**scripts, **documents, **plugins.scope_of},
             )
-    if not scripts:
+    if not scripts and not documents:
+        return None
+    if documents and not any(
+        inventory.get("artifacts") or inventory.get("grants") for inventory in (before, after)
+    ):
+        # Nothing was read beside the document, so nothing would be retained (#808).
         return None
     limits: list[dict[str, str]] | None = []
     if not (inventory_is_complete(before) and inventory_is_complete(after)):
@@ -974,11 +1136,13 @@ def _retained_comparison(
     if limits is None:
         return None
     return _Retained(
-        scopes=tuple(sorted(set(scripts.values()))),
+        scopes=tuple(sorted({*scripts.values(), *documents.values()})),
         before=before,
         after=after,
         limits=limits,
-        scope_of=scripts,
+        scope_of={**scripts, **documents},
+        # A plain instruction document declares no hook, so no hook's loading
+        # basis is withheld with it.
         hooks_withheld=False,
     )
 
@@ -1212,13 +1376,13 @@ def compare_host_inventories(
     if not coverage:
         established = None
     elif refused:
-        established = _blocking_coverage(before, after, unread)
+        established = _blocking_coverage(before, after, unread, identities)
     elif retained is not None:
         # The limits that left a directory uncompared, each naming it, then
         # what the rest established, read off the inventories it compared.
         established = _group_coverage(
             {
-                **_blocking_facts(before, after, retained.scope_of),
+                **_blocking_facts(before, after, retained.scope_of, identities),
                 **_compared_facts(
                     retained.before,
                     retained.after,

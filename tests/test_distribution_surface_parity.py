@@ -258,7 +258,14 @@ SURFACES: tuple[Surface, ...] = (
         # reserved coverage `scope`, and is read as incomparable by every
         # control route, so it adds no claim; every route to the same object,
         # and every refusal it must keep, is held by
-        # `tests/test_partial_host_comparison.py`.
+        # `tests/test_partial_host_comparison.py`. A plain instruction
+        # document withheld as its own `scope` (#973) is the same projection:
+        # the reader publishes no grant for that profile, so no compared row
+        # depends on its text, and the identity sentence a two-sided blocking
+        # limit's `detail` ends with is the Git byte fact coverage already
+        # asked; neither is a verdict, pin or vocabulary, so they add no
+        # claim; `tests/test_oversized_instruction_document_partial.py` holds
+        # diff, verify, the PR comment, `check` and the envelope to it.
         # Naming an unchanged limit
         # the reader reached through an in-tree link (#822) rests on a Git
         # identity fact about the link and the file it lands on, the proof

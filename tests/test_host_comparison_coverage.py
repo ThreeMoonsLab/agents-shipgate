@@ -888,14 +888,18 @@ def _linked_skill_with_nested_link(repo: Path) -> None:
 
 
 BOTH = ["base_inventory_incomplete", "head_inventory_incomplete"]
+#: What each line says of whether its file changed (#973). A path through a
+#: link names no one file Git can compare, so that is never established.
+NOT_ESTABLISHED = "whether it changed in this change is not established"
+IDENTICAL = "it is byte-identical in base and head"
 INCOMPARABLE = {
     "directory-link": (
         _directory_link, WIDENED, BOTH,
-        {("docs/proxy", "unreadable", "both")},
+        {("docs/proxy", "unreadable", "both", NOT_ESTABLISHED)},
     ),
     "dangling-link": (
         _dangling_link, WIDENED, BOTH,
-        {("NOTES.md", "unreadable", "both")},
+        {("NOTES.md", "unreadable", "both", NOT_ESTABLISHED)},
     ),
     # The same skill through `.claude/skills -> ../.agents/skills` alone was a
     # case here until #822: its link and target are unchanged, so it is now
@@ -905,9 +909,10 @@ INCOMPARABLE = {
     "skill-metadata-and-nested-link": (
         _linked_skill_with_nested_link, {"permissions": {"allow": ["Read(**)"], "deny": []}}, BOTH,
         {
-            (".agents/skills/alias/SKILL.md", "unsupported", "both"),
-            (".agents/skills/demo/SKILL.md", "unsupported", "both"),
-            (".claude/skills", "unreadable", "both"),
+            (".agents/skills/alias/SKILL.md", "unsupported", "both", NOT_ESTABLISHED),
+            # The file itself, read directly, is the same blob on both sides.
+            (".agents/skills/demo/SKILL.md", "unsupported", "both", IDENTICAL),
+            (".claude/skills", "unreadable", "both", NOT_ESTABLISHED),
         },
     ),
 }
@@ -935,11 +940,16 @@ def test_an_incomparable_result_names_each_blocking_source_and_kind(tmp_path: Pa
         "This is an input limit, not a finding about the change. Nothing below is a claim that the change is safe.",
     ]
     items = payload["coverage"]["items"]
-    assert {(item["source"], item["limit"], item["side"]) for item in items} == expected
+    assert {(item["source"], item["limit"], item["side"]) for item in items} == {
+        case[:3] for case in expected
+    }
     assert all(item["status"] == "blocking_limit" and item["detail"] for item in items)
-    for source, limit, _side in expected:
+    for source, limit, _side, changed in expected:
         hosts = next(item["hosts"] for item in items if item["source"] == source)
-        line = f"{source} ({', '.join(hosts)}): {limit} in base and head, so neither inventory is complete"
+        line = (
+            f"{source} ({', '.join(hosts)}): {limit} in base and head, so neither inventory "
+            f"is complete; {changed}"
+        )
         assert f"  {line}" in _block(text)
         assert f"- ` {source} ` ({', '.join(hosts)}): {limit} in base and head" in comment
 
