@@ -683,7 +683,7 @@ of grant equality, the inventory digests and saved baselines, so they add no
 row, and a rotation of a value the digest's input redacts (the value after
 `--token`, `--api-key` or `--password`, a `--password=…` value, or the
 credential in one argument holding `Authorization: Bearer …` or `-u user:…`,
-#987) is still no row. A value no rule redacts, such as a bare positional
+see #987) is still no row. A value no rule redacts, such as a bare positional
 token, or a password split from its `-u` into the next argument, moves the
 digest, so its rotation is a row of digests that prints neither value.
 
