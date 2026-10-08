@@ -1,0 +1,24 @@
+Application comparison: partial (490515f623cf → 1e7e19d423ca)
+scope: backend (derived: backend: backend/api_main.py is an agent file)
+  scope limit: Changed files are not related to a compared agent, so their effect is not compared: scripts/check_tracked_artifacts.py (no agent file imports it, and it imports no agent file within 6 hops).
+Findings: 4 changed agents, 237 rows (58 changed, 179 not established); effect evidence 54 write (provisional: unknown effect), 4 write (structural evidence).
+orion (backend/api_main.py) [partial]: 16 changed (~create_local_reminder, ~create_workspace_patch_plan, ~get_backend_sidecar_status, and 13 more); 47 not established (22 candidate additions, 25 candidate removals) (no new reach established; still reaches filesystem read, filesystem write; not read beyond api_main.py:828)
+  and 16 more: 10 changed (implementation changed); 4 changed (implementation changed; arguments +workspace_id); 1 changed (implementation changed; arguments +workspace_id, +relative_path, +source_consent, -path); still reaching filesystem read, filesystem write; reach not read in full for 16
+  Review: Do the changes to create_local_reminder, create_workspace_patch_plan, get_backend_sidecar_status, get_release_candidate_status, and 12 more (implementation, arguments) still match what orion should be able to do?
+orion (backend/main.py) [partial]: 14 changed (~create_local_reminder, ~create_workspace_patch_plan, ~get_backend_sidecar_status, and 11 more); 44 not established (22 candidate additions, 22 candidate removals) (no new reach established; still reaches filesystem read, filesystem write; not read beyond main.py:257)
+  and 14 more: 9 changed (implementation changed); 4 changed (implementation changed; arguments +workspace_id); 1 changed (implementation changed; arguments +workspace_id, +relative_path, +source_consent, -path); still reaching filesystem read, filesystem write; reach not read in full for 14
+  Review: Do the changes to create_local_reminder, create_workspace_patch_plan, get_backend_sidecar_status, get_release_candidate_status, and 10 more (implementation, arguments) still match what orion should be able to do?
+orion (backend/voice_main.py) [partial]: 14 changed (~create_local_reminder, ~create_workspace_patch_plan, ~get_backend_sidecar_status, and 11 more); 44 not established (22 candidate additions, 22 candidate removals) (no new reach established; still reaches filesystem read, filesystem write; not read beyond voice_main.py:258)
+  and 14 more: 9 changed (implementation changed); 4 changed (implementation changed; arguments +workspace_id); 1 changed (implementation changed; arguments +workspace_id, +relative_path, +source_consent, -path); still reaching filesystem read, filesystem write; reach not read in full for 14
+  Review: Do the changes to create_local_reminder, create_workspace_patch_plan, get_backend_sidecar_status, get_release_candidate_status, and 10 more (implementation, arguments) still match what orion should be able to do?
+orion (backend/wake_main.py) [partial]: 14 changed (~create_local_reminder, ~create_workspace_patch_plan, ~get_backend_sidecar_status, and 11 more); 44 not established (22 candidate additions, 22 candidate removals) (no new reach established; still reaches filesystem read, filesystem write; not read beyond wake_main.py:272)
+1 more agent: tool lines and questions are in --json summary.findings.
+Not established: 179 rows share 4 causes.
+  - A possibly reachable tool has an incomplete binding edge; provide a complete static graph or reviewed declaration. [179 rows, base/head]
+  - OpenAI Agents SDK agent 'orion' at api_main.py:828 binds unresolved tool 'add_future_feature_tool': resolving it would read more than 64 modules. [36 similar; 47 rows, base/head]
+  - OpenAI Agents SDK agent 'orion' at api_main.py:828 binds unresolved tool 'freeze_final_launch_tool': it resolves to 'freeze_final_launch' at tools/final_launch_tools.py:11, which is not decorated with the SDK's @function_tool. [141 similar; 179 rows, base/head]
+  - Structural binding for 'add_future_feature' matched 0 canonical tools. [24 similar; 179 rows, base/head]
+  Review: Resolve the named causes before treating the 179 candidate changes as changes.
+Detail: 237 rows are not printed here. `--json` carries every row, gap and reach limit, and the findings above name the rows they summarize.
+Test files not read as the application (7): tests/test_api_authentication.py, tests/test_approval_transactions.py, tests/test_browser_research_security.py, tests/test_capability_gateway.py, tests/test_tracked_artifacts.py, and 2 more
+This comparison is advisory evidence and supplies no release verdict or merge permission.

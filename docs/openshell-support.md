@@ -93,6 +93,30 @@ or request-partition cells. Unsupported semantics never become inferred safe
 narrowing. An HTTP method or MCP tool name still supplies no business effect,
 approval, argument restriction or deployed agent binding.
 
+## Naming the changed declarations
+
+A changed policy row names what differs, beside the unchanged limits in its
+reason, instead of two endpoint counts and a facts digest. The text is
+`review.changes[].change` in `diff --json` and the `verify` host comparison, and
+the entry in `diff`, `check` and the PR comment: filesystem paths added or
+removed per list (`read_only`, `read_write`) and a changed `include_workdir`;
+the Landlock compatibility and process identity; and, per destination, each
+binary selector added or removed and each destination or request declaration
+(protocol, enforcement, access preset, allowed and denied method/path pairs)
+added, removed or edited. Destinations that changed alike share one entry. Each
+list names its first five or eight entries, then counts the rest.
+
+Only values the inventory already publishes are named. Query and parameter
+constraints, endpoint options and credential options appear by field name, never
+by value, and a value that would change under redaction is printed as
+`<redacted>`. A change confined to an option value says `other options changed
+(not shown)`. A policy whose changed fields none of these cover says so. A
+newly selected or removed document lists what it declares, with the sections and
+inspected endpoints left to an upstream default named. That list is a
+description: it never marks the change as an expansion, and a row's direction,
+expansion signals, severity and `check` outcome are those of the comparison
+above. The published `rows[]` keep their counts and digest.
+
 ## Read limits and coverage
 
 The shared identity-bound host reader limits individual files to 1 MiB, along

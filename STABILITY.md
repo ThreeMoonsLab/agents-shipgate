@@ -20,6 +20,16 @@ MCP source, or was unreadable or structurally incomplete, whatever its
 `decision` says. No published schema or control state changes. See
 [the migration note](#evaluated-subject-930).
 
+Also unreleased: a GitHub workflow row states the event context, each job's
+token scopes and a calling job's permission ceiling apart (#920, #921, #924).
+A read-only `pull_request_target` workflow reads `access: read` and is never
+said to grant write; a same-repository reusable workflow's own `permissions`
+are read, so a ceiling it withholds is not a widening; and re-pinning an
+inheriting call to another reference is a `changed` row. Host-grants `0.9`,
+unreleased, gains two optional members on a reusable call. No control state
+or `check` decision changes. See
+[the migration note](#actions-token-scopes-921).
+
 New in 1.2.0, #829 adds a source-local residual-prefix explanation to the existing
 host comparison row `why` text for supported Claude Code `git push` allows.
 It reads all compared head deny rules in that source, including unchanged
@@ -327,6 +337,572 @@ defaults. The stable/provisional inventory, the `1.x` rules and the migration
 from the shipped `v0.15.0` contract are in
 [`docs/report-1-0-contract.md`](docs/report-1-0-contract.md). Pin a version (or
 the Action tag) for reproducible CI.
+
+---
+
+<a id="actions-token-scopes-921"></a>
+
+## Migration Note: Unreleased — GitHub Actions token scopes (host-grants `0.9`, #920, #921, #924)
+
+**What was wrong.** Published `1.2.0` fused three facts on a workflow row. A
+`pull_request_target` workflow whose jobs declare only `contents: read` and
+`pull-requests: read` read `access: write` and "grants write permissions to
+workflow jobs" (#920). A job that calls a reusable workflow had its
+`permissions` counted as its own write grant, so raising the caller's
+`contents: read` to `write` was a widening even when the unchanged called
+workflow declares `contents: read`, which GitHub lets it keep while reducing
+the passed token (#921). And re-pinning an inheriting call from `@main` to a
+commit was a new inherited-secret recipient, `critical widened` (#924).
+
+**What changes.**
+
+- **`access` describes the job tokens alone.** `pull_request_target` still
+  rates the grant `critical`, keeps the `uses the privileged
+  pull_request_target event context` reason, and widens when it arrives, but
+  it makes `access` `write` only where a job declares no permissions, whose
+  token GitHub documents as read/write under that event. An all-read workflow
+  reads `access: read` and its row says `every job declares read-only or no
+  token permissions`. `grants write permissions to workflow jobs` is said only
+  of a job that runs steps with a write scope.
+- **`expansion_signals`.** Gaining `pull_request_target` now emits
+  `workflow_pull_request_target_<added|changed>`. `workflow_write_<added|changed>`
+  is emitted for a new write scope as before, and beside the trigger only when
+  a job may write under it (a write scope, or a job declaring none). A
+  read-only workflow gaining the trigger therefore loses its
+  `workflow_write_*` signal and keeps `expands: true` through the new one.
+- **A calling job's permissions are a ceiling**, printed
+  `job: ceiling scope: level`. For a call whose ceiling holds a `write` scope
+  and whose target is `./.github/workflows/<file>` or
+  `$/.github/workflows/<file>`, the called workflow's own permissions are
+  read from the same side, through its same-repository calls, within GitHub's
+  ten levels and 4,096 called workflows per inventory. Host-grants `0.9` adds
+  `reusable_calls[].callee_permissions` (`read`, `not_read`, `limited`,
+  `cycle`, `too_deep`) and, when `read`, `callee_write_scopes`; both are
+  omitted on every other call, which keeps its earlier shape and digest.
+  `effective_write_scopes` for such a job then hold only the scopes a called
+  job may keep, and the grant's `access`, `risk` and `config_sha256` follow.
+  A call this audit does not follow, including every call to another
+  repository, keeps the whole ceiling, so it widens as before, and its row
+  says whether its jobs hold the scopes is not established. Removing a called
+  workflow's restriction widens its unchanged caller.
+- **Inherited-secret recipients are keyed by the called workflow, not its
+  reference.** A reference-only edit of an inheriting call is a `changed` row
+  whose `why` says `the called code reference changed` and names both
+  references, without asserting what either runs. A new inheriting job, a
+  different called workflow, or `secrets: inherit` added to a call still emits
+  `workflow_secrets_inherited_*`. This reverses the `1.0.0` note's "including
+  a changed reusable target/ref" for the reference alone (#685).
+
+**What does not change.** `check`'s workflow rules read declarations, so a
+raised ceiling still raises `SHIP-HOST-BOUNDARY-WORKFLOW-PERMISSIONS-EXPANDED`
+and a gained trigger `SHIP-HOST-BOUNDARY-PULL-REQUEST-TARGET-ADDED`; no control
+state, permission or `check` decision moves. Ordinary-job inheritance,
+named secret mappings (#693), step references (#771) and agent launches
+(#823) are compared as before. `diff`, `verify`'s `host_comparison`, the PR
+comment, `check` rows, the control envelope's `capability_rows`, drift and
+preflight read the same rows and signals.
+
+**Saved baselines.** A baseline saved before this change holds a calling
+job's ceiling in `effective_write_scopes` and no callee members. Against the
+new reading, a workflow with such a same-repository call reports one `changed`
+grant with no expansion signal, and `--fail-on-drift` exits `20` once; review
+it and save the baseline again. A `pull_request_target` workflow whose jobs
+all declare read-only scopes does the same, its `access` moving from `write`
+to `read`. Calls to another repository read as before.
+See [`docs/host-boundary-support.md`](docs/host-boundary-support.md#workflow-token-scopes).
+
+<a id="mcp-row-wording-929-933"></a>
+
+## Migration Note: Unreleased — MCP rows bounded to the read declaration (host-grants `0.9`, #929, #933)
+
+**What was wrong.** Published `1.2.0` worded two MCP rows past what a static
+read establishes. A `.mcp.json` removed while the same server moved inline
+into a plugin manifest's `mcpServers`, which no reader reads, was a removal
+saying "an MCP tool surface is no longer offered to the agent" (#929). An
+`npx` package named with no version specifier was noted `launch source is
+mutable`, though npm documents that such a name runs the local project's
+dependency of that name when there is one, and is otherwise installed from the
+registry into the npm cache
+(https://docs.npmjs.com/cli/v11/commands/npm-exec#description) (#933).
+
+**What changes.**
+
+- A removed MCP server's `why` reads `the server is no longer declared in this
+  source; whether it is still offered through a changed declaration this
+  entry does not read is not established` when the same comparison names a
+  changed, unread input that may declare MCP servers in the head (#821's
+  `plugin_manifest_mcp_servers`, `unparsed_plugin_manifest` or
+  `plugin_mcp_config`, present in the head) whose plugin directory holds the
+  removed file and whose item names the server's host, or the server's host
+  is `unknown`. See [host-boundary support](docs/host-boundary-support.md#changed-inputs-named-but-not-read).
+- An added or changed MCP row for `npx [-y|--yes] NAME` ends `package spec
+  has no exact version; launch resolution not established: npx may resolve a
+  local project dependency or fall back to the registry/cache`, or `launch
+  source moved from pinned (…) to a package spec with no exact version; …`.
+  Host-grants inventory `0.9`, unpublished before this release, is extended in
+  place: such a grant's `launch_source` adds `resolution:
+  "local_project_or_registry"` beside `pin: "mutable"`, which keeps #825's
+  meaning. The member is display-only, like the rest of `launch_source`: out
+  of grant equality, the inventory digests and saved baselines.
+- `diff` (text and `--json`), `verify`'s host comparison, the PR comment and
+  `check`'s rows, by `--base` and by `--diff`, agree. `check` lists the
+  change's files to word a removal only when an MCP server is removed, and
+  names none of them; a provided diff states only the files it touches.
+
+**Who must act.** A consumer matching either `why` text exactly sees new
+text. Nobody else.
+
+**What does not change.** No row is added, removed or paired; direction,
+`expands`, severity, expansion signals and every `check` decision are as
+before. The unread input stays its own coverage item and is never read,
+matched by server name or treated as the replacement. No `package.json`,
+lockfile, workspace or cache is read. `@latest`, tags, ranges, exact versions,
+`bunx`, `pnpm dlx` and the other launchers keep #825's notes. No check ID,
+CLI flag, control state or permission is added.
+
+---
+
+<a id="hook-matcher-reach-940"></a>
+
+## Migration Note: Unreleased — a hook whose matchers match no tool name is not a widening (host-grants `0.9`, #940)
+
+**What was wrong.** Published `1.2.0` counted every added Claude Code hook a
+settings file declares as a widening, whatever its matcher. A `PreToolUse`
+group with `matcher: "Bash(git push*)"` — a permission-rule pattern written
+where Claude Code expects a tool name — was a `⚠ high added` row and one
+widening, though Claude Code reads that matcher as a regular expression over
+the tool name, and no tool name can match it
+(https://code.claude.com/docs/en/hooks#matcher-patterns).
+
+**What changes.** See [matcher reach](docs/host-boundary-support.md#hook-matcher-reach).
+
+- Host-grants inventory `0.9`, unpublished before this release, is extended
+  in place: each handler of a Claude Code `PreToolUse`, `PostToolUse`,
+  `PostToolUseFailure`, `PermissionRequest` or `PermissionDenied` hook carries
+  `matcher_reach`, `no_tool_name` or `possible`, and no other handler carries
+  it. Like the rest of `handlers`, it is left out of grant equality, the
+  inventory digests and saved baselines, so it adds no row and no saved
+  baseline drifts.
+- A hook every one of whose handlers is `no_tool_name` loses `hook_added`
+  (and its `basis`-gained `hook_changed`): the row stays, with `expands:
+  false`, no `⚠`, no widening count, and a `why` that names the matcher.
+  Adding such a handler to an event that already has hooks loses
+  `hook_changed`, and the row is a change of unknown direction.
+- One case gains a signal: a `no_tool_name` matcher edited into one a tool
+  name can match is `hook_changed`, a widening, where `1.2.0` called a
+  same-count hook edit a change of unknown direction. Without it, a hook
+  could be added unable to run and then made to run with no widening shown.
+- `diff` (text and `--json`), `verify`'s host comparison, the PR comment,
+  `check`'s rows, `audit --host --drift`'s `expansion_signals` and
+  `preflight`'s expansion reasons agree.
+
+**Who must act.** Nobody. A reader of `expansion_signals` sees fewer
+`hook_added` entries only for such hooks.
+
+**What does not change.** `check`'s decision: `SHIP-HOST-BOUNDARY-HOOK-CHANGED`
+still asks for review of every changed hook declaration, so no `check`
+decision becomes more permissive. Any matcher the reader does not decide —
+one that may match a built-in or MCP tool name, or one JavaScript would
+reject — keeps the `1.2.0` reading. Other events, other hosts, a hook's
+severity and its loading basis are unchanged. No check ID, CLI flag, control
+state or permission is added. `minimum_control_contract_version` stays `21`.
+
+---
+
+<a id="oversized-instruction-document-973"></a>
+
+## Migration Note: Unreleased — a long plain instruction document no longer hides the rest (#973)
+
+**What was wrong.** saleor/storefront#1252 adds `.mcp.json` and
+`.cursor/mcp.json`, each launching `next-devtools-mcp@latest`, and
+regenerates `skills/saleor-paper-storefront/AGENTS.md`, a 346,349-byte
+compiled document past the instruction classifier's 256 KiB bound on both
+sides. `diff`, `verify` and the manifest-free PR comment printed `Cannot
+compare … base_inventory_incomplete; head_inventory_incomplete` with no row,
+and named the file only as `unsupported in base and head, so neither inventory
+is complete`, which was read as naming an unchanged file. An unchanged one has
+been named in `unchanged_limits` since #721; this one changed (blob `aa159c2`
+→ `cf87eaa`).
+
+**What changes.**
+
+- A plain instruction document — `AGENTS.md`, `AGENTS.override.md` or
+  `CLAUDE.md` outside a command, subagent or rule directory — that both sides
+  read directly at the same path for the same hosts, whose only blocking issue
+  is `unsupported` with `instruction_text_limit`, that no hook runs as a
+  script and that Git does not prove unchanged, is left uncompared on both
+  sides, and the comparison is `partial` (#808's status and member). Its
+  `blocking_limit` item names the document itself as `scope`, with `limit:
+  unsupported`; a withheld hook script's own-path `scope` (#702) is
+  `unreadable`, so the two read apart. Within the bound that profile
+  classifies as `guidance` with one digest whatever the text says, and the
+  reader publishes no grant for it, so no compared row depends on its text.
+  The text leads with `Not compared: <document>, an instruction document longer
+  than this entry reads (a kind it treats as guidance, which declares no grant
+  it compares), so a change to it is not shown and nothing is claimed about
+  it.`, and its item reads `unsupported in base and head (longer than this
+  entry reads), so this document was not compared; it changed in this
+  change`.
+- A blocking limit both sides carry, on a refused or partial comparison, ends
+  its coverage `detail` with `This file changed in this change.`, `This file
+  is byte-identical in base and head.` or `Whether this file changed in this
+  change is not established.`, from the Git identity question coverage
+  already asks (a link, a redacted or member path, a checkout conversion and a
+  provided diff are not established), and its line ends `; it changed in this
+  change`, `; it is byte-identical in base and head` or `; whether it changed
+  in this change is not established`. A side-specific limit carries none.
+
+**What does not change.** An unchanged such document is still named in
+`unchanged_limits`, and a comparison it alone limits is still `comparable`.
+Every other shape still refuses: a skill, command or Cursor rule past the bound
+(they declare `allowed-tools`, `hooks` or activation), a role this entry does
+not read, a NUL byte, a document on one side only (added, removed, grown past
+or shrunk within the bound), one read through an in-tree link, one a hook runs
+as its script, any other limit the change touched, and a change where nothing
+else was read. `check` records no coverage, so it refuses its comparison and
+decides exactly as before; `verify`'s control, the control envelope's
+`capability_rows`, the Stop hook, baselines and drift read a partial
+comparison as the refusal it was. The classifier itself is unchanged, so
+`check` and `preflight` still treat an edit to such a document as structure
+they could not establish. No schema version, member, enumeration value, check
+ID, CLI flag, control state or permission is added; `minimum_control_contract_version`
+stays `21`.
+
+**Who must act.** Nobody. A consumer that reads every status but `comparable`
+as not comparable is unaffected; one that took a `scope` equal to its `source`
+to mean a hook script should read `limit` (`unreadable` for a script,
+`unsupported` for a document). A consumer comparing a blocking limit's
+`detail` to the inventory issue message should compare its prefix.
+
+---
+
+<a id="hook-command-shape-934"></a>
+
+## Migration Note: Unreleased — a hook row describes an inline command's structure, or says to open the config (host-grants `0.9`, #934)
+
+**What was wrong.** Published `1.2.0` showed an inline hook command as the name
+of its first word and a digest. CirrusRedOrg/EntityFrameworkCore.Jet#303 changed
+one `PreToolUse` command and the row read `command changed (<not-shown>
+sha256:f23acba4b10f → <not-shown> sha256:3f1dc36980b7)`: two digests, and no
+name because the script opens with an assignment. A reviewer could not tell
+whether the edit added a program, a branch or only text, and no row
+distinguished an edit that explains itself from one that needs the file open.
+
+**What changes.** See [hook command shape](docs/host-boundary-support.md#hook-command-shape).
+
+- Host-grants inventory `0.9`, unpublished before this release, is extended in
+  place. A handler's `command` carries `shape` or `shape_limit`. `shape` is
+  read by a bounded, static reader of the command as `config_sha256`'s input
+  holds it, never run: the plain-token program names at command positions
+  (`commands`, at most 12, with `commands_more` and `unnamed` counting the
+  rest), the counts of `statements`, `pipes`, `substitutions`,
+  `control_flow` keywords and `quoted` strings, the `redirects` to a file as
+  `> target` (at most 8; the target only when it is `/dev/null` or a
+  repository-relative path), and a `script` path published as `args` publish
+  one (#972). `shape_limit` says why there is none: `too_long` (more than 8,192
+  characters), `unsupported_shell` (a `shell` setting other than `bash` or
+  `sh`) or `unsupported_syntax` (a here-document, backquote, `$(( … ))`,
+  `case`, function definition, unterminated quote or group, or a command past
+  the reader's word or nesting bound). No argument, quoted string, variable,
+  URL or absolute path is published, and a token that looks generated is not
+  named.
+- A changed command's row names what the shapes differ in: `command changed
+  (<not-shown> sha256:f23acba4b10f → <not-shown> sha256:3f1dc36980b7; same
+  programs (cat, printf, sed, grep, echo, true); simple commands 15 → 25; pipes
+  5 → 9; conditionals and loops 4 → 7; quoted strings 18 → 32)` for the Jet
+  pair, `programs +sh; pipes 1 → 2` for an added pipeline stage, `redirects
+  +>> logs/x.log`, `script a.py → b.py`. When the shapes are the same it says
+  `same programs and structure; the change is in an argument or in quoted text
+  this output does not show, open the config to read the change`, and when
+  either command is not described, `not described: head command uses shell
+  syntax this output does not describe; the digest moved, open the config to
+  read the change`. An added or removed hook's cell lists what a command that
+  is more than one program and its arguments is made of (`runs cat, jq, sh; 2
+  pipes; 1 redirect (>> logs/x.log)`).
+- `diff` (text and `--json`), `verify`'s host comparison, the PR comment and
+  `check`'s rows print the same entry.
+
+**Who must act.** Nobody. A reader that matched the exact `command changed
+(…)` text, or that validates `0.9` handlers against a schema generated before
+this change, updates to the new text and schema.
+
+**What does not change.** The shape is a function of the command as
+`config_sha256`'s input holds it and, like the rest of `handlers`, is left out
+of grant equality, the inventory digests and saved baselines, so no row, row
+value, direction, `expands`, severity, expansion signal, loading basis (#714),
+`matcher_reach` (#940) or `check` decision moves, and a hook edit stays `hook
+edit; authority direction is unknown`: a shape names programs and counts, never
+what a command does, whether a host runs it or which way an edit moves
+authority. A value the digest's input redacts is withheld from the shape too,
+so rotating one is still no row (#987). No schema file present in a tagged
+release changes. No check ID, CLI flag, control state or permission is added.
+`minimum_control_contract_version` stays `21`.
+
+---
+
+<a id="hook-args-and-settings-972"></a>
+
+## Migration Note: Unreleased — a hook row names its `args` and settings (host-grants `0.9`, #972, #971)
+
+**What was wrong.** Published `1.2.0` read a Claude Code command hook's
+exec-form `args`, and its `async` or `asyncRewake` setting, only through
+`config_sha256`. Changing `args: ["guard-readonly.py"]` to `["guard-write.py"]`,
+or `"async": true` to `"asyncRewake": true`, was a `changed` row whose text
+said `no difference in the matcher, command or timeout; the change is in a
+detail this output does not show`, so a reviewer could not tell which field
+changed without opening the file.
+
+**What changes.** See [hook arguments and settings](docs/host-boundary-support.md#hook-args-and-settings).
+
+- Host-grants inventory `0.9`, unpublished before this release, is extended
+  in place. A handler that declares `args` carries `args: {script, sha256}`:
+  `script` is the first argument shaped as a relative script path that no
+  redaction rule rewrites, alone or after the three arguments before it, and
+  `null` otherwise; `sha256` digests the arguments as `config_sha256`'s input
+  holds them, with the script's place marked, as an MCP server's
+  `args_sha256` does (#819). A handler that declares `type`, `async`,
+  `asyncRewake`, `shell` or `once`, the documented boolean and enumerated
+  handler settings (https://code.claude.com/docs/en/hooks#common-fields),
+  carries it as a timeout is published. A handler that declares none of
+  them has the shape it had, except that a declared `type` is now published.
+- A changed hook row names the field: `args script guard-readonly.py →
+  guard-write.py`, `args changed (sha256:… → sha256:…)`, `async true →
+  (none); asyncRewake (none) → true`, `type "prompt" → "agent"`. An added or
+  removed hook's cell lists them beside the matcher, command and timeout,
+  except a command handler's `type "command"`. The `no difference …`
+  sentence now lists every published field and names `if`, `statusMessage`
+  and the other unpublished fields, and the sentence for a declaration
+  outside the documented shape reads `matcher, command, args, timeout and
+  settings not shown`.
+- `diff` (text and `--json`), `verify`'s host comparison, the PR comment and
+  `check`'s rows print the same entry.
+
+**Who must act.** Nobody. A reader that matched the old sentences' text, or
+that validates `0.9` handlers against a schema generated before this change,
+updates to the new ones.
+
+**What does not change.** No other argument text is published: a flag, its
+value, an absolute path or a URL stays inside the digest. Like the rest of
+`handlers`, the new fields are left out of grant equality, the inventory
+digests and saved baselines, so no row, row value, direction, `expands`,
+severity, expansion signal, loading basis (#714), `matcher_reach` (#940) or
+`check` decision moves, and a hook edit stays `authority direction is
+unknown`. A rotation the digest's input already redacts is still no row
+(#987). No check ID, CLI flag, control state or permission is added.
+`minimum_control_contract_version` stays `21`.
+
+---
+
+<a id="mcp-env-var-names-795"></a>
+
+## Migration Note: Unreleased — an MCP row names the `env_vars` that changed (host-grants `0.9`, #795)
+
+**What was wrong.** An MCP server grant published the keys of its `env` map
+and of its `headers` map, and nothing for an `env_vars` list. Replaying
+openai/codex-security#1281, a `.mcp.json` that added
+`CODEX_SECURITY_PLUGIN_ROOT` to a server's `env_vars` array and changed
+nothing else was a `changed` row reading `no difference in the command name
+…, launch arguments, env key names or header key names; the change is in a
+detail this output does not show, such as the command's path or another
+setting`, which pointed at the command's path for a change to a variable
+name.
+
+**What changes.** See [MCP environment-variable names](docs/host-boundary-support.md#mcp-env-var-names).
+
+- Host-grants inventory `0.9`, unpublished before this release, is extended in
+  place. An `mcp_server` grant adds `env_var_names`: the entries of its
+  `env_vars` list that are plain environment-variable names, in declared
+  order, and `[]` when none are. An entry is published only when it matches
+  `[A-Za-z_][A-Za-z0-9_]{0,79}` and neither the redaction `config_sha256`'s
+  input applies nor the label redaction rewrites it, so a `NAME=value` entry,
+  an object, a token-shaped string and the entry after a credential word are
+  not published. It is display-only, like `package` and `args_sha256`: out of
+  grant equality, the inventory digests and saved baselines.
+- A changed MCP row names the names the list gained and lost beside the
+  existing `env keys` and `header keys`: `codex-security: env_vars names
+  +CODEX_SECURITY_PLUGIN_ROOT`, `env keys +API_BASE -DEBUG; env_vars names +X
+  -Y`. The same names in another order read `env_vars names in a different
+  order`, because `config_sha256` reads the list in order. An added or removed
+  server's cell lists them (`docs (command name npx; env_vars names A B)`).
+  When no published field differs and either side lists a name, the `no
+  difference …` sentence names `env_vars names` among what was compared. A
+  change confined to an entry that is not published still says it is not
+  shown.
+- `diff` (text and `--json`), `verify`'s host comparison, the PR comment and
+  `check`'s rows print the same entry.
+
+**Who must act.** Nobody. A reader that matched the old sentence's text, or
+that validates `0.9` MCP grants against a schema generated before this change,
+updates to the new one.
+
+**What does not change.** No value is published or printed: `env` and
+`headers` values are redacted whole in `config_sha256`'s input, so rotating
+one is still no row, and no per-key value digest is added. The fact is
+display-only, so no row, row value, direction, `expands`, severity,
+expansion signal or `check` decision moves, and an MCP edit stays `authority
+direction is unknown`. No check ID, CLI flag, control state or permission is
+added. `minimum_control_contract_version` stays `21`.
+
+---
+
+<a id="url-permission-rules-922"></a>
+
+## Migration Note: Unreleased — a URL in a permission rule keeps its rule (#922)
+
+**What was wrong.** The settings reader published a URL inside a Claude Code
+or Cursor permission rule as its scheme and host followed by
+`/<redacted-path>`, and the redaction swallowed everything after the host up
+to the next space, the rule's closing `)` included. `Bash(curl -s
+http://localhost:8000/*)` and `Bash(curl -s http://localhost:8000/health)` both
+published as `Bash(curl -s http://localhost:8000/<redacted-path>`, so the two
+grants became one row and one change, a wildcard could not be told from one
+endpoint, and changing only a rule's path was not reported.
+
+**What changes.** A rule's `rule` text, in the host inventory, every row,
+`carves_from` and a workflow `settings` value's published rule, keeps the
+delimiters after a URL, its scheme and host as written and the wildcard each
+URL part ends with, and names a withheld query or fragment instead of dropping
+it (`<redacted-query>`, `<redacted-fragment>`, userinfo as `<redacted>@`). A
+part that is nothing but `*` and `/` is published as written. Where a URL part
+is withheld, the first marker carries `~` and a twelve-digit digest of the
+rule, in its documented spelling and with its credentials masked, so two rules
+that publish alike stay two grants, rows and changes on `diff`, `verify`, the
+PR comment, `check` and drift, `Bash(…:*)` and `Bash(… *)` stay one
+respelled grant, and a path-only change is a row. See [Claude Code permission rules](docs/host-boundary-support.md#claude-code-permission-rules).
+
+**Who must act.** Nobody, unless a saved baseline holds a rule with a URL path,
+query, fragment or userinfo: drift then reports each such rule once as removed
+and added under its new text, an `allow` rule as `allow_rule_added`. Review the
+rows and re-save the baseline from the reviewed branch.
+
+**What does not change.** No schema version, field, check ID, CLI flag,
+control state or permission. A rule with no URL is published as before, and so
+is one whose only redaction is a credential, which still rotates quietly.
+`check` still redacts every rule argument. `minimum_control_contract_version`
+stays `21`.
+
+---
+
+<a id="claude-permission-rule-model-918"></a>
+
+## Migration Note: Unreleased — the Claude Code permission-rule model (host-grants `0.9`, #918, #941, #969, #974, #938)
+
+**What was wrong.** Published `1.2.0` compared Claude Code `allow`, `ask` and
+`deny` rules as set members. Respelling `Bash(git add:*)` as
+`Bash(git add *)`, replacing `Bash(gh pr *)` with four of its subcommands, and
+adding `Bash(git merge --no-ff -X ours:*)` beside an unchanged `Bash(git *)`
+were each reported as new authority; `Edit(**/.env.example)` was called a
+whole-tool grant that `check` blocked; a `Read(!.env.example)` carve-out after
+`Read(.env.*)` was called an added denial and an ordering-only change to it was
+not a row at all; and removing a path-scoped `Write(.env)` rule, which Claude
+Code accepts and never consults, was a removed effective denial.
+
+**What changes.** One rule model, `core/claude_permission_rules.py`, read by
+`diff`, `verify`'s `host_comparison`, `check` and `audit --host --drift`,
+following https://code.claude.com/docs/en/permissions as described in
+[Claude Code permission rules](docs/host-boundary-support.md#claude-code-permission-rules):
+
+- Every changed declaration stays a row. What moves is `direction` (a
+  documented respelling joins its two rows as one `respelled` change in the
+  text and `review`), `expands`, `why`, the widening count, drift's
+  `expansion_signals` and `check`'s violations.
+- An added `allow` rule that an `allow` rule the same source declared at the
+  base already matches, the same grant respelled, and any path-scoped
+  `Write`, `NotebookEdit`, `Glob` or `MultiEdit` rule lose `allow_rule_added`
+  (and `permission_widened`), and `check` raises nothing for them. A removed
+  deny or ask rule loses `deny_rule_removed` / `ask_rule_removed` when it is
+  such a path rule, a `!` carve-out, or still declared under its other
+  spelling; `check` raises no `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED` for
+  it.
+- New signals `deny_carve_out_added`, `deny_carve_out_changed`,
+  `ask_carve_out_added` and `ask_carve_out_changed` mark a `!` rule that now
+  follows a rule the source already declared at the base; `check` raises
+  `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED` with evidence kind
+  `permission_deny_carved_out` for a deny list.
+- Host-grants inventory and baseline `0.9`, unpublished before this release,
+  are extended in place: a Claude Code `Read(!…)`/`Edit(!…)` deny or ask grant
+  carries `carves_from`, the earlier rules it follows, so its position is
+  compared. No other grant changes shape.
+- A file tool's rule is a wildcard grant only when its pattern is nothing but
+  stars (`*`, `**`, `**/*`), so `Edit(**/.env.example)` is `medium`, worded
+  `runs without a prompt`, and raises `…-ALLOW-EXPANDED` rather than the
+  blocking `…-WILDCARD-ALLOW`.
+- Coverage is never claimed from an unanchored allow glob such as `*`, from a
+  differently cased tool name or a padded rule, or for a command holding shell
+  syntax, an exec wrapper, a `**` or a `*` crossing `/`: those additions keep
+  their `⚠`, including where `check` previously excused them.
+
+**Who must act.** Nobody, unless a saved `0.7` or `0.8` baseline holds a
+Claude Code `!` deny or ask rule: drift then reports it once as a `changed`
+grant, read as a widening because the old reading did not record what it
+follows. Review the row and re-save the baseline from the reviewed branch.
+A saved allow grant for a file glob such as `Edit(*.ts)`, recorded as a
+wildcard, reads as one `changed` grant with no expansion signal, as #816's
+re-rated MCP rules did.
+
+**What does not change.** No schema version, check ID, CLI flag, control
+state or permission is added. Cursor, Codex and VS Code rules keep their
+readers. `minimum_control_contract_version` stays `21`.
+
+---
+
+<a id="mcp-declaration-host-936"></a>
+
+## Migration Note: Unreleased — the host a `.mcp.json` belongs to (host-grants `0.9`, #936, #970)
+
+**What was wrong.** The boundary registry finds `.mcp.json` by its file name
+at any depth, and published `1.2.0` made every one a Claude Code declaration
+from that name alone. A `.mcp.json` only a Codex plugin manifest selects was
+printed `claude-code plugins/codex/firecrawl/.mcp.json`
+(firecrawl/firecrawl-mcp-server#468), and one beside a Grok plugin manifest
+that no Claude Code file names was printed `claude-code
+external_plugins/ceraph/.mcp.json` (xai-org/plugin-marketplace#1205).
+
+**What changes.** The servers are read exactly as before; the host they are
+published under follows what selects the file, as
+[Which host a `.mcp.json` belongs to](docs/host-boundary-support.md#which-host-a-mcpjson-belongs-to)
+describes, on `diff` (text and `--json`), `verify`'s `host_comparison` and the
+PR comment, `check` and `audit --host` (and `--drift`):
+
+- A `.mcp.json` a `.codex-plugin/plugin.json` selects is published under
+  `codex`; one a Claude Code plugin and a Codex plugin both select, under
+  both, one row each.
+- One no declaration this entry reads selects, in a directory holding another
+  host's plugin manifest, is published under the new host value `unknown`.
+  Its rows name no host before the path and say `host not established: …` in
+  their `why`, and its coverage item's `hosts` is `["unknown"]`, printed as
+  `(host not established)`. `audit --host` carries a non-blocking
+  `unsupported` issue naming the manifests beside it.
+- The root `.mcp.json`, a Claude Code plugin's and an unselected nested copy
+  keep `claude-code`.
+- Host-grants inventory, baseline and drift `0.9`, unpublished before this
+  release, are extended in place: an `mcp_server` grant, an `mcp` artifact and
+  an inventory issue may carry host `unknown`, which names no host and is
+  never a host this entry reads. No host coverage entry is published for it,
+  so a blocking limit on such a file leaves the inventory incomplete without
+  marking any host's coverage partial.
+- `check` decides exactly as before: every `.mcp.json` is routed by the
+  registry, the root one through its MCP rule and a nested one as a protected
+  surface. Its `affected_hosts` and `host_coverage` name the hosts the
+  inventory published the file under on either compared side, so a Codex
+  plugin's `.mcp.json` is `codex`'s and one whose host is not established
+  names none.
+- A Claude Code or Codex manifest's `mcpServers` that names only `.mcp.json`
+  files an inventory read is no longer a `plugin_manifest_mcp_servers`
+  unread item (#821): it decided their host.
+
+**Who must act.** Nobody, unless a saved baseline recorded such a file under
+`claude-code`: drift then reports its servers once as removed under
+`claude-code` and added under `codex` or `unknown`. Review those rows and
+re-save the baseline from the reviewed branch. A consumer that switches on an
+MCP grant's `host` should treat `unknown` as "not established", never as a
+host.
+
+**What does not change.** No schema version, check ID, CLI flag, control
+state, decision or permission is added or moved. No plugin is installed or
+fetched, and no runtime loading is inferred. `detect`'s host-boundary
+candidates still list a `.mcp.json` under `claude-code` from its file name.
+`minimum_control_contract_version` stays `21`.
 
 ---
 

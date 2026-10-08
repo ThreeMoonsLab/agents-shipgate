@@ -65,17 +65,17 @@ entry per changed grant or replaced rule. If the PR targets another branch, pass
 `--base upstream/<pr-base>`. On a PR that widens a Claude Code allow rule,
 drops a denial and adds an MCP server:
 
-**Released in `1.2.0`:** the example below is from the published `1.2.0`,
-installed from PyPI into a clean virtualenv outside any checkout and run in a
-clone. The previous release, `1.1.0`, prints the same comparison without the
-conditional review guidance section and the `launch source is mutable` note.
+The example below is from this source tree, run in a clone, and is
+**not yet released**: the published `1.2.0` prints the same comparison, but its
+note on the added MCP server reads `launch source is mutable`. This tree states
+the declaration fact and the launch it leaves open apart (#933).
 
 ```text
 Agent capability diff  origin/main (5d1b9e23) -> working tree
 
 ⚠ high    added    claude-code .mcp.json
                   billing (command name npx; env keys BILLING_TOKEN)
-                  an MCP tool surface the agent may call has changed; launch source is mutable
+                  an MCP tool surface the agent may call has changed; package spec has no exact version; launch resolution not established: npx may resolve a local project dependency or fall back to the registry/cache
 
 ⚠ medium  widened  claude-code .claude/settings.json
                   allow: Bash(npm test:*) → allow: Bash(npm *)
@@ -158,9 +158,11 @@ beside the refusal. The
 answer, the `--base <ref>` recovery when no base can be detected, and the
 [surfaces `diff` does not read](docs/host-boundary-support.md#known-unread-surfaces).
 Supported shell changes then add conditional human choices. They establish no
-intent or runtime access and grant no authority. The `launch source is mutable`
-note identifies the unversioned `npx` package declared by the added server; it
-changes neither the row's severity nor the widening count.
+intent or runtime access and grant no authority. The note on the added server
+says its `npx` package spec has no exact version, and that the static read does
+not establish whether `npx` resolves a local project dependency or falls back to
+the registry or its cache, as [npm documents](https://docs.npmjs.com/cli/v11/commands/npm-exec#description);
+it changes neither the row's severity nor the widening count.
 
 When the answer is useful and you want it on every pull request, add
 [`examples/github-actions/14-host-only-advisory-pr.yml`](examples/github-actions/14-host-only-advisory-pr.yml):
@@ -354,7 +356,7 @@ come with.
 | A coding agent | [`AGENTS.md`](AGENTS.md), [`llms.txt`](llms.txt), [For coding agents](#for-coding-agents) | Machine-readable contracts, the read order, and the boundary you must not cross |
 | Adding this to CI | [`docs/integrations.md`](docs/integrations.md), [`examples/github-actions/`](examples/github-actions/) | Advisory-first workflows, then explicit merge policies |
 | Adopting it in a repo | [`docs/quickstart.md`](docs/quickstart.md#run-it-on-your-own-repository) | The zero-manifest host route and the manifest route, and how to tell which one you are on |
-| Contributing | [`CONTRIBUTING.md`](CONTRIBUTING.md), [`ROADMAP.md`](ROADMAP.md) | Surface discipline, the check catalog, and what is planned |
+| Contributing | [`CONTRIBUTING.md`](CONTRIBUTING.md#contribution-stance-2026-10-06), [`ROADMAP.md`](ROADMAP.md) | What contributions are welcome, surface discipline, the check catalog, and what is planned |
 
 Not sure it applies at all? The stdlib-only detector answers in one fetch, with
 no install:

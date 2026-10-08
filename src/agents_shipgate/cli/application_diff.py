@@ -19,6 +19,12 @@ from typing import Any
 import typer
 
 from agents_shipgate.cli.application_scope import derive_scopes
+from agents_shipgate.cli.application_summary import (
+    DETAIL_ROW_LIMIT,
+    build_summary,
+    effect_phrase,
+    summary_lines,
+)
 from agents_shipgate.cli.discovery import detect_workspace
 from agents_shipgate.cli.discovery.artifacts import _candidate_files, _skip_part
 from agents_shipgate.cli.discovery.signals import _is_test_path
@@ -37,9 +43,14 @@ from agents_shipgate.core.artifacts import ArtifactBag
 from agents_shipgate.core.domain import ANY_TOOL
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.privacy import sanitize_report_payload
-from agents_shipgate.core.semantic_assessment import REACH_CLAIM_SOURCE, assess_tool_semantics
+from agents_shipgate.core.semantic_assessment import (
+    REACH_CLAIM_SOURCE,
+    REACH_CLAIM_SOURCES,
+    assess_tool_semantics,
+)
 from agents_shipgate.core.verification_identity import build_engine_requirement
 from agents_shipgate.inputs.google_adk import adk_agent_subclasses, load_google_adk_artifacts
+from agents_shipgate.inputs.object_tools import object_display, reading_object_bindings
 from agents_shipgate.inputs.openai_sdk_static import (
     census_module,
     load_openai_sdk_static_tools,
@@ -49,11 +60,12 @@ from agents_shipgate.inputs.python_imports import (
     RepositoryLayout,
     repository_layout,
 )
+from agents_shipgate.inputs.tool_effects import CLAIM_EFFECTS
 from agents_shipgate.inputs.tool_reach import read_tool_reach
 from agents_shipgate.schemas.manifest import ToolSourceConfig
 
 SUPPORTED = frozenset({"openai_agents_sdk", "google_adk"})
-SCHEMA_VERSION = "0.3"
+SCHEMA_VERSION = "0.4"
 MAX_PYTHON_BYTES = 2_000_000
 
 
@@ -222,6 +234,11 @@ def _definition(root: Path, tool: Any, agent: str | None = None) -> dict[str, An
     # ``unknown:<digest>:<which value>``: the call as written is compared,
     # the value it names is not — an open question, not a change.
     unnamed = [item.split(":", 2)[2] for item in made_by if item.startswith("unknown:")]
+    # ``function_tool(f, needs_approval=...)``: the wrapper's arguments are part
+    # of the tool, as a decorator's are (#910).
+    wrapper = (getattr(tool, "extraction", None) or {}).get("wrapper_options_sha256")
+    if isinstance(wrapper, str):
+        code += "|wrapper:" + wrapper
     if made_by:
         code += "|factory:" + ",".join(item.split(":", 2)[1] if item.startswith("unknown:") else item for item in made_by)
     result = {
@@ -806,13 +823,15 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
     binding resolution remains the reader's responsibility, never a name join.
     """
     bag = ArtifactBag()
-    if source.type == "openai_agents_sdk":
-        loaded = [load_openai_sdk_static_tools(source, None, root)]
-        artifacts = None
-    else:
-        loaded, artifacts = load_google_adk_artifacts(None, root, sources=[source])
-        if artifacts is not None:
-            bag.set("google_adk", artifacts)
+    # Tools bound as objects are read for this comparison only (#910).
+    with reading_object_bindings(_is_test_path):
+        if source.type == "openai_agents_sdk":
+            loaded = [load_openai_sdk_static_tools(source, None, root)]
+            artifacts = None
+        else:
+            loaded, artifacts = load_google_adk_artifacts(None, root, sources=[source])
+            if artifacts is not None:
+                bag.set("google_adk", artifacts)
     attributed = set()
     constructed, handoff_targets = set(), set()
     for item in loaded:
@@ -894,7 +913,7 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
                 label = f"handoff:{name}"
                 construction_locations[label] = list(dict.fromkeys((*construction_locations.get(label, []), *locations)))
             held = bound_when.setdefault(site, {})
-            for name in observation.tool_names:
+            for name in (*observation.tool_names, *observation.object_bindings):
                 _hold(held, name, observation.tool_conditions.get(name))
             for name in observation.handoff_names:
                 _hold(held, f"handoff:{name}", observation.handoff_conditions.get(name))
@@ -1043,6 +1062,45 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
             ambiguous_bindings.add(binding_key)
             continue
         result.bindings[binding_key] = binding
+    for item in loaded:
+        for observation in item.binding_observations:
+            key = (_source_path(root, observation.source), observation.agent)
+            if key in ambiguous_agents:
+                continue
+            for name, payload in observation.object_bindings.items():
+                binding_key = (*key, name)
+                if binding_key in ambiguous_bindings:
+                    continue
+                binding = _object_binding(key, name, payload, observation.source_pointer)
+                if payload.get("unread"):
+                    result.gap(
+                        binding["definition"]["unestablished"],
+                        source=key[0],
+                        agent=key[1],
+                        tool=name,
+                        affects="implementation",
+                    )
+                condition = bound_when.get(key, {}).get(name)
+                if condition:
+                    binding["bound_when"] = condition
+                listed = tool_sites.get(key, {}).get(name)
+                if listed:
+                    binding["binding_location"] = listed[0]
+                    if len(listed) > 1:
+                        binding["construction_sites"] = listed
+                if binding_key in result.bindings:
+                    if sites.get(key, 0) > 1 and _meaning(result.bindings[binding_key]) == _meaning(binding):
+                        continue
+                    result.gap(
+                        f"Ambiguous tool identity: {binding_key}",
+                        source=key[0],
+                        agent=key[1],
+                        tool=name,
+                    )
+                    result.bindings.pop(binding_key)
+                    ambiguous_bindings.add(binding_key)
+                    continue
+                result.bindings[binding_key] = binding
     for edge in graph.handoff_edges:
         source, target = agent_keys[edge.source_agent_id], agent_keys[edge.target_agent_id]
         if source in ambiguous_agents or target in ambiguous_agents:
@@ -1077,12 +1135,58 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
                 result.bindings[key]["construction_sites"] = listed
 
 
+def _object_binding(
+    key: tuple[str, str], name: str, payload: dict[str, Any], pointer: str | None
+) -> dict[str, Any]:
+    """One tool bound as an object (#910): its identity is the compared meaning.
+
+    ``object`` holds what the binding is — an MCP server's transport, host or
+    program, credential names and filter; the agent an agent tool wraps; a
+    hosted or built-in tool's name — and never a URL's path or query, a header
+    value or a command's arguments, which only a digest stands for. Where it
+    is built is evidence, as a function's location is.
+    """
+
+    location = str(payload.get("location") or "")
+    path, _, line = location.rpartition(":")
+    definition: dict[str, Any] = {
+        "source": path or location,
+        "line": int(line) if line.isdecimal() else None,
+        "implementation_sha256": _digest(payload["identity"]),
+    }
+    unread = payload.get("unread") or []
+    if unread:
+        definition["unestablished"] = (
+            f"What {name} is bound to is read only in part: {'; '.join(unread)}. Whether it "
+            "changed is not established."
+        )
+    binding: dict[str, Any] = {
+        "agent": key[1],
+        "agent_source": key[0],
+        "tool": name,
+        "binding_location": pointer,
+        "edge_type": "object_tool",
+        "definition": definition,
+        "object": payload["identity"],
+        "evidence_basis": "ast_extraction",
+    }
+    if payload.get("evidence"):
+        binding["object_evidence"] = payload["evidence"]
+    return binding
+
+
 def _hold(held: dict[str, list[str] | None], name: str, alternatives: list[str] | None) -> None:
     """Record one construction's condition for ``name``: unconditional wins."""
 
     if name in held and held[name] is None:
         return
     held[name] = None if alternatives is None else sorted(set(held.get(name) or []) | set(alternatives))
+
+
+def _noun(before: dict[str, Any] | None, after: dict[str, Any] | None) -> str:
+    """A tool bound as an object is not a callable the source defines (#910)."""
+
+    return "tool object" if (after or before or {}).get("object") else "callable"
 
 
 def _bound(binding: dict[str, Any]) -> str:
@@ -1203,6 +1307,7 @@ def _meaning(binding: dict[str, Any]) -> dict[str, Any]:
             "construction_sites",
             "reach",
             "effect_evidence",
+            "object_evidence",
         }
     } | {"implementation_sha256": binding.get("definition", {}).get("implementation_sha256")}
 
@@ -1283,19 +1388,23 @@ def compare(
                 )
                 if only_condition and not uncertainty
                 else {
-                    "added": "The source now binds this callable to this agent"
+                    "added": f"The source now binds this {_noun(before, after)} to this agent"
                     + (f", {_bound(after)}." if after and after.get("bound_when") else "."),
-                    "removed": "The selected source path no longer binds this callable to this agent"
+                    "removed": f"The selected source path no longer binds this {_noun(before, after)} to this agent"
                     + (f" (it was bound {_bound(before)})" if before and before.get("bound_when") else "")
                     + "; check scope limits for relocation.",
                     "not_established": "This candidate change cannot be established from the affected inputs; it is not a no-change result.",
-                    "changed": "The bound callable's interface or implementation changed; authority direction is not established.",
+                    "changed": "What the bound tool object is changed (its `object`); authority direction is not established."
+                    if (before or {}).get("object") and (after or {}).get("object")
+                    else "The bound callable's interface or implementation changed; authority direction is not established.",
                 }[kind],
                 "review_question": (
                     f"Resolve the named uncertainty before treating {key[1]}.{key[2]} as {candidate_change}."
                     if uncertainty
                     else f"Should {key[1]} hold {key[2]} {_bound(after)} rather than {_bound(before)}?"
                     if only_condition
+                    else f"Should {key[1]} have this {kind} binding to {key[2]}? Review what the tool object is and where it is built."
+                    if _noun(before, after) == "tool object"
                     else f"Should {key[1]} have this {kind} binding to {key[2]}? Review the before/after signature and implementation locations."
                 ),
             }
@@ -1466,6 +1575,11 @@ def _published_binding(binding: dict[str, Any] | None, scope: str) -> dict[str, 
         ]
     if "target_source" in result:
         result["target_source"] = _location(scope, result["target_source"])
+    if "object_evidence" in result and result["object_evidence"].get("agent_source"):
+        result["object_evidence"] = {
+            **result["object_evidence"],
+            "agent_source": _location(scope, result["object_evidence"]["agent_source"]),
+        }
     if "definition" in result:
         # Why the implementation is unknown is published as the row's
         # uncertainty, not as a field of the definition.
@@ -1502,6 +1616,20 @@ def _published_binding(binding: dict[str, Any] | None, scope: str) -> dict[str, 
                 }
                 for call in reach["calls"]
             ],
+            **(
+                {
+                    "effects": [
+                        {
+                            **effect,
+                            "at": _location(scope, effect["at"]),
+                            "via": [_location(scope, hop) for hop in effect["via"]],
+                        }
+                        for effect in reach["effects"]
+                    ]
+                }
+                if "effects" in reach
+                else {}
+            ),
             "limits": [{**item, "at": _location(scope, item["at"])} for item in reach["limits"]],
             "effect_claims": [
                 {**item, "at": _location(scope, item["at"])} for item in reach["effect_claims"]
@@ -1512,12 +1640,83 @@ def _published_binding(binding: dict[str, Any] | None, scope: str) -> dict[str, 
             **result["effect_evidence"],
             "claims": [
                 {**claim, "at": _location(scope, claim["at"])}
-                if claim["source"] == REACH_CLAIM_SOURCE
+                if claim["source"] in REACH_CLAIM_SOURCES
                 else claim
                 for claim in result["effect_evidence"]["claims"]
             ],
         }
     return result
+
+
+def _object_lines(binding: dict[str, Any]) -> list[str]:
+    """What a tool bound as an object is, one fact per line (#910)."""
+
+    identity = binding["object"]
+    definition = binding.get("definition") or {}
+    lines = [
+        object_display({"identity": identity})
+        + (f" at {definition['source']}:{definition['line']}" if definition.get("line") else "")
+    ]
+    if identity.get("kind") == "agent_tool":
+        source = (binding.get("object_evidence") or {}).get("agent_source")
+        lines[0] += f" (agent in {source})" if source else ""
+    for item in identity.get("credential_sources") or []:
+        target = next(
+            f"{kind} {item[kind]}" if item[kind] else kind
+            for kind in ("header", "auth", "query", "field", "userinfo", "server_env")
+            if kind in item
+        )
+        sources = [f"env {name}" for name in item.get("env", [])]
+        if item.get("from"):
+            sources.append("a value made from " + ", ".join(item["from"]))
+        if item.get("literal"):
+            sources.append("a literal (not printed)")
+        lines.append(f"  credential: {', '.join(sources) or 'a computed value'} → {target}")
+    return lines
+
+
+def _effect_lines(effects: list[dict[str, Any]]) -> list[str]:
+    lines: list[str] = []
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for effect in effects:
+        groups.setdefault(effect_phrase(effect), []).append(effect)
+    for phrase, group in groups.items():
+        first = group[0]
+        via = f" via {' → '.join(first['via'])}" if first["via"] else ""
+        more = (
+            f", and {len(group) - 1} more call site{'s' if len(group) > 2 else ''}"
+            if len(group) > 1
+            else ""
+        )
+        lines.append(f"reaches: {phrase} at {first['at']}{via}{more}")
+        hosts = sorted({host for effect in group for host in effect.get("host", [])})
+        if hosts:
+            lines.append(f"  host: {', '.join(hosts)}")
+        supplied: list[str] = []
+        for effect in group:
+            for item in effect.get("model_supplied", []):
+                fact = f"{item['param']} → {item['into']}"
+                if fact not in supplied:
+                    supplied.append(fact)
+        if supplied:
+            lines.append("  model-supplied: " + "; ".join(supplied))
+        credentials: list[str] = []
+        for effect in group:
+            for item in effect.get("credential_sources", []):
+                target = next(
+                    (f"{kind} {item[kind]}" if item[kind] else kind for kind in ("keyword", "userinfo") if kind in item),
+                    "a credential",
+                )
+                sources = [f"env {name}" for name in item.get("env", [])]
+                if item.get("from"):
+                    sources.append("a value made from model-supplied " + ", ".join(item["from"]))
+                if item.get("literal"):
+                    sources.append("a literal (not printed)")
+                fact = f"  credential: {', '.join(sources) or 'a computed value'} → {target}"
+                if fact not in credentials:
+                    credentials.append(fact)
+        lines.extend(credentials)
+    return lines
 
 
 def _reach_lines(binding: dict[str, Any]) -> list[str]:
@@ -1591,21 +1790,37 @@ def _reach_lines(binding: dict[str, Any]) -> list[str]:
             # is not said of all of them.
             facts.append(fact if count >= len(group) else f"{fact} (at some call sites)")
         lines.extend(facts)
+    effects = reach.get("effects") or []
+    lines.extend(_effect_lines(effects))
     evidence = binding.get("effect_evidence")
-    if evidence and (calls or limits):
+    if evidence and (calls or effects or limits):
         status = evidence["status"]
         label = EFFECT_EVIDENCE_LABELS.get(status, status)
         basis = ""
-        claims = [c for c in evidence["claims"] if c["source"] == REACH_CLAIM_SOURCE]
+        claims = [c for c in evidence["claims"] if c["source"] in REACH_CLAIM_SOURCES]
         if status == "structural" and claims:
             claim = next(
                 (c for c in claims if c["value"] == evidence["conservative_effect"]), claims[0]
             )
-            basis = (
-                ": every call was followed, and every outbound call reads"
-                if claim["value"] == "read"
-                else f": outbound call at {claim['at']}"
+            effect = next(
+                (
+                    item
+                    for item in effects
+                    if item["at"] == claim["at"]
+                    and CLAIM_EFFECTS.get((item["family"], item["operation"])) == claim["value"]
+                ),
+                None,
             )
+            if claim["value"] == "read":
+                basis = (
+                    ": every call was followed, and everything it reaches reads"
+                    if effects
+                    else ": every call was followed, and every outbound call reads"
+                )
+            elif claim["source"] != REACH_CLAIM_SOURCE and effect is not None:
+                basis = f": {effect['family']} {effect['operation']} at {claim['at']}"
+            else:
+                basis = f": outbound call at {claim['at']}"
         lines.append(f"effect: {evidence['conservative_effect']} ({label}{basis})")
     for item in limits[:3]:
         lines.append(f"reach limit: {item['at']} {item['why']}")
@@ -1709,6 +1924,15 @@ def run_application_diff(
     else:
         payload = _combined(comparisons, sides, scope_selection, engine, max_python_files)
     payload = sanitize_report_payload(payload)
+    # The reviewer-first reading of the rows (#914): derived from the
+    # sanitized rows, so it names nothing the rows do not, and it sits before
+    # them so the JSON reads in the order the text does.
+    payload = {
+        "application_comparison_schema_version": payload.pop("application_comparison_schema_version"),
+        "comparison_status": payload.pop("comparison_status"),
+        "summary": build_summary(payload),
+        **payload,
+    }
     payload["comparison_id"] = _digest(payload)
     if json_output:
         typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -1719,7 +1943,7 @@ def run_application_diff(
 
 _LIMITS = [
     "Covers supported OpenAI Agents SDK and Google ADK source wiring only.",
-    "Deployment-root reachability, runtime behavior, effects other than the outbound HTTP calls a row names, and business authority are not established.",
+    "Deployment-root reachability, runtime behavior, effects other than the outbound HTTP calls and library effects a row names, and business authority are not established.",
     "This comparison is advisory evidence and supplies no release verdict or merge permission.",
 ]
 
@@ -1934,10 +2158,25 @@ def _print_comparison(payload: dict[str, Any], base_commit: str, head_commit: st
             typer.echo(f"  scope limit: {_one_line(limit)}")
     if payload.get("comparisons") == []:
         typer.echo("The change touches no supported application agent; nothing was compared.")
-    for item in payload.get("comparisons", [payload]):
-        if "comparisons" in payload:
+    # What the reviewer decides comes first (#914); the rows follow it.
+    for line in summary_lines(payload["summary"]):
+        typer.echo(_one_line(line))
+    rows = len(payload["rows"])
+    if rows > DETAIL_ROW_LIMIT:
+        for item in payload.get("comparisons", []):
             typer.echo(f"Scope {item['head']['scope']}: {item['comparison_status']}")
-        _print_rows(item, _one_line)
+        typer.echo(
+            f"Detail: {rows} rows are not printed here. `--json` carries every row, gap and "
+            "reach limit, and the findings above name the rows they summarize."
+        )
+    else:
+        if rows:
+            typer.echo("Detail:")
+        for item in payload.get("comparisons", [payload]):
+            if "comparisons" in payload:
+                typer.echo(f"Scope {item['head']['scope']}: {item['comparison_status']}")
+            _print_rows(item, _one_line)
+    _print_excluded_tests(payload, _one_line)
     typer.echo(payload["limits"][-1])
 
 
@@ -1972,7 +2211,10 @@ def _print_rows(payload: dict[str, Any], _one_line: Any) -> None:
                 )
                 if value.get("bound_when"):
                     typer.echo(f"    bound {_one_line(_bound(value))}")
-                if definition:
+                if value.get("object"):
+                    for line in _object_lines(value):
+                        typer.echo(f"    {_one_line(line)}")
+                elif definition:
                     typer.echo(
                         f"    implementation: {_one_line(definition['source'])}:{definition['line']} ({str(definition['implementation_sha256'])[:12]})"
                     )
@@ -2001,11 +2243,13 @@ def _print_rows(payload: dict[str, Any], _one_line: Any) -> None:
     for side in ("base", "head"):
         for limit in payload[side]["limits"]:
             typer.echo(f"  {side} limit: {_one_line(limit)}")
+
+
+def _print_excluded_tests(payload: dict[str, Any], _one_line: Any) -> None:
     # Test files are never the application (#876); say which were left
     # out, so a product module that only looks like a test is visible.
     excluded = sorted(
-        set(payload["base"].get("excluded_tests", []))
-        | set(payload["head"].get("excluded_tests", []))
+        set(payload["base"].get("excluded_tests", [])) | set(payload["head"].get("excluded_tests", []))
     )
     if excluded:
         shown = ", ".join(_one_line(path) for path in excluded[:5])

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -17,17 +18,70 @@ from agents_shipgate.core.host_comparison import (
     without_untouched_script_limits,
 )
 from agents_shipgate.core.host_grants import (
+    MAX_HOST_CONFIG_BYTES,
     HostStaticParseCache,
     build_host_boundary_snapshot,
     hook_dependency_issues,
     hook_dependency_limits,
     without_host_issues,
 )
+from agents_shipgate.core.unread_inputs import ChangedInputs
 from agents_shipgate.schemas.host_comparison import HostComparison
 
 
 def _names(change: DiffFile) -> list[str]:
     return [name for name in (change.old_path, change.new_path) if name]
+
+
+def _invalid_name(name: str) -> bool:
+    return (
+        PurePosixPath(name).is_absolute()
+        or ".." in PurePosixPath(name).parts
+        or "\\" in name
+        or "\0" in name
+    )
+
+
+def _diff_changed_inputs(workspace: Path, changes: list[DiffFile]) -> ChangedInputs:
+    """The diff's own paths, and each side as the diff states it (#929).
+
+    Only for the wording of a removed MCP server's row: this route records no
+    coverage. A path is present on a side only where the diff has it there,
+    since unchanged context is not an inventory claim, and its bytes are the
+    side the diff resolves to, within the host reader's per-file bound. A
+    path this route refuses to write is neither present nor read. It reads
+    through no parse cache: the comparison's cache has finished by then.
+    """
+
+    sides: dict[str, dict[str, DiffFile]] = {"base": {}, "head": {}}
+    for change in changes:
+        if any(_invalid_name(name) for name in _names(change)):
+            continue
+        if change.old_path and not change.is_new:
+            sides["base"][change.old_path] = change
+        if change.new_path and not change.is_deleted:
+            sides["head"][change.new_path] = change
+
+    def present(side: str, paths: Sequence[str]) -> set[str]:
+        return {path for path in paths if path in sides[side]}
+
+    def read(side: str, paths: Sequence[str]) -> dict[str, bytes]:
+        contents: dict[str, bytes] = {}
+        for path in paths:
+            change = sides[side].get(path)
+            if change is None:
+                continue
+            resolved = _resolve_changed_file_text(
+                workspace, change, [], None, preserve_rename_source=True
+            )
+            text = resolved.old_text if side == "base" else resolved.new_text
+            data = text.encode("utf-8") if text is not None else None
+            if data is not None and len(data) <= MAX_HOST_CONFIG_BYTES:
+                contents[path] = data
+        return contents
+
+    paths = {name for change in changes for name in _names(change) if not _invalid_name(name)}
+    return ChangedInputs(paths=tuple(sorted(paths)), present=present, read=read)
 
 
 def _write_sides(
@@ -41,13 +95,7 @@ def _write_sides(
 
     for change in changes:
         names = _names(change)
-        if any(
-            PurePosixPath(name).is_absolute()
-            or ".." in PurePosixPath(name).parts
-            or "\\" in name
-            or "\0" in name
-            for name in names
-        ):
+        if any(_invalid_name(name) for name in names):
             return HostComparison(
                 comparison_status="incomparable",
                 incomparable_reasons=["invalid_changed_host_path"],
@@ -163,4 +211,6 @@ def compare_host_diff(workspace: Path, diff_text: str) -> HostComparison:
             # `agent-result` keeps only the rows, reasons and status, so no
             # coverage is built to be discarded (#812).
             coverage=False,
+            # Read only if a removed MCP server's row is worded from it (#929).
+            changed_inputs=lambda: _diff_changed_inputs(workspace, changes),
         )

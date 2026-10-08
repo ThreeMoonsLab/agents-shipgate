@@ -39,6 +39,15 @@ from agents_shipgate.core.boundary_registry import (
     boundary_adapters_for_path,
     is_agent_boundary_path,
 )
+from agents_shipgate.core.claude_permission_rules import (
+    carve_out_predecessors,
+    carve_out_widens,
+    covering_rule,
+    every_path_pattern,
+    is_carve_out,
+    same_spelling,
+    unconsulted_path_rule,
+)
 from agents_shipgate.core.codex_boundary import (
     _DECISION_RANK,
     _RISK_BY_ACTION,
@@ -56,6 +65,7 @@ from agents_shipgate.core.host_settings import (
 )
 from agents_shipgate.core.jsonc import is_vscode_mcp_path, loads_jsonc
 from agents_shipgate.core.permission_lattice import (
+    PATH_TOOLS,
     exec_equivalent_argument,
     names_tools_within_one_mcp_server,
     same_grant,
@@ -556,7 +566,7 @@ def _evaluate_claude_settings(diff_file, resolved, add) -> None:
     _evaluate_claude_setting_values(old_data, new_data, path, add)
     old_allow = set(_string_entries(old_permissions.get("allow")))
     for rule in sorted(set(_string_entries(permissions.get("allow"))) - old_allow):
-        if not _widens_allow(rule, old_allow):
+        if not _claude_allow_widens(rule, old_allow):
             continue
         rule_id = _allow_rule_id(rule)
         add(
@@ -571,12 +581,21 @@ def _evaluate_claude_settings(diff_file, resolved, add) -> None:
                 "rule": _safe_rule(rule),
             },
         )
-    new_deny = set(_string_entries(permissions.get("deny")))
-    for rule in sorted(set(_string_entries(old_permissions.get("deny"))) - new_deny):
+    old_deny = _string_entries(old_permissions.get("deny"))
+    new_deny = _string_entries(permissions.get("deny"))
+    for rule in _claude_removed_restrictions(old_deny, new_deny):
         add(
             "HOST-PERMISSION-DENY-REMOVED",
             path=path,
             evidence={"kind": "permission_deny_removed", "rule": _safe_rule(rule)},
+        )
+    for rule in _claude_widening_carve_outs(old_deny, new_deny):
+        # A `!` rule now excepting paths from a deny rule the file already
+        # had removes part of that denial, however it is spelled (#974).
+        add(
+            "HOST-PERMISSION-DENY-REMOVED",
+            path=path,
+            evidence={"kind": "permission_deny_carved_out", "rule": _safe_rule(rule)},
         )
     hooks = new_data.get("hooks") if isinstance(new_data, dict) else None
     old_hooks = old_data.get("hooks") if isinstance(old_data, dict) else None
@@ -814,6 +833,50 @@ def _widens_allow(rule: str, old_rules) -> bool:
     )
 
 
+def _claude_allow_widens(rule: str, old_allow) -> bool:
+    """Whether an added Claude Code allow rule may allow something the file did not.
+
+    The rule model's answer (``core.claude_permission_rules``), which the drift
+    comparator reads too: a path-scoped rule Claude Code never consults allows
+    nothing (#938), and one an allow rule the file already had matches entirely
+    adds nothing (#941, #969). Unlike the Cursor reading, an allow rule
+    Claude Code skips, such as an unanchored ``*``, covers nothing.
+    """
+
+    return not unconsulted_path_rule(rule) and covering_rule(rule, old_allow) is None
+
+
+def _claude_removed_restrictions(old_rules: list[str], new_rules: list[str]) -> list[str]:
+    """Claude Code deny or ask rules whose removal lifts a restriction (#938, #974, #918).
+
+    Not one: a path-scoped rule Claude Code never consults, a `!` carve-out
+    (removing one restricts more), or a rule the list still holds spelled
+    another way. The rule model is ``core.claude_permission_rules``, which the
+    drift comparator reads too.
+    """
+
+    kept = set(new_rules)
+    return sorted(
+        rule for rule in set(old_rules) - kept
+        if not (
+            unconsulted_path_rule(rule)
+            or is_carve_out(rule)
+            or any(same_spelling(rule, other) for other in kept)
+        )
+    )
+
+
+def _claude_widening_carve_outs(old_rules: list[str], new_rules: list[str]) -> list[str]:
+    """`!` rules that now except paths from a rule the same list held before (#974)."""
+
+    before = carve_out_predecessors(old_rules)
+    return sorted(
+        rule
+        for rule, follows in carve_out_predecessors(new_rules).items()
+        if carve_out_widens(follows, before.get(rule), old_rules)
+    )
+
+
 HOST_SETTINGS_NARROWED = "host_settings_narrowed"
 _CURSOR_RULE_CATEGORIES = ("shell", "read", "write")
 
@@ -854,11 +917,17 @@ def settings_change_only_narrows(resolved: ResolvedFileText, *, cursor: bool) ->
         for category in _CURSOR_RULE_CATEGORIES:
             old_allow.extend(_string_entries(old_data.get(category)))
     if any(
-        _widens_allow(rule, old_allow)
+        _widens_allow(rule, old_allow) if cursor else _claude_allow_widens(rule, old_allow)
         for rule in set(new_rules["allow"]) - set(old_rules["allow"])
     ):
         return False
-    return all(set(old_rules[key]) <= set(new_rules[key]) for key in keys if key != "allow")
+    if cursor:
+        return all(set(old_rules[key]) <= set(new_rules[key]) for key in keys if key != "allow")
+    return not any(
+        _claude_removed_restrictions(old_rules[key], new_rules[key])
+        or _claude_widening_carve_outs(old_rules[key], new_rules[key])
+        for key in keys if key != "allow"
+    )
 
 
 def _rule_lists(data: dict[str, Any], keys: tuple[str, ...]) -> dict[str, list[str]] | None:
@@ -902,6 +971,13 @@ def _is_wildcard_allow(rule: str) -> bool:
     command prefix. Nor is an MCP rule naming tools within one server
     (``mcp__github__get_issue``): it is a bare token, but not a whole
     tool surface. ``mcp__github`` and ``mcp__github__*`` still are (#816).
+
+    A file tool's argument is a gitignore path pattern, where a leading ``*``
+    stays inside the path segments the rest of the pattern names:
+    ``Edit(**/.env.example)`` matches files named ``.env.example``, not
+    every file (#969; https://code.claude.com/docs/en/permissions#read-and-edit).
+    Only a pattern made of nothing but ``*`` and ``/`` (``*``, ``**``,
+    ``**/*``, ``/**``), after an optional ``./``, is every path.
     """
     stripped = rule.strip()
     if stripped == "*":
@@ -914,6 +990,8 @@ def _is_wildcard_allow(rule: str) -> bool:
         # and blocked through the wildcard check (#816).
         return not names_tools_within_one_mcp_server(stripped)
     argument = stripped[open_paren + 1 :].lstrip()
+    if stripped[:open_paren].strip() in PATH_TOOLS:
+        return every_path_pattern(argument.rstrip(")").strip())
     return argument.startswith("*")
 
 
@@ -957,7 +1035,8 @@ def _safe_rule(rule: str) -> str:
     argument = stripped[open_paren + 1 :].rstrip(")").strip()
     if argument == "*":
         return f"{tool}(*)"
-    if argument.startswith("*"):
+    if argument.startswith("*") and _is_wildcard_allow(stripped):
+        # `Edit(**/.env.example)` is a scoped path, not a wildcard (#969).
         return f"{tool}(<wildcard>)"
     return f"{tool}(<redacted-arguments>)"
 

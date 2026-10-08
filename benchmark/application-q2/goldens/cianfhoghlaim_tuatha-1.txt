@@ -1,0 +1,22 @@
+Application comparison: partial (375c6895b1ac → 329c7fa68ced)
+scope: old/scattered_agents_tuasha, tuatha (derived: old/scattered_agents_tuasha: old/scattered_agents_tuasha/wiring.py is related to agent file old/scattered_agents_tuasha/appm_agent.py through old/scattered_agents_tuasha/appm_agent.py → old/scattered_agents_tuasha/wiring.py; tuatha: tuatha/agents/educational/academic_history_agent.py is an agent file)
+  scope limit: Changed files are not related to a compared agent, so their effect is not compared: scripts/fix_subject_agents.py (no agent file imports it, and it imports no agent file within 6 hops); scripts/refactor_subject_agents.py (no agent file imports it, and it imports no agent file within 6 hops); scripts/rewrite_qpack_baml.py (no agent file imports it, and it imports no agent file within 6 hops); tuatha/capture/__init__.py (no agent file imports it, and it imports no agent file within 6 hops); tuatha/capture/hermes_client.py (no agent file imports it, and it imports no agent file within 6 hops); and 30 more.
+Findings: 8 changed agents, 40 rows (40 not established).
+appm_agent [partial]: ?-generate_appm_item, ?-lookup_appm_lo, ?-lookup_appm_marking_scheme, ?-lookup_appm_paper, ?-score_appm_response (not read: Google ADK tool wrapper 'appm_formative_item_generate_tool' has no statically resolvable function.)
+chem_agent [partial]: ?-generate_chem_item, ?-lookup_chem_lo, ?-lookup_chem_marking_scheme, ?-lookup_chem_paper, ?-score_chem_response (not read: Google ADK tool wrapper 'chem_formative_item_generate_tool' has no statically resolvable function.)
+comp_agent [partial]: ?-generate_comp_item, ?-lookup_comp_lo, ?-lookup_comp_marking_scheme, ?-lookup_comp_paper, ?-score_comp_response (not read: Google ADK tool wrapper 'comp_formative_item_generate_tool' has no statically resolvable function.)
+engl_agent [partial]: ?-generate_engl_item, ?-lookup_engl_lo, ?-lookup_engl_marking_scheme, ?-lookup_engl_paper, ?-score_engl_response (not read: Google ADK tool wrapper 'engl_formative_item_generate_tool' has no statically resolvable function.)
+gael_agent [partial]: ?-generate_gael_item, ?-lookup_gael_lo, ?-lookup_gael_marking_scheme, ?-lookup_gael_paper, ?-score_gael_response (not read: Google ADK tool wrapper 'gael_formative_item_generate_tool' has no statically resolvable function.)
+geog_agent [partial]: ?-generate_geog_item, ?-lookup_geog_lo, ?-lookup_geog_marking_scheme, ?-lookup_geog_paper, ?-score_geog_response (not read: Google ADK tool wrapper 'geog_formative_item_generate_tool' has no statically resolvable function.)
+hist_agent [partial]: ?-generate_hist_item, ?-lookup_hist_lo, ?-lookup_hist_marking_scheme, ?-lookup_hist_paper, ?-score_hist_response (not read: Google ADK tool wrapper 'hist_formative_item_generate_tool' has no statically resolvable function.)
+math_agent [partial]: ?-generate_math_item, ?-lookup_math_lo, ?-lookup_math_marking_scheme, ?-lookup_math_paper, ?-score_math_response (not read: Google ADK tool wrapper 'math_formative_item_generate_tool' has no statically resolvable function.)
+5 more agents: tool lines and questions are in --json summary.findings.
+Not established: 40 rows share 1 cause.
+  - Google ADK tool wrapper 'appm_formative_item_generate_tool' has no statically resolvable function. [39 similar; 40 rows, head]
+  Review: Resolve the named causes before treating the 40 candidate changes as changes.
+Also not read, and not tied to a row above: 51 limits on cianfhoghlaim_operator, bilingual_curriculum_expert, curriculum_comparison_agent, learning_outcome_mapper, and 2 more; first: old/scattered_agents_tuasha: Google ADK agent 'cianfhoghlaim_operator' at agents/cianfhoghlaim_operator.py:164 uses a dynamic tools expression; its binding graph is incomplete. Not read: `TOOLS` may be changed in place after it is built (agents/cianfhoghlaim_operator.py:117).
+Scope old/scattered_agents_tuasha: partial
+Scope tuatha: partial
+Detail: 40 rows are not printed here. `--json` carries every row, gap and reach limit, and the findings above name the rows they summarize.
+Test files not read as the application (7): tuatha/education/tests/test_agent.py, tuatha/tests/conftest.py, tuatha/tests/test_curriculum_change_sensor.py, tuatha/tests/test_image_gen_router.py, tuatha/tests/test_langfuse_traces.py, and 2 more
+This comparison is advisory evidence and supplies no release verdict or merge permission.

@@ -71,6 +71,7 @@ from agents_shipgate.core.host_grants import (
     hook_dependency_issues,
 )
 from agents_shipgate.core.host_input_failure import safe_failure_text
+from agents_shipgate.core.mcp_host_selection import UNATTRIBUTED_MCP_HOST, is_mcp_config_path
 from agents_shipgate.core.trust_roots import (
     is_configured_manifest,
     is_portable_repo_path,
@@ -237,6 +238,17 @@ def evaluate_agent_boundary(
         and path.replace("\\", "/") not in plugin_hook_paths
     )
     plugin_unread_folded = {path.casefold() for path in plugin_unread_paths}
+    # The hosts the inventory published each changed `.mcp.json` under, on a
+    # side the caller read (#936). Routing stays the registry's; only the
+    # host a result names follows what selects the file.
+    mcp_attribution: dict[str, set[str]] = {}
+    for host, path in plugin_hooks.mcp_hosts:
+        mcp_attribution.setdefault(path.casefold(), set()).add(host)
+    mcp_hosts = {
+        path: frozenset(mcp_attribution[path.casefold()])
+        for path in changed_files
+        if is_mcp_config_path(path) and path.casefold() in mcp_attribution
+    }
     script_issues = hook_dependency_issues(host_snapshot.inventory)
 
     def counted(item: dict[str, Any]) -> bool:
@@ -553,7 +565,11 @@ def evaluate_agent_boundary(
                 *(
                     host
                     for path in changed_files
-                    for host in boundary_hosts_for_path(path)
+                    for host in (
+                        mcp_hosts[path] - {UNATTRIBUTED_MCP_HOST}
+                        if path in mcp_hosts
+                        else boundary_hosts_for_path(path)
+                    )
                 ),
                 *(
                     {"codex", "claude-code", "cursor"}
@@ -574,6 +590,7 @@ def evaluate_agent_boundary(
         plugin_hook_paths=plugin_hook_paths | plugin_unread_paths,
         script_hosts=script_hosts,
         openshell_paths=openshell_paths,
+        mcp_hosts=mcp_hosts,
     )
     input_coverage: Literal["complete", "partial", "unknown"] = (
         "partial"
@@ -1115,6 +1132,7 @@ def _coverage_for(
     plugin_hook_paths: frozenset[str] = frozenset(),
     script_hosts: dict[str, list[str]] | None = None,
     openshell_paths: frozenset[str] = frozenset(),
+    mcp_hosts: dict[str, frozenset[str]] | None = None,
 ) -> list[BoundaryHostCoverage]:
     # A path is partially covered only when its content was not read. A kind
     # the publication predicate counts as read is never unread here, so a
@@ -1146,6 +1164,13 @@ def _coverage_for(
                 path for path, hosts in script_hosts.items()
                 if set(hosts) & set(adapter.hosts)
             )})
+        if adapter.id != "shared" and mcp_hosts:
+            # A `.mcp.json` is covered under the hosts that select it (#936),
+            # not under Claude Code by its file name alone.
+            paths = sorted(
+                {path for path in paths if path not in mcp_hosts}
+                | {path for path, hosts in mcp_hosts.items() if hosts & set(adapter.hosts)}
+            )
         if any(path in failure_paths for path in paths) or (paths and issues):
             status = "partial"
         elif paths and adapter.experimental:

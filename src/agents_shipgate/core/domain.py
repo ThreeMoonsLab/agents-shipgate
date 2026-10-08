@@ -718,6 +718,12 @@ class AgentBindingObservation(BaseModel):
     handoff_sites: dict[str, list[str]] = Field(default_factory=dict)
     #: ``handoff_name -> [condition, ...]``: the same, for a handoff target.
     handoff_conditions: dict[str, list[str]] = Field(default_factory=dict)
+    #: ``binding name -> {identity, location, unread}`` for each tool the agent
+    #: binds as an object (#910): an MCP server or toolset, an agent exposed as
+    #: a tool, a hosted or built-in tool. Read only for ``diff --application``
+    #: (``inputs/object_tools.py``); never a catalog tool, so ``scan`` and the
+    #: binding graph see nothing new.
+    object_bindings: dict[str, dict[str, Any]] = Field(default_factory=dict)
     tools_complete: bool = True
     handoffs_complete: bool = True
     issues: list[str] = Field(default_factory=list)

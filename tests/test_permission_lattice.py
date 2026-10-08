@@ -954,7 +954,11 @@ class TestMovedRulePairing:
 
         signals = _drift(before, after)["expansion_signals"]
 
-        assert "allow_rule_added: claude-code:Bash(git status --short *)" in signals
+        # Two arrivals still pair with nothing, but the shared file's own
+        # `Bash(git status *)` already matched `git status --short`, so that
+        # arrival adds nothing (#918). The removed local denial still widens.
+        assert "allow_rule_added: claude-code:Bash(git status --short *)" not in signals
+        assert "allow_rule_added: claude-code:Bash(git log *)" in signals
         assert "deny_rule_removed: claude-code:Bash(git log *)" in signals
 
     def test_a_narrowing_never_silences_an_addition_in_another_source(self, tmp_path: Path) -> None:

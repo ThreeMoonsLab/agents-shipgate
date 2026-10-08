@@ -18,7 +18,18 @@ from agents_shipgate.core.capability_diff_rows import (
 )
 from agents_shipgate.core.host_comparison import reproduce_command
 from agents_shipgate.core.host_grants import _source_kind
-from agents_shipgate.schemas.host_comparison import HostComparison, HostComparisonCoverageItem
+from agents_shipgate.core.mcp_host_selection import UNATTRIBUTED_MCP_HOST
+from agents_shipgate.schemas.host_comparison import (
+    BLOCKING_SOURCE_IDENTITY_NOTES,
+    HostComparison,
+    HostComparisonCoverageItem,
+)
+
+
+def _host_label(host: str) -> str:
+    """A coverage item's host as printed: ``unknown`` names no host (#936)."""
+
+    return "host not established" if host == UNATTRIBUTED_MCP_HOST else single_line_text(host)
 
 
 def presented_changes(comparison: HostComparison) -> list[ReviewChange]:
@@ -270,7 +281,11 @@ def partial_scopes(comparison: HostComparison) -> tuple[list[str], bool]:
     if comparison.comparison_status != "partial" or coverage is None:
         return [], False
     scopes = sorted(
-        {item.scope for item in coverage.items if item.scope is not None and not _script_scope(item)}
+        {
+            item.scope
+            for item in coverage.items
+            if item.scope is not None and not _script_scope(item) and not _document_scope(item)
+        }
     )
     hidden = bool(coverage.omitted_items) and bool(coverage.items) and (
         coverage.items[-1].status == "blocking_limit"
@@ -287,6 +302,32 @@ def _partial_script_scopes(comparison: HostComparison) -> list[str]:
     return sorted({str(item.scope) for item in coverage.items if _script_scope(item)})
 
 
+def _partial_document_scopes(comparison: HostComparison) -> list[str]:
+    """Plain instruction documents a partial comparison did not compare (#973)."""
+
+    coverage = comparison.coverage
+    if comparison.comparison_status != "partial" or coverage is None:
+        return []
+    return sorted({str(item.scope) for item in coverage.items if _document_scope(item)})
+
+
+def _document_scope_text(documents: list[str], *, markdown: bool) -> tuple[str, str]:
+    """What a list of withheld documents is called, and the pronoun for it (#973)."""
+
+    names = ", ".join(_text(document, markdown=markdown) for document in documents)
+    if len(documents) > 1:
+        return (
+            f"{names}, instruction documents longer than this entry reads (a kind it "
+            "treats as guidance, which declares no grant it compares)",
+            "them",
+        )
+    return (
+        f"{names}, an instruction document longer than this entry reads (a kind it "
+        "treats as guidance, which declares no grant it compares)",
+        "it",
+    )
+
+
 def partial_scope_lines(comparison: HostComparison, *, markdown: bool = False) -> list[str]:
     """What a partial comparison did not compare, and what that makes of its rows (#808).
 
@@ -298,6 +339,35 @@ def partial_scope_lines(comparison: HostComparison, *, markdown: bool = False) -
 
     scopes, hidden = partial_scopes(comparison)
     scripts = _partial_script_scopes(comparison)
+    documents = _partial_document_scopes(comparison)
+    if not scopes and documents:
+        # Only documents, and perhaps hook scripts, were withheld (#973):
+        # every other source was compared.
+        named, it = _document_scope_text(documents, markdown=markdown)
+        if hidden:
+            named += ", and any other source a limit not listed below names"
+            it = "them"
+        lines = [
+            f"Not compared: {named}, so a change to {it} is not shown and nothing "
+            f"is claimed about {it}."
+        ]
+        if scripts:
+            lines.append(
+                "Nor the bytes of "
+                + ", ".join(_text(script, markdown=markdown) for script in scripts)
+                + ", hook scripts this entry could not read on both sides alike."
+            )
+        if comparison.rows:
+            lines.append(
+                "The changes below come only from other sources, so they are not the "
+                "whole change; nothing here is a claim that the change is safe."
+            )
+        else:
+            lines.append(
+                f"No static host-grant change was detected outside {it}. That is not a "
+                "no-change answer for this change, and no verdict is implied."
+            )
+        return lines
     if not scopes:
         if not scripts:
             return []
@@ -335,6 +405,8 @@ def partial_scope_lines(comparison: HostComparison, *, markdown: bool = False) -
         f"Not compared: {named}, so no change inside {it} is shown "
         f"and nothing is claimed about {it}."
     ]
+    if documents:
+        lines.append(f"Nor {_document_scope_text(documents, markdown=markdown)[0]}.")
     if scripts:
         lines.append(
             "Nor the bytes of "
@@ -453,9 +525,46 @@ def _unread_item_text(item: HostComparisonCoverageItem, *, markdown: bool) -> st
 
 
 def _script_scope(item: HostComparisonCoverageItem) -> bool:
-    """A partial comparison's withheld hook script, whose scope is its own path (#702)."""
+    """A partial comparison's withheld hook script, whose scope is its own path (#702).
 
-    return item.status == "blocking_limit" and item.scope is not None and item.scope == item.source
+    Its limit is always ``unreadable``; a withheld document's is ``unsupported`` (#973).
+    """
+
+    return (
+        item.status == "blocking_limit"
+        and item.scope is not None
+        and item.scope == item.source
+        and item.limit == "unreadable"
+    )
+
+
+def _document_scope(item: HostComparisonCoverageItem) -> bool:
+    """A partial comparison's withheld plain instruction document, its scope its own path (#973)."""
+
+    return (
+        item.status == "blocking_limit"
+        and item.scope is not None
+        and item.scope == item.source
+        and item.limit == "unsupported"
+    )
+
+
+#: How a blocking limit's identity sentence reads at the end of its line (#973).
+_IDENTITY_CLAUSE = {
+    BLOCKING_SOURCE_IDENTITY_NOTES[False]: "it changed in this change",
+    BLOCKING_SOURCE_IDENTITY_NOTES[True]: "it is byte-identical in base and head",
+    BLOCKING_SOURCE_IDENTITY_NOTES[None]: "whether it changed in this change is not established",
+}
+
+
+def _identity_clause(item: HostComparisonCoverageItem) -> str:
+    """``; <whether it changed>`` for a limit both sides carry, read off its ``detail`` (#973)."""
+
+    detail = item.detail or ""
+    for note, clause in _IDENTITY_CLAUSE.items():
+        if detail.endswith(note):
+            return f"; {clause}"
+    return ""
 
 
 def coverage_item_text(
@@ -468,18 +577,25 @@ def coverage_item_text(
     """
 
     if item.status == "blocking_limit":
+        changed = _identity_clause(item)
         if _script_scope(item):
             return (
                 f"{item.limit} {_SIDE_SCOPE[item.side]}, so this hook script's bytes were "
-                "not compared; the hook that runs it was"
+                f"not compared; the hook that runs it was{changed}"
+            )
+        if _document_scope(item):
+            # A plain instruction document past the size bound (#973).
+            return (
+                f"{item.limit} {_SIDE_SCOPE[item.side]} (longer than this entry reads), so "
+                f"this document was not compared{changed}"
             )
         if item.scope is not None:
             # A partial comparison (#808): the limit cost that directory only.
             return (
                 f"{item.limit} {_SIDE_SCOPE[item.side]}, so nothing in "
-                f"{_text(item.scope, markdown=markdown)} was compared"
+                f"{_text(item.scope, markdown=markdown)} was compared{changed}"
             )
-        return f"{item.limit} {_SIDE_LIMIT[item.side]}"
+        return f"{item.limit} {_SIDE_LIMIT[item.side]}{changed}"
     if item.status == "changed_not_read":
         return _unread_item_text(item, markdown=markdown)
     if item.status == "script_not_resolved":
@@ -602,7 +718,7 @@ def coverage_lines(
 
     item_lines = [
         f"{bullet}{_text(item.source, markdown=markdown)} "
-        f"({', '.join(single_line_text(host) for host in item.hosts)}): "
+        f"({', '.join(_host_label(host) for host in item.hosts)}): "
         f"{coverage_item_text(item, markdown=markdown, named_by_row=any(hook_script_named_by(row, item.source) for row in comparison.rows))}"
         for item in coverage.items
         if not _quiet(item)

@@ -1,0 +1,134 @@
+[
+  {
+    "fixture": "azure-dev-10209/head/codeowners-validation.yml",
+    "issue": 920,
+    "source_repository": "Azure/azure-dev",
+    "source_pull_request": 10209,
+    "source_commit": "23a070532383f457e2c4d852b036a0f484586e8c",
+    "source_path": ".github/workflows/codeowners-validation.yml",
+    "source_sha256": "29c0dd783e486cbbe2332b1a5d2260aa84c23950a2fdbc56ac1cc0e711570756"
+  },
+  {
+    "fixture": "openma-235/head/agent-review.yml",
+    "issue": 920,
+    "source_repository": "openma-ai/open-managed-agents",
+    "source_pull_request": 235,
+    "source_commit": "ef950c576c05797e38a2c06edf6c71009b24fe5d",
+    "source_path": ".github/workflows/agent-review.yml",
+    "source_sha256": "3c40eabd07126c618e27b455306a2b83f67876c29f4b474ba518ceaf42f30fe0"
+  },
+  {
+    "fixture": "hiero-27275/base/600-flow-pull-request-checks.yaml",
+    "issue": 921,
+    "source_repository": "hiero-ledger/hiero-consensus-node",
+    "source_pull_request": 27275,
+    "source_commit": "c87a758425a54f324deef4aa66fde9875ddbbcaa",
+    "source_path": ".github/workflows/600-flow-pull-request-checks.yaml",
+    "source_sha256": "7e3b4dcdb5e6f0da619cecb73cad2584b7e27d2186b56c8201a5ea4844c72101"
+  },
+  {
+    "fixture": "hiero-27275/head/600-flow-pull-request-checks.yaml",
+    "issue": 921,
+    "source_repository": "hiero-ledger/hiero-consensus-node",
+    "source_pull_request": 27275,
+    "source_commit": "69f597581de28761115d77b01db349e284902c71",
+    "source_path": ".github/workflows/600-flow-pull-request-checks.yaml",
+    "source_sha256": "5ccbc8be9d67f566ea6abbfe74b67b043e785a174bab4ad1bd09c282fdc7256b"
+  },
+  {
+    "fixture": "hiero-27275/base/855-call-extract-citr-vars.yaml",
+    "issue": 921,
+    "source_repository": "hiero-ledger/hiero-consensus-node",
+    "source_pull_request": 27275,
+    "source_commit": "69f597581de28761115d77b01db349e284902c71",
+    "source_path": ".github/workflows/855-call-extract-citr-vars.yaml",
+    "source_sha256": "f8468da835d93ed6c6fc533acc23f0725417a36c4f99d5bf68df164b19099526",
+    "note": "byte-identical at the base commit"
+  },
+  {
+    "fixture": "hiero-27275/head/870-call-evm-functional-tests.yaml",
+    "issue": 921,
+    "source_repository": "hiero-ledger/hiero-consensus-node",
+    "source_pull_request": 27275,
+    "source_commit": "69f597581de28761115d77b01db349e284902c71",
+    "source_path": ".github/workflows/870-call-evm-functional-tests.yaml",
+    "source_sha256": "de23eb981ace17545b95e0f315fb09035301ceb4ed24840546348140bb6ef98e",
+    "note": "added by the pull request"
+  },
+  {
+    "fixture": "hiero-27275/base/854-call-extract-jdk-version.yaml",
+    "issue": 921,
+    "source_repository": "hiero-ledger/hiero-consensus-node",
+    "source_pull_request": 27275,
+    "source_commit": "69f597581de28761115d77b01db349e284902c71",
+    "source_path": ".github/workflows/854-call-extract-jdk-version.yaml",
+    "source_sha256": "36ebeffa0523be76fa14d68e903f187cc0e17ad6569b57d9f88b19957db9fc11"
+  },
+  {
+    "fixture": "hiero-27275/base/800-call-mats-tests.yaml",
+    "issue": 921,
+    "source_repository": "hiero-ledger/hiero-consensus-node",
+    "source_pull_request": 27275,
+    "source_commit": "69f597581de28761115d77b01db349e284902c71",
+    "source_path": ".github/workflows/800-call-mats-tests.yaml",
+    "source_sha256": "619f40aeb32509018070a2d5581d4d62ee3afffa3467f0ee063d2c80331d476e",
+    "note": "reduced to its permissions, one ordinary job, one of its nested calls (whose callee is omitted) and set-failure-mode"
+  },
+  {
+    "fixture": "hiero-27275/base/857-call-workflow-unit-tests.yaml",
+    "issue": 921,
+    "source_repository": "hiero-ledger/hiero-consensus-node",
+    "source_pull_request": 27275,
+    "source_commit": "69f597581de28761115d77b01db349e284902c71",
+    "source_path": ".github/workflows/857-call-workflow-unit-tests.yaml",
+    "source_sha256": "1886d23600370f0ea1c4d3cdec6e5642057024397b8b5cba14f36cc58b270cc7"
+  },
+  {
+    "fixture": "rocm-120/head/rocm-build.yml",
+    "issue": 921,
+    "source_repository": "ROCm/k8s-gpu-dra-driver",
+    "source_pull_request": 120,
+    "source_commit": "019e28eb39640fca658dcd9d9c3e6e996e8ea84e",
+    "source_path": ".github/workflows/rocm-build.yml",
+    "source_sha256": "32c2355e442103754ccd49785ab0ac94c6a880c6a3fc1b9cae163ca4dce272eb",
+    "note": "added by the pull request; rocm-prerelease-build.yml, which has the same shape, is omitted"
+  },
+  {
+    "fixture": "rocm-120/head/_build-dra.yml",
+    "issue": 921,
+    "source_repository": "ROCm/k8s-gpu-dra-driver",
+    "source_pull_request": 120,
+    "source_commit": "019e28eb39640fca658dcd9d9c3e6e996e8ea84e",
+    "source_path": ".github/workflows/_build-dra.yml",
+    "source_sha256": "3985d618dfa8b21fb45cee4321ef4e84b20344762117ba253e85f3c768bb889a"
+  },
+  {
+    "fixture": "rocm-120/head/_build-helm.yml",
+    "issue": 921,
+    "source_repository": "ROCm/k8s-gpu-dra-driver",
+    "source_pull_request": 120,
+    "source_commit": "019e28eb39640fca658dcd9d9c3e6e996e8ea84e",
+    "source_path": ".github/workflows/_build-helm.yml",
+    "source_sha256": "f90c35db94d40db320e8eb8bf7ec6ffe9f7923dac98a72c29788eb9b7427051c"
+  },
+  {
+    "fixture": "bbot-3483/base/cla.yml",
+    "issue": 924,
+    "source_repository": "blacklanternsecurity/bbot",
+    "source_pull_request": 3483,
+    "source_commit": "58fe07e43b45d60fc124d30073ea7b2d40bcc403",
+    "source_path": ".github/workflows/cla.yml",
+    "source_sha256": "88def5eb1740c2c5fd3492ddea65e6ad774ccb409a8f1f995a11aa5789b230aa",
+    "note": "verbatim"
+  },
+  {
+    "fixture": "bbot-3483/head/cla.yml",
+    "issue": 924,
+    "source_repository": "blacklanternsecurity/bbot",
+    "source_pull_request": 3483,
+    "source_commit": "a6626787f267d80b67940251d24716129f3fff56",
+    "source_path": ".github/workflows/cla.yml",
+    "source_sha256": "d7346ba91d010d18c760ead5628b867956a168970de0283b72cbfcbe17b7aae0",
+    "note": "verbatim"
+  }
+]

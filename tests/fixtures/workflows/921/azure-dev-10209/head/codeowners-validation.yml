@@ -1,0 +1,16 @@
+name: codeowners-validation
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited]
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  validate:
+    name: CODEOWNERS validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate CODEOWNERS changes
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          script: core.info('fixture')

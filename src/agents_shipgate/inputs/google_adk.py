@@ -54,6 +54,13 @@ from agents_shipgate.inputs.list_expressions import (
     unread_parts,
 )
 from agents_shipgate.inputs.mcp import load_mcp_tools
+from agents_shipgate.inputs.object_tools import (
+    ADK,
+    ObjectBinding,
+    ObjectTools,
+    Unread,
+    object_bindings_rule,
+)
 from agents_shipgate.inputs.openapi import load_openapi_tools
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.inputs.python_imports import (
@@ -931,6 +938,11 @@ class _AdkAgentBinding:
     handoff_sites: dict[str, list[str]] = field(default_factory=dict)
     #: What each tool is bound under, when only under a condition (#909).
     when: Conditions = field(default_factory=Conditions, repr=False)
+    #: ``name -> payload`` of the tools bound as objects (#910), read only
+    #: for ``diff --application``; never catalog tools.
+    objects: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: Per construction: how many anonymous servers of each class it listed.
+    object_slots: dict[str, int] = field(default_factory=dict, repr=False)
 
     def bind(
         self, tool_name: str, locator: str | None = None, location: str | None = None
@@ -939,6 +951,9 @@ class _AdkAgentBinding:
 
         if self.recording is not None:
             self.recording.append((tool_name, locator))
+        if tool_name in self.objects:
+            self.unbind_duplicate(tool_name, self._two_tools(tool_name))
+            return False
         if tool_name in self.tool_names or tool_name in self.duplicated:
             return False
         self.tool_names.append(tool_name)
@@ -947,6 +962,27 @@ class _AdkAgentBinding:
         if location is not None:
             self.tool_locations[tool_name] = location
         return True
+
+    def bind_object(self, name: str, payload: dict[str, Any], digest: str) -> bool:
+        """Add one tool bound as an object (#910); False when the name is
+        already another tool's, so that neither is bound."""
+
+        if self.recording is not None:
+            self.recording.append((name, f"object:{digest}"))
+        if name in self.duplicated:
+            return False
+        held = self.objects.get(name)
+        if name in self.tool_names or (held is not None and held["identity"] != payload["identity"]):
+            self.unbind_duplicate(name, self._two_tools(name))
+            return False
+        self.objects[name] = payload
+        return True
+
+    def _two_tools(self, name: str) -> str:
+        return (
+            f"Google ADK agent {self.agent!r} binds two different tools named {name!r}; "
+            "the model sees one tool name for both, so neither is resolved."
+        )
 
     def binds_other_definition(self, tool_name: str, locator: str) -> bool:
         """Whether ``tool_name`` is already bound to a *different* definition."""
@@ -963,6 +999,7 @@ class _AdkAgentBinding:
 
         self.duplicated.add(tool_name)
         self.tool_issues.pop(tool_name, None)
+        self.objects.pop(tool_name, None)
         self.tool_names = [name for name in self.tool_names if name != tool_name]
         self.tool_locators.pop(tool_name, None)
         self.tool_locations.pop(tool_name, None)
@@ -1084,6 +1121,13 @@ class _PythonAdkExtractor:
         self._lists: ListExpressions | None = None
         self._builder_calls = BuilderCalls(self.resolver) if self.resolver is not None else None
         self._invocation: Invocation | None = None
+        # Tools bound as objects, read only for ``diff --application`` (#910).
+        object_rule = object_bindings_rule()
+        self._objects = (
+            ObjectTools(ADK, self.resolver, object_rule)
+            if object_rule is not None and self.resolver is not None and self.module is not None
+            else None
+        )
         self.parents = {
             child: node
             for node in ast.walk(tree)
@@ -1310,6 +1354,7 @@ class _PythonAdkExtractor:
         warnings_at = len(self.artifacts.warnings)
         state_at = (list(binding.issues), dict(binding.tool_issues), set(binding.duplicated))
         binding.recording = []
+        binding.object_slots = {}
         loaded: list[LoadedToolSource] = []
         conditioned: set[tuple[str, str]] = set()
         always: set[str] = set()
@@ -1318,7 +1363,7 @@ class _PythonAdkExtractor:
                 at = len(binding.recording)
                 loaded.extend(self._extract_member(member, tools, agent_name, binding))
                 for tool_name, _ in binding.recording[at:]:
-                    if tool_name in binding.tool_names:
+                    if tool_name in binding.tool_names or tool_name in binding.objects:
                         if member.invocation is not None:
                             locations = binding.tool_sites.setdefault(tool_name, [])
                             for location in member.invocation.locations:
@@ -1867,7 +1912,7 @@ class _PythonAdkExtractor:
                 tool_locators=dict(binding.tool_locators),
                 tool_issues={**binding.tool_issues,
                              **({name: "; ".join(filter(None, [binding.tool_issues.get(name), binding.constructor_issue]))
-                                 for name in binding.tool_names}
+                                 for name in (*binding.tool_names, *binding.objects)}
                                 if binding.constructor_issue is not None else {})},
                 tool_sites={
                     name: sorted(lines, key=lambda location: (location.rsplit(":", 1)[0], int(location.rsplit(":", 1)[1])))
@@ -1876,6 +1921,7 @@ class _PythonAdkExtractor:
                 if len(self.agent_sites.get(binding.agent, {})) > 1 or any(len(locations) > 1 for locations in binding.tool_sites.values())
                 else {},
                 tool_conditions=binding.when.only_when(binding.duplicated),
+                object_bindings=dict(binding.objects),
                 tools_complete=not binding.issues,
                 handoffs_complete=binding.handoffs_complete,
                 handoff_sites=dict(binding.handoff_sites),
@@ -1883,7 +1929,7 @@ class _PythonAdkExtractor:
                 constructor_issues=dict(binding.constructor_issues),
             )
             for binding in self.agent_bindings.values()
-            if binding.tool_names or binding.issues or binding.handoff_sites
+            if binding.tool_names or binding.issues or binding.handoff_sites or binding.objects
         ]
 
     def _agent_calls(self) -> list[tuple[str | None, ast.Call]]:
@@ -2009,6 +2055,28 @@ class _PythonAdkExtractor:
         """One member of an agent's tools list, read where it is written (#909)."""
 
         module = member.module
+        home = module if module is not None else self.module
+        if self._objects is not None and home is not None:
+            # An MCP toolset, an agent as a tool or a built-in, read as the
+            # binding it is (#910); anything else is read as before.
+            found = self._objects.recognize(member.expr, home)
+            if isinstance(found, ObjectBinding):
+                name = found.name
+                if name is None:
+                    kind = str(found.identity.get("class"))
+                    binding.object_slots[kind] = binding.object_slots.get(kind, 0) + 1
+                    name = f"{kind}#{binding.object_slots[kind]}"
+                binding.bind_object(name, found.payload(), found.digest())
+                return []
+            if isinstance(found, Unread):
+                message = (
+                    f"Google ADK agent {agent_name!r} binds a tool object that is not read: "
+                    f"{found.reason}."
+                )
+                self._surface_warning(message, SURFACE_GAP_UNRESOLVED_EXPRESSION)
+                if message not in binding.issues:
+                    binding.issues.append(message)
+                return []
         if module is None:
             return self._extract_tool_expr(member.expr, tools, agent_name, binding)
         spelling = reference_spelling(member.expr)

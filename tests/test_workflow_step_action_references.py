@@ -208,7 +208,9 @@ def test_reusable_calls_and_inherited_secrets_are_unchanged_by_the_step_read():
     after = _workflow(jobs={"deploy": {"uses": "org/repo/.github/workflows/deploy.yml@v2", "secrets": "inherit"}})
 
     row, = _rows(before, after)
-    assert row.expands and "secrets: inherit" in row.after
+    # A re-pinned inheriting call names other code, not a new recipient (#924).
+    assert not row.expands and "secrets: inherit" in row.after
+    assert "the called code reference changed (deploy:" in row.why
     assert "step_actions" not in _workflow_grant(after, source=SOURCE)
 
 

@@ -212,6 +212,23 @@ def test_a_multi_scope_score_survives_another_machine_or_release(tmp_path: Path)
     assert (totals["scored"], totals["stale_scores"]) == (0, ["a"])
 
 
+def test_a_score_survives_the_summary_block(tmp_path: Path) -> None:
+    # The summary (#914) is a reading of the rows, derived from them: a build
+    # that adds or rewords it has not changed the answer a hand score judged.
+    corpus = {"corpus": "toy", "members": [{"slug": "a", "repository": "o/a", "number": 1, "url": "u"}]}
+    answer = {"comparison_status": "partial", "rows": [{"change": "not_established"}], "comparison_id": "sha256:1"}
+    score = {"answer_id": summarize.answer_id(answer), "q0": True, "q1": False, "q2": False, "rationale": "x"}
+    with_summary = {**answer, "summary": {"findings": [{"agent": "a"}]}, "comparison_id": "sha256:2"}
+    assert summarize.answer_id(with_summary) == summarize.answer_id(answer)
+    reworded = {**with_summary, "summary": {"findings": [{"agent": "b"}]}}
+    assert summarize.answer_id(reworded) == summarize.answer_id(answer)
+    _write_run(tmp_path, [{"slug": "a", "status": "ok"}], {"a": with_summary})
+    totals = summarize.totals(summarize.load_run(corpus, tmp_path), {"a": score})
+    assert (totals["scored"], totals["stale_scores"]) == (1, [])
+    moved = {**with_summary, "rows": [{"change": "added"}]}
+    assert summarize.answer_id(moved) != summarize.answer_id(answer)
+
+
 def test_the_readme_quotes_868s_levels_verbatim() -> None:
     for definition in (
         "**Q0 (relevant):** the PR changes an SDK/ADK agent's tools, handoffs or sub-agents in application code.",

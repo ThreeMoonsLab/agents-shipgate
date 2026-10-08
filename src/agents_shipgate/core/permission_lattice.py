@@ -111,6 +111,35 @@ def _shell_argument(argument: str) -> str | None:
     return f"{command} *"
 
 
+def canonical_rule(raw: str) -> str:
+    """The one spelling two documented Claude Code rule forms share (#918).
+
+    The permissions page ("Wildcard patterns" and "Match all uses of a tool",
+    https://code.claude.com/docs/en/permissions, read 2026-10-06) documents
+    exactly two respellings: a trailing ``:*`` is a trailing `` *`` —
+    ``Bash(git add:*)`` matches what ``Bash(git add *)`` matches — and
+    ``Bash(*)`` is ``Bash``. Both are folded here and nothing else is: other
+    tools' arguments, a ``:*`` anywhere but the end, and a suffix the page
+    does not settle (``Bash(:*)``, ``Bash(npm :*)``) are returned as written,
+    so two texts compare equal only where the documentation says they are.
+    """
+
+    rule = parse_rule(raw)
+    if not _is_shell(rule):
+        return rule.raw
+    # The lattice reads the shell tool's name case-insensitively throughout.
+    if rule.argument is None:
+        return "Bash"
+    if not rule.raw.endswith(")"):
+        return rule.raw
+    if rule.argument == "*":
+        return "Bash"
+    argument = _shell_argument(rule.argument)
+    if argument is None:
+        return rule.raw
+    return f"Bash({argument})"
+
+
 #: Claude Code spells an MCP grant as a bare token: `mcp__<server>` or
 #: `mcp__<server>__*` for every tool the server offers, and
 #: `mcp__<server>__<tool>` for one tool (its permissions page, "MCP",
@@ -193,6 +222,10 @@ def subsumes(wider: str, narrower: str) -> bool | None:
     * identical rules allow the same thing, which is not widening.
     * ``Bash(npm:*)`` is ``Bash(npm *)``, and ``mcp__github`` is
       ``mcp__github__*``: two spellings of one grant (#816).
+
+    Undecided (``None``): a Bash pair holding shell syntax, an exec wrapper
+    or a leading assignment, a path-tool `!` negation, and a path prefix
+    whose `*` would have to cross a `/` (#918, #941, #969, #974).
     """
 
     left, right = parse_rule(wider), parse_rule(narrower)
@@ -227,8 +260,59 @@ def subsumes(wider: str, narrower: str) -> bool | None:
         narrower_argument = _shell_argument(right.argument or "")
         if wider_argument is None or narrower_argument is None:
             return None
+        if not _plain_command(wider_argument) or not _plain_command(narrower_argument):
+            return None
         return _argument_subsumes(wider_argument, narrower_argument, shell=True)
-    return _argument_subsumes(left.argument or "", right.argument or "")
+    if _is_path_tool(left) and (
+        (left.argument or "").startswith("!") or (right.argument or "").startswith("!")
+    ):
+        # A leading `!` is a gitignore negation in a deny or ask list and is
+        # not documented in an allow list (#974). It is not a path prefix.
+        return None
+    return _argument_subsumes(
+        left.argument or "", right.argument or "", path=_is_path_tool(left)
+    )
+
+
+#: Shell syntax whose matching the permissions page does not reduce to command
+#: text (#918, #941). Claude Code splits compound commands at `&&`, `||`, `;`,
+#: `|`, `&` and newlines and matches each part separately ("Compound
+#: commands"), so a rule holding an operator is not one command a prefix rule
+#: covers; quoting, substitution, redirection and grouping change what is
+#: split. A pair with any of them is left undecided, never read as text.
+_SHELL_SYNTAX = frozenset("&|;<>()$`\\\"'\n\r#")
+
+#: Commands the page says a prefix rule does not approve while an exact rule
+#: does ("Wrappers": "Exec wrappers such as `watch`, `setsid`, `ionice`, and
+#: `flock` can't be auto-approved by a prefix rule ... The same applies to
+#: `find` with `-exec` or `-delete`"), so text containment is not coverage.
+_EXEC_WRAPPERS = frozenset({"watch", "setsid", "ionice", "flock"})
+_FIND_EXEC_WORDS = frozenset({"-exec", "-execdir", "-ok", "-okdir", "-delete"})
+
+
+def _plain_command(argument: str) -> bool:
+    """Whether a Bash argument is command text the prefix reading decides."""
+
+    if _SHELL_SYNTAX & set(argument):
+        return False
+    words = argument.split()
+    if not words:
+        return True
+    if words[0] in _EXEC_WRAPPERS or "=" in words[0]:
+        # A leading assignment is matched past for deny rules and not for
+        # allow rules ("Wrappers"), so one text means two things.
+        return False
+    return not (words[0] == "find" and _FIND_EXEC_WORDS.intersection(words))
+
+
+#: Tools whose argument is a gitignore-style path ("Read and Edit",
+#: https://code.claude.com/docs/en/permissions#read-and-edit), where a `*`
+#: matches within one path segment, not across `/`.
+PATH_TOOLS = frozenset({"Read", "Edit", "Write", "Glob", "Grep", "NotebookEdit", "MultiEdit"})
+
+
+def _is_path_tool(rule: Rule) -> bool:
+    return rule.tool.strip() in PATH_TOOLS
 
 
 def same_grant(left: str, right: str) -> bool:
@@ -244,12 +328,9 @@ def same_grant(left: str, right: str) -> bool:
     a, b = parse_rule(left), parse_rule(right)
     if a.raw == b.raw:
         return True
-    if not (_is_shell(a) and _is_shell(b)) or a.argument is None or b.argument is None:
+    if not (_is_shell(a) and _is_shell(b)):
         return False
-    if not (a.raw.endswith(")") and b.raw.endswith(")")):
-        return False
-    canonical = _shell_argument(a.argument)
-    return canonical is not None and canonical == _shell_argument(b.argument)
+    return canonical_rule(a.raw) == canonical_rule(b.raw)
 
 
 #: Glob syntax this lattice does not implement. A character class or an
@@ -272,7 +353,9 @@ def _simple_prefix(argument: str) -> str | None:
     return None
 
 
-def _argument_subsumes(wider: str, narrower: str, *, shell: bool = False) -> bool | None:
+def _argument_subsumes(
+    wider: str, narrower: str, *, shell: bool = False, path: bool = False
+) -> bool | None:
     """Decide prefix patterns and literals; stay quiet about the rest.
 
     A ``*`` anywhere but the end, or any character class, is left
@@ -299,6 +382,15 @@ def _argument_subsumes(wider: str, narrower: str, *, shell: bool = False) -> boo
         # defect this module exists to stop.
         return None
     wider_prefix, narrower_prefix = _simple_prefix(wider), _simple_prefix(narrower)
+    if (
+        path and wider_prefix is not None and narrower.startswith(wider_prefix)
+        and "/" in narrower[len(wider_prefix):]
+    ):
+        # In a path pattern `*` stays within one segment ("Read and Edit":
+        # "`*` matches within a single path segment"), so `docs/*` reaching
+        # `docs/a/b.md` would rest on directory-descendant matching the page
+        # does not state for these rules. Undecided, not covered.
+        return None
     if wider_prefix is not None and narrower_prefix is not None:
         # `a*` allows everything `b*` allows exactly when `b` extends `a`.
         return narrower_prefix.startswith(wider_prefix)
@@ -446,7 +538,9 @@ def scoped_risk(rule: str) -> tuple[str, str]:
 
 
 __all__ = [
+    "PATH_TOOLS",
     "Rule",
+    "canonical_rule",
     "exec_equivalent_argument",
     "exec_equivalent_prefix",
     "names_tools_within_one_mcp_server",
