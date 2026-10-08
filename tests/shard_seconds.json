@@ -274,6 +274,7 @@
   "tests/test_openshell_inventory.py": 0.8,
   "tests/test_openshell_native.py": 50.4,
   "tests/test_openshell_routes.py": 213.2,
+  "tests/test_openshell_row_detail.py": 24.0,
   "tests/test_operation_attribution_verification.py": 23.3,
   "tests/test_org_governance.py": 0.1,
   "tests/test_out_path_resolution.py": 58.2,

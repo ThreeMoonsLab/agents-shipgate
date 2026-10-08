@@ -64,6 +64,10 @@ from agents_shipgate.core.host_grants import (
 from agents_shipgate.core.host_settings import rate_claude_setting, setting_value_text
 from agents_shipgate.core.mcp_host_selection import UNATTRIBUTED_MCP_HOST
 from agents_shipgate.core.openshell_compare import compare_openshell_grants
+from agents_shipgate.core.openshell_row_detail import (
+    openshell_policy_change,
+    openshell_policy_declarations,
+)
 from agents_shipgate.core.permission_lattice import (
     exec_equivalent_argument,
     parse_rule,
@@ -705,6 +709,17 @@ def _call_change_reasons(changes: list[CallChange]) -> list[str]:
         pairs = ", ".join(f"{job}: {old} → {new}" for job, old, new in retargeted)
         reasons.append(f"the called workflow changed ({pairs})")
     return reasons
+
+
+def _openshell_cell(cell: str, grant: dict[str, Any] | None) -> str:
+    """A wholly added or removed OpenShell policy, with what it declares beside its digest (#968).
+
+    The counts and the facts digest stay, so the cell still identifies the
+    document; the declarations are display only and imply no direction.
+    """
+
+    declared = openshell_policy_declarations(grant)
+    return f"{cell}; declared: {declared}" if declared else cell
 
 
 def _grant_value(
@@ -2382,6 +2397,17 @@ def capability_diff_rows(
             view = _RowView(
                 before=_hook_cell(row.before, before_grant),
                 after=_hook_cell(row.after, after_grant),
+            )
+        elif kind == "openshell_policy" and before_grant and after_grant:
+            view = _RowView(
+                before=row.before,
+                after=row.after,
+                change=openshell_policy_change(before_grant, after_grant),
+            )
+        elif kind == "openshell_policy":
+            view = _RowView(
+                before=_openshell_cell(row.before, before_grant),
+                after=_openshell_cell(row.after, after_grant),
             )
         else:
             view = _RowView(before=row.before, after=row.after)
