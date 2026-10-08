@@ -1080,8 +1080,12 @@ def test_long_hook_entries_leave_every_line_1_1_0_prints_in_the_pr_comment(tmp_p
     assert ADVISORY in lines
     assert any(line.startswith("Evidence: `verifier.json` contains") for line in lines)
     assert "### Agent instruction block" in lines
-    # Shortened entries are named once, never one pointer per entry.
-    assert len(_note_lines(comment)) == 1
+    # Shortened entries are named once, never one pointer per entry. Since
+    # #972 an async entry names its setting in a few words, so whether the
+    # async case needs shortening at all depends on the workspace path the
+    # comment quotes; the moves always do.
+    notes = len(_note_lines(comment))
+    assert notes == 1 if case.startswith("moved") else notes <= 1
 
 
 def test_a_bounded_comment_keeps_every_line_its_shortest_entries_would_print(tmp_path: Path) -> None:
