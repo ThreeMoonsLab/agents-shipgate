@@ -37,6 +37,8 @@ from agents_shipgate.core.boundary_registry import (
     is_claude_plugin_reference_path,
     is_explicit_boundary_file_path,
     is_hook_declaration_file_name,
+    is_plugin_manifest_path,
+    plugin_manifest_root,
 )
 from agents_shipgate.core.claude_permission_rules import (
     carve_out_predecessors,
@@ -79,6 +81,13 @@ from agents_shipgate.core.instruction_structure import (
     unresolved_reason_is_invalid_syntax,
 )
 from agents_shipgate.core.jsonc import is_vscode_mcp_path, loads_jsonc
+from agents_shipgate.core.mcp_host_selection import (
+    UNATTRIBUTED_MCP_HOST,
+    declared_component_paths,
+    is_mcp_config_path,
+    plugin_reference,
+    select_mcp_hosts,
+)
 from agents_shipgate.core.mcp_launch_source import launch_source_pin
 from agents_shipgate.core.openshell import (
     OpenShellCollectionBudget,
@@ -439,6 +448,10 @@ class EnabledPluginHookFiles:
     #: Selected literal executable references, identified separately per host.
     scripts: frozenset[tuple[str, str]] = frozenset()
     openshell: Any = None
+    #: ``(host, path)`` for each `.mcp.json` the inventory published, under
+    #: the hosts whose declarations select it (#936), so `check` names the
+    #: host the comparison names rather than the registry's file-name guess.
+    mcp_hosts: frozenset[tuple[str, str]] = frozenset()
 
     @classmethod
     def of(cls, snapshot: HostBoundarySnapshot) -> EnabledPluginHookFiles:
@@ -453,6 +466,11 @@ class EnabledPluginHookFiles:
                 for entry in grant.get("script_inputs") or []
                 if entry.get("path") and entry.get("basis")
             ),
+            mcp_hosts=frozenset(
+                (str(artifact["host"]), str(artifact["path"]))
+                for artifact in snapshot.inventory["artifacts"]
+                if artifact.get("kind") == "mcp" and is_mcp_config_path(str(artifact["path"]))
+            ),
         )
 
     def union(self, other: EnabledPluginHookFiles) -> EnabledPluginHookFiles:
@@ -460,6 +478,7 @@ class EnabledPluginHookFiles:
             sources=self.sources | other.sources, unread=self.unread | other.unread,
             scripts=self.scripts | other.scripts,
             openshell=self.openshell or other.openshell,
+            mcp_hosts=self.mcp_hosts | other.mcp_hosts,
         )
 
 
@@ -4728,6 +4747,13 @@ class _PluginHookSelection:
     #: ``{inline hook selector: its plugin directory}``: a manifest, or a
     #: marketplace entry ``<marketplace>#plugins.<name>`` (#808).
     inline_roots: dict[str, str] = field(default_factory=dict)
+    #: Every Claude Code plugin directory this configuration recognises, from
+    #: a manifest that parsed or an in-repository marketplace entry (#936).
+    plugin_roots: set[str] = field(default_factory=set)
+    #: The files a manifest's or marketplace entry's `mcpServers` names by a
+    #: `./` path inside its plugin (#936). Each selects a `.mcp.json` for
+    #: Claude Code; no other file is read from it.
+    mcp_references: set[str] = field(default_factory=set)
 
 
 def _plugin_relative_path(reference: str, *, allow_root: bool = False) -> str | None:
@@ -4870,6 +4896,7 @@ def _resolve_claude_plugin_hooks(
         result.roots.setdefault(hook_file, set()).add(plugin_root)
 
     def select_default(plugin_root: str, selector: str) -> None:
+        result.plugin_roots.add(plugin_root)
         default = existing(under(plugin_root, CLAUDE_PLUGIN_DEFAULT_HOOKS))
         if default is not None:
             select(default, plugin_root=plugin_root, selector=selector)
@@ -4991,6 +5018,14 @@ def _resolve_claude_plugin_hooks(
             return
         select(found, plugin_root=plugin_root, selector=selector)
 
+    def note_mcp_references(declared: Any, *, plugin_root: str) -> None:
+        # Only what selects a `.mcp.json` for Claude Code (#936); the file is
+        # read as a registry surface, and nothing else is followed here.
+        for reference in declared_component_paths(declared):
+            target = plugin_reference(plugin_root, reference, require_dot_slash=True)
+            if target is not None:
+                result.mcp_references.add(target)
+
     def follow_hooks(
         declared: Any, *, plugin_root: str, selector: str, blocking: bool
     ) -> None:
@@ -5049,6 +5084,7 @@ def _resolve_claude_plugin_hooks(
             ))
             continue
         select_default(plugin_root, manifest)
+        note_mcp_references(data.get("mcpServers"), plugin_root=plugin_root)
         if "hooks" not in data:
             # Only the `hooks` member is published, so editing a plugin's
             # version or description is not host-grant drift.
@@ -5125,6 +5161,7 @@ def _resolve_claude_plugin_hooks(
             if isinstance(entry.get("name"), str) and entry["name"] in enabled_here:
                 enabled_roots.add(plugin_root.casefold())
             select_default(plugin_root, selector)
+            note_mcp_references(entry.get("mcpServers"), plugin_root=plugin_root)
             if "hooks" not in entry:
                 continue
             recorded.append({
@@ -5215,6 +5252,7 @@ def _repository_paths(
     include_directory_candidates: bool = False,
     plugin_candidates: dict[str, tuple[Path, tuple[str, ...]]] | None = None,
     plugin_unread_links: set[str] | None = None,
+    plugin_manifests: dict[str, tuple[Path, tuple[str, ...]]] | None = None,
 ) -> tuple[list[tuple[Path, str, str, str, tuple[str, ...]]], int]:
     """Enumerate repository sources exclusively from the boundary registry.
 
@@ -5331,6 +5369,12 @@ def _repository_paths(
         for path, relative, resolved_through in entries:
             if is_claude_plugin_reference_path(relative):
                 plugin_candidates[relative] = (path, resolved_through)
+    if plugin_manifests is not None:
+        # Every host's plugin manifest, which decides the host a `.mcp.json`
+        # is published under (#936). Only a Codex one is ever read.
+        for path, relative, resolved_through in entries:
+            if is_plugin_manifest_path(relative):
+                plugin_manifests[relative] = (path, resolved_through)
 
     for path, relative, resolved_through in entries:
         for adapter in BOUNDARY_ADAPTERS:
@@ -5466,6 +5510,70 @@ def _symlink_may_hide_boundary_glob(relative: str, pattern: str) -> bool:
         or path.startswith(f"{fixed_prefix}/")
         or fixed_prefix.startswith(f"{path}/")
     )
+
+
+def _attribute_mcp_declarations(
+    repository_paths: list[tuple[Path, str, str, str, tuple[str, ...]]],
+    *,
+    manifests: dict[str, tuple[Path, tuple[str, ...]]],
+    selection: _PluginHookSelection,
+    root: Path,
+    cache: HostStaticParseCache,
+    issues: list[dict[str, Any]],
+) -> list[tuple[Path, str, str, str, tuple[str, ...]]]:
+    """Publish each `.mcp.json` under the hosts whose declarations select it (#936).
+
+    The registry finds the file by name and offers it as Claude Code's; the
+    rules in :mod:`agents_shipgate.core.mcp_host_selection` decide the hosts
+    from the plugin manifests and Claude Code plugin configuration around it.
+    The servers are read exactly as before, once per host. Only a Codex
+    manifest is read for this, through the same cache, and only when a
+    `.mcp.json` exists; a manifest of any other format is only noticed. A
+    declaration no host is established for carries a non-blocking issue naming
+    the manifests beside it, so `audit --host` says why.
+    """
+
+    sources = [
+        source for _path, source, host, kind, _resolved in repository_paths
+        if host == "claude-code" and kind == "mcp" and is_mcp_config_path(source)
+    ]
+    if not sources:
+        return repository_paths
+    parsed: dict[str, Any] = {}
+    for manifest, (path, _resolved_through) in sorted(manifests.items()):
+        located = plugin_manifest_root(manifest)
+        data: Any = None
+        if located is not None and located[1] == "codex":
+            data, error_kind, _message = cache.parse(path, containment_root=root)
+            if error_kind is not None or not isinstance(data, dict):
+                data = None
+        parsed[manifest] = data
+    selections = select_mcp_hosts(
+        sources=sources, manifests=parsed,
+        claude_roots=selection.plugin_roots, claude_references=selection.mcp_references,
+    )
+    rows: list[tuple[Path, str, str, str, tuple[str, ...]]] = []
+    for row in repository_paths:
+        path, source, host, kind, resolved_through = row
+        chosen = selections.get(source) if host == "claude-code" and kind == "mcp" else None
+        if chosen is None:
+            rows.append(row)
+            continue
+        rows.extend((path, source, each, kind, resolved_through) for each in chosen.hosts)
+        if chosen.unattributed_by:
+            beside = "; ".join(
+                f"{public_host_path(manifest)} ({reason})" for manifest, reason in chosen.unattributed_by
+            )
+            issues.append(_inventory_issue(
+                kind="unsupported", host=UNATTRIBUTED_MCP_HOST, source=source, blocking=False,
+                message=(
+                    "No plugin configuration this entry reads selects this MCP configuration, "
+                    f"and its directory holds {beside}. Which host loads its servers is not "
+                    "established, so they are published under host `unknown`, never as Claude "
+                    "Code's from the file name; nothing establishes that a plugin is installed."
+                ),
+            ))
+    return rows
 
 
 def _repository_sources_expected(host: str) -> list[str]:
@@ -5818,6 +5926,7 @@ def build_host_boundary_snapshot(
     inventory_failures: list[HostInputFailure] = []
     plugin_candidates: dict[str, tuple[Path, tuple[str, ...]]] = {}
     plugin_unread_links: set[str] = set()
+    plugin_manifests: dict[str, tuple[Path, tuple[str, ...]]] = {}
     try:
         repository_paths, _inventory_entries = _repository_paths(
             root,
@@ -5825,6 +5934,7 @@ def build_host_boundary_snapshot(
             limits=cache.configured_limits,
             plugin_candidates=plugin_candidates,
             plugin_unread_links=plugin_unread_links,
+            plugin_manifests=plugin_manifests,
         )
     except HostInventoryReadError as exc:
         repository_paths = []
@@ -5860,6 +5970,11 @@ def build_host_boundary_snapshot(
     )
     selected_hooks = selection.selected
     plugin_reference_issue_ids = set(selection.reference_issue_ids)
+    if not inventory_failures:
+        repository_paths = _attribute_mcp_declarations(
+            repository_paths, manifests=plugin_manifests, selection=selection,
+            root=root, cache=cache, issues=issues,
+        )
     issue_roots: dict[str, set[str | None]] = {
         issue_id: set(roots) for issue_id, roots in selection.issue_roots.items()
     }

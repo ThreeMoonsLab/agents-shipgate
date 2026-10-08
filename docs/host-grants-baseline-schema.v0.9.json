@@ -341,7 +341,8 @@
             "cursor",
             "vscode",
             "github",
-            "openshell"
+            "openshell",
+            "unknown"
           ],
           "title": "Host",
           "type": "string"
@@ -537,7 +538,7 @@
                 "additional_path": "#/$defs/HostAdditionalPathGrantV2",
                 "hook": "#/$defs/HostHookComparisonV7",
                 "instruction_trust_root": "#/$defs/HostInstructionGrantV2",
-                "mcp_server": "#/$defs/HostMcpServerGrantV2",
+                "mcp_server": "#/$defs/HostMcpServerBaselineGrantV9",
                 "openshell_policy": "#/$defs/HostOpenShellPolicyGrantV9",
                 "permission_mode": "#/$defs/HostPermissionModeGrantV2",
                 "permission_rule": "#/$defs/HostPermissionRuleGrantV9",
@@ -551,7 +552,7 @@
             },
             "oneOf": [
               {
-                "$ref": "#/$defs/HostMcpServerGrantV2"
+                "$ref": "#/$defs/HostMcpServerBaselineGrantV9"
               },
               {
                 "$ref": "#/$defs/HostPermissionRuleGrantV9"
@@ -907,7 +908,7 @@
       "title": "HostInstructionGrantV2",
       "type": "object"
     },
-    "HostMcpServerGrantV2": {
+    "HostMcpServerBaselineGrantV9": {
       "additionalProperties": false,
       "properties": {
         "access": {
@@ -963,7 +964,8 @@
             "claude-code",
             "cursor",
             "vscode",
-            "github"
+            "github",
+            "unknown"
           ],
           "title": "Host",
           "type": "string"
@@ -1018,7 +1020,7 @@
         "server",
         "transport"
       ],
-      "title": "HostMcpServerGrantV2",
+      "title": "HostMcpServerBaselineGrantV9",
       "type": "object"
     },
     "HostOpenShellPolicyGrantV9": {

@@ -316,6 +316,13 @@ SURFACES: tuple[Surface, ...] = (
         # restates no answer and moves no row, severity or `check` decision;
         # `tests/test_mcp_launch_source.py` holds diff, verify, the PR comment
         # and check to it.
+        # An MCP row's subject and `why` naming the host whose declaration
+        # selects its `.mcp.json`, or no host for one the inventory published
+        # under `unknown` (#936), restate the inventory's attribution, the
+        # same one `check`'s `affected_hosts` reads, and move no direction,
+        # severity or decision, so they add no claim;
+        # `tests/test_mcp_host_attribution.py` holds diff, verify, check and
+        # audit to it.
         # A Claude Code permission rule row's direction, `expands` and `why`
         # (#918, #941, #969, #974, #938), and the `respelled` change the text
         # joins, read the engine's one rule model

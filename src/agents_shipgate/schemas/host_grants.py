@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
 from agents_shipgate.schemas.instruction_structure import InstructionStructureEvidence
 from agents_shipgate.schemas.openshell import OpenShellPolicyFacts
@@ -1203,8 +1203,32 @@ class HostWorkflowGrantV9(HostWorkflowGrantV7):
     reusable_calls: list[HostReusableWorkflowCallV9]
 
 
+#: The hosts a ``0.9`` inventory publishes a source under (#936): each host
+#: this entry reads, and ``unknown`` for an MCP configuration no declaration
+#: this entry reads selects while another host's plugin manifest sits beside
+#: it. ``unknown`` names no host: it says which host loads the servers is not
+#: established, so they are not Claude Code's by the file name. Extended in
+#: place: ``0.9`` has not shipped in a tagged release.
+HostNameV9 = Literal["codex", "claude-code", "cursor", "vscode", "github", "openshell", "unknown"]
+McpHostNameV9 = Literal["codex", "claude-code", "cursor", "vscode", "github", "unknown"]
+
+
+class HostMcpServerGrantV9(HostMcpServerGrantV7):
+    """An MCP server, published under the host whose declaration selects its file (#936)."""
+
+    host: McpHostNameV9
+
+
+class HostMcpServerBaselineGrantV9(HostMcpServerGrantV2):
+    host: McpHostNameV9
+
+
+class HostInventoryIssueV9(HostInventoryIssueV8):
+    host: HostNameV9
+
+
 HostGrantV9 = Annotated[
-    HostMcpServerGrantV7
+    HostMcpServerGrantV9
     | HostPermissionRuleGrantV9
     | HostPermissionModeGrantV2
     | HostHookGrantV7
@@ -1219,7 +1243,7 @@ HostGrantV9 = Annotated[
     Field(discriminator="kind"),
 ]
 HostBaselineGrantV9 = Annotated[
-    HostMcpServerGrantV2
+    HostMcpServerBaselineGrantV9
     | HostPermissionRuleGrantV9
     | HostPermissionModeGrantV2
     | HostHookComparisonV7
@@ -1236,8 +1260,15 @@ HostBaselineGrantV9 = Annotated[
 
 
 class HostArtifactV9(HostArtifactV8):
+    host: HostNameV9
     kind: Literal["config", "mcp", "hooks", "workflow", "instructions", "requirements", "hook_script",
                   "openshell_selection", "openshell_policy", "openshell_profile"]
+
+    @model_validator(mode="after")
+    def unknown_host_is_mcp_only(self):
+        if self.host == "unknown" and self.kind != "mcp":
+            raise ValueError("only an MCP configuration is published with host unknown (#936)")
+        return self
 
 
 class HostArtifactChangeV9(HostArtifactChangeV8):
@@ -1249,6 +1280,7 @@ class HostGrantsInventoryV9(HostGrantsInventoryV8):
     host_grants_inventory_schema_version: Literal["0.9"] = "0.9"
     grants: list[HostGrantV9] = Field(default_factory=list)
     artifacts: list[HostArtifactV9] = Field(default_factory=list)
+    issues: list[HostInventoryIssueV9] = Field(default_factory=list)
 
 
 class HostGrantsNormalizedSnapshotV9(HostGrantsNormalizedSnapshotV8):
@@ -1264,6 +1296,7 @@ class HostGrantsBaselineV9(HostGrantsBaselineV8):
 class HostGrantsDriftV9(HostGrantsDriftV8):
     host_grants_schema_version: Literal["0.9"] = "0.9"
     artifact_changes: list[HostArtifactChangeV9] = Field(default_factory=list)
+    issues: list[HostInventoryIssueV9] = Field(default_factory=list)
 
 
 class HostGrantsInventoryArtifactV9(RootModel[HostGrantsInventoryV9]):

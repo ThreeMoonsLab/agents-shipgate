@@ -192,6 +192,45 @@ def is_claude_plugin_marketplace_path(path: str) -> bool:
     return folded == CLAUDE_PLUGIN_MARKETPLACE or folded.endswith(f"/{CLAUDE_PLUGIN_MARKETPLACE}")
 
 
+#: Where a Codex plugin keeps its manifest, relative to the plugin root.
+CODEX_PLUGIN_MANIFEST = ".codex-plugin/plugin.json"
+#: A plugin manifest directory: `.claude-plugin`, `.codex-plugin`,
+#: `.cursor-plugin`, `.grok-plugin` and any other `.<name>-plugin`.
+_PLUGIN_MANIFEST_DIRECTORY = re.compile(r"\.[a-z0-9][a-z0-9_.-]*-plugin")
+
+
+def plugin_manifest_root(path: str) -> tuple[str, str] | None:
+    """``(plugin root, format)`` when ``path`` is a plugin manifest (#936).
+
+    A manifest is `plugin.json` in a `.<name>-plugin` directory, the
+    convention Claude Code, Codex, Cursor and Grok plugins share, or Copilot's
+    `.github/plugin/plugin.json`, at the root or under any directory. The
+    format is ``"claude-code"`` or ``"codex"`` for the two this entry reads to
+    learn which `.mcp.json` a plugin selects, and ``"other"`` for every
+    format it does not read. Decided from the name alone, case-insensitively,
+    so a materialized tree and a change set can both be scoped by it. A
+    manifest establishes that a plugin declares a file, never that anything
+    installed or loaded it.
+    """
+
+    parts = path.replace("\\", "/").removeprefix("./").split("/")
+    if len(parts) < 2 or parts[-1].casefold() != "plugin.json":
+        return None
+    directory = parts[-2].casefold()
+    if len(parts) >= 3 and directory == "plugin" and parts[-3].casefold() == ".github":
+        return "/".join(parts[:-3]), "other"
+    if not _PLUGIN_MANIFEST_DIRECTORY.fullmatch(directory):
+        return None
+    formats = {".claude-plugin": "claude-code", ".codex-plugin": "codex"}
+    return "/".join(parts[:-2]), formats.get(directory, "other")
+
+
+def is_plugin_manifest_path(path: str) -> bool:
+    """Any host's plugin manifest (:func:`plugin_manifest_root`)."""
+
+    return plugin_manifest_root(path) is not None
+
+
 _HOOK_DECLARATION_NAME = re.compile(r"(?:^|[-_.])hooks\.json$")
 
 
@@ -275,12 +314,16 @@ def is_boundary_surface_path(path: str) -> bool:
     route them, and `check` routes one only where a plugin the repository's
     project settings enable loads hooks from it
     (:func:`is_enabled_plugin_hook_source`, #809).
+
+    Every host's plugin manifest is included too (#936): a `.mcp.json` is
+    attributed to the host whose manifest selects it, so a base tree needs
+    the manifests beside it to attribute it as the live reader does.
     """
 
     normalized = path.replace("\\", "/").removeprefix("./")
     if any(adapter.matches(normalized) for adapter in BOUNDARY_ADAPTERS):
         return True
-    if is_claude_plugin_reference_path(normalized):
+    if is_claude_plugin_reference_path(normalized) or is_plugin_manifest_path(normalized):
         return True
     folded = normalized.casefold()
     prefix = f"{folded}/"

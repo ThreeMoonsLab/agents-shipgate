@@ -50,7 +50,8 @@
             "cursor",
             "vscode",
             "github",
-            "openshell"
+            "openshell",
+            "unknown"
           ],
           "title": "Host",
           "type": "string"
@@ -315,7 +316,7 @@
         },
         "issues": {
           "items": {
-            "$ref": "#/$defs/HostInventoryIssueV8"
+            "$ref": "#/$defs/HostInventoryIssueV9"
           },
           "title": "Issues",
           "type": "array"
@@ -350,7 +351,7 @@
       "title": "HostGrantsDriftV9",
       "type": "object"
     },
-    "HostInventoryIssueV8": {
+    "HostInventoryIssueV9": {
       "additionalProperties": false,
       "properties": {
         "blocking": {
@@ -364,7 +365,8 @@
             "cursor",
             "vscode",
             "github",
-            "openshell"
+            "openshell",
+            "unknown"
           ],
           "title": "Host",
           "type": "string"
@@ -402,7 +404,7 @@
         "message",
         "blocking"
       ],
-      "title": "HostInventoryIssueV8",
+      "title": "HostInventoryIssueV9",
       "type": "object"
     },
     "InstructionStructureEvidence": {
