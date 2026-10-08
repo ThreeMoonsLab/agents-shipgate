@@ -559,6 +559,7 @@ class BuilderCalls:
         self._censuses: dict[tuple[int, bool], CallerCensus] = {}
         self._exports: dict[int, bool] = {}
         self._export_limits: dict[int, str] = {}
+        self._export_routes: dict[int, set[str]] = {}
         self._borrowers: dict[tuple[int, str, bool], tuple[PythonModule, ...]] = {}
         self._borrower_aliases: dict[tuple[int, str, bool], tuple[str, ...]] = {}
         self._borrower_words: dict[tuple[int, str, bool], frozenset[str]] = {}
@@ -3440,6 +3441,7 @@ class BuilderCalls:
         }
         exported = False
         implicit_child = False
+        routes = self._export_routes[id(call)] = set()
         if names:
             try:
                 for path in self._candidates(_module_words(module.path), module.path):
@@ -3455,6 +3457,7 @@ class BuilderCalls:
                             implicit_child |= own_child
                             if not own_child and self._retained_namespace(caller, statement, alias, {module.path}):
                                 exported = True
+                                routes.add("namespace")
                                 self._export_limits.setdefault(
                                     id(call), f"an import at {caller.ref}:{statement.lineno} "
                                     f"retains the constructed value from {module.ref}:{call.lineno} "
@@ -3471,6 +3474,7 @@ class BuilderCalls:
                                     # this actual retained result. Its identity
                                     # uncertainty cannot prove absence of export.
                                     exported = True
+                                    routes.add("value_import")
                                     self._export_limits.setdefault(
                                         id(call), f"an import at {caller.ref}:{statement.lineno} "
                                         f"retains the constructed value from {module.ref}:{call.lineno} "
@@ -3483,6 +3487,7 @@ class BuilderCalls:
                             )
                             if alias.name == "*":
                                 exported = True
+                                routes.add("wildcard")
                                 self._export_limits.setdefault(
                                     id(call), f"the wildcard import at {caller.ref}:{statement.lineno} "
                                     f"leaves export of the constructed value at {module.ref}:{call.lineno} unread",
@@ -3497,6 +3502,7 @@ class BuilderCalls:
                                     and result.value is call
                                 ):
                                     exported = True
+                                    routes.add("value_import" if isinstance(statement, ast.ImportFrom) else "module_reference")
                                     self._export_limits.setdefault(
                                         id(call), f"an import at {caller.ref}:{statement.lineno} "
                                         f"retains the constructed value from {module.ref}:{call.lineno} "
@@ -3507,9 +3513,14 @@ class BuilderCalls:
             except CallLimit as exc:
                 self._export_limits.setdefault(id(call), str(exc))
                 exported = True
+                routes.add("unread")
         if exported or not implicit_child:
             self._exports[id(call)] = exported
         return exported
+
+    def export_routes(self, call: ast.expr) -> frozenset[str]:
+        """How the export census found the value leave its module; empty if it did not run."""
+        return frozenset(self._export_routes.get(id(call), ()))
 
     def export_limit(self, call: ast.expr) -> str | None:
         """Preserve the first concrete import route or census failure beside its refusal."""
@@ -3762,7 +3773,7 @@ class BuilderCalls:
                         sites.append(CallSite(caller, parent))
                     elif node not in data.values:
                         limits.append(f"{where} is used as a value at {caller.ref}:{node.lineno}")
-                elif not self._elsewhere(caller, node, resolution):
+                elif not (self._elsewhere(caller, node, resolution) or self._agent_instance_attribute(caller, node)):
                     limits.append(
                         f"{where} has an unresolved reference at {caller.ref}:{node.lineno}: {resolution.detail}"
                     )
@@ -3938,6 +3949,32 @@ class BuilderCalls:
             and isinstance(item.statement, ast.Import | ast.ImportFrom)
             and self.another_library(item.statement, item.node)
             for item in bindings
+        )
+
+    def _agent_instance_attribute(self, module: PythonModule, node: ast.expr) -> bool:
+        """``assistant.run`` where ``assistant = Agent(...)`` is bound once.
+
+        An attribute of an instance of the framework's own class is not this
+        module's function of the same name: reaching the function through it
+        needs the function stored as a value, and that is a limit of its own.
+        The class is the exact import the constructor census resolves, so a
+        local ``Agent`` or any other constructor does not qualify.
+        """
+        if not (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+                and isinstance(node.ctx, ast.Load) and isinstance(node.value.ctx, ast.Load)):
+            return False
+        scopes = self.scopes(module)
+        found = scopes.enclosing_bindings(evaluation_site(scopes, node), node.value.id)
+        if len(found) != 1 or not isinstance(found[0], ast.Name):
+            return False
+        statement = scopes.statement_of(found[0])
+        if not (isinstance(statement, ast.Assign) and statement.targets == [found[0]]
+                and isinstance(statement.value, ast.Call)):
+            return False
+        canonical = self.resolver._constructor_reference(module, statement.value.func, scopes).get("external_constructor")
+        return isinstance(canonical, str) and canonical in (
+            _external_constructor_paths("agents") | _external_constructor_paths("openai_agents")
+            | _external_constructor_paths("google.adk")
         )
 
     def another_library(self, statement: ast.Import | ast.ImportFrom, alias: ast.alias) -> bool:

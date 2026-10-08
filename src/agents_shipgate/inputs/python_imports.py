@@ -334,6 +334,9 @@ class ImportResolver:
     _constructor_unused_namespace_sinks: dict[int, tuple[PythonModule, ast.Name]] = field(default_factory=dict)
     _constructor_decorator_owners: dict[int, tuple[PythonModule, ast.FunctionDef | ast.AsyncFunctionDef]] = field(default_factory=dict)
     _constructor_wrapped_operands: set[int] = field(default_factory=set)
+    #: Every module the constructor census reads, set before it runs.
+    _constructor_runners: tuple[Path, ...] = ()
+    _annotation_readers: list[str | None] = field(default_factory=list)
     _constructor_import_proofs: dict[tuple, str | None] = field(default_factory=dict)
     _external_provider_proofs: dict[tuple[int, str, tuple[str, ...]], str | None] = field(default_factory=dict)
     _runtime_patch_maps: dict[int, dict[str, int]] = field(default_factory=dict)
@@ -567,6 +570,30 @@ class ImportResolver:
     def __post_init__(self) -> None:
         self.scope_root = self.scope_root.resolve()
         self._layout = _REPOSITORY.get() or _disk_layout(self.scope_root)
+
+    def _annotation_introspection(self) -> str | None:
+        """Where a module the constructor census reads can read a function's annotations.
+
+        An eager annotation stores the class it names in the function's
+        ``__annotations__``. That is only a retained handle if something reads
+        the dictionary, so a framework class is accepted there only when no
+        module of the census names one of the ways to read it. ``inspect`` and
+        ``getattr`` are already refused as reflective machinery.
+        """
+        if not self._annotation_readers:
+            found: str | None = None
+            for path in self._constructor_runners:
+                module = self._patch_scan(path)
+                for node in self._constructor_syntax(module).nodes:
+                    name = (node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute)
+                            else node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None)
+                    if name in _ANNOTATION_READERS:
+                        found = f"{module.ref}:{getattr(node, 'lineno', 0)}"
+                        break
+                if found is not None:
+                    break
+            self._annotation_readers.append(found)
+        return self._annotation_readers[0]
 
     def _unread_import_candidate(self, module: PythonModule, statement: ast.AST, alias: ast.alias) -> bool:
         """Keep an actual unread import candidate without resolving its identity."""
@@ -837,7 +864,7 @@ class ImportResolver:
             parts = (dotted or "").split(".")
             for length in range(1, len(parts) + 1):
                 try:
-                    candidates = self._absolute_candidates(module, ".".join(parts[:length]))
+                    candidates = self._installed_candidates(module, ".".join(parts[:length]))
                 except _Stop as stop:
                     if stop.reason != MODULE_NOT_FOUND:
                         issue = stop.detail
@@ -1039,6 +1066,9 @@ class ImportResolver:
         if external_symbol is not None and search_limits:
             raise _Stop(REBOUND_NAME, search_limits[0])
         caveats.extend(item for item in search_limits if item not in caveats)
+        if external_symbol is not None:
+            self._constructor_runners = tuple(runners)
+            self._annotation_readers.clear()
         for runner in runners:
             scan = self._patched_names(runner)
             if external_symbol is not None:
@@ -1992,6 +2022,44 @@ class ImportResolver:
             )
         return container
 
+    def _installed_candidates(self, module: PythonModule, dotted: str) -> list[_Container]:
+        """Where a name an installed package provides could be found from ``module``.
+
+        :meth:`_absolute_candidates` treats every directory from the module's
+        own up to the scope as a place an import could start from. A directory
+        that is a regular package of the module's own is not one, unless the
+        module sits directly in it (a script's directory): the import system
+        reaches such a package through its parent. ``src/opencmo/agents/blog.py``
+        importing ``agents`` is the SDK, not its ``opencmo/agents`` sibling.
+        """
+        found = self._absolute_candidates(module, dotted)
+        depth = len(dotted.split("."))
+        chain: set[Path] = set()
+        directory = module.path.parent
+        while True:
+            if directory != module.path.parent and self._file_entry(directory, "__init__.py") is not None:
+                chain.add(directory)
+            if directory == self.scope_root:
+                break
+            directory = directory.parent
+        kept = []
+        for container in found:
+            location = container.module_path or container.directory
+            base = location.parent if location.name == "__init__.py" else location.with_suffix("") if location.suffix == ".py" else location
+            ancestors = base.parents
+            root = ancestors[depth - 1] if len(ancestors) >= depth else None
+            if root is None or root not in chain:
+                kept.append(container)
+        if not kept:
+            raise _Stop(MODULE_NOT_FOUND, f"no file inside the read scope provides module {dotted!r} imported by {module.ref}")
+        return kept
+
+    def _installed_absolute(self, module: PythonModule, dotted: str) -> _Container:
+        candidates = self._installed_candidates(module, dotted)
+        if len(candidates) > 1:
+            raise _Stop(AMBIGUOUS_MODULE, f"module {dotted!r} imported by {module.ref} matches more than one location in the read scope")
+        return candidates[0]
+
     def _absolute(self, module: PythonModule, dotted: str) -> _Container:
         candidates = self._absolute_candidates(module, dotted)
         if len(candidates) > 1:
@@ -2893,6 +2961,11 @@ _PRELOADED = frozenset(
     {"abc", "builtins", "codecs", "encodings", "genericpath", "io", "marshal", "nt", "ntpath",
      "os", "posix", "posixpath", "site", "stat", "sys", "time", "zipimport"}
 )
+#: Names that read a function's annotation dictionary or evaluate a stored one.
+_ANNOTATION_READERS = frozenset(
+    {"__annotations__", "__annotate__", "__annotate_func__", "get_type_hints", "get_annotations",
+     "evaluate_forward_ref", "update_forward_refs", "model_rebuild", "__wrapped__"}
+)
 #: The frameworks whose own modules build the tools an agent binds.
 _FRAMEWORK_MODULES = ("agents", "openai_agents", "google.adk")
 # These dependencies are recognized only by the private constructor-identity
@@ -2975,6 +3048,126 @@ def _external_decorator_paths(family: str) -> set[str]:
             for suffix in (".function_tool", ".tool.function_tool")} if family in {"agents", "openai_agents"} else set()
 
 
+def _framework_tool_object(family: str, canonical: str) -> str | None:
+    """How a framework object bound as a tool is made, by its exact import (#910).
+
+    ``"value"``: the import is itself the tool (ADK's ``google_search``).
+    ``"object"``: calling it builds the tool object (an MCP server, a hosted
+    tool, ``AgentTool``). ``"toolset"``: ADK's MCP toolset, built only through
+    :func:`_adk_toolset_value_call`. ``"wrapper"``: calling it wraps a function
+    the caller names (the SDK's ``function_tool``). The role is the canonical
+    path the import resolves to, never the spelling at the use.
+    """
+    from agents_shipgate.inputs import object_tools
+
+    if family == "google.adk":
+        if canonical in object_tools.ADK_BUILT_INS:
+            return "value"
+        if canonical in object_tools.ADK_AGENT_TOOLS:
+            return "object"
+        if canonical in object_tools.ADK_MCP_TOOLSETS:
+            return "toolset"  # Its arguments have their own, narrower role.
+        return None
+    root, _, _ = canonical.partition(".")
+    short = canonical.rsplit(".", 1)[-1]
+    if root not in {"agents", "openai_agents"}:
+        return None
+    if short in object_tools.SDK_HOSTED_TOOLS or short in object_tools.SDK_MCP_SERVERS:
+        return "object"
+    if canonical in {f"{root}.function_tool", f"{root}.tool.function_tool"}:
+        return "wrapper"
+    return None
+
+
+def _framework_connection_class(canonical: str) -> bool:
+    """An ADK MCP connection-parameter class, by its exact import."""
+    from agents_shipgate.inputs import object_tools
+
+    short = canonical.rsplit(".", 1)[-1]
+    return short in object_tools.ADK_CONNECTIONS and (
+        canonical.startswith("google.adk.tools.mcp_tool.") or canonical.startswith("mcp.")
+    )
+
+
+def _tool_object_argument_is_data(
+    resolver: ImportResolver, module: PythonModule, value: ast.expr, scopes: ScopeIndex, budget: list[int],
+) -> bool:
+    """A value a tool object is configured with, never code the framework runs.
+
+    Constants, text built from them, containers and reads of other values are
+    data; a call runs at construction in this repository, so its own uses are
+    checked where they stand. A callable (a lambda, a def, a generator) is not
+    data: the framework could call it with framework objects.
+    """
+    budget[0] -= 1
+    if budget[0] < 0:
+        return False
+    if isinstance(value, ast.Constant):
+        return True
+    if isinstance(value, ast.JoinedStr):
+        return all(isinstance(item, ast.Constant)
+                   or isinstance(item, ast.FormattedValue) and item.format_spec is None
+                   and _tool_object_argument_is_data(resolver, module, item.value, scopes, budget)
+                   for item in value.values)
+    if isinstance(value, ast.List | ast.Tuple | ast.Set):
+        return all(not isinstance(item, ast.Starred)
+                   and _tool_object_argument_is_data(resolver, module, item, scopes, budget) for item in value.elts)
+    if isinstance(value, ast.Dict):
+        return all(key is not None and _tool_object_argument_is_data(resolver, module, key, scopes, budget)
+                   and _tool_object_argument_is_data(resolver, module, item, scopes, budget)
+                   for key, item in zip(value.keys, value.values, strict=True))
+    if isinstance(value, ast.BinOp):
+        return (_tool_object_argument_is_data(resolver, module, value.left, scopes, budget)
+                and _tool_object_argument_is_data(resolver, module, value.right, scopes, budget))
+    if isinstance(value, ast.BoolOp):
+        return all(_tool_object_argument_is_data(resolver, module, item, scopes, budget) for item in value.values)
+    if isinstance(value, ast.IfExp):
+        return all(_tool_object_argument_is_data(resolver, module, item, scopes, budget)
+                   for item in (value.test, value.body, value.orelse))
+    if isinstance(value, ast.Subscript):
+        return (_tool_object_argument_is_data(resolver, module, value.value, scopes, budget)
+                and _tool_object_argument_is_data(resolver, module, value.slice, scopes, budget))
+    if isinstance(value, ast.Name | ast.Attribute):
+        if not isinstance(value.ctx, ast.Load) or reference_spelling(value) is None:
+            return False
+        definition = resolver._constructor_reference(module, value, scopes).get("definition")
+        return not isinstance(definition, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+    if isinstance(value, ast.Call):
+        if any(isinstance(item, ast.Starred) for item in value.args) or any(item.arg is None for item in value.keywords):
+            return False
+        return (reference_spelling(value.func) is not None
+                and all(_tool_object_argument_is_data(resolver, module, item, scopes, budget)
+                        for item in (*value.args, *(keyword.value for keyword in value.keywords))))
+    return False
+
+
+def _tool_object_call_is_data(
+    resolver: ImportResolver, module: PythonModule, call: ast.Call, scopes: ScopeIndex,
+) -> bool:
+    """A call building a framework tool object with only data arguments."""
+    if any(isinstance(item, ast.Starred) for item in call.args) or any(item.arg is None for item in call.keywords):
+        return False
+    budget = [400]
+    return all(_tool_object_argument_is_data(resolver, module, item, scopes, budget)
+               for item in (*call.args, *(keyword.value for keyword in call.keywords)))
+
+
+def _adk_connection_call(
+    resolver: ImportResolver, module: PythonModule, value: ast.expr, scopes: ScopeIndex,
+) -> bool:
+    """``SseConnectionParams(url=...)``: ADK's connection data for a toolset.
+
+    The class is the exact import of one of ADK's (or the ``mcp`` package's)
+    connection-parameter classes and every argument is data; the object it
+    builds only reaches the toolset's ``connection_params``.
+    """
+    if not isinstance(value, ast.Call):
+        return False
+    canonical = resolver._constructor_reference(module, value.func, scopes).get("external_constructor")
+    return (isinstance(canonical, str) and _framework_connection_class(canonical)
+            and _tool_object_call_is_data(resolver, module, value, scopes))
+
+
 def _adk_toolset_value_call(
     resolver: ImportResolver, module: PythonModule, call: ast.Call, scopes: ScopeIndex,
     canonical: str,
@@ -2985,9 +3178,9 @@ def _adk_toolset_value_call(
     the installed ADK accepts those keywords. Callable and object options do
     not gain this role, and the result has its own restrictive owner census.
     """
-    mcp = {
-        "google.adk.tools.mcp_tool.McpToolset", "google.adk.tools.mcp_tool.MCPToolset",
-    }
+    from agents_shipgate.inputs.object_tools import ADK_MCP_TOOLSETS
+
+    mcp = set(ADK_MCP_TOOLSETS)  # The toolset's import path is not its identity.
     openapi = {"google.adk.tools.openapi_tool.openapi_spec_parser.openapi_toolset.OpenAPIToolset"}
     if canonical not in mcp | openapi or call.args or any(item.arg is None for item in call.keywords):
         return False
@@ -3031,6 +3224,8 @@ def _adk_toolset_value_call(
             if not (isinstance(value, ast.Constant) and type(value.value) is bool):
                 return False
         elif item.arg in objects:
+            if item.arg == "connection_params" and _adk_connection_call(resolver, module, value, scopes):
+                continue
             if not (isinstance(value, ast.Constant) and value.value is None):
                 return False
         elif item.arg == "tool_filter":
@@ -3228,6 +3423,145 @@ def _namespace_copy_source_limit(
     return None
 
 
+def _eager_annotation_owned(
+    resolver: ImportResolver, scopes: ScopeIndex, owner: ast.AST, family: str, canonical: str,
+) -> bool:
+    """An undecorated function's annotation naming the agent class or a tool object.
+
+    The class lands in the function's annotation dictionary and nowhere else;
+    that is a retained handle only if some module of the census can read the
+    dictionary, which :meth:`ImportResolver._annotation_introspection` refuses.
+    """
+    function = owner
+    if isinstance(owner, ast.arg):
+        arguments = scopes.parents.get(owner)
+        function = scopes.parents.get(arguments) if arguments is not None else None
+    if not isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef) or function.decorator_list:
+        return False
+    if not (canonical in _external_constructor_paths(family)
+            or _framework_tool_object(family, canonical) in {"object", "toolset"}):
+        return False
+    return resolver._annotation_introspection() is None
+
+
+def _environment_value_role(
+    resolver: ImportResolver, module: PythonModule, read: ast.Subscript, scopes: ScopeIndex, family: str,
+) -> bool:
+    """Where one ``os.environ[key]`` read lands, when that is a role this census checks.
+
+    The read is a string, so the mapping goes nowhere. It is accepted only
+    in the two places a tool body or an agent module reads configuration: a
+    plain assignment to a local name, or the data a framework tool object is
+    configured with (an MCP server's ``env``). A read kept inside another
+    container literal or handed to another call stays an unread external
+    handle, as the pinned application-diff controls require.
+    """
+    parent = scopes.parents.get(read)
+    if (isinstance(parent, ast.Assign) and parent.value is read and len(parent.targets) == 1
+            and isinstance(parent.targets[0], ast.Name)):
+        return True
+    current: ast.AST = read
+    while isinstance(scopes.parents.get(current), ast.Dict | ast.List | ast.Tuple):
+        current = scopes.parents[current]
+    keyword = scopes.parents.get(current)
+    call = scopes.parents.get(keyword) if isinstance(keyword, ast.keyword) else None
+    if not isinstance(call, ast.Call):
+        return False
+    canonical = resolver._constructor_reference(module, call.func, scopes).get("external_constructor")
+    return isinstance(canonical, str) and _framework_tool_object(family, canonical) == "object"
+
+
+def _stdlib_reference(
+    resolver: ImportResolver, module: PythonModule, node: ast.expr, scopes: ScopeIndex,
+) -> str | None:
+    """The standard-library path a name is, by its one import and nothing else.
+
+    The head is bound once, by an absolute import of a standard-library
+    module; no file the repository holds provides that module; and this
+    module does not store into it. A same-named local file, a shadowed or
+    reassigned name, a vendored copy or a non-standard package is None.
+    """
+    from agents_shipgate.inputs.list_expressions import evaluation_site
+
+    spelling = reference_spelling(node)
+    if spelling is None:
+        return None
+    head, _, rest = spelling.partition(".")
+    local = scopes.enclosing_bindings(evaluation_site(scopes, node), head)
+    found = local or [binding.node for binding in module.bindings.get(head, [])]
+    if module.star_import or len(found) != 1 or not isinstance(alias := found[0], ast.alias):
+        return None
+    statement = scopes.statement_of(alias)
+    if not isinstance(statement, ast.Import | ast.ImportFrom) or statement.lineno > node.lineno:
+        return None
+    imported = _absolute_import_reference(alias, statement)
+    if imported is None or imported.split(".", 1)[0] not in sys.stdlib_module_names:
+        return None
+    try:
+        if resolver._external_provider_issue(module, statement, alias) is not None:
+            return None
+        patched = resolver._runtime_attribute_patches(module)
+    except _Stop:
+        return None
+    if any(key == head or key.startswith(head + ".") or key.startswith("*") or key.startswith(SELF_PATCH)
+           for key in patched):
+        return None
+    return imported + ("." + rest if rest else "")
+
+
+def _own_tool_object(
+    resolver: ImportResolver, module: PythonModule, node: ast.expr, parent: ast.AST | None, scopes: ScopeIndex,
+    family: str, kind: str, classes: set[str], callback_fields: set[str],
+) -> bool:
+    """Register the ownership obligation for one framework tool object (#910).
+
+    The object is accepted only in the role its exact import has: ADK's built-in
+    value as a member of a tools list, or the documented call that builds the
+    object. Nothing here proves a use safe; each registration is an obligation
+    the list reader discharges against every use of the object's result, as for
+    a toolset or a wrapped function. Uses not matched here stay refused.
+    """
+
+    def receiving(container: ast.AST) -> tuple[ast.keyword, ast.Call] | None:
+        keyword = scopes.parents.get(container)
+        receiver = scopes.parents.get(keyword)
+        if not (isinstance(keyword, ast.keyword) and isinstance(receiver, ast.Call)):
+            return None
+        expression = receiver.func.value if isinstance(receiver.func, ast.Subscript) else receiver.func
+        target = resolver._constructor_reference(module, expression, scopes)
+        return (keyword, receiver) if target.get("external_constructor") in classes else None
+
+    if kind == "value":
+        container: ast.AST = node
+        while isinstance(scopes.parents.get(container), ast.List | ast.Tuple):
+            container = scopes.parents[container]
+        if container is node:
+            return False
+        found = receiving(container)
+        if found is None:
+            # A list kept for later: its container owner follows every use.
+            resolver._constructor_container_owners[id(container)] = (module, container)
+        elif found[0].arg == "tools":
+            resolver._constructor_namespace_owners[(family, id(found[1]), "tools")] = (module, found[1], "tools")
+        else:
+            return False  # A built-in tool is a member of ``tools``, not of a callback list.
+        return True
+    if kind == "toolset" or not (isinstance(parent, ast.Call) and parent.func is node):
+        return False
+    if kind == "wrapper":
+        # ``function_tool(f, needs_approval=False)``: the function is checked as
+        # the wrapped operand where it stands; the rest is data.
+        if not (len(parent.args) == 1 and isinstance(parent.args[0], ast.Name | ast.Attribute)
+                and _tool_object_call_is_data(resolver, module, ast.Call(
+                    func=parent.func, args=[], keywords=parent.keywords), scopes)):
+            return False
+    elif not _tool_object_call_is_data(resolver, module, parent, scopes):
+        return False
+    role = "tool_wrapper" if kind == "wrapper" else "toolset_data"
+    resolver._constructor_namespace_owners[(family, id(parent), role)] = (module, parent, role)
+    return True
+
+
 def _external_constructor_use(
     resolver: ImportResolver, module: PythonModule, family: str, retaining: set[Path],
     *, allow_owner_routes: bool = True,
@@ -3254,15 +3588,54 @@ def _external_constructor_use(
                  "_getframe", "currentframe", "getouterframes", "getinnerframes", "stack", "f_globals", "f_locals",
                  "cr_frame", "gi_frame", "ag_frame", "tb_frame", "__class__", "type"}
 
-    def class_literal(value: ast.expr | None) -> bool:
+    def environment_read(home: PythonModule, home_scopes: ScopeIndex, value: ast.expr) -> bool:
+        # ``os.getenv("NAME", "default")`` of the standard library: a string.
+        if not (isinstance(value, ast.Call) and 1 <= len(value.args) <= 2 and not value.keywords
+                and all(isinstance(item, ast.Constant) for item in value.args)):
+            return False
+        return (allow_owner_routes
+                and _stdlib_reference(resolver, home, value.func, home_scopes) in {"os.getenv", "os.environ.get"})
+
+    def dataclass_decorator(home: PythonModule, home_scopes: ScopeIndex, value: ast.expr) -> bool:
+        callee = value.func if isinstance(value, ast.Call) else value
+        if isinstance(value, ast.Call) and (value.args or any(
+            keyword.arg is None or not isinstance(keyword.value, ast.Constant) for keyword in value.keywords
+        )):
+            return False
+        return allow_owner_routes and _stdlib_reference(resolver, home, callee, home_scopes) == "dataclasses.dataclass"
+
+    def class_literal(value: ast.expr | None, home: PythonModule = module, home_scopes: ScopeIndex = scopes) -> bool:
         if value is None or isinstance(value, ast.Constant):
             return True
+        if environment_read(home, home_scopes, value):
+            return True
+        if isinstance(value, ast.BoolOp):
+            return all(class_literal(item, home, home_scopes) for item in value.values)
         if isinstance(value, ast.List | ast.Tuple | ast.Set):
-            return all(class_literal(item) for item in value.elts)
+            return all(class_literal(item, home, home_scopes) for item in value.elts)
         if isinstance(value, ast.Dict):
-            return all(key is not None and class_literal(key) and class_literal(item)
+            return all(key is not None and class_literal(key, home, home_scopes) and class_literal(item, home, home_scopes)
                        for key, item in zip(value.keys, value.values, strict=True))
         return False
+
+    def plain_class(home: PythonModule, home_scopes: ScopeIndex, node: ast.ClassDef, *, methods: bool) -> bool:
+        """A class whose creation runs no hook and whose body is inert data."""
+        plain_bases = all(
+            isinstance(base, ast.Name) and base.id == "object"
+            and not home_scopes.enclosing_bindings(evaluation_site(home_scopes, base), "object")
+            and not home.bindings.get("object")
+            for base in node.bases
+        )
+        plain_body = all(
+            isinstance(statement, ast.Pass)
+            or (isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Constant)
+                and isinstance(statement.value.value, str))
+            or (methods and isinstance(statement, ast.FunctionDef | ast.AsyncFunctionDef) and not statement.decorator_list)
+            or (isinstance(statement, ast.Assign | ast.AnnAssign) and class_literal(statement.value, home, home_scopes))
+            for statement in node.body
+        )
+        return (all(dataclass_decorator(home, home_scopes, item) for item in node.decorator_list)
+                and not node.keywords and not getattr(node, "type_params", []) and plain_bases and plain_body)
 
     def callback_reference(value: ast.expr) -> bool:
         if not isinstance(value, ast.Name | ast.Attribute):
@@ -3282,21 +3655,7 @@ def _external_constructor_use(
             # Class decorators, metaclasses and base-class hooks receive the
             # newly created class, including methods carrying this namespace.
             # Only the inert builtin object base is established by this entry.
-            plain_bases = all(
-                isinstance(base, ast.Name) and base.id == "object"
-                and not scopes.enclosing_bindings(evaluation_site(scopes, base), "object")
-                and not module.bindings.get("object")
-                for base in node.bases
-            )
-            plain_body = all(
-                isinstance(statement, ast.Pass)
-                or (isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Constant)
-                    and isinstance(statement.value.value, str))
-                or (isinstance(statement, ast.FunctionDef | ast.AsyncFunctionDef) and not statement.decorator_list)
-                or (isinstance(statement, ast.Assign | ast.AnnAssign) and class_literal(statement.value))
-                for statement in node.body
-            )
-            if node.decorator_list or node.keywords or getattr(node, "type_params", []) or not plain_bases or not plain_body:
+            if not plain_class(module, scopes, node, methods=True):
                 return f"an unread class construction hook receives the constructor namespace in {module.ref}:{node.lineno}"
         if module.path in retaining and isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             for decorator in node.decorator_list:
@@ -3479,16 +3838,39 @@ def _external_constructor_use(
                 return False
             if ordinary_external_return_call(home, value, home_scopes):
                 continue  # Only the call role; its arguments and every use remain checked.
+            if (allow_owner_routes and isinstance(value.func, ast.Attribute) and value.func.attr == "as_tool"
+                    and isinstance(receiver := value.func.value, ast.Name)
+                    and len(parameter := home_scopes.enclosing_bindings(
+                        evaluation_site(home_scopes, receiver), receiver.id)) == 1
+                    and isinstance(parameter[0], ast.arg)):
+                # ``return agent.as_tool(...)`` on the function's own parameter.
+                # The tool object it builds has an owner registered where the
+                # agent handle is passed in; no namespace is returned here.
+                continue
             callee = value.func.value if isinstance(value.func, ast.Subscript) else value.func
             outcome = resolver._constructor_reference(home, callee, home_scopes)
             if allow_owner_routes and outcome.get("external_constructor") in classes:
                 continue
+            if (allow_owner_routes and isinstance(tool_class := outcome.get("external_constructor"), str)
+                    and _framework_tool_object(family, tool_class) in {"object", "toolset", "wrapper"}):
+                continue  # A returned tool object has its own owner, registered where it is built.
             defining, nested = outcome.get("module"), outcome.get("definition")
             if not isinstance(defining, PythonModule) or not safe_function(defining, nested, depth + 1, seen | {id(function)}):
                 return False
         return True
 
     unread_external_nodes: set[int] = set()
+    plain_instance_nodes: set[int] = set()
+
+    def plain_instance(node: ast.expr, current: ast.expr, home: object, outcome: dict[str, Any]) -> bool:
+        # ``Settings()`` of an inert dataclass is an instance of plain data. It
+        # still carries its class, so its result has an owner like any handle.
+        if not (allow_owner_routes and current is node and isinstance(home, PythonModule)
+                and isinstance(definition := outcome.get("retained_class"), ast.ClassDef)
+                and plain_class(home, resolver._constructor_scope(home), definition, methods=False)):
+            return False
+        plain_instance_nodes.add(id(node))
+        return True
 
     def references(node: ast.expr) -> tuple[set[str], bool, bool]:
         spelling = reference_spelling(node)
@@ -3531,7 +3913,7 @@ def _external_constructor_use(
                 return {family}, (
                     current is node and outcome.get("constructor_callable") is True
                     and isinstance(home, PythonModule) and safe_function(home, outcome.get("definition"))
-                ), current is node and outcome.get("constructor_callable") is True
+                ) or plain_instance(node, current, home, outcome), current is node and outcome.get("constructor_callable") is True
             if (current is node and isinstance(node.ctx, ast.Load) and isinstance(home, PythonModule)
                     and isinstance(outcome.get("value"), ast.Constant)):
                 unread_external_nodes.discard(id(node))
@@ -3658,6 +4040,15 @@ def _external_constructor_use(
                 isinstance(parent, ast.Expr) or isinstance(parent, ast.Call) and parent.func is node
             ):
                 continue  # Ordinary external callees/results retain their existing boundary.
+            if allow_owner_routes and (stdlib := _stdlib_reference(resolver, module, node, scopes)) is not None:
+                if (stdlib == "os.environ" and isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load)
+                        and isinstance(parent, ast.Subscript) and parent.value is node
+                        and isinstance(parent.ctx, ast.Load)
+                        and _environment_value_role(resolver, module, parent, scopes, family)):
+                    continue  # A read of one environment value is a string; the mapping goes nowhere.
+                if (stdlib == "dataclasses.dataclass" and isinstance(parent, ast.ClassDef)
+                        and node in parent.decorator_list):
+                    continue  # The class hook itself is checked, with the class, where it stands.
             annotation: ast.AST = node
             while isinstance(scopes.parents.get(annotation), ast.Subscript | ast.BinOp | ast.Tuple | ast.List):
                 annotation = scopes.parents[annotation]
@@ -3724,6 +4115,9 @@ def _external_constructor_use(
             # never permission to export the surrounding module namespace.
             resolver._constructor_container_owners[id(retained["value"])] = (retained["module"], retained["value"])
             continue
+        if isinstance(parent, ast.Call) and parent.func is node and id(node) in plain_instance_nodes:
+            resolver._constructor_namespace_owners[(family, id(parent), "instance_data")] = (module, parent, "instance_data")
+            continue  # An instance of inert data; every use of the result is read by its owner.
         if isinstance(parent, ast.Call) and parent.func is node and (relevant <= classes or known_function):
             if relevant <= classes:
                 role = "__class__" if relevant <= _external_constructor_paths(family) else "wrapper_class"
@@ -3734,6 +4128,18 @@ def _external_constructor_use(
                 and paths == {canonical} and _adk_toolset_value_call(resolver, module, parent, scopes, canonical)):
             resolver._constructor_namespace_owners[(family, id(parent), "toolset_data")] = (module, parent, "toolset_data")
             continue
+        if (family == "google.adk" and isinstance(parent, ast.Call) and parent.func is node
+                and isinstance(canonical := retained.get("external_constructor"), str)
+                and paths == {canonical} and _framework_connection_class(canonical)
+                and isinstance(keyword := scopes.parents.get(parent), ast.keyword) and keyword.arg == "connection_params"
+                and isinstance(toolset := scopes.parents.get(keyword), ast.Call)
+                and isinstance(toolset_class := resolver._constructor_reference(module, toolset.func, scopes).get("external_constructor"), str)
+                and _adk_toolset_value_call(resolver, module, toolset, scopes, toolset_class)):
+            continue  # The toolset call is the one data role; this is its connection data.
+        if (allow_owner_routes and isinstance(canonical := retained.get("external_constructor"), str)
+                and paths == {canonical} and (kind := _framework_tool_object(family, canonical)) is not None
+                and _own_tool_object(resolver, module, node, parent, scopes, family, kind, classes, callback_fields)):
+            continue  # An exact framework tool object whose every use its owner census checks.
         if (allow_owner_routes and isinstance(node, ast.Name) and isinstance(parent, ast.Assign)
                 and parent.value is node and len(parent.targets) == 1
                 and isinstance(parent.targets[0], ast.Name)
@@ -3794,8 +4200,14 @@ def _external_constructor_use(
                 continue
             if isinstance(parent, ast.Call) and parent.args == [node]:
                 target = resolver._constructor_reference(module, parent.func, scopes)
-                if target.get("external_constructor") in _external_wrapper_paths(family):
+                wrapper = target.get("external_constructor")
+                if wrapper in _external_wrapper_paths(family):
                     resolver._constructor_namespace_owners[(family, id(parent), "func")] = (module, parent, "func")
+                    continue
+                if isinstance(wrapper, str) and _framework_tool_object(family, wrapper) == "wrapper":
+                    # The SDK's ``function_tool(f)``: the operand is the wrapped function and
+                    # its result is the tool object, one owner for both.
+                    resolver._constructor_namespace_owners[(family, id(parent), "tool_wrapper")] = (module, parent, "tool_wrapper")
                     continue
             container: ast.AST = node
             while isinstance(scopes.parents.get(container), ast.List | ast.Tuple):
@@ -3837,6 +4249,9 @@ def _external_constructor_use(
                     and owner.annotation is node and paths == {canonical}
                     and canonical in {"google.adk.tools.ToolContext", "google.adk.tools.tool_context.ToolContext"}):
                 continue  # ADK identifies this exact context type; it does not construct it.
+            if (allow_owner_routes and annotation is node and isinstance(canonical, str) and paths == {canonical}
+                    and _eager_annotation_owned(resolver, scopes, owner, family, canonical)):
+                continue  # Nothing in the census reads the annotation dictionary it lands in.
             return f"an eager annotation retains the framework constructor in {module.ref}:{node.lineno}"
         if isinstance(parent, ast.Expr):
             continue  # A bare expression does not hand the object on.

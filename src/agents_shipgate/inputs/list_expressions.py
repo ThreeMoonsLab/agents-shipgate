@@ -90,6 +90,11 @@ AgentReads = Callable[[ast.Call, str | None], bool]
 
 #: Builtins whose result holds the same members as their one argument.
 _SAME_MEMBERS = frozenset({"list", "tuple", "sorted"})
+#: Owner roles whose result may leave its module through a plain ``from m import name``
+#: when every importer's use of it is read: an agent handle, an inert data instance, a
+#: tool object and the SDK's wrapped function. The ADK wrapper and field-data roles keep
+#: their narrower proof, which refuses any export.
+_EXPORTABLE_ROLES = frozenset({"__class__", "instance_data", "toolset_data", "tool_wrapper"})
 #: An agent's list arguments, and the attributes it keeps them under.
 CAPABILITY_FIELDS = frozenset({"tools", "handoffs", "sub_agents", "mcp_servers"})
 # Canonical SDK/ADK fields can be initialized or inspected even when omitted
@@ -403,7 +408,7 @@ def _unprovided_root(view: _View, provider: str) -> bool:
         if resolver is None or view.module is None or resolver._layout is None:
             return False
         try:
-            resolver._absolute(view.module, provider)
+            resolver._installed_absolute(view.module, provider)
         except _Stop as stop:
             if stop.reason != MODULE_NOT_FOUND or any(names is None for names in resolver._listings.values()):
                 return False
@@ -1959,7 +1964,20 @@ class ListExpressions:
             and self.calls.exported_elsewhere(view.module, call)
         ):
             self._constructor_limit((self.calls.export_limit(call),))
-            return True
+            if not (
+                strict_container and self._checking_constructor_namespaces
+                and keyword in _EXPORTABLE_ROLES
+                and self.calls.export_routes(call) == {"value_import"}
+                and self._imported_members_owned(
+                    view, call,
+                    lambda foreign, subject: isinstance(subject, ast.Name) and not self._handle_use_changed(
+                        foreign, subject, keyword, borrowed=borrowed, strict_container=True,
+                    ),
+                    carriers=keyword != "instance_data",
+                    require_use=keyword == "__class__",
+                )
+            ):
+                return True
         parent = view.scopes.parents.get(call)
         if isinstance(parent, ast.Return):
             function = _enclosing_function(view.scopes, parent)
@@ -1981,15 +1999,25 @@ class ListExpressions:
                 )
             finally:
                 self._checking_returns.remove(key)
-        if not isinstance(parent, ast.Assign | ast.AnnAssign) or parent.value is not call:
+        entered = (
+            strict_container and self._checking_constructor_namespaces and keyword == "toolset_data"
+            and isinstance(parent, ast.withitem) and parent.context_expr is call
+            and isinstance(parent.optional_vars, ast.Name) and self._enters_as_itself(view, call)
+        )
+        if not entered and (not isinstance(parent, ast.Assign | ast.AnnAssign) or parent.value is not call):
             return not isinstance(parent, ast.Expr) and not (
                 strict_container and (
                     self._field_data_read(view, call) if keyword == "field_data"
                     else self._toolset_data_read(view, call) if keyword == "toolset_data"
+                    else self._instance_data_read(view, call) if keyword == "instance_data"
                     else self._container_read(view, call)
                 )
             )
-        targets = parent.targets if isinstance(parent, ast.Assign) else [parent.target]
+        if entered:
+            assert isinstance(parent, ast.withitem)
+            targets = [parent.optional_vars]
+        else:
+            targets = parent.targets if isinstance(parent, ast.Assign) else [parent.target]
         if len(targets) != 1 or not isinstance(targets[0], ast.Name):
             return True
         target = targets[0]
@@ -2003,90 +2031,182 @@ class ListExpressions:
                 and lookup(node.id, node) == owner
             ):
                 continue
-            if (self._checking_constructor_namespaces and self._resolver is not None
-                    and id(node) in self._resolver._constructor_wrapped_operands
-                    and keyword in {"func", "wrapper_class"}):
-                continue  # This exact operand loads the function before wrapping it.
-            use = view.scopes.parents.get(node)
-            if (keyword in {"__class__", *CAPABILITY_FIELDS} and strict_container
-                    and self._checking_constructor_namespaces
-                    and self._agent_copy_receiver_read(view, node, keyword)):
-                continue
-            if isinstance(use, ast.Return):
-                # Follow ``agent = Agent(...); return agent`` with its actual
-                # source scope, never a synthetic AST lacking lexical parents.
-                function = _enclosing_function(view.scopes, use)
-                calls = self.calls
-                if function is None or calls is None or view.module is None:
-                    return True
-                key = (id(function), keyword)
-                if key in self._checking_returns or len(self._checking_returns) >= 4:
-                    return True
-                self._checking_returns.add(key)
-                try:
-                    census = calls.callers(view.module, function, allow_empty=self._checking_constructor_namespaces)
-                    if self._constructor_limit(census.limits) or any(
-                        self._agent_result_changed(
-                            self._foreign(site.module), site.call, keyword, borrowed=borrowed,
-                            strict_container=strict_container,
-                        )
-                        for site in census.sites
-                    ):
-                        return True
-                finally:
-                    self._checking_returns.remove(key)
-            elif keyword == "field_data":
-                if not self._field_data_read(view, node):
-                    return True
-            elif keyword == "toolset_data":
-                if not self._toolset_data_read(view, node):
-                    return True
-            elif isinstance(use, ast.Attribute):
-                if use.attr == "__dict__":
-                    return True
-                if keyword == "__class__" and use.attr in CAPABILITY_FIELDS:
-                    # Membership changes do not change the instance's class.
-                    # Retained class-carrying members have their own ownership
-                    # edges; their namespace use must remain proved separately.
-                    continue
-                if use.attr == keyword:
-                    if isinstance(view.scopes.parents.get(use), ast.AugAssign):
-                        return True
-                    if (strict_container and self._checking_constructor_namespaces
-                            and isinstance(use.ctx, ast.Store | ast.Del)):
-                        if isinstance(use.ctx, ast.Store) and not self._member_list_shape(view, use):
-                            return True
-                        continue  # Dropping members does not export their identity.
-                    if not borrowed and not isinstance(use.ctx, ast.Load):
-                        return True
-                    if isinstance(use.ctx, ast.Load) and not (
-                        self._container_read(view, use) if strict_container
-                        else read_only_use(use, view.scopes.parents, self._call_reads(view))
-                    ):
-                        return True
-                elif isinstance(use.ctx, ast.Load) and not (
-                    self._container_read(view, use) if strict_container
-                    else read_only_use(node, view.scopes.parents, self._call_reads(view))
-                ):
-                    return True
-            elif isinstance(use, ast.Call) and reference_spelling(use.func) in {
-                "getattr",
-                "setattr",
-                "delattr",
-                "vars",
-            }:
-                return True
-            elif isinstance(use, ast.Assign | ast.AnnAssign | ast.NamedExpr):
-                if (strict_container and self._checking_constructor_namespaces
-                        and keyword in {"__class__", *CAPABILITY_FIELDS}
-                        and self._direct_alias_stores_owned(view, node)):
-                    continue
-                # An alias can subsequently reach the same mutable list.
-                return True
-            elif not (self._container_read(view, node) if strict_container
-                      else read_only_use(node, view.scopes.parents, self._call_reads(view))):
+            if self._handle_use_changed(
+                view, node, keyword, borrowed=borrowed, strict_container=strict_container,
+            ):
                 return True
         return False
+
+    def _handle_use_changed(
+        self, view: _View, node: ast.Name, keyword: str, *, borrowed: bool, strict_container: bool,
+    ) -> bool:
+        """Whether one load of a constructed handle may change or hand it on."""
+        if (self._checking_constructor_namespaces and self._resolver is not None
+                and id(node) in self._resolver._constructor_wrapped_operands
+                and keyword in {"func", "wrapper_class"}):
+            return False  # This exact operand loads the function before wrapping it.
+        use = view.scopes.parents.get(node)
+        if (keyword in {"__class__", *CAPABILITY_FIELDS} and strict_container
+                and self._checking_constructor_namespaces
+                and self._agent_copy_receiver_read(view, node, keyword)):
+            return False
+        if isinstance(use, ast.Return):
+            # Follow ``agent = Agent(...); return agent`` with its actual
+            # source scope, never a synthetic AST lacking lexical parents.
+            function = _enclosing_function(view.scopes, use)
+            calls = self.calls
+            if function is None or calls is None or view.module is None:
+                return True
+            key = (id(function), keyword)
+            if key in self._checking_returns or len(self._checking_returns) >= 4:
+                return True
+            self._checking_returns.add(key)
+            try:
+                census = calls.callers(view.module, function, allow_empty=self._checking_constructor_namespaces)
+                if self._constructor_limit(census.limits) or any(
+                    self._agent_result_changed(
+                        self._foreign(site.module), site.call, keyword, borrowed=borrowed,
+                        strict_container=strict_container,
+                    )
+                    for site in census.sites
+                ):
+                    return True
+            finally:
+                self._checking_returns.remove(key)
+        elif keyword == "field_data":
+            if not self._field_data_read(view, node):
+                return True
+        elif keyword == "toolset_data":
+            if not self._toolset_data_read(view, node):
+                return True
+        elif keyword == "instance_data":
+            if not self._instance_data_read(view, node):
+                return True
+        elif (strict_container and self._checking_constructor_namespaces
+              and isinstance(use, ast.Attribute) and use.value is node and use.attr == "as_tool"
+              and isinstance(use.ctx, ast.Load)
+              and isinstance(call := view.scopes.parents.get(use), ast.Call) and call.func is use):
+            # The SDK's documented ``agent.as_tool(...)``: a new tool object that
+            # holds the agent. The handle goes no further; the tool has its own owner.
+            return not self._register_as_tool(view, call)
+        elif strict_container and self._checking_constructor_namespaces and self._agent_tool_argument(view, node, use):
+            return False  # ADK's ``AgentTool(agent=...)`` holds the agent and goes no further.
+        elif (strict_container and self._checking_constructor_namespaces and isinstance(use, ast.Attribute)
+              and use.value is node and self._discarded_method_call(view, use)):
+            return False  # A statement calling a method of the exact class; nothing is handed on.
+        elif isinstance(use, ast.Attribute):
+            if use.attr == "__dict__":
+                return True
+            if keyword == "__class__" and use.attr in CAPABILITY_FIELDS:
+                # Membership changes do not change the instance's class.
+                # Retained class-carrying members have their own ownership
+                # edges; their namespace use must remain proved separately.
+                return False
+            if use.attr == keyword:
+                if isinstance(view.scopes.parents.get(use), ast.AugAssign):
+                    return True
+                if (strict_container and self._checking_constructor_namespaces
+                        and isinstance(use.ctx, ast.Store | ast.Del)):
+                    if isinstance(use.ctx, ast.Store) and not self._member_list_shape(view, use):
+                        return True
+                    return False  # Dropping members does not export their identity.
+                if not borrowed and not isinstance(use.ctx, ast.Load):
+                    return True
+                if isinstance(use.ctx, ast.Load) and not (
+                    self._container_read(view, use) if strict_container
+                    else read_only_use(use, view.scopes.parents, self._call_reads(view))
+                ):
+                    return True
+            elif isinstance(use.ctx, ast.Load) and not (
+                self._container_read(view, use) if strict_container
+                else read_only_use(node, view.scopes.parents, self._call_reads(view))
+            ):
+                return True
+        elif isinstance(use, ast.Call) and reference_spelling(use.func) in {
+            "getattr",
+            "setattr",
+            "delattr",
+            "vars",
+        }:
+            return True
+        elif isinstance(use, ast.Assign | ast.AnnAssign | ast.NamedExpr):
+            if (strict_container and self._checking_constructor_namespaces
+                    and keyword in {"__class__", *CAPABILITY_FIELDS}
+                    and self._direct_alias_stores_owned(view, node)):
+                return False
+            # An alias can subsequently reach the same mutable list.
+            return True
+        elif not (self._container_read(view, node) if strict_container
+                  else read_only_use(node, view.scopes.parents, self._call_reads(view))):
+            return True
+        return False
+
+    def _enters_as_itself(self, view: _View, call: ast.Call) -> bool:
+        """``async with MCPServerStdio(...) as server``: the SDK's server is its own context.
+
+        Its ``__aenter__`` connects and returns the server itself, so the name
+        the ``with`` binds is the object this owner already checks. Only the
+        SDK's MCP server classes, by their exact import, have that protocol.
+        """
+        from agents_shipgate.inputs.object_tools import SDK_MCP_SERVERS
+
+        resolver = self._resolver
+        if resolver is None or view.module is None:
+            return False
+        canonical = resolver._constructor_reference(view.module, call.func, view.scopes).get("external_constructor")
+        return (isinstance(canonical, str) and canonical.partition(".")[0] in {"agents", "openai_agents"}
+                and canonical.rsplit(".", 1)[-1] in SDK_MCP_SERVERS)
+
+    @staticmethod
+    def _discarded_method_call(view: _View, attribute: ast.Attribute) -> bool:
+        """``await agent.run()`` as a statement: a method call whose result is dropped.
+
+        The handle is an instance of the framework's own class, whose methods
+        do not edit its capability lists, and nothing is passed in or kept. A
+        method that could re-initialize it (``__init__``, ``model_*``) or a
+        field of the class is not this; a method the code stores on the
+        instance runs with no access to it except through names this census
+        already reads.
+        """
+        name = attribute.attr
+        if (not isinstance(attribute.ctx, ast.Load) or name.startswith("_") or name.startswith("model_")
+                or name in _CONSTRUCTOR_FIELDS):
+            return False
+        call = view.scopes.parents.get(attribute)
+        if not (isinstance(call, ast.Call) and call.func is attribute):
+            return False
+        statement = view.scopes.parents.get(call)
+        if isinstance(statement, ast.Await):
+            statement = view.scopes.parents.get(statement)
+        return isinstance(statement, ast.Expr)
+
+    def _register_as_tool(self, view: _View, call: ast.Call) -> bool:
+        """``agent.as_tool(...)`` builds a tool object; it needs an owner like any other."""
+        resolver = self._resolver
+        if resolver is None or view.module is None:
+            return False
+        family = next((key[0] for key in resolver._constructor_namespace_owners if key[0] != "google.adk"), "agents")
+        resolver._constructor_namespace_owners.setdefault(
+            (family, id(call), "toolset_data"), (view.module, call, "toolset_data"),
+        )
+        return True
+
+    def _agent_tool_argument(self, view: _View, node: ast.Name, use: ast.AST | None) -> bool:
+        """Whether ``node`` is the agent ADK's ``AgentTool`` wraps, by that class's exact import."""
+        from agents_shipgate.inputs.object_tools import ADK_AGENT_TOOLS
+
+        resolver = self._resolver
+        if resolver is None or view.module is None:
+            return False
+        if isinstance(use, ast.keyword) and use.arg == "agent" and use.value is node:
+            call = view.scopes.parents.get(use)
+        elif isinstance(use, ast.Call) and use.args and use.args[0] is node and use.func is not node:
+            call = use
+        else:
+            return False
+        if not isinstance(call, ast.Call):
+            return False
+        return resolver._constructor_reference(view.module, call.func, view.scopes).get("external_constructor") in ADK_AGENT_TOOLS
 
     def _direct_alias_stores_owned(self, view: _View, node: ast.Name) -> bool:
         """An exact direct-instance alias may only replace owned list fields."""
@@ -2179,6 +2299,25 @@ class ListExpressions:
             and all(isinstance(operator, ast.Is | ast.IsNot) for operator in parent.ops)
         )
 
+    @staticmethod
+    def _instance_data_read(view: _View, node: ast.expr) -> bool:
+        """An inert dataclass instance is read for its fields and goes nowhere else.
+
+        Its fields hold strings and ``None`` (the class body admits nothing
+        else), so a field read hands on no namespace. Passing the instance on,
+        calling anything on it or aliasing it is not that read.
+        """
+        parent = view.scopes.parents.get(node)
+        if isinstance(parent, ast.Expr) or (
+            isinstance(parent, ast.Compare) and all(isinstance(operator, ast.Is | ast.IsNot) for operator in parent.ops)
+        ):
+            return True
+        if not (isinstance(parent, ast.Attribute) and parent.value is node and isinstance(parent.ctx, ast.Load)
+                and not parent.attr.startswith("_")):
+            return False
+        call = view.scopes.parents.get(parent)
+        return not (isinstance(call, ast.Call) and call.func is parent)
+
     def _toolset_data_read(self, view: _View, node: ast.expr) -> bool:
         """A toolset instance only reaches the existing Agent.tools destination.
 
@@ -2197,7 +2336,7 @@ class ListExpressions:
         keyword = view.scopes.parents.get(current)
         call = view.scopes.parents.get(keyword)
         return bool(
-            isinstance(keyword, ast.keyword) and keyword.arg == "tools" and isinstance(call, ast.Call)
+            isinstance(keyword, ast.keyword) and keyword.arg in {"tools", "mcp_servers"} and isinstance(call, ast.Call)
             and self._reads_agent(view, call, keyword.arg)
             and not self._agent_result_changed(view, call, keyword.arg, borrowed=True, strict_container=True)
         )
@@ -2725,6 +2864,9 @@ class ListExpressions:
         if isinstance(parent, ast.Attribute) and parent.value is node:
             call = view.scopes.parents.get(parent)
             if isinstance(call, ast.Call) and call.func is parent:
+                if (parent.attr == "as_tool" and self._checking_constructor_namespaces
+                        and self._register_as_tool(view, call)):
+                    return True  # The tool object it builds has its own owner.
                 if parent.attr == "copy" and not call.args and not call.keywords:
                     return self._container_read(view, call)
                 if self._checking_constructor_namespaces and self._member_mutation(view, node, call):
@@ -2960,8 +3102,20 @@ class ListExpressions:
         finally:
             self._checking_member_receivers.remove(key)
 
-    def _imported_members_owned(self, view: _View, value: ast.expr) -> bool:
-        """Use the shared-list census, then inspect object identity through every use."""
+    def _imported_members_owned(
+        self, view: _View, value: ast.expr,
+        owned: Callable[[_View, ast.expr], bool] | None = None,
+        *, carriers: bool = True, require_use: bool = False,
+    ) -> bool:
+        """Use the shared-list census, then inspect object identity through every use.
+
+        ``owned`` replaces the container-read test for a value that is not a
+        list: the proof that one importer's use of the value changes nothing.
+        ``carriers`` is False for a value of inert data, which a function that
+        merely imports it cannot make into a handle on any namespace.
+        ``require_use`` refuses an export nothing uses: an agent handle that
+        left its module with no read use has nothing proved about it.
+        """
         if view.module is None or self.calls is None:
             return False
         names = [name for name, bindings in view.module.bindings.items()
@@ -2969,6 +3123,7 @@ class ListExpressions:
         if len(names) != 1:
             return False
         from agents_shipgate.inputs.builder_calls import CallLimit
+        proved = 0
         try:
             borrowers = self.calls.borrowers(view.module, names[0], namespace_carriers=True)
             retaining = self.calls.retaining_modules(view.module, names[0], namespace_carriers=True)
@@ -2996,12 +3151,20 @@ class ListExpressions:
                     resolution = self.calls.resolve(module, node)
                     subject = node
                     if (isinstance(node, ast.Attribute) and isinstance(parent, ast.Call) and parent.func is node
-                            and self._member_mutation(foreign, node.value, parent)):
+                            and (self._member_mutation(foreign, node.value, parent)
+                                 or owned is not None and node.attr == "as_tool")):
+                        subject = node.value
+                        resolution = self.calls.resolve(module, subject)
+                    elif owned is not None and isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+                        # ``settings.url``: the handle is the receiver; its owner reads the use.
                         subject = node.value
                         resolution = self.calls.resolve(module, subject)
                     if resolution.module is view.module and resolution.value is value:
-                        if resolution.caveats or not self._container_read(foreign, subject):
+                        if resolution.caveats or not (
+                            owned(foreign, subject) if owned is not None else self._container_read(foreign, subject)
+                        ):
                             return False
+                        proved += 1
                         continue
                     if (resolution.module is not None and not resolution.caveats
                             and isinstance(resolution.value, ast.List | ast.Tuple)
@@ -3011,6 +3174,8 @@ class ListExpressions:
                                 and not member.caveats
                             ) for item in resolution.value.elts)):
                         continue  # Another literal retains no shared list or namespace.
+                    if not carriers:
+                        continue
                     spelling = reference_spelling(node)
                     head = spelling.split(".", 1)[0] if spelling else None
                     for binding, statement in lookup(head, node) if head else ():
@@ -3025,7 +3190,7 @@ class ListExpressions:
                                     and self._container_read(foreign, node)):
                                 continue
                             return False  # An unread namespace can retain or project a member.
-            return True
+            return owned is None or not require_use or proved > 0
         except (CallLimit, _Stop) as exc:
             self._constructor_limit((getattr(exc, "detail", str(exc)),))
             return False
