@@ -797,8 +797,10 @@ def sql_operation(head: str, *, complete: bool) -> Statement:
     if keyword in SQL_READS or keyword == "WITH":
         if complete and len(statements) > 1:
             operations = [sql_operation(part, complete=True) for part in statements]
-            if any(item.operation == "write" for item in operations):
-                return Statement("write", keyword, table, False)
+            written = next((item for item in operations if item.operation == "write"), None)
+            if written is not None:
+                # Name the statement that writes, not the one that leads.
+                return Statement("write", written.keyword, written.table, False)
             if all(item.operation in {"read", None} for item in operations):
                 return Statement("read", keyword, table, False)
             return Statement("unknown", keyword, table, False)

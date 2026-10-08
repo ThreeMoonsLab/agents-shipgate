@@ -47,7 +47,7 @@ def _whys(reach):
         # A read keyword with something that may write after it is not a read.
         ("SELECT * INTO backup FROM users", True, "unknown", "SELECT", "backup"),
         ("WITH x AS (DELETE FROM t RETURNING *) SELECT * FROM x", True, "unknown", "WITH", "t"),
-        ("SELECT 1; DROP TABLE users", True, "write", "SELECT", "users"),
+        ("SELECT 1; DROP TABLE users", True, "write", "DROP", "users"),
         ("SELECT 1; SELECT 2", True, "read", "SELECT", None),
         # A quoted or schema-qualified function name is still a call.
         ("SELECT \"setval\"('s', 1)", True, "unknown", "SELECT", None),
