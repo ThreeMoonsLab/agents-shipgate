@@ -1861,7 +1861,7 @@ def test_a_sys_modules_store_is_read_by_what_it_can_name(repo, store, outcome):
     result = run(repo, base, head, "--scope", "svc/app")
     if outcome == "added":
         _constructor_candidate(result, "x", "lookup", "added", repo=repo, source="svc/app/tools.py",
-                               reason="reflective namespace access in loader.py")
+                               reason="loader.py:3 changes or retains sys; import search identity is unread")
     elif outcome == "not_established":
         assert _rows(result) == [("x", "lookup", "not_established")]
         assert any("computed name" in gap["reason"] for gap in result["head"]["coverage_gaps"])
@@ -1968,8 +1968,12 @@ def test_the_module_table_and_namespace_are_read_by_allow_list(repo, package, ou
     head = commit(repo, {"agent.py": LAZY_AGENT})
     result = run(repo, base, head)
     if outcome == "added":
+        # A package that stores ``sys`` itself is read first by the import-search
+        # check; one that only reads its namespace is read as reflective access.
+        reason = ("pkg/__init__.py:3 changes or retains sys; import search identity is unread"
+                  if "= sys\n" in package else "reflective namespace access in pkg/__init__.py")
         _constructor_candidate(result, "x", "remember", "added", repo=repo, source="pkg/memory.py",
-                               reason="reflective namespace access in pkg/__init__.py")
+                               reason=reason)
     elif outcome == "not_established":
         assert _rows(result) == [("x", "remember", "not_established")]
     else:
