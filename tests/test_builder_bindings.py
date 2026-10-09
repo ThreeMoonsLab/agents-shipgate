@@ -989,10 +989,13 @@ def test_operator_receiver_proof_reads_import_roots_above_the_caller_scope(
         tmp_path / "app", framework,
         "import operator\noperator.ior(fake.__dict__, {'Agent': fake.Agent})\n",
     )
-    # The exact named lookup must establish absence on this filesystem. Both
-    # case-sensitive and case-insensitive filesystems exercise the same test.
-    provider_reachable = (tmp_path / "src" / "operator.py").exists()
-    _assert_namespace_mutation_result(built, warnings, import_root == "linked" or provider_reachable)
+    # Absence is decided from the directory listing with case folded, so a
+    # differently cased root or provider refuses on every filesystem, as it
+    # would be found on a case-insensitive one; the answer never depends on
+    # the host (see test_builder_calls' `case` providers).
+    _assert_namespace_mutation_result(
+        built, warnings, import_root in {"linked", "local_provider", "case_root", "case_provider"},
+    )
 
 
 @pytest.mark.parametrize("framework", ["sdk", "adk"])
