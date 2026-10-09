@@ -92,9 +92,16 @@ def _shard_selection() -> tuple[int, int] | None:
     return count, index
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items) -> None:  # noqa: ANN001
-    """Keep only this shard's files when a shard is requested."""
+    """Mark the nightly-only framework cases, then keep this shard's files.
 
+    The marks go on before pytest applies ``-m``, which is why this runs first.
+    """
+
+    from tests.framework_matrix import mark_nightly_framework_cases
+
+    mark_nightly_framework_cases(items)
     selection = _shard_selection()
     if selection is None:
         return
