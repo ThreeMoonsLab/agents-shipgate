@@ -1,0 +1,86 @@
+name: Slow Tests
+
+# Runs the tests marked `slow`, which pull-request CI leaves out
+# (`ci.yml` selects `-m "not perf and not slow"`).
+#
+# Marking a test `slow` moves its cost off every pull request; it does not stop
+# the test from running. Two places run it instead: this workflow, nightly, and
+# release verification (`release-verify.yml`, `release-advisory-verify.yml`),
+# whose selection is `-m "not perf"` and therefore includes `slow`. The release
+# gate is the complete one.
+#
+# The setup is the `suite` job's in `ci.yml`: the same tag fetch, the same
+# hash-locked closure installed by the same commands, the same lock check.
+# Nothing here resolves a dependency.
+#
+# A failure here is a failure on `main`, found a day later than a pull request
+# would have found it. That delay is the price of the marker, and it is why a
+# test should be marked `slow` only when it is heavy and unlikely to be the one
+# that catches a regression.
+
+on:
+  schedule:
+    # Daily, 05:37 UTC: off the hour, where scheduled runs queue up.
+    - cron: "37 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  slow:
+    name: slow tests
+    runs-on: ubuntu-latest
+    # Unsharded, because nothing is marked `slow` yet and the set is expected
+    # to stay small: it holds the few tests too heavy for every pull request,
+    # not a share of the suite. If it nears this cap, shard it the way `ci.yml`'s
+    # `suite` is sharded rather than raising the number.
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # Tags, for the reason `ci.yml`'s `suite` job gives:
+          # `tests/test_adopter_pins_resolve.py` checks the pins `init` writes
+          # against this repository's release tags and fails loudly without
+          # them. `tests/test_action_metadata.py` asserts it for every job that
+          # runs the suite.
+          fetch-tags: true
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            constraints/dev.txt
+            constraints/build-backend.txt
+
+      - name: Install
+        # The same hash-locked closure the `suite` job installs; the rationale
+        # for each flag is on `ci.yml`'s `test` job.
+        run: |
+          python -m pip install --require-hashes --requirement constraints/dev.txt
+          python -m pip install --require-hashes --requirement constraints/build-backend.txt
+          python -m pip install -e . --no-deps --no-build-isolation
+
+      - name: Verify the dependency locks match the declared requirements
+        run: python scripts/verify_dependency_lock.py
+
+      - name: Run the slow tests
+        # pytest exits 5 when the selection is empty, which is today's state
+        # and not a failure: no test is marked `slow` until one is. Every other
+        # non-zero status is a failure, including 4 (a usage error) and 3 (an
+        # internal error), so only the one status that means "nothing to run"
+        # is let through.
+        run: |
+          set +e
+          python -m pytest -n auto -m slow
+          status=$?
+          set -e
+          if [ "${status}" -eq 5 ]; then
+            echo "No test is marked slow; nothing to run."
+            exit 0
+          fi
+          exit "${status}"

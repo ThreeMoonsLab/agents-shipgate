@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 from collections import Counter
@@ -41,7 +42,7 @@ _COLLECTION = {
 }
 
 
-@pytest.mark.parametrize("shards", [2, 3, 4, 7])
+@pytest.mark.parametrize("shards", [2, 3, 4, 6, 7])
 def test_every_file_lands_in_exactly_one_shard(shards: int) -> None:
     """The union of the shards is the suite, and nothing is in two of them."""
 
@@ -50,7 +51,7 @@ def test_every_file_lands_in_exactly_one_shard(shards: int) -> None:
     assert all(0 <= value < shards for value in owner.values())
 
 
-@pytest.mark.parametrize("shards", [2, 3, 4])
+@pytest.mark.parametrize("shards", [2, 3, 4, 6])
 def test_the_assignment_is_deterministic(shards: int) -> None:
     """Each shard computes the whole partition and keeps its slice.
 
@@ -106,7 +107,7 @@ def test_an_unmeasured_file_costs_its_items_at_the_measured_rate() -> None:
     assert owner["tests/test_huge.py"] != owner["tests/test_new.py"]
 
 
-@pytest.mark.parametrize("shards", [2, 3, 4])
+@pytest.mark.parametrize("shards", [2, 3, 4, 6])
 def test_the_timed_assignment_is_deterministic(shards: int) -> None:
     seconds = {path: count * 0.37 for path, count in _COLLECTION.items() if "tiny" not in path}
     first = shard_assignment(_COLLECTION, shards, seconds)
@@ -135,7 +136,7 @@ def test_the_committed_measurement_names_test_files() -> None:
 
 
 def _collect(shard: int | None, shards: int | None) -> dict[str, int]:
-    """Collect the CI suite and return ``{file: item count}``.
+    """Collect the pull-request CI suite and return ``{file: item count}``.
 
     ``-q`` twice is what makes ``--collect-only`` print the per-file summary
     rather than node ids, and ``addopts`` already supplies one. Counting items
@@ -156,7 +157,7 @@ def _collect(shard: int | None, shards: int | None) -> dict[str, int]:
             "-m",
             "pytest",
             "-m",
-            "not perf",
+            "not perf and not slow",
             "--ignore=tests/test_adapter_static_only.py",
             "--collect-only",
             "-q",
@@ -201,6 +202,71 @@ def test_the_real_collection_partitions_exhaustively() -> None:
         ),
     }
     assert sum(union.values()) == sum(whole.values())
+
+
+def test_which_shard_owns_a_file_does_not_depend_on_the_marker_selection(tmp_path: Path) -> None:
+    """Release verification runs CI's shards, and the ``slow`` tests CI leaves out.
+
+    ``conftest.py`` partitions the collection as it stands before ``-m`` drops
+    anything, so a file lands in the same shard whether or not its tests are
+    selected. That is what lets one ``tests/shard_seconds.json`` balance both
+    pipelines, and what makes a release candidate's shard N the same files as
+    CI's shard N, with the ``slow`` ones added. It rests on pytest calling a
+    ``conftest`` hook before its own deselection, so it is checked here against
+    a small project rather than taken from the documentation.
+
+    The counts are chosen so that partitioning *after* deselection would move
+    ``test_b.py``: ``test_a.py`` carries three ``slow`` items, which weigh in
+    only when they are still in the collection.
+    """
+
+    shutil.copy(REPO_ROOT / "conftest.py", tmp_path / "conftest.py")
+    shutil.copy(REPO_ROOT / "ci_sharding.py", tmp_path / "ci_sharding.py")
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    suites = {
+        "test_a.py": "def test_fast():\n    pass\n"
+        + "".join(f"\n@pytest.mark.slow\ndef test_slow_{n}():\n    pass\n" for n in range(3)),
+        "test_b.py": "".join(f"def test_{n}():\n    pass\n\n" for n in range(3)),
+        "test_c.py": "".join(f"def test_{n}():\n    pass\n\n" for n in range(2)),
+        "test_d.py": "".join(f"\n@pytest.mark.slow\ndef test_{n}():\n    pass\n" for n in range(2)),
+    }
+    for name, body in suites.items():
+        (tests / name).write_text("import pytest\n\n" + body, encoding="utf-8")
+
+    def owners(selection: str) -> dict[str, int]:
+        found: dict[str, int] = {}
+        for shard in (1, 2):
+            env = dict(os.environ)
+            env["SHIPGATE_TEST_SHARDS"] = "2"
+            env["SHIPGATE_TEST_SHARD"] = str(shard)
+            result = subprocess.run(
+                [
+                    sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-W", "ignore",
+                    "-o", "addopts=", "-m", selection, "--collect-only", "-q", "-q",
+                ],
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                env=env,
+                check=False,
+            )
+            assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-2000:]
+            for line in result.stdout.splitlines():
+                match = re.fullmatch(r"(tests/\S+\.py): (\d+)", line.strip())
+                if match:
+                    found[match.group(1)] = shard
+        return found
+
+    complete = owners("not perf")
+    pull_request = owners("not perf and not slow")
+
+    assert set(complete) == {f"tests/{name}" for name in suites}
+    # A file whose tests are all `slow` has nothing left to run in CI...
+    assert "tests/test_d.py" not in pull_request
+    # ...and every other file is where it is in the complete selection.
+    assert pull_request == {path: shard for path, shard in complete.items() if path in pull_request}
+    assert set(pull_request) == set(complete) - {"tests/test_d.py"}
 
 
 @pytest.mark.parametrize(

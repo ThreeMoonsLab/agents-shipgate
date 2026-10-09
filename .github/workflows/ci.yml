@@ -22,7 +22,17 @@ jobs:
     # (add a shard). Three shards had reached 13 of their 15 minutes on `main`
     # by #904, and #872's tests took one past the cap: a fourth was added.
     # By 2026-10-08 the slowest of four reached 12-14 minutes on `main` and
-    # timed out on PRs adding heavy fixture tests: a fifth was added.
+    # timed out on PRs adding heavy fixture tests: a fifth was added. The same
+    # day the slowest of five took about 11 of its 15 minutes on `main` (Test
+    # steps of 311, 405, 623, 508 and 538 seconds, about 40 minutes in all),
+    # and #964, which adds roughly 45% more test time, had a shard cancelled at
+    # the cap: a sixth was added, with a `slow` marker beside it.
+    #
+    # `-m "not slow"` is the second lever: a test that is heavy and rarely the
+    # one that catches a regression is marked `slow`, runs nightly
+    # (`slow-tests.yml`) and in release verification, and stays off the
+    # per-pull-request path. Release verification runs it on every candidate,
+    # so the marker moves a test's cost; it never removes the test.
     #
     # `conftest.py` assigns whole test *files* to shards, deterministically,
     # from the collection and the measured seconds per file in
@@ -37,7 +47,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5]
+        shard: [1, 2, 3, 4, 5, 6]
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -65,7 +75,7 @@ jobs:
       - name: Install
         # The same hash-locked closure the `test` job installs; the rationale
         # for each flag is on that job. `pip check` runs there rather than
-        # three more times here.
+        # once more in every shard.
         run: |
           python -m pip install --require-hashes --requirement constraints/dev.txt
           python -m pip install --require-hashes --requirement constraints/build-backend.txt
@@ -80,7 +90,9 @@ jobs:
 
       - name: Test (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
         # Excludes the `perf` marker — the latency budget tests run in the
-        # `test` job, alone, so their timing isn't disturbed by parallel load.
+        # `test` job, alone, so their timing isn't disturbed by parallel load —
+        # and the `slow` marker, which runs nightly and in release
+        # verification rather than on every pull request.
         #
         # The static adapter invariant lint runs as its own fail-fast step
         # there too, so keep it out of the coverage pass rather than doing the
@@ -90,15 +102,15 @@ jobs:
         # its coverage is a fragment. The threshold is enforced once, on the
         # combined data, in `coverage` below.
         env:
-          SHIPGATE_TEST_SHARDS: 5
+          SHIPGATE_TEST_SHARDS: 6
           SHIPGATE_TEST_SHARD: ${{ matrix.shard }}
-        run: python -m pytest -n auto -m "not perf" --ignore=tests/test_adapter_static_only.py --cov=agents_shipgate --cov-report=
+        run: python -m pytest -n auto -m "not perf and not slow" --ignore=tests/test_adapter_static_only.py --cov=agents_shipgate --cov-report=
 
       - name: Upload coverage fragment
         # Renamed off the leading dot on purpose: `.coverage` is a hidden file
         # and whether the uploader picks one up depends on the action version
         # this workflow pins. A fragment that silently fails to upload would
-        # leave the gate measuring two thirds of the suite and passing.
+        # leave the gate measuring a fraction of the suite and passing.
         run: mv .coverage coverage-fragment.dat
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -110,14 +122,31 @@ jobs:
   coverage:
     # The coverage gate, enforced once over the combined fragments.
     #
-    # Splitting the suite split its coverage with it, and four partial
-    # measurements each fail an 85% threshold that the whole run passes. This
-    # job is where the number is a number about the suite again.
+    # Splitting the suite split its coverage with it, and each shard's partial
+    # measurement fails an 85% threshold that the whole run passes. This job is
+    # where the number is a number about the suite again.
     needs: [suite]
+    # Starts even when a shard failed, so that it can fail by name. `needs`
+    # alone would skip this job, and a skipped required check counts as passing:
+    # the ruleset requires `suite (1)` to `suite (3)` and not the shards after
+    # them, so a failure in shard 4, 5 or 6 would leave the pull request
+    # mergeable. Cancellation still skips it.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
+      - name: Require every suite shard to have passed
+        env:
+          SUITE_RESULT: ${{ needs.suite.result }}
+        run: |
+          set -euo pipefail
+          if [ "${SUITE_RESULT}" != "success" ]; then
+            echo "::error::The suite did not pass on every shard (result: ${SUITE_RESULT}); refusing to gate coverage on a partial run."
+            exit 1
+          fi
+          echo "OK: every suite shard passed."
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
@@ -151,14 +180,26 @@ jobs:
         # test pass.
         #
         # `coverage combine` consumes its inputs, so the fragments are copied
-        # to distinct names first — four files all called `.coverage` in
-        # separate directories would otherwise collide on the way in.
+        # to distinct names first — one file per shard, all named alike in
+        # separate directories, would otherwise collide on the way in.
+        #
+        # Exactly one fragment per shard, not merely some: `needs` already
+        # waits for every shard, but a gate that combined five of six would
+        # report the coverage of five sixths of the suite and could still pass.
+        # `EXPECTED_FRAGMENTS` is the matrix size; a test holds it equal to the
+        # matrix and to `SHIPGATE_TEST_SHARDS`.
+        env:
+          EXPECTED_FRAGMENTS: 6
         run: |
           set -euo pipefail
           shopt -s nullglob
           fragments=(coverage-fragments/coverage-*/coverage-fragment.dat)
           if [ "${#fragments[@]}" -eq 0 ]; then
             echo "no coverage fragments were downloaded; the shards produced none." >&2
+            exit 1
+          fi
+          if [ "${#fragments[@]}" -ne "${EXPECTED_FRAGMENTS}" ]; then
+            echo "expected ${EXPECTED_FRAGMENTS} coverage fragments, found ${#fragments[@]}; refusing to gate a partial measurement." >&2
             exit 1
           fi
           index=0

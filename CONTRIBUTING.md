@@ -55,6 +55,15 @@ pytest
 but it resolves fresh, so it is not the environment CI and the release run. The
 locked closure above is; reproducing a CI failure locally starts with it.
 
+`pytest` runs every test. Pull-request CI runs `-m "not perf and not slow"`:
+`perf` (latency budgets, which run alone in the `test` job) and `slow` are left
+out. A `slow` test runs nightly (`slow-tests.yml`) and in release verification,
+so marking one moves its cost off every pull request without removing it. Mark
+a test `slow` only when it is heavy and unlikely to be the one that catches a
+regression, because a failure is then found a day later than a pull request
+would have found it, and the per-pull-request coverage floor no longer counts
+it. `pytest -m "not perf and not slow"` reproduces what a pull request runs.
+
 ## Running the CLI
 
 ```bash

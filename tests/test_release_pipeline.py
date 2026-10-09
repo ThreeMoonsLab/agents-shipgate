@@ -908,7 +908,19 @@ def test_release_does_not_weaken_the_coverage_floor() -> None:
         for step in ci["jobs"]["suite"]["steps"]
         if "SHIPGATE_TEST_SHARDS" in step.get("env", {})
     )
-    assert shards == list(range(1, int(count) + 1)) == [1, 2, 3, 4, 5]
+    assert shards == list(range(1, int(count) + 1)) == [1, 2, 3, 4, 5, 6]
+    # The fragment count the gate expects is the matrix size, written in a third
+    # place: a gate expecting fewer fragments than shards would combine a
+    # partial measurement.
+    combine = next(
+        step for step in ci["jobs"]["coverage"]["steps"] if step.get("name") == "Combine and enforce the threshold"
+    )
+    assert combine["env"]["EXPECTED_FRAGMENTS"] == len(shards)
+    # A skipped required check counts as passing, and the ruleset requires only
+    # the first three shards: so the gate starts after a failed shard and fails
+    # by name, rather than being skipped behind it.
+    assert "!cancelled()" in ci["jobs"]["coverage"]["if"]
+    assert "needs.suite.result" in json.dumps(ci["jobs"]["coverage"]["steps"][0])
 
 
 def test_adapter_static_only_lint_stays_covered_in_release() -> None:
@@ -939,6 +951,16 @@ def test_perf_marker_is_declared_so_the_exclusion_is_meaningful() -> None:
     pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
     assert "perf: latency-budget" in pyproject
+
+
+def test_slow_marker_is_declared_so_the_exclusion_is_meaningful() -> None:
+    """An undeclared marker is a typo waiting to happen: `-m "not slow"` on a
+    test marked `slwo` would keep running it, and `-m slow` would not find it."""
+
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert '"slow: ' in pyproject
+    assert '-m "not perf and not slow"' in _ci_suite_step()
 
 
 # --------------------------------------------------------------------------
