@@ -342,6 +342,9 @@ class ImportResolver:
     _runtime_patch_maps: dict[int, dict[str, int]] = field(default_factory=dict)
     _reflection_import_loads: dict[ast.Module, frozenset[str]] = field(default_factory=dict)
     _reflection_import_importers: dict[tuple[ast.Module, str], bool] = field(default_factory=dict)
+    #: The caller census that answers "does another module import this one",
+    #: made on first use and shared by every such question in this read.
+    _importer_census: Any = None
     #: Import-search results, per this read. The key holds the parsed trees,
     #: which keeps their identity alive; see :meth:`_import_search_limit`.
     _import_search_limits: dict[tuple[tuple[Path, ast.Module], ...], tuple[str, ...]] = field(default_factory=dict)
@@ -3444,7 +3447,11 @@ def _module_has_importers(
     cached = resolver._reflection_import_importers.get(key)
     if cached is None:
         try:
-            census = calls if calls is not None else BuilderCalls(resolver)
+            census = calls
+            if census is None:
+                if resolver._importer_census is None:
+                    resolver._importer_census = BuilderCalls(resolver)
+                census = resolver._importer_census
             retaining = census.retaining_modules(module, name, namespace_carriers=True)
             cached = any(path != module.path for path in retaining)
         except (CallLimit, _Stop):
