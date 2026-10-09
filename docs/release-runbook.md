@@ -15,11 +15,11 @@ can act when a required person or account is unavailable.
 
 ## The pipeline
 
-A release runs as five jobs with an explicit, content-addressed handoff.
+A release runs as five stages with an explicit, content-addressed handoff.
 
 | Job | Permissions | What it does |
 |---|---|---|
-| `verify` → `tests` | `contents: read` | Installs the locked closure, checks the locks against the declarations, lints, compiles, schema check, the correctness suite, dependency audit |
+| `verify` → `suite`, then `tests` | `contents: read` | `suite` runs the correctness suite in six parallel shards, `not perf` and including the `slow` tests, each installing the locked closure and checking the locks against the declarations. `tests` waits for every shard, requires each to have reported and to have tested this commit, enforces the 85% coverage floor over the combined shards, then lints, compiles, checks the schemas, runs the dependency audit and re-derives the qualification policy |
 | `verify` → `artifact` | `contents: read` | Requires a changelog section for the tag, builds from the tagged source, validates the signed qualification, binds wheel to source, produces the wheel-scoped SBOM, seals and uploads the candidate bundle |
 | `stage` | `contents: write`, `actions: read` | Re-peels the tag, requires a matching rehearsal, re-derives every digest, extracts the release notes, classifies the index, creates or repairs the **draft** release |
 | `publish` | `id-token: write`, `environment: pypi` | Signs and uploads to PyPI once |
@@ -33,14 +33,14 @@ than launching the environment's interpreter, because interpreter startup runs
 wheel itself is built with `--no-isolation` so the locked backend is the code
 that runs.
 
-Verification is two jobs for a specific reason: **the job that seals the handoff
-never runs the candidate's tests.** In a combined job the qualified wheel stayed
-writable on disk — with its path exported through `GITHUB_ENV` — while pytest,
-its plugins, and `conftest` code executed. A test could therefore replace the
-wheel *after* the source-to-wheel equality check and before the handoff was
-sealed, and the provenance report would still have claimed equality. The
-`artifact` job runs no suite and no dependency audit, and re-asserts the binding
-on the exact bytes it seals.
+Verification keeps the sealing apart from the suite for a specific reason:
+**the job that seals the handoff never runs the candidate's tests.** In a
+combined job the qualified wheel stayed writable on disk — with its path
+exported through `GITHUB_ENV` — while pytest, its plugins, and `conftest` code
+executed. A test could therefore replace the wheel *after* the source-to-wheel
+equality check and before the handoff was sealed, and the provenance report
+would still have claimed equality. The `artifact` job runs no suite and no
+dependency audit, and re-asserts the binding on the exact bytes it seals.
 
 The split is about which capabilities are ever held together. `publish` can
 mint a PyPI Trusted Publishing token, so it holds **no repository write**,
@@ -282,8 +282,8 @@ present. That is why the backend has a lock of its own.
 
 | Lock | Installed by | Contains |
 |---|---|---|
-| [`constraints/dev.txt`](../constraints/dev.txt) | CI and `verify` → `tests` | The development closure: runtime dependencies plus the `dev` extra |
-| [`constraints/build-backend.txt`](../constraints/build-backend.txt) | CI, `verify` → `tests`, qualification promotion | The build backend's closure, so builds need no isolation |
+| [`constraints/dev.txt`](../constraints/dev.txt) | CI and `verify` → `suite`, `tests` | The development closure: runtime dependencies plus the `dev` extra |
+| [`constraints/build-backend.txt`](../constraints/build-backend.txt) | CI, `verify` → `suite`, `tests`, qualification promotion | The build backend's closure, so builds need no isolation |
 | [`constraints/release-seal.txt`](../constraints/release-seal.txt) | `verify` → `artifact` | `build`, `hatchling`, `sigstore` |
 | [`constraints/release-publish.txt`](../constraints/release-publish.txt) | `stage`, `publish`, `finalize` | `uv`, `sigstore` |
 | [`constraints/release-build.txt`](../constraints/release-build.txt) | — | Not a lock: the one hand-maintained backend pin the closure above resolves |
@@ -411,26 +411,48 @@ timings rather than an estimate:
 
 | Job | Phase | Observed | Timeout |
 |---|---|---|---|
-| `tests` | correctness suite (`-n auto`, `not perf`) | ~25 min on one runner (6.6 + 11.3 + 6.3 min across CI's three shards, CI run 34808352261) | 60 min |
-| `tests` | install, lint, compile, schema check, static lint, audit | ~40s | |
+| `suite` (six shards) | one shard of the correctness suite (`-n auto`, `not perf`), with checkout and install | slowest of CI's five shards 10.4 min of test on `main` (Test steps of 311, 405, 623, 508 and 538 s, 2026-10-08); Advisory Release Rehearsal run 37871044408 (2026-10-09): shard jobs 290–542 s with checkout and install, slowest 9.0 min; about 13 min projected with #964 | 35 min each |
+| `tests` | coverage combine, install, lint, compile, schema check, static lint, audit, qualification policy | 42 s for the whole job in Advisory Release Rehearsal run 37871044408; the qualified line's qualification download is estimated at under 2 min more | 10 min |
 | `artifact` | source build, downloads, signature + qualification + provenance | ~30s | 15 min |
 | `artifact` | isolated SBOM install | ~1–2 min | |
 
-Each leaves roughly 2.4–3.5x headroom. The suite dominates its job; the SBOM
-step dominates the other, because it installs the wheel's whole runtime closure
-into a fresh environment.
+Each leaves roughly 2.5–3.5x headroom. A shard dominates the first job; the
+SBOM step dominates the last, because it installs the wheel's whole runtime
+closure into a fresh environment. The shard and gate figures come from the
+first rehearsal of the sharded layout, which ran before #964; read them again
+from the first rehearsal after #964 lands.
 
-After any change that materially grows the suite, read the actual job duration
-from a rehearsal run and reset the timeout to roughly 2.5x it. Do not raise it
-in response to a single timeout without checking what got slower — a timeout
-that appears without a corresponding change in these phases is more likely a
-hung step than an undersized budget.
+After any change that materially grows the suite, read the actual duration of
+the *slowest shard* from a rehearsal run and reset that timeout to roughly 2.5x
+it. Do not raise a timeout in response to a single failure without checking what
+got slower — a timeout that appears without a corresponding change in these
+phases is more likely a hung step than an undersized budget. When the slowest
+shard nears half its timeout, add a shard rather than raising the number; the
+partition rebalances itself (`ci_sharding.py`, `tests/shard_seconds.json`).
+Adding one is a change to the matrix, `SHIPGATE_TEST_SHARDS` and the expected
+fragment or shard count in `ci.yml` and in **both** `release-verify.yml` and
+`release-advisory-verify.yml`; `tests/test_release_pipeline.py` fails until all
+of them agree.
 
-That check was made on 2026-09-14. The suite had grown from 3,099 test functions,
-when 407s was measured, to 6,137. CI had already split it into three shards, and
-an Advisory Release Rehearsal timed out 19.7 minutes into the suite. No rehearsal
-had finished, so the budget was reset from CI's sharded timings; replace that
-figure with a finished rehearsal's duration when one exists.
+The suite is sharded here because a single runner could not keep its margin.
+The first check, on 2026-09-14, found the suite had grown from 3,099 test
+functions, when 407s was measured, to 6,137. CI had already split it into three
+shards, and an Advisory Release Rehearsal timed out 19.7 minutes into the suite.
+No rehearsal had finished, so the budget was reset from CI's sharded timings to
+60 minutes on one runner, about 2.4x the ~25 the suite needed.
+
+That derivation was stale by 2026-10-08. CI's five shards then took 311, 405,
+623, 508 and 538 seconds on `main`, about 40 minutes of test time: one runner
+had 1.5x headroom, not 2.4x. #964 adds roughly 45%, about 58 minutes, which is
+no margin at all, and a timeout in this job fails verification *after the tag
+exists*. Resetting the budget to 2.5x that would have meant a single job of
+about two and a half hours, whose hung-step signal is the same wait. Release
+verification instead shards the suite as CI does, with the same `conftest.py`
+partition. The only difference in selection is that release runs the `slow`
+tests, which pull-request CI leaves to the nightly Slow Tests workflow: the
+release gate is the complete one. The sealer's checks, its outputs and every
+integrity property of the `tests` job are unchanged; the gate now additionally
+proves that every shard reported and that each tested the commit it is gating.
 
 ## Cadence
 

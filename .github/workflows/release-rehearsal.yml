@@ -45,10 +45,11 @@ jobs:
     with:
       # `github.sha` — the immutable commit the dispatch resolved to — never a
       # branch name or a free-form ref input. The verification workflow checks
-      # out independently in its `tests` and `artifact` jobs, so a mutable ref
-      # could otherwise be tested as commit A and sealed as commit B, while
-      # `stage` later located the run by its original `head_sha`. Choose which
-      # commit to rehearse with the workflow_dispatch ref selector.
+      # out independently in each `suite` shard and in its `tests` and
+      # `artifact` jobs, so a mutable ref could otherwise be tested as commit A
+      # and sealed as commit B, while `stage` later located the run by its
+      # original `head_sha`. Choose which commit to rehearse with the
+      # workflow_dispatch ref selector.
       ref: ${{ github.sha }}
       release_tag: ${{ inputs.release_tag }}
       mode: rehearsal
