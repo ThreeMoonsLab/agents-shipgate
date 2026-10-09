@@ -339,7 +339,7 @@ def test_sdk_unread_handoffs_are_named_beside_the_read_ones(tmp_path):
         },
     )
     (observation,) = [item for item in _sdk(tmp_path, "triage.py").binding_observations if item.agent == "triage"]
-    assert observation.handoff_names == []
+    assert observation.handoff_names == ["billing"]  # The readable candidate; its edge is incomplete.
     assert observation.handoffs_complete is False
     assert any("constructor identity is not established" in issue for issue in observation.issues)
     for issue in [
@@ -1158,13 +1158,17 @@ def test_adk_sub_agents_shapes(tmp_path, expression, names, conditions):
     _, artifacts = _adk(tmp_path)
     (record,) = [record for record in artifacts.sub_agents if record["agent_name"] == "triage"]
     assert record["conditions"] == conditions
+    assert record["sub_agents"] == names
+    assert record["sub_agent_count"] == len(names)
     if "for a in" in expression:
-        assert record["sub_agents"] == [] and record["sub_agent_count"] is None
-        assert record["unresolved_sub_agents"] == names
+        # The names were read: candidates that survive the constructor gap. The
+        # gap makes the edge incomplete (``unread``); it does not turn a matched
+        # agent into one "which this scan could not match to an agent definition".
+        assert "constructor identity is not established" in record["unread"]
+        assert not record.get("unresolved_sub_agents")
         assert any("constructor identity is not established" in warning for warning in artifacts.warnings)
     else:
-        assert record["sub_agents"] == names
-        assert record["sub_agent_count"] == len(names)
+        assert "unread" not in record
 
 
 def test_adk_sub_agents_from_another_module_are_not_this_module_s(tmp_path):
@@ -1212,9 +1216,10 @@ def test_sdk_handoffs_shapes(tmp_path, expression, names):
                       "EXTRA = [refunds] if FLAG else []\nBOTH = [billing, refunds]\n"
                       f"triage = Agent(name='Triage', handoffs={expression})\n"})
     (observation,) = [item for item in _sdk(tmp_path, "triage.py").binding_observations if item.agent == "triage"]
+    assert observation.handoff_names == names
     if "for a in" in expression:
-        assert observation.handoff_names == [] and not observation.handoffs_complete
+        # Readable candidate edges survive a constructor gap, incomplete.
+        assert not observation.handoffs_complete
         assert any("constructor identity is not established" in issue for issue in observation.issues)
     else:
-        assert observation.handoff_names == names
         assert observation.handoffs_complete is True

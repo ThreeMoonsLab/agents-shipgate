@@ -1315,9 +1315,9 @@ class _PythonAdkExtractor:
         for record in self.artifacts.sub_agents:
             binding = self.agent_bindings.get(record.get("agent_name"))
             if binding is not None and binding.constructor_issue is not None and "sub_agent_count" in record:
-                record["unresolved_sub_agents"] = list(dict.fromkeys(
-                    [*record.get("unresolved_sub_agents", []), *record.get("sub_agents", [])]
-                ))
+                # The names stay as readable candidates. ``unread`` makes their
+                # edge incomplete; they were matched, so they are not
+                # "unresolved" (that would claim no agent definition was found).
                 record["unread"] = binding.constructor_issue
         self._record_duplicate_constructions()
         self._record_agent_subclasses()

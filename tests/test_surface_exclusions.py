@@ -2144,6 +2144,9 @@ def test_adk_unread_parent_preserves_child_candidate_and_freeform_findings(tmp_p
     assert graph.root_agent_id is not None and graph.status == "partial"
     assert graph.possible_tool_ids and graph.unbound_tool_ids == []
     assert graph.handoff_edges and all(not edge.complete for edge in graph.handoff_edges)
+    # The child was matched to its definition: the constructor gap makes the
+    # edge incomplete, and nothing claims the definition could not be found.
+    assert not any("could not match" in issue.message for issue in graph.issues)
     assert any(finding.check_id == "SHIP-SCHEMA-FREEFORM-OUTPUT" for finding in report.findings)
     assert report.release_decision.decision != "passed"
     validate_semantic_consistency(report, _rehydrated_tools(report))
