@@ -247,8 +247,9 @@ Filename detection never establishes verified permissions.
 
 The same run writes `pr-comment.md`, the comment the GitHub Action posts.
 This abridged excerpt is from the published `v1.2.0` release. The current
-source tree withholds capability comparisons when agent binding coverage is
-incomplete; that coverage gap does not change the four blocking findings.
+source tree reports what a change added or changed but withholds what it
+removed or narrowed when agent binding coverage is incomplete, and names that
+limit; that coverage gap does not change the four blocking findings.
 
 Abridged from the released artifact:
 

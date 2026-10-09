@@ -522,8 +522,9 @@ absolute directory.
 
 Open `pr-comment.md` — the same text the GitHub Action posts on a pull
 request. The published `v1.2.0` release leads with the capability delta,
-by subject. The current source tree withholds this comparison when agent
-binding coverage is incomplete, and names that limit instead:
+by subject. The current source tree still reports what was added or changed
+when agent binding coverage is incomplete, withholds what was removed or
+narrowed, and names that limit:
 
 ```text
 - Capability delta (analysed surface): 2 subjects across 6 changes (+1 added, 2 modified, -0 removed)
