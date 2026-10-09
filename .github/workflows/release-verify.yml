@@ -68,19 +68,159 @@ permissions:
   contents: read
 
 jobs:
-  tests:
-    name: Correctness suite
+  suite:
+    name: Correctness suite (shard ${{ matrix.shard }})
+    # The correctness suite, split across parallel jobs the way `ci.yml`'s
+    # `suite` job splits it: the same `conftest.py` partition, from the same
+    # `tests/shard_seconds.json`, so a candidate runs the shards CI approved.
+    # Its selection differs from CI's in one respect and only one: it includes
+    # the tests marked `slow`, which pull-request CI leaves to the nightly run.
+    # This is the complete gate.
+    #
+    # Why it is split. This was one job running the whole selection on one
+    # runner inside 60 minutes, a figure derived on 2026-09-14 from a suite of
+    # about 25 minutes. By 2026-10-08 CI's five shards took 311, 405, 623, 508
+    # and 538 seconds on `main`, about 40 minutes of test time: 1.5x headroom
+    # under that cap, not 2.4x. #964 adds roughly 45% more, about 58 minutes,
+    # which leaves none. A timeout there fails verification after the tag
+    # exists. Shards get the margin back and keep it by adding a shard, as
+    # CI's do, rather than by raising a number.
+    #
+    # The budget is projected, not yet observed in a rehearsal. The slowest of
+    # six shards is about 12.6 minutes of test with #964 (the mean, 9.6
+    # minutes, times 1.31, the imbalance CI's five shards show) plus about 1.5
+    # minutes of checkout and install, about 14. 35 minutes is 2.5x that.
+    # Replace this with a finished rehearsal's figure when there is one, and
+    # see docs/release-runbook.md before raising it after a single timeout.
     runs-on: ubuntu-latest
-    # Re-derived 2026-09-14. The earlier 407s (CI run 31336011667, at `60ac7e91`,
-    # 3,099 test functions) no longer holds: at `e5ec2311` the suite has 6,137.
-    # CI splits it into three shards, which took 6.6, 11.3 and 6.3 minutes on
-    # hosted runners (CI run 34808352261), about 24 minutes of test time.
-    # Advisory Release Rehearsal run 34808974216 hit the 20-minute limit 19.7
-    # minutes into this step. This job runs the whole selection on one runner,
-    # so it needs about 25 minutes; 60 leaves roughly 2.4x headroom. Re-derive
-    # from rehearsal timings whenever the suite grows materially, and see
-    # docs/release-runbook.md before raising it after a single timeout.
-    timeout-minutes: 60
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+          # Tags, for the same reason `ci.yml`'s suite job fetches them: the
+          # candidate's own suite checks every pin `init` writes into an
+          # adopter's repository against this repository's release tags (#506).
+          # `ref` alone brings the tag under test and no other, so the newest
+          # *published* release — which the pins name until the constants are
+          # bumped after this tag lands — would be missing.
+          # `tests/test_action_metadata.py`'s
+          # `test_jobs_running_the_whole_suite_check_out_release_tags` asserts
+          # this for every job that runs the suite, in any workflow, because
+          # this one and `ci.yml` were fixed separately once already (#497).
+          fetch-tags: true
+
+      - name: Record the commit under test
+        id: tested
+        run: echo "source_sha=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            constraints/dev.txt
+            constraints/build-backend.txt
+
+      - name: Install
+        # Byte-for-byte what the `tests` job installs, which is what CI
+        # installs: the same hash-locked closures with the same commands. See
+        # the `Install` step there for why each flag is load-bearing. `pip
+        # check` runs once, in that job, rather than in every shard.
+        run: |
+          python -m pip install --require-hashes --requirement constraints/dev.txt
+          python -m pip install --require-hashes --requirement constraints/build-backend.txt
+          python -m pip install -e . --no-deps --no-build-isolation
+
+      - name: Verify the dependency locks match the declared requirements
+        # Repeated from the `tests` job on purpose, as `ci.yml`'s suite repeats
+        # it from `test`: the two jobs start together, so a copy there alone
+        # would race the suite rather than precede it, and a stale lock would
+        # surface as an ImportError partway through a shard.
+        run: python scripts/verify_dependency_lock.py
+
+      - name: Test (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
+        # Differs from CI's shard in two ways, and only two:
+        #
+        #   * `-m "not perf"` excludes the latency-budget tests but not `slow`.
+        #     CI is the merge-time enforcement point for latency; those tests
+        #     assert wallclock medians and are the one part of the suite that
+        #     fails from shared-runner timing noise rather than from a defect.
+        #     A release candidate must fail on deterministic correctness
+        #     evidence, not on how busy the runner was. `slow` tests are
+        #     deterministic, so the candidate runs them: CI skips them to save
+        #     time, and a release is where that saving is not wanted.
+        #   * The shard count is the matrix size, held equal to it by
+        #     `tests/test_release_pipeline.py`.
+        #
+        # `-n auto` matches CI's supported parallelism within each shard. No
+        # `--cov-fail-under` here: a shard covers a fraction of the suite, so
+        # its coverage is a fragment. The floor is enforced once, over the
+        # combined data, in the `tests` job.
+        env:
+          SHIPGATE_TEST_SHARDS: 6
+          SHIPGATE_TEST_SHARD: ${{ matrix.shard }}
+        run: >-
+          python -m pytest -n auto -m "not perf"
+          --ignore=tests/test_adapter_static_only.py
+          --cov=agents_shipgate --cov-report=
+
+      - name: Collect this shard's evidence
+        # The coverage fragment, renamed off its leading dot for the reason
+        # `ci.yml` gives, and the commit this shard tested. The second is what
+        # lets the `tests` job prove every shard ran the commit it is gating:
+        # shards check out independently, and a mutable ref could otherwise
+        # have them test different commits.
+        env:
+          TESTED_SHA: ${{ steps.tested.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          mkdir suite-evidence
+          mv .coverage suite-evidence/coverage-fragment.dat
+          printf '%s\n' "${TESTED_SHA}" > suite-evidence/source-sha.txt
+
+      - name: Upload this shard's evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-suite-evidence-${{ matrix.shard }}
+          path: suite-evidence/
+          if-no-files-found: error
+
+  tests:
+    name: Verify the suite and the release gates
+    # The gates that need the project installed, run once the suite has passed
+    # on every shard: the fast lints, the coverage floor over the combined
+    # shards, the dependency audit and the exhaustive qualification policy
+    # re-derivation. Of the candidate's tests it runs only the static adapter
+    # lint; the suite itself is the `suite` job above, and its budget lives
+    # there.
+    #
+    # `needs: suite` alone would skip this job when a shard fails, and a
+    # skipped job is not a failed one: `artifact` would be skipped behind it,
+    # and whether a caller read that as a failure would depend on how it reads a
+    # skipped dependency. So the job starts whatever the shards did, bar
+    # cancellation, and its first step fails it by name unless every shard
+    # passed. `artifact` needs this job and runs only if it succeeds.
+    needs: suite
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    # Measured on a hosted runner: install, lint, compile, schema check, static
+    # lint and audit take about 40s together (docs/release-runbook.md), and the
+    # coverage combine and the qualification download and re-derivation add
+    # about two minutes by estimate, so about 3 minutes in all. 10 leaves
+    # roughly 3x headroom. Not yet observed in a rehearsal; replace this with a
+    # finished one's figure when there is one.
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -93,6 +233,17 @@ jobs:
       qualification_sha256: ${{ steps.policy.outputs.qualification_sha256 }}
 
     steps:
+      - name: Require every suite shard to have passed
+        env:
+          SUITE_RESULT: ${{ needs.suite.result }}
+        run: |
+          set -euo pipefail
+          if [ "${SUITE_RESULT}" != "success" ]; then
+            echo "::error::The correctness suite did not pass on every shard (result: ${SUITE_RESULT}); refusing to gate a release on a partial suite."
+            exit 1
+          fi
+          echo "OK: every suite shard passed."
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -141,9 +292,9 @@ jobs:
 
       - name: Verify the dependency locks match the declared requirements
         # A lock that no longer matches pyproject.toml means the release is
-        # testing something other than what it declares. Checked here, before
-        # the suite, so it fails as a named precondition rather than as a
-        # mystery import error inside the release.
+        # testing something other than what it declares. Checked here and at
+        # the start of every shard, so it fails as a named precondition rather
+        # than as a mystery import error inside the release.
         run: python scripts/verify_dependency_lock.py
 
       - name: Lint
@@ -156,29 +307,64 @@ jobs:
         run: python scripts/generate_schemas.py --check
 
       - name: Trust-model invariant lint (static, no user code execution)
-        # Kept as its own step, and excluded from the aggregate run below, so a
-        # release candidate that introduces a dynamic-import surface in an
+        # Kept as its own step, and excluded from the shards' aggregate run, so
+        # a release candidate that introduces a dynamic-import surface in an
         # adapter fails with a named check rather than inside coverage noise.
         run: python -m pytest tests/test_adapter_static_only.py -q
 
-      - name: Test
-        # Deliberately differs from CI in two ways, and only two:
-        #
-        #   * `-n auto` matches CI's supported parallelism. Serial execution
-        #     made a release candidate spend the whole budget re-running work
-        #     CI already parallelises.
-        #   * `-m "not perf"` excludes the latency-budget tests. CI is the
-        #     merge-time enforcement point for latency; those tests assert
-        #     wallclock medians and are the one part of the suite that fails
-        #     from shared-runner timing noise rather than from a defect. A
-        #     release candidate must fail on deterministic correctness
-        #     evidence, not on how busy the runner was.
-        #
-        # The coverage floor stays at CI's 85 so release cannot bypass it.
-        run: >-
-          python -m pytest -n auto -m "not perf"
-          --ignore=tests/test_adapter_static_only.py
-          --cov=agents_shipgate --cov-report=term-missing --cov-fail-under=85
+      - name: Download the shards' evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: release-suite-evidence-*
+          path: suite-evidence
+
+      - name: Require every shard to have reported, and to have tested this commit
+        # `needs` waits for the shards, and the first step checks they passed.
+        # This checks what they handed over: exactly one record per shard, each
+        # naming the commit this job resolved. A gate that combined five of six
+        # fragments would report the coverage of five sixths of the suite and
+        # could still pass, and a shard that checked out a different commit
+        # would have tested something other than what is being sealed.
+        # `EXPECTED_SHARDS` is the matrix size, held equal to it by
+        # `tests/test_release_pipeline.py`.
+        env:
+          EXPECTED_SHARDS: 6
+          TESTED_SHA: ${{ steps.tested.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          fragments=(suite-evidence/release-suite-evidence-*/coverage-fragment.dat)
+          records=(suite-evidence/release-suite-evidence-*/source-sha.txt)
+          if [ "${#fragments[@]}" -ne "${EXPECTED_SHARDS}" ] || [ "${#records[@]}" -ne "${EXPECTED_SHARDS}" ]; then
+            echo "::error::Expected ${EXPECTED_SHARDS} suite shards to report, found ${#fragments[@]} coverage fragments and ${#records[@]} commit records."
+            exit 1
+          fi
+          for record in "${records[@]}"; do
+            # The record is a shard's own output, which ran the candidate's
+            # tests: compared, never echoed back into the log.
+            if [ "$(cat "${record}")" != "${TESTED_SHA}" ]; then
+              echo "::error::${record} does not name ${TESTED_SHA}, the commit this job resolved."
+              exit 1
+            fi
+          done
+          echo "OK: ${#records[@]} shards, all at ${TESTED_SHA}."
+
+      - name: Combine the shards' coverage and enforce the floor
+        # The floor stays at CI's 85 so release cannot bypass it, and it is
+        # measured over the whole selection, `slow` tests included, as the
+        # single-job run measured it. `coverage combine` consumes its inputs,
+        # so the fragments are copied to distinct names first.
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          index=0
+          for fragment in suite-evidence/release-suite-evidence-*/coverage-fragment.dat; do
+            index=$((index + 1))
+            cp "${fragment}" ".coverage.${index}"
+          done
+          echo "combining ${index} coverage fragment(s)"
+          python -m coverage combine
+          python -m coverage report --show-missing --fail-under=85
 
       - name: Dependency audit
         run: python -m pip_audit .
@@ -231,9 +417,9 @@ jobs:
     # seconds each, and the isolated SBOM install ~1-2 min — it installs the
     # wheel's whole runtime closure into a fresh environment and dominates this
     # job. A healthy run is ~4 minutes; 15 leaves roughly 3.5x headroom. The
-    # correctness suite's budget lives on the `tests` job. Re-derive both from
-    # rehearsal timings, and see docs/release-runbook.md before raising either
-    # after a single timeout.
+    # correctness suite's budget lives on the `suite` job, and the gates'
+    # on `tests`. Re-derive all three from rehearsal timings, and see
+    # docs/release-runbook.md before raising any after a single timeout.
     timeout-minutes: 15
     permissions:
       contents: read
@@ -688,7 +874,7 @@ jobs:
             echo "| Qualification signature identity | pass |"
             echo "| Qualification policy (${QUALIFICATION_TIER}) for this version | pass |"
             echo "| Wheel bound to tagged source | $(python -c 'import json,sys; sys.stdout.write(json.load(open("provenance.json"))["provenance_mode"])') |"
-            echo "| Correctness suite (-n auto, not perf) | pass |"
+            echo "| Correctness suite (sharded, -n auto, not perf; coverage floor 85) | pass |"
             echo "| Dependency audit | pass |"
             echo "| Wheel-scoped SBOM | pass |"
             echo

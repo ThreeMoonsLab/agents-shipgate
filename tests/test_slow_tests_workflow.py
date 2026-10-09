@@ -38,10 +38,16 @@ def _steps(name: str, job: str) -> dict[str, dict[str, Any]]:
     return {step["name"]: step for step in _workflow(name)["jobs"][job]["steps"] if "name" in step}
 
 
-def test_pull_request_ci_leaves_slow_tests_out() -> None:
+def test_pull_request_ci_leaves_slow_tests_out_and_release_verification_does_not() -> None:
     ci_steps = _steps("ci.yml", "suite")
     ci_test = next(step for name, step in ci_steps.items() if name.startswith("Test (shard"))
     assert '-m "not perf and not slow"' in ci_test["run"]
+
+    for name in ("release-verify.yml", "release-advisory-verify.yml"):
+        release_steps = _steps(name, "suite")
+        release_test = next(step for n, step in release_steps.items() if n.startswith("Test (shard"))
+        assert '-m "not perf"' in release_test["run"], name
+        assert "slow" not in release_test["run"], name
 
 
 def test_the_nightly_workflow_runs_exactly_the_slow_tests() -> None:

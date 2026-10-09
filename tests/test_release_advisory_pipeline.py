@@ -256,6 +256,7 @@ def test_the_advisory_verification_holds_no_publication_authority() -> None:
     release = _release()
 
     assert advisory["permissions"] == {"contents": "read", "actions": "read"}
+    assert advisory["jobs"]["suite"]["permissions"] == {"contents": "read"}
     assert advisory["jobs"]["tests"]["permissions"] == {"contents": "read"}
     assert advisory["jobs"]["artifact"]["permissions"] == {"contents": "read", "actions": "read"}
     assert release["jobs"]["verify_advisory"]["permissions"] == {"contents": "read", "actions": "read"}
@@ -298,8 +299,10 @@ def test_the_steps_both_lines_share_are_identical() -> None:
     qualified = _load("release-verify.yml")["jobs"]
     advisory = _advisory()["jobs"]
 
+    # The sharded suite is the same job in both files, key for key.
+    assert qualified["suite"] == advisory["suite"]
     assert [s for s in qualified["tests"]["steps"] if s["name"] != POLICY_STEP] == advisory["tests"]["steps"]
-    for key in ("runs-on", "timeout-minutes", "permissions"):
+    for key in ("runs-on", "timeout-minutes", "permissions", "needs", "if"):
         assert qualified["tests"][key] == advisory["tests"][key], key
     qualified_steps, advisory_steps = _steps(qualified["artifact"]), _steps(advisory["artifact"])
     for name in SHARED_ARTIFACT_STEPS:

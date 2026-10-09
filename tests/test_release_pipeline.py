@@ -846,6 +846,23 @@ def _test_step_command(job: dict[str, Any], name: str) -> str:
     raise AssertionError(f"no step named {name!r}")
 
 
+#: How many shards the suite is split into, in every workflow that splits it.
+#: CI and both release verifications partition with the same `conftest.py` from
+#: the same `tests/shard_seconds.json`, so they move together: adding a shard is
+#: one change to this number, the three matrices, the three
+#: `SHIPGATE_TEST_SHARDS` values and the two fragment counts below.
+SUITE_SHARDS = 6
+
+_RELEASE_VERIFICATIONS = ("release-verify.yml", "release-advisory-verify.yml")
+
+
+def _sharded_test_step(workflow: str, job: str) -> dict[str, Any]:
+    for step in _load_workflow(workflow)["jobs"][job]["steps"]:
+        if str(step.get("name", "")).startswith("Test (shard"):
+            return step
+    raise AssertionError(f"{workflow} jobs.{job} has no sharded test step")
+
+
 def _ci_suite_step() -> str:
     """CI's aggregate test command, wherever the workflow currently runs it.
 
@@ -856,40 +873,70 @@ def _ci_suite_step() -> str:
     deliberate.
     """
 
-    suite = _load_workflow("ci.yml")["jobs"]["suite"]
-    for step in suite["steps"]:
-        if str(step.get("name", "")).startswith("Test (shard"):
-            return str(step["run"])
-    raise AssertionError("ci.yml jobs.suite has no sharded test step")
+    return str(_sharded_test_step("ci.yml", "suite")["run"])
+
+
+def _release_suite_step(workflow: str = "release-verify.yml") -> str:
+    """A release verification's shard command, in its `suite` job.
+
+    Release verification moved its suite out of `jobs.tests` into a sharded
+    `jobs.suite` for the same reason CI had (a single runner's 60 minutes were
+    1.5x the measured suite, and no margin once #964 landed). `jobs.tests` is
+    now the gate that follows it.
+    """
+
+    return str(_sharded_test_step(workflow, "suite")["run"])
+
+
+def _named_step(job: dict[str, Any], name: str) -> dict[str, Any]:
+    for step in job["steps"]:
+        if step.get("name") == name:
+            return step
+    raise AssertionError(f"no step named {name!r}")
+
+
+def _suite_matrix_and_count(workflow: str, job: str) -> tuple[list[int], int]:
+    """The shard indices a workflow runs and the count each partitions by."""
+
+    jobs = _load_workflow(workflow)["jobs"]
+    shards = jobs[job]["strategy"]["matrix"]["shard"]
+    count = next(
+        step["env"]["SHIPGATE_TEST_SHARDS"]
+        for step in jobs[job]["steps"]
+        if "SHIPGATE_TEST_SHARDS" in step.get("env", {})
+    )
+    return shards, int(count)
 
 
 def test_release_matches_ci_parallelism_and_excludes_perf() -> None:
-    release_test = _test_step_command(_load_workflow("release-verify.yml")["jobs"]["tests"], "Test")
     ci_test = _ci_suite_step()
 
-    # Same supported parallelism as CI: a release candidate should not spend
-    # its budget re-running serially what CI already parallelises.
-    assert "-n auto" in release_test
-    assert "-n auto" in ci_test
-    # Latency budgets stay a merge-time gate; shared-runner timing noise must
-    # not be able to fail a release candidate.
-    assert '-m "not perf"' in release_test
-    assert "tests/test_latency_budget.py" not in release_test
+    for workflow in _RELEASE_VERIFICATIONS:
+        release_test = _release_suite_step(workflow)
+        # Same supported parallelism as CI: a release candidate should not
+        # spend its budget re-running serially what CI already parallelises.
+        assert "-n auto" in release_test, workflow
+        assert "-n auto" in ci_test
+        # Latency budgets stay a merge-time gate; shared-runner timing noise
+        # must not be able to fail a release candidate.
+        assert '-m "not perf"' in release_test, workflow
+        assert "tests/test_latency_budget.py" not in release_test, workflow
+        # The release selection is a superset of CI's. CI leaves `slow` to the
+        # nightly run; the complete gate must not.
+        assert "not slow" not in release_test, workflow
+        assert '-m "not perf and not slow"' in ci_test
 
 
 def test_release_does_not_weaken_the_coverage_floor() -> None:
     """The floor is 85 in both pipelines — and is measured over the whole suite.
 
-    CI splits the suite across jobs, so its shards each hold a fragment of the
-    coverage data. Two things have to be true and neither is implied by the
-    other: the combined data is gated at 85, and no shard sets a threshold of
-    its own. A `--cov-fail-under` on a quarter of the suite would be a number
-    that cannot mean what it says, and it would pass or fail for reasons
-    unrelated to the floor.
+    Both pipelines split the suite across jobs, so their shards each hold a
+    fragment of the coverage data. Two things have to be true and neither is
+    implied by the other: the combined data is gated at 85, and no shard sets a
+    threshold of its own. A `--cov-fail-under` on a sixth of the suite would be
+    a number that cannot mean what it says, and it would pass or fail for
+    reasons unrelated to the floor.
     """
-
-    release_test = _test_step_command(_load_workflow("release-verify.yml")["jobs"]["tests"], "Test")
-    assert "--cov-fail-under=85" in release_test
 
     ci = _load_workflow("ci.yml")
     assert "--cov-fail-under" not in _ci_suite_step()
@@ -900,50 +947,68 @@ def test_release_does_not_weaken_the_coverage_floor() -> None:
     # And the gate has to wait for every shard, or it would combine whatever
     # happened to have finished.
     assert ci["jobs"]["coverage"]["needs"] == ["suite"]
-    # Every shard index the matrix runs, and the count each shard partitions by,
-    # agree: a matrix of four over a count of three would drop a quarter.
-    shards = ci["jobs"]["suite"]["strategy"]["matrix"]["shard"]
-    count = next(
-        step["env"]["SHIPGATE_TEST_SHARDS"]
-        for step in ci["jobs"]["suite"]["steps"]
-        if "SHIPGATE_TEST_SHARDS" in step.get("env", {})
-    )
-    assert shards == list(range(1, int(count) + 1)) == [1, 2, 3, 4, 5, 6]
-    # The fragment count the gate expects is the matrix size, written in a third
-    # place: a gate expecting fewer fragments than shards would combine a
-    # partial measurement.
-    combine = next(
-        step for step in ci["jobs"]["coverage"]["steps"] if step.get("name") == "Combine and enforce the threshold"
-    )
-    assert combine["env"]["EXPECTED_FRAGMENTS"] == len(shards)
-    # A skipped required check counts as passing, and the ruleset requires only
-    # the first three shards: so the gate starts after a failed shard and fails
-    # by name, rather than being skipped behind it.
-    assert "!cancelled()" in ci["jobs"]["coverage"]["if"]
-    assert "needs.suite.result" in json.dumps(ci["jobs"]["coverage"]["steps"][0])
+
+    for name in _RELEASE_VERIFICATIONS:
+        release_test = _release_suite_step(name)
+        assert "--cov-fail-under" not in release_test, name
+        assert "--cov=agents_shipgate" in release_test, name
+        gate = _load_workflow(name)["jobs"]["tests"]
+        gate_commands = _job_commands(gate)
+        assert "coverage combine" in gate_commands, name
+        assert "--fail-under=85" in gate_commands, name
+        assert gate["needs"] == "suite", name
+
+
+def test_every_shard_index_the_matrix_runs_is_one_the_partition_counts() -> None:
+    """The matrix, the partition count and the fragment count agree.
+
+    A matrix of four over a count of three would drop a quarter of the suite
+    and leave every job green; a gate expecting fewer fragments than shards
+    would combine a partial measurement. They are written in separate places,
+    so they are compared here.
+    """
+
+    for workflow in ("ci.yml", *_RELEASE_VERIFICATIONS):
+        shards, count = _suite_matrix_and_count(workflow, "suite")
+        assert shards == list(range(1, count + 1)) == list(range(1, SUITE_SHARDS + 1)), workflow
+
+    ci_gate = _named_step(_load_workflow("ci.yml")["jobs"]["coverage"], "Combine and enforce the threshold")
+    assert ci_gate["env"]["EXPECTED_FRAGMENTS"] == SUITE_SHARDS
+    for workflow in _RELEASE_VERIFICATIONS:
+        reported = _named_step(
+            _load_workflow(workflow)["jobs"]["tests"],
+            "Require every shard to have reported, and to have tested this commit",
+        )
+        assert reported["env"]["EXPECTED_SHARDS"] == SUITE_SHARDS, workflow
 
 
 def test_adapter_static_only_lint_stays_covered_in_release() -> None:
     """It is excluded from the aggregate run, so it needs its own step or the
     trust-model invariant silently stops being checked at release time."""
 
-    tests_job = _load_workflow("release-verify.yml")["jobs"]["tests"]
-    aggregate = _test_step_command(tests_job, "Test")
-
-    assert "--ignore=tests/test_adapter_static_only.py" in aggregate
-    assert _step_index(tests_job, "tests/test_adapter_static_only.py -q") < _step_index(
-        tests_job, "--cov-fail-under=85"
-    )
+    for name in _RELEASE_VERIFICATIONS:
+        workflow = _load_workflow(name)["jobs"]
+        assert "--ignore=tests/test_adapter_static_only.py" in _release_suite_step(name), name
+        tests_job = workflow["tests"]
+        assert _step_index(tests_job, "tests/test_adapter_static_only.py -q") < _step_index(
+            tests_job, "--fail-under=85"
+        ), name
 
 
 def test_release_verification_timeout_is_documented_and_bounded() -> None:
-    workflow = _load_workflow("release-verify.yml")
-    source = (WORKFLOWS / "release-verify.yml").read_text(encoding="utf-8")
+    ci_timeout = _load_workflow("ci.yml")["jobs"]["suite"]["timeout-minutes"]
 
-    # The suite dominates one job; artifact sealing is much cheaper. Both are
-    # bounded, and neither number is an estimate.
-    assert workflow["jobs"]["tests"]["timeout-minutes"] == 60
-    assert workflow["jobs"]["artifact"]["timeout-minutes"] == 15
+    for name in _RELEASE_VERIFICATIONS:
+        workflow = _load_workflow(name)
+        # A shard is bounded, the gate that follows it is bounded, and sealing
+        # is bounded: none of the three is an estimate that nothing rechecks.
+        assert workflow["jobs"]["suite"]["timeout-minutes"] == 35, name
+        assert workflow["jobs"]["tests"]["timeout-minutes"] == 10, name
+        # A release shard runs CI's shard and the `slow` tests CI leaves out,
+        # so its budget is never tighter than CI's.
+        assert workflow["jobs"]["suite"]["timeout-minutes"] >= ci_timeout, name
+    source = (WORKFLOWS / "release-verify.yml").read_text(encoding="utf-8")
+    assert _load_workflow("release-verify.yml")["jobs"]["artifact"]["timeout-minutes"] == 15
     assert "Measured, not estimated" in source
 
 
@@ -960,7 +1025,6 @@ def test_slow_marker_is_declared_so_the_exclusion_is_meaningful() -> None:
     pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
     assert '"slow: ' in pyproject
-    assert '-m "not perf and not slow"' in _ci_suite_step()
 
 
 # --------------------------------------------------------------------------
@@ -1145,7 +1209,8 @@ def test_the_handoff_is_sealed_by_a_job_that_runs_no_candidate_tests() -> None:
     artifact = workflow["jobs"]["artifact"]
     commands = _job_commands(artifact)
 
-    assert set(workflow["jobs"]) == {"tests", "artifact"}
+    assert set(workflow["jobs"]) == {"suite", "tests", "artifact"}
+    assert workflow["jobs"]["tests"]["needs"] == "suite"
     assert artifact["needs"] == "tests"
     # The sealing job runs no suite, no plugins, no audit.
     assert "pytest" not in commands
@@ -1763,6 +1828,32 @@ def test_the_suite_and_the_sealer_must_agree_on_the_commit() -> None:
 
     assert workflow["jobs"]["tests"]["outputs"]["source_sha"]
     assert "The suite ran against ${TESTED_SHA}" in sealer
+
+
+def test_the_gate_requires_every_shard_to_have_tested_the_commit_it_gates() -> None:
+    """Shards check out independently, six times over.
+
+    The sealer compares one `source_sha` with its own, which is the gate's. With
+    the suite in six jobs, that comparison says nothing about what the shards
+    ran unless the gate also holds each of them to its commit. Each shard
+    records the commit it tested beside its coverage fragment, and the gate
+    refuses a record that names another.
+    """
+
+    for name in _RELEASE_VERIFICATIONS:
+        jobs = _load_workflow(name)["jobs"]
+        collected = _named_step(jobs["suite"], "Collect this shard's evidence")
+        assert "source-sha.txt" in collected["run"], name
+        assert collected["env"]["TESTED_SHA"] == "${{ steps.tested.outputs.source_sha }}", name
+        checked = _named_step(
+            jobs["tests"], "Require every shard to have reported, and to have tested this commit"
+        )
+        assert checked["env"]["TESTED_SHA"] == "${{ steps.tested.outputs.source_sha }}", name
+        assert "source-sha.txt" in checked["run"], name
+        # The shard evidence is checked before the coverage it carries is used.
+        assert _step_index(jobs["tests"], "source-sha.txt") < _step_index(
+            jobs["tests"], "--fail-under=85"
+        ), name
 
 
 def test_the_rehearsal_cannot_pass_a_mutable_ref() -> None:
@@ -2417,10 +2508,16 @@ def test_the_lock_gate_runs_in_both_pipelines_before_the_suite() -> None:
     shard job carries the gate itself.
     """
 
-    release = _load_workflow("release-verify.yml")["jobs"]["tests"]
-    assert _step_index(release, "scripts/verify_dependency_lock.py") < _step_index(
-        release, "--cov-fail-under=85"
-    )
+    for name in _RELEASE_VERIFICATIONS:
+        jobs = _load_workflow(name)["jobs"]
+        # In each shard, before its tests...
+        assert _step_index(jobs["suite"], "scripts/verify_dependency_lock.py") < _step_index(
+            jobs["suite"], "-m pytest -n auto"
+        ), name
+        # ...and again in the gate, before the coverage floor it enforces.
+        assert _step_index(jobs["tests"], "scripts/verify_dependency_lock.py") < _step_index(
+            jobs["tests"], "--fail-under=85"
+        ), name
 
     suite = _load_workflow("ci.yml")["jobs"]["suite"]
     assert _step_index(suite, "scripts/verify_dependency_lock.py") < _step_index(
