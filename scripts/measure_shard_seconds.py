@@ -3,8 +3,8 @@
 The CI suite is split into shards by measured time per test file
 (``ci_sharding.py``). Re-measure when a shard nears its ``timeout-minutes``:
 
-    python -m pytest -n auto -m "not perf" --ignore=tests/test_adapter_static_only.py \\
-        --junitxml=junit.xml
+    python -m pytest -n auto -m "not perf and not slow" \\
+        --ignore=tests/test_adapter_static_only.py --junitxml=junit.xml
     python scripts/measure_shard_seconds.py junit.xml
 
 The times are relative weights: what matters is how the files compare with

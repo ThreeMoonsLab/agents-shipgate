@@ -8,6 +8,7 @@ trusted, and why ``conftest.py`` raises instead of returning an empty shard.
 
 from __future__ import annotations
 
+import functools
 import os
 import re
 import subprocess
@@ -156,7 +157,7 @@ def _collect(shard: int | None, shards: int | None) -> dict[str, int]:
             "-m",
             "pytest",
             "-m",
-            "not perf",
+            "not perf and not slow",
             "--ignore=tests/test_adapter_static_only.py",
             "--collect-only",
             "-q",
@@ -176,6 +177,49 @@ def _collect(shard: int | None, shards: int | None) -> dict[str, int]:
     return collected
 
 
+@functools.cache
+def _whole_collection() -> dict[str, int]:
+    """The unsharded CI collection, taken once per process."""
+
+    return _collect(None, None)
+
+
+#: Test files the sharded CI suite does not run, so they carry no weight: the
+#: static-only adapter test is ignored by the CI command and the latency-budget
+#: tests are ``perf``, which have their own step.
+_OUTSIDE_THE_SHARDED_SUITE = frozenset({
+    "tests/test_adapter_static_only.py",
+    "tests/test_latency_budget.py",
+})
+
+
+def test_every_file_the_ci_suite_collects_has_a_measured_weight() -> None:
+    """An unmeasured file is guessed at, and a wrong guess overruns a shard.
+
+    A file without a weight costs its item count at the suite's average seconds
+    per item, which is how a handful of git-fixture files weighed like pure
+    ones and one shard ran past its cap (#904). New test files are the usual
+    cause. Re-measure instead of guessing:
+
+        python -m pytest -n auto -m "not perf and not slow" \\
+            --ignore=tests/test_adapter_static_only.py --junitxml=junit.xml
+        python scripts/measure_shard_seconds.py junit.xml
+    """
+
+    measured = load_seconds(SECONDS_FILE)
+    unmeasured = sorted(set(_whole_collection()) - set(measured) - _OUTSIDE_THE_SHARDED_SUITE)
+    assert not unmeasured, (
+        f"{len(unmeasured)} collected test file(s) have no weight in "
+        f"{SECONDS_FILE.name}: {unmeasured}"
+    )
+
+
+def test_the_files_outside_the_sharded_suite_are_not_in_it() -> None:
+    """The allow-list names files CI really does not run in a shard."""
+
+    assert not _OUTSIDE_THE_SHARDED_SUITE & set(_whole_collection())
+
+
 def test_the_real_collection_partitions_exhaustively() -> None:
     """The property that matters, on the actual suite rather than a fixture.
 
@@ -184,7 +228,7 @@ def test_the_real_collection_partitions_exhaustively() -> None:
     nothing at all.
     """
 
-    whole = _collect(None, None)
+    whole = _whole_collection()
     assert whole, "the baseline collection found no tests"
     shards = [_collect(index, 3) for index in (1, 2, 3)]
     union: dict[str, int] = {}
