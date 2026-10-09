@@ -963,7 +963,8 @@ def test_baseline_save_and_scan_matches_existing_findings(tmp_path):
     # The sample intentionally conflicts with its reviewed bindings; matching
     # a baseline cannot establish a comparable capability surface.
     assert second_report.binding_surface_facts.status == "conflicting"
-    assert second_report.tool_surface_diff.enabled is False
+    assert second_report.tool_surface_diff.enabled is True
+    assert second_report.tool_surface_diff.finding_deltas.resolved_findings == []
     assert second_report.binding_surface_diff.base_comparison_requested
     assert second_report.binding_surface_diff.enabled is False
     assert any("comparison incomplete" in note for note in second_report.tool_surface_diff.notes)
@@ -1019,7 +1020,8 @@ def test_scan_diff_from_prior_report_does_not_change_release_gate(tmp_path):
     assert without_diff.release_decision is not None
     assert with_diff.release_decision.decision == without_diff.release_decision.decision
     assert with_diff.binding_surface_facts.status == "conflicting"
-    assert with_diff.tool_surface_diff.enabled is False
+    assert with_diff.tool_surface_diff.enabled is True
+    assert with_diff.tool_surface_diff.finding_deltas.resolved_findings == []
     assert with_diff.binding_surface_diff.base_comparison_requested
     assert with_diff.binding_surface_diff.enabled is False
     assert any("comparison incomplete" in note for note in with_diff.tool_surface_diff.notes)

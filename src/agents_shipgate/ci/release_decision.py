@@ -15,6 +15,7 @@ from agents_shipgate.core.agent_bindings import (
     FRAMEWORK_CONSTRUCTOR_OWNERSHIP,
     TOOL_SOURCE_BINDING_DECLARATION,
 )
+from agents_shipgate.core.binding_comparison import comparison_withholds_absence
 from agents_shipgate.core.control_packs import is_mandatory_current_control
 from agents_shipgate.core.declaration_questions import (
     ANSWERABLE_ISSUE_KINDS,
@@ -1153,7 +1154,14 @@ def _newly_excluded_tool_gaps(report: ReadinessReport) -> list[EvidenceGap]:
     # Existing persisted coverage fields keep this route in the frozen 1.0
     # report. A requested comparison with neither graph nor tool comparison
     # established stays incomplete even when no tool id could be named.
-    if diff.base_comparison_requested and not diff.enabled and not report.tool_surface_diff.enabled:
+    # The tool comparison alone can be enabled and still withhold what depends
+    # on absence while a binding graph is incomplete; its notes say so, and so
+    # do the binding diff's. Either keeps the requested comparison unproven.
+    if diff.base_comparison_requested and not diff.enabled and (
+        not report.tool_surface_diff.enabled
+        or comparison_withholds_absence(report.tool_surface_diff.notes)
+        or comparison_withholds_absence(diff.notes)
+    ):
         return [_incomplete_binding_comparison_gap(report)]
     if not diff.enabled:
         # A comparison was asked for and could not be performed, so "this tool
@@ -1225,7 +1233,7 @@ def _incomplete_binding_comparison_gap(report: ReadinessReport) -> EvidenceGap:
         source_ref="--diff-from",
         why=(
             "The requested capability comparison has incomplete binding evidence "
-            "on the head or base. It cannot establish additions, removals or "
+            "on the head or base. It cannot establish removals, narrowings or "
             "whether an excluded capability predates this change."
         ),
         next_action=EvidenceGapAction(

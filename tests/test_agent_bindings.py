@@ -409,3 +409,57 @@ def test_a_complete_path_wins_over_an_unread_owner_of_the_same_tool():
     assert tools[0].binding_assessment.claims[0].evidence["complete"] is True
     assert not tools[0].binding_assessment.pass_eligible
     assert not graph.pass_eligible  # The unread handoff remains visible globally.
+
+
+def _adk_graph(*toolsets):
+    from agents_shipgate.core.artifact_models import GoogleAdkArtifacts
+
+    bag = ArtifactBag()
+    bag.set("google_adk", GoogleAdkArtifacts(
+        agents=[{"name": "root_agent", "source_id": "adk", "source_ref": "agent.py"}],
+        toolsets=list(toolsets),
+    ))
+    graph, _ = resolve_agent_binding_graph(_manifest(sdk_object="root_agent"), [], bag, [])
+    return graph
+
+
+def _toolset(kind="mcp", *, connection="read", limitations=()):
+    from agents_shipgate.core.artifact_models import GoogleAdkToolset, GoogleAdkToolsetConnection
+
+    return GoogleAdkToolset(
+        kind=kind, source_id="adk", source_ref="agent.py:5", agent_name="root_agent",
+        name="McpToolset" if kind == "mcp" else None, dynamic=True,
+        connection=GoogleAdkToolsetConnection(limitations=list(limitations)) if connection == "read" else None,
+    )
+
+
+def test_a_remote_toolset_whose_binding_was_read_has_its_own_issue_identity() -> None:
+    from agents_shipgate.core.agent_bindings import FRAMEWORK_TOOLSET_INVENTORY
+
+    graph = _adk_graph(_toolset())
+    # Still a partial surface, as for any unenumerated one; but the issue says
+    # why, so a capability comparison does not read it as an unread binding.
+    assert graph.status == "partial" and not graph.pass_eligible
+    (issue,) = graph.issues
+    assert issue.kind == "partial_binding_evidence"
+    assert issue.source == FRAMEWORK_TOOLSET_INVENTORY
+    assert issue.message == "Google ADK toolset 'McpToolset' is not statically enumerable."
+
+
+@pytest.mark.parametrize("toolset", [
+    _toolset("dynamic", connection=None),
+    _toolset("mcp", limitations=["shadowed_toolset_constructor"]),
+    _toolset("openapi", connection=None),
+], ids=["unread_toolset", "unproven_constructor", "openapi_without_spec"])
+def test_a_toolset_that_was_not_read_stays_an_ordinary_partial(toolset) -> None:
+    graph = _adk_graph(toolset)
+    (issue,) = graph.issues
+    assert issue.kind == "partial_binding_evidence"
+    assert issue.source == "framework_extraction"
+
+
+def test_the_unproven_constructor_marker_matches_the_reader_constant() -> None:
+    from agents_shipgate.core.agent_bindings import _UNPROVEN_TOOLSET_CONSTRUCTOR
+    from agents_shipgate.inputs.google_adk import LIMIT_SHADOWED_TOOLSET_CONSTRUCTOR
+
+    assert _UNPROVEN_TOOLSET_CONSTRUCTOR == LIMIT_SHADOWED_TOOLSET_CONSTRUCTOR

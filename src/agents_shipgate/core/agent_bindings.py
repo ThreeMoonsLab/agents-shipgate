@@ -42,6 +42,20 @@ TOOL_SOURCE_BINDING_DECLARATION = "tool_source_binding_declaration"
 #: can emit this marker; warning wording and catalog annotations cannot.
 FRAMEWORK_CONSTRUCTOR_OWNERSHIP = "framework_constructor_ownership"
 
+#: A remote framework toolset whose own binding a reader fully read, but whose
+#: tool inventory no static source can enumerate (an ADK ``McpToolset`` with no
+#: ``inventory_path``). The graph stays ``partial``, as for any unenumerated
+#: surface; but nothing about the *binding* is unread, so a capability
+#: comparison does not treat it as incomplete binding evidence (#538). Only a
+#: reader observation can emit this marker, never warning text.
+FRAMEWORK_TOOLSET_INVENTORY = "framework_toolset_inventory"
+
+#: ``GoogleAdkToolsetConnection.limitations`` code for a toolset constructor
+#: whose spelling is not proven to be ADK's own (``inputs.google_adk``'s
+#: ``LIMIT_SHADOWED_TOOLSET_CONSTRUCTOR``, pinned equal by a test). Such a
+#: toolset is not a fully read binding, whatever its inventory.
+_UNPROVEN_TOOLSET_CONSTRUCTOR = "shadowed_toolset_constructor"
+
 _TOOL_EDGE_TYPES = {
     "direct_tool",
     "tool_node",
@@ -127,7 +141,7 @@ def resolve_agent_binding_graph(
         raw_handoffs,
         partials,
         invalid_annotations,
-        constructor_partials,
+        structured_partials,
     ) = _observations(tools, artifacts, loaded_sources or [])
     declarations = manifest.agent_bindings.declarations if manifest is not None else []
     # A declaration may introduce an agent the extractors never saw — a
@@ -513,7 +527,7 @@ def resolve_agent_binding_graph(
                 )
             )
 
-    issues.extend(constructor_partials)
+    issues.extend(structured_partials)
 
     tool_edges = _dedupe_tool_edges(tool_edges)
     handoff_edges = _dedupe_handoff_edges(handoff_edges)
@@ -671,6 +685,7 @@ def _observations(
     partials: set[str] = set()
     invalid_annotations: set[str] = set()
     constructor_partials: dict[tuple[str, str, str], AgentBindingIssue] = {}
+    inventory_partials: dict[str, AgentBindingIssue] = {}
 
     for loaded in loaded_sources:
         for observation in loaded.binding_observations:
@@ -923,7 +938,15 @@ def _observations(
                 partials.add(adk_unnamed_sub_agents(source_name, record))
         for toolset in adk.toolsets:
             if toolset.dynamic or not toolset.resolved:
-                partials.add(f"Google ADK toolset {toolset.name or toolset.kind!r} is not statically enumerable.")
+                message = f"Google ADK toolset {toolset.name or toolset.kind!r} is not statically enumerable."
+                if _binding_fully_read(toolset):
+                    # The binding was read; only its leaves cannot be listed.
+                    inventory_partials[message] = AgentBindingIssue(
+                        kind="partial_binding_evidence", message=message,
+                        source=FRAMEWORK_TOOLSET_INVENTORY,
+                    )
+                else:
+                    partials.add(message)
 
     n8n = artifacts.get("n8n", N8nArtifacts)
     if n8n:
@@ -938,8 +961,26 @@ def _observations(
         )
 
     return agents, edges, handoffs, partials, invalid_annotations, [
-        constructor_partials[key] for key in sorted(constructor_partials)
+        *(constructor_partials[key] for key in sorted(constructor_partials)),
+        *(inventory_partials[key] for key in sorted(inventory_partials)),
     ]
+
+
+def _binding_fully_read(toolset: Any) -> bool:
+    """Whether a toolset's own construction was read, leaving only its leaves open.
+
+    A named remote toolset read through a proven framework constructor has an
+    endpoint, credential reference and filter that the remote-binding facts
+    compare (#538). A toolset the reader could not read at all (``kind``
+    ``dynamic``), or whose constructor is not proven to be the framework's,
+    is not a read binding.
+    """
+    connection = getattr(toolset, "connection", None)
+    return (
+        toolset.kind == "mcp"
+        and connection is not None
+        and _UNPROVEN_TOOLSET_CONSTRUCTOR not in connection.limitations
+    )
 
 
 def _annotation_source(raw: dict[str, Any], tool: Tool) -> str:

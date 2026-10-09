@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from agents_shipgate.core.binding_comparison import comparison_withholds_absence
 from agents_shipgate.core.findings.verifier_blocks import build_capability_change
 from agents_shipgate.core.policy_reason_codes import (
     POLICY_BASE_ABSENT_CHECK_ID,
@@ -76,6 +77,7 @@ def build_capability_review(
     notes: list[str] = []
     if not capability_change.enabled:
         notes.extend(_disabled_diff_notes(report))
+    notes.extend(note for note in _withheld_absence_notes(report) if note not in notes)
 
     return VerifierCapabilityReview(
         added=len(capability_change.added),
@@ -205,6 +207,18 @@ def _disabled_diff_notes(report: ReadinessReport) -> list[str]:
     if not report.tool_surface_diff.enabled and report.tool_surface_diff.notes:
         notes.append(report.tool_surface_diff.notes[0])
     return notes
+
+
+def _withheld_absence_notes(report: ReadinessReport) -> list[str]:
+    """The limits of a comparison that still reports additions and changes.
+
+    The removed and narrowed counts above are then not "none": they were
+    withheld while a binding graph is incomplete, and the rollup says so.
+    """
+    return [
+        note for note in report.tool_surface_diff.notes
+        if comparison_withholds_absence((note,))
+    ]
 
 
 # ``POLICY_BASE_ABSENT_CHECK_ID`` is re-exported so callers that already import

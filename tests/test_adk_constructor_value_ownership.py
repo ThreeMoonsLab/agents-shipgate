@@ -117,3 +117,69 @@ def test_context_annotation_role_does_not_grant_other_class_uses(tmp_path, use):
 def test_context_annotation_cannot_borrow_a_foreign_sdk_owner(tmp_path):
     tools, artifacts = load(tmp_path, 'from agents import Agent, function_tool\n@function_tool\ndef foreign(ctx: ToolContext, q: str) -> str:\n    return q\nforeign_agent = Agent(name="foreign", tools=[foreign])\nroot_agent = LlmAgent(name="x", tools=[lookup])\n')
     limited(tools, artifacts)
+
+
+CONNECTIONS = (
+    "import os\n"
+    "from google.adk.tools.mcp_tool import StdioConnectionParams, StreamableHTTPConnectionParams\n"
+    "from mcp import StdioServerParameters\n"
+)
+HTTP = 'StreamableHTTPConnectionParams(url="https://example.test/mcp", headers={"Authorization": os.environ["KEY"]})'
+STDIO = ('StdioConnectionParams(server_params=StdioServerParameters(command="npx", args=["server"], '
+         'env={"API_KEY": os.environ["KEY"]}))')
+
+
+def _bound(connection, wrap='{}'):
+    toolset = f'McpToolset(inventory_path="inventory.json", connection_params={wrap.format(connection)})'
+    return CONNECTIONS + f'held = {toolset}\nroot_agent = LlmAgent(name="x", tools=[lookup, held])\n'
+
+
+@pytest.mark.parametrize('connection', [HTTP, STDIO], ids=['headers', 'nested_stdio_env'])
+def test_an_environment_read_in_connection_data_reaching_the_toolset_is_a_string(tmp_path, connection):
+    tools, artifacts = load(tmp_path, _bound(connection))
+    established(tools, artifacts)
+
+
+@pytest.mark.parametrize('connection', [HTTP, STDIO], ids=['headers', 'nested_stdio_env'])
+@pytest.mark.parametrize('route', [
+    'opaque({})',  # Handed to an unrelated call before it reaches the toolset.
+    '[{}][0]',  # Held in a container.
+    '(lambda: {})()',  # Built where the framework could not own it.
+])
+def test_an_environment_read_in_connection_data_is_unread_off_the_toolset_route(tmp_path, connection, route):
+    tools, artifacts = load(tmp_path, _bound(connection, route))
+    limited(tools, artifacts)
+
+
+def test_connection_data_is_unread_when_it_is_saved_before_the_toolset(tmp_path):
+    body = CONNECTIONS + f'params = {HTTP}\nheld = McpToolset(inventory_path="inventory.json", connection_params=params)\n' \
+        'root_agent = LlmAgent(name="x", tools=[lookup, held])\n'
+    tools, artifacts = load(tmp_path, body)
+    limited(tools, artifacts)
+
+
+def test_nested_connection_data_follows_only_connection_classes(tmp_path):
+    connection = 'StdioConnectionParams(server_params=wrap(StdioServerParameters(command="npx", env={"API_KEY": os.environ["KEY"]})))'
+    tools, artifacts = load(tmp_path, _bound(connection))
+    limited(tools, artifacts)
+
+
+@pytest.mark.parametrize('keyword', ['header_provider', 'tool_filter', 'errlog'])
+def test_connection_data_reaches_only_the_toolsets_connection_params(tmp_path, keyword):
+    body = CONNECTIONS + f'held = McpToolset(inventory_path="inventory.json", {keyword}={STDIO})\n' \
+        'root_agent = LlmAgent(name="x", tools=[lookup, held])\n'
+    tools, artifacts = load(tmp_path, body)
+    limited(tools, artifacts)
+
+
+def test_an_mcp_connection_class_the_repository_shadows_is_not_the_packages(tmp_path):
+    tools, artifacts = load(tmp_path, _bound(STDIO), extra={'mcp.py': 'class StdioServerParameters:\n    def __init__(self, **options):\n        self.options = options\n'})
+    limited(tools, artifacts)
+
+
+@pytest.mark.parametrize('argument', ['tool_name_prefix=os.environ["KEY"]', 'credential_key=os.environ["KEY"]'])
+def test_an_environment_read_as_a_toolset_argument_stays_unread(tmp_path, argument):
+    body = CONNECTIONS + f'held = McpToolset(inventory_path="inventory.json", {argument})\n' \
+        'root_agent = LlmAgent(name="x", tools=[lookup, held])\n'
+    tools, artifacts = load(tmp_path, body)
+    limited(tools, artifacts)

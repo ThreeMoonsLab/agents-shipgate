@@ -2042,8 +2042,14 @@ def test_partial_zero_id_base_survives_public_sanitizer_and_blocks_comparison(tm
     report, _ = _scan(config, tmp_path / "head-reports", diff_from=reference)
     assert report.binding_surface_facts.possible_tool_ids == []
     assert report.binding_surface_diff.base_comparison_requested and not report.binding_surface_diff.enabled
-    assert not report.tool_surface_diff.enabled
+    # Without the base's tool facts there is no tool comparison to make; with
+    # them it is made and only what depends on absence is withheld.
+    assert report.tool_surface_diff.enabled is facts_present
     assert report.tool_surface_diff.finding_deltas.resolved_findings == []
+    assert not any(row.kind == "removed" for row in report.tool_surface_diff.tools)
+    assert report.capability_change is None or not (
+        report.capability_change.removed or report.capability_change.narrowed
+    )
     assert any("comparison incomplete on base" in note for note in report.tool_surface_diff.notes)
     assert secret not in report.model_dump_json()
     gaps = report.release_decision.evidence_coverage.evidence_gaps
@@ -2076,7 +2082,8 @@ def test_zero_id_partial_head_is_gated_with_a_fact_only_base_reference(tmp_path)
     report, _ = _scan(config, tmp_path / "head-reports", diff_from=reference)
     assert report.binding_surface_facts.possible_tool_ids == []
     assert report.binding_surface_diff.base_comparison_requested and not report.binding_surface_diff.enabled
-    assert not report.tool_surface_diff.enabled
+    assert not any(row.kind == "removed" for row in report.tool_surface_diff.tools)
+    assert any("comparison incomplete on head" in note for note in report.tool_surface_diff.notes)
     gaps = report.release_decision.evidence_coverage.evidence_gaps
     assert any(gap.source_ref == "--diff-from" and gap.next_action.kind == "provide_source" for gap in gaps)
     assert report.release_decision.decision == "insufficient_evidence"
@@ -2111,10 +2118,17 @@ def test_unread_sdk_head_cannot_report_capabilities_removed_by_scan_diff(tmp_pat
     assert report.binding_surface_diff.base_comparison_requested and not report.binding_surface_diff.enabled
     assert report.binding_surface_diff.removed_handoffs == []
     assert report.binding_surface_diff.removed_reachable_tool_ids == []
-    assert not report.tool_surface_diff.enabled
+    # The tool comparison is made and says what it withheld; nothing removed,
+    # narrowed or resolved is claimed from a head that only failed to be read.
+    assert report.tool_surface_diff.enabled
+    assert any("comparison incomplete on head" in note for note in report.tool_surface_diff.notes)
     assert not any((report.tool_surface_diff.tools, report.tool_surface_diff.high_risk_effects,
                     report.tool_surface_diff.scopes, report.tool_surface_diff.controls))
+    assert report.tool_surface_diff.finding_deltas.resolved_findings == []
+    assert not (report.capability_change.removed or report.capability_change.narrowed)
     assert report.release_decision.decision != "passed"
+    gaps = report.release_decision.evidence_coverage.evidence_gaps
+    assert any(gap.source_ref == "--diff-from" for gap in gaps)
     validate_semantic_consistency(report, _rehydrated_tools(report))
 
 

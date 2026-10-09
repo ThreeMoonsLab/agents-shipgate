@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 
+from agents_shipgate.core.binding_comparison import comparison_withholds_absence
 from agents_shipgate.core.capability_delta import (
     CapabilityDeltaRow,
     CapabilityFactContext,
@@ -423,6 +424,13 @@ def build_capability_change(
                     rationale="policy drift",
                 )
             )
+
+    if comparison_withholds_absence(getattr(tsd, "notes", None) or ()):
+        # An incomplete binding graph on either side: a capability missing from
+        # the head may only be unread there. Removed and narrowed members are
+        # absence claims, whichever surface produced them; added and broadened
+        # members (a possible widening included) are still reported.
+        removed, narrowed = [], []
 
     return CapabilityChangeBlock(
         enabled=True,

@@ -3484,10 +3484,14 @@ def _environment_value_role(
 
     The read is a string, so the mapping goes nowhere. It is accepted only
     in the two places a tool body or an agent module reads configuration: a
-    plain assignment to a local name, or the data a framework tool object is
-    configured with (an MCP server's ``env``). A read kept inside another
-    container literal or handed to another call stays an unread external
-    handle, as the pinned application-diff controls require.
+    plain assignment to a local name, the data a framework tool object is
+    configured with (an MCP server's ``env``), or the data of an exact ADK or
+    ``mcp`` connection-parameter class that reaches an accepted toolset's
+    ``connection_params`` (``headers``, ``env``, and the nested
+    ``StdioConnectionParams(server_params=StdioServerParameters(env=...))``
+    form). A read kept inside another container literal or handed to another
+    call stays an unread external handle, as the pinned application-diff
+    controls require.
     """
     parent = scopes.parents.get(read)
     if (isinstance(parent, ast.Assign) and parent.value is read and len(parent.targets) == 1
@@ -3501,7 +3505,73 @@ def _environment_value_role(
     if not isinstance(call, ast.Call):
         return False
     canonical = resolver._constructor_reference(module, call.func, scopes).get("external_constructor")
-    return isinstance(canonical, str) and _framework_tool_object(family, canonical) == "object"
+    if isinstance(canonical, str) and _framework_tool_object(family, canonical) == "object":
+        return True
+    return family == "google.adk" and _connection_data_role(resolver, module, call, scopes)
+
+
+def _connection_class_path(
+    resolver: ImportResolver, module: PythonModule, func: ast.expr, scopes: ScopeIndex,
+) -> str | None:
+    """The exact import path a connection-parameter class is called through.
+
+    ADK's own classes resolve as external constructors. The ``mcp`` package's
+    ``StdioServerParameters`` does not (the census names no ``mcp`` root), so
+    its import is read directly: one top-level absolute import, no local
+    rebinding, and no repository module providing ``mcp``. This only names the
+    class for the data route; the name itself stays an unread external handle
+    for every other use.
+    """
+    outcome = resolver._constructor_reference(module, func, scopes)
+    canonical = outcome.get("external_constructor")
+    if isinstance(canonical, str):
+        return canonical
+    parts = _dotted(func)
+    if (parts is None or outcome.get("constructor_unread") != MODULE_NOT_FOUND
+            or not outcome.get("unread_external_handle")):
+        return None
+    from agents_shipgate.inputs.list_expressions import evaluation_site
+
+    if scopes.enclosing_bindings(evaluation_site(scopes, func), parts[0]):
+        return None
+    bindings = module.bindings.get(parts[0], [])
+    if (len(bindings) != 1 or not bindings[0].top_level or not isinstance(bindings[0].node, ast.alias)
+            or not isinstance(bindings[0].statement, ast.Import | ast.ImportFrom)):
+        return None
+    imported = _absolute_import_reference(bindings[0].node, bindings[0].statement)
+    if imported is None or imported.split(".", 1)[0] != "mcp":
+        return None
+    try:
+        if resolver._external_provider_issue(module, bindings[0].statement, bindings[0].node) is not None:
+            return None
+    except _Stop:
+        return None
+    return imported + ("." + ".".join(parts[1:]) if parts[1:] else "")
+
+
+def _connection_data_role(
+    resolver: ImportResolver, module: PythonModule, call: ast.Call, scopes: ScopeIndex,
+) -> bool:
+    """Whether ``call`` is connection data that ends at an accepted toolset.
+
+    ``call`` is an exact ADK or ``mcp`` connection-parameter class. It is
+    followed outward only through other such classes, each held directly as a
+    keyword value, up to the ``connection_params`` of a toolset call whose
+    own arguments are data (:func:`_adk_toolset_value_call`). Any other
+    enclosing call, container, or position leaves the read an unread handle.
+    """
+    for _ in range(3):
+        canonical = _connection_class_path(resolver, module, call.func, scopes)
+        keyword = scopes.parents.get(call)
+        owner = scopes.parents.get(keyword) if isinstance(keyword, ast.keyword) else None
+        if not (isinstance(canonical, str) and _framework_connection_class(canonical)
+                and isinstance(keyword, ast.keyword) and isinstance(owner, ast.Call)):
+            return False
+        toolset = resolver._constructor_reference(module, owner.func, scopes).get("external_constructor")
+        if keyword.arg == "connection_params" and isinstance(toolset, str):
+            return _adk_toolset_value_call(resolver, module, owner, scopes, toolset)
+        call = owner
+    return False
 
 
 def _stdlib_reference(
@@ -4164,10 +4234,7 @@ def _external_constructor_use(
         if (family == "google.adk" and isinstance(parent, ast.Call) and parent.func is node
                 and isinstance(canonical := retained.get("external_constructor"), str)
                 and paths == {canonical} and _framework_connection_class(canonical)
-                and isinstance(keyword := scopes.parents.get(parent), ast.keyword) and keyword.arg == "connection_params"
-                and isinstance(toolset := scopes.parents.get(keyword), ast.Call)
-                and isinstance(toolset_class := resolver._constructor_reference(module, toolset.func, scopes).get("external_constructor"), str)
-                and _adk_toolset_value_call(resolver, module, toolset, scopes, toolset_class)):
+                and _connection_data_role(resolver, module, parent, scopes)):
             continue  # The toolset call is the one data role; this is its connection data.
         if (allow_owner_routes and isinstance(canonical := retained.get("external_constructor"), str)
                 and paths == {canonical} and (kind := _framework_tool_object(family, canonical)) is not None
