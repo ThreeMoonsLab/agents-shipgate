@@ -438,10 +438,11 @@ def test_jobs_running_the_whole_suite_check_out_release_tags():
     than passing over an empty tag list — correctly, since a check that skips is
     not a check.
 
-    ``ci.yml``'s ``suite`` and ``release-verify.yml``'s ``tests`` both set
-    ``fetch-tags: true`` today. This asserts the property rather than trusting
-    two hand-edited files to stay in step: they were fixed one at a time once
-    already, and ``release-verify.yml`` is called by both ``release.yml`` and
+    ``ci.yml``'s ``suite``, both release verifications' ``suite`` and
+    ``slow-tests.yml``'s ``slow`` all set ``fetch-tags: true`` today. This
+    asserts the property rather than trusting hand-edited files to stay in
+    step: two of them were fixed one at a time once already, and
+    ``release-verify.yml`` is called by both ``release.yml`` and
     ``release-rehearsal.yml``, so a job left behind there goes red on the
     release path while every pull request stays green.
 
@@ -470,6 +471,24 @@ def test_jobs_running_the_whole_suite_check_out_release_tags():
                 f"{path.name}:{job_name} runs the whole suite but checks out "
                 "without release tags. Add `fetch-tags: true`."
             )
+
+
+def test_the_sharded_and_nightly_suite_jobs_are_seen_as_running_the_whole_suite():
+    """The checkout contract above checks nothing for a job it cannot see.
+
+    The release verifications run the suite from a folded (``>-``) command, and
+    the nightly workflow from inside a shell conditional; if either stopped
+    being recognised, a missing ``fetch-tags`` there would go unchecked.
+    """
+
+    seen = {(path.name, name) for path, name, _ in _jobs_running_the_whole_suite()}
+
+    assert {
+        ("ci.yml", "suite"),
+        ("release-verify.yml", "suite"),
+        ("release-advisory-verify.yml", "suite"),
+        ("slow-tests.yml", "slow"),
+    } <= seen
 
 
 def test_pytest_invocation_reader_separates_scoped_runs_from_the_suite():

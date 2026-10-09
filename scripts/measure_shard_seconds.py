@@ -9,6 +9,12 @@ The CI suite is split into shards by measured time per test file
 
 The times are relative weights: what matters is how the files compare with
 each other, so one machine's measurement balances another's runners.
+
+The selection is pull-request CI's, because that is the partition developers
+wait on and the required checks run. A file whose tests are all ``slow`` is
+therefore unmeasured: release verification, which does run it, costs it by its
+item count at the measured rate. If the ``slow`` set grows enough to matter
+there, measure it with ``-m slow`` and merge its files into the table.
 """
 
 from __future__ import annotations

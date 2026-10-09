@@ -188,7 +188,7 @@ pythonpath = ["src", "."]
 addopts = "-q"
 markers = [
   "perf: latency-budget / benchmark tests. Skip with `pytest -m 'not perf'`.",
-  "slow: redundant framework-matrix cases (tests/framework_matrix.py), kept for the nightly run. Skip with `pytest -m 'not slow'`; run only these with `pytest -m slow`.",
+  "slow: tests kept off the per-PR path, such as the redundant framework-matrix cases (tests/framework_matrix.py). Pull-request CI runs `-m 'not perf and not slow'`; the nightly Slow Tests workflow and release verification run them. Skip with `pytest -m 'not slow'`.",
 ]
 
 [tool.ruff]
