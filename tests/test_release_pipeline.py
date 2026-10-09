@@ -2637,6 +2637,51 @@ def test_a_lock_that_resolves_at_install_time_is_not_a_lock(tmp_path: Path) -> N
         verify_lock_target(target, root=root)
 
 
+def test_parse_lock_accepts_valid_pin_shapes(tmp_path: Path) -> None:
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1\npydantic[email]>=2\npydantic[dotenv,email]>=2\nuv>=0.12\npackage @ https://example.com/pkg.whl ; sys_platform == 'linux'\n",
+        pins=(
+            "demo==1.0 \\\n    --hash=sha256:aaaa\n"
+            "pydantic[email]==2.13.5 \\\n    --hash=sha256:bbbb\n"
+            "pydantic[email,dotenv]==2.13.5 \\\n    --hash=sha256:cccc\n"
+            "uv==0.12.5 \\\n    --hash=sha256:dddd\n"
+            "package @ https://example.com/pkg.whl ; sys_platform == 'linux' \\\n    --hash=sha256:eeee\n"
+        ),
+    )
+
+    # Should pass without raising ReleaseError about malformed pins
+    assert verify_lock_target(target, root=root) == []
+
+
+def test_parse_lock_allows_distinct_extras_to_coexist(tmp_path: Path) -> None:
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1\n",
+        pins=(
+            "demo==1.0 \\\n    --hash=sha256:aaaa\n"
+            "demo[extra]==1.0 \\\n    --hash=sha256:bbbb\n"
+        ),
+    )
+
+    # Should pass without raising a duplicate marker error, because demo and demo[extra] are distinct
+    assert verify_lock_target(target, root=root) == []
+
+
+def test_parse_lock_retains_extras_for_duplicate_checks(tmp_path: Path) -> None:
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1\n",
+        pins=(
+            "demo[extra]==1.0 \\\n    --hash=sha256:aaaa\n"
+            "demo[extra]==2.0 \\\n    --hash=sha256:bbbb\n"
+        ),
+    )
+
+    with pytest.raises(ReleaseError, match="under the same marker"):
+        verify_lock_target(target, root=root)
+
+
 # --------------------------------------------------------------------------
 # #345 / review — full PEP 508 declarations, and marker-qualified pins
 # --------------------------------------------------------------------------

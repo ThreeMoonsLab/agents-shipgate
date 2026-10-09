@@ -149,7 +149,7 @@ DECLARATION_SENTINEL = "# --- generated: the declarations this lock was compiled
 DECLARATION_PREFIX = "#   declares: "
 
 _PIN = re.compile(
-    r"^(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:==\s*(?P<version>[^\s;\\]+)|@\s*(?P<url>\S+))"
+    r"^(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)(?P<extras>\[[^\]]+\])?\s*(?:==\s*(?P<version>[^\s;\\]+)|@\s*(?P<url>\S+))"
     r"\s*(?:;\s*(?P<marker>[^\\]*?))?\s*\\?$"
 )
 
@@ -217,6 +217,16 @@ class Pin:
         return f"{pinned}{' ; ' + self.marker if self.marker else ''} (line {self.line})"
 
 
+def normalize_name_with_extras(requirement: Requirement) -> str:
+    name = canonicalize_name(requirement.name)
+    extras = (
+        "[" + ",".join(sorted(canonicalize_name(extra) for extra in requirement.extras)) + "]"
+        if requirement.extras
+        else ""
+    )
+    return f"{name}{extras}"
+
+
 def normalize_requirement(requirement: Requirement) -> str:
     """A canonical PEP 508 string: name, extras, source, range, and marker.
 
@@ -226,17 +236,12 @@ def normalize_requirement(requirement: Requirement) -> str:
     requirement was spelled.
     """
 
-    name = canonicalize_name(requirement.name)
-    extras = (
-        "[" + ",".join(sorted(canonicalize_name(extra) for extra in requirement.extras)) + "]"
-        if requirement.extras
-        else ""
-    )
+    name = normalize_name_with_extras(requirement)
     source = f" @ {requirement.url}" if requirement.url else ""
     # `SpecifierSet.__str__` sorts, so two spellings of one range agree.
     specifier = str(requirement.specifier) if requirement.specifier else ""
     marker = f" ; {requirement.marker}" if requirement.marker else ""
-    return f"{name}{extras}{source}{specifier}{marker}"
+    return f"{name}{source}{specifier}{marker}"
 
 
 def render_declarations(requirements: list[Requirement]) -> str:
@@ -312,7 +317,14 @@ def parse_lock(lock_path: Path) -> dict[str, list[Pin]]:
                 f"{lock_path}:{number} is neither an exact pin nor a direct URL "
                 f"({raw.strip()!r}); a lock that resolves at install time is not a lock."
             )
-        name = canonicalize_name(match.group("name"))
+        raw_name = match.group("name")
+        raw_extras = match.group("extras")
+        if raw_extras:
+            parsed = [canonicalize_name(e.strip()) for e in raw_extras[1:-1].split(",")]
+            extras = "[" + ",".join(sorted(parsed)) + "]"
+        else:
+            extras = ""
+        name = canonicalize_name(raw_name) + extras
         marker = (match.group("marker") or "").strip()
         branches = pins.setdefault(name, [])
         if any(existing.marker == marker for existing in branches):
@@ -418,7 +430,7 @@ def _requirement_problems(
     where the declaration does actually satisfies it.
     """
 
-    name = canonicalize_name(requirement.name)
+    name = normalize_name_with_extras(requirement)
     declared_in = applicable_environments(requirement.marker)
     if not declared_in:
         # No supported environment selects it, so no resolution can contain it.
@@ -505,7 +517,7 @@ def verify_lock_target(
 
     declared: set[str] = set()
     for requirement in requirements:
-        declared.add(canonicalize_name(requirement.name))
+        declared.add(normalize_name_with_extras(requirement))
         problems.extend(_requirement_problems(target, requirement, pins))
 
     markers = _direct_marker(target, distribution=distribution)
