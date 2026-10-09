@@ -2664,7 +2664,7 @@ def test_parse_lock_allows_distinct_extras_to_coexist(tmp_path: Path) -> None:
         ),
     )
 
-    # Should pass without raising a duplicate marker error, because demo and demo[extra] are distinct
+    # Distinct extras may coexist when they resolve to the same distribution version.
     assert verify_lock_target(target, root=root) == []
 
 
@@ -2680,6 +2680,157 @@ def test_parse_lock_retains_extras_for_duplicate_checks(tmp_path: Path) -> None:
 
     with pytest.raises(ReleaseError, match="under the same marker"):
         verify_lock_target(target, root=root)
+
+
+@pytest.mark.parametrize(
+    ("declared", "pin"),
+    [
+        ("demo[one]>=1\n", "demo==1.0"),
+        ("demo[one]>=1\ndemo[two]>=1\n", "demo[one,two]==1.0"),
+        ("demo>=1\n", "demo[one]==1.0"),
+        (
+            "demo[one] @ https://example.invalid/demo.whl\n",
+            "demo @ https://example.invalid/demo.whl",
+        ),
+    ],
+)
+def test_lock_matches_declarations_when_extras_are_stripped_or_combined(
+    tmp_path: Path, declared: str, pin: str
+) -> None:
+    root, target = _lock_pair(
+        tmp_path,
+        declared=declared,
+        pins=f"{pin} \\\n    --hash=sha256:aaaa\n    # via -r constraints/toolchain.in\n",
+    )
+
+    assert verify_lock_target(target, root=root) == []
+
+
+def test_lock_keeps_canonical_extras_on_one_distribution(tmp_path: Path) -> None:
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1\n",
+        pins="Demo [Two_Features, one, one]==1.0 \\\n    --hash=sha256:aaaa\n",
+    )
+
+    pins = parse_lock(root / target.lock)
+
+    assert set(pins) == {"demo"}
+    assert pins["demo"][0].extras == ("one", "two-features")
+
+
+@pytest.mark.parametrize(
+    "other",
+    ["demo[one]==2.0", "demo[one] @ https://example.invalid/demo.whl"],
+)
+def test_extras_cannot_hide_conflicting_transitive_pins(tmp_path: Path, other: str) -> None:
+    # Neither variant is direct: conflict detection must not depend on a declaration.
+    root, target = _lock_pair(
+        tmp_path,
+        declared="parent>=1\n",
+        pins=(
+            "parent==1.0 \\\n    --hash=sha256:aaaa\n"
+            "demo==1.0 \\\n    --hash=sha256:bbbb\n"
+            f"{other} \\\n    --hash=sha256:cccc\n"
+        ),
+    )
+
+    with pytest.raises(ReleaseError, match="conflicting.*overlapping markers"):
+        verify_lock_target(target, root=root)
+
+
+def test_distinct_extras_may_resolve_differently_under_disjoint_markers(tmp_path: Path) -> None:
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1\n",
+        pins=(
+            "demo[one]==1.0 ; python_full_version < '3.13' \\\n"
+            "    --hash=sha256:aaaa\n"
+            "demo[two]==2.0 ; python_full_version >= '3.13' \\\n"
+            "    --hash=sha256:bbbb\n"
+        ),
+    )
+
+    assert verify_lock_target(target, root=root) == []
+
+
+@pytest.mark.parametrize("other_name", ["demo", "demo[two]"])
+@pytest.mark.parametrize("other_version", ["1.0", "2.0"])
+def test_co_installed_locks_compare_distributions_across_extras(
+    tmp_path: Path, other_name: str, other_version: str
+) -> None:
+    first_root, first = _lock_pair(
+        tmp_path / "first",
+        declared="demo[one]>=1\n",
+        pins="demo[one]==1.0 \\\n    --hash=sha256:aaaa\n",
+    )
+    second_root, second = _lock_pair(
+        tmp_path / "second",
+        declared=f"{other_name}>=1\n",
+        pins=f"{other_name}=={other_version} \\\n    --hash=sha256:bbbb\n",
+    )
+    assert verify_lock_target(first, root=first_root) == []
+    assert verify_lock_target(second, root=second_root) == []
+    targets = (
+        LockTarget(lock="first/constraints/toolchain.txt", source="first/constraints/toolchain.in"),
+        LockTarget(lock="second/constraints/toolchain.txt", source="second/constraints/toolchain.in"),
+    )
+
+    problems = co_installed_problems(
+        root=tmp_path, targets=targets, groups=((targets[0].lock, targets[1].lock),)
+    )
+
+    assert bool(problems) == (other_version != "1.0"), problems
+    if problems:
+        assert "demo resolves differently" in problems[0]
+
+
+def test_invalid_pin_extras_are_rejected(tmp_path: Path) -> None:
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1\n",
+        pins="demo[bad!]==1.0 \\\n    --hash=sha256:aaaa\n",
+    )
+
+    with pytest.raises(ReleaseError, match="invalid extras"):
+        parse_lock(root / target.lock)
+
+
+def test_duplicate_extras_are_compared_after_canonicalization(tmp_path: Path) -> None:
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1\n",
+        pins=(
+            "demo[One_Feature,one_feature]==1.0 \\\n    --hash=sha256:aaaa\n"
+            "demo[one-feature]==1.0 \\\n    --hash=sha256:bbbb\n"
+        ),
+    )
+
+    with pytest.raises(ReleaseError, match="under the same marker"):
+        parse_lock(root / target.lock)
+
+
+@pytest.mark.parametrize(
+    ("declared", "pin", "expected"),
+    [
+        ("demo[one]>=2\n", "demo[one,two]==1.0", "does not satisfy"),
+        (
+            "demo[one] @ https://example.invalid/expected.whl\n",
+            "demo[two] @ https://example.invalid/other.whl",
+            "where the declaration names",
+        ),
+    ],
+)
+def test_matching_extras_still_checks_the_declared_version_and_source(
+    tmp_path: Path, declared: str, pin: str, expected: str
+) -> None:
+    root, target = _lock_pair(
+        tmp_path, declared=declared, pins=f"{pin} \\\n    --hash=sha256:aaaa\n"
+    )
+
+    problems = verify_lock_target(target, root=root)
+
+    assert any(expected in problem for problem in problems), problems
 
 
 # --------------------------------------------------------------------------
@@ -3142,6 +3293,19 @@ def test_co_installed_locks_may_carry_different_halves_of_one_fork(tmp_path: Pat
 
 def test_the_locked_backend_satisfies_the_declared_build_system() -> None:
     assert build_system_problems() == []
+
+
+def test_build_system_matches_an_extras_qualified_backend_pin(tmp_path: Path) -> None:
+    (tmp_path / "constraints").mkdir()
+    (tmp_path / "constraints/build-backend.txt").write_text(
+        "hatchling[feature]==1.0 \\\n    --hash=sha256:aaaa\n", encoding="utf-8"
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        '[build-system]\nrequires = ["hatchling>=1"]\nbuild-backend = "hatchling.build"\n',
+        encoding="utf-8",
+    )
+
+    assert build_system_problems(root=tmp_path) == []
 
 
 @pytest.mark.parametrize(
