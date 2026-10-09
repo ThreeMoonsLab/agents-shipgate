@@ -3337,7 +3337,7 @@ class ListExpressions:
                     return True
             unused_reflection = (
                 self._resolver is not None and view.module is not None
-                and _unused_reflection_import(self._resolver, view.module, node)
+                and _unused_reflection_import(self._resolver, view.module, node, self.calls)
             )
             if isinstance(node, ast.ImportFrom) and node.module == "builtins" and any(alias.name in names or alias.name == "*" for alias in node.names):
                 if not unused_reflection:

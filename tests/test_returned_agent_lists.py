@@ -467,6 +467,31 @@ def test_reexported_execution_machinery_is_read_through_existing_import_evidence
 
 
 @pytest.mark.parametrize('framework', ['sdk', 'adk'])
+@pytest.mark.parametrize('route', [
+    # ``__all__`` lists the alias, and a star import takes exactly that list.
+    ({'machine.py': "from builtins import eval as execute\n__all__ = ['execute']\n"}, 'from machine import *'),
+    # A third module re-exports the unused-here alias; its importer reaches it.
+    ({'machine.py': 'from builtins import eval as execute\n', 'bridge.py': 'from machine import execute\n'},
+     'from bridge import execute'),
+    ({'machine.py': 'from builtins import eval as execute\n', 'bridge.py': 'import machine\nexecute = machine.execute\n'},
+     'from bridge import execute'),
+    ({'machine.py': 'from builtins import eval as execute\n', 'bridge.py': 'from machine import *\n'},
+     'from bridge import execute'),
+])
+def test_unused_here_execution_alias_is_not_discharged_while_any_module_imports_it(tmp_path, framework, route):
+    extra, imported = route
+    files = _files(framework, 'a = build(make_tools())\n')
+    files['app.py'] = files['app.py'].replace('from tools import read, write', 'from tools import read, write\nfrom factory import make_tools')
+    files['factory.py'] = 'from tools import read\ndef make_tools():\n    return [read]\n'
+    files.update(extra)
+    field = 'name' if framework == 'sdk' else '__name__'
+    files['sibling.py'] = 'from tools import read\n' + imported + f"\nexecute('read').{field} = 'renamed'\n"
+    _write(tmp_path, files)
+    observations, warnings = _read(tmp_path, framework)
+    assert warnings and all(not item.tools_complete for item in observations)
+
+
+@pytest.mark.parametrize('framework', ['sdk', 'adk'])
 @pytest.mark.parametrize('anchor_module', ['tools', 'registry'])
 @pytest.mark.parametrize('expression', ['anchor.__globals__', "object.__getattribute__(anchor, '__globals__')", 'rename(anchor)'])
 def test_another_function_can_retain_the_returned_callable_namespace(tmp_path, framework, anchor_module, expression):

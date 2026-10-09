@@ -341,6 +341,7 @@ class ImportResolver:
     _external_provider_proofs: dict[tuple[int, str, tuple[str, ...]], str | None] = field(default_factory=dict)
     _runtime_patch_maps: dict[int, dict[str, int]] = field(default_factory=dict)
     _reflection_import_loads: dict[ast.Module, frozenset[str]] = field(default_factory=dict)
+    _reflection_import_importers: dict[tuple[ast.Module, str], bool] = field(default_factory=dict)
     _constructor_scopes: dict[ast.Module, ScopeIndex] = field(default_factory=dict)
     _constructor_syntax_trees: dict[ast.Module, _ConstructorSyntax] = field(default_factory=dict)
 
@@ -3332,12 +3333,16 @@ def _independent_foreign_class_slot_write(
 
 
 def _unused_reflection_import(
-    resolver: ImportResolver, module: PythonModule, statement: ast.AST,
+    resolver: ImportResolver, module: PythonModule, statement: ast.AST, calls: Any = None,
 ) -> bool:
     """An unused canonical import grants no reflective handle to an owner.
 
     This discharges only the import-spelling check. The normal import closure,
     namespace mutations and retained callable census still apply to the module.
+    A name this module never loads is still a module attribute: any importer
+    in the read scope (``from m import name``, ``import m``, ``from m import
+    *``, or through a re-export chain) can load it, so such a module is never
+    unused. That importer census is the caller census's own retaining set.
     """
     if (not isinstance(statement, ast.Import | ast.ImportFrom)
             or statement not in module.tree.body
@@ -3370,7 +3375,35 @@ def _unused_reflection_import(
                 return False
         except _Stop:
             return False
-    return True
+    return not _module_has_importers(resolver, module, statement, calls)
+
+
+def _module_has_importers(
+    resolver: ImportResolver, module: PythonModule, statement: ast.Import | ast.ImportFrom, calls: Any = None,
+) -> bool:
+    """Whether another module of the read scope may load this module's names.
+
+    Uses the retaining census (:meth:`BuilderCalls.retaining_modules`): the
+    modules that import this one directly, by alias, by star or through a
+    re-exporting module. A census cut short by its bounds answers yes, so it
+    never discharges a reflective import.
+    """
+    from agents_shipgate.inputs.builder_calls import BuilderCalls, CallLimit
+
+    anchor = statement.names[0]
+    name = anchor.asname or (anchor.name if isinstance(statement, ast.ImportFrom)
+                             else anchor.name.split(".", 1)[0])
+    key = (module.tree, name)
+    cached = resolver._reflection_import_importers.get(key)
+    if cached is None:
+        try:
+            census = calls if calls is not None else BuilderCalls(resolver)
+            retaining = census.retaining_modules(module, name, namespace_carriers=True)
+            cached = any(path != module.path for path in retaining)
+        except (CallLimit, _Stop):
+            cached = True
+        resolver._reflection_import_importers[key] = cached
+    return cached
 
 
 def _namespace_copy_source_limit(
