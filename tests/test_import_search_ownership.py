@@ -179,3 +179,55 @@ def test_captured_search_uses_snapshot_namespace_without_disk_normalization(monk
         limits = captured._import_search_limit([root / "app.py"])
     assert limits and any("import search" in issue for issue in limits)
     assert all(captured._modules[module.path] is module for module in modules)
+
+
+def _resolver_over(root, files):
+    _write(root, files)
+    resolver = ImportResolver(root)
+    return resolver, resolver.entry(root / "app.py", ast.parse(files["app.py"]), files["app.py"])
+
+
+def _counting_context(resolver, monkeypatch):
+    calls = []
+    original = ImportResolver._import_search_context
+
+    def counted(self, paths):
+        calls.append(tuple(paths))
+        return original(self, paths)
+
+    monkeypatch.setattr(ImportResolver, "_import_search_context", counted)
+    return calls
+
+
+def test_an_import_search_answer_is_computed_once_per_runner_list(tmp_path, monkeypatch):
+    resolver, module = _resolver_over(tmp_path, {
+        "app.py": "import sys\nsys.path.insert(0, 'vendor')\n", "tools.py": "def read():\n    return 1\n",
+    })
+    calls = _counting_context(resolver, monkeypatch)
+    first = resolver._import_search_limit([module.path])
+    assert first and "import search" in first[0]
+    assert resolver._import_search_limit([module.path]) == first
+    assert len(calls) == 1
+    # Another runner list is another question; the module's own refusal is reused.
+    other = resolver._import_search_limit([module.path, tmp_path / "tools.py"])
+    assert len(calls) == 2 and other[-1] == first[-1]
+
+
+def test_an_import_search_answer_is_not_remembered_once_a_read_bound_is_reached(tmp_path, monkeypatch):
+    resolver, module = _resolver_over(tmp_path, {"app.py": "import sys\nsys.path.insert(0, 'vendor')\n"})
+    calls = _counting_context(resolver, monkeypatch)
+    resolver._parsed = imports.MAX_MODULES  # The resolution budget is spent.
+    first = resolver._import_search_limit([module.path])
+    assert resolver._import_search_limit([module.path]) == first
+    assert len(calls) == 2
+    assert not resolver._import_search_limits and not resolver._import_search_issues
+
+
+def test_a_stopped_import_search_is_raised_again_not_remembered(tmp_path, monkeypatch):
+    resolver, module = _resolver_over(tmp_path, {"app.py": "import sys\n"})
+    broken = tmp_path / "broken.py"
+    broken.write_text("def (\n")
+    for _ in range(2):
+        with pytest.raises(_Stop):
+            resolver._import_search_limit([module.path, broken])
+    assert not resolver._import_search_limits

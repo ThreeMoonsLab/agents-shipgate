@@ -342,6 +342,10 @@ class ImportResolver:
     _runtime_patch_maps: dict[int, dict[str, int]] = field(default_factory=dict)
     _reflection_import_loads: dict[ast.Module, frozenset[str]] = field(default_factory=dict)
     _reflection_import_importers: dict[tuple[ast.Module, str], bool] = field(default_factory=dict)
+    #: Import-search results, per this read. The key holds the parsed trees,
+    #: which keeps their identity alive; see :meth:`_import_search_limit`.
+    _import_search_limits: dict[tuple[tuple[Path, ast.Module], ...], tuple[str, ...]] = field(default_factory=dict)
+    _import_search_issues: dict[tuple[ast.Module, frozenset[Path]], str | None] = field(default_factory=dict)
     _constructor_scopes: dict[ast.Module, ScopeIndex] = field(default_factory=dict)
     _constructor_syntax_trees: dict[ast.Module, _ConstructorSyntax] = field(default_factory=dict)
 
@@ -457,7 +461,34 @@ class ImportResolver:
                     propagation.append(importer)
         return modules, carriers, tuple(unread)
 
+    def _import_search_budget_spent(self) -> bool:
+        """Whether any read bound has been reached, so a result may have been cut short."""
+        return (
+            self._parsed >= MAX_MODULES
+            or len(self._scanned) >= MAX_PATCH_SCAN_MODULES
+            or len(self._layout_modules) >= MAX_PATCH_SCAN_MODULES
+            or bool(self._over_budget)
+        )
+
     def _import_search_issue(self, module: PythonModule, carriers: set[Path]) -> str | None:
+        """One module's import-search refusal, if any, computed once per read.
+
+        The result depends only on the parsed module and on which modules
+        carry ``sys``/``site``, never on which runner list asked: a resolver
+        owns immutable parse trees for one read, so the pair is the key.
+        Nothing is stored once any read bound has been reached, nor for a
+        refusal that is itself a bound, because a later call must meet the
+        same limit again rather than a remembered answer.
+        """
+        key = (module.tree, frozenset(carriers))
+        if key in self._import_search_issues:
+            return self._import_search_issues[key]
+        issue = self._import_search_issue_uncomputed(module, carriers)
+        if not self._import_search_budget_spent() and (issue is None or "exceeds" not in issue):
+            self._import_search_issues[key] = issue
+        return issue
+
+    def _import_search_issue_uncomputed(self, module: PythonModule, carriers: set[Path]) -> str | None:
         """Project actual maximal references without public resolution recursion."""
         from agents_shipgate.inputs.list_expressions import evaluation_site
         scopes = self._constructor_scope(module)
@@ -526,11 +557,27 @@ class ImportResolver:
         return None
 
     def _import_search_limit(self, paths: list[Path]) -> tuple[str, ...]:
+        """The import-search caveats for one runner list, computed once per read.
+
+        Keyed by each runner's path and parsed tree. A read that has reached
+        a bound is never stored (see :meth:`_import_search_issue`), and a
+        raised stop is never stored: it is raised again by the next call.
+        """
+        try:
+            key = tuple((path, self._patch_scan(path).tree) for path in paths)
+        except _Stop:
+            key = None
+        if key is not None and key in self._import_search_limits:
+            return self._import_search_limits[key]
         modules, carriers, unread = self._import_search_context(paths)
+        result = unread
         for module in modules:
             if (issue := self._import_search_issue(module, carriers)) is not None:
-                return (*unread, issue)
-        return unread
+                result = (*unread, issue)
+                break
+        if key is not None and not self._import_search_budget_spent():
+            self._import_search_limits[key] = result
+        return result
 
     def _constructor_reference(self, module: PythonModule, node: ast.expr, scopes: ScopeIndex) -> dict[str, Any]:
         """Use the import resolver for identity only, stopping at external imports.
