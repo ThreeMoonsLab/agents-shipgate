@@ -86,12 +86,12 @@ jobs:
     # exists. Shards get the margin back and keep it by adding a shard, as
     # CI's do, rather than by raising a number.
     #
-    # The budget is projected, not yet observed in a rehearsal. The slowest of
-    # six shards is about 12.6 minutes of test with #964 (the mean, 9.6
-    # minutes, times 1.31, the imbalance CI's five shards show) plus about 1.5
-    # minutes of checkout and install, about 14. 35 minutes is 2.5x that.
-    # Replace this with a finished rehearsal's figure when there is one, and
-    # see docs/release-runbook.md before raising it after a single timeout.
+    # Observed: Advisory Release Rehearsal run 37871044408 (2026-10-09, before
+    # #964) took 290 to 542 seconds per shard job, checkout and install
+    # included; the slowest was 9.0 minutes. #964 adds roughly 45% more test
+    # time, about 13 minutes for the slowest shard, and 35 minutes is about
+    # 2.7x that. Re-derive from the next rehearsal after #964 lands, and see
+    # docs/release-runbook.md before raising it after a single timeout.
     runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:
@@ -214,12 +214,12 @@ jobs:
     needs: suite
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
-    # Measured on a hosted runner: install, lint, compile, schema check, static
-    # lint and audit take about 40s together (docs/release-runbook.md), and the
-    # coverage combine and the qualification download and re-derivation add
-    # about two minutes by estimate, so about 3 minutes in all. 10 leaves
-    # roughly 3x headroom. Not yet observed in a rehearsal; replace this with a
-    # finished one's figure when there is one.
+    # Observed: Release Rehearsal run 37869869033 (2026-10-09) took about 50s
+    # from the shard check through the dependency audit, coverage combine
+    # included, before stopping at the qualification download, whose
+    # repository variables this repository does not set. The qualification
+    # download and re-derivation are estimated at under two minutes more, so
+    # about 3 minutes in all; 10 leaves roughly 3x headroom.
     timeout-minutes: 10
     permissions:
       contents: read

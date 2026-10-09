@@ -411,16 +411,16 @@ timings rather than an estimate:
 
 | Job | Phase | Observed | Timeout |
 |---|---|---|---|
-| `suite` (six shards) | one shard of the correctness suite (`-n auto`, `not perf`), with checkout and install | slowest of CI's five shards 10.4 min of test on `main` (Test steps of 311, 405, 623, 508 and 538 s, 2026-10-08); about 14 min projected at six shards with #964 | 35 min each |
-| `tests` | coverage combine, install, lint, compile, schema check, static lint, audit, qualification policy | ~40s measured for install through audit; ~3 min projected with the rest | 10 min |
+| `suite` (six shards) | one shard of the correctness suite (`-n auto`, `not perf`), with checkout and install | slowest of CI's five shards 10.4 min of test on `main` (Test steps of 311, 405, 623, 508 and 538 s, 2026-10-08); Advisory Release Rehearsal run 37871044408 (2026-10-09): shard jobs 290–542 s with checkout and install, slowest 9.0 min; about 13 min projected with #964 | 35 min each |
+| `tests` | coverage combine, install, lint, compile, schema check, static lint, audit, qualification policy | 42 s for the whole job in Advisory Release Rehearsal run 37871044408; the qualified line's qualification download is estimated at under 2 min more | 10 min |
 | `artifact` | source build, downloads, signature + qualification + provenance | ~30s | 15 min |
 | `artifact` | isolated SBOM install | ~1–2 min | |
 
 Each leaves roughly 2.5–3.5x headroom. A shard dominates the first job; the
 SBOM step dominates the last, because it installs the wheel's whole runtime
-closure into a fresh environment. The shard and gate figures are projected from
-CI's timings, not yet read from a finished rehearsal; replace them with a
-rehearsal's when one exists.
+closure into a fresh environment. The shard and gate figures come from the
+first rehearsal of the sharded layout, which ran before #964; read them again
+from the first rehearsal after #964 lands.
 
 After any change that materially grows the suite, read the actual duration of
 the *slowest shard* from a rehearsal run and reset that timeout to roughly 2.5x
