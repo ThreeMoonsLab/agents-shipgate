@@ -54,7 +54,10 @@ LATENCY_BUDGET_SECONDS = 10.0
 # pipeline.
 MIN_CATALOG_TOOLS = 50
 MAX_CATALOG_TOOLS = 100
-EXPECTED_REACHABLE_TOOLS = 5
+EXPECTED_POSSIBLE_TOOLS = {
+    "render_customer_email_preview", "calculate_refund_total", "generate_shipping_label_pdf",
+    "schedule_internal_callback", "escalate_to_human",
+}
 MIN_TOTAL_FINDINGS = 20
 MAX_TOTAL_FINDINGS = 60
 MIN_REVIEW_ITEMS = 20
@@ -166,12 +169,22 @@ def test_all_six_tool_sources_load(scanned_sample: ReadinessReport) -> None:
 
 
 def test_tool_inventory_is_in_expected_band(scanned_sample: ReadinessReport) -> None:
-    assert len(scanned_sample.tool_inventory) == EXPECTED_REACHABLE_TOOLS
+    assert scanned_sample.tool_inventory == []
     n = len(scanned_sample.tool_catalog)
     assert MIN_CATALOG_TOOLS <= n <= MAX_CATALOG_TOOLS
-    assert scanned_sample.binding_surface_facts.reachable_tool_ids == sorted(
-        tool["tool_id"] for tool in scanned_sample.tool_inventory
-    )
+    facts = scanned_sample.binding_surface_facts
+    assert facts.reachable_tool_ids == []
+    possible = [tool for tool in scanned_sample.tool_catalog if tool["tool_id"] in facts.possible_tool_ids]
+    assert {tool["name"] for tool in possible} == EXPECTED_POSSIBLE_TOOLS
+    assert len(possible) == 5 and all(tool["binding_assessment"]["status"] == "unknown" for tool in possible)
+    assert {edge.tool_id for edge in facts.tool_edges} == set(facts.possible_tool_ids)
+    assert all(not edge.complete and edge.source_pointer == "agents/ops_assistant.py:91"
+               for edge in facts.tool_edges)
+    assert scanned_sample.source_warnings == [
+        "OpenAI Agents SDK agent 'ops_assistant' at agents/ops_assistant.py:91: its constructor identity "
+        "is not established: an anonymous callable or generator retains the constructor namespace "
+        "in agents/ops_assistant.py:40."
+    ]
 
 
 def test_findings_count_is_in_expected_band(scanned_sample: ReadinessReport) -> None:
@@ -183,11 +196,11 @@ def test_findings_count_is_in_expected_band(scanned_sample: ReadinessReport) -> 
     )
 
 
-def test_release_decision_requires_review(scanned_sample: ReadinessReport) -> None:
-    """Only the five statically wired local SDK helpers are in scope."""
+def test_release_decision_requires_constructor_evidence(scanned_sample: ReadinessReport) -> None:
+    """The generator retains globals; reviewed interfaces cannot prove wiring."""
     decision = scanned_sample.release_decision
     assert decision is not None
-    assert decision.decision == "review_required"
+    assert decision.decision == "insufficient_evidence"
     assert not decision.blockers
     assert len(decision.review_items) >= MIN_REVIEW_ITEMS
 
@@ -270,7 +283,7 @@ def test_reviewer_summary_block_is_populated(
     appear on every emitted scan."""
     summary = scanned_sample.reviewer_summary
     assert summary is not None
-    assert summary.verdict == "review_required"
+    assert summary.verdict == "insufficient_evidence"
     assert summary.headline  # non-empty
 
 

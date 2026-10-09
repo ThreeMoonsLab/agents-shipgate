@@ -1821,6 +1821,31 @@ def _scan_proven(tmp_path, project):
     return report
 
 
+def _assert_named_surface_limit(report, project, reason, *, tool_names=None):
+    """Keep the extractor diagnostic and require the current release boundary.
+
+    Constructor uncertainty now costs every candidate its binding evidence,
+    before interface confidence is considered by the release gate.
+    """
+    artifacts = GoogleAdkArtifacts()
+    loaded = _load_python_path(project / "agent.py", project, "adk_agent", "agent.py", artifacts)
+    tools = [tool for source in loaded for tool in source.tools]
+    affected = [tool for tool in tools if tool_names is None or tool.name in tool_names]
+    assert affected and all(reason in tool.extraction.get("surface_gaps", []) for tool in affected)
+    if tool_names is not None:
+        assert {tool.name for tool in affected} == tool_names
+    gaps = report.release_decision.evidence_coverage.evidence_gaps
+    assert report.release_decision.decision != "passed"
+    if any("constructor identity is not established" in warning for warning in report.source_warnings):
+        assert any(gap.kind == "partial_binding_evidence" and "constructor identity" in gap.why for gap in gaps)
+        assert report.tool_catalog
+        assert all(tool["binding_assessment"]["status"] == "unknown"
+                   and tool["binding_assessment"]["pass_eligible"] is False for tool in report.tool_catalog)
+    else:
+        confidence_gaps = [gap for gap in gaps if gap.kind == "low_confidence_tool"]
+        assert confidence_gaps and all(reason in gap.why for gap in confidence_gaps)
+
+
 def test_a_fully_static_adk_module_needs_no_inventory_to_reach_high_confidence(
     tmp_path,
 ):
@@ -1983,18 +2008,7 @@ def test_one_unproven_construct_holds_the_whole_module_at_medium(
     catalog = {tool["name"]: tool for tool in report.tool_catalog}
     assert catalog["lookup_account"]["confidence"] == "medium"
     assert catalog["create_quote"]["confidence"] == "medium"
-    gaps = [
-        gap
-        for gap in report.release_decision.evidence_coverage.evidence_gaps
-        if gap.kind == "low_confidence_tool"
-    ]
-    assert {gap.subject.split(" ")[0] for gap in gaps} == {
-        "lookup_account",
-        "create_quote",
-    }
-    # The row has to name the construct responsible: one sentence repeated on
-    # every AST tool in every repository is the defect #393 reports.
-    assert all(reason in gap.why for gap in gaps)
+    _assert_named_surface_limit(report, project, reason)
 
 
 def test_a_dynamic_tools_expression_holds_the_module_at_medium(tmp_path):
@@ -2053,7 +2067,8 @@ def test_a_function_whose_own_interface_is_unreadable_stays_medium(
     `**kwargs` is dropped altogether, and a decorator replaces the callable ADK
     introspects — each would put a guess into the report wearing a schema's
     clothes. Unlike the module-scoped reasons, this one is about one callable,
-    so its siblings keep their proof.
+    so its siblings keep their interface evidence. An unread decorator can
+    independently invalidate the module's constructor ownership evidence.
     """
 
     decorator = (
@@ -2076,7 +2091,11 @@ def test_a_function_whose_own_interface_is_unreadable_stays_medium(
 
     catalog = {tool["name"]: tool for tool in report.tool_catalog}
     assert catalog["loose_tool"]["confidence"] == "medium"
-    assert catalog["lookup_account"]["confidence"] == "high"
+    assert catalog["lookup_account"]["confidence"] == ("medium" if reason == "decorated_tool_function" else "high")
+    if reason == "decorated_tool_function":
+        _assert_named_surface_limit(report, project, reason, tool_names={"loose_tool"})
+        assert any("unread decorator" in warning for warning in report.source_warnings)
+        return
     gap = next(
         gap
         for gap in report.release_decision.evidence_coverage.evidence_gaps
@@ -2239,12 +2258,7 @@ def test_a_definition_the_name_may_not_refer_to_is_never_proven(
     report = _scan_proven(tmp_path, project)
 
     assert {tool["confidence"] for tool in report.tool_catalog} == {"medium"}
-    gap = next(
-        gap
-        for gap in report.release_decision.evidence_coverage.evidence_gaps
-        if gap.kind == "low_confidence_tool"
-    )
-    assert "shadowed_tool_definition" in gap.why
+    _assert_named_surface_limit(report, project, "shadowed_tool_definition")
 
 
 def test_the_conventional_functiontool_wrapper_variable_is_still_proven(tmp_path):
@@ -2360,12 +2374,7 @@ def test_an_inline_wrapper_this_module_cannot_resolve_is_recorded(tmp_path, wrap
 
     assert report.release_decision.decision != "passed"
     assert {tool["confidence"] for tool in report.tool_catalog} == {"medium"}
-    gap = next(
-        gap
-        for gap in report.release_decision.evidence_coverage.evidence_gaps
-        if gap.kind == "low_confidence_tool"
-    )
-    assert "unresolved_tool_wrapper" in gap.why
+    _assert_named_surface_limit(report, project, "unresolved_tool_wrapper")
 
 
 @pytest.mark.parametrize(
@@ -2416,12 +2425,7 @@ def test_every_python_binding_form_costs_a_name_its_proof(tmp_path, shadow: str)
     report = _scan_proven(tmp_path, project)
 
     assert report.release_decision.decision != "passed"
-    gaps = [
-        gap
-        for gap in report.release_decision.evidence_coverage.evidence_gaps
-        if gap.kind == "low_confidence_tool"
-    ]
-    assert gaps and all("shadowed_tool_definition" in gap.why for gap in gaps)
+    _assert_named_surface_limit(report, project, "shadowed_tool_definition")
 
 
 def test_a_wrapper_variable_rebound_after_assignment_is_not_proven(tmp_path):
@@ -2446,12 +2450,8 @@ def test_a_wrapper_variable_rebound_after_assignment_is_not_proven(tmp_path):
     report = _scan_proven(tmp_path, project)
 
     assert report.release_decision.decision != "passed"
-    gaps = [
-        gap
-        for gap in report.release_decision.evidence_coverage.evidence_gaps
-        if gap.kind == "low_confidence_tool"
-    ]
-    assert gaps and all("shadowed_tool_definition" in gap.why for gap in gaps)
+    _assert_named_surface_limit(report, project, "shadowed_tool_definition")
+    assert any("constructor identity is not established" in warning for warning in report.source_warnings)
 
 
 @pytest.mark.parametrize(
@@ -2497,12 +2497,9 @@ def test_module_gaps_reach_tools_a_resolved_toolset_contributed(
 
     assert report.release_decision.decision != "passed"
     assert {tool["confidence"] for tool in report.tool_catalog} == {"medium"}
-    gap = next(
-        gap
-        for gap in report.release_decision.evidence_coverage.evidence_gaps
-        if gap.kind == "low_confidence_tool"
-    )
-    assert reason in gap.why
+    _assert_named_surface_limit(report, project, reason)
+    if body.startswith("\nfrom external"):
+        assert any("constructor identity is not established" in warning for warning in report.source_warnings)
 
 
 def test_a_resolved_toolset_in_a_proven_module_keeps_its_high_confidence(tmp_path):
@@ -2552,12 +2549,7 @@ def test_reflective_access_to_tools_is_not_a_way_around_the_mutation_guard(
     report = _scan_proven(tmp_path, project)
 
     assert report.release_decision.decision != "passed"
-    gaps = [
-        gap
-        for gap in report.release_decision.evidence_coverage.evidence_gaps
-        if gap.kind == "low_confidence_tool"
-    ]
-    assert gaps and all("mutable_tool_binding" in gap.why for gap in gaps)
+    _assert_named_surface_limit(report, project, "mutable_tool_binding")
 
 
 def test_an_imported_name_rebound_to_an_agent_is_no_longer_a_package(tmp_path):
@@ -2579,12 +2571,7 @@ def test_an_imported_name_rebound_to_an_agent_is_no_longer_a_package(tmp_path):
     report = _scan_proven(tmp_path, project)
 
     assert report.release_decision.decision != "passed"
-    gaps = [
-        gap
-        for gap in report.release_decision.evidence_coverage.evidence_gaps
-        if gap.kind == "low_confidence_tool"
-    ]
-    assert gaps and all("mutable_tool_binding" in gap.why for gap in gaps)
+    _assert_named_surface_limit(report, project, "mutable_tool_binding")
 
 
 @pytest.mark.parametrize(
@@ -2603,8 +2590,9 @@ def test_an_imported_name_rebound_to_an_agent_is_no_longer_a_package(tmp_path):
         pytest.param("str", "set[str]", id="unrepresentable_return_generic"),
     ],
 )
+@pytest.mark.parametrize("provided_model", [False, True], ids=["unread-import", "readable-local-class"])
 def test_an_annotation_the_emitter_cannot_represent_is_still_a_guess(
-    tmp_path, annotation: str, returns: str
+    tmp_path, annotation: str, returns: str, provided_model: bool
 ):
     """Annotation presence is not proof the emitted schema is faithful.
 
@@ -2633,18 +2621,16 @@ def loose_tool(record_id: {annotation}) -> {returns}:
 ''',
     )
 
+    if provided_model:
+        (project / "external.py").write_text("class SomeModel:\n    pass\n")
     report = _scan_proven(tmp_path, project)
 
     catalog = {tool["name"]: tool for tool in report.tool_catalog}
     assert catalog["loose_tool"]["confidence"] == "medium"
-    assert catalog["lookup_account"]["confidence"] == "high"
-    gap = next(
-        gap
-        for gap in report.release_decision.evidence_coverage.evidence_gaps
-        if gap.kind == "low_confidence_tool"
-    )
-    assert gap.subject.startswith("loose_tool")
-    assert "unrepresentable_annotation" in gap.why
+    unread_annotation = not provided_model and "SomeModel" in (annotation + returns)
+    assert catalog["lookup_account"]["confidence"] == ("medium" if unread_annotation else "high")
+    _assert_named_surface_limit(report, project, "unrepresentable_annotation", tool_names={"loose_tool"})
+    assert any("constructor identity is not established" in warning for warning in report.source_warnings) is unread_annotation
 
 
 @pytest.mark.parametrize(
@@ -2845,12 +2831,7 @@ def test_a_rebound_framework_symbol_is_not_googles_constructor(
     report = _scan_proven(tmp_path, project)
 
     assert report.release_decision.decision != "passed"
-    gaps = [
-        gap
-        for gap in report.release_decision.evidence_coverage.evidence_gaps
-        if gap.kind == "low_confidence_tool"
-    ]
-    assert gaps and all("shadowed_framework_symbol" in gap.why for gap in gaps)
+    _assert_named_surface_limit(report, project, "shadowed_framework_symbol")
 
 
 @pytest.mark.parametrize(
@@ -2929,8 +2910,9 @@ def loose_tool({signature}) -> dict:
         pytest.param("from domain import Seq as List", "List", id="typing_list_faked"),
     ],
 )
+@pytest.mark.parametrize("provided_class", [False, True], ids=["unread-import", "readable-local-class"])
 def test_a_shadowed_annotation_name_is_not_the_type_it_looks_like(
-    tmp_path, shadow: str, annotation: str
+    tmp_path, shadow: str, annotation: str, provided_class: bool
 ):
     """`from domain import Account as str` makes ADK see `Account` at runtime.
 
@@ -2951,18 +2933,16 @@ def loose_tool(value: {annotation}) -> dict:
 ''',
     )
 
+    if provided_class:
+        (project / "domain.py").write_text("class Account:\n    pass\nclass Bag:\n    pass\nclass Rec:\n    pass\nclass Seq:\n    pass\n")
     report = _scan_proven(tmp_path, project)
 
     tool = next(
         tool for tool in report.tool_catalog if tool["name"] == "loose_tool"
     )
     assert tool["confidence"] == "medium"
-    gap = next(
-        gap
-        for gap in report.release_decision.evidence_coverage.evidence_gaps
-        if gap.kind == "low_confidence_tool"
-    )
-    assert "unrepresentable_annotation" in gap.why
+    _assert_named_surface_limit(report, project, "unrepresentable_annotation", tool_names={"loose_tool"})
+    assert any("constructor identity is not established" in warning for warning in report.source_warnings) is (not provided_class)
 
 
 def test_a_genuine_typing_alias_is_still_faithful(tmp_path):
@@ -3026,12 +3006,7 @@ def test_indirect_reflective_mutation_is_still_a_mutation(
     report = _scan_proven(tmp_path, project)
 
     assert report.release_decision.decision != "passed"
-    gaps = [
-        gap
-        for gap in report.release_decision.evidence_coverage.evidence_gaps
-        if gap.kind == "low_confidence_tool"
-    ]
-    assert gaps and all("mutable_tool_binding" in gap.why for gap in gaps)
+    _assert_named_surface_limit(report, project, "mutable_tool_binding")
 
 
 def test_an_ordinary_dictionary_with_a_tools_key_is_not_a_mutation(tmp_path):
@@ -3067,9 +3042,4 @@ def test_a_star_import_makes_every_name_in_the_module_unknowable(tmp_path):
     report = _scan_proven(tmp_path, project)
 
     assert report.release_decision.decision != "passed"
-    gaps = [
-        gap
-        for gap in report.release_decision.evidence_coverage.evidence_gaps
-        if gap.kind == "low_confidence_tool"
-    ]
-    assert gaps and all("star_import_shadowing" in gap.why for gap in gaps)
+    _assert_named_surface_limit(report, project, "star_import_shadowing")

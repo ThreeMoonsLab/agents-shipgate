@@ -15,7 +15,12 @@ from agents_shipgate.core.risk_hints import has_risk_tag, is_effectively_read_on
 
 def run(context: ScanContext):
     findings = []
-    for tool in context.tools:
+    # A named possible binding preserves interface evidence while wiring is
+    # unresolved. Proven unbound catalog entries stay outside this check.
+    reachable = {tool.id for tool in context.tools}
+    possible = set(context.binding_graph.possible_tool_ids) if context.binding_graph is not None else set()
+    interfaces = [tool for tool in context.tool_catalog if tool.id in reachable | possible] or context.tools
+    for tool in interfaces:
         if _has_freeform_output(tool):
             findings.append(
                 tool_finding(
@@ -24,7 +29,13 @@ def run(context: ScanContext):
                     title=f"{tool.name} returns free-form text output",
                     severity="medium",
                     category="schema",
-                    evidence={"output_schema": tool.output_schema or {"type": "string"}},
+                    evidence={
+                        "output_schema": tool.output_schema or {"type": "string"},
+                        **({"binding_status": tool.binding_assessment.status,
+                            "binding_established": False}
+                           if tool.binding_assessment is not None
+                           and tool.binding_assessment.status == "unknown" else {}),
+                    },
                     # The judged schema may have been preserved from a bound
                     # member, in which case the reviewer needs the artifact that
                     # declares it, not the primary's (#386 review).
@@ -38,6 +49,7 @@ def run(context: ScanContext):
                     provenance_kind="static_declaration",
                 )
             )
+    for tool in context.tools:
         for parameter in tool.parameters:
             if _is_broad_free_text(parameter) and _action_like_tool(tool):
                 findings.append(

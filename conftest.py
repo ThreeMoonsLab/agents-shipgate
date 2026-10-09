@@ -30,6 +30,20 @@ import pytest  # noqa: E402
 from ci_sharding import load_seconds, shard_assignment  # noqa: E402
 
 
+def pytest_configure(config) -> None:  # noqa: ANN001
+    """Stream hosted file timings without affecting test selection or results."""
+    if (os.environ.get("GITHUB_ACTIONS") != "true" or hasattr(config, "workerinput")
+            or config.getoption("collectonly")
+            or config.getoption("setuponly")
+            or not config.getoption("numprocesses", default=None)
+            or config.getoption("dist", default=None) != "load"
+            or config.pluginmanager.hasplugin("rerunfailures")):
+        return
+    from ci_timing import HostedTimings
+
+    config.pluginmanager.register(HostedTimings(config), "shipgate_hosted_timings")
+
+
 @pytest.fixture(autouse=True)
 def _scrub_agent_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep the suite hermetic when it runs inside a coding agent.
@@ -78,9 +92,16 @@ def _shard_selection() -> tuple[int, int] | None:
     return count, index
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items) -> None:  # noqa: ANN001
-    """Keep only this shard's files when a shard is requested."""
+    """Mark the nightly-only framework cases, then keep this shard's files.
 
+    The marks go on before pytest applies ``-m``, which is why this runs first.
+    """
+
+    from tests.framework_matrix import mark_nightly_framework_cases
+
+    mark_nightly_framework_cases(items)
     selection = _shard_selection()
     if selection is None:
         return

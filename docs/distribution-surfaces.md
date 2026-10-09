@@ -177,6 +177,13 @@ provenance and makes no claim about a runtime verdict or qualification.
 the `emitted_ci_workflow` row above covers how the installed engine uses its
 record. The top-level classifier records this distinction explicitly.
 
+`ci_sharding.py`, `ci_timing.py` and `conftest.py` are repository test-run
+mechanics. The timing observer records selected-file phase durations and
+outcomes for CI diagnostics; it publishes no engine answer, release verdict
+or adopter-facing command. These modules are classified outside distribution
+surfaces, with observer behavior covered by `tests/test_ci_timing.py` and
+selection covered by `tests/test_shard_partition.py`.
+
 The main-tree `.well-known/agents-shipgate.json` integration enumeration is
 checked against `contract --json` from the same source build, including missing
 and unsupported entries. The site's discovery copy stays pinned to its released

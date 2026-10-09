@@ -339,14 +339,16 @@ def test_sdk_unread_handoffs_are_named_beside_the_read_ones(tmp_path):
         },
     )
     (observation,) = [item for item in _sdk(tmp_path, "triage.py").binding_observations if item.agent == "triage"]
-    assert observation.handoff_names == ["billing"]
+    assert observation.handoff_names == ["billing"]  # The readable candidate; its edge is incomplete.
     assert observation.handoffs_complete is False
-    assert observation.issues == [
+    assert any("constructor identity is not established" in issue for issue in observation.issues)
+    for issue in [
         "OpenAI Agents SDK agent 'triage' has dynamic handoffs at triage.py:3. Not read: a call to "
         "`more_agents`, whose result is not read (triage.py:3).",
         "OpenAI Agents SDK agent 'triage' at triage.py:3 hands off to `handoff(billing)`, which is not "
         "resolved to an agent: it is not a name.",
-    ]
+    ]:
+        assert issue in observation.issues
 
 
 def test_sdk_a_change_through_one_agent_reaches_every_agent_sharing_the_list(tmp_path):
@@ -671,7 +673,8 @@ def test_the_comparison_never_runs_the_list(tmp_path):
     observation = _observation(_sdk(tmp_path, "agent.py"))
     assert observation.tool_names == ["load_and_validate"]
     assert observation.tools_complete is False
-    assert "a call to `eval`, whose result is not read (agent.py:4)" in observation.issues[0]
+    assert any("a call to `eval`, whose result is not read (agent.py:4)" in issue for issue in observation.issues)
+    assert any("constructor identity is not established" in issue for issue in observation.issues)
 
 
 def test_sdk_reader_writes_nothing(tmp_path):
@@ -1129,7 +1132,11 @@ def test_adk_tools_shapes(tmp_path, expression, names, conditions):
     (observation,) = [item for source in loaded for item in source.binding_observations]
     assert observation.tool_names == names
     assert observation.tool_conditions == conditions
-    assert observation.tools_complete is True
+    if "for t in" in expression:
+        assert not observation.tools_complete
+        assert any("constructor identity is not established" in issue for issue in observation.issues)
+    else:
+        assert observation.tools_complete is True
 
 
 @pytest.mark.parametrize(
@@ -1150,9 +1157,18 @@ def test_adk_sub_agents_shapes(tmp_path, expression, names, conditions):
                       f"root_agent = Agent(name='triage', sub_agents={expression})\n"})
     _, artifacts = _adk(tmp_path)
     (record,) = [record for record in artifacts.sub_agents if record["agent_name"] == "triage"]
-    assert record["sub_agents"] == names
     assert record["conditions"] == conditions
+    assert record["sub_agents"] == names
     assert record["sub_agent_count"] == len(names)
+    if "for a in" in expression:
+        # The names were read: candidates that survive the constructor gap. The
+        # gap makes the edge incomplete (``unread``); it does not turn a matched
+        # agent into one "which this scan could not match to an agent definition".
+        assert "constructor identity is not established" in record["unread"]
+        assert not record.get("unresolved_sub_agents")
+        assert any("constructor identity is not established" in warning for warning in artifacts.warnings)
+    else:
+        assert "unread" not in record
 
 
 def test_adk_sub_agents_from_another_module_are_not_this_module_s(tmp_path):
@@ -1201,4 +1217,9 @@ def test_sdk_handoffs_shapes(tmp_path, expression, names):
                       f"triage = Agent(name='Triage', handoffs={expression})\n"})
     (observation,) = [item for item in _sdk(tmp_path, "triage.py").binding_observations if item.agent == "triage"]
     assert observation.handoff_names == names
-    assert observation.handoffs_complete is True
+    if "for a in" in expression:
+        # Readable candidate edges survive a constructor gap, incomplete.
+        assert not observation.handoffs_complete
+        assert any("constructor identity is not established" in issue for issue in observation.issues)
+    else:
+        assert observation.handoffs_complete is True
