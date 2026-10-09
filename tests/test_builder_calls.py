@@ -636,6 +636,43 @@ def test_census_binds_nonmatching_files_and_exclusion_marker_absence(tmp_path):
         reset_static_input_snapshot(token)
 
 
+def test_namespace_directory_absence_is_read_under_any_letter_case(namespace_workspace, monkeypatch):
+    """A directory missing by exact name beside a differently cased one is not proven absent."""
+    resolver, module, _ = _source_dictionary_slot_fixture(namespace_workspace)
+    (namespace_workspace / "Vendor").mkdir()
+    real_exists = Path.exists
+
+    def calls_with_empty_namespace_state():
+        calls = BuilderCalls(resolver)
+        calls._namespace_entry_work = 0
+        calls._namespace_directories = {}
+        calls._namespace_directory_names = {}
+        return calls
+
+    # What a case-sensitive host answers for the spelling asked about.
+    monkeypatch.setattr(Path, "exists", lambda self, **kw: False if self.name == "vendor" else real_exists(self, **kw))
+    with pytest.raises(CallLimit, match="unread directory evidence"):
+        calls_with_empty_namespace_state()._namespace_directory_entries(namespace_workspace / "vendor")
+    # No listing entry matches this spelling under any case: a proven absence.
+    monkeypatch.setattr(Path, "exists", lambda self, **kw: False if self.name == "other" else real_exists(self, **kw))
+    assert calls_with_empty_namespace_state()._namespace_directory_entries(namespace_workspace / "other") is None
+
+
+def test_a_differently_cased_virtualenv_marker_does_not_hide_a_directory_on_any_host(tmp_path):
+    """Presence of ``pyvenv.cfg`` selects the code read, so it comes from the listing."""
+    resolver = ImportResolver(tmp_path)
+    _module(tmp_path, "builders.py", "def build(tools):\n    return None\n", resolver)
+    (tmp_path / "environment").mkdir()
+    (tmp_path / "environment/caller.py").write_text("from builders import build\nbuild([])\n")
+    (tmp_path / "environment/PyVenv.cfg").write_text("home = elsewhere\n")
+    (tmp_path / "real").mkdir()
+    (tmp_path / "real/caller.py").write_text("from builders import build\nbuild([])\n")
+    (tmp_path / "real/pyvenv.cfg").write_text("home = elsewhere\n")
+    inventory = {path.relative_to(tmp_path).as_posix() for path in BuilderCalls(resolver)._inventory()}
+    assert "environment/caller.py" in inventory  # Not a virtual environment: it is read.
+    assert "real/caller.py" not in inventory  # The exact spelling is one: it is skipped.
+
+
 @pytest.mark.parametrize(
     "returned",
     ["return [read]", "def nested():\n        return None\n    return {'tools': [nested]}"],
@@ -2359,6 +2396,34 @@ def test_operator_metadata_write_requires_absence_of_repository_providers(namesp
         (namespace_workspace / 'operator.py').symlink_to('fake.py')
     else:
         (namespace_workspace / ('Operator.py' if provider == 'case' else 'operator.py')).write_text('VALUE = None\n')
+    source = module.path.read_text()
+    current = ImportResolver(namespace_workspace)
+    actual = current.entry(module.path, ast.parse(source), source)
+    try:
+        assert not BuilderCalls(current).operator_metadata_write(actual, actual.tree.body[2].targets[0], 'agents')
+    except CallLimit:
+        pass
+
+
+def test_operator_metadata_write_case_variant_provider_blocks_on_a_case_sensitive_host(namespace_workspace, monkeypatch):
+    """The absence proof reads the exact listing, not what this host's filesystem finds.
+
+    ``Operator.py`` is found as ``operator.py`` by a case-insensitive filesystem
+    and not by a case-sensitive one. The probe below makes any host answer as
+    the second does; the verdict must be the same as on the first.
+    """
+    resolver, module, _ = _source_dictionary_slot_fixture(
+        namespace_workspace, write="import operator\noperator.vars = None\nslots = vars(fake)\nslots['Agent'] = fake.Agent",
+    )
+    (namespace_workspace / 'Operator.py').write_text('VALUE = None\n')
+    real_lstat = Path.lstat
+
+    def case_sensitive_lstat(self, *args, **kwargs):
+        if self.name in {'operator', 'operator.py'}:
+            raise FileNotFoundError(self)
+        return real_lstat(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'lstat', case_sensitive_lstat)
     source = module.path.read_text()
     current = ImportResolver(namespace_workspace)
     actual = current.entry(module.path, ast.parse(source), source)

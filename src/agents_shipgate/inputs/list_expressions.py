@@ -34,7 +34,7 @@ a function that treats its parameter the same way.
 from __future__ import annotations
 
 import ast
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
@@ -400,6 +400,12 @@ def _standard_operator(view: _View) -> bool:
     return _unprovided_root(view, "operator")
 
 
+def _folded_in(name: str, entries: Iterable[str]) -> bool:
+    """Whether a directory listing holds ``name`` under any letter case."""
+    folded = name.casefold()
+    return any(entry.casefold() == folded for entry in entries)
+
+
 def _unprovided_root(view: _View, provider: str) -> bool:
     """Require captured absence before assigning an external import its role."""
     if provider not in view.unprovided_roots:
@@ -431,6 +437,8 @@ def _unprovided_root(view: _View, provider: str) -> bool:
                 name = prefix.rsplit("/", 1)[-1]
                 directory = root / prefix
                 if prefix and previous is not None and name not in previous:
+                    if _folded_in(name, previous):
+                        return False  # A differently spelled entry may be this root on another filesystem.
                     if snapshot is not None:
                         if not snapshot.bind_dependency_absence(directory):
                             return False
@@ -458,7 +466,11 @@ def _unprovided_root(view: _View, provider: str) -> bool:
                         return False
                 previous = names
             else:
-                if {provider, provider + ".py"} & (previous or frozenset()):
+                # The exact listing decides, never the host filesystem: a
+                # differently cased ``Operator.py`` provides ``operator`` on a
+                # case-insensitive filesystem and not on a case-sensitive one,
+                # and a proof of absence cannot depend on which one ran it.
+                if _folded_in(provider, previous or ()) or _folded_in(provider + ".py", previous or ()):
                     return False
                 for name in (provider, provider + ".py"):
                     candidate = root / base / name

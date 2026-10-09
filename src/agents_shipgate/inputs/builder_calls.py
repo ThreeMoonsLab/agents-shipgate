@@ -4046,7 +4046,10 @@ class BuilderCalls:
             raise CallLimit(f"{directory} above the read scope is a linked import root")
         if not directory.exists():
             parent = self._namespace_directory_entries(directory.parent)
-            if parent is None or directory.name in parent:
+            folded = directory.name.casefold()
+            if parent is None or any(name.casefold() == folded for name in parent):
+                # Absence is read from the exact listing under any letter case,
+                # never from whether this host's filesystem finds the name.
                 raise CallLimit(f"{directory} above the read scope has unread directory evidence")
             if snapshot is not None and not snapshot.bind_dependency_absence(directory):
                 raise CallLimit(f"{directory} above the read scope is not absent")
@@ -4090,7 +4093,7 @@ class BuilderCalls:
                 if current != captured:
                     raise CallLimit(f"{directory} changed after its caller inventory was read")
             for marker, captured_selector in self._inventory_venv_selectors.items():
-                present = marker.exists()
+                present = _lists_entry(marker)
                 current_selector = (present, stat.S_IFMT(marker.lstat().st_mode) if present else None)
                 if current_selector != captured_selector:
                     raise CallLimit(f"{marker} changed its caller inventory virtual-environment selector")
@@ -4496,7 +4499,7 @@ class BuilderCalls:
                         absent = (
                             snapshot.bind_dependency_absence(marker)
                             if snapshot is not None
-                            else not marker.exists()
+                            else not _lists_entry(marker)
                         )
                         self._inventory_venv_selectors[marker] = (
                             not absent, stat.S_IFMT(marker.lstat().st_mode) if not absent else None
@@ -4589,6 +4592,16 @@ def _test_path(path: str) -> bool:
         or parts[-1].startswith("test_")
         or parts[-1].endswith("_test.py")
     )
+
+
+def _lists_entry(path: Path) -> bool:
+    """Whether its directory's exact listing names ``path``, on any filesystem.
+
+    ``Path.exists`` asks the host: a differently cased spelling is found on a
+    case-insensitive filesystem and not on a case-sensitive one. A marker whose
+    presence selects the code that is read must be decided by the listing.
+    """
+    return path.name in {child.name for child in list_input_directory(path.parent)}
 
 
 def _module_words(path: Path) -> set[str]:
