@@ -15,7 +15,11 @@ from agents_shipgate.core.domain import (
     ToolkitScopeBound,
 )
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.inputs.builder_calls import BuilderCalls, ConstructionContext
+from agents_shipgate.inputs.builder_calls import (
+    BuilderCalls,
+    ConstructionContext,
+    Invocation,
+)
 from agents_shipgate.inputs.common import (
     list_input_directory,
     load_text_file,
@@ -253,7 +257,11 @@ def _extract_agent_bindings(
         names = module_sdk_names.get(id(home.tree))
         if names is None:
             names = module_sdk_names[id(home.tree)] = _SdkNames(home.tree)
-        return _agent_reads(names, builder_calls.scopes(home), home.bindings, call, keyword)
+        return (
+            _agent_reads(names, builder_calls.scopes(home), home.bindings, call, keyword)
+            and (not _denotes_agent(names, call)
+                 or builder_calls.constructor_issue(home, call) is None)
+        )
 
     for path in paths:
         text = load_text_file(path)
@@ -319,7 +327,8 @@ def _extract_agent_bindings(
             resolver=imports.resolver if module is not None else None,
             agent_reads=lambda call, keyword, sdk_names=sdk_names, scopes=scopes, module_bindings=module_bindings, module=module: module is not None and _agent_reads(
                 sdk_names, scopes, module_bindings, call, keyword
-            ),
+            ) and (not _denotes_agent(sdk_names, call)
+                   or builder_calls.constructor_issue(module, call) is None),
             cache=list_cache if module is not None else None,
             builder_calls=builder_calls,
             module_agent_reads=module_agent_reads,
@@ -443,11 +452,18 @@ def _extract_agent_bindings(
             warnings.extend(context.limits)
             tools_complete = not context.limits
             constructor_changed = lists.constructor_changed(call, context.invocation)
-            if constructor_changed:
-                reason = (
-                    f"OpenAI Agents SDK agent {target!r}: its builder's constructor or "
-                    "imports may change its capability lists."
-                )
+            constructor_context = lists.constructor_refusal_context(call, context.invocation)
+            constructor_issue = builder_calls.constructor_issue(module, call) if module is not None else None
+            if constructor_issue is None and constructor_changed:
+                constructor_issue = "its builder's constructor or imports may change its capability lists"
+                if constructor_context:
+                    constructor_issue += ". Additional constructor refusal context: " + "; ".join(constructor_context)
+            if constructor_issue is None and lists.constructor_namespace_changed():
+                constructor_issue = lists.constructor_namespace_issue or "an agent handle may change or hand on a tool carrying the constructor namespace"
+            constructor_issues = {}
+            if constructor_issue is not None:
+                reason = f"OpenAI Agents SDK agent {target!r} at {pointer}: its constructor identity is not established: {constructor_issue}."
+                constructor_issues[pointer] = reason
                 issues.append(reason)
                 warnings.append(reason)
                 tools_complete = False
@@ -459,6 +475,7 @@ def _extract_agent_bindings(
             names: list[str] = []
             locators: dict[str, str] = {}
             tool_issues: dict[str, str] = {}
+            tool_sites: dict[str, list[str]] = {}
             when = Conditions()
             #: ``name -> payload`` of the tools this agent binds as objects (#910).
             objects: dict[str, dict[str, Any]] = {}
@@ -477,9 +494,32 @@ def _extract_agent_bindings(
             # sees one name for both, so neither is bound (#879 review).
             duplicated: set[str] = set()
             first_location: dict[str, str] = {}
+
+            def note_sites(
+                name: str,
+                invocation: Invocation | None,
+                *,
+                pointer: str = pointer,
+                context: ConstructionContext = context,
+                tool_sites: dict[str, list[str]] = tool_sites,
+            ) -> None:
+                # Where the binding is made: the construction, its caller's
+                # sites and the returned list's factory call (#964).
+                if context.invocation is None and invocation is None:
+                    return
+                locations = tool_sites.setdefault(name, [])
+                for location in (
+                    pointer,
+                    *(context.invocation.locations if context.invocation else ()),
+                    *(invocation.locations if invocation else ()),
+                ):
+                    if location not in locations:
+                        locations.append(location)
+
             def bind_object(
                 found: ObjectBinding,
                 conditions: tuple[str, ...],
+                invocation: Invocation | None = None,
                 *,
                 target: str = target,
                 pointer: str = pointer,
@@ -517,6 +557,7 @@ def _extract_agent_bindings(
                     tool_issues.pop(name, None)
                     return False
                 objects[name] = payload
+                note_sites(name, invocation)
                 when.add(name, conditions)
                 return True
 
@@ -529,7 +570,7 @@ def _extract_agent_bindings(
                     else None
                 )
                 if isinstance(object_found, ObjectBinding):
-                    if not bind_object(object_found, member.conditions):
+                    if not bind_object(object_found, member.conditions, member.invocation):
                         tools_complete = False
                     continue
                 if isinstance(object_found, Unread):
@@ -654,6 +695,7 @@ def _extract_agent_bindings(
                     objects.pop(tool.name, None)
                     continue
                 names.append(tool.name)
+                note_sites(tool.name, member.invocation)
                 when.add(tool.name, member.conditions)
                 if locator is not None:
                     locators[tool.name] = locator
@@ -668,9 +710,8 @@ def _extract_agent_bindings(
                     )
                     warnings.append(reason)
                     tool_issues[tool.name] = reason
-            tool_conditions = when.only_when(duplicated)
             handoff_list = lists.resolve(_keyword(call, "handoffs"), invocation=context.invocation)
-            handoffs_complete = not context.limits and not constructor_changed
+            handoffs_complete = not context.limits and constructor_issue is None
             if lists.construction_changed(context.invocation, "handoffs"):
                 reason = f"OpenAI Agents SDK agent {target!r}: the caller's returned agent handle may change its handoffs."
                 issues.append(reason)
@@ -710,6 +751,12 @@ def _extract_agent_bindings(
                     warnings.append(reason)
                     issues.append(reason)
                     handoffs_complete = False
+                    # A refused identity still names this source's possible
+                    # edge. Keep only an actual local Name from the same
+                    # captured module; this never makes its identity complete.
+                    if module is not None and member.module is module and isinstance(member.expr, ast.Name):
+                        handoff_names.append(member.expr.id)
+                        handoff_when.add(member.expr.id, member.conditions)
                     continue
                 handoff_names.append(identity)
                 handoff_when.add(identity, member.conditions)
@@ -738,7 +785,7 @@ def _extract_agent_bindings(
                     home = member.module if member.module is not None else module
                     server = objects_reader.recognize(member.expr, home)
                     if isinstance(server, ObjectBinding) and server.identity.get("kind") == "mcp_server":
-                        if not bind_object(server, member.conditions):
+                        if not bind_object(server, member.conditions, member.invocation):
                             tools_complete = False
                         continue
                     spelled = reference_spelling(member.expr)
@@ -751,6 +798,12 @@ def _extract_agent_bindings(
                     warnings.append(reason)
                     issues.append(reason)
                     tools_complete = False
+            if constructor_issue is not None:
+                # Every binding of an agent whose constructor is not proved,
+                # a tool bound as an object included (#910, #964).
+                tool_issues.update({name: "; ".join(filter(None, [tool_issues.get(name),
+                                   f"the constructor identity is not established: {constructor_issue}"]))
+                                    for name in (*names, *objects)})
             tool_conditions = when.only_when(duplicated)
             file_observations.append(
                 AgentBindingObservation(
@@ -763,8 +816,7 @@ def _extract_agent_bindings(
                     tool_locators=locators,
                     tool_issues=tool_issues,
                     tool_conditions=tool_conditions,
-                    tool_sites={name: list(dict.fromkeys((pointer, *context.invocation.locations)))
-                                for name in (*locators, *objects)} if context.invocation else {},
+                    tool_sites={name: locations for name, locations in tool_sites.items() if name in locators or name in objects},
                     handoff_names=handoff_names,
                     handoff_sites={name: list(dict.fromkeys((pointer, *context.invocation.locations)))
                                    for name in handoff_names} if context.invocation else {},
@@ -772,6 +824,7 @@ def _extract_agent_bindings(
                     tools_complete=tools_complete,
                     handoffs_complete=handoffs_complete,
                     issues=issues,
+                    constructor_issues=constructor_issues,
                 )
             )
         for node in copies:

@@ -12,6 +12,7 @@ from agents_shipgate.core.artifact_models import (
     AnthropicArtifacts,
     OpenAIApiArtifacts,
 )
+from agents_shipgate.core.binding_comparison import binding_comparison_limits
 from agents_shipgate.core.domain import AgentRemoteBinding, Tool, ToolkitScopeBound
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.findings.identity import _canonicalize_for_fingerprint
@@ -218,13 +219,31 @@ def compute_tool_surface_diff(
     findings: list[Finding],
     *,
     reference: ToolSurfaceDiffReference | None = None,
+    head_binding_facts: AgentBindingGraphAssessment | None = None,
 ) -> ToolSurfaceDiff:
+    # Coverage limits constrain a requested comparison. A fresh scan with
+    # no base/reference has no absence or resolution claim to withhold.
+    #
+    # An incomplete binding graph on either side means a tool, scope, effect
+    # or finding missing from the head may only be unread there. Everything
+    # that depends on absence is withheld (removed and narrowed rows, the
+    # control rows of a tool whose only evidence is its absence, resolved
+    # findings). What presence proves is still reported: an added tool, a
+    # changed row or a removed control is never hidden, because a possible
+    # widening must reach the reviewer even when the graph is partial.
+    limits = binding_comparison_limits(
+        head_binding_facts, reference.binding_facts if reference else None,
+        absence_only=True,
+    ) if base is not None or reference is not None else []
+
     if base is None:
         finding_deltas = (
             _finding_deltas(findings, reference.findings)
             if reference
             else ToolSurfaceFindingDeltas()
         )
+        if limits:
+            finding_deltas = _without_resolved(finding_deltas)
         diff_base = _diff_base(reference)
         notes = list(reference.notes) if reference else []
         if not notes:
@@ -247,16 +266,34 @@ def compute_tool_surface_diff(
             base=diff_base,
             summary=_summary_from_diff_parts(finding_deltas=finding_deltas),
             finding_deltas=finding_deltas,
-            notes=[*notes, *finding_comparison_notes(findings, reference.finding_evidence)] if reference else notes,
+            notes=[
+                *notes,
+                *(finding_comparison_notes(findings, reference.finding_evidence) if reference else ()),
+                *limits,
+            ],
         )
 
     tool_changes = _diff_tools(current.tools, base.tools)
     high_risk_effects = _diff_high_risk_effects(current.tools, base.tools)
     scopes = _diff_scopes(current.scopes, base.scopes)
     controls = _diff_controls(current.controls, base.controls)
-    metadata_changes = _metadata_changes(tool_changes)
     policy_drift = _diff_policies(current.policies, base.policies)
     finding_deltas = _finding_deltas(findings, reference.findings if reference else None)
+    if limits:
+        gone = [row for row in tool_changes if row.kind == "removed"]
+        absent_ids = {row.tool_id for row in gone if row.tool_id}
+        absent_names = {row.name for row in gone}  # For a control that names no tool id.
+        tool_changes = [row for row in tool_changes if row.kind != "removed"]
+        high_risk_effects = [row for row in high_risk_effects if row.kind != "removed"]
+        scopes = [row for row in scopes if row.kind != "removed"]
+        controls = [
+            row for row in controls
+            if row.kind != "added"
+            and not (row.tool_id in absent_ids if row.tool_id else row.tool in absent_names)
+        ]
+        policy_drift = [row for row in policy_drift if row.kind != "removed"]
+        finding_deltas = _without_resolved(finding_deltas)
+    metadata_changes = _metadata_changes(tool_changes)
     summary = _summary_from_diff_parts(
         tool_changes=tool_changes,
         high_risk_effects=high_risk_effects,
@@ -270,6 +307,7 @@ def compute_tool_surface_diff(
     notes.append("Tool renames are reported as one removed tool plus one added tool.")
     if reference:
         notes.extend(reference.notes)
+    notes.extend(limits)
     return ToolSurfaceDiff(
         enabled=True,
         guard_comparisons=compare_guard_dependencies(current.guard_dependencies, base.guard_dependencies),
@@ -916,6 +954,11 @@ def _finding_deltas(
         unchanged_findings=[current_items[key] for key in unchanged_keys],
         accepted_debt=[accepted[key] for key in sorted(accepted)],
     )
+
+
+def _without_resolved(deltas: ToolSurfaceFindingDeltas) -> ToolSurfaceFindingDeltas:
+    """A finding missing from the head may only be unread there, not fixed."""
+    return deltas.model_copy(update={"resolved_findings": []})
 
 
 def _finding_item(finding: Finding) -> ToolSurfaceFindingDeltaItem | None:

@@ -210,7 +210,7 @@ def test_directory_at_cache_report_is_preserved_and_routes_to_repair(tmp_path, m
     verifier, report, _ = _run_verify(repo)
     assert len(scans) == 2
     assert verifier.base_status == 'scan_failed'
-    assert report.release_decision.decision == 'review_required'
+    assert report.release_decision.decision == 'insufficient_evidence'
     assert not verifier.control.permissions.merge
     assert not verifier.control.permissions.report_complete
     assert 'Could not store the regenerated base report' in verifier.model_dump_json()

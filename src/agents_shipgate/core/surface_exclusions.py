@@ -503,7 +503,7 @@ def _binding_exclusions(
                     if introduced
                     else (
                         "The tool is in the catalog and no edge binds it to "
-                        "the root agent, and the base comparison that would "
+                        "the root agent, and the requested binding comparison that would "
                         "say whether this change introduced it could not be "
                         "performed."
                     )

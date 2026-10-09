@@ -445,6 +445,53 @@ def test_capability_change_control_added_narrows():
     assert block.broadened == []
 
 
+def test_capability_change_withholds_absence_claims_while_a_comparison_is_incomplete():
+    """Removed and narrowed members are absence claims; additions stand."""
+    from agents_shipgate.core.binding_comparison import binding_comparison_limits
+    from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, AgentBindingIssue
+    from agents_shipgate.schemas.surfaces import (
+        ActionSurfaceChange,
+        ActionSurfaceDiff,
+        ToolSurfaceControlChange,
+        ToolSurfaceDiff,
+        ToolSurfaceScopeChange,
+        ToolSurfaceToolChange,
+    )
+
+    partial = AgentBindingGraphAssessment(status="partial", issues=[AgentBindingIssue(
+        kind="partial_binding_evidence", message="Unread constructor",
+        source="framework_constructor_ownership", source_pointer="agent.py:8",
+    )])
+    rows = dict(
+        tools=[
+            ToolSurfaceToolChange(kind="added", name="fresh"),
+            ToolSurfaceToolChange(kind="removed", name="gone"),
+            ToolSurfaceToolChange(kind="changed", name="moved"),
+        ],
+        scopes=[ToolSurfaceScopeChange(kind="removed", scope="admin", scope_kind="tool_required", tool_names=["gone"])],
+        controls=[ToolSurfaceControlChange(kind="added", control="approval_policy", tool="moved")],
+    )
+    action = ActionSurfaceDiff(
+        enabled=True,
+        removed=[ActionSurfaceChange(type="ACTION_REMOVED", action_id="a.gone", tool_name="gone", reason="removed")],
+    )
+
+    complete = build_capability_change(_diffed_report(
+        tool_surface_diff=ToolSurfaceDiff(enabled=True, **rows), action_surface_diff=action,
+    ))
+    assert [m.tool for m in complete.removed] == ["gone", "gone"] and complete.narrowed
+
+    withheld = build_capability_change(_diffed_report(
+        tool_surface_diff=ToolSurfaceDiff(
+            enabled=True, notes=binding_comparison_limits(partial, None, absence_only=True), **rows,
+        ),
+        action_surface_diff=action,
+    ))
+    assert withheld.removed == [] and withheld.narrowed == []
+    assert [m.tool for m in withheld.added] == ["fresh"]
+    assert [m.tool for m in withheld.broadened] == ["moved"]
+
+
 def test_capability_change_enriches_semantic_fields_from_action_facts():
     from agents_shipgate.schemas.surfaces import (
         ActionApprovalFact,

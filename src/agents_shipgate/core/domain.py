@@ -727,6 +727,9 @@ class AgentBindingObservation(BaseModel):
     tools_complete: bool = True
     handoffs_complete: bool = True
     issues: list[str] = Field(default_factory=list)
+    #: Reader-owned constructor causes by construction pointer. Internal
+    #: routing provenance, never inferred from warning prose or annotations.
+    constructor_issues: dict[str, str] = Field(default_factory=dict, exclude=True)
 
 
 class SourceSurfaceOmission(BaseModel):

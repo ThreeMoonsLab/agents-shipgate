@@ -521,7 +521,10 @@ absolute directory.
 ### 3. What changed
 
 Open `pr-comment.md` — the same text the GitHub Action posts on a pull
-request. It leads with the capability delta, by subject:
+request. The published `v1.2.0` release leads with the capability delta,
+by subject. The current source tree still reports what was added or changed
+when agent binding coverage is incomplete, withholds what was removed or
+narrowed, and names that limit:
 
 ```text
 - Capability delta (analysed surface): 2 subjects across 6 changes (+1 added, 2 modified, -0 removed)
@@ -569,7 +572,9 @@ effect evidence are compatible answers; see [effect projections and
 evidence](effect-evidence.md) for the existing JSON fields and review meaning.
 
 `report.md` carries its own coverage limit, and that limit is part of the
-answer:
+answer. The published `v1.2.0` release renders this excerpt; the current
+source tree can report different reachability and pass-eligibility counts
+when binding coverage is incomplete. Read the counts from the run you made:
 
 ```text
 Evidence coverage: static (2/2 catalog tools reachable; 1 semantic review

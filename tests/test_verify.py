@@ -1096,6 +1096,29 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
     )
 
 
+def test_capability_review_says_removed_and_narrowed_were_withheld_not_absent() -> None:
+    """Zero removed beside an enabled comparison would read as "none removed"."""
+    from agents_shipgate.core.binding_comparison import binding_comparison_limits
+    from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, AgentBindingIssue
+    from agents_shipgate.schemas.surfaces import ToolSurfaceDiff, ToolSurfaceToolChange
+
+    partial = AgentBindingGraphAssessment(status="partial", issues=[AgentBindingIssue(
+        kind="partial_binding_evidence", message="Unread constructor",
+        source="framework_constructor_ownership", source_pointer="agent.py:8",
+    )])
+    notes = binding_comparison_limits(partial, None, absence_only=True)
+    report = _report(decision="passed", exit_code=0)
+    report.tool_surface_diff = ToolSurfaceDiff(
+        enabled=True, tools=[ToolSurfaceToolChange(kind="added", name="fresh")], notes=["unrelated", *notes],
+    )
+    review = build_capability_review(report)
+    assert review.added == 1 and review.removed == 0
+    assert review.notes == notes
+
+    report.tool_surface_diff = ToolSurfaceDiff(enabled=True, tools=[ToolSurfaceToolChange(kind="added", name="fresh")])
+    assert build_capability_review(report).notes == []
+
+
 def test_capability_review_groups_one_bound_tool_without_changing_legacy_counts() -> None:
     """One reader subject may still carry two stable machine change rows (#439)."""
 

@@ -29,6 +29,17 @@ def _pairs(result):
     return [(r["agent"], r["tool"], r["change"]) for r in result["rows"]]
 
 
+def _assert_constructor_namespace_limit(result):
+    assert result["comparison_status"] == "partial"
+    assert any("constructor identity is not established" in gap["reason"] for gap in result["head"]["coverage_gaps"])
+    assert result["rows"] and all(row["change"] == "not_established" for row in result["rows"])
+
+
+def _assert_added_candidate(result, agent, tool):
+    assert any(row["agent"] == agent and row["tool"] == tool
+               and row["candidate_change"] == "added" for row in result["rows"])
+
+
 @pytest.mark.parametrize(
     ("body", "agent"),
     [
@@ -50,6 +61,12 @@ def test_every_agent_construction_is_observed(repo, body, agent):
     base = commit(repo, {"agent.py": _agents(body.replace("TOOLS", "[quote]"))})
     head = commit(repo, {"agent.py": _agents(body.replace("TOOLS", "[quote, send_image]"))})
     result = run(repo, base, head)
+    if agent == "Held":
+        assert result["comparison_status"] == "partial"
+        assert any(item["name"] == agent for item in result["head"]["agents"])
+        assert _pairs(result) and all(row[2] == "not_established" for row in _pairs(result))
+        assert any("constructor identity is not established" in gap["reason"] for gap in result["head"]["coverage_gaps"])
+        return
     assert result["comparison_status"] == "compared"
     assert _pairs(result) == [(agent, "send_image", "added")]
 
@@ -98,11 +115,11 @@ def test_a_test_double_does_not_establish_the_application(repo):
     base = commit(
         repo,
         {
-            "bots/agents.py": _agents(real.replace("TOOLS", "[quote]")),
+            "bots/agents_def.py": _agents(real.replace("TOOLS", "[quote]")),
             "bots/tests/test_turn.py": double,
         },
     )
-    head = commit(repo, {"bots/agents.py": _agents(real.replace("TOOLS", "[quote, send_image]"))})
+    head = commit(repo, {"bots/agents_def.py": _agents(real.replace("TOOLS", "[quote, send_image]"))})
     result = run(repo, base, head, "--scope", ".")
     assert _pairs(result) == [("Wycena", "send_image", "added")]
     for side in ("base", "head"):
@@ -374,7 +391,7 @@ def test_dataclasses_replace_with_tools_is_a_named_limit(repo):
     assert any("agent copy at agent.py" in limit for limit in result["head"]["limits"])
 
 
-def test_a_copy_without_its_own_capabilities_is_not_a_limit(repo):
+def test_an_unused_literal_clone_preserves_the_original_membership_comparison(repo):
     """The SDK docs' `robot_agent = pirate_agent.clone(name=..., instructions=...)`."""
 
     body = (
@@ -384,11 +401,14 @@ def test_a_copy_without_its_own_capabilities_is_not_a_limit(repo):
     result = _compare(
         repo, body.replace("TOOLS", "[quote]"), body.replace("TOOLS", "[quote, send_image]")
     )
+    # #876 treats a name/instructions-only copy with an unused result as no
+    # explicit capability override. Its direct receiver still needs complete
+    # constructor/method/result ownership; other copy/escape tests pin refusal.
     assert result["comparison_status"] == "compared"
     assert _pairs(result) == [("pirate_agent", "send_image", "added")]
 
 
-def test_an_unused_subclass_does_not_downgrade_other_agents(repo):
+def test_unused_sdk_subclass_hooks_limit_constructor_identity(repo):
     body = (
         "class LoggingAgent(Agent):\n    pass\n"
         'triage = Agent(name="triage", tools=TOOLS)\n'
@@ -396,11 +416,12 @@ def test_an_unused_subclass_does_not_downgrade_other_agents(repo):
     result = _compare(
         repo, body.replace("TOOLS", "[quote]"), body.replace("TOOLS", "[quote, send_image]")
     )
-    assert result["comparison_status"] == "compared"
-    assert _pairs(result) == [("triage", "send_image", "added")]
+    _assert_constructor_namespace_limit(result)
+    _assert_added_candidate(result, "triage", "send_image")
+    assert any("unread class construction hook" in gap["reason"] for gap in result["head"]["coverage_gaps"])
 
 
-def test_an_instantiated_subclass_limits_only_its_own_agent(repo):
+def test_instantiated_sdk_subclass_hooks_also_limit_peer_constructor_identity(repo):
     body = (
         "class LoggingAgent(Agent):\n    pass\n"
         'logged = LoggingAgent(name="logged", tools=[quote])\n'
@@ -410,8 +431,9 @@ def test_an_instantiated_subclass_limits_only_its_own_agent(repo):
         repo, body.replace("TOOLS", "[quote]"), body.replace("TOOLS", "[quote, send_image]")
     )
     assert result["comparison_status"] == "partial"
-    assert _pairs(result) == [("triage", "send_image", "added")]
-    assert {g["agent"] for g in result["head"]["coverage_gaps"]} == {"logged"}
+    _assert_constructor_namespace_limit(result)
+    _assert_added_candidate(result, "triage", "send_image")
+    assert {"logged", "triage"} <= {g["agent"] for g in result["head"]["coverage_gaps"]}
 
 
 def test_text_output_names_the_test_files_it_did_not_read(repo):
@@ -641,12 +663,12 @@ def test_a_subclass_used_from_another_module_is_a_named_limit(repo):
     ],
     ids=["config-replace", "non-agent-clone", "same-named-local"],
 )
-def test_copies_and_changes_on_values_that_are_not_agents_are_not_limits(repo, noise):
+def test_namespace_classes_and_reflection_keep_a_named_constructor_limit(repo, noise):
     before = 'triage = Agent(name="Triage", tools=[quote])\n'
     after = 'triage = Agent(name="Triage", tools=[quote, send_image])\n' + noise
     result = _compare(repo, before, after)
-    assert result["comparison_status"] == "compared"
-    assert _pairs(result) == [("triage", "send_image", "added")]
+    _assert_constructor_namespace_limit(result)
+    assert any(row["agent"] == "triage" and row["tool"] == "send_image" for row in result["rows"])
 
 
 def test_two_builders_local_agent_variables_are_two_agents(repo):
@@ -712,10 +734,13 @@ def test_identical_constructions_of_one_identity_are_one_agent(repo):
     ],
     ids=["handle-only-read", "getattr-read"],
 )
-def test_reading_another_objects_tools_is_not_a_change(repo, helper):
+def test_nonreflective_tools_reads_are_bounded_and_reflection_stays_unread(repo, helper):
     before = 'main_agent = Agent(name="Main", tools=[quote])\n' + helper
     after = 'main_agent = Agent(name="Main", tools=[quote, send_image])\n' + helper
     result = _compare(repo, before, after)
+    if "getattr" in helper:
+        _assert_constructor_namespace_limit(result)
+        return
     assert result["comparison_status"] == "compared"
     assert _pairs(result) == [("main_agent", "send_image", "added")]
 
@@ -907,7 +932,7 @@ def test_a_same_stem_vendor_class_is_not_the_scopes_subclass(repo):
     assert not any("agent subclass" in limit for limit in result["head"]["limits"])
 
 
-def test_two_class_bodies_with_the_same_attribute_are_two_agents(repo):
+def test_class_body_agents_keep_distinct_candidate_identities(repo):
     body = (
         'class Billing:\n    agent = Agent(name="Billing", tools=[quote])\n'
         'class Support:\n    agent = Agent(name="Support", tools=SUPPORT)\n'
@@ -915,8 +940,9 @@ def test_two_class_bodies_with_the_same_attribute_are_two_agents(repo):
     result = _compare(
         repo, body.replace("SUPPORT", "[quote]"), body.replace("SUPPORT", "[quote, send_image]")
     )
-    assert result["comparison_status"] == "compared"
-    assert _pairs(result) == [("Support", "send_image", "added")]
+    _assert_constructor_namespace_limit(result)
+    _assert_added_candidate(result, "Support", "send_image")
+    assert {item["name"] for item in result["head"]["agents"]} == {"Billing", "Support"}
 
 
 def test_a_list_changed_through_one_agent_limits_every_agent_sharing_it(repo):
@@ -1047,18 +1073,19 @@ _UNUSED_HELPER = (
 )
 
 
-def test_an_adk_subclass_nothing_uses_is_not_a_limit(repo, tmp_path):
+def test_unused_adk_subclass_hooks_limit_constructor_identity(repo, tmp_path):
     # The unused class made the module `partial`, hid the root agent's true
     # row, and dropped `scan` to insufficient_evidence (#876 review).
     base = commit(repo, {"agent.py": _ADK + _UNUSED_HELPER.replace("TOOLS", "[lookup]")})
     head = commit(repo, {"agent.py": _ADK + _UNUSED_HELPER.replace("TOOLS", "[lookup, search]")})
     result = run(repo, base, head)
-    assert result["comparison_status"] == "compared", result["head"]["limits"]
-    assert _pairs(result) == [("root", "search", "added")]
+    _assert_constructor_namespace_limit(result)
+    _assert_added_candidate(result, "root", "search")
+    assert any("unread class construction hook" in gap["reason"] for gap in result["head"]["coverage_gaps"])
     scan_dir = tmp_path / "scan"
     scan_dir.mkdir()
     source = _ADK + _UNUSED_HELPER.replace("TOOLS", "[lookup, search]")
-    assert _scan_decision(scan_dir, source) == "passed"
+    assert _scan_decision(scan_dir, source) == "insufficient_evidence"
 
 
 @pytest.mark.parametrize(
@@ -1097,15 +1124,15 @@ def test_an_adk_subclass_the_module_uses_is_a_limit(repo, use, named):
     ]
 
 
-def test_an_unused_chain_of_adk_subclasses_is_not_a_limit(repo):
+def test_unused_adk_subclass_chains_keep_a_named_constructor_limit(repo):
     chain = "class Deeper(Helper):\n    pass\n"
     base = commit(repo, {"agent.py": _ADK + _UNUSED_HELPER.replace("TOOLS", "[lookup]") + chain})
     head = commit(
         repo, {"agent.py": _ADK + _UNUSED_HELPER.replace("TOOLS", "[lookup, search]") + chain}
     )
     result = run(repo, base, head)
-    assert result["comparison_status"] == "compared", result["head"]["limits"]
-    assert _pairs(result) == [("root", "search", "added")]
+    _assert_constructor_namespace_limit(result)
+    _assert_added_candidate(result, "root", "search")
 
 
 @pytest.mark.parametrize(
@@ -1137,7 +1164,7 @@ def test_an_adk_subclass_another_module_uses_is_a_limit_there(repo, wiring, name
         for g in result["head"]["coverage_gaps"]
     ), result["head"]["coverage_gaps"]
     # The defining module builds no instance of either class itself.
-    assert not any(g["source"] == "agent.py" for g in result["head"]["coverage_gaps"])
+    assert any(g["source"] == "agent.py" and "unread class construction hook" in g["reason"] for g in result["head"]["coverage_gaps"])
 
 
 _TWICE = (

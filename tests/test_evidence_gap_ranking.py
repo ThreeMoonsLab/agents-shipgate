@@ -164,6 +164,9 @@ def _write_adk_project(tmp_path: Path, *, bind_tool_identity: bool) -> Path:
     project = tmp_path / "adk-imported-tools"
     project.mkdir()
     imports = ",\n    ".join(sorted(_ADK_SYMBOLS))
+    (project / "tools.py").write_text(
+        "from external_tool_package import " + ", ".join(sorted(_ADK_SYMBOLS)) + "\n", encoding="utf-8",
+    )
     listed = ",\n        ".join(_ADK_SYMBOLS)
     (project / "agent.py").write_text(
         f"""
@@ -437,9 +440,9 @@ def test_imported_symbols_get_one_source_row_naming_the_inventory_repair(
     inventory wiring from the docs. The repair exists and is mechanical, so the
     decision engine states it.
 
-    Exactly ONE row states it. The six warnings are one mechanism restated per
-    symbol (``core.source_warnings``); attaching an action to each would put
-    raw loader prose back into the headline, which is what grouping removed.
+    One row states the inventory repair. The six unresolved-symbol warnings
+    are one mechanism; the imported-object constructor limit is a separate
+    obligation and keeps its own binding repair and warning.
     """
 
     decision = imported_symbols_report.release_decision
@@ -448,8 +451,15 @@ def test_imported_symbols_get_one_source_row_naming_the_inventory_repair(
     gaps = decision.evidence_coverage.evidence_gaps
 
     addressable = [gap for gap in gaps if gap.next_action.path]
-    assert len(addressable) == 1
-    (repair,) = addressable
+    assert len(addressable) == 2
+    [repair] = [gap for gap in addressable if gap.next_action.kind == "declare_tool_inventory"]
+    [ownership] = [gap for gap in addressable if gap.kind == "partial_binding_evidence"]
+    assert ownership.next_action.kind == "provide_source"
+    assert ownership.next_action.path == ownership.source_ref
+    assert ownership.next_action.path.endswith("agent.py:12")
+    assert not ownership.next_action.accepted_values
+    assert ownership.next_action.declaration_template is None
+    assert "constructor identity is not established" in ownership.why
     assert repair.kind == "incomplete_surface"
     assert repair.next_action.kind == "declare_tool_inventory"
     assert repair.next_action.path == "shipgate.yaml#google_adk.tool_inventories"
@@ -470,12 +480,14 @@ def test_imported_symbols_get_one_source_row_naming_the_inventory_repair(
 
     # The restatements stay inert: no path, no command, nothing to open.
     warnings = [gap for gap in gaps if gap.kind == "source_warning"]
-    assert len(warnings) == 6
+    assert len(warnings) == 7
+    assert sum("references unresolved tool" in gap.subject for gap in warnings) == 6
+    assert sum("constructor identity is not established" in gap.subject for gap in warnings) == 1
     assert not any(gap.next_action.path or gap.next_action.command for gap in warnings)
     assert {gap.next_action.kind for gap in warnings} == {"review_warning"}
 
     assert decision.reason.startswith("Insufficient evidence: ")
-    assert "shipgate.yaml#google_adk.tool_inventories" in decision.reason
+    assert ownership.next_action.path in decision.reason
 
 
 def test_reason_keeps_the_threshold_wording_when_no_gap_is_addressable():
@@ -1225,19 +1237,22 @@ def test_render_time_grouping_does_not_move_the_count_that_gates(
     assert decision is not None
     evidence = decision.evidence_coverage
 
-    assert len(imported_symbols_report.source_warnings) == 6
-    assert evidence.source_warning_count == 6
-    assert len(group_source_warnings(imported_symbols_report.source_warnings)) == 1
-    # The threshold still sees six, so the verdict is unchanged.
+    assert len(imported_symbols_report.source_warnings) == 7
+    assert evidence.source_warning_count == 7
+    groups = group_source_warnings(imported_symbols_report.source_warnings)
+    assert sorted(len(group.warnings) for group in groups) == [1, 6]
+    assert sum("constructor identity is not established" in group.message for group in groups) == 1
+    # The distinct constructor limit must not join the unresolved-symbol group.
     assert evidence_below_ie_threshold(evidence, tool_count=0)
     assert decision.decision == "insufficient_evidence"
 
     warning_bullets = _source_warning_bullets(
         render_markdown_report(imported_symbols_report)
     )
-    assert len(warning_bullets) == 1
-    assert "(6 warnings)" in warning_bullets[0]
-    assert "tool symbols" in warning_bullets[0]
+    assert len(warning_bullets) == 2
+    [symbols] = [line for line in warning_bullets if "tool symbols" in line]
+    assert "(6 warnings)" in symbols
+    assert any("constructor identity is not established" in line for line in warning_bullets)
 
 
 def _source_warning_bullets(markdown: str) -> list[str]:
@@ -1266,7 +1281,8 @@ def test_cli_summary_prints_both_the_raw_count_and_the_mechanism_count(
     _print_cli_summary(imported_symbols_report, "advisory", 0, verbose=True)
     console = capsys.readouterr().out
 
-    assert "Source warnings: 6 (1 distinct mechanism)" in console
+    assert "Source warnings: 7 (2 distinct mechanisms)" in console
+    assert "constructor identity is not established" in console
     assert console.count("references unresolved tool") == 0
     assert "(6 warnings)" in console
 
@@ -1278,8 +1294,9 @@ def test_fix_task_groups_source_warnings_before_capping(imported_symbols_report)
     warning_remedies = [
         line for line in remedies if line.startswith("Resolve source warning: ")
     ]
-    assert len(warning_remedies) == 1
-    assert "6 tool symbols" in warning_remedies[0]
+    assert len(warning_remedies) == 2
+    assert sum("6 tool symbols" in line for line in warning_remedies) == 1
+    assert sum("constructor identity is not established" in line for line in warning_remedies) == 1
 
 
 # --- the wrong lever gets a correction signal --------------------------------
@@ -1474,8 +1491,9 @@ def test_fix_task_still_treats_review_only_warnings_as_prose(
     warning_lines = [
         line for line in remedies if line.startswith("Resolve source warning: ")
     ]
-    assert len(warning_lines) == 1
-    assert "6 tool symbols" in warning_lines[0]
+    assert len(warning_lines) == 2
+    assert sum("6 tool symbols" in line for line in warning_lines) == 1
+    assert sum("constructor identity is not established" in line for line in warning_lines) == 1
 
 
 # --- the published contract matches the implementation -----------------------

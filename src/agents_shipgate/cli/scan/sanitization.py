@@ -15,6 +15,7 @@ from agents_shipgate.core.baseline import (
     baseline_resolved_fingerprints,
     verify_baseline,
 )
+from agents_shipgate.core.binding_comparison import binding_comparison_limits
 from agents_shipgate.core.domain import Agent, LoadedToolSource, SourceSurfaceOmission
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.findings.identity import assign_finding_ids
@@ -187,7 +188,11 @@ def _sanitize_for_output(
         stats=privacy_stats,
         path="binding_surface_facts",
     )
-    base_binding = diffs.diff_reference.binding_facts if diffs.diff_reference else None
+    raw_base_binding = diffs.diff_reference.binding_facts if diffs.diff_reference else None
+    base_binding = sanitize_model(
+        raw_base_binding, AgentBindingGraphAssessment, stats=privacy_stats,
+        path="binding_surface_diff.base.facts",
+    ) if raw_base_binding is not None else None
     verification = decision.context.verification
     # Asked for, by any route: a reference loaded cleanly, a reference was
     # supplied and failed to parse, or verify resolved a base ref and could not
@@ -202,7 +207,17 @@ def _sanitize_for_output(
         or diffs.diff_reference_error is not None
         or bool(verification is not None and verification.base_comparison_unavailable)
     )
-    if base_binding is None:
+    comparison_limits = binding_comparison_limits(public_binding_graph, base_binding)
+    if base_comparison_requested and comparison_limits:
+        public_binding_diff = BindingSurfaceDiff(
+            enabled=False,
+            base_comparison_requested=True,
+            base_report_schema_version=(
+                diffs.diff_reference.report_schema_version if diffs.diff_reference else None
+            ),
+            notes=comparison_limits,
+        )
+    elif base_binding is None:
         public_binding_diff = BindingSurfaceDiff(
             enabled=False,
             base_comparison_requested=base_comparison_requested,
@@ -402,6 +417,7 @@ def _sanitize_for_output(
         public_manifest=public_manifest,
         public_tools=public_tools,
         public_findings=public_findings,
+        public_binding_graph=public_binding_graph,
         public_api_artifacts=public_api_artifacts,
         public_anthropic_artifacts=public_anthropic_artifacts,
         public_diff_reference=public_diff_reference,
@@ -616,6 +632,7 @@ def _public_tool_surfaces(
     public_manifest: AgentsShipgateManifest,
     public_tools: list,
     public_findings: list,
+    public_binding_graph: AgentBindingGraphAssessment,
     public_api_artifacts: OpenAIApiArtifacts | None,
     public_anthropic_artifacts: AnthropicArtifacts | None,
     public_diff_reference,
@@ -682,6 +699,7 @@ def _public_tool_surfaces(
             public_diff_reference.facts if public_diff_reference else None,
             public_findings,
             reference=public_diff_reference,
+            head_binding_facts=public_binding_graph,
         )
     public_tool_surface_diff.operation_comparisons = compare_operations(public_operations, operation_base)
     # One canonical per-finding statement over both comparison lists, built
