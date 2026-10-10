@@ -54,6 +54,7 @@
   "tests/test_anthropic_api.py": 0.4,
   "tests/test_application_diff.py": 61.0,
   "tests/test_application_diff_identity.py": 22.6,
+  "tests/test_application_diff_list_candidates.py": 7.4,
   "tests/test_application_diff_reach.py": 66.6,
   "tests/test_application_diff_review.py": 48.8,
   "tests/test_application_diff_tool_reach.py": 87.8,
@@ -434,5 +435,18 @@
   "report_sha256": "a523a72643fd5daf9a09b7ca0efc6c36a5218b9890a53f7f428f655b04dcb0ab",
   "source": "junit",
   "time_basis": "JUnit testcase time; phase accounting is selected by the runner"
- }
+ },
+ "supplemental_measurements": [
+  {
+   "source": "junit",
+   "measured_at": "095c5e59724d with independent review condition fix",
+   "report_sha256": "10c16e790505b92605aac0f3149c242b2bbabd8049af3bfcc37c4ef172458bf2",
+   "files": {
+    "tests/test_application_diff_list_candidates.py": 7.4
+   },
+   "case_count": 13,
+   "command": "python -m pytest tests/test_application_diff_list_candidates.py -n 4 --junitxml=candidates-timing.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  }
+ ]
 }
