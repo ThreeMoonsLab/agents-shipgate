@@ -3,7 +3,7 @@ from __future__ import annotations
 import ast
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any, ClassVar, Literal
 
@@ -498,6 +498,12 @@ def _extract_agent_bindings(
                 tool_list_candidates(tools_expr, module, imports.resolver)
                 if listed.unresolved and constructor_issue is not None else ()
             )
+            if context.invocation is not None:
+                for condition in context.invocation.conditions:
+                    candidates = tuple(
+                        replace(member, conditions=tuple(dict.fromkeys((condition, *member.conditions))))
+                        for member in candidates
+                    )
             resolved_nodes = {id(member.expr) for member in listed.members}
             candidates = tuple(member for member in candidates if id(member.expr) not in resolved_nodes)
             candidate_nodes = {id(member.expr) for member in candidates}

@@ -42,6 +42,25 @@ def test_unread_list_initializers_keep_changed_tool_candidates(tmp_path, shape):
     assert any("constructor identity is not established" in limit for limit in result["head"]["limits"])
 
 
+def test_recovered_candidates_keep_caller_and_initializer_conditions(tmp_path):
+    _git(tmp_path, "init", "-q", "-b", "main")
+    files = {
+        "agent.py": "from agents import Agent\nfrom tools import BASE\ndef build(handoffs):\n    return Agent(name='Finance', tools=[*BASE] if available else [], handoffs=handoffs)\n",
+        "caller.py": "from agent import build\nfrom transport import publish\nif enabled:\n    publish(build([]))\n",
+        "tools.py": TOOLS,
+    }
+    base = _commit(tmp_path, files)
+    head = _commit(tmp_path, {"caller.py": files["caller.py"].replace("enabled", "restricted")})
+    result = _compare(tmp_path, base, head)
+
+    (row,) = [row for row in result["rows"] if row["tool"] == "read"]
+    assert row["change"] == "not_established"
+    assert row["candidate_change"] == "changed"
+    assert row["before"]["bound_when"] == ["the caller's condition `enabled` holds and `available`"]
+    assert row["after"]["bound_when"] == ["the caller's condition `restricted` holds and `available`"]
+    assert row["uncertainty"]
+
+
 def test_mutating_a_literal_list_does_not_grant_an_established_candidate(tmp_path):
     _git(tmp_path, "init", "-q", "-b", "main")
     files = {
