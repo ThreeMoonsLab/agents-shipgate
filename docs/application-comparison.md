@@ -648,8 +648,8 @@ for `tools=NAME` above; no change through an agent built with it
 module the import passes through or a package above the list's module, which
 run first. A change made from a module the import never passes through is not
 looked for. Anything else is named where it is, on the agent it belongs to,
-with why — a call (`get_tools()`), a parameter of the builder (its value comes
-from a caller), `self.tools`, a comprehension that builds new elements, a name
+with why — a call (`get_tools()`), a parameter whose closed caller set is not
+established, `self.tools`, a comprehension that builds new elements, a name
 bound twice or changed in place, nesting deeper than 16 levels, or more than
 1,000 members:
 
@@ -668,6 +668,21 @@ an agent this module builds is not taken for that agent. Nothing is imported or
 run. A Google ADK `tools=` or `sub_agents=` list that came through a name, or
 from another module, is not counted by `scan` as a proven surface, because
 another module could change it; a literal spread into a literal is.
+
+Caller arguments can reach a module-level builder's construction inside
+`if` or `else`. The row carries both the caller's condition and the
+construction's condition as source text. A statically unreachable branch,
+loop, handler, nested builder or method remains a named limit. Calls from
+different sites retain their own lists and construction locations; no
+condition is evaluated as a runtime result.
+
+A capability field of an already identified agent (`base.tools`, SDK
+`base.handoffs`, or ADK `base.sub_agents`) can provide another construction's
+list. The reader uses the existing strict instance, constructor and retained
+handle proofs before following the original constructor argument. A changed
+field or an escaping handle is refused. An ordinary object's field, an
+unknown custom instance's `self.tools`, and template-method overrides remain
+named limits. This step does not expand a base class once per subclass.
 
 A member held only under a condition carries it on its row's side as
 `bound_when`, one entry per way it gets in, each built from the conditions'

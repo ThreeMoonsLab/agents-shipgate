@@ -1239,8 +1239,8 @@ class ListExpressions:
         self._agent_reads = agent_reads
         self._module_agent_reads = module_agent_reads
         self._checking_constructor_namespaces = False
-        self._checking_handle_owners: set[tuple[int, int, str, bool, bool]] = set()
-        self._constructor_owner_results: dict[tuple[int, int, str, bool, bool], bool] = {}
+        self._checking_handle_owners: set[tuple[int, int, str, bool, bool, bool]] = set()
+        self._constructor_owner_results: dict[tuple[int, int, str, bool, bool, bool], bool] = {}
         self._constructor_container_results: dict[tuple[int, int, bool | None], bool] = {}
         self._checking_container_owners: set[tuple[int, int, bool | None]] = set()
         self._constructor_owner_work = 0
@@ -1939,9 +1939,9 @@ class ListExpressions:
 
     def _agent_result_changed(
         self, view: _View, call: ast.Call, keyword: str, *, borrowed: bool = False,
-        strict_container: bool = False,
+        strict_container: bool = False, initial_field: bool = False,
     ) -> bool:
-        key = (id(view.tree), id(call), keyword, borrowed, strict_container)
+        key = (id(view.tree), id(call), keyword, borrowed, strict_container, initial_field)
         if key in self._checking_handle_owners or len(self._checking_handle_owners) >= 128:
             if self._checking_constructor_namespaces:
                 self.constructor_namespace_issue = "recursive constructor-handle ownership or more than 128 retained edges"
@@ -1956,7 +1956,7 @@ class ListExpressions:
         self._checking_handle_owners.add(key)
         try:
             result = self._agent_result_changed_inner(view, call, keyword, borrowed=borrowed,
-                                                     strict_container=strict_container)
+                                                     strict_container=strict_container, initial_field=initial_field)
             if self._checking_constructor_namespaces:
                 self._constructor_owner_results[key] = result
             return result
@@ -1965,7 +1965,7 @@ class ListExpressions:
 
     def _agent_result_changed_inner(
         self, view: _View, call: ast.Call, keyword: str, *, borrowed: bool = False,
-        strict_container: bool = False,
+        strict_container: bool = False, initial_field: bool = False,
     ) -> bool:
         """Follow returned builder handles before proving a borrowed list read-only."""
         if self._reflection(view) is not None:
@@ -1983,7 +1983,7 @@ class ListExpressions:
                 and self._imported_members_owned(
                     view, call,
                     lambda foreign, subject: isinstance(subject, ast.Name) and not self._handle_use_changed(
-                        foreign, subject, keyword, borrowed=borrowed, strict_container=True,
+                        foreign, subject, keyword, borrowed=borrowed, strict_container=True, initial_field=initial_field,
                     ),
                     carriers=keyword != "instance_data",
                     require_use=keyword == "__class__",
@@ -2005,7 +2005,7 @@ class ListExpressions:
                 return self._constructor_limit(census.limits) or any(
                     self._agent_result_changed(
                         self._foreign(site.module), site.call, keyword, borrowed=borrowed,
-                        strict_container=strict_container,
+                        strict_container=strict_container, initial_field=initial_field,
                     )
                     for site in census.sites
                 )
@@ -2044,13 +2044,13 @@ class ListExpressions:
             ):
                 continue
             if self._handle_use_changed(
-                view, node, keyword, borrowed=borrowed, strict_container=strict_container,
+                view, node, keyword, borrowed=borrowed, strict_container=strict_container, initial_field=initial_field,
             ):
                 return True
         return False
 
     def _handle_use_changed(
-        self, view: _View, node: ast.Name, keyword: str, *, borrowed: bool, strict_container: bool,
+        self, view: _View, node: ast.Name, keyword: str, *, borrowed: bool, strict_container: bool, initial_field: bool = False,
     ) -> bool:
         """Whether one load of a constructed handle may change or hand it on."""
         if (self._checking_constructor_namespaces and self._resolver is not None
@@ -2059,7 +2059,7 @@ class ListExpressions:
             return False  # This exact operand loads the function before wrapping it.
         use = view.scopes.parents.get(node)
         if (keyword in {"__class__", *CAPABILITY_FIELDS} and strict_container
-                and self._checking_constructor_namespaces
+                and self._checking_constructor_namespaces and not initial_field
                 and self._agent_copy_receiver_read(view, node, keyword)):
             return False
         if isinstance(use, ast.Return):
@@ -2078,7 +2078,7 @@ class ListExpressions:
                 if self._constructor_limit(census.limits) or any(
                     self._agent_result_changed(
                         self._foreign(site.module), site.call, keyword, borrowed=borrowed,
-                        strict_container=strict_container,
+                        strict_container=strict_container, initial_field=initial_field,
                     )
                     for site in census.sites
                 ):
@@ -2115,6 +2115,8 @@ class ListExpressions:
                 # edges; their namespace use must remain proved separately.
                 return False
             if use.attr == keyword:
+                if initial_field and not isinstance(use.ctx, ast.Load):
+                    return True  # Reading a constructor value requires the field to remain unchanged.
                 if isinstance(view.scopes.parents.get(use), ast.AugAssign):
                     return True
                 if (strict_container and self._checking_constructor_namespaces
@@ -2143,7 +2145,7 @@ class ListExpressions:
             return True
         elif isinstance(use, ast.Assign | ast.AnnAssign | ast.NamedExpr):
             if (strict_container and self._checking_constructor_namespaces
-                    and keyword in {"__class__", *CAPABILITY_FIELDS}
+                    and keyword in {"__class__", *CAPABILITY_FIELDS} and not initial_field
                     and self._direct_alias_stores_owned(view, node)):
                 return False
             # An alias can subsequently reach the same mutable list.
@@ -3047,11 +3049,13 @@ class ListExpressions:
 
     def _member_agent_field(
         self, view: _View, call: ast.Call, field: str, invocation: Invocation | None,
-        depth: int, seen: frozenset[int],
+        depth: int, seen: frozenset[int], *, initial_field: bool = False,
     ) -> tuple[_View, ast.expr, Invocation | None] | None:
         if depth > 4 or view.module is None or self.calls is None:
             return None
         if self._reads_agent(view, call, field):
+            if initial_field and self._agent_result_changed(view, call, field, strict_container=True, initial_field=True):
+                return None
             values = [keyword.value for keyword in call.keywords if keyword.arg == field]
             return (view, values[0], invocation) if len(values) == 1 else None
         from agents_shipgate.inputs.builder_calls import CallLimit, CallSite, single_return
@@ -3072,7 +3076,9 @@ class ListExpressions:
             returned = getattr(bindings[0][1], "value", None) if len(bindings) == 1 else None
         if not isinstance(returned, ast.Call) or id(returned) in seen:
             return None
-        return self._member_agent_field(foreign, returned, field, context, depth + 1, seen | {id(returned)})
+        return self._member_agent_field(
+            foreign, returned, field, context, depth + 1, seen | {id(returned)}, initial_field=initial_field,
+        )
 
     def _member_receiver_owned(self, view: _View, receiver: ast.expr) -> bool:
         key = (id(view.tree), id(receiver))
@@ -3888,6 +3894,27 @@ class ListExpressions:
         return None
 
     def _attribute(self, node: ast.Attribute, view: _View, depth: int, seen: frozenset) -> ListResolution:
+        if node.attr in CAPABILITY_FIELDS and isinstance(node.value, ast.Name) and self._member_receiver_owned(view, node):
+            lookup = view.lookup or bindings_at(view.scopes, view.bindings)
+            bindings = lookup(node.value.id, node.value)
+            call = getattr(bindings[0][1], "value", None) if len(bindings) == 1 else None
+            if isinstance(call, ast.Call) and not self._agent_result_changed(
+                view, call, node.attr, strict_container=True, initial_field=True,
+            ):
+                field = self._member_agent_field(
+                    view, call, node.attr, self._invocation, depth, frozenset(), initial_field=True,
+                )
+                if field is not None:
+                    home, expression, invocation = field
+                    previous, self._invocation = self._invocation, invocation
+                    try:
+                        result = self._resolve(expression, home, depth + 1, seen | {(id(view.tree), id(node))})
+                    finally:
+                        self._invocation = previous
+                    if invocation is not None:
+                        for condition in invocation.conditions:
+                            result = result.under(condition)
+                    return result
         spelling = reference_spelling(node)
         root = node
         while isinstance(root, ast.Attribute):

@@ -11,7 +11,7 @@ import ast
 import re
 import stat
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from agents_shipgate.core.errors import InputParseError
@@ -758,11 +758,21 @@ class BuilderCalls:
                 ),
             )
         current = self.scopes(module).parents.get(construction)
+        child: ast.AST = construction
+        conditions: list[str] = []
         while current is not None and current is not function:
-            if isinstance(
+            if isinstance(current, ast.If):
+                positive = child in current.body
+                if child not in (*current.body, *current.orelse):
+                    return (ConstructionContext(limits=("a construction in a condition test is not followed through caller arguments",)),)
+                if isinstance(current.test, ast.Constant):
+                    if bool(current.test.value) != positive:
+                        return (ConstructionContext(limits=("the construction lies in a statically unreachable branch",)),)
+                else:
+                    conditions.append(f"the construction's {'condition' if positive else 'negated condition'} `{ast.unparse(current.test)}` holds")
+            elif isinstance(
                 current,
-                ast.If
-                | ast.For
+                ast.For
                 | ast.AsyncFor
                 | ast.While
                 | ast.Try
@@ -774,10 +784,11 @@ class BuilderCalls:
                 return (
                     ConstructionContext(
                         limits=(
-                            "a conditional, loop or handler construction is not followed through caller arguments",
+                            "a loop or handler construction is not followed through caller arguments",
                         )
                     ),
                 )
+            child = current
             current = self.scopes(module).parents.get(current)
         owned = {
             argument.arg
@@ -793,7 +804,14 @@ class BuilderCalls:
                     limits=("capability parameters belong to another enclosing function",)
                 ),
             )
-        return self._expand(module, function, parameters, frozenset())
+        contexts = self._expand(module, function, parameters, frozenset())
+        return tuple(
+            replace(context, invocation=replace(
+                context.invocation,
+                conditions=tuple(dict.fromkeys((*conditions, *context.invocation.conditions))),
+            )) if context.invocation is not None else context
+            for context in contexts
+        )
 
     def dynamic_importer(self, module: PythonModule) -> ast.AST | None:
         """Include aliases and retained import machinery in the unread route."""
