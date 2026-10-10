@@ -49,6 +49,7 @@ from agents_shipgate.core.semantic_assessment import (
     assess_tool_semantics,
 )
 from agents_shipgate.core.verification_identity import build_engine_requirement
+from agents_shipgate.inputs.agent_construction_identity import source_construction_label
 from agents_shipgate.inputs.google_adk import adk_agent_subclasses, load_google_adk_artifacts
 from agents_shipgate.inputs.object_tools import object_display, reading_object_bindings
 from agents_shipgate.inputs.openai_sdk_static import (
@@ -58,6 +59,7 @@ from agents_shipgate.inputs.openai_sdk_static import (
 from agents_shipgate.inputs.python_imports import (
     ImportResolver,
     RepositoryLayout,
+    ScopeIndex,
     repository_layout,
 )
 from agents_shipgate.inputs.tool_effects import CLAIM_EFFECTS
@@ -89,6 +91,8 @@ class Observations:
     agents: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
     # Agents known only as a handoff target: their own construction was not read.
     handoff_only: set[tuple[str, str]] = field(default_factory=set)
+    #: Internal source labels, used only to refuse ambiguous identity matching.
+    identity_fallbacks: set[tuple[str, str]] = field(default_factory=set)
     bindings: dict[tuple[str, str, str], dict[str, Any]] = field(default_factory=dict)
     limits: list[str] = field(default_factory=list)
     sources: list[dict[str, str]] = field(default_factory=list)
@@ -838,6 +842,8 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
         for observation in item.binding_observations:
             path = _source_path(root, observation.source)
             constructed.add((path, observation.agent))
+            if observation.source_identity_fallback:
+                result.identity_fallbacks.add((path, observation.agent))
             handoff_targets.update((path, name) for name in observation.handoff_names)
             if not observation.tools_complete or not observation.handoffs_complete:
                 for message in observation.issues or ["Incomplete observed binding list."]:
@@ -1316,22 +1322,54 @@ def compare(
     base: Observations, head: Observations, *, target_moves: dict[str, str] | None = None
 ) -> list[dict[str, Any]]:
     rows = []
+    moves = target_moves or {}
+    old_agents = {(moves.get(path, path), name) for path, name in base.agents}
+    new_agents = set(head.agents)
+    lost, gained = old_agents - new_agents, new_agents - old_agents
+    old_fallbacks = {(moves.get(path, path), name): name.removesuffix(f"@{path}") for path, name in base.identity_fallbacks}
+    new_fallbacks = {key: key[1].removesuffix(f"@{key[0]}") for key in head.identity_fallbacks}
+    ambiguous_sources = (
+        {path for path, _ in lost} & {path for path, _ in gained}
+        & {path for path, name in (lost | gained) & (old_fallbacks.keys() | new_fallbacks.keys())}
+    )
+    # The same qualified source site at two unpaired paths may be a file move
+    # with edits. This establishes ambiguity, never agent correspondence.
+    old_qualifiers = {old_fallbacks[key] for key in lost & old_fallbacks.keys()}
+    new_qualifiers = {new_fallbacks[key] for key in gained & new_fallbacks.keys()}
+    moved_qualifiers = old_qualifiers & new_qualifiers
+    ambiguous_old = {key for key in lost if key[0] in ambiguous_sources or old_fallbacks.get(key) in moved_qualifiers}
+    ambiguous_new = {key for key in gained if key[0] in ambiguous_sources or new_fallbacks.get(key) in moved_qualifiers}
+    identity_reason = "Agent source identity changed; correspondence between the constructions is not established."
+    reverse_moves = {after: before for before, after in moves.items()}
+    for path in sorted({key[0] for key in ambiguous_old}):
+        base.gap(identity_reason, source=reverse_moves.get(path, path), affects="identity_correspondence")
+    for path in sorted({key[0] for key in ambiguous_new}):
+        head.gap(identity_reason, source=path, affects="identity_correspondence")
     for key in sorted(base.bindings.keys() | head.bindings.keys()):
         before, after = base.bindings.get(key), head.bindings.get(key)
         uncertainty = {}
         kind = "added" if before is None else "removed" if after is None else "changed"
+        if (before is None and key[:2] in ambiguous_new) or (after is None and key[:2] in ambiguous_old):
+            uncertainty["base" if before is None else "head"] = [identity_reason]
+        # A renamed target does not prove a new or removed handoff from an
+        # otherwise unchanged source agent either.
+        for value, unmatched, missing_side in ((after, ambiguous_new, "base"), (before, ambiguous_old, "head")):
+            if value is not None and "target_source" in value:
+                target = (moves.get(value["target_source"], value["target_source"]), value["tool"])
+                if target in unmatched:
+                    uncertainty.setdefault(missing_side, []).append(identity_reason)
         only_condition = False
         if before is None:
             reasons = base.absence_gaps(key, target_moves)
             if reasons:
-                uncertainty["base"] = reasons
+                uncertainty.setdefault("base", []).extend(reasons)
             present = head.tool_gaps(key)
             if present:
                 uncertainty["head"] = present
         elif after is None:
             reasons = head.absence_gaps(key)
             if reasons:
-                uncertainty["head"] = reasons
+                uncertainty.setdefault("head", []).extend(reasons)
             present = base.tool_gaps(key)
             if present:
                 uncertainty["base"] = present
@@ -1351,8 +1389,8 @@ def compare(
             if only_condition:
                 # A part of the list that was not read may hold the tool some
                 # other way, so the condition is not established either.
-                for side, observed, moves in (("base", base, target_moves), ("head", head, None)):
-                    reasons = observed.absence_gaps(key, moves)
+                for side, observed, side_moves in (("base", base, target_moves), ("head", head, None)):
+                    reasons = observed.absence_gaps(key, side_moves)
                     if reasons:
                         uncertainty.setdefault(side, []).extend(reasons)
             if before_meaning != _meaning(after):
@@ -1489,7 +1527,7 @@ def _align_exact_moves(
     ]
 
 
-def _still_named_at(root: Path, path: str, name: str) -> int | None:
+def _still_named_at(root: Path, path: str, name: str, *, source_label_path: str | None = None) -> int | None:
     """First line at which ``path`` still binds ``name`` or passes ``name=name``.
 
     Those are the two agent identities the readers key on: the SDK's bound
@@ -1521,6 +1559,13 @@ def _still_named_at(root: Path, path: str, name: str) -> int | None:
         and isinstance(node.value, ast.Constant)
         and node.value.value == name
     ]
+    if source_label_path is not None:
+        scopes = ScopeIndex(tree)
+        lines.extend(
+            node.lineno for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and source_construction_label(node, scopes, source_label_path) == name
+        )
     return min(lines, default=None)
 
 
@@ -1540,12 +1585,14 @@ def _unobserved_agent_gaps(
     old_agents = {
         (moves.get(path, path), name) for path, name in old.agents.keys() - old.handoff_only
     }
-    for side, root, agents, bindings, to_side in (
-        (new, head_root, new.agents.keys() - new.handoff_only, old.bindings, lambda path: path),
-        (old, base_root, old_agents, new.bindings, lambda path: unmoves.get(path, path)),
+    old_fallbacks = {(moves.get(path, path), name): path for path, name in old.identity_fallbacks}
+    new_fallbacks = {key: key[0] for key in new.identity_fallbacks}
+    for side, root, agents, bindings, to_side, source_labels in (
+        (new, head_root, new.agents.keys() - new.handoff_only, old.bindings, lambda path: path, old_fallbacks),
+        (old, base_root, old_agents, new.bindings, lambda path: unmoves.get(path, path), new_fallbacks),
     ):
         for path, name in sorted({key[:2] for key in bindings} - agents):
-            line = _still_named_at(root, to_side(path), name)
+            line = _still_named_at(root, to_side(path), name, source_label_path=source_labels.get((path, name)))
             if line is not None:
                 side.gap(
                     f"{to_side(path)}:{line} still names agent {name!r}, but no supported "

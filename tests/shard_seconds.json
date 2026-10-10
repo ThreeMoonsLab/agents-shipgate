@@ -427,7 +427,8 @@
   "tests/test_workflow_step_action_references.py": 38.9,
   "tests/test_workspace_input_guard.py": 0.3,
   "tests/test_zero_install_detector.py": 34.3,
-  "tests/test_action_application.py": 43.7
+  "tests/test_action_application.py": 43.7,
+  "tests/test_application_source_identity.py": 20.7
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -458,6 +459,17 @@
    },
    "case_count": 19,
    "command": "python -m pytest tests/test_action_application.py tests/test_action_comment_fallback.py tests/test_action_metadata.py -n 4 --junitxml=action-timing.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "68517566bd0e with issue #912 source-identity increment",
+   "report_sha256": "d1ce55e33993baf8d30700c8aeb64514969e1306d0e99f8a637dba1850577e46",
+   "files": {
+    "tests/test_application_source_identity.py": 20.7
+   },
+   "case_count": 17,
+   "command": "python -m pytest tests/test_application_source_identity.py tests/test_application_diff_review.py -n 4 --junitxml=source-identity.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]
