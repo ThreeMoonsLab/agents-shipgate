@@ -178,6 +178,53 @@ def test_import_at_clone_site_is_not_a_deletion(tmp_path, named, replacement):
 
 
 @pytest.mark.parametrize("named", [False, True])
+@pytest.mark.parametrize("replacement", ["copy = provided_agent", "from provider import agent as copy"])
+def test_global_replacement_at_clone_site_is_not_a_deletion(tmp_path, named, replacement):
+    _git(tmp_path, "init", "-q", "-b", "main")
+    base = _commit(tmp_path, fixture("copy = source.clone(" + ("name='Copy'" if named else "") + ")"))
+    head = _commit(tmp_path, fixture("def update():\n    global copy\n    " + replacement + "\nupdate()"))
+    result = _compare(tmp_path, base, head, "--scope", ".")
+    copy_rows = [row for row in result["rows"] if row["agent"] == "Copy" or "clone at" in row["agent"]]
+    assert len(copy_rows) == 2
+    assert all(row["change"] == "not_established" for row in copy_rows)
+
+
+@pytest.mark.parametrize("named", [False, True])
+def test_unrelated_local_replacement_does_not_hide_clone_deletion(tmp_path, named):
+    _git(tmp_path, "init", "-q", "-b", "main")
+    base = _commit(tmp_path, fixture("copy = source.clone(" + ("name='Copy'" if named else "") + ")"))
+    head = _commit(tmp_path, fixture("def update():\n    copy = provided_agent\nupdate()"))
+    result = _compare(tmp_path, base, head, "--scope", ".")
+    assert result["comparison_status"] == "compared"
+    assert len(result["rows"]) == 2
+    assert all(row["change"] == "removed" for row in result["rows"])
+
+
+@pytest.mark.parametrize("named", [False, True])
+def test_global_clone_construction_keeps_its_syntax_label_for_uncertain_absence(tmp_path, named):
+    _git(tmp_path, "init", "-q", "-b", "main")
+    before = "def update():\n    global copy\n    copy = source.clone(" + ("name='Copy'" if named else "") + ")\nupdate()"
+    base = _commit(tmp_path, fixture(before))
+    head = _commit(tmp_path, fixture("def update():\n    global copy\n    copy = other = provided_agent\nupdate()"))
+    result = _compare(tmp_path, base, head, "--scope", ".")
+    copy_rows = [row for row in result["rows"] if row["agent"] == "Copy" or "clone at" in row["agent"]]
+    assert len(copy_rows) == 2
+    assert all(row["change"] == "not_established" for row in copy_rows)
+
+
+@pytest.mark.parametrize("declaration,expected", [("global copy", "copy@agent.py"), ("nonlocal copy", "outer.copy@agent.py"), ("", "outer.update.copy@agent.py")])
+def test_absence_label_uses_the_declared_binding_scope(declaration, expected):
+    import ast
+
+    from agents_shipgate.inputs.agent_construction_identity import source_binding_labels
+    from agents_shipgate.inputs.python_imports import ScopeIndex
+
+    tree = ast.parse("def outer():\n    copy = first\n    def update():\n        " + (declaration + "\n        " if declaration else "") + "copy = provided_agent\n")
+    target = next(node for node in ast.walk(tree) if isinstance(node, ast.Assign) and isinstance(node.value, ast.Name) and node.value.id == "provided_agent").targets[0]
+    assert source_binding_labels(target, ScopeIndex(tree), "agent.py") == {expected, "outer.update.copy@agent.py"}
+
+
+@pytest.mark.parametrize("named", [False, True])
 def test_deleting_clone_site_removes_its_bindings(tmp_path, named):
     _git(tmp_path, "init", "-q", "-b", "main")
     base = _commit(tmp_path, fixture("copy = source.clone(" + ("name='Copy'" if named else "") + ")"))

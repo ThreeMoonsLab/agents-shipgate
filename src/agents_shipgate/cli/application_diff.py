@@ -50,7 +50,7 @@ from agents_shipgate.core.semantic_assessment import (
 )
 from agents_shipgate.core.verification_identity import build_engine_requirement
 from agents_shipgate.inputs.agent_construction_identity import (
-    source_binding_label,
+    source_binding_labels,
     source_construction_label,
 )
 from agents_shipgate.inputs.google_adk import adk_agent_subclasses, load_google_adk_artifacts
@@ -1605,7 +1605,7 @@ def _still_named_at(
             if (isinstance(node, ast.alias) or (
                 isinstance(node, ast.Name | ast.Attribute) and isinstance(node.ctx, ast.Store)
             ))
-            and source_binding_label(node, scopes, source_label_path) in (construction_labels or {name})
+            and source_binding_labels(node, scopes, source_label_path) & (construction_labels or {name})
         )
         lines.extend(
             node.lineno for node in ast.walk(tree)
