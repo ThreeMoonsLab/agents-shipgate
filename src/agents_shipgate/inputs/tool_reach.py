@@ -38,7 +38,7 @@ import string
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, TypeGuard
 from urllib.parse import urlsplit
 
 from agents_shipgate.core.privacy import (
@@ -2037,11 +2037,45 @@ class _Reach:
             words, position = ("name", "key", "channel"), 0
         elif handle.library == "slack_sdk" and handle.role == "client":
             words = ("channel",)
+        elif handle.library == "google.cloud.aiplatform_v1beta1" and handle.role == "memory_bank":
+            if effect_tables.method_rule(handle.library, handle.role, method) not in {"read", "write"}:
+                return None
+            return self._memory_bank_target(arguments, frame, method)
         for word in words:
             node = arguments.take(position, word)
             if node is not None:
                 return self.value(node, frame)
         return None
+
+    def _memory_bank_target(self, arguments: _Arguments, frame: _Frame, method: str) -> Any:
+        """A resource field supplied directly, never a mutable request alias."""
+        call = arguments.call
+        word = "memory" if method == "update_memory" else "name" if method in {"get_memory", "delete_memory"} else "parent"
+        keys = [item.arg for item in call.keywords]
+        direct = arguments.take(None, word)
+        request = arguments.take(0, "request")
+        flattened = {"parent", "name", "memory", "memory_id", "update_mask"}
+        if (
+            arguments.spread or len(call.args) > 1 or len(keys) != len(set(keys))
+            or (call.args and "request" in keys)
+            or (request is not None and flattened & set(keys))
+        ):
+            self.limit(frame, call, "Memory Bank request arguments conflict or are unpacked; its resource target is not read")
+            return None
+        if request is not None:
+            if not _inline_record(request):
+                self.limit(frame, call, "the Memory Bank request is not an inline closed dictionary; its resource target is not read")
+                return None
+            direct = _inline_record_field(request, word)
+        if method == "update_memory" and direct is not None:
+            if not _inline_record(direct):
+                self.limit(frame, call, "the Memory Bank memory is not an inline closed dictionary; its resource target is not read")
+                return None
+            direct = _inline_record_field(direct, "name")
+        if direct is not None and not (isinstance(direct, ast.Constant) and isinstance(direct.value, str)):
+            self.limit(frame, call, "the Memory Bank resource is not a literal string; its target is not read")
+            return None
+        return self.value(direct, frame) if direct is not None else None
 
     def record_effect(
         self,
@@ -3307,6 +3341,7 @@ class _Arguments:
     """A call's arguments, taken by position or keyword at most once each."""
 
     def __init__(self, call: ast.Call) -> None:
+        self.call = call
         self.positional = [arg for arg in call.args if not isinstance(arg, ast.Starred)]
         self.keywords = {keyword.arg: keyword.value for keyword in call.keywords if keyword.arg}
         self.spread = len(self.positional) != len(call.args) or any(
@@ -3322,6 +3357,17 @@ class _Arguments:
 
 
 # -- effects beyond HTTP: values (#913) ------------------------------------------
+
+def _inline_record(node: ast.expr) -> TypeGuard[ast.Dict]:
+    return isinstance(node, ast.Dict) and all(
+        isinstance(key, ast.Constant) and isinstance(key.value, str) for key in node.keys
+    )
+
+
+def _inline_record_field(node: ast.Dict, name: str) -> ast.expr | None:
+    # As in Python's dictionary construction, the last literal key wins.
+    return next((value for key, value in reversed(list(zip(node.keys, node.values, strict=True)))
+                 if isinstance(key, ast.Constant) and key.value == name), None)
 
 #: Libraries whose effects hand back plain data (a reply, a value).
 _PLAIN_RESULTS = frozenset({"redis", "smtplib", "slack_sdk", "twilio"})

@@ -118,6 +118,11 @@ CONSTRUCTORS: dict[str, Kind] = {
     ),
     **_kinds("cloud", "vertexai", "client", "memory_bank", "vertexai.Client"),
     **_kinds(
+        "cloud", "google.cloud.aiplatform_v1beta1", "memory_bank", "memory_bank",
+        "google.cloud.aiplatform_v1beta1.MemoryBankServiceClient",
+        "google.cloud.aiplatform_v1beta1.services.memory_bank_service.MemoryBankServiceClient",
+    ),
+    **_kinds(
         "cloud", "google.adk", "memory_bank", "memory_bank",
         "google.adk.memory.VertexAiMemoryBankService",
         "google.adk.memory.vertex_ai_memory_bank_service.VertexAiMemoryBankService",
@@ -580,6 +585,11 @@ _METHODS: dict[tuple[str, str], dict[str, Rule]] = {
     ("google.cloud.bigquery", "client"): _BIGQUERY_CLIENT,
     ("vertexai", "agent_engines"): _VERTEX_AGENT_ENGINES,
     ("vertexai", "memories"): _VERTEX_MEMORIES,
+    ("google.cloud.aiplatform_v1beta1", "memory_bank"): {
+        "retrieve_memories": "read", "get_memory": "read", "list_memories": "read",
+        "generate_memories": "write", "create_memory": "write",
+        "update_memory": "write", "delete_memory": "write",
+    },
     ("google.adk", "memory_bank"): _ADK_MEMORY_BANK,
     ("smtplib", "client"): _SMTP,
     ("slack_sdk", "client"): _SLACK_CLIENT,

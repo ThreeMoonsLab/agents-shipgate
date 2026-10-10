@@ -1068,8 +1068,24 @@ dict.
 | `database` | `sqlite3`, `psycopg2` (and its pools), `psycopg`, `asyncpg`, `pymysql`, SQLAlchemy engines, connections, sessions and queries, `pymongo`, `redis` | A literal SQL statement decides: `SELECT` (and `WITH`, `VALUES`, `SHOW`, `EXPLAIN`) reads, `INSERT`/`UPDATE`/`DELETE`/DDL writes. SQLAlchemy's `select()`/`insert()`/`update()`/`delete()` decide as their statement; `session.add` and `query.delete` write. MongoDB and Redis methods by their table (`find` reads, `insert_one` writes, an aggregation with `$out` or `$merge` writes). |
 | `process` | `subprocess.run`/`call`/`check_call`/`check_output`/`Popen`, `os.system`, `os.popen`, `os.exec*`, `os.spawn*`, `os.posix_spawn*`, `asyncio.create_subprocess_*` | `execute`, naming the literal program by its file name. |
 | `filesystem` | `open` (and `io.open`, `Path.open`), `pathlib.Path` reads and writes, `shutil` copies, moves and `rmtree`, `os.remove` and the like, `os.listdir`/`walk`/`scandir`/`stat` | A literal mode with `w`, `a`, `x` or `+` writes, any other reads; `Path.write_*`, `touch`, `unlink`, `rename` write; `read_*`, `glob` read. |
-| `cloud` | `boto3` clients and resources, `google.cloud` `storage`, `firestore` and `bigquery`, Vertex AI Memory Bank (`vertexai.Client(...).agent_engines.memories`, ADK's `VertexAiMemoryBankService`) | boto3 by the operation's verb (`get_`, `list_`, `describe_`, `head_` read; `put_`, `create_`, `delete_`, `update_`, `upload_` write); the Google clients and Memory Bank by their tables (`retrieve` reads, `generate` writes). |
+| `cloud` | `boto3` clients and resources, `google.cloud` `storage`, `firestore` and `bigquery`, Vertex AI Memory Bank (`vertexai.Client(...).agent_engines.memories`, ADK's `VertexAiMemoryBankService`, the synchronous `google.cloud.aiplatform_v1beta1.MemoryBankServiceClient`) | boto3 by the operation's verb (`get_`, `list_`, `describe_`, `head_` read; `put_`, `create_`, `delete_`, `update_`, `upload_` write); the Google clients and Memory Bank by their tables (`retrieve` reads, `generate` writes). |
 | `messaging` | `smtplib`, `slack_sdk` (`WebClient`, `WebhookClient`), `twilio` | Sending writes; a Slack read method (`conversations_history`) reads. |
+
+The synchronous `aiplatform_v1beta1` Memory Bank client is recognised at its
+root export and `services.memory_bank_service` export. Its selected table
+reads `retrieve_memories`, `get_memory` and `list_memories`, and writes
+`generate_memories`, `create_memory`, `update_memory` and `delete_memory`.
+The table follows the [Google client reference](https://docs.cloud.google.com/python/docs/reference/aiplatform/latest/google.cloud.aiplatform_v1beta1.services.memory_bank_service.MemoryBankServiceClient).
+Resource targets come from a literal string in `parent`, `name`, or an update's `memory.name`,
+either as explicit keywords or an inline request dictionary with literal keys.
+An update's nested memory dictionary must also be inline. Dictionary keys
+follow Python's last-value rule. Conflicting call arguments, dictionary
+spreads, request aliases, dynamic resource values and unread requests do not
+supply a target and retain a reading limit. Methods outside
+this table stay unknown. A repository wrapper named `MemoryBank.from_env()`
+is not identified by its name and remains subject to the existing helper and
+object-state limits. This increment claims no corpus score or complete wrapper
+coverage.
 
 Each entry has `family`, `operation` (`read`, `write`, `execute` or `unknown`),
 `library`, `call` (the function, or the object's role and method:

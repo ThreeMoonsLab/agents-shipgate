@@ -431,7 +431,8 @@
   "tests/test_application_source_identity.py": 20.7,
   "tests/test_agent_field_lists.py": 7.0,
   "tests/test_builder_construction_conditions.py": 3.1,
-  "tests/test_sdk_agent_clones.py": 73.3
+  "tests/test_sdk_agent_clones.py": 73.3,
+  "tests/test_memory_bank_effects.py": 2.6
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -496,6 +497,17 @@
    },
    "case_count": 92,
    "command": "python -m pytest tests/test_sdk_agent_clones.py tests/test_application_source_identity.py tests/test_application_diff_unobserved.py -n 4 --junitxml=clones-identity.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "a63f0c817ef0 with issue #913 selected Memory Bank increment",
+   "report_sha256": "698c044426223a11fbdd7339032eafe6620a11bcb8cf37d38dfe5f23d847c0d0",
+   "files": {
+    "tests/test_memory_bank_effects.py": 2.6
+   },
+   "case_count": 56,
+   "command": "python -m pytest tests/test_memory_bank_effects.py -n 4 --junitxml=memory-bank.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]
