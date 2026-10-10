@@ -428,7 +428,9 @@
   "tests/test_workspace_input_guard.py": 0.3,
   "tests/test_zero_install_detector.py": 34.3,
   "tests/test_action_application.py": 43.7,
-  "tests/test_application_source_identity.py": 20.7
+  "tests/test_application_source_identity.py": 20.7,
+  "tests/test_agent_field_lists.py": 7.0,
+  "tests/test_builder_construction_conditions.py": 3.1
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -470,6 +472,18 @@
    },
    "case_count": 17,
    "command": "python -m pytest tests/test_application_source_identity.py tests/test_application_diff_review.py -n 4 --junitxml=source-identity.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "e56b7dd81c88 with issue #874 bounded flow increment",
+   "report_sha256": "ae2d4cf28f8c21c1dab05b08e5d8e3b3b018b0afd86a26718dd1b3edc28d63f7",
+   "files": {
+    "tests/test_agent_field_lists.py": 7.0,
+    "tests/test_builder_construction_conditions.py": 3.1
+   },
+   "case_count": 48,
+   "command": "python -m pytest tests/test_agent_field_lists.py tests/test_builder_construction_conditions.py --junitxml=flow.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]
