@@ -52,6 +52,14 @@ refuses to read. The engine's stderr tail is kept in `<slug>.err` when it ran;
 every member's outcome and reason is in `runs.json`. The runner exits non-zero
 unless every member answered `ok`.
 
+The answer's `summary` block (#914) is a reading of its rows, derived from
+them. `summarize.py` leaves it out of `answer_id`, so a build that adds or
+rewords it does not make a hand score stale. [`goldens.py`](goldens.py)
+renders the text the CLI prints for six members from a run's JSON and holds it
+to [`goldens/`](goldens/): `jpka/attest#3`, `MIS_TALENT#7` and `O.R.I.O.N#126`,
+the three cases that issue names, and three more that reach a process, are a
+tool object, or span eight agents. A golden is not a score.
+
 ## Scoring protocol
 
 Each pull request is scored by hand against its source at the pinned refs.
@@ -196,4 +204,5 @@ no pinned members or score in this measurement.
 | [`pool.py`](pool.py) | How `pool.json` was recorded. Re-running it does not reproduce it. |
 | [`run.py`](run.py) | Clone, fetch and run one engine over a corpus. |
 | [`summarize.py`](summarize.py) | Count a run's statuses and rows, and join the hand scores that judged its answers. |
+| [`goldens.py`](goldens.py) | Render and check the reviewer-first text of six members from a run: [`goldens/<slug>.txt`](goldens/) and, beside each, the reduced answer `<slug>.input.json.gz` that `tests/test_application_summary.py` renders in CI. |
 | [`results/`](results/) | One ledger per measured build: `<date>-<build>.md` with the counts and a row per member, and `<date>-<build>.scores.json` with each member's levels, rationale and the `answer_id` they judged. |

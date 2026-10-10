@@ -81,7 +81,12 @@ from agents_shipgate.schemas.contract import (
 # them is the whole point of this module, which exists to stop a second
 # implementation of an answer the repository already gives. The same file owns
 # the reader-blank allowlist, so `@v<NEW>` cannot be mistaken for a bad ref.
-from tests.test_adopter_pins_resolve import PIN_SHAPES, READER_BLANK_REFS, _expected
+from tests.test_adopter_pins_resolve import (
+    PIN_SHAPES,
+    PRE_COMMIT_REV_PATTERN,
+    READER_BLANK_REFS,
+    _expected,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REGISTRY_DOC = REPO_ROOT / "docs" / "distribution-surfaces.md"
@@ -176,6 +181,7 @@ SURFACES: tuple[Surface, ...] = (
         (
             "src/agents_shipgate/cli/application_diff.py",
             "src/agents_shipgate/cli/application_scope.py",
+            "src/agents_shipgate/cli/application_summary.py",
             "src/agents_shipgate/inputs/tool_reach.py",
         ),
         # Advisory source-wiring comparison, not host drift or an engine verdict.
@@ -189,11 +195,25 @@ SURFACES: tuple[Surface, ...] = (
         # A side's `reach` (#872) is what the tool's own code sends, and its
         # `effect_evidence` is `assess_tool_semantics` itself over that tool —
         # the engine's one effect model, called, not restated — so neither adds
-        # a claim either (`tests/test_application_diff_tool_reach.py`).
+        # a claim either (`tests/test_application_diff_tool_reach.py`). Its
+        # `effects` (#913), what the code reaches through a recognised library
+        # beyond HTTP, are one more structural source of that same assessment
+        # (`source_library_call`), so they add no claim
+        # (`tests/test_tool_reach_effects.py`).
         # A side's `bound_when` (#909) is the source text of the condition a
         # list member is held under, read and never evaluated: a fact about the
         # source, not an engine answer, so it adds no claim
         # (`tests/test_list_expressions.py`).
+        # A side's `object` (#910) is what a tool bound as an object is — an
+        # MCP server's transport, host and credential names, a wrapped agent, a
+        # built-in's name — read from source by import identity, and its
+        # `object_evidence` where the wrapped agent lives: facts about the
+        # source, not an engine answer, so neither adds a claim
+        # (`tests/test_object_bound_tools.py`).
+        # Its additive `summary` (#914) reads the rows and states nothing a row
+        # does not: no row, status, gap or exit code moves, and it is left out
+        # of the benchmark's `answer_id`, so it adds no claim either
+        # (`tests/test_application_summary.py`).
         {},
     ),
     Surface(
@@ -252,7 +272,14 @@ SURFACES: tuple[Surface, ...] = (
         # reserved coverage `scope`, and is read as incomparable by every
         # control route, so it adds no claim; every route to the same object,
         # and every refusal it must keep, is held by
-        # `tests/test_partial_host_comparison.py`.
+        # `tests/test_partial_host_comparison.py`. A plain instruction
+        # document withheld as its own `scope` (#973) is the same projection:
+        # the reader publishes no grant for that profile, so no compared row
+        # depends on its text, and the identity sentence a two-sided blocking
+        # limit's `detail` ends with is the Git byte fact coverage already
+        # asked; neither is a verdict, pin or vocabulary, so they add no
+        # claim; `tests/test_oversized_instruction_document_partial.py` holds
+        # diff, verify, the PR comment, `check` and the envelope to it.
         # Naming an unchanged limit
         # the reader reached through an in-tree link (#822) rests on a Git
         # identity fact about the link and the file it lands on, the proof
@@ -266,6 +293,28 @@ SURFACES: tuple[Surface, ...] = (
         # baselines, so it restates no answer and moves no row, severity or
         # `check` decision; `tests/test_inline_hook_allow.py` holds diff,
         # verify, the PR comment and check to it.
+        # A hook row's matcher-reach `why` and note (#940) read the
+        # display-only `matcher_reach` the engine published on a Claude Code
+        # tool event's handler, left out of grant equality, the inventory
+        # digests and saved baselines; the expansion signal is the engine's own
+        # `host_grant_expansion_signals`, which counts the handlers that fact
+        # says a tool call may run, so every route restates one answer and
+        # `check`'s decision does not move; `tests/test_hook_matcher_reach.py`
+        # holds diff, verify, the PR comment, check, drift and preflight to it.
+        # A hook row's `args` and setting text (#972, #971) renders the
+        # display-only script path, argument digest and documented settings the
+        # engine published on each handler, which hold no other argument text
+        # and are left out of grant equality, the inventory digests and saved
+        # baselines, so it restates no answer and moves no row;
+        # `tests/test_hook_args_and_settings.py` holds diff, verify, the PR
+        # comment, check, drift and preflight to the same entry.
+        # A changed inline command's structure text (#934) renders the
+        # display-only `command.shape` or `shape_limit` the engine published,
+        # read from the text the digest holds and left out of grant equality,
+        # the inventory digests and saved baselines, so it restates no answer
+        # and moves no row, direction, severity or expansion signal;
+        # `tests/test_hook_command_shape.py` holds diff, verify, the PR
+        # comment, check and drift to the same entry.
         # Its agent-launch cells and note (#823) restate no answer: direction
         # comes from the engine's
         # `workflow_agent_widened_*` expansion signal, itself read off the
@@ -297,12 +346,50 @@ SURFACES: tuple[Surface, ...] = (
         # protected-surface rule. `tests/test_hook_script_capture.py`,
         # `tests/test_hook_script_comparison_limits.py` and
         # `tests/test_hook_script_routing.py` hold diff, verify and `check`.
+        # A workflow row's token-scope wording (#920, #921, #924) restates the
+        # engine: `access`, the ceiling a same-repository callee's own
+        # permissions reduce (`callee_permissions`, `callee_write_scopes`) and
+        # the inherited-secret recipients are computed where the grant and its
+        # `expansion_signals` are built, and the row reads them back, so it
+        # adds no claim; `tests/test_actions_token_scope.py` holds diff,
+        # verify, check, the control envelope and drift to the same row.
         # An MCP row's launch-source note (#825) renders the display-only
         # `launch_source` pin the engine published on the grant, left out of
         # grant equality, the inventory digests and saved baselines, so it
         # restates no answer and moves no row, severity or `check` decision;
         # `tests/test_mcp_launch_source.py` holds diff, verify, the PR comment
-        # and check to it.
+        # and check to it. Its unversioned-`npx` wording (#933) renders the
+        # display-only `resolution` beside that pin, and a removed MCP row's
+        # bounded wording (#929) restates the #821 unread-input discovery the
+        # comparator already ran, matching no server and pairing no row, so
+        # neither adds a claim or moves a row, severity or `check` decision;
+        # `tests/test_mcp_row_bounded_wording.py` holds diff, verify, the PR
+        # comment and both `check` routes to them.
+        # An MCP row's `env_vars` names (#795) render the display-only
+        # `env_var_names` the engine published on the grant, plain names only
+        # and never a value, left out of grant equality, the inventory digests
+        # and saved baselines, so they restate no answer and move no row,
+        # severity or `check` decision; `tests/test_mcp_env_var_names.py` holds
+        # diff, verify, the PR comment and check to the same entry.
+        # An MCP row's subject and `why` naming the host whose declaration
+        # selects its `.mcp.json`, or no host for one the inventory published
+        # under `unknown` (#936), restate the inventory's attribution, the
+        # same one `check`'s `affected_hosts` reads, and move no direction,
+        # severity or decision, so they add no claim;
+        # `tests/test_mcp_host_attribution.py` holds diff, verify, check and
+        # audit to it.
+        # A Claude Code permission rule row's direction, `expands` and `why`
+        # (#918, #941, #969, #974, #938), and the `respelled` change the text
+        # joins, read the engine's one rule model
+        # (`core/claude_permission_rules.py`) — the same reading drift's
+        # `expansion_signals` and `check`'s violations come from — so they
+        # restate no answer and add no claim;
+        # `tests/test_claude_permission_rule_model.py` holds diff, verify,
+        # check and drift to one table. A rule's cell is the text the settings
+        # reader published (#922), a URL in it redacted there with its
+        # delimiters, trailing wildcard and a digest kept, so it restates no
+        # answer; `tests/test_permission_rule_url_redaction.py` holds every
+        # route to two rows for two rules that publish alike.
         {},
     ),
     Surface(
@@ -372,6 +459,15 @@ SURFACES: tuple[Surface, ...] = (
             "placeholder_ownership": _OWNERSHIP,
             "report_schema_pin": _REPORT_SCHEMA,
         },
+    ),
+    Surface(
+        "pre_commit_hook",
+        (".pre-commit-hooks.yaml",),
+        # The manifest pre-commit reads from this repository's root. It carries
+        # one executable pin, the `rev:` of the copyable consumer example in its
+        # header (#796); the hook ids, `entry:` commands and `files:` regex are
+        # held to the trigger catalog by `tests/test_public_surface_contract.py`.
+        {"executable_pin": ("test_executable_pin_resolves_in_a_published_channel",)},
     ),
     Surface(
         "examples",
@@ -474,7 +570,6 @@ NOT_A_DISTRIBUTION_SURFACE: dict[str, str] = {
     ".github": "this repository's CI and issue templates; not shipped to an adopter",
     ".gitattributes": "repository mechanics",
     ".gitignore": "repository mechanics",
-    ".pre-commit-hooks.yaml": "repository mechanics",
     ".well-known": "the channel metadata this registry reads; the source of truth for executable_pin, not a restatement of it",
     "ADOPTERS.md": "the opt-in public adopters registry; it publishes self-reported adopter claims, not an engine answer, and is pinned by tests/test_adopters_registry.py",
     "CHANGELOG.md": "repository documentation, pinned by tests/test_public_surface_contract.py",
@@ -490,6 +585,7 @@ NOT_A_DISTRIBUTION_SURFACE: dict[str, str] = {
     "assets": "images",
     "benchmark": "the accuracy corpus; an input to measurement, not a published answer",
     "ci_sharding.py": "test-run mechanics",
+    "ci_timing.py": "test-run timing observation; no runtime engine answer or distributed command",
     "conftest.py": "test-run mechanics",
     "constraints": "hash-locked dependency pins",
     "hatch_build.py": "build-only source provenance producer; no runtime engine answer, covered by tests/test_wheel_candidate_build.py",
@@ -1851,6 +1947,11 @@ def unresolvable_pins(text: str) -> list[tuple[str, str]]:
     for match in INSTALL_FLOOR_PATTERN.finditer(text):
         if _release(match.group(1)) > _release(LATEST_PUBLISHED_VERSION):
             found.append(("pip floor", match.group(1)))
+    for match in PRE_COMMIT_REV_PATTERN.finditer(text):
+        value = match.group(1)
+        if value in READER_BLANK_REFS or value == f"v{LATEST_PUBLISHED_VERSION}":
+            continue
+        found.append(("pre-commit rev", value))
     return found
 
 
@@ -1903,8 +2004,10 @@ def _pin_bearing_paths() -> list[Path]:
             continue
         for path in _surface_files(surface, (".md", ".yml", ".yaml", ".json", ".txt")):
             rendered = _rendered(path)
-            if any(pattern.search(rendered) for _label, pattern, _why in PIN_SHAPES) or (
-                INSTALL_FLOOR_PATTERN.search(rendered)
+            if (
+                any(pattern.search(rendered) for _label, pattern, _why in PIN_SHAPES)
+                or INSTALL_FLOOR_PATTERN.search(rendered)
+                or PRE_COMMIT_REV_PATTERN.search(rendered)
             ):
                 paths.append(path)
     return paths
@@ -1973,6 +2076,97 @@ def test_pin_scanner_catches_an_unreachable_install_floor():
         ("pip floor", "9.9")
     ]
     assert _release("0.15") == (0, 15, 0) == _release("0.15.0")
+
+
+def test_pin_scanner_catches_a_stale_pre_commit_rev():
+    """Negative control for the `rev:` of a pre-commit consumer example (#796).
+
+    `.pre-commit-hooks.yaml` named `v0.12.0` and two docs named `v1.0.0` while
+    the published release moved to `v1.2.0`, because no pin shape looked at a
+    `rev:` line. The repo URL anchors the match, so another project's `rev:` is
+    not judged, and the `rev: v<NEW>` blank the upgrade prompt prints is not a
+    ref.
+    """
+
+    current = f"v{LATEST_PUBLISHED_VERSION}"
+    repo = "https://github.com/ThreeMoonsLab/agents-shipgate"
+    assert unresolvable_pins(f"- repo: {repo}\n  rev: v0.12.0\n") == [
+        ("pre-commit rev", "v0.12.0")
+    ]
+    # The example inside the hook manifest's header comment.
+    assert unresolvable_pins(f"#     - repo: {repo}\n#       rev: v1.0.0\n") == [
+        ("pre-commit rev", "v1.0.0")
+    ]
+    assert unresolvable_pins(f"- repo: {repo}\n  rev: main\n") == [
+        ("pre-commit rev", "main")
+    ]
+    assert not unresolvable_pins(f"- repo: {repo}\n  rev: {current}\n")
+    assert not unresolvable_pins(f"- repo: {repo}\n  rev: v<NEW>\n")
+    assert not unresolvable_pins(
+        "- repo: https://github.com/astral-sh/ruff-pre-commit\n  rev: v0.12.0\n"
+    )
+
+
+#: The files that carried a stale pre-commit `rev:` when #796 was filed. The
+#: sweep below is repo-wide; this only keeps it from going vacuous if all three
+#: were reworded away from the pattern.
+_PRE_COMMIT_REV_FILES = (
+    ".pre-commit-hooks.yaml",
+    "docs/integrations.md",
+    "examples/pre-commit/README.md",
+)
+
+
+def _pre_commit_rev_files() -> dict[str, list[str]]:
+    """Every tracked file that names a `rev:` for this repository, and the revs.
+
+    Repository-wide rather than per registered surface: `docs/integrations.md`
+    is not a registered surface and still tells a reader which tag to clone.
+    `CHANGELOG.md` is history; it may quote a tag a release once recommended.
+    """
+
+    found: dict[str, list[str]] = {}
+    for rel in _tracked_files():
+        if rel == "CHANGELOG.md":
+            continue
+        try:
+            text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        revs = [m.group(1) for m in PRE_COMMIT_REV_PATTERN.finditer(text)]
+        if revs:
+            found[rel] = revs
+    return found
+
+
+def test_every_pre_commit_example_rev_names_the_published_release():
+    """A `rev:` a reader pastes into `.pre-commit-config.yaml` must be a real tag.
+
+    #796: the hook manifest's own example said `v0.12.0` and two docs said
+    `v1.0.0` after `v1.2.0` was published, outside every existing pin check.
+    The release runbook's step 8 needs no list of these: this fails once per
+    file until each moves with `LATEST_PUBLISHED_VERSION`.
+    """
+
+    found = _pre_commit_rev_files()
+    missing = [rel for rel in _PRE_COMMIT_REV_FILES if rel not in found]
+    assert not missing, (
+        f"{missing} no longer carry a pre-commit `rev:` example this sweep can "
+        "see; the sweep over them is vacuous. Update _PRE_COMMIT_REV_FILES if "
+        "the example moved."
+    )
+    expected = f"v{LATEST_PUBLISHED_VERSION}"
+    offenders = [
+        f"{rel}: rev {rev!r}"
+        for rel, revs in sorted(found.items())
+        for rev in revs
+        if rev != expected and rev not in READER_BLANK_REFS
+    ]
+    assert not offenders, (
+        f"pre-commit examples name a ref other than the published release "
+        f"{expected}: {offenders}. pre-commit clones this tag; move it with "
+        "the other pins (docs/release-runbook.md step 8)."
+    )
 
 
 def test_the_committed_sweep_adds_files_the_emitted_sweep_cannot_see():

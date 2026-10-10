@@ -1,0 +1,41 @@
+name: DRA Build
+on:
+  schedule:
+    - cron: '0 13 * * *'
+  pull_request:
+    branches:
+      - develop
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+  actions: write
+jobs:
+  read-version:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo fixture
+  resolve:
+    needs: read-version
+    uses: ROCm/common-infra-operator/.github/workflows/rocm-resolve.yml@d2e10a71e2af56af1fa0177901570daa75e8ac2b
+    secrets:
+      ROCK_CI_S3_SECRET: ${{ secrets.ROCK_CI_S3_SECRET }}
+  build-dra:
+    needs: resolve
+    uses: ./.github/workflows/_build-dra.yml
+  build-helm:
+    needs: resolve
+    uses: ./.github/workflows/_build-helm.yml
+  publish:
+    needs: [resolve, build-dra, build-helm]
+    uses: ROCm/common-infra-operator/.github/workflows/rocm-publish.yml@d2e10a71e2af56af1fa0177901570daa75e8ac2b
+    secrets:
+      ROCK_CI_S3_SECRET: ${{ secrets.ROCK_CI_S3_SECRET }}
+      DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+      DOCKER_USERNAME: ${{ vars.DOCKER_USERNAME }}
+  results:
+    needs: [resolve, build-dra, build-helm, publish]
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo fixture

@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+from agents_shipgate import _perf
 from agents_shipgate.core.boundary_registry import is_boundary_surface_path
 from agents_shipgate.core.host_grants import (
     HostBoundarySnapshot,
@@ -30,9 +31,10 @@ def materialize_host_tree(
     read: dict[str, HostBoundarySnapshot] = {}
 
     def dependencies(tree: Path) -> tuple[Path, Callable[[str], bool]] | None:
-        snapshot = build_host_boundary_snapshot(
-            tree, cache=HostStaticParseCache(reference_workspace=workspace),
-        )
+        with _perf.phase("diff.base_dependency_snapshot"):
+            snapshot = build_host_boundary_snapshot(
+                tree, cache=HostStaticParseCache(reference_workspace=workspace),
+            )
         found = {
             item["path"]
             for grant in snapshot.inventory["grants"] if grant.get("kind") == "hook"

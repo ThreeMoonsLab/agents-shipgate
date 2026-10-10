@@ -10,6 +10,11 @@
 - [ ] Report, schema, or SARIF output
 - [ ] Documentation only
 
+## Authorship
+
+- [ ] A coding agent wrote some or all of this change. Agent: 
+- [ ] A person read the whole diff before opening this pull request.
+
 ## Verification
 
 CI is authoritative for `python -m ruff check .`, `python -m compileall -q src tests`, and `python -m pytest`.

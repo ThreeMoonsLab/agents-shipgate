@@ -9,8 +9,10 @@ risk-enrichment, and release-decision paths under realistic load.
 ## What it scans
 
 Six tool sources, all loaded statically. The reviewed inventory overlaps the
-five SDK functions intentionally: it proves the complete binding and semantic
-surface while the Python source still exercises conservative AST extraction.
+five SDK functions intentionally: it supplies reviewed interface and semantic
+facts while the Python source exercises conservative AST extraction. Reviewed
+tool declarations do not establish the application's constructor identity or
+prove which tools its agent can reach.
 
 | Source                                   | Adapter              | Tools | Risk shape                                                    |
 | ---------------------------------------- | -------------------- | ----- | -------------------------------------------------------------- |
@@ -19,46 +21,39 @@ surface while the Python source still exercises conservative AST extraction.
 | [`mcp/crm-tools.json`](mcp/crm-tools.json)                           | `mcp`                | 15    | Customer comms (email/sms/in-app) + GDPR compliance ops.       |
 | [`mcp/internal-tools.json`](mcp/internal-tools.json)                 | `mcp`                | 10    | Warehouse inventory reads/writes + admin (`drain_warehouse`).  |
 | [`agents/ops_assistant.py`](agents/ops_assistant.py)                 | `openai_agents_sdk`  |  5    | SDK function tools: previews, computations, escalation.        |
-| [`inventories/ops-sdk-tools.json`](inventories/ops-sdk-tools.json)  | `mcp`                |  5    | Reviewed inventory for the same bound SDK tools; closes AST-only completeness gaps. |
+| [`inventories/ops-sdk-tools.json`](inventories/ops-sdk-tools.json)  | `mcp`                |  5    | Reviewed declarations for the same SDK tool candidates; binding still requires source evidence. |
 
 ## What it intentionally exercises
 
-The manifest declares **partial** governance coverage so the scan surfaces a
-realistic mix of findings rather than a clean pass:
+The manifest declares partial governance coverage. It includes approval,
+confirmation and idempotency policies, permission scopes, severity/risk
+overrides, and suppressions so the pipeline can inspect these declarations
+alongside the catalog and binding evidence.
 
-- **Approval policy** covers 5 of the ~10 tools that earn approval-required risk
-  tags. The other ~5 fire `SHIP-POLICY-APPROVAL-MISSING` at critical severity.
-- **Confirmation policy** covers shipping cancellations and external comms but
-  not subscription cancels or destructive customer-data ops.
-- **Idempotency policy** covers `create_charge` / `create_refund` /
-  `create_shipment` but not `internal.reserve_inventory` or
-  `internal.adjust_inventory`.
-- **`permissions.scopes`** lists ~18 scopes but is missing several
-  destructive-admin scopes (e.g. `payments:customers:admin`,
-  `crm:customers:admin`, `inventory:admin`) so `SHIP-AUTH-SCOPE-COVERAGE-MISSING`
-  fires for each uncovered tool.
-- **Severity override**: one `SHIP-DOC-INJECTION-RISK` downgrade with a reason
-  exercises the `policy_audit.severity_overrides_applied` envelope.
-- **Risk overrides**: three manual hints (two downgrades, one owner attribution)
-  exercise the manual-risk path.
-- **Suppressions**: two `SHIP-DOC-MISSING-DESCRIPTION` ignores exercise the
-  `manifest_consistency` check at scale.
+The current Python read cannot establish constructor-namespace ownership
+through the anonymous generator at `agents/ops_assistant.py:40`.
+The graph contains **five possible SDK tools and zero established reachable
+tools**. The reviewed inventory cannot clear that source-level uncertainty.
+Catalog entries without established binding do not create approval or scope
+coverage findings; unused declared scopes can still be reported. Interface
+findings for possible tools carry their unknown binding status.
 
-The release decision is **blocked** by ~10 critical findings; review items run
-into the 70s. This is intentional — a clean sample wouldn't exercise the gate.
+The release decision is **insufficient_evidence**. This sample exercises a
+large catalog, deterministic merge receipts, audit metadata and conservative
+binding limits; it does not demonstrate a complete application binding or a
+blocked runtime capability.
 
 ## Why no committed goldens
 
 Most samples ship `expected/report.md` and `expected/report.json` so a golden
 test catches rendering drift. This one **doesn't**, on purpose: the goal is to
 exercise the pipeline at scale, not to pin every line of output. Pinning
-50+ findings × 20+ report sections through every schema bump (the schema
-moves several minor versions per release window) would be high-cost,
-low-signal regression noise.
+every finding and report section through output evolution would require
+updates unrelated to this sample's binding and scale guarantees.
 
 Instead, [`tests/test_large_sample.py`](../../tests/test_large_sample.py)
-asserts the **structural** shape — decision, finding count band, key rule
-firings — and enforces a **latency budget** so the gate stays fast on the CI
+asserts the **structural** shape — decision, possible binding identities,
+source uncertainty, finding count bands and audit metadata — and enforces a **latency budget** so the gate stays fast on the CI
 critical path.
 
 ## Running locally

@@ -185,6 +185,11 @@ def validate_bound_plan_inputs(
         if len(data) != size or "sha256:" + hashlib.sha256(data).hexdigest() != digest:
             raise ValueError("recorded input changed since verification")
 
+    # An uncaptured dependency is an outstanding evidence obligation even if
+    # another reader captured the same path under a larger byte limit. Check
+    # it before generic blob drift so repairing the bytes still names the
+    # missing capture and requires a new verification.
+    validate_dependency_inputs(plan, root=root, snapshot=snapshot)
     for collection, reader in ((expected, snapshot), (artifact_inputs, artifacts)):
         for path, (digest, size) in collection.items():
             if size > MAX_CURRENCY_INPUT_BYTES:
@@ -194,7 +199,6 @@ def validate_bound_plan_inputs(
         from agents_shipgate.core.openshell_native import validate_external_currency
 
         validate_external_currency(plan.inputs.options["openshell_native"], root)
-    validate_dependency_inputs(plan, root=root, snapshot=snapshot)
     validate_directory_inputs(plan, snapshot=snapshot)
     snapshot.finish()
     artifacts.finish()

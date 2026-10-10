@@ -69,7 +69,7 @@ UNREAD_CONSTRUCTIONS = {
     "subclass": SDK_SUBCLASS,
     "factory": SDK.replace(
         'agent = Agent(name="assistant", tools=TOOLS)',
-        'def build(tools):\n    return Agent(name="assistant", tools=tools)\nagent = build(TOOLS)',
+        'def build(**kwargs):\n    return Agent(name="assistant", tools=kwargs["tools"])\nagent = build(tools=TOOLS)',
     ),
     "clone": SDK.replace(
         'agent = Agent(name="assistant", tools=TOOLS)',
@@ -135,21 +135,21 @@ FACTORY = '''def {name}():
 
 
 @pytest.mark.parametrize(
-    "source",
+    ("source", "limit"),
     [
         # PR #873 review: an import in a sibling function decided identity.
-        FACTORY.format(name="sdk", module="agents")
+        (FACTORY.format(name="sdk", module="agents")
         + "\n\n"
-        + FACTORY.format(name="voice", module="livekit.agents"),
+        + FACTORY.format(name="voice", module="livekit.agents"), "'sdk' (main.py:1) is named in a string"),
         # A function's own import shadows the module's SDK import.
-        "from agents import Agent as Builder, function_tool\n\n\n"
+        ("from agents import Agent as Builder, function_tool\n\n\n"
         + FACTORY.format(name="voice", module="livekit.agents")
         + "\n\n@function_tool\ndef sdk_tool(query: str) -> str:\n    return query\n"
-        + 'sdk_agent = Builder(name="sdk", tools=[sdk_tool])\n',
+        + 'sdk_agent = Builder(name="sdk", tools=[sdk_tool])\n', "an unread decorator receives a function carrying the constructor namespace"),
     ],
     ids=["sibling-function-import", "inner-import-shadows-module"],
 )
-def test_import_provenance_is_resolved_in_the_enclosing_scope(tmp_path, source):
+def test_import_provenance_is_resolved_in_the_enclosing_scope(tmp_path, source, limit):
     (tmp_path / "main.py").write_text(source)
     loaded = load_openai_sdk_static_tools(
         ToolSourceConfig(id="sdk", type="openai_agents_sdk", path="main.py"), None, tmp_path
@@ -158,7 +158,10 @@ def test_import_provenance_is_resolved_in_the_enclosing_scope(tmp_path, source):
     assert [(o.agent, o.tool_names) for o in loaded.binding_observations] == [
         ("sdk_agent", ["sdk_tool"])
     ]
-    assert loaded.warnings == []
+    assert len(loaded.warnings) == 1
+    assert "constructor identity is not established" in loaded.warnings[0]
+    assert limit in loaded.warnings[0]
+    assert loaded.binding_observations[0].tools_complete is False
 
 
 @pytest.mark.parametrize("spelling", ["agent", "exported as agent"])
@@ -185,10 +188,12 @@ def test_import_bound_agent_name_is_not_a_removal(repo, spelling):
         (r["agent"], r["tool"], r["change"], r["candidate_change"]) for r in result["rows"]
     ] == [
         ("agent", "lookup", "not_established", "removed"),
-        ("assistant", "lookup", "added", None),
+        ("assistant", "lookup", "not_established", "added"),
     ]
     assert list(result["rows"][0]["uncertainty"]) == ["head"]
     assert result["rows"][1]["after"]["agent_source"] == "agent_factory.py"
+    assert any("constructor identity is not established" in gap["reason"]
+               and gap["source"] == "agent_factory.py" for gap in result["head"]["coverage_gaps"])
 
 
 @pytest.mark.parametrize("construction", sorted(UNREAD_CONSTRUCTIONS))
@@ -247,8 +252,14 @@ def test_handoff_reference_is_not_an_observed_construction(repo):
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial"
     assert [(r["agent"], r["tool"], r["change"]) for r in result["rows"]] == [
-        ("worker", "execute", "not_established")
+        ("agent", "lookup", "not_established"),
+        ("triage", "handoff:agent.py:worker", "not_established"),
+        ("worker", "execute", "not_established"),
     ]
+    assert result["rows"][-1]["candidate_change"] == "removed"
+    assert any(gap["agent"] == "worker" and "subclass 'Worker'" in gap["reason"]
+               for gap in result["head"]["coverage_gaps"])
+    assert any("unread class construction hook" in gap["reason"] for gap in result["head"]["coverage_gaps"])
 
 
 def test_unread_base_construction_is_not_an_addition(repo):

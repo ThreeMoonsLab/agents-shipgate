@@ -28,12 +28,18 @@ agent = Agent(name="assistant", tools=[lookup, act])
 '''
 
 
-def _added(repo, body: str, *, extra: dict[str, str] | None = None):
+def _added(repo, body: str, *, extra: dict[str, str] | None = None, established: bool = True):
     base = commit(repo, {"agent.py": AGENT.replace("BODY", "").replace(", act", "")})
     head = commit(repo, {"agent.py": AGENT.replace("BODY", body), **(extra or {})})
     result = run(repo, base, head)
     [row] = [row for row in result["rows"] if row["tool"] == "act"]
-    assert row["change"] == "added"
+    if established:
+        assert row["change"] == "added"
+    else:
+        assert result["comparison_status"] == "partial"
+        assert row["change"] == "not_established"
+        assert row["candidate_change"] == "added"
+        assert any("constructor" in gap["reason"] for gap in result["head"]["coverage_gaps"])
     return row["after"], result, (base, head)
 
 
@@ -82,8 +88,11 @@ def test_the_graphql_operation_not_the_transport_decides_the_effect(repo, doc, o
     assert after["effect_evidence"]["conservative_effect"] == effect
 
 
-def test_a_graphql_document_that_is_not_a_literal_is_named(repo):
-    after, _, _ = _added(repo, GRAPHQL.replace("DOC", "os.environ['DOC']"))
+@pytest.mark.parametrize("document,established", [("os.environ['DOC']", False), ('os.environ.get("DOC")', True)])
+def test_a_graphql_document_that_is_not_a_literal_is_named(repo, document, established):
+    # Both carry the endpoint evidence; retaining an imported getter as a
+    # subscript receiver additionally withholds constructor ownership.
+    after, _, _ = _added(repo, GRAPHQL.replace("DOC", document), established=established)
     [call] = after["reach"]["calls"]
     assert call["graphql"] == "unknown" and call["effect"] is None
     assert any("GraphQL document is not a literal" in item["why"] for item in after["reach"]["limits"])
@@ -223,24 +232,30 @@ def act(number: int) -> dict:
 
 
 def _chain(hops: int) -> str:
+    return ('from support import hop1\n\n@function_tool\ndef act(number: int) -> dict:\n'
+            '    return hop1(f"https://api.example.com/issues/{number}")\n')
+
+
+def _chain_source(hops: int) -> str:
     helpers = "\n".join(
         f"def hop{index}(url):\n    return {'hop' + str(index + 1) + '(url)' if index < hops else 'requests.get(url).json()'}\n"
         for index in range(1, hops + 1)
     )
-    return (
-        f"\n{helpers}\n\n@function_tool\ndef act(number: int) -> dict:\n"
-        '    return hop1(f"https://api.example.com/issues/{number}")\n'
-    )
+    return "import requests\n\n" + helpers
+
+
+def _helper_line(hops: int, needle: str) -> str:
+    return f"support.py:{next(i for i, line in enumerate(_chain_source(hops).splitlines(), 1) if needle in line)}"
 
 
 def test_a_read_through_helpers_within_the_bound_is_established(repo):
     body = _chain(3)
-    after, _, _ = _added(repo, body)
+    after, _, _ = _added(repo, body, extra={"support.py": _chain_source(3)})
     [call] = after["reach"]["calls"]
     assert call["via"] == [
         f"{_line(body, 'return hop1(')} hop1",
-        f"{_line(body, 'return hop2(')} hop2",
-        f"{_line(body, 'return hop3(')} hop3",
+        f"{_helper_line(3, 'return hop2(')} hop2",
+        f"{_helper_line(3, 'return hop3(')} hop3",
     ]
     assert after["reach"]["effect_claims"] == [
         {"effect": "read", "at": _line(body, "def act("), "calls": 1}
@@ -250,11 +265,11 @@ def test_a_read_through_helpers_within_the_bound_is_established(repo):
 
 def test_a_helper_beyond_the_bound_is_a_named_limit_not_a_read(repo):
     body = _chain(4)
-    after, _, _ = _added(repo, body)
+    after, _, _ = _added(repo, body, extra={"support.py": _chain_source(4)})
     assert after["reach"]["calls"] == []
     assert after["reach"]["limits"] == [
         {
-            "at": _line(body, "return hop4("),
+            "at": _helper_line(4, "return hop4("),
             "why": "calls hop4, more than 3 helper calls from the tool; not read",
         }
     ]
@@ -279,7 +294,8 @@ def act(number: int) -> dict:
     assert after["reach"]["limits"][0]["why"] == "calls storage.remember, which is not read"
 
 
-def test_a_helper_in_another_module_is_followed_and_located(repo):
+@pytest.mark.parametrize("external_call", [False, True], ids=["saved-client-unread", "direct-external-call"])
+def test_a_helper_in_another_module_is_followed_and_located(repo, external_call):
     body = '''
 from support import client
 
@@ -298,10 +314,15 @@ session = requests.Session()
 def close_issue(number):
     return session.delete(f"{BASE}/issues/{number}", headers={"X-Api-Key": os.environ["API_KEY"]})
 '''
+    if external_call:
+        support = support.replace('os.environ["API_BASE"]', 'os.environ.get("API_BASE")')
+        support = support.replace('os.environ["API_KEY"]', 'os.environ.get("API_KEY")')
+        support = support.replace("return session.delete", "return requests.delete")
     after, _, (base, head) = _added(
         repo,
         body,
         extra={"support/__init__.py": "", "support/client.py": support},
+        established=external_call,
     )
     [call] = after["reach"]["calls"]
     assert call["method"] == "DELETE" and call["effect"] == "destructive"
@@ -371,7 +392,7 @@ def test_two_same_named_adk_agents_are_located_at_their_own_constructions(repo):
 
 
 def test_reach_is_deterministic(repo):
-    after, _, (base, head) = _added(repo, _chain(2))
+    after, _, (base, head) = _added(repo, _chain(2), extra={"support.py": _chain_source(2)})
     again = run(repo, base, head)
     [row] = [row for row in again["rows"] if row["tool"] == "act"]
     assert row["after"]["reach"] == after["reach"]
@@ -395,7 +416,8 @@ def test_construction_sites_are_in_line_order(repo):
     assert row["after"]["binding_location"] == "agent.py:9"
 
 
-def test_a_credential_only_some_call_sites_send_says_so(repo):
+@pytest.mark.parametrize("credential,established", [('os.environ["TOKEN"]', False), ('os.environ.get("TOKEN")', True)])
+def test_a_credential_only_some_call_sites_send_says_so(repo, credential, established):
     body = '''
 @function_tool
 def act(number: int) -> dict:
@@ -405,6 +427,69 @@ def act(number: int) -> dict:
         response = requests.get(url)
     return response.json()
 '''
-    _, _, (base, head) = _added(repo, body)
+    body = body.replace('os.environ["TOKEN"]', credential)
+    _, _, (base, head) = _added(repo, body, established=established)
     text = _text(repo, base, head)
     assert "credential: env TOKEN → header Authorization (at some call sites)" in text
+
+
+def test_a_row_names_what_the_tool_reaches_beyond_http(repo):
+    # #913: a process, a database and a file, each named with its location;
+    # the strongest supports the effect evidence.
+    body = '''
+import sqlite3
+import subprocess
+
+
+@function_tool
+def act(number: int) -> dict:
+    subprocess.run(["git", "fetch", "origin", str(number)], check=True)
+    with sqlite3.connect("issues.db") as conn:
+        conn.execute("UPDATE issues SET seen = 1 WHERE number = ?", (number,))
+    with open(f"logs/{number}.txt", "a") as log:
+        log.write("seen")
+    return {"ok": True}
+'''
+    after, _, (base, head) = _added(repo, body)
+    effects = after["reach"]["effects"]
+    assert [(item["family"], item["operation"], item.get("target"), item["at"]) for item in effects] == [
+        ("process", "execute", "git", _line(body, "subprocess.run(")),
+        ("database", "write", "issues", _line(body, "conn.execute(")),
+        ("filesystem", "write", "logs/{number}.txt", _line(body, "with open(")),
+    ]
+    assert "fetch" not in json.dumps(effects) and "seen = 1" not in json.dumps(effects)
+    assert after["effect_evidence"]["conservative_effect"] == "code_execution"
+    assert after["effect_evidence"]["status"] == "structural"
+    sources = {claim["source"] for claim in after["effect_evidence"]["claims"]}
+    assert sources == {"source_library_call"}
+    text = _text(repo, base, head)
+    assert f"reaches: process execute git (subprocess.run) at {_line(body, 'subprocess.run(')}" in text
+    assert "  model-supplied: number → command" in text
+    assert (
+        "reaches: database write UPDATE on issues (sqlite, sqlite3 connection.execute) "
+        f"at {_line(body, 'conn.execute(')}"
+    ) in text
+    assert f"reaches: filesystem write logs/{{number}}.txt (open) at {_line(body, 'with open(')}" in text
+    assert (
+        "effect: code_execution (structural evidence: process execute at "
+        f"{_line(body, 'subprocess.run(')})"
+    ) in text
+
+
+def test_a_tool_that_only_reads_a_database_it_opens_reads(repo):
+    body = '''
+import sqlite3
+
+
+@function_tool
+def act(number: int) -> list:
+    with sqlite3.connect("issues.db") as conn:
+        return conn.execute("SELECT title FROM issues WHERE number = ?", (number,)).fetchall()
+'''
+    after, _, (base, head) = _added(repo, body)
+    assert after["reach"]["effect_claims"] == [
+        {"effect": "read", "at": _line(body, "def act("), "calls": 0, "effects": 1}
+    ]
+    assert after["effect_evidence"]["conservative_effect"] == "read"
+    text = _text(repo, base, head)
+    assert "effect: read (structural evidence: every call was followed, and everything it reaches reads)" in text

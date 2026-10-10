@@ -1,0 +1,12 @@
+name: Build dra
+on:
+  workflow_call:
+permissions:
+  contents: read
+  actions: write
+jobs:
+  build-dra:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo fixture

@@ -17,6 +17,7 @@ from agents_shipgate.core.lenses.action_surface import (
 )
 from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference, _stable_hash
 from agents_shipgate.core.privacy import RedactionStats, redact_data, sanitize_model
+from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment
 from agents_shipgate.schemas.codex_plugin import CodexPluginSurface
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.report import Finding
@@ -236,6 +237,11 @@ def _sanitize_diff_reference(
         baseline_schema_version=reference.baseline_schema_version,
         action_facts=action_facts,
         declaration_facts=declaration_facts,
+        binding_facts=(
+            sanitize_model(reference.binding_facts, AgentBindingGraphAssessment,
+                           stats=stats, path="tool_surface_diff.base.binding_facts")
+            if reference.binding_facts is not None else None
+        ),
         findings=findings,
         finding_evidence=(
             tuple(sanitize_model(row, Finding, stats=stats, path="tool_surface_diff.base.finding_evidence[]")

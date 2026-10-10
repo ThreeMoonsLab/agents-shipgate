@@ -16,11 +16,11 @@ and `audit --host`.
 | Adapter | Status | Repository surfaces | Static semantics |
 |---|---|---|---|
 | OpenShell | static inventory | root/nested `.shipgate/openshell.json` selecting arbitrary repository policy files | [Pinned policy schema 1 inventory](openshell-support.md), authored/effective-snapshot roles, explicit/defaulted fields and named read limits; runtime enforcement and freshness remain unverified |
-| Codex | first-class | `.codex/config.toml`, `.codex/hooks.json` | sandbox, approvals, network, MCP/app approvals, hooks |
-| Claude Code | first-class | `.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json`, `CLAUDE.md`, Claude skills | permission modes/rules, sandbox/network, additional paths, MCP restrictions, plugins and their marketplaces (`extraKnownMarketplaces`), hooks |
+| Codex | first-class | `.codex/config.toml`, `.codex/hooks.json`, a `.mcp.json` a `.codex-plugin/plugin.json` selects | sandbox, approvals, network, MCP/app approvals, hooks |
+| Claude Code | first-class | `.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json` (the root one, a Claude Code plugin's, and a nested one nothing else selects), `CLAUDE.md`, Claude skills | permission modes/rules, sandbox/network, additional paths, MCP restrictions, plugins and their marketplaces (`extraKnownMarketplaces`), hooks |
 | Cursor | first-class | `.cursor/cli.json`, `.cursor/mcp.json`, `.cursor/rules/**` | Shell/Read/Write rules, MCP declarations, instruction trust roots |
 | VS Code MCP | first-class | `.vscode/mcp.json` | MCP servers; `sandbox` and per-server `sandboxEnabled`; `${input:…}` references by name, never value; `envFile` recorded as a limit; other top-level keys partial |
-| Shared/GitHub | first-class | `AGENTS.md`, Shipgate policies/state, skills, `.github/workflows/*` | instruction/gate weakening, workflow permissions and triggers, remote step action references, named secret sources passed to reusable workflows, agent launches (documented agent action inputs, `run:` steps that are one plain `claude -p` / `codex exec` command, `run:` steps that mention an agent CLI in shell this audit does not parse, named as a limit) and `actions/checkout` refs |
+| Shared/GitHub | first-class | `AGENTS.md`, Shipgate policies/state, skills, `.github/workflows/*` | instruction/gate weakening, workflow permissions and triggers (the event context apart from job token scopes), reusable-call permission ceilings and the permissions of same-repository called workflows, remote step action references, named secret sources passed to reusable workflows, agent launches (documented agent action inputs, `run:` steps that are one plain `claude -p` / `codex exec` command, `run:` steps that mention an agent CLI in shell this audit does not parse, named as a limit) and `actions/checkout` refs |
 
 A registered adapter reports `complete`, `not_applicable`, `partial`, or
 `experimental` coverage. A relevant malformed, unreadable, binary, oversized,
@@ -39,7 +39,97 @@ and it caused every widening the 1.0 host-config measurement missed.
 Path classification is case-insensitive so protected files cannot evade review
 on macOS or Windows. Nested `.codex/**`, `.mcp.json`, and
 `.github/workflows/**` copies remain protected for repository-wide drift and
-trust-root review, even when the host only loads the root copy.
+trust-root review, even when the host only loads the root copy. Which host a
+nested `.mcp.json` is reported under is decided by what selects it, below.
+
+### Which host a `.mcp.json` belongs to
+
+The registry finds `.mcp.json` by its file name at any depth, and its servers
+are read the same way wherever it is. The host they are published under comes
+from the declarations that select the file, not from its name (#936):
+
+1. The repository's root `.mcp.json` is Claude Code's project MCP
+   configuration.
+2. A Claude Code plugin selects the `.mcp.json` at its plugin root, the
+   directory of a `.claude-plugin/plugin.json` or a `./` plugin source an
+   in-repository `.claude-plugin/marketplace.json` lists, and any `.mcp.json`
+   its manifest's or marketplace entry's `mcpServers` names by a `./` path.
+3. A Codex plugin selects what its `.codex-plugin/plugin.json` `mcpServers`
+   names, a relative path or a list of them inside the plugin directory, and
+   the plugin root's `.mcp.json` when the member names no path: the rule the
+   Codex plugin reader of `scan` applies.
+4. A `.mcp.json` none of those selects, in a directory that holds another
+   plugin manifest — a format this entry does not read, such as
+   `.grok-plugin/plugin.json`, `.cursor-plugin/plugin.json`, any other
+   `.<name>-plugin/plugin.json` or `.github/plugin/plugin.json`, or a Codex
+   manifest that cannot be read as a JSON object or names other files — is published under host `unknown`: which host loads its
+   servers is not established, and nothing makes them Claude Code's. `diff`,
+   `verify` and the PR comment print its rows with no host before the path and
+   `host not established: …` in the reason, and its coverage line reads
+   `(host not established)`. `audit --host` names the manifests beside it in a
+   non-blocking coverage issue. A blocking limit on such a file is published
+   under `unknown` too: the inventory is incomplete as before, and no host's
+   coverage is marked partial for it.
+5. Any other nested `.mcp.json` stays under Claude Code, as the nested copy
+   kept under review described above.
+
+Rules 1 to 3 add up: a file a Claude Code plugin and a Codex plugin both
+select gives one row per host. Every declaration fact is kept whatever the
+host: the server, its command name or redacted URL, its package, the
+launch-source note and the `⚠`. A selection is what the repository declares,
+never that a plugin is installed or that a host loaded the file; nothing is
+fetched, a Codex manifest is the only manifest read for this, and a manifest of
+any other format is only noticed by its path. A manifest reference is matched
+to a file case-insensitively. A plugin manifest's `mcpServers` that names only
+`.mcp.json` files this entry read is no longer named as unread (below), since
+it decided their host. `check` routes every `.mcp.json` as before, the root
+one through its MCP rule and a nested one as a protected surface, and names in
+`affected_hosts` and `host_coverage` the hosts the inventory published it
+under on either compared side; one whose host is not established names none.
+`detect`'s host-boundary candidates are still listed from file names alone.
+
+An added or changed server launched by a known package runner carries the
+[launch-source note](engineering/mcp-launch-source-notes.md) (#825). For
+`npx` given a package name with no version specifier, such as
+`npx -y @webiny/stdlib serve`, the note states the declaration fact and what
+it leaves open apart (#933): `package spec has no exact version; launch
+resolution not established: npx may resolve a local project dependency or
+fall back to the registry/cache`. npm documents that such a name "will be
+matched with whatever version exists in the local project", and is installed
+into the npm cache only when the project does not depend on it
+([npm exec](https://docs.npmjs.com/cli/v11/commands/npm-exec#description)). No
+`package.json`, lockfile, `node_modules` or cache is read to decide which
+applies, and the row's direction, `expands` and severity do not move.
+
+<a id="mcp-env-var-names"></a>
+
+An MCP server that passes environment variables through by name declares them
+in an `env_vars` list, apart from the `env` map whose keys `env_keys`
+publishes. A change confined to that list used to read as `no difference in
+the command name …, launch arguments, env key names or header key names; the
+change is in a detail this output does not show, such as the command's path or
+another setting` (openai/codex-security#1281 added
+`CODEX_SECURITY_PLUGIN_ROOT` to it, #795). The grant now publishes
+`env_var_names` (host-grants `0.9`), and the row names the names the list
+gained and lost, `codex-security: env_vars names +CODEX_SECURITY_PLUGIN_ROOT`,
+beside `env keys` and `header keys`: `env keys +API_BASE -DEBUG; env_vars names
++X -Y`. The label is the key the list is declared under, so the row claims no
+more for a name than that it is listed there: it does not say a variable is
+set, available to the server or read by it, or that either host honours the
+field. An entry is published only when it is a plain name,
+`[A-Za-z_][A-Za-z0-9_]{0,79}`, that neither the redaction `config_sha256`'s
+input applies nor the label redaction rewrites; a `NAME=value` entry, an
+object, a token-shaped string and the entry after a credential word such as
+`api_key` are not published, and a change confined to them still reads as a
+detail this output does not show. The list is digested in order, so the same
+names in another order are a row, and it reads `env_vars names in a different
+order`. No value is ever published: `env` and `headers` values are redacted
+whole in the digest's input, so rotating one is no row, and this entry adds no
+per-key value digest. Other fields a host may honour, such as `cwd`, a bearer
+token's variable name or a header taken from an environment variable, are not
+published. `env_var_names` is display-only: out of grant equality, the
+inventory digests and saved baselines, so no row, direction, `expands`,
+severity or `check` decision moves.
 
 The boundary is intentionally fail-closed above the adapters' specialized
 semantics. Most instruction, policy, skill, and workflow edits therefore route
@@ -59,6 +149,12 @@ the changed inputs the candidate rules at the end of this section name (#821):
   It runs inside the calling job, with that job's `permissions` and secrets, so
   adding a `run:` step to `.github/actions/<name>/action.yml` adds a command
   holding the caller's scopes. Only the workflow file is read (#701).
+- **A reusable workflow in another repository**
+  (`uses: owner/repo/.github/workflows/<file>@ref`). It is never fetched, so
+  its jobs, steps and own `permissions` are not read: the calling job's
+  ceiling is counted as reaching its jobs, and the row says that is not
+  established ([below](#workflow-token-scopes), #921). A same-repository
+  reusable workflow is read.
 - **A script outside the supported hook reference shapes** (for example a
   relative `.claude/hooks/session-start`, a wrapper's argument, or a dynamic
   shell expression). A filename alone establishes neither selection nor the
@@ -73,6 +169,22 @@ the changed inputs the candidate rules at the end of this section name (#821):
   them while that subagent runs; no adapter reads the file. A skill's `hooks`
   frontmatter is type-checked with the skill's instructions, never read as a
   hook grant, so its events get no hook row (#714).
+- **Agent launch arguments in a repository script.** A script can start a
+  coding agent non-interactively with pre-approved tools, for example a Python
+  `subprocess` list running `claude -p --permission-mode acceptEdits
+  --allowedTools "Bash(*)"`. No adapter reads a script's launch arguments as
+  arguments, so adding, widening or removing those flags is never reported as
+  a change in what the agent may do, whether a skill, a workflow step or a
+  person runs the script. An edit to such a script gives no row and names no
+  limit, unless the script is a selected hook's executable: then the
+  [bounded script comparison](#hook-script-dependencies) reports that its bytes
+  changed, with authority direction unknown (#702). This stays excluded by
+  decision (#828, 2026-10-06): in a 23-PR sample, the repositories behind 7
+  already held launchers with pre-approved or skipped permissions, mostly in
+  test or evaluation harnesses meant to run sandboxed, that an unscoped script
+  reader would flag, and whether a launch runs against untrusted settings
+  needs dataflow analysis that is not bounded. It is revisited only if #830's
+  targeted stratum shows this class matters.
 - **An agent launched any way the workflow reader below does not read**
   (#823): an action outside its table, even one that takes `claude_args`; a
   composite action (#701); a script the step runs; a `run:` that is not one
@@ -147,6 +259,70 @@ same unreadable form is not reported. A destination or source name, or a job's
 reusable `uses:` target, containing credential-shaped text is published
 redacted and refuses the same way a step reference does, so two values that
 redact alike never compare as unchanged.
+
+<a id="workflow-token-scopes"></a>
+
+A workflow row states three facts apart (#920, #921, #924): the event context,
+each job's token scopes, and a calling job's ceiling.
+
+- **The event context.** `pull_request_target` is privileged: the row says
+  `uses the privileged pull_request_target event context`, the grant is rated
+  `critical`, and a workflow gaining the trigger is a widening
+  (`workflow_pull_request_target_<added|changed>`). It is not a token scope.
+  GitHub computes a job's `GITHUB_TOKEN` from the repository default, then the
+  workflow's `permissions`, then the job's, and a declaration that names any
+  scope sets every scope it leaves out to `none`
+  ([workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions)).
+  So a workflow whose jobs all declare read-only scopes reads `access: read`
+  under any trigger, and its row says `every job declares read-only or no token
+  permissions`, never that it grants write. A job that declares nothing runs
+  under `pull_request_target` with the token GitHub documents as read/write
+  "even when it is triggered from a public fork", so it reads `access: write`,
+  says so, and gaining the trigger then also widens the token
+  (`workflow_write_<added|changed>`), as a write scope does.
+- **A calling job's ceiling.** A job that calls a reusable workflow runs no
+  step itself. Its `permissions` are a ceiling, printed `job: ceiling scope:
+  level`: GitHub passes the token to the called workflow, which "can be only
+  downgraded (not elevated)"
+  ([reusing workflow configurations](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations)).
+  For a call whose ceiling holds a `write` scope and whose target is a
+  workflow in the same repository (`./.github/workflows/<file>` or
+  `$/.github/workflows/<file>`, both read from the caller's own commit), that
+  workflow's declared `permissions` are read on the same side of the
+  comparison, through its own same-repository calls, up to GitHub's ten
+  levels of workflows and a bound of 4,096 called workflows per inventory.
+  The call publishes `callee_permissions` and, when it was read,
+  `callee_write_scopes`, the ceiling's write scopes some called job may hold;
+  the row prints them beside the call (`(called jobs hold no write scope)`,
+  `(called jobs may hold contents: write)`). A called job that declares no
+  permissions keeps the whole ceiling. A scope no called job keeps is not a
+  write the caller grants, so raising a ceiling that the called workflow
+  withholds is a `changed` row that says so, and removing the called
+  workflow's restriction widens the unchanged caller too. A call this audit
+  does not follow — a workflow in another repository, which is never fetched,
+  or a same-repository one that is not among the files read on that side (a
+  provided diff reads only changed files), carries a blocking limit, calls back
+  into its own chain or is past the bound (`callee_permissions` `not_read`,
+  `limited`, `cycle`, `too_deep`) — keeps the whole ceiling, and its row says
+  that whether its jobs hold the scopes is not established. That is the
+  direction the engine assumes, so a raised ceiling on such a call is still a
+  widening. Ordinary jobs keep the inheritance described above, and named
+  secret forwarding is unchanged.
+- **The called reference.** `secrets: inherit` passes every caller secret to
+  the called workflow, so a new inheriting job, a different called workflow, or
+  `secrets: inherit` added to a call is a widening
+  (`workflow_secrets_inherited_<added|changed>`). Re-pinning an inheriting
+  call to another reference of the same workflow (`…/cla.yml@main` →
+  `…/cla.yml@<sha>`) is not: it is a `changed` row that says `the called code
+  reference changed` and names both references. References are compared as
+  text, so the row asserts neither what either reference runs nor that they
+  run the same code.
+
+`check`'s workflow rules read declarations and are unchanged: a declared scope
+rising to `write`, including a calling job's ceiling, still requires review
+(`SHIP-HOST-BOUNDARY-WORKFLOW-PERMISSIONS-EXPANDED`), and so does a gained
+`pull_request_target` trigger, whatever the scopes. The rows beside them say
+what the declaration reaches.
 
 How a coding agent is launched inside a job is read (#823). Every value is
 compared as the text it declares, less what the host readers withhold (below);
@@ -506,6 +682,169 @@ publishes no handlers, and its row says the matcher, command and timeout are
 not shown; when only one side is outside it, the row names that side and lists
 the other side's handlers.
 
+<a id="hook-args-and-settings"></a>
+
+A handler's exec-form `args` and its documented boolean and enumerated settings
+are published too (host-grants `0.9`, #972, #971), so an edit confined to them
+is named instead of read as a detail the output does not show. A command
+hook's `args` is the argument vector its `command` is spawned with, without a
+shell, and `async`, `asyncRewake` and `shell` are command-hook fields; `type`
+and `once` are common to every handler
+([command hook fields](https://code.claude.com/docs/en/hooks#command-hook-fields),
+[common fields](https://code.claude.com/docs/en/hooks#common-fields)). `args`
+is published as an MCP server's arguments are: `script`, the first argument
+shaped as a relative script path — segments of letters, digits, `.`, `_` and
+`-`, optionally led by `./`, `${CLAUDE_PROJECT_DIR}/` or
+`${CLAUDE_PLUGIN_ROOT}/`, ending in a script extension such as `.py`, `.sh`,
+`.js`, `.mjs` or `.ts`, at most 200 characters — when no redaction rule
+rewrites it, alone or read after the three arguments before it (so `Bearer`,
+`Authorization:` or `--token` just before it withholds it), and `sha256`, a digest of the
+arguments as `config_sha256`'s input holds them with the script's place
+marked. No other argument text, no absolute path and no URL is published. So
+`command: python3, args: ["guard-readonly.py"]` → `["guard-write.py"]` reads
+`PreToolUse: args script guard-readonly.py → guard-write.py`, an edit to the
+other arguments `args changed (sha256:… → sha256:…)`, and a handler that gains
+`args` `args (none) → guard.py sha256:…`. Reordering the arguments is a change,
+since their order is the vector's; writing the same handler with its keys in
+another order is not. `type`, `async`, `asyncRewake`, `shell` and `once` are
+published only when declared, as a timeout is: a boolean or number as
+declared, a plain-token string quoted, anything else `<not-shown>`. So
+`"async": true` → `"asyncRewake": true` reads `PostToolUse: async true →
+(none); asyncRewake (none) → true`, and a `prompt` handler made an `agent`
+handler `type "prompt" → "agent"`. A cell lists them beside the matcher,
+command and timeout, except a command handler's `type "command"`, which its
+command already says. A value is the declaration, never a claim about when or
+how the hook runs or what its script does, and the row's direction stays
+unknown. Other handler fields — `if`, `statusMessage`, a prompt, a model, a URL
+or headers — are still not published, and a change confined to them, or to a
+value published redacted or shortened, reads `no difference in the matcher,
+command, args, timeout, type, async, asyncRewake, shell or once; the change is
+in a detail this output does not show, such as the if or statusMessage field or
+another field not published, or a matcher, timeout or setting published
+redacted or shortened`. Like the rest of `handlers`, these fields are left out
+of grant equality, the inventory digests and saved baselines, so they add no
+row, and a rotation of a value the digest's input redacts (the value after
+`--token`, `--api-key` or `--password`, a `--password=…` value, or the
+credential in one argument holding `Authorization: Bearer …` or `-u user:…`,
+see #987) is still no row. A value no rule redacts, such as a bare positional
+token, or a password split from its `-u` into the next argument, moves the
+digest, so its rotation is a row of digests that prints neither value.
+
+<a id="hook-command-shape"></a>
+
+An inline hook command is described by its structure, not its text (host-grants
+`0.9`, #934). A command that opens with an assignment, pipes through `sed` or
+branches on `grep` has no executable name to show, and a digest alone told a
+reviewer neither whether the edit added a program nor whether it needs the file
+open. Each handler's `command` now carries `shape`, read from the command as
+`config_sha256`'s input holds it by a bounded, static reader that never runs it.
+The reader accepts simple commands; `|`, `|&`, `&&`, `||`, `;`, `&` and
+newlines; `( … )` and `{ … }` groups; `if`/`elif`/`then`/`else`/`fi`,
+`while`/`until`/`for`/`do`/`done`, `!` and `[[ … ]]`; `NAME=value` prefixes;
+`$( … )` substitutions; quoting; the redirects `>`, `>>`, `<`, `2>&1` and `&>`;
+and a literal `bash -c '…'` script, read inside to two levels. It publishes
+`commands`, the programs named at command positions in order (at most 12; each
+a plain token that no redaction rule rewrites, never a URL or a token that
+looks generated; `commands_more` counts the rest and `unnamed` the command
+positions whose word is a variable, a substitution, a quoted or glob word);
+`statements`, `pipes`, `substitutions`, `control_flow` (the `if`, `elif`,
+`while`, `until` and `for` keywords) and `quoted` (quoted strings), as counts;
+`redirects`, each `> target`, `>> target` or `< target` (at most 8), the target
+only when it is `/dev/null` or a repository-relative path of letters, digits,
+`.`, `_` and `-` with no `..` segment that no redaction rule rewrites, and
+`<not-shown>` otherwise; and `script`, the path of a command word shaped as a
+relative script path, or of the first such argument of an interpreter such as
+`python3`, `node` or `bash`, by the rule `args` use (#972). It follows no
+wrapper (`env`, `sudo`, `xargs`) and no alias, so a wrapper is named and what it
+runs is not. No argument, quoted string, variable, URL or absolute path is
+published, and a backslash-continued line is read joined, so a value the string
+rule leaves on the next line is withheld too.
+
+The reader refuses what it does not read, whole: a here-document or
+here-string, a backquote, `$(( … ))`, `$'…'`, a process substitution, `case`,
+`select`, `coproc`, a function definition, an array assignment, an unterminated
+quote or group, nesting past 8 levels, more than 2,000 words, or more than
+8,192 characters. The handler then carries `shape_limit` (`unsupported_syntax`
+or `too_long`) instead, and a `shell` setting other than `bash` or `sh` is
+`unsupported_shell`. A changed command's row names how the shapes differ —
+`command changed (<not-shown> sha256:f23acba4b10f → <not-shown>
+sha256:3f1dc36980b7; same programs (cat, printf, sed, grep, echo, true); simple
+commands 15 → 25; pipes 5 → 9; conditionals and loops 4 → 7; quoted strings
+18 → 32)`, `programs +sh; pipes 1 → 2`, `redirects +>> logs/x.log`, `script
+a.py → b.py` — and says so when they do not: `same programs and structure; the
+change is in an argument or in quoted text this output does not show, open the
+config to read the change`, or, when either command is not described, `not
+described: head command uses shell syntax this output does not describe; the
+digest moved, open the config to read the change`. One program replaced by
+another is left to the two executables. An added or removed hook's cell lists
+what a command of more than one program is made of (`runs cat, jq, sh; 2 pipes;
+1 redirect (>> logs/x.log)`) and names a script path beside a single program.
+A shape claims nothing about what a command does, whether a host runs it, or
+which way an edit moves authority: the row's direction stays unknown. Like the
+rest of `handlers` it is left out of grant equality, the inventory digests and
+saved baselines, and it is a function of the same text the digest is, so a
+value that text redacts (#987) moves neither, and rotating one is still no row.
+
+<a id="hook-matcher-reach"></a>
+
+A Claude Code hook on a tool event — `PreToolUse`, `PostToolUse`,
+`PostToolUseFailure`, `PermissionRequest` or `PermissionDenied` — runs only
+for a tool whose name its group's matcher matches, and a matcher is compared
+with the tool's name, not its arguments
+([matcher patterns](https://code.claude.com/docs/en/hooks#matcher-patterns)).
+`*`, an empty or an omitted matcher matches every tool; a matcher of only
+letters, digits, `_`, `-`, spaces, `,` and `|` is a list of exact names; any
+other matcher is an unanchored JavaScript regular expression. So
+`Bash(git push*)`, a permission-rule pattern written as a matcher, is a
+regular expression every match of which holds `git pus` and its space, and it
+matches no tool name; a permission-rule pattern filters a handler through its
+[`if` field](https://code.claude.com/docs/en/hooks#common-fields) instead
+(#940). Each handler of such an event publishes `matcher_reach`
+(host-grants `0.9`): `no_tool_name` when every string its declared matcher
+can match holds a character no tool name holds, and `possible` otherwise. A
+tool name is a built-in one
+([tools reference](https://code.claude.com/docs/en/tools-reference), all
+letters) or an MCP tool's `mcp__<server>__<tool>`; every tool name is what
+Claude is given the tool as, which the Claude API restricts to letters,
+digits, `_` and `-`
+([define tools](https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools)),
+and Claude Code rewrites any other character of a plugin MCP tool's name to
+`_` ([plugin MCP tool names](https://code.claude.com/docs/en/mcp)). The
+reader also counts `.` as a tool-name character, so a decided matcher holds a
+character outside letters, digits, `_`, `-` and `.` in every match, and no
+built-in or MCP tool, present or added later, can match it.
+
+The matcher is read, never run: a bounded, linear parser decides only ASCII
+literals, `.`, classes, groups, lookarounds, anchors, quantifiers and the
+escapes whose meaning does not depend on the pattern's flags, which the
+documentation does not state. Anything else is `possible`: a pattern
+JavaScript would reject (`Edit(*.ts)`, `Bash(git push` — what Claude Code
+then does is not documented), a named or modifier group, a backreference, a
+`\x`, `\u` or `\c` escape, a non-ASCII character, groups nested more than 32
+deep, a matcher published as `<not-shown>`. A matcher with only exact-name
+characters is read both as names and as a pattern, and one with surrounding
+white space both trimmed and as written; it is `no_tool_name` only when every
+reading is. So `Bash git push` is decided, `Bash, Edit` and `Bash|` are not,
+and neither is `Bash(git:*)`, which matches the `Bashgit` an MCP tool's name
+may hold. `Bash`, `Edit|Write`, `.*`, `Ba.*`, `mcp__.*`,
+`mcp__github__.*` and `Bash(git push*)|Edit` are all `possible`.
+
+A hook every one of whose handlers is `no_tool_name` runs for no tool call.
+Adding it, or a plugin's selection of it becoming loaded, is still a row, with
+no `⚠` and no expansion signal; its `why` is `declares a hook no tool call can
+trigger` and names the matcher. Adding a `no_tool_name` handler to an event
+that already has hooks is a `changed` row of unknown direction, as any other
+hook edit without a gained handler is. A handler past the bound of 16, or one a
+saved snapshot recorded without `matcher_reach`, counts as one a tool call may
+run. The direction moves both ways: a `no_tool_name` matcher edited into one
+that can match a tool name gains a handler a tool call runs, so it is a
+widening (`hook_changed`). A row whose hook also has handlers that can run
+keeps its `⚠` and names the matchers that cannot. Other events, whose matcher
+filters a session source, an agent type or nothing, and other hosts' hooks are
+unchanged. `diff`, `verify`'s host comparison, the PR comment, `check`'s rows
+and `audit --host --drift` read the one published fact, and `check`'s decision
+does not move: it still asks for review of every changed hook declaration.
+
 <a id="hook-script-dependencies"></a>
 
 Selected hook executables have a separate, bounded byte comparison (#702).
@@ -587,7 +926,8 @@ file exists, not that a host loads it, so hooks are published four ways:
 - **Declared by a file the host loads for this scope**: Claude Code
   settings (`.claude/settings.json`, `.claude/settings.local.json`, user or
   managed settings) or Codex `.codex/hooks.json`. `access: execute`,
-  `risk: high`, and adding or changing one is an expansion.
+  `risk: high`, and adding or changing one is an expansion, unless no tool
+  call can trigger it ([matcher reach](#hook-matcher-reach)).
 - **Selected by a plugin this repository's project settings enable.** A
   project settings file (`.claude/settings.json` or
   `.claude/settings.local.json`) sets `enabledPlugins` `<plugin>@<marketplace>`
@@ -741,7 +1081,10 @@ widening, a `check` violation or a claim that a host loads the file.
 - **A plugin manifest's MCP servers** (`plugin_manifest_mcp_servers`): the
   `mcpServers` member of any of those manifests, inline or a reference, when
   its text differs between the sides. The file a reference names is not
-  followed.
+  followed, except that a Claude Code or Codex manifest's member naming only
+  `.mcp.json` files an inventory of this comparison read is not named: it
+  decided the host those files are published under
+  ([Which host a `.mcp.json` belongs to](#which-host-a-mcpjson-belongs-to)).
 - **A plugin manifest's hooks** (`plugin_manifest_hooks`): the `hooks` member
   of a Codex, Cursor or Copilot manifest, when its text differs. A Claude Code
   manifest's `hooks` is read, as described under the hook loading basis
@@ -792,8 +1135,29 @@ listed or looked at, the block says so and names none. Ordinary
 documentation, an unrelated `*.json`, and a candidate the change did not touch
 produce nothing, and a shape outside this list — a root `plugin.json`, a
 Codex or Cursor marketplace, a hook file a manifest names under another file
-name, a file a `mcpServers` reference names — is still neither read nor named.
+name, a file other than a `.mcp.json` that a `mcpServers` reference names — is
+still neither read nor named.
 Each shape stays here until a reader exists for it (#663).
+
+Such an item also bounds one row's wording (#929). A removed MCP server's row
+reads `an MCP tool surface is no longer offered to the agent` unless the same
+comparison names a changed, unread input that may declare MCP servers in the
+head — a plugin manifest's `mcpServers` (`added` or `changed`), a manifest that
+does not parse, or a plugin's `mcp.json` — in the **same plugin scope** (the
+removed server's file is in that input's plugin directory or below it, the
+repository root holding every file, compared case-insensitively) and for the
+**same host** (its item names the server's host, or the server was published
+under `unknown`). Then the row reads `the server is no longer declared in this
+source; whether it is still offered through a changed declaration this entry
+does not read is not established`. So a `.mcp.json` removed while
+`.claude-plugin/plugin.json` moves the same server inline is not reported as a
+capability loss, and is not reported as a move either: the unread input is
+never read, matched by server name or paired with the row, and stays named as
+its own item. Direction, `expands`, severity and `check`'s decision are
+unchanged. `check` lists the changed files for this only when a server is
+removed and names none of them; a provided diff (`check --diff`) states only
+the files it touches, so a plugin's `mcp.json` beside an untouched manifest
+does not bound its rows.
 
 ## Local-static audit scope
 
@@ -878,10 +1242,38 @@ row is attributed to this path` there, never that no compared grant changed:
 those settings decide the loading basis of the hooks in the directory, which
 were not compared.
 
+A plain instruction document past the instruction classifier's 256 KiB bound
+is withheld the same way (#973). `AGENTS.md`, `AGENTS.override.md` and
+`CLAUDE.md` outside a command, subagent or rule directory are read as
+guidance: within the bound every such file classifies alike whatever it says,
+and no grant is published for it, so no other source's grant can depend on its
+text. Past the bound it is `unsupported` (`instruction_text_limit`). When both
+sides read it directly at the same path for the same hosts, that limit is its
+only blocking issue, no hook runs it as a script, and it is not proven
+unchanged, the document is left uncompared on both sides and named as its own
+`scope` (`limit: unsupported`; a withheld hook script's own-path `scope` is
+`unreadable`), led by `Not compared: <document>, an instruction document
+longer than this entry reads (…)`. An unchanged one is still named in
+`unchanged_limits` (#721), and a comparison it alone limits stays
+`comparable`. Everything else about such a file still refuses: a skill, a
+command or a Cursor rule past the bound (they declare `allowed-tools`, `hooks`
+or activation), a role this entry does not read, a NUL byte, a document on one
+side only (added, removed, grown past or shrunk within the bound), one read
+through an in-tree link, and a change where nothing else was read.
+
+A blocking limit both sides carry says whether its file changed: its
+coverage `detail` ends with `This file changed in this change.`, `This file is
+byte-identical in base and head.` or `Whether this file changed in this change
+is not established.` (a link, a redacted path, a checkout conversion, a
+provided diff), and its line ends `; it changed in this change` and so on, on
+a refusal as on a partial comparison. A side-specific limit carries none; its
+side already says the two differ.
+
 Independence is read off the reference graph, never off directory names. The
 comparison refuses as before when a limit is neither a bounded plugin
-reference nor unchanged (an unreadable settings file, an instruction file
-whose structure could not be established, a link that is not read through),
+reference, a withheld document nor unchanged (an unreadable settings file, an
+instruction file whose structure could not be established for any other
+reason, a link that is not read through),
 when a reference names a path outside its plugin, when the plugin is at the
 repository root, when its directory holds `.claude/settings.json` or
 `.claude/settings.local.json`, which decide every plugin hook's loading basis,
@@ -890,6 +1282,99 @@ plugin, when the directory does not publish as itself (a redacted or shortened
 path), and when nothing outside it was read. A partial comparison is not
 comparable: `verify`'s control, `check`'s decision, the control envelope, the
 Stop hook, baselines and drift treat it as they treated the refusal.
+
+### Claude Code permission rules
+
+One rule model (`core/claude_permission_rules.py`, on the lattice in
+`core/permission_lattice.py`) reads every changed Claude Code `allow`, `ask`
+and `deny` rule, and `diff` (text and `--json`), `verify`'s
+`host_comparison`, `check` and `audit --host --drift` all read its answer
+(#918). It follows Claude Code's permissions page,
+<https://code.claude.com/docs/en/permissions> ("Wildcard patterns",
+"Tool name wildcards", "Read and Edit"), read 2026-10-06. A rule is compared
+only with rules of the same host, settings source and disposition; nothing is
+paired by likeness, and a pair it cannot decide stays a widening.
+
+- **Spelling.** A trailing `:*` is a trailing ` *`, and `Bash(*)` is `Bash`, so
+  `Bash(git add:*)` → `Bash(git add *)` is one `respelled` change, never a
+  widening; a `deny` rewritten that way removes no denial. The space is part
+  of the rule: `Bash(pnpm run lint *)` does not cover
+  `Bash(pnpm run lint:fix *)`. Nothing else is folded: a differently cased tool
+  name or a padded rule is another text, not another spelling.
+- **Coverage.** An added `allow` rule that an `allow` rule the same source
+  declared at the base already matches entirely is still a row, worded
+  `runs without a prompt, but adds nothing: allow: <rule>, declared in this
+  source at the base, already matches everything it matches`, and is not a
+  widening: an unchanged broad rule (#941), a departed broad rule replaced by
+  several proven subsets (#918, whose removed row then names the rules it was
+  narrowed to), or a bare tool name over a path-scoped rule
+  (`Edit` over `Edit(**/.env.example)`, #969). Coverage is decided only for a
+  Bash prefix or exact command, a whole tool, an MCP server or tool, or a path
+  prefix whose `*` stays inside one path segment. A command holding shell
+  syntax (`&&`, `|`, `;`, quotes, `$`, redirection), an exec wrapper the page
+  says a prefix rule does not approve (`watch`, `setsid`, `ionice`, `flock`,
+  `find -exec`/`-delete`), a leading assignment, a `**` or a `*` that would
+  have to cross a `/` is undecided, so the addition keeps its `⚠`. So does an
+  addition beside a deny or ask rule of the same tool the source no longer
+  imposes, a rule moved from `deny` or `ask` into `allow`, and anything an
+  unanchored allow glob such as `*` would cover: the page says such a glob
+  "doesn't auto-approve anything".
+- **Path-scoped rules Claude Code does not consult.** "Claude Code checks file
+  permissions against `Edit(path)` and `Read(path)` rules only": a path rule for
+  `Write`, `NotebookEdit`, `Glob` or `MultiEdit` is accepted and never
+  consulted (v2.1.210 and later). Adding or removing one is a row that says so —
+  `removes a path-scoped Write rule Claude Code never consulted …, so no
+  effective denial is removed` — and never a widening or a removed denial
+  (#938). A bare `Write` rule, and a pattern of nothing but stars such as
+  `Write(**)`, is still read as the whole tool: removing a bare `Write` deny
+  is a widening and raises `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED`.
+- **Scoped file globs are not whole-tool grants.** A file tool's leading `*`
+  stays inside the path segments the pattern names, so `Edit(**/.env.example)`
+  is a scoped rule (`medium`, `runs without a prompt`, and
+  `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` when it is new authority),
+  not `matches every target of this kind` and not the blocking wildcard rule.
+  Only `*`, `**`, `**/*`, `/**` and the like are every path (#969).
+- **Carve-outs.** "A deny or ask pattern that starts with `!` is a gitignore
+  negation. It carves the paths it matches out of the `path` or `./path` rules
+  listed before it", only within its own settings source, and "A `!` rule
+  listed first carves nothing out"; it cannot reach a rule anchored with `/`,
+  `~/` or `//`. The host inventory records, on every `Read(!…)` and
+  `Edit(!…)` deny or ask grant, the earlier relative-path rules of the same
+  tool and list it follows, as `carves_from` (host-grants `0.9`), so an edit
+  that only reorders the list but changes what an exception follows is a
+  `changed` row naming both lists. A carve-out is described as one —
+  `a carve-out: paths it matches are excepted from the earlier deny rules it
+  follows in this source (…)`, or `… listed before every deny rule it could
+  except paths from in this source, so it excepts nothing` — never as an
+  added denial (#974). Whether its pattern overlaps what an earlier rule
+  matches is not decided, so it is read as reaching every rule it can reach.
+  It widens (`deny_carve_out_added` / `_changed`, `ask_carve_out_…`) when it
+  now follows a rule the source already declared at the base that it did not
+  follow there, and `check` raises `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED`
+  with evidence kind `permission_deny_carved_out` for a deny list. Removing a
+  carve-out restricts more and is never a removed denial; one added together
+  with the rules it follows lifts nothing the base declared.
+- **A URL in a rule.** Every route compares a rule as the settings reader
+  publishes it (#922). A URL in it keeps its scheme, host and port, the `)` or
+  shell separator after it, and the wildcard each part ends with (`/*`, `*`,
+  `:*`); its path, query and fragment are published as `<redacted-path>`,
+  `<redacted-query>` and `<redacted-fragment>`, and userinfo as `<redacted>@`.
+  A part that is nothing but `*` and `/` is scope, not a private path, and is
+  published as written. So `Bash(curl -s http://localhost:8000/*)` is published
+  as written and `Bash(curl -s http://localhost:8000/api/*)` as
+  `Bash(curl -s http://localhost:8000/<redacted-path>~1a2b3c4d5e6f/*)`. Where a
+  URL part is withheld, the rule's first marker carries `~` and twelve hex
+  digits of the SHA-256 of the rule in its documented spelling with its
+  credentials masked, as a redacted host path carries one (#590), so two rules
+  that publish alike are two grants, two rows and two changes on every route,
+  `…:*` and `… *` stay one respelled grant, and changing only a path is a row.
+  The digest does not read userinfo or a secret-named query parameter's value,
+  so rotating one is no change, and a rule whose only redaction is a credential
+  (`Authorization: <redacted>`) carries none. It is a fingerprint, not
+  encryption: a guessable path can be confirmed against it. A marker is shell
+  syntax to the rule model, so a rule holding one is never proven covered and
+  keeps its `⚠`. `check` redacts every argument and lists each such rule as
+  its own `Bash(<redacted-arguments>)` row.
 
 ### Claude Code setting ratings
 

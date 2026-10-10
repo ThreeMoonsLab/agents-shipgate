@@ -77,9 +77,19 @@ def test_reusable_secret_delegation_is_named_and_directional():
 
 def test_inherited_secrets_change_recipient():
     before = _workflow(uses="org/repo/.github/workflows/deploy.yml@v1", secrets="inherit")
-    after = _workflow(uses="org/repo/.github/workflows/deploy.yml@v2", secrets="inherit")
+    after = _workflow(uses="org/repo/.github/workflows/release.yml@v1", secrets="inherit")
     row, = _comparison(before, after)
     assert row.expands and row.before != row.after
+    assert "the called workflow changed (test:" in row.why
+
+
+def test_a_re_pinned_inheriting_call_is_not_a_new_recipient():
+    # #924: the same called workflow at another reference receives the same secrets.
+    before = _workflow(uses="org/repo/.github/workflows/deploy.yml@v1", secrets="inherit")
+    after = _workflow(uses="org/repo/.github/workflows/deploy.yml@v2", secrets="inherit")
+    row, = _comparison(before, after)
+    assert row.direction == "changed" and not row.expands and row.before != row.after
+    assert "the called code reference changed (test:" in row.why
 
 
 def test_new_trigger_does_not_reannounce_existing_writes():

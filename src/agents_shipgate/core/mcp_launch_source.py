@@ -2,6 +2,15 @@
 
 No shell parsing, registry lookup or executable resolution. Unknown grammar
 abstains; it is not evidence of a mutable (or pinned) source.
+
+A pin is a fact of the declaration. Where the launcher then finds the package
+is a separate question the declaration does not answer for one form (#933):
+``npx`` given a package name with no version specifier runs "whatever version
+exists in the local project" when the project depends on it, and otherwise
+installs it into the npm cache from the registry
+(https://docs.npmjs.com/cli/v11/commands/npm-exec#description). That form is
+published with :data:`LOCAL_PROJECT_OR_REGISTRY`, and no ``package.json``,
+lockfile, ``node_modules`` or cache is read to decide which applies.
 """
 from __future__ import annotations
 
@@ -10,6 +19,11 @@ from typing import Any, Literal
 from urllib.parse import urlsplit
 
 Pin = Literal["pinned", "mutable"]
+Resolution = Literal["local_project_or_registry"]
+#: ``npx NAME`` with no version specifier: npm matches a local project
+#: dependency of that name first and falls back to the registry or its cache
+#: (#933). Which one a launch uses is not established by the declaration.
+LOCAL_PROJECT_OR_REGISTRY: Resolution = "local_project_or_registry"
 _NPM = re.compile(r"(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*(?:@([A-Za-z0-9.*^~+_-][A-Za-z0-9.*^~+_-]*))?")
 _SEMVER = re.compile(r"v?(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?")
 _PYPI = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?(?:\[[A-Za-z0-9._,-]+\])?(?:(==|~=|>=|<=|!=|>|<)([A-Za-z0-9.*+!_-][A-Za-z0-9.*+!_-]*))?")
@@ -152,3 +166,22 @@ def launch_source_pin(command: Any, args: Any) -> tuple[Pin, int] | None:
     else:
         pin = _python_pin(spec, uv_at=command == "uvx" and index == 0)
     return (pin, index) if pin else None
+
+
+def launch_source_resolution(command: Any, args: Any, index: int) -> Resolution | None:
+    """How the launcher resolves the source at ``index``, when the declaration leaves it open (#933).
+
+    Only ``npx`` with an npm package name and no version specifier, which npm
+    documents as matched against the local project's dependencies before the
+    registry or cache. ``@latest``, a range, a tag or an exact version is a
+    specifier and keeps #825's reading; every other launcher, ``bunx`` and
+    ``pnpm dlx`` included, is not classified here. ``index`` is the one
+    :func:`launch_source_pin` returned for the same arguments.
+    """
+
+    if command != "npx" or not isinstance(args, list) or not 0 <= index < len(args):
+        return None
+    match = _NPM.fullmatch(args[index]) if isinstance(args[index], str) else None
+    if match is None or match[1] is not None:
+        return None
+    return LOCAL_PROJECT_OR_REGISTRY

@@ -63,6 +63,16 @@ directory, still refuses its comparison. A `0.20` verifier claiming a partial
 comparison or a `scope` is refused. See
 [the migration note](../STABILITY.md#partial-host-comparison-808).
 
+Unreleased, still contract v42: a plain instruction document (`AGENTS.md`,
+`AGENTS.override.md`, `CLAUDE.md`) that both sides read directly and that is
+refused only because it is past the 256 KiB instruction bound is withheld the
+same way (#973): the comparison is `partial`, and the document's own path is
+the `scope` of its `blocking_limit` item, with `limit: unsupported` (a hook
+script's own-path scope is `unreadable`). A blocking limit both sides carry
+ends its `detail` with whether Git shows the file changed in this change, is
+byte-identical, or neither. Treat `partial` as before. See
+[the migration note](../STABILITY.md#oversized-instruction-document-973).
+
 Runtime contract v41, extended in place, also reads how a coding agent is
 launched inside a workflow job (#823). Host-grants `0.6` shipped in 1.1.0, so
 host-grants inventory, baseline and drift schemas move to `0.7`, and a workflow
@@ -820,7 +830,7 @@ Downstream repos generated with
 - Current attestation schema: `0.5` — [`docs/attestation-schema.v0.5.json`](attestation-schema.v0.5.json)
 - Current registry schema: `0.4` — [`docs/registry-schema.v0.4.json`](registry-schema.v0.4.json)
 - Current org evidence bundle schema: `shipgate.org_evidence_bundle/v2` — [`docs/org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json)
-- Current host-grants inventory, baseline, and drift schemas: `0.9` — [`inventory`](host-grants-inventory-schema.v0.9.json), [`baseline`](host-grants-baseline-schema.v0.9.json), [`drift`](host-grants-drift-schema.v0.9.json). Version 0.9 adds explicit local OpenShell composition, provider profile provenance and effective-snapshot metadata; historical host schemas remain frozen. See [OpenShell support](openshell-support.md).
+- Current host-grants inventory, baseline, and drift schemas: `0.9` — [`inventory`](host-grants-inventory-schema.v0.9.json), [`baseline`](host-grants-baseline-schema.v0.9.json), [`drift`](host-grants-drift-schema.v0.9.json). Version 0.9 adds explicit local OpenShell composition, provider profile provenance and effective-snapshot metadata, and, on a reusable workflow call whose permission ceiling holds a write scope and whose target is in the same repository, `callee_permissions` and `callee_write_scopes` (#921); historical host schemas remain frozen. See [OpenShell support](openshell-support.md) and [workflow token scopes](host-boundary-support.md#workflow-token-scopes).
 - Optional OpenShell native trust/evidence schemas: `1` — [`trust`](openshell-native-trust-schema.v1.json), [`evidence`](openshell-native-evidence-schema.v1.json). Only explicit external trust inputs enable local execution; the default remains static. Native containment never grants merge authority. See [OpenShell support](openshell-support.md#optional-native-containment).
 - Current trigger catalog schema: `0.4` — [`docs/triggers.json`](triggers.json)
 - Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)

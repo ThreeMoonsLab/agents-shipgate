@@ -257,11 +257,13 @@ def test_application_diff_shows_the_memory_tools_a_factory_adds(tmp_path):
     head = _commit(tmp_path, _visulate("read_memory_tool, save_memory_tool"))
     result = _compare(tmp_path, base, head, "--scope", "ai-agent")
 
-    assert result["comparison_status"] == "compared"
-    assert [(row["agent"], row["tool"], row["change"]) for row in result["rows"]] == [
+    assert result["comparison_status"] == "partial"
+    assert all(row["change"] == "not_established" for row in result["rows"])
+    assert [(row["agent"], row["tool"], row["candidate_change"]) for row in result["rows"] if row["candidate_change"] == "added"] == [
         ("visulate_root_agent", "save_memory_record", "added"),
     ]
-    after = result["rows"][0]["after"]
+    assert any("constructor identity is not established" in gap["reason"] for gap in result["head"]["coverage_gaps"])
+    after = next(row["after"] for row in result["rows"] if row["tool"] == "save_memory_record")
     assert after["definition"]["source"] == "ai-agent/common/tools.py"
     assert after["definition"]["line"] == 5
 
@@ -289,8 +291,12 @@ def test_a_factory_s_function_changing_is_an_implementation_change(tmp_path):
     base = _commit(tmp_path, _visulate())
     head = _commit(tmp_path, {"ai-agent/common/tools.py": MEMORY.replace("return content", "return content.upper()")})
     result = _compare(tmp_path, base, head, "--scope", "ai-agent")
-    rows = [(row["agent"], row["tool"], row["change"]) for row in result["rows"]]
-    assert ("visulate_root_agent", "save_memory_record", "changed") in rows
+    assert result["comparison_status"] == "partial"
+    assert all(row["change"] == "not_established" for row in result["rows"])
+    row = next(row for row in result["rows"] if row["tool"] == "save_memory_record")
+    assert row["candidate_change"] == "changed"
+    assert row["before"]["definition"]["implementation_sha256"] != row["after"]["definition"]["implementation_sha256"]
+    assert any("constructor identity is not established" in gap["reason"] for gap in result["head"]["coverage_gaps"])
 
 
 # -- a tools list built in the agent's function ---------------------------------
@@ -328,7 +334,12 @@ def test_a_tools_list_built_in_the_agent_s_function_is_read(tmp_path, body, boun
     _write(tmp_path, _list_agent(body))
     loaded, artifacts = _adk(tmp_path)
     assert [tool for _, tool, _ in _edges(loaded, artifacts)] == bound
-    assert artifacts.warnings == []
+    observations = [item for source in loaded for item in source.binding_observations]
+    if "tools +=" not in body:
+        assert not artifacts.warnings and all(item.tools_complete for item in observations)
+    else:
+        assert any("constructor identity is not established" in warning for warning in artifacts.warnings)
+        assert observations and all(not item.tools_complete for item in observations)
 
 
 def test_a_tool_added_under_a_condition_is_named_beside_the_list(tmp_path):
@@ -344,6 +355,7 @@ def test_a_tool_added_under_a_condition_is_named_beside_the_list(tmp_path):
     assert message in artifacts.warnings
     (observation,) = [item for source in loaded for item in source.binding_observations]
     assert observation.tools_complete is False
+    assert message in observation.issues
     assert observation.issues == [message]
 
 
@@ -491,7 +503,49 @@ def test_a_factory_docstring_is_not_a_change(tmp_path):
         {"ai-agent/common/tools.py": MEMORY.replace("return content", '"""Save a record."""\n        return content')},
     )
     result = _compare(tmp_path, before, after, "--scope", "ai-agent")
-    assert [row for row in result["rows"] if row["tool"] == "save_memory_record"] == []
+    (row,) = [row for row in result["rows"] if row["tool"] == "save_memory_record"]
+    assert row["change"] == "not_established"
+    assert row["before"]["definition"]["implementation_sha256"] == row["after"]["definition"]["implementation_sha256"]
+    assert any("constructor identity is not established" in gap["reason"] for gap in result["head"]["coverage_gaps"])
+
+
+@pytest.mark.parametrize("change", ["added", "implementation", "docstring"])
+def test_annotated_factories_with_deferred_headers_keep_clean_comparison_controls(tmp_path, change):
+    # This is a bounded synthetic control. The real Visulate fixture above
+    # keeps its eager annotations and its explicit constructor uncertainty.
+    source = '''from __future__ import annotations
+from google.adk.agents import Agent
+from google.adk.tools import FunctionTool
+
+def make_read() -> FunctionTool:
+    def read(query: str) -> str:
+        return query
+    return FunctionTool(read)
+
+def make_write() -> FunctionTool:
+    def write(query: str) -> str:
+        return query
+    return FunctionTool(write)
+
+def build() -> Agent:
+    return Agent(name='root', tools=[make_read()])
+a = build()
+'''
+    changed = {
+        "added": source.replace("tools=[make_read()]", "tools=[make_read(), make_write()]"),
+        "implementation": source.replace("return query", "return query.upper()", 1),
+        "docstring": source.replace("        return query", '        """Read a query."""\n        return query', 1),
+    }[change]
+    _git(tmp_path, "init", "-q", "-b", "main")
+    base, head = _commit(tmp_path, {"agent.py": source}), _commit(tmp_path, {"agent.py": changed})
+    result = _compare(tmp_path, base, head)
+    assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
+    if change == "docstring":
+        assert result["rows"] == []
+    else:
+        assert [(row["tool"], row["change"]) for row in result["rows"]] == [
+            ("write", "added") if change == "added" else ("read", "changed")
+        ]
 
 
 @pytest.mark.parametrize(
@@ -815,7 +869,14 @@ def test_a_value_the_read_can_follow_is_data(tmp_path, factory, call):
     after = _commit(tmp_path, {"README.md": "b\n"})
     # The whole tree: a README-only change derives no scope of its own (#875).
     result = _compare(tmp_path, before, after, "--scope", ".")
-    assert result["rows"] == [] and result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
+    if call == "make(upper)":
+        assert result["comparison_status"] == "partial"
+        assert result["rows"] and all(row["change"] == "not_established" for row in result["rows"])
+        assert all(row["before"]["definition"]["implementation_sha256"] == row["after"]["definition"]["implementation_sha256"]
+                   for row in result["rows"])
+        assert any("constructor identity is not established" in gap["reason"] for gap in result["head"]["coverage_gaps"])
+    else:
+        assert result["rows"] == [] and result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
 
 
 @pytest.mark.parametrize(

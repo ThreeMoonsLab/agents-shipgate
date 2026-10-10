@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 from typing import get_args
 
+import pytest
 import yaml
 
 from agents_shipgate.cli.scan.declarations import build_declaration_scaffold
@@ -844,6 +845,9 @@ def _cold_start_project(root: Path) -> Path:
     project = root / "cold-start"
     project.mkdir()
     listed = ",\n        ".join(_COLD_START_TOOLS)
+    (project / "tools.py").write_text(
+        "from external_tool_package import " + ", ".join(_COLD_START_TOOLS) + "\n", encoding="utf-8",
+    )
     (project / "agent.py").write_text(
         "from google.adk.agents import LlmAgent\n\n"
         f"from .tools import (\n    {',\n    '.join(_COLD_START_TOOLS)},\n)\n\n"
@@ -877,7 +881,8 @@ def _scan_cold_start(project: Path, reports: Path):
     return report
 
 
-def test_cold_start_walk_scaffolds_both_layers_in_two_iterations(tmp_path) -> None:
+@pytest.mark.parametrize("provided_dependency", [False, True], ids=["unread-tool-objects", "readable-tool-source"])
+def test_cold_start_walk_scaffolds_both_layers_in_two_iterations(tmp_path, provided_dependency) -> None:
     """The whole of #361, walked: 5 hand-authored iterations become 2.
 
     Stage 1 (bare init) and stage 2 (inventory declared) both used to emit no
@@ -927,7 +932,7 @@ def test_cold_start_walk_scaffolds_both_layers_in_two_iterations(tmp_path) -> No
     stage2 = _scan_cold_start(project, reports)
     assert stage2.release_decision is not None
     coverage = stage2.release_decision.evidence_coverage
-    assert coverage.binding_coverage.gap_count == 1
+    assert coverage.binding_coverage.reason_counts == {"missing_binding_evidence": 1, "partial_binding_evidence": 1}
     assert len(stage2.tool_catalog) == len(_COLD_START_TOOLS)
     assert scaffold_path.is_file()
     # The repair is made, so the stage-1 inventory instruction is withdrawn
@@ -957,18 +962,41 @@ def test_cold_start_walk_scaffolds_both_layers_in_two_iterations(tmp_path) -> No
 
     stage3 = _scan_cold_start(project, reports)
     assert stage3.release_decision is not None
-    assert stage3.release_decision.evidence_coverage.binding_coverage.gap_count == 0
+    assert stage3.release_decision.evidence_coverage.binding_coverage.reason_counts == {"partial_binding_evidence": 1}
     assert len(stage3.binding_surface_facts.reachable_tool_ids) == len(
         _COLD_START_TOOLS
     )
 
-    # --- and the route it advertises actually terminates ---------------------
-    # The prescribed repair used to be unreachable: the unresolved-import
-    # warnings stayed on the report after the inventory answered them, and
-    # `evidence_below_ie_threshold` gates on their raw count, so a repository
-    # that did exactly what it was told sat at `insufficient_evidence` forever
-    # with no non-warning gap left to act on (PR #401 review).
-    assert stage3.release_decision.evidence_coverage.source_warning_count == 0
+    # The inventory retires unresolved-symbol warnings. Constructor ownership
+    # remains an independent obligation while the imported objects are unread.
+    assert stage3.release_decision.evidence_coverage.source_warning_count == 1
+    assert all("constructor identity is not established" in warning for warning in stage3.source_warnings)
+    assert not _open_symbols(stage3)
+
+    ownership = [gap for gap in stage3.release_decision.evidence_coverage.evidence_gaps
+                 if gap.kind == "partial_binding_evidence"]
+    assert len(ownership) == len(_COLD_START_TOOLS) + 1
+    for gap in ownership:
+        assert gap.next_action.kind == "provide_source"
+        assert gap.next_action.path == gap.source_ref
+        assert gap.next_action.path.endswith("agent.py:12")
+        assert not gap.next_action.accepted_values
+        assert gap.next_action.declaration_template is None
+        assert "binding declaration" in gap.next_action.expects
+    assert not any(gap.next_action.kind == "provide_complete_binding_graph"
+                   for gap in stage3.release_decision.evidence_coverage.evidence_gaps)
+
+    if provided_dependency:
+        # The reviewed inventory closes the name question. Readable plain
+        # function source separately closes the imported-object ownership
+        # question; regenerate the action scaffold against that evidence.
+        (project / "external_tool_package.py").write_text("".join(
+            f'def {name}():\n    """Read the reviewed fixture record."""\n    return None\n'
+            for name in _COLD_START_TOOLS
+        ))
+        provided = _scan_cold_start(project, reports)
+        assert provided.release_decision.evidence_coverage.binding_coverage.gap_count == 0
+        assert not provided.source_warnings
 
     # The action blocks come from the scaffold itself, answered the way its
     # own comments instruct: pick a value from the printed vocabulary, and
@@ -1000,19 +1028,21 @@ def test_cold_start_walk_scaffolds_both_layers_in_two_iterations(tmp_path) -> No
     assert final.release_decision is not None
     coverage = final.release_decision.evidence_coverage
 
-    # Every evidence layer is closed — including the policy one, which a
-    # uniform `read` would have left open.
-    assert coverage.binding_coverage.gap_count == 0
-    assert coverage.semantic_coverage.gap_count == 0
+    # Declarations close their layers; unread objects still withhold ownership.
+    assert coverage.binding_coverage.gap_count == (0 if provided_dependency else 1)
+    assert coverage.semantic_coverage.gap_count == (0 if provided_dependency else len(_COLD_START_TOOLS))
     assert coverage.policy_gap_count == 0
-    assert coverage.source_warning_count == 0
-    assert coverage.evidence_gaps == []
+    assert coverage.source_warning_count == (0 if provided_dependency else 1)
+    if provided_dependency:
+        assert coverage.evidence_gaps == []
+    else:
+        assert {gap.kind for gap in coverage.evidence_gaps} == {"partial_binding_evidence", "source_warning"}
 
-    # And the verdict is now a judgement about the declared surface rather
-    # than an abstention about the evidence: `blocked`, on a finding about the
-    # external-communication tool the walk just declared.
+    # The policy blocker takes precedence on both routes. It does not retire
+    # the unread-object evidence gap or make that binding pass eligible.
     assert final.release_decision.decision == "blocked"
     assert final.release_decision.blockers
+    assert coverage.binding_coverage.pass_eligible is provided_dependency
 
 
 def test_binding_scaffold_is_withheld_rather_than_truncated(tmp_path) -> None:
@@ -1278,6 +1308,9 @@ def _adk_project(
 
     project = root / name
     project.mkdir()
+    (project / "tools.py").write_text(
+        "from external_tool_package import " + ", ".join(symbols) + "\n", encoding="utf-8",
+    )
     (project / "agent.py").write_text(
         "from google.adk.agents import LlmAgent\n\n"
         "from .tools import (\n"
@@ -1348,7 +1381,8 @@ def test_a_split_toolset_inventory_is_not_prescribed_forever(tmp_path) -> None:
     # The symbol is nowhere in the inventory, and the repair is still complete.
     assert _open_symbols(report) == set()
     assert report.release_decision is not None
-    assert report.release_decision.evidence_coverage.source_warning_count == 0
+    assert report.release_decision.evidence_coverage.source_warning_count == 1
+    assert all("constructor identity is not established" in warning for warning in report.source_warnings)
     assert not (tmp_path / "reports" / "suggested-inventory.json").exists()
 
 
@@ -1386,7 +1420,9 @@ def test_a_same_named_tool_elsewhere_does_not_complete_this_source(tmp_path) -> 
     # Still owed: nothing declared anything about the ADK source.
     assert _open_symbols(report) == {"search"}
     assert report.release_decision is not None
-    assert report.release_decision.evidence_coverage.source_warning_count == 1
+    assert report.release_decision.evidence_coverage.source_warning_count == 2
+    assert sum("references unresolved tool" in warning for warning in report.source_warnings) == 1
+    assert sum("constructor identity is not established" in warning for warning in report.source_warnings) == 1
 
 
 def test_withdrawal_needs_a_declared_surface_not_just_a_bound_file(tmp_path) -> None:

@@ -127,13 +127,15 @@ as data.
 
 ### 3. Read the answer
 
-**Released in `1.2.0`:** the answers below are from the published `1.2.0`,
-installed from PyPI into a clean virtualenv outside any checkout and run in a
-clone. The previous release, `1.1.0`, prints the same comparison facts and
-coverage, but does not append the conditional permission
-review guidance shown in the change example, nor the `launch source is mutable`
-note on the added MCP server. That note identifies its unversioned `npx` package
-and changes neither severity nor the widening count. On
+**Source-tree examples, not yet released:** the answers below are from this
+repository's source tree, run in a clone. The published `1.2.0` prints the
+same answers, except that its note on the added MCP server in the change
+example reads `launch source is mutable`. This tree says instead that the
+server's `npx` package spec has no exact version, and that the static read does
+not establish whether `npx` resolves a local project dependency or falls back
+to the registry or its cache, as
+[npm documents](https://docs.npmjs.com/cli/v11/commands/npm-exec#description)
+(#933). The note changes neither severity nor the widening count. On
 the remote's `main`, `.claude/settings.json` allows `Bash(npm test:*)` and denies `Bash(rm -rf:*)`,
 and `.mcp.json` configures one server, `docs`. The PR branch allows
 `Bash(npm *)`, drops the denial, and adds a `billing` server.
@@ -162,7 +164,7 @@ Agent capability diff  origin/main (5d1b9e23) -> working tree
 
 ⚠ high    added    claude-code .mcp.json
                   billing (command name npx; env keys BILLING_TOKEN)
-                  an MCP tool surface the agent may call has changed; launch source is mutable
+                  an MCP tool surface the agent may call has changed; package spec has no exact version; launch resolution not established: npx may resolve a local project dependency or fall back to the registry/cache
 
 ⚠ medium  widened  claude-code .claude/settings.json
                   allow: Bash(npm test:*) → allow: Bash(npm *)
@@ -519,7 +521,10 @@ absolute directory.
 ### 3. What changed
 
 Open `pr-comment.md` — the same text the GitHub Action posts on a pull
-request. It leads with the capability delta, by subject:
+request. The published `v1.2.0` release leads with the capability delta,
+by subject. The current source tree still reports what was added or changed
+when agent binding coverage is incomplete, withholds what was removed or
+narrowed, and names that limit:
 
 ```text
 - Capability delta (analysed surface): 2 subjects across 6 changes (+1 added, 2 modified, -0 removed)
@@ -567,7 +572,9 @@ effect evidence are compatible answers; see [effect projections and
 evidence](effect-evidence.md) for the existing JSON fields and review meaning.
 
 `report.md` carries its own coverage limit, and that limit is part of the
-answer:
+answer. The published `v1.2.0` release renders this excerpt; the current
+source tree can report different reachability and pass-eligibility counts
+when binding coverage is incomplete. Read the counts from the run you made:
 
 ```text
 Evidence coverage: static (2/2 catalog tools reachable; 1 semantic review

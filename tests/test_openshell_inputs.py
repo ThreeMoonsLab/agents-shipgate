@@ -119,7 +119,12 @@ def test_ignored_selected_policy_invalidates_existing_control(repo, configured):
         read_current_control(out, live=lambda: _live(repo))
 
 
-def test_ignored_selected_link_retargeting_invalidates_configured_receipt(repo):
+@pytest.mark.parametrize("configured", [True, False])
+def test_ignored_selected_link_retargeting_invalidates_current_control(repo, configured):
+    if not configured:
+        (repo / "shipgate.yaml").unlink()
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "host-only workspace")
     (repo / ".gitignore").write_text("agents-shipgate-reports/\nprivate/\n")
     _git(repo, "add", ".gitignore")
     _git(repo, "commit", "-m", "ignore bundle")
@@ -129,14 +134,39 @@ def test_ignored_selected_link_retargeting_invalidates_configured_receipt(repo):
     one.write_text(POLICY)
     two.write_text(POLICY)
     target.symlink_to("one")
-    _verify(repo, archive_head=False)
+    if configured:
+        _verify(repo, archive_head=False)
+    else:
+        result = CliRunner().invoke(app, ["verify", "--workspace", str(repo), "--base", "main", "--json"])
+        assert result.exit_code in (0, 10, 20), result.output
     out = repo / "agents-shipgate-reports"
-    plan = json.loads((out / "verification-plan.json").read_text())
-    links = plan["inputs"]["options"]["dependency_inputs"]["links"]
-    assert [item["path"] for item in links] == ["private/link"]
+    if configured:
+        plan = json.loads((out / "verification-plan.json").read_text())
+        links = plan["inputs"]["options"]["dependency_inputs"]["links"]
+        assert [item["path"] for item in links] == ["private/link"]
     read_current_control(out, live=lambda: _live(repo))
     target.unlink()
     target.symlink_to("two")
+    with pytest.raises(CurrentControlUnavailable):
+        read_current_control(out, live=lambda: _live(repo))
+
+
+@pytest.mark.parametrize("configured", [True, False])
+def test_ignored_selecting_reference_change_invalidates_control_with_identical_policy_bytes(repo, configured):
+    if not configured:
+        (repo / "shipgate.yaml").unlink()
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "host-only workspace")
+    (repo / ".gitignore").write_text("agents-shipgate-reports/\n.shipgate/\nprivate/\n")
+    _git(repo, "add", ".gitignore")
+    _git(repo, "commit", "-m", "ignore selection bundle")
+    register(repo, "private/one")
+    (repo / "private/two").write_text(POLICY)
+    result = CliRunner().invoke(app, ["verify", "--workspace", str(repo), "--base", "main", "--json"])
+    assert result.exit_code in (0, 10, 20), result.output
+    out = repo / "agents-shipgate-reports"
+    read_current_control(out, live=lambda: _live(repo))
+    (repo / REGISTRATION).write_text(json.dumps(selection("private/two")))
     with pytest.raises(CurrentControlUnavailable):
         read_current_control(out, live=lambda: _live(repo))
 

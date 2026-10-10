@@ -1,0 +1,11 @@
+diff --git a/worker-policy.yaml b/worker-policy.yaml
+index ac8aa04..bf70242 100644
+--- a/worker-policy.yaml
++++ b/worker-policy.yaml
+@@ -13,5 +13,5 @@ network_policies:
+       - host: api.github.com
+         port: 443
+         protocol: rest
+-        enforcement: enforce
++        enforcement: audit
+         access: read-only

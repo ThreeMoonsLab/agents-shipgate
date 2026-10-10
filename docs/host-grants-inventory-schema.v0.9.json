@@ -341,7 +341,8 @@
             "cursor",
             "vscode",
             "github",
-            "openshell"
+            "openshell",
+            "unknown"
           ],
           "title": "Host",
           "type": "string"
@@ -509,32 +510,32 @@
             "discriminator": {
               "mapping": {
                 "additional_path": "#/$defs/HostAdditionalPathGrantV2",
-                "hook": "#/$defs/HostHookGrantV7",
+                "hook": "#/$defs/HostHookGrantV9",
                 "instruction_trust_root": "#/$defs/HostInstructionGrantV2",
-                "mcp_server": "#/$defs/HostMcpServerGrantV7",
+                "mcp_server": "#/$defs/HostMcpServerGrantV9",
                 "openshell_policy": "#/$defs/HostOpenShellPolicyGrantV9",
                 "permission_mode": "#/$defs/HostPermissionModeGrantV2",
-                "permission_rule": "#/$defs/HostPermissionRuleGrantV2",
+                "permission_rule": "#/$defs/HostPermissionRuleGrantV9",
                 "plugin_or_app": "#/$defs/HostPluginGrantV2",
                 "profile": "#/$defs/HostProfileGrantV2",
                 "requirement": "#/$defs/HostRequirementGrantV2",
                 "sandbox": "#/$defs/HostSandboxGrantV2",
-                "workflow": "#/$defs/HostWorkflowGrantV7"
+                "workflow": "#/$defs/HostWorkflowGrantV9"
               },
               "propertyName": "kind"
             },
             "oneOf": [
               {
-                "$ref": "#/$defs/HostMcpServerGrantV7"
+                "$ref": "#/$defs/HostMcpServerGrantV9"
               },
               {
-                "$ref": "#/$defs/HostPermissionRuleGrantV2"
+                "$ref": "#/$defs/HostPermissionRuleGrantV9"
               },
               {
                 "$ref": "#/$defs/HostPermissionModeGrantV2"
               },
               {
-                "$ref": "#/$defs/HostHookGrantV7"
+                "$ref": "#/$defs/HostHookGrantV9"
               },
               {
                 "$ref": "#/$defs/HostSandboxGrantV2"
@@ -552,7 +553,7 @@
                 "$ref": "#/$defs/HostRequirementGrantV2"
               },
               {
-                "$ref": "#/$defs/HostWorkflowGrantV7"
+                "$ref": "#/$defs/HostWorkflowGrantV9"
               },
               {
                 "$ref": "#/$defs/HostInstructionGrantV2"
@@ -580,7 +581,7 @@
         },
         "issues": {
           "items": {
-            "$ref": "#/$defs/HostInventoryIssueV8"
+            "$ref": "#/$defs/HostInventoryIssueV9"
           },
           "title": "Issues",
           "type": "array"
@@ -617,9 +618,145 @@
       "title": "HostGrantsInventoryV9",
       "type": "object"
     },
-    "HostHookCommandV7": {
+    "HostHookArgsV9": {
       "additionalProperties": false,
-      "description": "A hook command as its grant publishes it: the executable's name and a digest of the whole command.\n\n``executable`` is the last path segment of the command's first\nwhitespace-separated word, when it is a plain token\n(``[A-Za-z0-9._+-]``, at most 80 characters) no redaction rule rewrites\nand the word is no shell reserved word and holds no ``://``, and\n``<not-shown>`` otherwise, so no part of a URL is named. It\nis a label, not a claim about what a host runs. ``sha256`` is the digest of the whole command as\n``config_sha256``'s input holds it, so it moves only when that digest\ndoes; a value that input redacts moves neither. The command's text is\nnever published.",
+      "description": "A hook handler's ``args``, without their text (#972).\n\n``script`` is the first argument shaped as a relative script path\n(segments of letters, digits, ``.``, ``_`` and ``-``, optionally led by\n``./``, ``${CLAUDE_PROJECT_DIR}/`` or ``${CLAUDE_PLUGIN_ROOT}/``, ending\nin a script extension such as ``.py``, ``.sh`` or ``.mjs``) when no\nredaction rule rewrites it, alone or after the three arguments before it,\nand ``None`` otherwise. It is a label, not a claim about what runs.\n``sha256`` is the digest of the declared ``args`` as ``config_sha256``'s\ninput holds them, with the published script replaced by a marker and its\nposition digested beside them, as an MCP server's ``args_sha256`` is, so\nit moves only when that digest does. No other argument text is published.",
+      "properties": {
+        "script": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Script"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "script",
+        "sha256"
+      ],
+      "title": "HostHookArgsV9",
+      "type": "object"
+    },
+    "HostHookCommandShapeV9": {
+      "additionalProperties": false,
+      "description": "What a hook's inline command is made of, without any of its text (#934).\n\nRead by a bounded, static reading of the command as ``config_sha256``'s\ninput holds it, never run. ``commands`` lists, in the order they are\nwritten, the first 12 distinct programs named at a command position, each\na plain token (``[A-Za-z0-9._+-]``, at most 80 characters) no redaction\nrule rewrites, the last ``/`` segment of the word; ``commands_more`` counts\nthe distinct programs past those, and ``unnamed`` the command positions\nwhose word is not such a token (a variable, a substitution, a quoted or\nglob word), both left out when 0. ``statements`` counts the simple\ncommands, ``pipes`` the ``|`` and ``|&`` operators, ``substitutions`` the\n``$( \u2026 )`` command substitutions, ``control_flow`` the ``if``, ``elif``,\n``while``, ``until`` and ``for`` keywords and ``quoted`` the quoted\nstrings, each across the whole command. ``redirects`` lists, in order, at\nmost 8 redirects to a file as ``> target``, ``>> target`` or ``< target``,\nthe target only when it is ``/dev/null`` or a repository-relative path of\nletters, digits, ``.``, ``_`` and ``-`` with no ``..`` segment that no\nredaction rule rewrites, ``<not-shown>`` otherwise; ``redirects_more``\ncounts those past them. ``script`` is a script path published as a\nhandler's ``args`` publish one: a command word shaped as a relative script\npath, or the first such argument of an interpreter. A command that runs\n``bash -c '\u2026'`` with a literal script is read inside that script too.\n\nNo argument, quoted string, variable or absolute path is published. It\ndescribes the command's structure and claims nothing about what it does,\nwhether a host runs it, or in which direction a change moves authority.",
+      "properties": {
+        "commands": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Commands",
+          "type": "array"
+        },
+        "commands_more": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commands More"
+        },
+        "control_flow": {
+          "title": "Control Flow",
+          "type": "integer"
+        },
+        "pipes": {
+          "title": "Pipes",
+          "type": "integer"
+        },
+        "quoted": {
+          "title": "Quoted",
+          "type": "integer"
+        },
+        "redirects": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Redirects"
+        },
+        "redirects_more": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Redirects More"
+        },
+        "script": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Script"
+        },
+        "statements": {
+          "title": "Statements",
+          "type": "integer"
+        },
+        "substitutions": {
+          "title": "Substitutions",
+          "type": "integer"
+        },
+        "unnamed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unnamed"
+        }
+      },
+      "required": [
+        "commands",
+        "statements",
+        "pipes",
+        "substitutions",
+        "control_flow",
+        "quoted"
+      ],
+      "title": "HostHookCommandShapeV9",
+      "type": "object"
+    },
+    "HostHookCommandV9": {
+      "additionalProperties": false,
+      "description": "A hook command plus the shape of the inline command, or why it has none (#934).\n\nExactly one of ``shape`` and ``shape_limit`` is present. ``shape_limit``\nsays why the command is not described and the digest is all there is to\ncompare: ``too_long`` (more than 8,192 characters as ``config_sha256``'s\ninput holds it), ``unsupported_shell`` (the handler's ``shell`` setting is\nneither ``bash`` nor ``sh``) or ``unsupported_syntax`` (a form the bounded\nreading refuses whole: a here-document, a backquote, ``$(( \u2026 ))``,\n``case``, a function definition, an unterminated quote or group, or a\ncommand past its word or nesting bound). A row then says so and that the\nconfig has to be opened to read the change. Left out of grant equality,\nthe inventory digests and saved baselines, like the rest of ``handlers``.",
       "properties": {
         "executable": {
           "title": "Executable",
@@ -629,16 +766,44 @@
           "pattern": "^[0-9a-f]{64}$",
           "title": "Sha256",
           "type": "string"
+        },
+        "shape": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostHookCommandShapeV9"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "shape_limit": {
+          "anyOf": [
+            {
+              "enum": [
+                "too_long",
+                "unsupported_shell",
+                "unsupported_syntax"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shape Limit"
         }
       },
       "required": [
         "executable",
         "sha256"
       ],
-      "title": "HostHookCommandV7",
+      "title": "HostHookCommandV9",
       "type": "object"
     },
-    "HostHookGrantV7": {
+    "HostHookGrantV9": {
       "additionalProperties": false,
       "properties": {
         "access": {
@@ -670,7 +835,7 @@
           "anyOf": [
             {
               "items": {
-                "$ref": "#/$defs/HostHookHandlerV7"
+                "$ref": "#/$defs/HostHookHandlerV9"
               },
               "type": "array"
             },
@@ -754,17 +919,70 @@
         "event",
         "handlers"
       ],
-      "title": "HostHookGrantV7",
+      "title": "HostHookGrantV9",
       "type": "object"
     },
-    "HostHookHandlerV7": {
+    "HostHookHandlerV9": {
       "additionalProperties": false,
-      "description": "One hook handler under an event: its group's matcher, its command and its timeout.\n\n``matcher`` is ``None`` when its group declares none, which the host reads\nas every tool or source, and ``<not-shown>`` when it is not a string or is\nlonger than 1,024 characters as ``config_sha256``'s input holds it;\notherwise it passes through the published-label redaction and is cut at\n120 characters. ``command`` is ``None`` for a handler with\nno command string, such as a ``prompt`` handler, whose prompt is not\npublished. ``timeout`` is the declared number or boolean; an integer of\nmore than 80 digits is published as its digits cut with ``\u2026``, a string\nas written when it is a plain token, and any other value, a non-finite\nfloat among them, as ``<not-shown>``. Other handler settings are not\npublished; a change confined to them is a row whose text says it is not\nshown.",
+      "description": "A hook handler plus its ``args``, its documented settings and, on a Claude Code tool event, its matcher's reach.\n\n``command`` also carries the shape of an inline command, or why it has\nnone (:class:`HostHookCommandV9`, #934). ``args`` is present only on a handler that declares them\n(:class:`HostHookArgsV9`). ``type``, ``async``, ``asyncRewake``,\n``shell`` and ``once``, the documented boolean and enumerated handler\nsettings (https://code.claude.com/docs/en/hooks#common-fields), are each\npresent only when the handler declares a value other than ``null``, and\npublished as a timeout is: a boolean or finite number as declared, a\nstring as written when it is a plain token, and anything else as\n``<not-shown>`` (#971, #972). Other handler settings, such as ``if``,\n``statusMessage``, ``prompt``, ``model``, ``url`` and ``headers``, are not\npublished; a change confined to them is a row whose text says it is not\nshown.\n\n``matcher_reach`` is present on every handler of a Claude Code\n``PreToolUse``, ``PostToolUse``, ``PostToolUseFailure``,\n``PermissionRequest`` or ``PermissionDenied`` hook, the events whose\nmatcher filters the tool name\n(https://code.claude.com/docs/en/hooks#matcher-patterns), and absent on\nevery other, so absence means not examined. ``no_tool_name``: every string\nthe declared matcher can match holds a character no built-in or MCP tool\nname holds, so the handler runs for no tool call, as with ``Bash(git\npush*)``, which Claude Code reads as a regular expression over the tool\nname. ``possible``: any other matcher, including one this reader does not\ndecide. Read from the declared matcher, not the published one, and left\nout of grant equality, the inventory digests and saved baselines like the\nrest of ``handlers``.",
       "properties": {
+        "args": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostHookArgsV9"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "async": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Async"
+        },
+        "asyncRewake": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Asyncrewake"
+        },
         "command": {
           "anyOf": [
             {
-              "$ref": "#/$defs/HostHookCommandV7"
+              "$ref": "#/$defs/HostHookCommandV9"
             },
             {
               "type": "null"
@@ -809,6 +1027,64 @@
           "default": null,
           "title": "Matcher"
         },
+        "matcher_reach": {
+          "anyOf": [
+            {
+              "enum": [
+                "possible",
+                "no_tool_name"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Matcher Reach"
+        },
+        "once": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Once"
+        },
+        "shell": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shell"
+        },
         "timeout": {
           "anyOf": [
             {
@@ -829,9 +1105,30 @@
           ],
           "default": null,
           "title": "Timeout"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Type"
         }
       },
-      "title": "HostHookHandlerV7",
+      "title": "HostHookHandlerV9",
       "type": "object"
     },
     "HostHookScriptInputV7": {
@@ -1030,7 +1327,7 @@
       "title": "HostInstructionGrantV2",
       "type": "object"
     },
-    "HostInventoryIssueV8": {
+    "HostInventoryIssueV9": {
       "additionalProperties": false,
       "properties": {
         "blocking": {
@@ -1044,7 +1341,8 @@
             "cursor",
             "vscode",
             "github",
-            "openshell"
+            "openshell",
+            "unknown"
           ],
           "title": "Host",
           "type": "string"
@@ -1082,11 +1380,12 @@
         "message",
         "blocking"
       ],
-      "title": "HostInventoryIssueV8",
+      "title": "HostInventoryIssueV9",
       "type": "object"
     },
-    "HostMcpLaunchSourceV7": {
+    "HostMcpLaunchSourceV9": {
       "additionalProperties": false,
+      "description": "#825's pin, and where the launcher finds the source when the declaration leaves it open (#933).\n\n``resolution`` is ``local_project_or_registry`` for an ``npx`` package\nnamed with no version specifier: npm runs the local project's dependency\nof that name when there is one and otherwise installs it from the\nregistry into its cache, and the declaration does not establish which. It\nis absent for every other source. ``pin`` keeps #825's meaning, a fact of\nthe declaration. Display-only, like the rest of ``launch_source``.\nExtended in place: ``0.9`` has not shipped in a tagged release.",
       "properties": {
         "package": {
           "anyOf": [
@@ -1108,16 +1407,30 @@
           ],
           "title": "Pin",
           "type": "string"
+        },
+        "resolution": {
+          "anyOf": [
+            {
+              "const": "local_project_or_registry",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolution"
         }
       },
       "required": [
         "pin"
       ],
-      "title": "HostMcpLaunchSourceV7",
+      "title": "HostMcpLaunchSourceV9",
       "type": "object"
     },
-    "HostMcpServerGrantV7": {
+    "HostMcpServerGrantV9": {
       "additionalProperties": false,
+      "description": "An MCP server, published under the host whose declaration selects its file (#936).",
       "properties": {
         "access": {
           "enum": [
@@ -1167,6 +1480,13 @@
           "title": "Env Keys",
           "type": "array"
         },
+        "env_var_names": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Env Var Names",
+          "type": "array"
+        },
         "grant_id": {
           "title": "Grant Id",
           "type": "string"
@@ -1184,7 +1504,8 @@
             "claude-code",
             "cursor",
             "vscode",
-            "github"
+            "github",
+            "unknown"
           ],
           "title": "Host",
           "type": "string"
@@ -1198,7 +1519,7 @@
         "launch_source": {
           "anyOf": [
             {
-              "$ref": "#/$defs/HostMcpLaunchSourceV7"
+              "$ref": "#/$defs/HostMcpLaunchSourceV9"
             },
             {
               "type": "null"
@@ -1263,7 +1584,7 @@
         "package",
         "args_sha256"
       ],
-      "title": "HostMcpServerGrantV7",
+      "title": "HostMcpServerGrantV9",
       "type": "object"
     },
     "HostOpenShellPolicyGrantV9": {
@@ -1441,8 +1762,9 @@
       "title": "HostPermissionModeGrantV2",
       "type": "object"
     },
-    "HostPermissionRuleGrantV2": {
+    "HostPermissionRuleGrantV9": {
       "additionalProperties": false,
+      "description": "A permission rule plus, for a Claude Code ``!`` deny or ask rule, what it follows (#974).\n\nClaude Code reads a deny or ask pattern that starts with ``!`` as a\ncarve-out from the relative-path rules of the same tool listed before it in\nthe same source (https://code.claude.com/docs/en/permissions#read-and-edit).\n``carves_from`` is those earlier rules, sorted: present (possibly empty) on\nevery such rule and absent on every other, so a grant that lacks it was read\nby a version that did not record its position. Whether the patterns\noverlap is not decided.",
       "properties": {
         "access": {
           "enum": [
@@ -1456,6 +1778,21 @@
           ],
           "title": "Access",
           "type": "string"
+        },
+        "carves_from": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Carves From"
         },
         "config_sha256": {
           "title": "Config Sha256",
@@ -1536,7 +1873,7 @@
         "disposition",
         "rule"
       ],
-      "title": "HostPermissionRuleGrantV2",
+      "title": "HostPermissionRuleGrantV9",
       "type": "object"
     },
     "HostPluginGrantV2": {
@@ -1810,9 +2147,44 @@
       "title": "HostRequirementGrantV2",
       "type": "object"
     },
-    "HostReusableWorkflowCallV6": {
+    "HostReusableWorkflowCallV9": {
       "additionalProperties": false,
+      "description": "One job's reusable-workflow call; its job's ``permissions`` are a ceiling (#921).\n\n``callee_permissions`` says whether the called workflow's own declarations\nwere read: ``read``, or why not \u2014 ``not_read`` (not among the workflows\nread on this side, or a same-repository spelling GitHub does not run),\n``limited`` (a blocking limit on that file), ``cycle`` or ``too_deep``\n(past GitHub's ten levels of workflows, or this audit's bound on how many\nit follows). ``callee_write_scopes`` is present only when ``read``: the\nceiling's write scopes some called job may hold (``*`` for all); the\ncaller's ``effective_write_scopes`` for the job hold exactly those. When\nthe called workflow was not read the ceiling is assumed to reach it whole.",
       "properties": {
+        "callee_permissions": {
+          "anyOf": [
+            {
+              "enum": [
+                "read",
+                "not_read",
+                "limited",
+                "cycle",
+                "too_deep"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Callee Permissions"
+        },
+        "callee_write_scopes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Callee Write Scopes"
+        },
         "job": {
           "title": "Job",
           "type": "string"
@@ -1843,7 +2215,7 @@
         "uses",
         "secrets_inherit"
       ],
-      "title": "HostReusableWorkflowCallV6",
+      "title": "HostReusableWorkflowCallV9",
       "type": "object"
     },
     "HostReusableWorkflowSecretV6": {
@@ -2198,9 +2570,9 @@
       "title": "HostWorkflowCheckoutRefV7",
       "type": "object"
     },
-    "HostWorkflowGrantV7": {
+    "HostWorkflowGrantV9": {
       "additionalProperties": false,
-      "description": "A v0.6 workflow grant plus the agent launches, unread agent steps and checkout refs its steps declare.\n\nEach list is present only when a step declares one. In a v0.7 grant an\nabsent list means the steps were read and declare none; the schema\nversion, not the key, separates that from a legacy grant that never read\nthem. ``unread_agent_runs`` is a named limit and is never compared.\n``access`` and ``risk`` still describe the workflow's token and triggers\nalone.",
+      "description": "A v0.7 workflow grant whose same-repository reusable calls read their callee (#921).\n\n``access`` describes the job tokens alone: ``pull_request_target`` raises\n``risk``, and makes ``access`` ``write`` only where a job declares no\npermissions (#920).",
       "properties": {
         "access": {
           "enum": [
@@ -2275,7 +2647,7 @@
         },
         "reusable_calls": {
           "items": {
-            "$ref": "#/$defs/HostReusableWorkflowCallV6"
+            "$ref": "#/$defs/HostReusableWorkflowCallV9"
           },
           "title": "Reusable Calls",
           "type": "array"
@@ -2350,7 +2722,7 @@
         "effective_write_scopes",
         "reusable_calls"
       ],
-      "title": "HostWorkflowGrantV7",
+      "title": "HostWorkflowGrantV9",
       "type": "object"
     },
     "HostWorkflowPermissionsV4": {

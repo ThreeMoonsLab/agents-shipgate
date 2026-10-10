@@ -734,6 +734,7 @@ def evaluate_codex_boundary_result(
         verification_replayable=verification_replayable,
         discovery_replayable=discovery_replayable,
     )
+    repair = _repair_for_control(repair, control)
     # A detached caller-provided diff can describe a verification obligation
     # without binding it to bytes that ``verify`` can reconstruct. In that
     # case the operational control correctly stops, so the top-level prose
@@ -896,6 +897,15 @@ def _pending_review_for(
         for item in violations
         if item.action == "require_review"
     ]
+
+
+# The stop for a result that owes nothing yet rests on no evaluated subject
+# (#930). No finding produced it, so a projection keeps this reason rather than
+# the boundary summary, and its repair belongs to the human it routes to.
+UNEVALUATED_SUBJECT_REASON = (
+    "The supplied input does not establish an evaluated checkout state. "
+    "Re-run check against the intended worktree or with both --base and --head."
+)
 
 
 def _control_for_result(
@@ -1111,7 +1121,16 @@ def _control_for_result(
             allowed_next_commands=[command],
         )
 
-    return derive_agent_control(reason=summary)
+    if not subject_evaluated:
+        why = UNEVALUATED_SUBJECT_REASON
+        return derive_agent_control(
+            reason=why,
+            next_action=HumanControlAction(kind="review", why=why),
+            human_review_required=True,
+            human_review_why=why,
+            stop_reason=why,
+        )
+    return derive_agent_control(reason=summary, subject_evaluated=subject_evaluated)
 
 
 def load_codex_boundary_policy(
@@ -2275,6 +2294,19 @@ def _repair_for(
         command=command,
         forbidden_shortcuts=list(forbidden),
     )
+
+
+def _repair_for_control(repair: AgentResultRepair, control: Any) -> AgentResultRepair:
+    """Give the unevaluated-subject stop's repair to the human it routes to.
+
+    ``_repair_for`` reads only the decision, and an ``allow`` or ``warn`` is
+    the coding agent's to act on. That stop keeps such a decision but hands
+    the next step to a human.
+    """
+
+    if control.reason != UNEVALUATED_SUBJECT_REASON:
+        return repair
+    return repair.model_copy(update={"actor": "human"})
 
 
 def _agent_safe_repairable(

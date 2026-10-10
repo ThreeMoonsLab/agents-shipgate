@@ -212,7 +212,7 @@ from .git import (
     DiffContext,
     DiffInputError,
     active_replace_refs,
-    archive_tree,
+    archive_verification_tree,
     carries_manifest_like_yaml,
     collect_diff_context,
     commit_date,
@@ -850,29 +850,6 @@ def run_verify(
         user_requested=True,
         input_status=_trigger_input_status(diff_input),
     )
-    verifier = _build_verifier(
-        git_root=git_root,
-        config_path=config_path,
-        base=base,
-        head=head,
-        changed_files=changed_files,
-        diff_text=diff_text,
-        trigger=trigger,
-        base_status=base_status,
-        base_tree=base_tree,
-        diff_status=_diff_status_artifact(diff_input),
-        base_report=base_report,
-        base_notes=base_notes,
-        report=None,
-        head_status="skipped",
-        head_exit_code=0,
-        out_dir=out_dir,
-        manifest_provenance_value=configured_manifest_provenance,
-        ci_mode=ci_mode,
-        worktree=not archive_head,
-        rerun_options=rerun_options,
-    )
-
     if diff_unavailable:
         verifier = _build_verifier(
             git_root=git_root,
@@ -920,28 +897,28 @@ def run_verify(
     if not trigger.get("run_shipgate"):
         if base and base_status == "not_requested":
             base_status = "skipped"
-            verifier = _build_verifier(
-                git_root=git_root,
-                config_path=config_path,
-                base=base,
-                head=head,
-                changed_files=changed_files,
-                diff_text=diff_text,
-                trigger=trigger,
-                base_status=base_status,
-                base_tree=base_tree,
-                diff_status=_diff_status_artifact(diff_input),
-                base_report=base_report,
-                base_notes=base_notes,
-                report=None,
-                head_status="skipped",
-                head_exit_code=0,
-                out_dir=out_dir,
-                manifest_provenance_value=configured_manifest_provenance,
-                ci_mode=ci_mode,
-                worktree=not archive_head,
-                rerun_options=rerun_options,
-            )
+        verifier = _build_verifier(
+            git_root=git_root,
+            config_path=config_path,
+            base=base,
+            head=head,
+            changed_files=changed_files,
+            diff_text=diff_text,
+            trigger=trigger,
+            base_status=base_status,
+            base_tree=base_tree,
+            diff_status=_diff_status_artifact(diff_input),
+            base_report=base_report,
+            base_notes=base_notes,
+            report=None,
+            head_status="skipped",
+            head_exit_code=0,
+            out_dir=out_dir,
+            manifest_provenance_value=configured_manifest_provenance,
+            ci_mode=ci_mode,
+            worktree=not archive_head,
+            rerun_options=rerun_options,
+        )
         _write_artifacts(
             verifier,
             verifier_path,
@@ -1127,16 +1104,18 @@ def run_verify(
             changed_files=changed_files,
         )
     except Exception:
-        if run_base is not None:
-            run_base.cleanup()
-        reset_static_input_snapshot(static_snapshot_token)
+        try:
+            if run_base is not None:
+                run_base.cleanup()
+        finally:
+            reset_static_input_snapshot(static_snapshot_token)
         raise
 
     try:
         if archive_head:
             head_tmp = tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-head-")
             head_tree_dir = Path(head_tmp.name) / "head"
-            archive_tree(git_root, head, head_tree_dir)
+            archive_verification_tree(git_root, head, head_tree_dir)
             # Resolve once the tree exists. The snapshot matches paths lexically,
             # and on macOS the temporary directory is reached through /var while
             # every adapter resolves its base directory to /private/var — two
@@ -1388,52 +1367,52 @@ def run_verify(
         head_exit_code = 4
         raise
     finally:
-        artifact_report = report if head_status == "succeeded" else None
-        if artifact_report is None:
-            _remove_scan_artifacts(out_dir)
-        verifier = _build_verifier(
-            git_root=git_root,
-            config_path=config_path,
-            base=base,
-            head=head,
-            changed_files=changed_files,
-            diff_text=diff_text,
-            trigger=trigger,
-            base_status=base_status,
-            base_tree=base_tree,
-            diff_status=_diff_status_artifact(diff_input),
-            head_tree=head_tree,
-            base_report=base_report,
-            base_notes=base_notes,
-            report=artifact_report,
-            head_status=head_status,
-            head_exit_code=head_exit_code,
-            out_dir=out_dir,
-            manifest_provenance_value=configured_manifest_provenance,
-            ci_mode=ci_mode,
-            manifest_introduced=manifest_introduced,
-            # Both halves, joined only here: the structural one was decided
-            # before the scan, and whether the introduction is unshared needs
-            # the scan's own record of the policy packs it loaded.
-            configured_gate_introduced=(
-                configured_gate_introduced
-                and _gate_introduction_is_unshared(
-                    artifact_report,
-                    git_root=git_root,
-                    config_relative=config_relative,
-                    changed_files=changed_files,
-                    external_policy_inputs=[
-                        baseline_path,
-                        static_diff_from_path,
-                        *list(policy_pack_paths or []),
-                    ],
-                )
-            ),
-            worktree=not archive_head,
-            worktree_ref=None if archive_head else effective_worktree_ref,
-            rerun_options=rerun_options,
-        )
         try:
+            artifact_report = report if head_status == "succeeded" else None
+            if artifact_report is None:
+                _remove_scan_artifacts(out_dir)
+            verifier = _build_verifier(
+                git_root=git_root,
+                config_path=config_path,
+                base=base,
+                head=head,
+                changed_files=changed_files,
+                diff_text=diff_text,
+                trigger=trigger,
+                base_status=base_status,
+                base_tree=base_tree,
+                diff_status=_diff_status_artifact(diff_input),
+                head_tree=head_tree,
+                base_report=base_report,
+                base_notes=base_notes,
+                report=artifact_report,
+                head_status=head_status,
+                head_exit_code=head_exit_code,
+                out_dir=out_dir,
+                manifest_provenance_value=configured_manifest_provenance,
+                ci_mode=ci_mode,
+                manifest_introduced=manifest_introduced,
+                # Both halves, joined only here: the structural one was decided
+                # before the scan, and whether the introduction is unshared needs
+                # the scan's own record of the policy packs it loaded.
+                configured_gate_introduced=(
+                    configured_gate_introduced
+                    and _gate_introduction_is_unshared(
+                        artifact_report,
+                        git_root=git_root,
+                        config_relative=config_relative,
+                        changed_files=changed_files,
+                        external_policy_inputs=[
+                            baseline_path,
+                            static_diff_from_path,
+                            *list(policy_pack_paths or []),
+                        ],
+                    )
+                ),
+                worktree=not archive_head,
+                worktree_ref=None if archive_head else effective_worktree_ref,
+                rerun_options=rerun_options,
+            )
             try:
                 _write_artifacts(
                     verifier,
@@ -1483,12 +1462,16 @@ def run_verify(
                 # failures are secondary once the head scan has already failed.
                 pass
         finally:
-            if head_tmp is not None:
-                head_tmp.cleanup()
-            if run_base is not None:
-                run_base.cleanup()
-            if static_snapshot_token is not None:
-                reset_static_input_snapshot(static_snapshot_token)
+            try:
+                if head_tmp is not None:
+                    head_tmp.cleanup()
+            finally:
+                try:
+                    if run_base is not None:
+                        run_base.cleanup()
+                finally:
+                    if static_snapshot_token is not None:
+                        reset_static_input_snapshot(static_snapshot_token)
     return verifier, report, head_exit_code
 
 
@@ -1627,7 +1610,7 @@ def _prepare_base_report(
         base_tree_dir = tmp_root / "base"
         base_out = tmp_root / "reports"
         try:
-            archive_tree(git_root, base, base_tree_dir)
+            archive_verification_tree(git_root, base, base_tree_dir)
         except Exception as exc:  # noqa: BLE001 - optional base enrichment.
             return (
                 "archive_failed",
@@ -3905,6 +3888,7 @@ def _derive_verifier_control(
     configured_manifest: str | None = None,
     declaration_continuation: bool = False,
     durable_adoption_command: str | None = None,
+    skip_subject_evaluated: bool = False,
 ) -> AgentControl:
     """Project verifier facts through the shared operational control engine."""
 
@@ -3946,9 +3930,16 @@ def _derive_verifier_control(
         or "Agents Shipgate verification completed."
     )
     if execution == "skipped" and release_decision is None:
-        return derive_agent_control(reason=reason)
+        return derive_agent_control(
+            reason=reason,
+            subject_evaluated=(
+                skip_subject_evaluated
+                and diff_status.completeness == "complete"
+                and first_next_action_override is None
+            ),
+        )
     if release_decision is not None and release_decision.decision == "passed":
-        return derive_agent_control(reason=reason)
+        return derive_agent_control(reason=reason, subject_evaluated=subject_evaluated)
 
     if first_next_action_override is not None:
         if isinstance(first_next_action_override, HumanControlAction):
@@ -4427,6 +4418,13 @@ def _build_verifier(
         base_status=base_status,
         base_ref=base,
         diff_status=resolved_diff_status,
+        skip_subject_evaluated=(
+            resolved_diff_status.completeness == "complete"
+            and trigger.get("input_status") == "complete"
+            and trigger.get("evaluation_status") == "evaluated"
+            and trigger.get("run_shipgate") is False
+            and first_next_action_override is None
+        ),
         manifest_introduced=manifest_introduced,
         pure_adoption_review=pure_adoption_review,
         configured_manifest=_display_path(config_path, git_root),

@@ -149,7 +149,8 @@ DECLARATION_SENTINEL = "# --- generated: the declarations this lock was compiled
 DECLARATION_PREFIX = "#   declares: "
 
 _PIN = re.compile(
-    r"^(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:==\s*(?P<version>[^\s;\\]+)|@\s*(?P<url>\S+))"
+    r"^(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s*(?P<extras>\[[^\]]*\])?\s*"
+    r"(?:==\s*(?P<version>[^\s;\\]+)|@\s*(?P<url>\S+))"
     r"\s*(?:;\s*(?P<marker>[^\\]*?))?\s*\\?$"
 )
 
@@ -211,10 +212,26 @@ class Pin:
     marker: str = ""
     hashes: int = 0
     requesters: list[str] = field(default_factory=list)
+    extras: tuple[str, ...] = ()
 
     def describe(self) -> str:
+        extras = f"[{','.join(self.extras)}]" if self.extras else ""
         pinned = f"=={self.version}" if self.version else f" @ {self.url}"
-        return f"{pinned}{' ; ' + self.marker if self.marker else ''} (line {self.line})"
+        return f"{extras}{pinned}{' ; ' + self.marker if self.marker else ''} (line {self.line})"
+
+
+def canonical_extras(requirement: Requirement) -> tuple[str, ...]:
+    return tuple(sorted({canonicalize_name(extra) for extra in requirement.extras}))
+
+
+def normalize_name_with_extras(requirement: Requirement) -> str:
+    name = canonicalize_name(requirement.name)
+    extras = (
+        "[" + ",".join(canonical_extras(requirement)) + "]"
+        if requirement.extras
+        else ""
+    )
+    return f"{name}{extras}"
 
 
 def normalize_requirement(requirement: Requirement) -> str:
@@ -226,17 +243,12 @@ def normalize_requirement(requirement: Requirement) -> str:
     requirement was spelled.
     """
 
-    name = canonicalize_name(requirement.name)
-    extras = (
-        "[" + ",".join(sorted(canonicalize_name(extra) for extra in requirement.extras)) + "]"
-        if requirement.extras
-        else ""
-    )
+    name = normalize_name_with_extras(requirement)
     source = f" @ {requirement.url}" if requirement.url else ""
     # `SpecifierSet.__str__` sorts, so two spellings of one range agree.
     specifier = str(requirement.specifier) if requirement.specifier else ""
     marker = f" ; {requirement.marker}" if requirement.marker else ""
-    return f"{name}{extras}{source}{specifier}{marker}"
+    return f"{name}{source}{specifier}{marker}"
 
 
 def render_declarations(requirements: list[Requirement]) -> str:
@@ -312,10 +324,23 @@ def parse_lock(lock_path: Path) -> dict[str, list[Pin]]:
                 f"{lock_path}:{number} is neither an exact pin nor a direct URL "
                 f"({raw.strip()!r}); a lock that resolves at install time is not a lock."
             )
-        name = canonicalize_name(match.group("name"))
+        raw_name = match.group("name")
+        raw_extras = match.group("extras")
+        if raw_extras:
+            try:
+                extras = canonical_extras(Requirement(raw_name + raw_extras))
+            except InvalidRequirement as exc:
+                raise ReleaseError(
+                    f"{lock_path}:{number} has invalid extras ({raw_extras!r}): {exc}"
+                ) from exc
+        else:
+            extras = ()
+        # Extras expand dependencies of one distribution; they cannot create
+        # separate version identities for declaration or co-install checks.
+        name = canonicalize_name(raw_name)
         marker = (match.group("marker") or "").strip()
         branches = pins.setdefault(name, [])
-        if any(existing.marker == marker for existing in branches):
+        if any(existing.marker == marker and existing.extras == extras for existing in branches):
             raise ReleaseError(
                 f"{lock_path}:{number} pins {name} twice under the same marker "
                 f"({marker or 'no marker'}); pip would install whichever came last."
@@ -325,7 +350,18 @@ def parse_lock(lock_path: Path) -> dict[str, list[Pin]]:
             url=match.group("url"),
             marker=marker,
             line=number,
+            extras=extras,
         )
+        for existing in branches:
+            if (
+                existing.extras != extras
+                and (existing.version, existing.url) != (current.version, current.url)
+                and applicable_environments(existing.marker) & applicable_environments(marker)
+            ):
+                raise ReleaseError(
+                    f"{lock_path}:{number} pins {name} to conflicting versions or URLs "
+                    f"under overlapping markers ({existing.describe()} and {current.describe()})."
+                )
         in_via = False
         branches.append(current)
 
@@ -439,7 +475,12 @@ def _requirement_problems(
         if not applicable:
             missing.append(index)
             continue
-        if len(applicable) > 1:
+        # Different extras may repeat the same resolved distribution. Keep
+        # rejecting overlapping branches of the same extras, and any distinct
+        # resolutions, rather than requiring an exact extras spelling.
+        if len({branch.extras for branch in applicable}) < len(applicable) or len(
+            {(branch.version, branch.url) for branch in applicable}
+        ) > 1:
             overlapping.append(index)
             continue
         branch = applicable[0]

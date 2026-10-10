@@ -38,6 +38,13 @@ def gitlink(repo, path, commit_id):
     git(repo, "update-index", "--add", "--cacheinfo", f"160000,{commit_id},{path}")
 
 
+def _assert_unread_caller_link(result, path):
+    assert result["comparison_status"] == "partial"
+    assert result["rows"] and all(row["change"] == "not_established" for row in result["rows"])
+    for side in ("base", "head"):
+        assert any(f"{path} is a link; a caller behind it is not read" in limit for limit in result[side]["limits"])
+
+
 @pytest.mark.parametrize("shape", sorted(LINKS))
 def test_root_scope_reads_past_a_link_python_discovery_never_follows(repo, shape):
     path, target = LINKS[shape]
@@ -46,6 +53,9 @@ def test_root_scope_reads_past_a_link_python_discovery_never_follows(repo, shape
     base = commit(repo, {"agent.py": SDK.replace("TOOLS", "[lookup]")})
     head = commit(repo, {"agent.py": SDK.replace("TOOLS", "[lookup, execute]")})
     result = run(repo, base, head)
+    if shape not in {"absolute", "in_tree_directory"}:
+        _assert_unread_caller_link(result, path)
+        return
     assert result["comparison_status"] == "compared", result["head"]["limits"]
     assert [(r["agent"], r["tool"], r["change"]) for r in result["rows"]] == [
         ("agent", "execute", "added")
@@ -62,9 +72,9 @@ def test_python_link_to_an_input_already_read_is_not_read_twice(repo):
     base = commit(repo, {})
     head = commit(repo, {"real/helper.py": source.replace("TOOLS", "[lookup, execute]")})
     result = run(repo, base, head, "--scope", ".")
-    assert result["comparison_status"] == "compared", result["head"]["limits"]
+    _assert_unread_caller_link(result, "helper.py")
     assert [(r["agent_source"], r["tool"], r["change"]) for r in result["rows"]] == [
-        ("real/helper.py", "execute", "added")
+        ("real/helper.py", "execute", "not_established"), ("real/helper.py", "lookup", "not_established"),
     ]
     assert result["head"]["sources"] == [{"type": "openai_agents_sdk", "path": "real/helper.py"}]
 
@@ -85,13 +95,11 @@ def test_python_link_to_anything_else_is_a_gap_over_its_path(repo, target):
     head = commit(repo, {"app/agent.py": SDK.replace("TOOLS", "[lookup, execute]")})
     result = run(repo, base, head, "--scope", "app")
     assert result["comparison_status"] == "partial"
-    assert [(r["agent_source"], r["tool"], r["change"]) for r in result["rows"]] == [
-        ("agent.py", "execute", "added")
-    ]
+    _assert_unread_caller_link(result, "tools.py")
     assert result["head"]["sources"] == [{"type": "openai_agents_sdk", "path": "agent.py"}]
     for side in ("base", "head"):
-        assert [(g["source"], g["reason"]) for g in result[side]["coverage_gaps"]] == [
-            ("tools.py", "Linked Python input: tools.py")
+        assert ("tools.py", "Linked Python input: tools.py") in [
+            (g["source"], g["reason"]) for g in result[side]["coverage_gaps"]
         ]
 
 
@@ -153,8 +161,7 @@ def test_unchanged_unresolved_link_beside_the_application_is_not_a_gap(repo):
     base = commit(repo, {"app/agent.py": SDK.replace("TOOLS", "[lookup]")})
     head = commit(repo, {"app/agent.py": SDK.replace("TOOLS", "[lookup, execute]")})
     result = run(repo, base, head, "--scope", "app")
-    assert result["comparison_status"] == "compared"
-    assert result["base"]["limits"] == result["head"]["limits"] == []
+    _assert_unread_caller_link(result, "VERSION")
 
 
 def test_directory_link_leaving_the_scope_with_python_is_a_gap(repo):
@@ -164,9 +171,9 @@ def test_directory_link_leaving_the_scope_with_python_is_a_gap(repo):
     head = commit(repo, {"app/agent.py": SDK.replace("TOOLS", "[lookup, execute]")})
     result = run(repo, base, head, "--scope", "app")
     assert result["comparison_status"] == "partial"
-    assert [(r["tool"], r["change"]) for r in result["rows"]] == [("execute", "added")]
-    assert [(g["source"], g["reason"]) for g in result["head"]["coverage_gaps"]] == [
-        ("lib", "Linked directory holds Python outside the scope: lib")
+    _assert_unread_caller_link(result, "lib")
+    assert ("lib", "Linked directory holds Python outside the scope: lib") in [
+        (g["source"], g["reason"]) for g in result["head"]["coverage_gaps"]
     ]
 
 
@@ -201,9 +208,7 @@ def test_submodule_behind_a_link_out_of_scope_is_not_the_scopes(repo):
     base = commit(repo, {"app/agent.py": SDK.replace("TOOLS", "[lookup]")})
     head = commit(repo, {"app/agent.py": SDK.replace("TOOLS", "[lookup, execute]")})
     result = run(repo, base, head, "--scope", "app")
-    assert result["comparison_status"] == "compared"
-    assert [(r["tool"], r["change"]) for r in result["rows"]] == [("execute", "added")]
-    assert result["base"]["limits"] == result["head"]["limits"] == []
+    _assert_unread_caller_link(result, "lib")
 
 
 @pytest.mark.parametrize("direction", ["submodule_to_directory", "directory_to_submodule"])

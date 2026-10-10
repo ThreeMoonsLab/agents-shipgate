@@ -846,6 +846,23 @@ def _test_step_command(job: dict[str, Any], name: str) -> str:
     raise AssertionError(f"no step named {name!r}")
 
 
+#: How many shards the suite is split into, in every workflow that splits it.
+#: CI and both release verifications partition with the same `conftest.py` from
+#: the same `tests/shard_seconds.json`, so they move together: adding a shard is
+#: one change to this number, the three matrices, the three
+#: `SHIPGATE_TEST_SHARDS` values and the two fragment counts below.
+SUITE_SHARDS = 6
+
+_RELEASE_VERIFICATIONS = ("release-verify.yml", "release-advisory-verify.yml")
+
+
+def _sharded_test_step(workflow: str, job: str) -> dict[str, Any]:
+    for step in _load_workflow(workflow)["jobs"][job]["steps"]:
+        if str(step.get("name", "")).startswith("Test (shard"):
+            return step
+    raise AssertionError(f"{workflow} jobs.{job} has no sharded test step")
+
+
 def _ci_suite_step() -> str:
     """CI's aggregate test command, wherever the workflow currently runs it.
 
@@ -856,40 +873,70 @@ def _ci_suite_step() -> str:
     deliberate.
     """
 
-    suite = _load_workflow("ci.yml")["jobs"]["suite"]
-    for step in suite["steps"]:
-        if str(step.get("name", "")).startswith("Test (shard"):
-            return str(step["run"])
-    raise AssertionError("ci.yml jobs.suite has no sharded test step")
+    return str(_sharded_test_step("ci.yml", "suite")["run"])
+
+
+def _release_suite_step(workflow: str = "release-verify.yml") -> str:
+    """A release verification's shard command, in its `suite` job.
+
+    Release verification moved its suite out of `jobs.tests` into a sharded
+    `jobs.suite` for the same reason CI had (a single runner's 60 minutes were
+    1.5x the measured suite, and no margin once #964 landed). `jobs.tests` is
+    now the gate that follows it.
+    """
+
+    return str(_sharded_test_step(workflow, "suite")["run"])
+
+
+def _named_step(job: dict[str, Any], name: str) -> dict[str, Any]:
+    for step in job["steps"]:
+        if step.get("name") == name:
+            return step
+    raise AssertionError(f"no step named {name!r}")
+
+
+def _suite_matrix_and_count(workflow: str, job: str) -> tuple[list[int], int]:
+    """The shard indices a workflow runs and the count each partitions by."""
+
+    jobs = _load_workflow(workflow)["jobs"]
+    shards = jobs[job]["strategy"]["matrix"]["shard"]
+    count = next(
+        step["env"]["SHIPGATE_TEST_SHARDS"]
+        for step in jobs[job]["steps"]
+        if "SHIPGATE_TEST_SHARDS" in step.get("env", {})
+    )
+    return shards, int(count)
 
 
 def test_release_matches_ci_parallelism_and_excludes_perf() -> None:
-    release_test = _test_step_command(_load_workflow("release-verify.yml")["jobs"]["tests"], "Test")
     ci_test = _ci_suite_step()
 
-    # Same supported parallelism as CI: a release candidate should not spend
-    # its budget re-running serially what CI already parallelises.
-    assert "-n auto" in release_test
-    assert "-n auto" in ci_test
-    # Latency budgets stay a merge-time gate; shared-runner timing noise must
-    # not be able to fail a release candidate.
-    assert '-m "not perf"' in release_test
-    assert "tests/test_latency_budget.py" not in release_test
+    for workflow in _RELEASE_VERIFICATIONS:
+        release_test = _release_suite_step(workflow)
+        # Same supported parallelism as CI: a release candidate should not
+        # spend its budget re-running serially what CI already parallelises.
+        assert "-n auto" in release_test, workflow
+        assert "-n auto" in ci_test
+        # Latency budgets stay a merge-time gate; shared-runner timing noise
+        # must not be able to fail a release candidate.
+        assert '-m "not perf"' in release_test, workflow
+        assert "tests/test_latency_budget.py" not in release_test, workflow
+        # The release selection is a superset of CI's. CI leaves `slow` to the
+        # nightly run; the complete gate must not.
+        assert "not slow" not in release_test, workflow
+        assert '-m "not perf and not slow"' in ci_test
 
 
 def test_release_does_not_weaken_the_coverage_floor() -> None:
     """The floor is 85 in both pipelines — and is measured over the whole suite.
 
-    CI splits the suite across jobs, so its shards each hold a fragment of the
-    coverage data. Two things have to be true and neither is implied by the
-    other: the combined data is gated at 85, and no shard sets a threshold of
-    its own. A `--cov-fail-under` on a quarter of the suite would be a number
-    that cannot mean what it says, and it would pass or fail for reasons
-    unrelated to the floor.
+    Both pipelines split the suite across jobs, so their shards each hold a
+    fragment of the coverage data. Two things have to be true and neither is
+    implied by the other: the combined data is gated at 85, and no shard sets a
+    threshold of its own. A `--cov-fail-under` on a sixth of the suite would be
+    a number that cannot mean what it says, and it would pass or fail for
+    reasons unrelated to the floor.
     """
-
-    release_test = _test_step_command(_load_workflow("release-verify.yml")["jobs"]["tests"], "Test")
-    assert "--cov-fail-under=85" in release_test
 
     ci = _load_workflow("ci.yml")
     assert "--cov-fail-under" not in _ci_suite_step()
@@ -900,38 +947,68 @@ def test_release_does_not_weaken_the_coverage_floor() -> None:
     # And the gate has to wait for every shard, or it would combine whatever
     # happened to have finished.
     assert ci["jobs"]["coverage"]["needs"] == ["suite"]
-    # Every shard index the matrix runs, and the count each shard partitions by,
-    # agree: a matrix of four over a count of three would drop a quarter.
-    shards = ci["jobs"]["suite"]["strategy"]["matrix"]["shard"]
-    count = next(
-        step["env"]["SHIPGATE_TEST_SHARDS"]
-        for step in ci["jobs"]["suite"]["steps"]
-        if "SHIPGATE_TEST_SHARDS" in step.get("env", {})
-    )
-    assert shards == list(range(1, int(count) + 1)) == [1, 2, 3, 4]
+
+    for name in _RELEASE_VERIFICATIONS:
+        release_test = _release_suite_step(name)
+        assert "--cov-fail-under" not in release_test, name
+        assert "--cov=agents_shipgate" in release_test, name
+        gate = _load_workflow(name)["jobs"]["tests"]
+        gate_commands = _job_commands(gate)
+        assert "coverage combine" in gate_commands, name
+        assert "--fail-under=85" in gate_commands, name
+        assert gate["needs"] == "suite", name
+
+
+def test_every_shard_index_the_matrix_runs_is_one_the_partition_counts() -> None:
+    """The matrix, the partition count and the fragment count agree.
+
+    A matrix of four over a count of three would drop a quarter of the suite
+    and leave every job green; a gate expecting fewer fragments than shards
+    would combine a partial measurement. They are written in separate places,
+    so they are compared here.
+    """
+
+    for workflow in ("ci.yml", *_RELEASE_VERIFICATIONS):
+        shards, count = _suite_matrix_and_count(workflow, "suite")
+        assert shards == list(range(1, count + 1)) == list(range(1, SUITE_SHARDS + 1)), workflow
+
+    ci_gate = _named_step(_load_workflow("ci.yml")["jobs"]["coverage"], "Combine and enforce the threshold")
+    assert ci_gate["env"]["EXPECTED_FRAGMENTS"] == SUITE_SHARDS
+    for workflow in _RELEASE_VERIFICATIONS:
+        reported = _named_step(
+            _load_workflow(workflow)["jobs"]["tests"],
+            "Require every shard to have reported, and to have tested this commit",
+        )
+        assert reported["env"]["EXPECTED_SHARDS"] == SUITE_SHARDS, workflow
 
 
 def test_adapter_static_only_lint_stays_covered_in_release() -> None:
     """It is excluded from the aggregate run, so it needs its own step or the
     trust-model invariant silently stops being checked at release time."""
 
-    tests_job = _load_workflow("release-verify.yml")["jobs"]["tests"]
-    aggregate = _test_step_command(tests_job, "Test")
-
-    assert "--ignore=tests/test_adapter_static_only.py" in aggregate
-    assert _step_index(tests_job, "tests/test_adapter_static_only.py -q") < _step_index(
-        tests_job, "--cov-fail-under=85"
-    )
+    for name in _RELEASE_VERIFICATIONS:
+        workflow = _load_workflow(name)["jobs"]
+        assert "--ignore=tests/test_adapter_static_only.py" in _release_suite_step(name), name
+        tests_job = workflow["tests"]
+        assert _step_index(tests_job, "tests/test_adapter_static_only.py -q") < _step_index(
+            tests_job, "--fail-under=85"
+        ), name
 
 
 def test_release_verification_timeout_is_documented_and_bounded() -> None:
-    workflow = _load_workflow("release-verify.yml")
-    source = (WORKFLOWS / "release-verify.yml").read_text(encoding="utf-8")
+    ci_timeout = _load_workflow("ci.yml")["jobs"]["suite"]["timeout-minutes"]
 
-    # The suite dominates one job; artifact sealing is much cheaper. Both are
-    # bounded, and neither number is an estimate.
-    assert workflow["jobs"]["tests"]["timeout-minutes"] == 60
-    assert workflow["jobs"]["artifact"]["timeout-minutes"] == 15
+    for name in _RELEASE_VERIFICATIONS:
+        workflow = _load_workflow(name)
+        # A shard is bounded, the gate that follows it is bounded, and sealing
+        # is bounded: none of the three is an estimate that nothing rechecks.
+        assert workflow["jobs"]["suite"]["timeout-minutes"] == 35, name
+        assert workflow["jobs"]["tests"]["timeout-minutes"] == 10, name
+        # A release shard runs CI's shard and the `slow` tests CI leaves out,
+        # so its budget is never tighter than CI's.
+        assert workflow["jobs"]["suite"]["timeout-minutes"] >= ci_timeout, name
+    source = (WORKFLOWS / "release-verify.yml").read_text(encoding="utf-8")
+    assert _load_workflow("release-verify.yml")["jobs"]["artifact"]["timeout-minutes"] == 15
     assert "Measured, not estimated" in source
 
 
@@ -939,6 +1016,15 @@ def test_perf_marker_is_declared_so_the_exclusion_is_meaningful() -> None:
     pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
     assert "perf: latency-budget" in pyproject
+
+
+def test_slow_marker_is_declared_so_the_exclusion_is_meaningful() -> None:
+    """An undeclared marker is a typo waiting to happen: `-m "not slow"` on a
+    test marked `slwo` would keep running it, and `-m slow` would not find it."""
+
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert '"slow: ' in pyproject
 
 
 # --------------------------------------------------------------------------
@@ -1123,7 +1209,8 @@ def test_the_handoff_is_sealed_by_a_job_that_runs_no_candidate_tests() -> None:
     artifact = workflow["jobs"]["artifact"]
     commands = _job_commands(artifact)
 
-    assert set(workflow["jobs"]) == {"tests", "artifact"}
+    assert set(workflow["jobs"]) == {"suite", "tests", "artifact"}
+    assert workflow["jobs"]["tests"]["needs"] == "suite"
     assert artifact["needs"] == "tests"
     # The sealing job runs no suite, no plugins, no audit.
     assert "pytest" not in commands
@@ -1741,6 +1828,32 @@ def test_the_suite_and_the_sealer_must_agree_on_the_commit() -> None:
 
     assert workflow["jobs"]["tests"]["outputs"]["source_sha"]
     assert "The suite ran against ${TESTED_SHA}" in sealer
+
+
+def test_the_gate_requires_every_shard_to_have_tested_the_commit_it_gates() -> None:
+    """Shards check out independently, six times over.
+
+    The sealer compares one `source_sha` with its own, which is the gate's. With
+    the suite in six jobs, that comparison says nothing about what the shards
+    ran unless the gate also holds each of them to its commit. Each shard
+    records the commit it tested beside its coverage fragment, and the gate
+    refuses a record that names another.
+    """
+
+    for name in _RELEASE_VERIFICATIONS:
+        jobs = _load_workflow(name)["jobs"]
+        collected = _named_step(jobs["suite"], "Collect this shard's evidence")
+        assert "source-sha.txt" in collected["run"], name
+        assert collected["env"]["TESTED_SHA"] == "${{ steps.tested.outputs.source_sha }}", name
+        checked = _named_step(
+            jobs["tests"], "Require every shard to have reported, and to have tested this commit"
+        )
+        assert checked["env"]["TESTED_SHA"] == "${{ steps.tested.outputs.source_sha }}", name
+        assert "source-sha.txt" in checked["run"], name
+        # The shard evidence is checked before the coverage it carries is used.
+        assert _step_index(jobs["tests"], "source-sha.txt") < _step_index(
+            jobs["tests"], "--fail-under=85"
+        ), name
 
 
 def test_the_rehearsal_cannot_pass_a_mutable_ref() -> None:
@@ -2395,10 +2508,16 @@ def test_the_lock_gate_runs_in_both_pipelines_before_the_suite() -> None:
     shard job carries the gate itself.
     """
 
-    release = _load_workflow("release-verify.yml")["jobs"]["tests"]
-    assert _step_index(release, "scripts/verify_dependency_lock.py") < _step_index(
-        release, "--cov-fail-under=85"
-    )
+    for name in _RELEASE_VERIFICATIONS:
+        jobs = _load_workflow(name)["jobs"]
+        # In each shard, before its tests...
+        assert _step_index(jobs["suite"], "scripts/verify_dependency_lock.py") < _step_index(
+            jobs["suite"], "-m pytest -n auto"
+        ), name
+        # ...and again in the gate, before the coverage floor it enforces.
+        assert _step_index(jobs["tests"], "scripts/verify_dependency_lock.py") < _step_index(
+            jobs["tests"], "--fail-under=85"
+        ), name
 
     suite = _load_workflow("ci.yml")["jobs"]["suite"]
     assert _step_index(suite, "scripts/verify_dependency_lock.py") < _step_index(
@@ -2516,6 +2635,202 @@ def test_a_lock_that_resolves_at_install_time_is_not_a_lock(tmp_path: Path) -> N
 
     with pytest.raises(ReleaseError, match="neither an exact pin nor a direct URL"):
         verify_lock_target(target, root=root)
+
+
+def test_parse_lock_accepts_valid_pin_shapes(tmp_path: Path) -> None:
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1\npydantic[email]>=2\npydantic[dotenv,email]>=2\nuv>=0.12\npackage @ https://example.com/pkg.whl ; sys_platform == 'linux'\n",
+        pins=(
+            "demo==1.0 \\\n    --hash=sha256:aaaa\n"
+            "pydantic[email]==2.13.5 \\\n    --hash=sha256:bbbb\n"
+            "pydantic[email,dotenv]==2.13.5 \\\n    --hash=sha256:cccc\n"
+            "uv==0.12.5 \\\n    --hash=sha256:dddd\n"
+            "package @ https://example.com/pkg.whl ; sys_platform == 'linux' \\\n    --hash=sha256:eeee\n"
+        ),
+    )
+
+    # Should pass without raising ReleaseError about malformed pins
+    assert verify_lock_target(target, root=root) == []
+
+
+def test_parse_lock_allows_distinct_extras_to_coexist(tmp_path: Path) -> None:
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1\n",
+        pins=(
+            "demo==1.0 \\\n    --hash=sha256:aaaa\n"
+            "demo[extra]==1.0 \\\n    --hash=sha256:bbbb\n"
+        ),
+    )
+
+    # Distinct extras may coexist when they resolve to the same distribution version.
+    assert verify_lock_target(target, root=root) == []
+
+
+def test_parse_lock_retains_extras_for_duplicate_checks(tmp_path: Path) -> None:
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1\n",
+        pins=(
+            "demo[extra]==1.0 \\\n    --hash=sha256:aaaa\n"
+            "demo[extra]==2.0 \\\n    --hash=sha256:bbbb\n"
+        ),
+    )
+
+    with pytest.raises(ReleaseError, match="under the same marker"):
+        verify_lock_target(target, root=root)
+
+
+@pytest.mark.parametrize(
+    ("declared", "pin"),
+    [
+        ("demo[one]>=1\n", "demo==1.0"),
+        ("demo[one]>=1\ndemo[two]>=1\n", "demo[one,two]==1.0"),
+        ("demo>=1\n", "demo[one]==1.0"),
+        (
+            "demo[one] @ https://example.invalid/demo.whl\n",
+            "demo @ https://example.invalid/demo.whl",
+        ),
+    ],
+)
+def test_lock_matches_declarations_when_extras_are_stripped_or_combined(
+    tmp_path: Path, declared: str, pin: str
+) -> None:
+    root, target = _lock_pair(
+        tmp_path,
+        declared=declared,
+        pins=f"{pin} \\\n    --hash=sha256:aaaa\n    # via -r constraints/toolchain.in\n",
+    )
+
+    assert verify_lock_target(target, root=root) == []
+
+
+def test_lock_keeps_canonical_extras_on_one_distribution(tmp_path: Path) -> None:
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1\n",
+        pins="Demo [Two_Features, one, one]==1.0 \\\n    --hash=sha256:aaaa\n",
+    )
+
+    pins = parse_lock(root / target.lock)
+
+    assert set(pins) == {"demo"}
+    assert pins["demo"][0].extras == ("one", "two-features")
+
+
+@pytest.mark.parametrize(
+    "other",
+    ["demo[one]==2.0", "demo[one] @ https://example.invalid/demo.whl"],
+)
+def test_extras_cannot_hide_conflicting_transitive_pins(tmp_path: Path, other: str) -> None:
+    # Neither variant is direct: conflict detection must not depend on a declaration.
+    root, target = _lock_pair(
+        tmp_path,
+        declared="parent>=1\n",
+        pins=(
+            "parent==1.0 \\\n    --hash=sha256:aaaa\n"
+            "demo==1.0 \\\n    --hash=sha256:bbbb\n"
+            f"{other} \\\n    --hash=sha256:cccc\n"
+        ),
+    )
+
+    with pytest.raises(ReleaseError, match="conflicting.*overlapping markers"):
+        verify_lock_target(target, root=root)
+
+
+def test_distinct_extras_may_resolve_differently_under_disjoint_markers(tmp_path: Path) -> None:
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1\n",
+        pins=(
+            "demo[one]==1.0 ; python_full_version < '3.13' \\\n"
+            "    --hash=sha256:aaaa\n"
+            "demo[two]==2.0 ; python_full_version >= '3.13' \\\n"
+            "    --hash=sha256:bbbb\n"
+        ),
+    )
+
+    assert verify_lock_target(target, root=root) == []
+
+
+@pytest.mark.parametrize("other_name", ["demo", "demo[two]"])
+@pytest.mark.parametrize("other_version", ["1.0", "2.0"])
+def test_co_installed_locks_compare_distributions_across_extras(
+    tmp_path: Path, other_name: str, other_version: str
+) -> None:
+    first_root, first = _lock_pair(
+        tmp_path / "first",
+        declared="demo[one]>=1\n",
+        pins="demo[one]==1.0 \\\n    --hash=sha256:aaaa\n",
+    )
+    second_root, second = _lock_pair(
+        tmp_path / "second",
+        declared=f"{other_name}>=1\n",
+        pins=f"{other_name}=={other_version} \\\n    --hash=sha256:bbbb\n",
+    )
+    assert verify_lock_target(first, root=first_root) == []
+    assert verify_lock_target(second, root=second_root) == []
+    targets = (
+        LockTarget(lock="first/constraints/toolchain.txt", source="first/constraints/toolchain.in"),
+        LockTarget(lock="second/constraints/toolchain.txt", source="second/constraints/toolchain.in"),
+    )
+
+    problems = co_installed_problems(
+        root=tmp_path, targets=targets, groups=((targets[0].lock, targets[1].lock),)
+    )
+
+    assert bool(problems) == (other_version != "1.0"), problems
+    if problems:
+        assert "demo resolves differently" in problems[0]
+
+
+def test_invalid_pin_extras_are_rejected(tmp_path: Path) -> None:
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1\n",
+        pins="demo[bad!]==1.0 \\\n    --hash=sha256:aaaa\n",
+    )
+
+    with pytest.raises(ReleaseError, match="invalid extras"):
+        parse_lock(root / target.lock)
+
+
+def test_duplicate_extras_are_compared_after_canonicalization(tmp_path: Path) -> None:
+    root, target = _lock_pair(
+        tmp_path,
+        declared="demo>=1\n",
+        pins=(
+            "demo[One_Feature,one_feature]==1.0 \\\n    --hash=sha256:aaaa\n"
+            "demo[one-feature]==1.0 \\\n    --hash=sha256:bbbb\n"
+        ),
+    )
+
+    with pytest.raises(ReleaseError, match="under the same marker"):
+        parse_lock(root / target.lock)
+
+
+@pytest.mark.parametrize(
+    ("declared", "pin", "expected"),
+    [
+        ("demo[one]>=2\n", "demo[one,two]==1.0", "does not satisfy"),
+        (
+            "demo[one] @ https://example.invalid/expected.whl\n",
+            "demo[two] @ https://example.invalid/other.whl",
+            "where the declaration names",
+        ),
+    ],
+)
+def test_matching_extras_still_checks_the_declared_version_and_source(
+    tmp_path: Path, declared: str, pin: str, expected: str
+) -> None:
+    root, target = _lock_pair(
+        tmp_path, declared=declared, pins=f"{pin} \\\n    --hash=sha256:aaaa\n"
+    )
+
+    problems = verify_lock_target(target, root=root)
+
+    assert any(expected in problem for problem in problems), problems
 
 
 # --------------------------------------------------------------------------
@@ -2978,6 +3293,19 @@ def test_co_installed_locks_may_carry_different_halves_of_one_fork(tmp_path: Pat
 
 def test_the_locked_backend_satisfies_the_declared_build_system() -> None:
     assert build_system_problems() == []
+
+
+def test_build_system_matches_an_extras_qualified_backend_pin(tmp_path: Path) -> None:
+    (tmp_path / "constraints").mkdir()
+    (tmp_path / "constraints/build-backend.txt").write_text(
+        "hatchling[feature]==1.0 \\\n    --hash=sha256:aaaa\n", encoding="utf-8"
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        '[build-system]\nrequires = ["hatchling>=1"]\nbuild-backend = "hatchling.build"\n',
+        encoding="utf-8",
+    )
+
+    assert build_system_problems(root=tmp_path) == []
 
 
 @pytest.mark.parametrize(

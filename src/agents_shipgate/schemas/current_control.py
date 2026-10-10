@@ -47,6 +47,7 @@ from agents_shipgate.schemas.agent_control import (
     FullAgentPermissions,
     NoAgentPermissions,
     PublishOnlyPermissions,
+    validate_explicit_permission_vector,
 )
 from agents_shipgate.schemas.verification_identity import (
     CONTENT_ID_PATTERN,
@@ -116,7 +117,14 @@ class CurrentControlWorkspaceIdentity(BaseModel):
     snapshot_kind: Literal["committed_tree", "worktree_overlay"] | None = None
 
 
-class UnavailableCurrentControl(BaseModel):
+class _CurrentControlProjectionBase(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def _explicit_permissions_are_complete(cls, data: Any) -> Any:
+        return validate_explicit_permission_vector(data)
+
+
+class UnavailableCurrentControl(_CurrentControlProjectionBase):
     """A lifecycle run is in flight; no decision in this directory is current."""
 
     model_config = ConfigDict(
@@ -131,7 +139,7 @@ class UnavailableCurrentControl(BaseModel):
     permissions: NoAgentPermissions = Field(default_factory=NoAgentPermissions)
 
 
-class CompleteCurrentControl(BaseModel):
+class CompleteCurrentControl(_CurrentControlProjectionBase):
     """The referenced run authorizes reporting the task complete."""
 
     model_config = ConfigDict(
@@ -146,7 +154,7 @@ class CompleteCurrentControl(BaseModel):
     permissions: FullAgentPermissions = Field(default_factory=FullAgentPermissions)
 
 
-class AgentActionRequiredCurrentControl(BaseModel):
+class AgentActionRequiredCurrentControl(_CurrentControlProjectionBase):
     """The referenced run leaves one coding-agent-owned step outstanding."""
 
     model_config = ConfigDict(
@@ -163,7 +171,7 @@ class AgentActionRequiredCurrentControl(BaseModel):
     )
 
 
-class ReviewPublishableCurrentControl(BaseModel):
+class ReviewPublishableCurrentControl(_CurrentControlProjectionBase):
     """A human gates the merge; the agent may still publish for that review.
 
     The pointer carries ``permissions`` because this is the one read a consumer
@@ -187,7 +195,7 @@ class ReviewPublishableCurrentControl(BaseModel):
     permissions: PublishOnlyPermissions
 
 
-class HumanReviewRequiredCurrentControl(BaseModel):
+class HumanReviewRequiredCurrentControl(_CurrentControlProjectionBase):
     """The referenced run stops the coding agent pending human review."""
 
     model_config = ConfigDict(

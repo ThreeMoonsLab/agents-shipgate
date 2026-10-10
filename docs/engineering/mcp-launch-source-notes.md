@@ -7,6 +7,25 @@ about the declaration, not whether a package is unsafe, an author should change
 an intentional choice, or any code has run. Version pins do not pin transitive
 dependencies or prove provenance.
 
+One form reads differently (#933). `npx` given a package name with no version
+specifier does not by itself select registry code on every launch: npm
+documents that such a name "will be matched with whatever version exists in the
+local project", and that a package the project does not depend on is installed
+into a folder in the npm cache
+([npm exec](https://docs.npmjs.com/cli/v11/commands/npm-exec#description)).
+So `npx [-y|--yes] NAME` appends `package spec has no exact version; launch
+resolution not established: npx may resolve a local project dependency or fall
+back to the registry/cache` instead, or, when the other side was pinned,
+`launch source moved from pinned … to a package spec with no exact version; …`.
+The grant's `launch_source` keeps `pin: "mutable"` (the declaration pins no
+version) and adds `resolution: "local_project_or_registry"` (host-grants `0.9`).
+No `package.json`, lockfile, workspace, `node_modules` or cache is read to decide
+which applies, so a project that depends on the package and one that does not
+give the same row, and a workspace package's executable name reads like any
+other package name. `@latest`, a tag, a range and an exact version are
+specifiers and keep the readings below; `bunx` and `pnpm dlx` are not
+classified this way.
+
 The reader examines only a literal argument list for an exact command name.
 It does not look up executable paths, packages, registries, Git refs or images.
 The supported grammar is bounded to 64 arguments, 2,048 characters per argument
@@ -14,7 +33,7 @@ and 8,192 characters total; interpolation and newline-bearing lists abstain.
 
 | Command and prefix | Source classification | Primary reference |
 | --- | --- | --- |
-| `npx [-y|--yes] SPEC` | npm package: full three-part version is pinned; missing version, tags and recognized ranges are mutable | [npm package specs](https://docs.npmjs.com/cli/v11/using-npm/package-spec/), [npx](https://docs.npmjs.com/cli/v11/commands/npx/) |
+| `npx [-y|--yes] SPEC` | npm package: full three-part version is pinned; tags and recognized ranges are mutable; a missing version is mutable with `resolution: local_project_or_registry` (#933) | [npm package specs](https://docs.npmjs.com/cli/v11/using-npm/package-spec/), [npx](https://docs.npmjs.com/cli/v11/commands/npx/) |
 | `bunx [--bun] SPEC` | Same npm spec grammar | [bunx](https://bun.com/docs/pm/bunx) |
 | `pnpm dlx SPEC` | Same npm spec grammar | [pnpm pnx/dlx](https://pnpm.io/cli/pnx) |
 | `uvx SPEC`, `uvx --from SPEC TOOL` | PyPI exact `==` version is pinned; bare name or recognized range is mutable. Directly after `uvx` only, uv's `NAME@VERSION` is pinned and `NAME@latest` is mutable | [uv tools](https://docs.astral.sh/uv/concepts/tools/), [uv tool versions](https://docs.astral.sh/uv/guides/tools/#requesting-specific-versions) |

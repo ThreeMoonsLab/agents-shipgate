@@ -28,35 +28,55 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from agents_shipgate.core.claude_permission_rules import is_carve_out
+from agents_shipgate.core.hook_command_shape import MAX_COMMAND_CHARS
+from agents_shipgate.core.hook_matcher_reach import NO_TOOL_NAME
 from agents_shipgate.core.host_grants import (
     _PLAIN_TOKEN_RE,
     AGENT_RULE_INPUTS,
     DETAIL_NOT_SHOWN,
+    HOOK_HANDLER_SETTINGS,
+    MAX_SHAPE_COMMANDS,
+    MAX_SHAPE_REDIRECTS,
     UNTRUSTED_INPUT_TRIGGERS,
+    PermissionRuleAssessment,
     PermissionRuleReplacement,
+    _permission_key,
     agent_launch_key,
     agent_rule_gains,
     agent_rule_text,
     checkout_ref_key,
     hook_dependency_only_change,
     hook_loading_basis,
+    hook_runs_for_no_tool_call,
     host_grant_direction_unknown,
     host_grant_expansion_signals,
+    local_reusable_target,
+    permission_rule_assessment,
     permission_rule_replacements,
     published_setting_value,
     published_workflow_label,
     pull_request_code_ref,
+    reusable_call_target,
     secret_mapping_key,
     step_action_key,
 )
 from agents_shipgate.core.host_settings import rate_claude_setting, setting_value_text
+from agents_shipgate.core.mcp_host_selection import UNATTRIBUTED_MCP_HOST
 from agents_shipgate.core.openshell_compare import compare_openshell_grants
+from agents_shipgate.core.openshell_row_detail import (
+    openshell_policy_change,
+    openshell_policy_declarations,
+)
 from agents_shipgate.core.permission_lattice import (
     exec_equivalent_argument,
+    parse_rule,
     permission_pairing_group,
+    same_grant,
     subsumes,
 )
 from agents_shipgate.core.permission_residual import residual_prefix_note
+from agents_shipgate.core.unread_inputs import UnreadMcpDeclaration
 from agents_shipgate.schemas.capability_diff import CapabilityDiffRow as CapabilityDiffRow
 
 ABSENT = "—"
@@ -565,12 +585,141 @@ ADDED = "added"
 REMOVED = "removed"
 WIDENED = "widened"
 CHANGED = "changed"
+#: A joined change only: a removed and an added rule Claude Code documents as
+#: one grant, such as `Bash(git add:*)` and `Bash(git add *)` (#918).
+RESPELLED = "respelled"
 #: The words a row's `why` ends with when the engine cannot establish which
 #: way an edit that may widen authority went (#820): an MCP or loaded-hook
 #: edit, an unestablished plugin enablement, or a setting no documented rule
 #: orders. The row is named, never silent, and the Claude Code Stop hook,
 #: which renders this text at install time, announces it beside widenings.
 DIRECTION_UNKNOWN = "authority direction is unknown"
+
+
+#: Why a same-repository called workflow's own permissions were not read (#921).
+_CALLEE_NOT_READ = {
+    "not_read": "was not read on this side",
+    "limited": "has a limit this audit cannot compare past",
+    "cycle": "calls back into its own chain of calls",
+    "too_deep": "is past the depth of calls this audit follows",
+}
+
+
+def _write_scopes_text(scopes: Sequence[str]) -> str:
+    return "write-all" if "*" in scopes else ", ".join(f"{scope}: write" for scope in sorted(scopes))
+
+
+def _callee_suffix(call: dict[str, Any]) -> str:
+    """What reading a same-repository callee established, beside its call (#921).
+
+    Shown on the call, so a change to the called workflow's restrictions alone
+    reads as a change on the caller's row and not as identical sides.
+    """
+
+    status = call.get("callee_permissions")
+    if status is None:
+        return ""
+    if status == "read":
+        scopes = call.get("callee_write_scopes") or []
+        return f" (called jobs may hold {_write_scopes_text(scopes)})" if scopes else " (called jobs hold no write scope)"
+    return " (called workflow not read)"
+
+
+def _ceiling_reasons(grant: dict[str, Any]) -> list[str]:
+    """A calling job's write scopes, said as the ceiling they are (#921).
+
+    The scopes a job that calls a reusable workflow declares bound what the
+    called workflow's jobs may hold; GitHub lets the called workflow keep or
+    reduce them, never raise them. Whether its jobs hold them is stated only
+    where the called workflow's own permissions were read.
+    """
+
+    contexts = {str(context["job"]): context for context in grant.get("permission_contexts") or []}
+    reasons: list[str] = []
+    for call in grant.get("reusable_calls") or []:
+        context = contexts.get(str(call["job"]))
+        if context is None or context["state"] != "explicit":
+            continue
+        ceiling = [scope for scope, level in context["permissions"].items() if level == "write"]
+        if not ceiling:
+            continue
+        lead = (
+            f"{call['job']}'s permissions are a ceiling for the workflow it calls "
+            f"({_write_scopes_text(ceiling)})"
+        )
+        status = call.get("callee_permissions")
+        if status == "read":
+            reached = call.get("callee_write_scopes") or []
+            if not reached:
+                reasons.append(
+                    f"{lead}; that workflow's own permissions give none of its jobs a write scope from it"
+                )
+            elif sorted(reached) == sorted(ceiling):
+                reasons.append(f"{lead}; a job in that workflow may hold all of it")
+            else:
+                reasons.append(
+                    f"{lead}; a job in that workflow may hold {_write_scopes_text(reached)}, "
+                    "and its own permissions withhold the rest"
+                )
+            continue
+        if status is None and local_reusable_target(str(call["uses"]), "") is None:
+            why_unread = "is in another repository and is not read"
+        else:
+            why_unread = _CALLEE_NOT_READ.get(str(status), "was not read")
+        reasons.append(
+            f"{lead}; that workflow {why_unread}, so whether its jobs hold them is not established"
+        )
+    return reasons
+
+
+#: One job's reusable call on each side of a changed workflow: job, before, after.
+CallChange = tuple[str, str, str]
+
+
+def _reusable_call_changes(
+    before: dict[str, Any] | None, after: dict[str, Any] | None
+) -> list[CallChange]:
+    """The jobs that call a different reusable target or reference on each side (#924)."""
+
+    if not _is_workflow_pair(before, after):
+        return []
+    assert before is not None and after is not None
+    old = {str(call["job"]): str(call["uses"]) for call in before.get("reusable_calls", [])}
+    new = {str(call["job"]): str(call["uses"]) for call in after.get("reusable_calls", [])}
+    return [(job, old[job], new[job]) for job in sorted(old.keys() & new.keys()) if old[job] != new[job]]
+
+
+def _call_change_reasons(changes: list[CallChange]) -> list[str]:
+    """A changed reusable reference, said as code named differently, never as authority (#924)."""
+
+    repinned = [item for item in changes if reusable_call_target(item[1]) == reusable_call_target(item[2])]
+    retargeted = [item for item in changes if item not in repinned]
+    reasons: list[str] = []
+    if repinned:
+        # The workflow is the same, so only its two references are printed.
+        pairs = ", ".join(
+            f"{job}: {old.rpartition('@')[2]} → {new.rpartition('@')[2]}" for job, old, new in repinned
+        )
+        reasons.append(
+            f"the called code reference changed ({pairs}); it adds no declared scope or secret, "
+            "and this audit compares references as text, so it establishes neither what either "
+            "one runs nor that they run the same code"
+        )
+    if retargeted:
+        pairs = ", ".join(f"{job}: {old} → {new}" for job, old, new in retargeted)
+        reasons.append(f"the called workflow changed ({pairs})")
+    return reasons
+
+
+def _openshell_cell(cell: str, grant: dict[str, Any] | None) -> str:
+    """A wholly added or removed OpenShell policy, with what it declares beside its digest (#968).
+
+    The counts and the facts digest stay, so the cell still identifies the
+    document; the declarations are display only and imply no direction.
+    """
+
+    declared = openshell_policy_declarations(grant)
+    return f"{cell}; declared: {declared}" if declared else cell
 
 
 def _grant_value(
@@ -608,17 +757,21 @@ def _grant_value(
         parts = [f"access: {access}"] if access else []
         if grant.get("write_all"):
             parts.append("write-all")
+        calling = {str(call["job"]) for call in grant.get("reusable_calls") or []}
         if "permission_contexts" in grant:
             for context in grant["permission_contexts"]:
+                # A calling job runs no step: its scopes are a ceiling for the
+                # workflow it calls, not its own token (#921).
+                ceiling = "ceiling " if str(context["job"]) in calling else ""
                 if context["state"] != "explicit":
                     reason = "repository defaults" if context["state"] == "repository_default" else "unresolved permissions"
-                    parts.append(f"{context['job']}: {reason} (unknown)")
+                    parts.append(f"{context['job']}: {ceiling}{reason} (unknown)")
                 elif not context["permissions"]:
-                    parts.append(f"{context['job']}: no token permissions")
+                    parts.append(f"{context['job']}: {ceiling}no token permissions")
                 else:
                     for scope, level in context["permissions"].items():
                         permission = f"{level}-all" if scope == "*" else f"{scope}: {level}"
-                        parts.append(f"{context['job']}: {permission}")
+                        parts.append(f"{context['job']}: {ceiling}{permission}")
         else:
             parts.extend(str(scope) for scope in grant.get("write_scopes") or [])
         if grant.get("pull_request_target"):
@@ -628,7 +781,7 @@ def _grant_value(
             parts.append("on: " + ", ".join(other_triggers))
         for call in grant.get("reusable_calls") or []:
             forwarding = "secrets: inherit → " if call.get("secrets_inherit") else "uses: "
-            parts.append(f"{call['job']}: {forwarding}{call['uses']}")
+            parts.append(f"{call['job']}: {forwarding}{call['uses']}{_callee_suffix(call)}")
         parts.extend(_secret_mapping_value(item) for item in secret_mappings or [])
         parts.extend(_step_action_value(item) for item in step_actions or [])
         parts.extend(_checkout_ref_value(item) for item in checkout_refs or [])
@@ -648,10 +801,64 @@ def _grant_value(
     return kind or ABSENT
 
 
+#: Why an MCP row names no host (#936): its file is published under
+#: ``unknown`` because no declaration this entry reads selects it.
+MCP_HOST_NOT_ESTABLISHED = (
+    "host not established: no declaration this entry reads selects this file, "
+    "and another host's plugin manifest sits beside it"
+)
+
+
+#: The `why` of a removed MCP server.
+MCP_REMOVED_WHY = "an MCP tool surface is no longer offered to the agent"
+#: The `why` of a removed MCP server while a changed input this entry does
+#: not read may declare MCP servers for it (#929): what the removal
+#: establishes is about the read declaration, not about what is offered.
+MCP_REMOVED_UNREAD_DECLARATION = (
+    "the server is no longer declared in this source; whether it is still offered "
+    "through a changed declaration this entry does not read is not established"
+)
+
+
+def _unread_declaration_may_offer(
+    grant: dict[str, Any], declarations: Sequence[UnreadMcpDeclaration]
+) -> bool:
+    """Whether a changed, unread MCP declaration shares this removed server's host and plugin scope (#929).
+
+    One does when both hold:
+
+    - **plugin scope**: the removed server's file lies inside the
+      declaration's plugin directory, that directory or one below it (the
+      repository root holds every file), compared case-insensitively as #936
+      selects a `.mcp.json`; and
+    - **host**: the declaration's coverage item names the server's host, or
+      the server was published under ``unknown`` (#936), whose host is not
+      established to differ.
+
+    Paths are the published ones on both sides; a path component redaction
+    rewrote matches neither, so such a row keeps its wording. The declaration
+    is never read, matched by server name or paired with the row.
+    """
+
+    host = str(grant.get("host") or "")
+    path = str(grant.get("source") or "").split("#", 1)[0].casefold()
+    directory = path.rpartition("/")[0]
+    for declaration in declarations:
+        root = declaration.root.casefold()
+        if root and directory != root and not directory.startswith(root + "/"):
+            continue
+        if host == UNATTRIBUTED_MCP_HOST or host in declaration.hosts:
+            return True
+    return False
+
+
 def _subject(grant: dict[str, Any]) -> str:
     host = str(grant.get("host") or "")
     source = str(grant.get("source") or "")
     kind = str(grant.get("kind") or "")
+    if host == UNATTRIBUTED_MCP_HOST and source:
+        # A host-neutral subject (#936): `unknown` is not a host to name.
+        return source
     if source and host:
         return f"{host} {source}"
     return source or host or kind
@@ -666,6 +873,7 @@ def _why(
     gone_secrets: list[SecretMapping] | None = None,
     new_secrets: list[SecretMapping] | None = None,
     agent_reasons: list[str] | None = None,
+    call_changes: list[CallChange] | None = None,
 ) -> str:
     """Why a reviewer should care, in the reviewer's terms.
 
@@ -680,7 +888,7 @@ def _why(
     wildcard = bool(grant.get("wildcard"))
     if kind == "mcp_server":
         if direction == REMOVED:
-            return "an MCP tool surface is no longer offered to the agent"
+            return MCP_REMOVED_WHY
         return "an MCP tool surface the agent may call has changed"
     if kind == "permission_rule":
         disposition = grant.get("disposition")
@@ -700,12 +908,40 @@ def _why(
         return "runs without a prompt"
     if kind == "workflow":
         reasons = []
+        contexts = grant.get("permission_contexts")
+        # The event context, the job tokens and a calling job's ceiling are
+        # three facts, said apart (#920, #921): a read-only token under
+        # `pull_request_target` is not a write grant.
         if grant.get("pull_request_target"):
             reasons.append("uses the privileged pull_request_target event context")
-        if access in {"admin", "write"} or grant.get("write_all"):
-            reasons.append("grants write permissions to workflow jobs")
-        if any(context["state"] != "explicit" for context in grant.get("permission_contexts", [])):
+        if contexts is None:
+            # A legacy grant names its write scopes and nothing about jobs.
+            if access in {"admin", "write"} or grant.get("write_all"):
+                reasons.append("grants write permissions to workflow jobs")
+        else:
+            calling = {str(call["job"]) for call in grant.get("reusable_calls") or []}
+            if any(
+                context["state"] == "explicit" and str(context["job"]) not in calling
+                and "write" in context["permissions"].values()
+                for context in contexts
+            ):
+                reasons.append("grants write permissions to workflow jobs")
+            if grant.get("pull_request_target") and contexts and all(
+                context["state"] == "explicit" and "write" not in context["permissions"].values()
+                for context in contexts
+            ):
+                reasons.append("every job declares read-only or no token permissions")
+            if grant.get("pull_request_target") and any(
+                context["state"] == "repository_default" for context in contexts
+            ):
+                reasons.append(
+                    "a job that declares no token permissions may run with the token GitHub "
+                    "documents as read/write for pull_request_target runs, even from a fork"
+                )
+            reasons.extend(_ceiling_reasons(grant))
+        if any(context["state"] != "explicit" for context in contexts or []):
             reasons.append("some effective token permissions are unknown; repository defaults or unresolved declarations require review")
+        reasons.extend(_call_change_reasons(call_changes or []))
         for call in grant.get("reusable_calls") or []:
             if call.get("secrets_inherit"):
                 reasons.append(f"passes the caller's available secrets to {call['uses']}")
@@ -739,8 +975,15 @@ def _why(
         # The basis, stated in the row, because the row is what a reviewer
         # reads: a parsed hook file is not proof a host loads it (#714).
         basis = hook_loading_basis(grant)
+        # A hook no tool name can trigger changes nothing around the agent's
+        # tool calls; the matcher note beside this names why (#940).
+        runs = (
+            _NO_TOOL_CALL
+            if direction != REMOVED and hook_runs_for_no_tool_call(grant)
+            else "changes what runs around the agent's actions"
+        )
         if basis == "host_configuration":
-            return "changes what runs around the agent's actions"
+            return runs
         if direction == REMOVED:
             # A removal is described from the baseline's grant, which may have
             # been recorded without its basis. Claim nothing about selection.
@@ -751,8 +994,8 @@ def _why(
         if basis == "project_enabled_plugin":
             # Loaded like a settings hook, so it reads as one, and names why.
             return (
-                "changes what runs around the agent's actions; this repository's project "
-                "settings enable the plugin that selects this hook"
+                f"{runs}; this repository's project settings enable the plugin that "
+                "selects this hook"
             )
         if basis == "declared_only":
             return (
@@ -969,6 +1212,17 @@ _PRINTABLE_URL = re.compile(r"(?:https?|wss?|sse)://[^\s/?#@]+(?:/|/<redacted-pa
 _URL_NOT_SHOWN = "not shown"
 
 
+#: The declaration fact for an `npx` package named with no version (#933).
+NO_EXACT_VERSION = "package spec has no exact version"
+#: What that declaration leaves open, as npm documents `npx` resolving it
+#: (https://docs.npmjs.com/cli/v11/commands/npm-exec#description). Said as a
+#: limit of this read, not as registry code selected on every launch.
+NPX_LOCAL_OR_REGISTRY = (
+    "launch resolution not established: npx may resolve a local project dependency "
+    "or fall back to the registry/cache"
+)
+
+
 def _mcp_source_note(before: dict[str, Any] | None, after: dict[str, Any] | None) -> str | None:
     source = (after or {}).get("launch_source")
     if not source or source.get("pin") != "mutable":
@@ -977,9 +1231,54 @@ def _mcp_source_note(before: dict[str, Any] | None, after: dict[str, Any] | None
     def label(value: dict[str, Any]) -> str:
         package = value.get("package")
         return f" ({published_workflow_label(str(package))})" if package else ""
+    if source.get("resolution") == "local_project_or_registry":
+        # The observed declaration and the launch it leaves open, said apart
+        # (#933): an unversioned `npx` package is not "mutable" on its own.
+        if old.get("pin") == "pinned":
+            return (
+                f"launch source moved from pinned{label(old)} to a package spec with no "
+                f"exact version{label(source)}; {NPX_LOCAL_OR_REGISTRY}"
+            )
+        return f"{NO_EXACT_VERSION}{label(source)}; {NPX_LOCAL_OR_REGISTRY}"
     if old.get("pin") == "pinned":
         return f"launch source moved from pinned{label(old)} to mutable{label(source)}"
     return f"launch source is mutable{label(source)}"
+
+
+#: The `why` of an added or changed hook whose every matcher matches no tool name (#940).
+_NO_TOOL_CALL = "declares a hook no tool call can trigger"
+
+
+def _unmatched_matcher_note(grant: dict[str, Any] | None) -> str | None:
+    """The matchers of a hook grant that can match no tool name, named (#940).
+
+    Read from the ``matcher_reach`` the engine published on each handler,
+    never re-derived from the published matcher, which redaction and the
+    length bound may have changed. ``None`` when no handler's matcher is one.
+    """
+
+    if not grant or grant.get("kind") != "hook" or not isinstance(grant.get("handlers"), list):
+        return None
+    matchers = sorted({
+        published_workflow_label(str(handler.get("matcher")))
+        for handler in grant["handlers"]
+        if isinstance(handler, dict) and handler.get("matcher_reach") == NO_TOOL_NAME
+    })
+    if not matchers:
+        return None
+    shown = ", ".join(matchers[:3])
+    if len(matchers) > 3:
+        shown += f" (+{len(matchers) - 3} more)"
+    label = f"matcher {shown}" if len(matchers) == 1 else f"matchers {shown}"
+    if hook_runs_for_no_tool_call(grant):
+        partial = ""
+    else:
+        partial = f", so {'its' if len(matchers) == 1 else 'their'} handlers run for no tool call"
+    return (
+        f"{label} can match no tool name{partial} (Claude Code compares a "
+        f"{grant.get('event')} matcher with the tool's name; a permission rule "
+        "pattern belongs in a handler's if field)"
+    )
 
 
 def _inline_allow_note(grant: dict[str, Any] | None) -> str | None:
@@ -1055,6 +1354,7 @@ def _mcp_cell(value: str, grant: dict[str, Any] | None) -> str:
             _mcp_launch(grant),
             f"package {grant['package']}" if grant.get("package") else None,
             "env keys " + _names(_key_names(grant["env_keys"])) if grant.get("env_keys") else None,
+            f"{_ENV_VARS_LABEL} " + _names(_key_names(grant["env_var_names"])) if grant.get("env_var_names") else None,
             "header keys " + _names(_key_names(grant["header_keys"])) if grant.get("header_keys") else None,
         )
         if fact
@@ -1096,7 +1396,9 @@ def _mcp_change(name: str, before: dict[str, Any], after: dict[str, Any]) -> str
     confined to them says what was compared and that the change is
     elsewhere, rather than ``name → name`` or a claim that the command is
     unchanged. Two different endpoints that print alike, such as two URLs
-    neither of which is printed, read ``url changed (not shown)``.
+    neither of which is printed, read ``url changed (not shown)``. The names
+    an ``env_vars`` list gained and lost are named when both readings publish
+    them (#795); a value is never read.
     """
 
     if any(key not in grant for grant in (before, after) for key in _MCP_FIELDS):
@@ -1118,19 +1420,62 @@ def _mcp_change(name: str, before: dict[str, Any], after: dict[str, Any]) -> str
         kind = "url" if after.get("transport") == "url" else "command name"
         parts.append(f"{kind} changed ({_URL_NOT_SHOWN})")
     parts.extend(_mcp_args_change(before, after))
-    for field, label in (("env_keys", "env keys"), ("header_keys", "header keys")):
-        old, new = set(before[field] or []), set(after[field] or [])
-        added, removed = sorted(new - old), sorted(old - new)
-        if added or removed:
-            tokens = [f"+{key}" for key in _key_names(added)] + [f"-{key}" for key in _key_names(removed)]
-            parts.append(f"{label} {_names(tokens)}")
+    parts.extend(_key_set_change(before, after, "env_keys", "env keys"))
+    env_vars = _env_vars_compared(before, after)
+    if env_vars:
+        parts.extend(_key_set_change(before, after, "env_var_names", _ENV_VARS_LABEL, ordered=True))
+    parts.extend(_key_set_change(before, after, "header_keys", "header keys"))
     if not parts:
         compared = all("args_sha256" in grant for grant in (before, after))
-        return f"{name}: {_mcp_unshown_change(after, args_compared=compared)}"
+        return f"{name}: {_mcp_unshown_change(after, args_compared=compared, env_vars=env_vars)}"
     return f"{name}: " + "; ".join(parts)
 
 
-def _mcp_unshown_change(grant: dict[str, Any], *, args_compared: bool = False) -> str:
+#: What a row calls a server's ``env_vars`` list: the key it is declared under,
+#: so no meaning is claimed for a name beyond that it is listed there (#795).
+_ENV_VARS_LABEL = "env_vars names"
+
+
+def _env_vars_compared(before: dict[str, Any], after: dict[str, Any]) -> bool:
+    """Whether both readings publish ``env_var_names`` and either declares one.
+
+    A saved baseline, or a grant from an earlier schema, publishes none, so
+    nothing is claimed about the names it cannot show. Two readings that
+    declare none have nothing to say about them.
+    """
+
+    return all("env_var_names" in grant for grant in (before, after)) and bool(
+        before["env_var_names"] or after["env_var_names"]
+    )
+
+
+def _key_set_change(
+    before: dict[str, Any], after: dict[str, Any], field: str, label: str, *, ordered: bool = False
+) -> list[str]:
+    """The names a published list gained and lost, never a value (#795).
+
+    Names print through the #802 label redaction. ``ordered`` is for a list
+    whose order is part of its declaration (``env_vars``): the same names in
+    another order are said to be, rather than called no difference.
+    """
+
+    old_list, new_list = list(before[field] or []), list(after[field] or [])
+    old, new = set(old_list), set(new_list)
+    added, removed = sorted(new - old), sorted(old - new)
+    if added or removed:
+        tokens = [f"+{key}" for key in _key_names(added)] + [f"-{key}" for key in _key_names(removed)]
+        return [f"{label} {_names(tokens)}"]
+    if ordered and old_list != new_list:
+        # The same set of names: the declaration still differs, in its order
+        # or in how many times a name is listed.
+        same = sorted(old_list) == sorted(new_list)
+        return [f"{label} in a different order" if same else f"{label} listed a different number of times"]
+    return []
+
+
+def _mcp_unshown_change(
+    grant: dict[str, Any], *, args_compared: bool = False, env_vars: bool = False
+) -> str:
     """A change confined to what the grant does not publish, in the words of what was compared.
 
     Only the command's name, or the URL's recorded value, the launch
@@ -1158,8 +1503,9 @@ def _mcp_unshown_change(grant: dict[str, Any], *, args_compared: bool = False) -
     else:
         compared = launch or "command name"
         unshown = "the command's path or another setting" if arguments else "the command's path or arguments"
+    names = f"env key names, {_ENV_VARS_LABEL} or header key names" if env_vars else "env key names or header key names"
     return (
-        f"no difference in the {compared}, {arguments}env key names or header key names; the "
+        f"no difference in the {compared}, {arguments}{names}; the "
         f"change is in a detail this output does not show, such as {unshown}"
     )
 
@@ -1173,13 +1519,27 @@ _HOOK_SHAPE_REASON = (
     "the declaration is not a list of matcher groups whose hooks are objects and whose "
     "commands are strings"
 )
+#: A hook handler's published fields, in the order a row names them: its
+#: group's matcher, its command, its ``args`` and timeout (#819, #972), and the
+#: documented settings the reader publishes (#971, #972).
+_HANDLER_FIELDS = ("matcher", "command", "args", "timeout", *HOOK_HANDLER_SETTINGS)
+
 #: What a hook row says when its declaration is outside that shape.
-_HOOK_SHAPE_NOT_READ = f"matcher, command and timeout not shown: {_HOOK_SHAPE_REASON}"
+_HOOK_SHAPE_NOT_READ = f"matcher, command, args, timeout and settings not shown: {_HOOK_SHAPE_REASON}"
+
+#: What a row says it compared when no published handler field differs.
+_HOOK_COMPARED = "the " + ", ".join(_HANDLER_FIELDS[:-1]) + f" or {_HANDLER_FIELDS[-1]}"
 
 #: What a hook's published handlers do not show, and so where a change the
-#: rows cannot name may be (#819). The command is digested whole, so no part
-#: of it is among them.
-_HOOK_UNSHOWN = "another hook setting or a redacted or shortened matcher or timeout"
+#: rows cannot name may be (#819). The command and the arguments are digested
+#: whole, so no part of either is among them; a setting such as ``if`` or
+#: ``statusMessage`` is not published (#972).
+_HOOK_UNSHOWN = (
+    "the if or statusMessage field or another field not published, or a matcher, timeout or "
+    "setting published redacted or shortened"
+)
+#: A handler's cell when it publishes no field.
+_NO_HANDLER_FACTS = "no matcher, command, args, timeout or setting"
 
 
 def _command_text(command: dict[str, Any]) -> str:
@@ -1188,38 +1548,239 @@ def _command_text(command: dict[str, Any]) -> str:
     return f"{command.get('executable') or DETAIL_NOT_SHOWN} {_digest_text(command.get('sha256'))}"
 
 
+#: Why a hook command is not described, in the words a row uses (#934).
+_SHAPE_LIMIT_TEXT = {
+    "too_long": f"is longer than {MAX_COMMAND_CHARS:,} characters",
+    "unsupported_syntax": "uses shell syntax this output does not describe",
+    "unsupported_shell": "is written for a shell this output does not describe",
+}
+#: The counts a command's shape publishes, with the words a row names them by.
+_SHAPE_COUNTS = (
+    ("statements", "simple commands"),
+    ("pipes", "pipes"),
+    ("substitutions", "command substitutions"),
+    ("control_flow", "conditionals and loops"),
+    ("quoted", "quoted strings"),
+    ("unnamed", "commands with no plain name"),
+)
+_OPEN_THE_CONFIG = "open the config to read the change"
+
+
+def _shape_limit_text(limit: Any) -> str:
+    return _SHAPE_LIMIT_TEXT.get(str(limit), "is not described")
+
+
+def _plain_shape(command: dict[str, Any], *, ignore_script: bool = False) -> bool:
+    """Whether a described command is one program with arguments only (#934).
+
+    One command, no pipe, substitution, conditional or redirect, a program
+    name the row already prints as its executable, and (unless
+    ``ignore_script``) no script path: a shape would repeat what
+    ``executable`` says.
+    """
+
+    shape = command.get("shape")
+    if not isinstance(shape, dict):
+        return False
+    names = list(shape.get("commands") or [])
+    executable = command.get("executable")
+    keys = ("pipes", "substitutions", "control_flow", "redirects") + (() if ignore_script else ("script",))
+    return (
+        shape.get("statements") == 1
+        and not any(shape.get(key) for key in keys)
+        and (names == [executable] or (not names and shape.get("unnamed") == 1))
+    )
+
+
+def _shape_summary(command: dict[str, Any]) -> str:
+    """What an added or removed hook's command is made of, beyond its first word (#934).
+
+    Empty for a plain command whose program name and digest already say all
+    its shape would: one program, no script path, pipe, redirect,
+    substitution or conditional. A command that is not described says so, and
+    that the config has to be opened to read it.
+    """
+
+    limit = command.get("shape_limit")
+    if limit:
+        return f"not described: it {_shape_limit_text(limit)}; open the config to read it"
+    shape = command.get("shape")
+    if not isinstance(shape, dict) or _plain_shape(command):
+        return ""
+    names = list(shape.get("commands") or [])
+    items: list[str] = []
+    if _plain_shape(command, ignore_script=True):
+        # One program and its script path: the executable already names the program.
+        return f"script {shape['script']}"
+    if names:
+        items.append("runs " + ", ".join(names) + _more(int(shape.get("commands_more") or 0), "other program"))
+    if shape.get("unnamed"):
+        items.append(_count(int(shape["unnamed"]), "command") + " with no plain name")
+    if shape.get("script"):
+        items.append(f"script {shape['script']}")
+    for key, noun in (("pipes", "pipe"), ("substitutions", "command substitution")):
+        if shape.get(key):
+            items.append(_count(int(shape[key]), noun))
+    if shape.get("control_flow"):
+        items.append(_count(int(shape["control_flow"]), "conditional or loop keyword"))
+    redirects = list(shape.get("redirects") or [])
+    if redirects:
+        total = len(redirects) + int(shape.get("redirects_more") or 0)
+        shown = redirects[:_NAME_LIMIT]
+        items.append(f"{_count(total, 'redirect')} ({', '.join(shown)}{', …' if total > len(shown) else ''})")
+    return "; ".join(items)
+
+
+def _count(count: int, noun: str) -> str:
+    return f"{count} {noun}{'' if count == 1 else 's'}"
+
+
+def _shape_differences(old: dict[str, Any], new: dict[str, Any], *, programs: bool = True) -> list[str]:
+    """How two described commands differ in what a shape publishes (#934), in a reviewer's words.
+
+    ``programs`` is false when one program replaced another, which the
+    executables already say.
+    """
+
+    facts: list[str] = []
+    old_names, new_names = list(old.get("commands") or []), list(new.get("commands") or [])
+    gained = [name for name in new_names if name not in old_names]
+    lost = [name for name in old_names if name not in new_names]
+    if programs and (gained or lost):
+        shown = [*(f"+{name}" for name in gained), *(f"-{name}" for name in lost)]
+        facts.append(
+            "programs " + ", ".join(shown[:_NAME_LIMIT]) + _more(max(0, len(shown) - _NAME_LIMIT), "other change")
+        )
+    if int(old.get("commands_more") or 0) != int(new.get("commands_more") or 0):
+        facts.append(
+            f"programs past the first {MAX_SHAPE_COMMANDS}: "
+            f"{int(old.get('commands_more') or 0)} → {int(new.get('commands_more') or 0)}"
+        )
+    if old.get("script") != new.get("script"):
+        facts.append(f"script {old.get('script') or '(none)'} → {new.get('script') or '(none)'}")
+    for key, noun in _SHAPE_COUNTS:
+        before, after = int(old.get(key) or 0), int(new.get(key) or 0)
+        if before != after:
+            facts.append(f"{noun} {before} → {after}")
+    old_redirects, new_redirects = list(old.get("redirects") or []), list(new.get("redirects") or [])
+    if old_redirects != new_redirects or old.get("redirects_more") != new.get("redirects_more"):
+        gained_redirects = [item for item in new_redirects if item not in old_redirects]
+        lost_redirects = [item for item in old_redirects if item not in new_redirects]
+        shown = [*(f"+{item}" for item in gained_redirects), *(f"-{item}" for item in lost_redirects)]
+        facts.append(
+            "redirects " + (", ".join(shown[:_NAME_LIMIT]) or "reordered or past the first "
+                            f"{MAX_SHAPE_REDIRECTS}")
+            + _more(max(0, len(shown) - _NAME_LIMIT), "other change")
+        )
+    if facts and new_names and new_names == old_names:
+        facts.insert(0, "same programs (" + ", ".join(new_names) + ")")
+    return facts
+
+
+def _command_shape_change(old: dict[str, Any], new: dict[str, Any]) -> str:
+    """What the shapes of two commands add to ``command changed``, or nothing for a grant that has none (#934).
+
+    The digests moved, so the commands differ. When both are described and
+    differ in what a shape publishes, the differences are named. When they do
+    not, or when either is not described, the change is in text this output
+    does not show, and the row says the config has to be opened to read it.
+    """
+
+    old_limit, new_limit = old.get("shape_limit"), new.get("shape_limit")
+    old_shape, new_shape = old.get("shape"), new.get("shape")
+    if not (old_limit or isinstance(old_shape, dict)) or not (new_limit or isinstance(new_shape, dict)):
+        return ""
+    if old_limit or new_limit:
+        reasons = [
+            f"{side} command {_shape_limit_text(limit)}"
+            for side, limit in (("base", old_limit), ("head", new_limit))
+            if limit
+        ]
+        return f"; not described: {' and '.join(reasons)}; the digest moved, {_OPEN_THE_CONFIG}"
+    # One program replaced by another: the executables already say so.
+    replaced = (
+        _plain_shape(old, ignore_script=True) and _plain_shape(new, ignore_script=True)
+        and old.get("executable") != new.get("executable")
+    )
+    facts = _shape_differences(old_shape, new_shape, programs=not replaced)
+    if replaced and not facts:
+        return ""
+    if facts:
+        return "; " + "; ".join(facts)
+    return (
+        "; same programs and structure; the change is in an argument or in quoted text this "
+        f"output does not show, {_OPEN_THE_CONFIG}"
+    )
+
+
+def _args_text(args: dict[str, Any]) -> str:
+    """A hook's published ``args`` as one line: the script path it publishes and its digest (#972)."""
+
+    return f"{args.get('script') or DETAIL_NOT_SHOWN} {_digest_text(args.get('sha256'))}"
+
+
+def _args_changes(label: str, old: dict[str, Any], new: dict[str, Any]) -> list[str]:
+    """The difference in two readings of one handler's ``args`` (#972).
+
+    The digest stands for every argument but the published script, so an edit
+    to the script alone names the script alone, as an MCP server's package is
+    named (:func:`_mcp_args_change`).
+    """
+
+    parts: list[str] = []
+    old_script, new_script = old.get("script"), new.get("script")
+    if old_script != new_script:
+        parts.append(f"{label} script {old_script or '(none shown)'} → {new_script or '(none shown)'}")
+    if old.get("sha256") != new.get("sha256"):
+        parts.append(
+            f"{label} changed ({_digest_text(old.get('sha256'))} → {_digest_text(new.get('sha256'))})"
+        )
+    return parts
+
+
 def _handler_value(field: str, value: Any) -> str:
     """A published handler field as a row prints it (#819).
 
-    A timeout is printed as its JSON reads, so one written as text is quoted
-    and ``5`` → ``"5"`` or ``true`` → ``"true"`` never reads as the same value
-    twice (#819 review, cycles 5 and 6). Only the bounded text of an integer
-    too long to publish, and ``<not-shown>``, are printed bare: neither is a
-    plain token, so no string timeout is published as either.
+    A timeout, and a setting (#971, #972), is printed as its JSON reads, so
+    one written as text is quoted and ``5`` → ``"5"`` or ``true`` →
+    ``"true"`` never reads as the same value twice (#819 review, cycles 5 and
+    6). Only the bounded text of an integer too long to publish, and
+    ``<not-shown>``, are printed bare: neither is a plain token, so no string
+    value is published as either.
     """
 
     if value is None:
         return "(none)"
     if field == "command":
-        return _command_text(value)
+        summary = _shape_summary(value)
+        return _command_text(value) + (f" ({summary})" if summary else "")
+    if field == "args":
+        return _args_text(value)
     if field == "matcher" and value == "":
         return '""'
-    if field == "timeout" and (not isinstance(value, str) or _PLAIN_TOKEN_RE.fullmatch(value)):
+    if field in _JSON_HANDLER_FIELDS and (
+        not isinstance(value, str) or _PLAIN_TOKEN_RE.fullmatch(value)
+    ):
         return json.dumps(value, ensure_ascii=False)
     return str(value)
 
 
-#: A hook handler's published fields, in the order a row names them.
-_HANDLER_FIELDS = ("matcher", "command", "timeout")
+#: The handler fields printed as their JSON reads.
+_JSON_HANDLER_FIELDS = frozenset({"timeout", *HOOK_HANDLER_SETTINGS})
 
 
 def _handler_facts(handler: dict[str, Any]) -> list[str]:
-    """What one published handler declares, in a reviewer's words."""
+    """What one published handler declares, in a reviewer's words.
+
+    A handler whose command is published is a command handler, so its
+    ``type "command"`` is not repeated beside it; any other type is named.
+    """
 
     return [
         f"{field} {_handler_value(field, handler.get(field))}"
         for field in _HANDLER_FIELDS
         if handler.get(field) is not None
+        and not (field == "type" and handler[field] == "command" and handler.get("command"))
     ]
 
 
@@ -1244,9 +1805,9 @@ def _listed_handlers(grant: dict[str, Any]) -> str:
     if not total:
         return "no handlers"
     if total == 1 and handlers:
-        return "; ".join(_handler_facts(handlers[0])) or "a handler with no matcher, command or timeout"
+        return "; ".join(_handler_facts(handlers[0])) or f"a handler with {_NO_HANDLER_FACTS}"
     listed = [
-        f"handler {index}: {', '.join(_handler_facts(handler)) or 'no matcher, command or timeout'}"
+        f"handler {index}: {', '.join(_handler_facts(handler)) or _NO_HANDLER_FACTS}"
         for index, handler in enumerate(handlers[:_HANDLER_LIMIT], start=1)
     ]
     return "; ".join(listed) + _more(total - len(listed), "handler")
@@ -1258,6 +1819,19 @@ def _published_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, ensure_ascii=False)
 
 
+def _compared_json(field: str, value: Any) -> str:
+    """A handler field as two readings of it are compared (#934).
+
+    A command's shape is read from the same text its digest is, so it adds
+    no difference of its own; it is rendered beside a change of the command.
+    A shell setting that moves it is its own difference, named on its own.
+    """
+
+    if field == "command" and isinstance(value, dict):
+        return _published_json({key: value.get(key) for key in ("executable", "sha256")})
+    return _published_json(value)
+
+
 def _handler_changes(before: list[dict[str, Any]], after: list[dict[str, Any]]) -> list[str] | None:
     """Field differences between two readings of one event's handlers (#819).
 
@@ -1265,7 +1839,8 @@ def _handler_changes(before: list[dict[str, Any]], after: list[dict[str, Any]]) 
     order. With the same number of handlers, handler N is compared with
     handler N and each differing field is named with its before and after; a
     command by its executable's name and digest, since its text is never
-    published. Otherwise the handlers only one side declares are listed as
+    published, and ``args`` by the script path and digest they publish
+    (#972). Otherwise the handlers only one side declares are listed as
     removed or added, since nothing establishes which of them another
     replaced. Values compare as the JSON publishes them: a timeout of ``5``
     and one of ``5.0`` are two values there, and the row names both.
@@ -1280,11 +1855,16 @@ def _handler_changes(before: list[dict[str, Any]], after: list[dict[str, Any]]) 
         for index, (old, new) in enumerate(zip(before, after, strict=True), start=1):
             for field in _HANDLER_FIELDS:
                 old_value, new_value = old.get(field), new.get(field)
-                if _published_json(old_value) == _published_json(new_value):
+                if _compared_json(field, old_value) == _compared_json(field, new_value):
                     continue
                 label = f"handler {index} {field}" if several else field
                 if field == "command" and old_value and new_value:
-                    parts.append(f"{label} changed ({_command_text(old_value)} → {_command_text(new_value)})")
+                    parts.append(
+                        f"{label} changed ({_command_text(old_value)} → {_command_text(new_value)}"
+                        f"{_command_shape_change(old_value, new_value)})"
+                    )
+                elif field == "args" and old_value and new_value:
+                    parts.extend(_args_changes(label, old_value, new_value))
                 else:
                     parts.append(
                         f"{label} {_handler_value(field, old_value)} → {_handler_value(field, new_value)}"
@@ -1301,7 +1881,7 @@ def _handler_changes(before: list[dict[str, Any]], after: list[dict[str, Any]]) 
     added = [handler for _text, handler in remaining]
     for sign, handlers in (("-", removed), ("+", added)):
         for handler in handlers:
-            facts = ", ".join(_handler_facts(handler)) or "no matcher, command or timeout"
+            facts = ", ".join(_handler_facts(handler)) or _NO_HANDLER_FACTS
             parts.append(f"{sign}handler ({facts})")
     return parts
 
@@ -1370,8 +1950,8 @@ def _hook_change(event: str, before: dict[str, Any], after: dict[str, Any]) -> s
     handlers twice. When the published handlers are the same ones in a
     different order, the text says so, and that a detail it does not show may
     differ too: equal published handlers never establish equal handlers,
-    since a setting such as ``async`` is not published (#819 review, cycle
-    4). When either side lists fewer handlers than it declares, only the
+    since a field such as ``if`` is not published (#819 review, cycle 4;
+    #972). When either side lists fewer handlers than it declares, only the
     first ones were compared, and a handler past them is named among what is
     not shown (#819 review). When only one side's declaration is outside the
     documented shape, that side is named and the other side's handlers are
@@ -1390,7 +1970,8 @@ def _hook_change(event: str, before: dict[str, Any], after: dict[str, Any]) -> s
     if old is None or new is None:
         unread, read, grant = ("base", "head", after) if old is None else ("head", "base", before)
         return (
-            f"{event}: {unread} matcher, command and timeout not shown ({_HOOK_SHAPE_REASON}); "
+            f"{event}: {unread} matcher, command, args, timeout and settings not shown "
+            f"({_HOOK_SHAPE_REASON}); "
             f"{read} ({_listed_handlers(grant)})"
         )
     changes = _handler_changes(old, new)
@@ -1411,7 +1992,7 @@ def _hook_change(event: str, before: dict[str, Any], after: dict[str, Any]) -> s
     if not parts:
         compared = f" of the first {bound} handlers" if past else ""
         return (
-            f"{event}: no difference in the matcher, command or timeout{compared}; the change is "
+            f"{event}: no difference in {_HOOK_COMPARED}{compared}; the change is "
             f"in a detail this output does not show, such as {past}{_HOOK_UNSHOWN}"
         )
     shown = parts[:_NAME_LIMIT]
@@ -1425,16 +2006,144 @@ def _permission_cell(value: str, grant: dict[str, Any] | None) -> str:
     return f"{grant['disposition']}: {value}"
 
 
+_RESTRICTION_NOUN = {"deny": "denial", "ask": "confirmation requirement"}
+
+
+def _rule_list(rules: Sequence[str], disposition: str) -> str:
+    """Rules as the cells print them, at most ``_NAME_LIMIT`` before a count."""
+
+    shown = [f"{disposition}: {rule}" for rule in list(rules)[:_NAME_LIMIT]]
+    rest = len(rules) - len(shown)
+    return ", ".join(shown) + (f" and {rest} more" if rest else "")
+
+
+def _permission_rule_why(
+    before: dict[str, Any] | None,
+    after: dict[str, Any] | None,
+    direction: str,
+    assessment: PermissionRuleAssessment,
+    *,
+    redacted: bool,
+    expands: bool,
+    paired: frozenset[tuple[str, str, str]] | set[tuple[str, str, str]] = frozenset(),
+) -> str | None:
+    """The rule model's reading of one Claude Code rule row, or ``None`` (#918, #938, #969, #974).
+
+    A route that redacts rule arguments names no other rule: it says what the
+    model established, and leaves the rules to the cells it may print.
+    ``paired`` is the arrivals of a narrowing the replacement pairing already
+    explains, which keep their wording.
+    """
+
+    grant = after or before
+    if not grant or grant.get("host") != "claude-code":
+        return None
+    key = _permission_key(grant)
+    disposition = str(grant.get("disposition"))
+    if key in assessment.unconsulted:
+        tool = parse_rule(str(grant["rule"])).tool.strip()
+        basis = "from Claude Code 2.1.210, file permission checks read Read(path) and Edit(path) rules only"
+        if direction == REMOVED:
+            lost = "permission" if disposition == "allow" else _RESTRICTION_NOUN.get(disposition, "rule")
+            return (
+                f"removes a path-scoped {tool} rule Claude Code never consulted ({basis}), "
+                f"so no effective {lost} is removed"
+            )
+        return (
+            f"Claude Code accepts a path-scoped {tool} rule but never consults it ({basis}), "
+            "so it allows and restricts nothing"
+        )
+    if disposition in _RESTRICTION_NOUN and after is not None and _is_claude_carve_out(after):
+        follows = after.get("carves_from")
+        noun = _RESTRICTION_NOUN[disposition]
+        if not follows:
+            return (
+                f"a carve-out listed before every {disposition} rule it could except paths from "
+                "in this source, so it excepts nothing"
+                if follows is not None else
+                "a carve-out; which earlier rules of this source it follows was not recorded"
+            )
+        named = "" if redacted else f" ({_rule_list(follows, disposition)})"
+        reading = (
+            f"a carve-out: paths it matches are excepted from the earlier {disposition} "
+            f"rules it follows in this source{named}"
+        )
+        if expands:
+            return f"{reading}; it now excepts paths from a rule declared at the base, so part of a {noun} is lifted"
+        return f"{reading}; it lifts no {noun} the base declared"
+    if disposition in _RESTRICTION_NOUN and direction == REMOVED and _is_claude_carve_out(grant):
+        follows = grant.get("carves_from")
+        noun = "denied" if disposition == "deny" else "subject to confirmation"
+        if follows:
+            named = "" if redacted else f" from {_rule_list(follows, disposition)}"
+            return f"removes a carve-out; the paths it excepted{named} are {noun} again"
+        if follows is not None:
+            return "removes a carve-out that excepted nothing: it was listed before every rule it could carve from"
+        return f"removes a carve-out; whatever it excepted is {noun} again"
+    twin = assessment.respelled.get(key)
+    if twin is not None and direction == REMOVED:
+        named = "" if redacted else f": {disposition}: {twin}"
+        return f"removes this rule; the source still declares the same grant written another way{named}"
+    cover = assessment.covered.get(key)
+    if cover is not None and after is not None and (key[0], key[1], key[3]) not in paired:
+        if same_grant(cover, str(after["rule"])):
+            named = "" if redacted else f" as allow: {cover}"
+            return f"the same grant this source already declared at the base{named}, written another way; adds nothing"
+        named = (
+            f"allow: {cover}, declared in this source at the base,"
+            if not redacted else "an allow rule declared in this source at the base"
+        )
+        return f"runs without a prompt, but adds nothing: {named} already matches everything it matches"
+    narrowed = assessment.narrowed_into.get(key)
+    if narrowed and direction == REMOVED:
+        named = "" if redacted else f": {_rule_list(narrowed, 'allow')}"
+        return (
+            f"removes this allow rule; it is narrowed to {len(narrowed)} added rule(s) "
+            f"in this source that match only part of what it matched{named}"
+        )
+    return None
+
+
+def _is_claude_carve_out(grant: dict[str, Any]) -> bool:
+    return grant.get("host") == "claude-code" and is_carve_out(str(grant.get("rule") or ""))
+
+
+def _carve_out_change(
+    before: dict[str, Any] | None, after: dict[str, Any] | None, *, redacted: bool
+) -> str | None:
+    """A carve-out whose position changed: what it follows, then and now (#974)."""
+
+    if not before or not after or not _is_claude_carve_out(after):
+        return None
+    old, new = before.get("carves_from"), after.get("carves_from")
+    if old == new:
+        return None
+    if redacted:
+        return "the earlier rules this carve-out follows changed"
+    disposition = str(after.get("disposition"))
+
+    def listed(rules: list[str] | None) -> str:
+        if rules is None:
+            return "not recorded"
+        return _rule_list(rules, disposition) if rules else "no earlier rule"
+
+    return f"{disposition}: {after['rule']} follows {listed(old)} → {listed(new)}"
+
+
 def _link_rows(
     rows: list[CapabilityDiffRow],
     changes: list[dict[str, Any]],
     views: list[_RowView],
     replacements: list[PermissionRuleReplacement],
+    assessment: PermissionRuleAssessment | None = None,
 ) -> list[_RowView]:
-    """Join the rows of a replacement or move the engine established (#795).
+    """Join the rows of a replacement, respelling or move the engine established (#795).
 
     A replacement is exactly what `permission_rule_replacements` returns, the
-    pairs whose direction the permission lattice decided. A move is the exact
+    pairs whose direction the permission lattice decided. A respelling is a
+    removed and an added rule of one host, source and disposition that
+    Claude Code documents as one grant (`Bash(x:*)` and `Bash(x *)`), each the
+    only such rule on its side (#918). A move is the exact
     same rule text that left one disposition and arrived in one other, in one
     host and source, with no other removal or addition of that text there. A
     row both could claim joins the replacement, whose direction the engine
@@ -1474,6 +2183,21 @@ def _link_rows(
         )
         join(gone, arrived, item.direction, f"{reading}; {rows[arrived].why}")
 
+    for gone_key, arrived_key in assessment.respelled_pairs if assessment else ():
+        gone, arrived = removals.get(gone_key), additions.get(arrived_key)
+        if gone is None or arrived is None or gone in linked or arrived in linked:
+            continue
+        reading = (
+            "a trailing `:*` as a trailing ` *`"
+            if gone_key[3].endswith(":*)") or arrived_key[3].endswith(":*)")
+            else "`Bash(*)` as `Bash`"
+        )
+        join(
+            gone, arrived, RESPELLED,
+            f"the same grant written another way (Claude Code reads {reading}); it "
+            "matches exactly what it matched and adds nothing",
+        )
+
     by_text: dict[tuple[str, str, str], tuple[list[int], list[int]]] = {}
     for sink, side in ((removals, 0), (additions, 1)):
         for (host, source, _disposition, rule), index in sink.items():
@@ -1493,11 +2217,23 @@ def _link_rows(
 def capability_diff_rows(
     payload: dict[str, Any], *, redact_permission_arguments: bool = False,
     current_grants: Sequence[dict[str, Any]] = (),
+    unread_mcp_declarations: Sequence[UnreadMcpDeclaration] = (),
 ) -> list[CapabilityDiffRow]:
-    """Every typed grant change in ``payload``, one row each."""
+    """Every typed grant change in ``payload``, one row each.
+
+    ``unread_mcp_declarations`` are the changed inputs of the same comparison
+    no reader read that may declare MCP servers (#929). A removed MCP server
+    sharing one's host and plugin scope says only that it is no longer
+    declared in its source; it moves no direction, ``expands`` or severity.
+    """
 
     expansions = set(payload.get("expansion_signals") or [])
-    replacements = permission_rule_replacements(payload.get("changes") or [])
+    # One reading of every changed Claude Code rule against its own source,
+    # shared with the drift signals above, the pairing and the wording (#918).
+    assessment = permission_rule_assessment(payload.get("changes") or [], current_grants or None)
+    replacements = permission_rule_replacements(
+        payload.get("changes") or [], assessment=assessment
+    )
     arrived_allows: dict[tuple[str, str], list[str]] = {}
     # Deny and ask rules are evaluated before allow in every settings file,
     # so one arriving for the same tool may take the matches away (#858).
@@ -1536,6 +2272,7 @@ def capability_diff_rows(
         # Classify original typed evidence; redaction affects display values only.
         expands = bool(expansions.intersection(host_grant_expansion_signals(
             [change], comparison_changes=payload.get("changes") or [],
+            assessment=assessment,
         )))
         # The public signal text has no source. An identical rule added in
         # another file must not mark this source's decided narrowing (#858).
@@ -1568,6 +2305,7 @@ def capability_diff_rows(
             gone_steps=gone_steps, new_steps=new_steps,
             gone_secrets=gone_secrets, new_secrets=new_secrets,
             agent_reasons=agent_reasons,
+            call_changes=_reusable_call_changes(before_grant, after_grant),
         )
         kind = grant.get("kind")
         if kind == "openshell_policy":
@@ -1604,6 +2342,14 @@ def capability_diff_rows(
         ):
             # Wording only: ambiguity still forbids a pair or signal suppression.
             why = "removes this allow rule; another added allow rule still covers its matches"
+        if grant.get("kind") == "permission_rule" and (
+            rule_why := _permission_rule_why(
+                before_grant, after_grant, direction, assessment,
+                redacted=redact_permission_arguments, expands=expands,
+                paired=narrowed,
+            )
+        ):
+            why = rule_why
         if hook_dependency_only_change(before_grant, after_grant):
             # The digests are the change cell (`_hook_change`); the why names
             # the scripts once, so the text does not print them twice.
@@ -1626,7 +2372,13 @@ def capability_diff_rows(
         )
         if note:
             why = f"{why}; {note}"
+        if why == MCP_REMOVED_WHY and _unread_declaration_may_offer(grant, unread_mcp_declarations):
+            why = MCP_REMOVED_UNREAD_DECLARATION
+        if grant.get("kind") == "mcp_server" and grant.get("host") == UNATTRIBUTED_MCP_HOST:
+            why = f"{why}; {MCP_HOST_NOT_ESTABLISHED}"
         if grant.get("kind") == "mcp_server" and (note := _mcp_source_note(before_grant, after_grant)):
+            why = f"{why}; {note}"
+        if grant.get("kind") == "hook" and (note := _unmatched_matcher_note(after_grant)):
             why = f"{why}; {note}"
         if grant.get("kind") == "hook" and (note := _inline_allow_note(after_grant)):
             why = f"{why}; {note}"
@@ -1667,6 +2419,9 @@ def capability_diff_rows(
             view = _RowView(
                 before=_permission_cell(row.before, before_grant),
                 after=_permission_cell(row.after, after_grant),
+                change=_carve_out_change(
+                    before_grant, after_grant, redacted=redact_permission_arguments
+                ),
             )
         elif kind == "mcp_server" and before_grant and after_grant:
             view = _RowView(
@@ -1690,6 +2445,17 @@ def capability_diff_rows(
                 before=_hook_cell(row.before, before_grant),
                 after=_hook_cell(row.after, after_grant),
             )
+        elif kind == "openshell_policy" and before_grant and after_grant:
+            view = _RowView(
+                before=row.before,
+                after=row.after,
+                change=openshell_policy_change(before_grant, after_grant),
+            )
+        elif kind == "openshell_policy":
+            view = _RowView(
+                before=_openshell_cell(row.before, before_grant),
+                after=_openshell_cell(row.after, after_grant),
+            )
         else:
             view = _RowView(before=row.before, after=row.after)
         # Kept with the row through sorting, never emitted as row fields.
@@ -1702,7 +2468,7 @@ def capability_diff_rows(
         # Redacted rules read alike, so a joined `allow: Bash(<redacted-arguments>)
         # → allow: Bash(<redacted-arguments>)` would show a change whose sides
         # look identical. Those routes keep the removal and addition as two rows.
-        views = _link_rows(rows, changes, views, replacements)
+        views = _link_rows(rows, changes, views, replacements, assessment)
     for row, view in zip(rows, views, strict=True):
         object.__setattr__(row, _VIEW, view)
     return sorted(

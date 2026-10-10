@@ -1642,6 +1642,16 @@ directory, still refuses its comparison. A `0.20` verifier claiming a partial
 comparison or a `scope` is refused. See
 [the migration note](../STABILITY.md#partial-host-comparison-808).
 
+Unreleased, still contract v42: a plain instruction document (`AGENTS.md`,
+`AGENTS.override.md`, `CLAUDE.md`) that both sides read directly and that is
+refused only because it is past the 256 KiB instruction bound is withheld the
+same way (#973): the comparison is `partial`, and the document's own path is
+the `scope` of its `blocking_limit` item, with `limit: unsupported` (a hook
+script's own-path scope is `unreadable`). A blocking limit both sides carry
+ends its `detail` with whether Git shows the file changed in this change, is
+byte-identical, or neither. Treat `partial` as before. See
+[the migration note](../STABILITY.md#oversized-instruction-document-973).
+
 Runtime contract v41, extended in place, also reads how a coding agent is
 launched inside a workflow job (#823). Host-grants `0.6` shipped in 1.1.0, so
 host-grants inventory, baseline and drift schemas move to `0.7`, and a workflow
@@ -2399,7 +2409,7 @@ Downstream repos generated with
 - Current attestation schema: `0.5` — [`docs/attestation-schema.v0.5.json`](attestation-schema.v0.5.json)
 - Current registry schema: `0.4` — [`docs/registry-schema.v0.4.json`](registry-schema.v0.4.json)
 - Current org evidence bundle schema: `shipgate.org_evidence_bundle/v2` — [`docs/org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json)
-- Current host-grants inventory, baseline, and drift schemas: `0.9` — [`inventory`](host-grants-inventory-schema.v0.9.json), [`baseline`](host-grants-baseline-schema.v0.9.json), [`drift`](host-grants-drift-schema.v0.9.json). Version 0.9 adds explicit local OpenShell composition, provider profile provenance and effective-snapshot metadata; historical host schemas remain frozen. See [OpenShell support](openshell-support.md).
+- Current host-grants inventory, baseline, and drift schemas: `0.9` — [`inventory`](host-grants-inventory-schema.v0.9.json), [`baseline`](host-grants-baseline-schema.v0.9.json), [`drift`](host-grants-drift-schema.v0.9.json). Version 0.9 adds explicit local OpenShell composition, provider profile provenance and effective-snapshot metadata, and, on a reusable workflow call whose permission ceiling holds a write scope and whose target is in the same repository, `callee_permissions` and `callee_write_scopes` (#921); historical host schemas remain frozen. See [OpenShell support](openshell-support.md) and [workflow token scopes](host-boundary-support.md#workflow-token-scopes).
 - Optional OpenShell native trust/evidence schemas: `1` — [`trust`](openshell-native-trust-schema.v1.json), [`evidence`](openshell-native-evidence-schema.v1.json). Only explicit external trust inputs enable local execution; the default remains static. Native containment never grants merge authority. See [OpenShell support](openshell-support.md#optional-native-containment).
 - Current trigger catalog schema: `0.4` — [`docs/triggers.json`](triggers.json)
 - Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
@@ -4097,6 +4107,11 @@ An MCP rule that names tools within one server, such as
 `mcp__github__*` grant every tool the server offers and still raise this
 check. Before #816 every MCP rule, being a bare token, reached it.
 
+A file tool's path pattern is a wildcard grant only when it is nothing but
+stars (`*`, `**`, `**/*`): `Edit(**/.env.example)` names `.env.example` files
+and raises `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` when it is new
+authority (#969).
+
 A wildcard grant over a read tool — `Read(**)`, `Glob`, `Grep(**)` — raises
 `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` instead. It is still an
 expansion and still reviewed, but it is not a release blocker: the agent
@@ -4132,7 +4147,12 @@ new and does not fire (#661). `Bash(npm:*)` and `Bash(npm *)` are two
 spellings of one rule, which also allows the bare `npm`, so replacing either
 with `Bash(npm test:*)` or `Bash(npm test)` does not fire (#816). The space
 before the star is part of the rule, so `Bash(npm run test:*)` does not cover
-`npm run test:unit`: adding that command fires.
+`npm run test:unit`: adding that command fires. Claude Code's coverage follows
+the [permission-rule model](host-boundary-support.md#claude-code-permission-rules)
+`diff` reads (#918, #941): an unanchored allow `*`, which Claude Code skips,
+covers nothing, and a command holding shell syntax or an exec wrapper is never
+proven covered. A path-scoped `Write`, `NotebookEdit`, `Glob` or `MultiEdit`
+rule, which Claude Code accepts and never consults, does not fire (#938).
 
 It also fires when a change sets any other value of a Claude Code setting the
 host inventory models, at the rating the engine's setting table gives that
@@ -4165,6 +4185,16 @@ raises these ratings with it; it cannot lower them.
 
 A changed Claude Code settings file drops an entry from `permissions.deny`.
 Have a human confirm the removed deny rule is no longer needed.
+
+It does not fire for a path-scoped `Write(...)` (or `NotebookEdit`, `Glob`,
+`MultiEdit`) rule, which Claude Code accepts and never consults (#938) — a bare
+`Write` deny still fires — for a `!` carve-out, whose removal restricts more,
+or for a rule the list still holds in its other documented spelling
+(`Bash(rm:*)` / `Bash(rm *)`). It also fires, with evidence kind
+`permission_deny_carved_out`, when a `Read(!…)` or `Edit(!…)` deny rule now
+follows an earlier relative-path rule of the same tool the file already
+denied: Claude Code carves the paths it matches out of the rules listed
+before it, so part of that denial is lifted (#974).
 
 ### SHIP-HOST-BOUNDARY-HOOK-CHANGED
 

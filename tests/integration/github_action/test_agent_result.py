@@ -437,7 +437,7 @@ def _verifier(
     assert report.release_decision is not None
     decision = report.release_decision.decision
     if can_merge:
-        control = derive_agent_control(reason="Static verification passed.")
+        control = derive_agent_control(reason="Static verification passed.", subject_evaluated=True)
     elif fix_task is not None and fix_task.actor == "coding_agent" and fix_task.safe_to_attempt:
         assert fix_task.verification_command
         control = derive_agent_control(

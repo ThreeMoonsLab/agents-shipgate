@@ -1,3 +1,9 @@
+import pytest
+
+from agents_shipgate.core.binding_comparison import (
+    binding_comparison_limits,
+    comparison_withholds_absence,
+)
 from agents_shipgate.core.domain import (
     Tool,
     ToolRiskHint,
@@ -344,3 +350,167 @@ def test_build_tool_surface_facts_projects_controls_and_metadata():
         ("approval_policy", "stripe.refund"),
         ("idempotency_evidence", "stripe.refund"),
     }
+
+
+
+def test_incomplete_binding_comparison_cannot_report_risk_or_finding_removals():
+    from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, AgentBindingIssue
+
+    base = ToolSurfaceFacts(tools=[ToolSurfaceToolFact(
+        name="delete", source_type="mcp", risk_tags=["destructive"], auth_scopes=["admin"],
+    )], scopes=[ToolSurfaceScopeFact(kind="tool_required", scope="admin", tool_names=["delete"])],
+        controls=[ToolSurfaceControlFact(kind="approval_policy", tool="delete", source="manifest")])
+    partial = AgentBindingGraphAssessment(status="partial", issues=[AgentBindingIssue(
+        kind="partial_binding_evidence", message="Unread constructor", source="framework_constructor_ownership",
+        source_pointer="agent.py:8",
+    )])
+    complete = AgentBindingGraphAssessment(status="structural", pass_eligible=True)
+    for head_graph, base_graph in ((partial, complete), (complete, partial)):
+        diff = compute_tool_surface_diff(
+            ToolSurfaceFacts(), base, [], head_binding_facts=head_graph,
+            reference=ToolSurfaceDiffReference(kind="report", facts=base, binding_facts=base_graph),
+        )
+        # The comparison is still made; only what depends on absence is withheld.
+        assert diff.enabled
+        assert not any((diff.tools, diff.scopes, diff.controls, diff.high_risk_effects, diff.metadata_changes))
+        assert diff.finding_deltas.resolved_findings == []
+        assert diff.summary.tools_removed == 0 and diff.summary.removed_high_risk_effects == 0
+        assert any("comparison incomplete" in note and "agent.py:8" in note for note in diff.notes)
+        assert comparison_withholds_absence(diff.notes)
+
+
+def _partial_graph(source="framework_constructor_ownership"):
+    from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, AgentBindingIssue
+
+    return AgentBindingGraphAssessment(status="partial", issues=[AgentBindingIssue(
+        kind="partial_binding_evidence", message="Unread constructor", source=source,
+        source_pointer="agent.py:8",
+    )])
+
+
+def _tool_fact(name, **kwargs):
+    return ToolSurfaceToolFact(name=name, source_type="mcp", **kwargs)
+
+
+@pytest.mark.parametrize("side", ["head", "base"])
+def test_an_incomplete_graph_still_reports_additions_changes_and_removed_controls(side):
+    """What presence proves reaches the reviewer; only absence is withheld."""
+    from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment
+
+    base = ToolSurfaceFacts(
+        tools=[_tool_fact("kept", auth_scopes=["read"]), _tool_fact("gone", risk_tags=["destructive"])],
+        scopes=[
+            ToolSurfaceScopeFact(kind="tool_required", scope="read", tool_names=["kept"]),
+            ToolSurfaceScopeFact(kind="tool_required", scope="admin", tool_names=["gone"]),
+        ],
+        controls=[
+            ToolSurfaceControlFact(kind="approval_policy", tool="kept", source="manifest"),
+            ToolSurfaceControlFact(kind="approval_policy", tool="gone", source="manifest"),
+        ],
+    )
+    head = ToolSurfaceFacts(
+        tools=[_tool_fact("kept", auth_scopes=["read", "write"]), _tool_fact("brand_new")],
+        scopes=[
+            ToolSurfaceScopeFact(kind="tool_required", scope="read", tool_names=["kept"]),
+            ToolSurfaceScopeFact(kind="tool_required", scope="write", tool_names=["kept"]),
+        ],
+        controls=[],
+    )
+    complete = AgentBindingGraphAssessment(status="structural", pass_eligible=True)
+    diff = compute_tool_surface_diff(
+        head, base, [],
+        head_binding_facts=_partial_graph() if side == "head" else complete,
+        reference=ToolSurfaceDiffReference(
+            kind="report", facts=base,
+            binding_facts=_partial_graph() if side == "base" else complete,
+        ),
+    )
+    assert diff.enabled
+    assert {(row.name, row.kind) for row in diff.tools} == {("brand_new", "added"), ("kept", "changed")}
+    assert {(row.scope, row.kind) for row in diff.scopes} == {("write", "added")}
+    # The control lost with the absent tool is that tool's absence restated;
+    # the control on the tool that is still there is a real removal.
+    assert [(row.tool, row.kind) for row in diff.controls] == [("kept", "removed")]
+    assert diff.summary.tools_removed == 0 and diff.summary.tools_added == 1
+    assert comparison_withholds_absence(diff.notes)
+
+
+def test_a_toolset_inventory_gap_alone_is_not_incomplete_binding_evidence():
+    """A remote toolset nobody can enumerate neither withholds nor forges a removal."""
+    from agents_shipgate.core.agent_bindings import FRAMEWORK_TOOLSET_INVENTORY
+
+    base = ToolSurfaceFacts(tools=[_tool_fact("gone")])
+    for graph in (_partial_graph(FRAMEWORK_TOOLSET_INVENTORY), None):
+        diff = compute_tool_surface_diff(
+            ToolSurfaceFacts(), base, [], head_binding_facts=graph,
+            reference=ToolSurfaceDiffReference(
+                kind="report", facts=base, binding_facts=_partial_graph(FRAMEWORK_TOOLSET_INVENTORY),
+            ),
+        )
+        assert diff.enabled and [(row.name, row.kind) for row in diff.tools] == [("gone", "removed")]
+        assert not comparison_withholds_absence(diff.notes)
+    # Beside a real gap it still counts only for what it is.
+    mixed = _partial_graph()
+    mixed = mixed.model_copy(update={"issues": [*mixed.issues, *_partial_graph(FRAMEWORK_TOOLSET_INVENTORY).issues]})
+    assert len(binding_comparison_limits(mixed, None)) == 1
+    only_inventory = _partial_graph(FRAMEWORK_TOOLSET_INVENTORY)
+    assert binding_comparison_limits(only_inventory, only_inventory) == []
+    # A partial graph with no recorded cause is not excused by the marker.
+    unexplained = only_inventory.model_copy(update={"issues": []})
+    assert len(binding_comparison_limits(unexplained, None)) == 1
+
+
+def test_unknown_catalog_and_fact_only_comparisons_still_report_real_removals():
+    from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, AgentBindingIssue
+
+    base = ToolSurfaceFacts(tools=[ToolSurfaceToolFact(name="delete", source_type="mcp")])
+    catalog = AgentBindingGraphAssessment(status="unknown", unbound_tool_ids=["delete"], issues=[
+        AgentBindingIssue(kind="ambiguous_root_agent", message="Catalog has no agent")])
+    for head_graph in (None, catalog):
+        diff = compute_tool_surface_diff(ToolSurfaceFacts(), base, [], head_binding_facts=head_graph)
+        assert diff.enabled and [(row.name, row.kind) for row in diff.tools] == [("delete", "removed")]
+
+
+@pytest.mark.parametrize("side", ["head", "base"])
+def test_findings_only_reference_cannot_claim_resolution_with_incomplete_bindings(side):
+    from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, AgentBindingIssue
+
+    partial = AgentBindingGraphAssessment(status="partial", issues=[AgentBindingIssue(
+        kind="partial_binding_evidence", message="Unread constructor", source_pointer="agent.py:3",
+    )])
+    reference = ToolSurfaceDiffReference(
+        kind="report", facts=None,
+        findings=[ToolSurfaceFindingDeltaItem(fingerprint="old", check_id="old", title="old", severity="high")],
+        binding_facts=partial if side == "base" else None,
+    )
+    diff = compute_tool_surface_diff(
+        ToolSurfaceFacts(), None, [], reference=reference,
+        head_binding_facts=partial if side == "head" else None,
+    )
+    assert not diff.enabled and diff.finding_deltas.resolved_findings == []
+    assert diff.summary.resolved_findings == 0
+    assert any("comparison incomplete on " + side in note for note in diff.notes)
+    # A finding the head has and the reference lacks is presence, still reported.
+    new = compute_tool_surface_diff(
+        ToolSurfaceFacts(), None, [Finding(
+            id="fresh", fingerprint="fresh", check_id="SHIP-DOC-MISSING-DESCRIPTION", title="new",
+            severity="high", category="documentation", confidence="high", recommendation="Add it.",
+        )], reference=reference,
+        head_binding_facts=partial if side == "head" else None,
+    )
+    assert [item.fingerprint for item in new.finding_deltas.new_findings] == ["fresh"]
+    assert new.finding_deltas.resolved_findings == []
+
+
+@pytest.mark.parametrize("status", ["partial", "conflicting"])
+def test_a_fresh_scan_does_not_claim_a_comparison_was_requested(status):
+    from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment
+
+    graph = AgentBindingGraphAssessment(status=status, possible_tool_ids=["unread"])
+    diff = compute_tool_surface_diff(
+        ToolSurfaceFacts(), None, [], head_binding_facts=graph,
+    )
+    assert not diff.enabled
+    assert diff.notes == ["No --diff-from report or v0.3 baseline snapshot was provided."]
+    assert diff.finding_deltas.resolved_findings == []
+    assert not any((diff.tools, diff.scopes, diff.controls, diff.high_risk_effects))

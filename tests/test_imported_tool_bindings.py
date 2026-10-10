@@ -13,6 +13,7 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
@@ -91,7 +92,7 @@ SCORER = '''def score_answer(answer: str) -> dict:
 '''
 
 
-def _write(root: Path, files: dict[str, str | None]) -> None:
+def _write(root: Path, files: dict[str, str | None], *, project: bool = True) -> None:
     for name, content in files.items():
         path = root / name
         if content is None:
@@ -99,6 +100,12 @@ def _write(root: Path, files: dict[str, str | None]) -> None:
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
+    # Static import ownership needs a stable project boundary. Write first so
+    # creation and deletion retain their existing filesystem behavior.
+    if project and root.is_dir() and not any(
+        (directory / ".git").exists() for directory in (root, *root.parents)
+    ):
+        _git(root, "init", "-q")
 
 
 def _attest(head: bool) -> dict[str, str | None]:
@@ -147,7 +154,8 @@ def test_adk_head_identifies_imported_memory_and_scorer_tools(tmp_path):
     loaded, artifacts = _adk(root)
 
     assert artifacts is not None
-    assert artifacts.warnings == []
+    assert any("constructor identity" in warning and "dynamic import machinery" in warning for warning in artifacts.warnings)
+    assert all(not item.tools_complete for source in loaded for item in source.binding_observations)
     assert artifacts.unresolved_references == []
     assert _edges(loaded, artifacts) == [
         ("attest_orchestrator", "append_evidence", "agent.py:16"),
@@ -198,6 +206,7 @@ def test_adk_proven_import_chain_can_reach_a_proven_surface(tmp_path):
     loaded, artifacts = _adk(tmp_path)
 
     assert artifacts is not None and artifacts.warnings == []
+    assert all(item.tools_complete for source in loaded for item in source.binding_observations)
     (tool,) = [tool for source in loaded for tool in source.tools]
     assert tool.extraction["surface_gaps"] == []
     assert tool.extraction_confidence == "high"
@@ -257,7 +266,9 @@ def test_adk_wrapper_built_in_the_imported_module_is_its_function(tmp_path):
     )
     loaded, artifacts = _adk(tmp_path)
 
-    assert artifacts is not None and artifacts.warnings == []
+    assert artifacts is not None
+    assert any("constructor identity is not established" in warning for warning in artifacts.warnings)
+    assert all(not item.tools_complete for source in loaded for item in source.binding_observations)
     (tool,) = [tool for source in loaded for tool in source.tools]
     assert (tool.name, tool.source_location) == ("approve", "approvals.py:4")
     assert tool.annotations["long_running"] is True
@@ -528,17 +539,20 @@ def test_application_diff_shows_the_two_memory_tool_additions(tmp_path):
     head = _commit(tmp_path, _attest(head=True))
     result = _compare(tmp_path, base, head, "--scope", "agents/attest_orchestrator")
 
-    assert result["comparison_status"] == "compared"
+    assert result["comparison_status"] == "partial"
     assert result["base"]["binding_count"] == 4
     assert result["head"]["binding_count"] == 6
-    rows = [(row["agent"], row["tool"], row["change"]) for row in result["rows"]]
-    # The four unchanged bindings, scorer.score_answer included, are not
-    # relabelled as additions.
+    assert all(row["change"] == "not_established" for row in result["rows"])
+    rows = [(row["agent"], row["tool"], row["candidate_change"]) for row in result["rows"] if row["candidate_change"] == "added"]
+    # Dynamic package loading withholds authority. The four unchanged
+    # candidates are still not relabelled as possible additions.
     assert rows == [
         ("attest_orchestrator", "recall_firm_memory", "added"),
         ("attest_orchestrator", "remember_firm_finding", "added"),
     ]
-    after = result["rows"][1]["after"]
+    after = next(row["after"] for row in result["rows"] if row["tool"] == "remember_firm_finding")
+    assert any("constructor identity" in gap["reason"] and "dynamic import machinery" in gap["reason"]
+               for gap in result["head"]["coverage_gaps"])
     assert after["definition"]["source"] == "agents/attest_orchestrator/memory_bank.py"
     assert after["definition"]["line"] == 1
     assert after["binding_location"] == "agents/attest_orchestrator/agent.py:21"
@@ -571,7 +585,8 @@ def execute(code: str) -> str:
     assert result["rows"][0]["after"]["definition"]["source"] == "tools.py"
 
 
-def test_application_diff_scopes_an_unresolved_import_to_its_agent(tmp_path):
+@pytest.mark.parametrize("external", [False, True])
+def test_application_diff_keeps_unresolved_import_diagnostics_beside_constructor_limits(tmp_path, external):
     agent = (
         "from google.adk.agents import Agent\n"
         "from vendor_tools import search\n\n\n"
@@ -581,20 +596,34 @@ def test_application_diff_scopes_an_unresolved_import_to_its_agent(tmp_path):
         'support = Agent(name="support", tools=TOOLS)\n'
     )
     _git(tmp_path, "init", "-q", "-b", "main")
-    base = _commit(tmp_path, {"agent.py": agent.replace("TOOLS", "[lookup]")})
+    files = {"agent.py": agent.replace("TOOLS", "[lookup]")}
+    if not external:
+        files["vendor_tools.py"] = "if available:\n    def search(query: str) -> str:\n        return query\n"
+    base = _commit(tmp_path, files)
     head = _commit(tmp_path, {"agent.py": agent.replace("TOOLS", "[lookup, escalate]")})
     result = _compare(tmp_path, base, head)
 
     assert result["comparison_status"] == "partial"
-    (row,) = result["rows"]
-    # The other agent's addition is established, not swallowed by a file-wide gap.
-    assert (row["agent"], row["tool"], row["change"]) == ("support", "escalate", "added")
-    (gap,) = [gap for gap in result["head"]["coverage_gaps"] if gap["agent"] == "researcher"]
+    if external:
+        assert result["rows"] and all(row["change"] == "not_established" for row in result["rows"])
+        (row,) = [row for row in result["rows"] if row["candidate_change"] == "added"]
+        assert (row["agent"], row["tool"]) == ("support", "escalate")
+        assert row["after"]["definition"]["source"] == "agent.py"
+        assert any(gap["agent"] == "support" and "unread external imported handle" in gap["reason"]
+                   for gap in result["head"]["coverage_gaps"])
+    else:
+        (row,) = result["rows"]
+        # The local conditional definition has no unread external handle;
+        # its unresolved binding remains scoped to the researcher.
+        assert (row["agent"], row["tool"], row["change"]) == ("support", "escalate", "added")
+    (gap,) = [gap for gap in result["head"]["coverage_gaps"]
+              if gap["agent"] == "researcher" and "references unresolved tool 'search'" in gap["reason"]]
     assert "references unresolved tool 'search'" in gap["reason"]
     assert "vendor_tools" in gap["reason"]
 
 
-def test_application_diff_names_an_unresolved_wrapper_once(tmp_path):
+@pytest.mark.parametrize("external", [False, True])
+def test_application_diff_names_an_unresolved_wrapper_once_beside_constructor_limits(tmp_path, external):
     agent = (
         "from google.adk.agents import Agent\n"
         "from google.adk.tools import FunctionTool\n"
@@ -604,13 +633,56 @@ def test_application_diff_names_an_unresolved_wrapper_once(tmp_path):
         'support = Agent(name="support", tools=TOOLS)\n'
     )
     _git(tmp_path, "init", "-q", "-b", "main")
-    base = _commit(tmp_path, {"agent.py": agent.replace("TOOLS", "[]")})
+    files = {"agent.py": agent.replace("TOOLS", "[]")}
+    if not external:
+        files["vendor_tools.py"] = "if available:\n    def search(query: str) -> str:\n        return query\n"
+    base = _commit(tmp_path, files)
     head = _commit(tmp_path, {"agent.py": agent.replace("TOOLS", "[lookup]")})
     result = _compare(tmp_path, base, head)
 
     assert [(row["agent"], row["tool"], row["change"]) for row in result["rows"]] == [
-        ("support", "lookup", "added")
+        ("support", "lookup", "not_established" if external else "added")
     ]
-    (gap,) = [gap for gap in result["head"]["coverage_gaps"] if gap["agent"] == "researcher"]
+    if external:
+        assert result["rows"][0]["candidate_change"] == "added"
+        assert result["rows"][0]["after"]["definition"]["source"] == "agent.py"
+        assert any(gap["agent"] == "support" and "unread external imported handle" in gap["reason"]
+                   for gap in result["head"]["coverage_gaps"])
+    (gap,) = [gap for gap in result["head"]["coverage_gaps"]
+              if gap["agent"] == "researcher" and "wraps a tool whose function 'search'" in gap["reason"]]
     assert "wraps a tool whose function 'search'" in gap["reason"]
     assert gap["reason"].count("vendor_tools") == 1
+
+
+@pytest.mark.parametrize("wrapped", [False, True])
+@pytest.mark.parametrize("imported", [False, True])
+def test_external_tool_ownership_follows_actual_module_imports(tmp_path, wrapped, imported):
+    researcher = (
+        "from google.adk.agents import Agent\n"
+        "from vendor_tools import search\n"
+        + ("from google.adk.tools import FunctionTool\n" if wrapped else "")
+        + 'researcher = Agent(name="researcher", tools='
+        + ("[FunctionTool(func=search)]" if wrapped else "[search]") + ")\n"
+    )
+    support = (
+        ("import researcher\n" if imported else "")
+        + "from google.adk.agents import Agent\n"
+        + "def lookup(query: str) -> str:\n    return query\n"
+        + 'support = Agent(name="support", tools=TOOLS)\n'
+    )
+    _git(tmp_path, "init", "-q", "-b", "main")
+    base = _commit(tmp_path, {"researcher.py": researcher, "support.py": support.replace("TOOLS", "[]")})
+    head = _commit(tmp_path, {"support.py": support.replace("TOOLS", "[lookup]")})
+    result = _compare(tmp_path, base, head)
+    assert result["comparison_status"] == "partial"
+    (row,) = result["rows"]
+    assert (row["agent"], row["tool"], row["change"]) == (
+        "support", "lookup", "not_established" if imported else "added"
+    )
+    assert row["after"]["definition"]["source"] == "support.py"
+    support_gaps = [gap for gap in result["head"]["coverage_gaps"] if gap["agent"] == "support"]
+    if imported:
+        assert row["candidate_change"] == "added"
+        assert any("unread external imported handle" in gap["reason"] for gap in support_gaps)
+    else:
+        assert not support_gaps  # An independently discovered file was not imported here.

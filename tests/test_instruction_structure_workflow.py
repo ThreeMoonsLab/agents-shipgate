@@ -1,4 +1,4 @@
-"""Same real committed change through final, local, host and proactive routes."""
+"""Same committed change through final, detached, host and proactive routes."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def _diff(path, before, after):
     (".cursor/rules/demo.mdc", "---\nalwaysApply: true\n---\nOld prose.\n", "---\nalwaysApply: true\n---\nNew prose.\n"),
     (".claude/skills/demo/SKILL.md", "---\nname: demo\ndescription: Fixture\nallowed-tools: Read\n---\nOld prose.\n", "---\nname: demo\ndescription: Fixture\nallowed-tools: Read\n---\nNew prose.\n"),
 ])
-def test_committed_prose_change_keeps_all_review_routes_aligned(repo, tmp_path, path, before, after):
+def test_committed_prose_change_preserves_structure_across_review_routes(repo, tmp_path, path, before, after):
     target = repo / path
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(before)
@@ -51,7 +51,11 @@ def test_committed_prose_change_keeps_all_review_routes_aligned(repo, tmp_path, 
     local = build_agent_boundary_result(evaluate_agent_boundary(
         workspace=repo, diff_text=diff, config_path=repo / "shipgate.yaml",
     ))
-    assert local.control.state == "complete"
+    # The structure assessment is clean, but this detached projection carries
+    # no replayable subject. The committed verifier below can grant completion.
+    assert local.decision == "allow"
+    assert local.control.state == "human_review_required"
+    assert not any(local.control.permissions.model_dump().values())
     preflight = build_preflight_result(
         workspace=repo, changed_files=[path], diff_text=diff,
         base_preflight=base_preflight, host_baseline=baseline_path,

@@ -29,8 +29,28 @@ updates:
       # ==2.46.5. Any independent bump is unsatisfiable at every update type,
       # so this one is ignored outright. Closed #382 on this.
       - dependency-name: "pydantic-core"
+    # One pull request per weekly cycle for minor and patch bumps instead of
+    # one per package (#501). Dependabot edits the hash locks as plain
+    # requirement files, so a grouped PR is a request, never merged as-is: the
+    # maintainer recompiles the affected locks (CONTRIBUTING.md § Changing
+    # dependencies). `applies-to: version-updates` keeps security updates out
+    # of the group, so an advisory still arrives as its own pull request.
+    # Major bumps stay individual. The lock resolver (uv) and the coding-agent
+    # harness SDK (harness/requirements.txt) are excluded: a uv bump changes
+    # how every lock is compiled, and the harness floor waits on a paid run.
+    groups:
+      python-dependencies:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+        patterns: ["*"]
+        exclude-patterns: ["uv", "claude-agent-sdk"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+        patterns: ["*"]

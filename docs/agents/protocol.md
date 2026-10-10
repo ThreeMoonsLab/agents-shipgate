@@ -57,10 +57,11 @@ shipgate check --agent codex --workspace . --diff - --format agent-boundary-json
 
 A supplied file or stdin diff is detached diagnostic input: it is not bound
 to checkout bytes that `verify` can reconstruct. Shipgate can still report
-boundary findings from it, but when the result owes verification it returns
-`human_review_required` with no allowed command. Re-run the check against the
+boundary findings from it, but every detached result returns
+`human_review_required` with no allowed command and no permission, including
+an empty diff or one with no boundary finding. Re-run the check against the
 intended worktree, or with both `--base` and `--head`, to obtain a replayable
-verification route.
+verification route or completion.
 
 The no-`--diff` form resolves a git diff locally. With no `--base` or `--head`,
 it reads local staged, unstaged, deleted, renamed, and relevant untracked
@@ -128,9 +129,9 @@ from `verify --preview`, whose project markers are read from the working tree �
 the commit this worktree must have checked out. `expects` names a commit id
 rather than the ref you passed, because the checkout it asks for moves `HEAD`
 and a revision expression would then mean something else.
-An unreadable diff file, detached stdin/file diff that owes verification, or
-worktree/ref state Shipgate cannot bind returns `human_review_required` and
-authorizes no speculative rerun. Unsupported CLI shape errors such as an
+An unreadable diff file, any detached stdin/file diff, or worktree/ref state
+Shipgate cannot bind returns `human_review_required` and authorizes no
+speculative rerun. Unsupported CLI shape errors such as an
 invalid `--agent` or `--format` still exit nonzero before a boundary-result
 object exists.
 
@@ -209,6 +210,19 @@ unreadable, oversized, external, symlinked, and otherwise unresolved relevant
 inputs cannot produce `control.state="complete"`. It does **not** compute the tool-use
 capability delta — that is `verify`'s job, and `release_decision.decision`
 remains the one authoritative capability gate.
+
+Completion also requires an evaluated subject. A detached `--diff` or MCP
+`diff_text` input cannot grant publication, merge or completion authority,
+including when it is empty or has no boundary findings. Run against the intended
+checkout or an available base/head comparison. A clean checkout comparison in
+an unconfigured repository remains a valid negative boundary assessment.
+`mcp audit` likewise grants no authority for an empty or irrelevant diff, or
+when any requested source or policy was unreadable, whatever its diagnostic
+decision says. A source record `check` refuses as structurally incomplete — a
+header-only record, one of two records for the same path, or a record whose
+path cannot be parsed — is unreadable input there too, as is any binary record
+and any rename without hunks that git does not report as 100% similar. A
+recognized, readable empty server map is still an evaluated MCP subject.
 
 Treat `check` as necessary but not sufficient for capability-expanding diffs.
 If a change adds dynamic, undeclared, or otherwise ambiguous tool capability,

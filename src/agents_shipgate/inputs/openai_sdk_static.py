@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -14,6 +15,11 @@ from agents_shipgate.core.domain import (
     ToolkitScopeBound,
 )
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.inputs.builder_calls import (
+    BuilderCalls,
+    ConstructionContext,
+    Invocation,
+)
 from agents_shipgate.inputs.common import (
     list_input_directory,
     load_text_file,
@@ -37,6 +43,14 @@ from agents_shipgate.inputs.list_expressions import (
     leaves_arguments_alone as _leaves_arguments_alone,
 )
 from agents_shipgate.inputs.list_expressions import read_only_use as _read_only_use
+from agents_shipgate.inputs.object_tools import (
+    SDK,
+    ObjectBinding,
+    ObjectTools,
+    Unread,
+    WrappedFunction,
+    object_bindings_rule,
+)
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.inputs.python_imports import (
     NOT_BOUND,
@@ -233,13 +247,31 @@ def _extract_agent_bindings(
     # What reading one file's lists learns about a module it imports serves
     # every other file of this load (#909 review).
     list_cache = ListCache()
+    builder_calls = BuilderCalls(imports.resolver)
+    # Tools bound as objects, read only for ``diff --application`` (#910).
+    object_rule = object_bindings_rule()
+    objects_reader = ObjectTools(SDK, imports.resolver, object_rule) if object_rule is not None else None
+    module_sdk_names: dict[int, _SdkNames] = {}
+
+    def module_agent_reads(home: PythonModule, call: ast.Call, keyword: str | None) -> bool:
+        names = module_sdk_names.get(id(home.tree))
+        if names is None:
+            names = module_sdk_names[id(home.tree)] = _SdkNames(home.tree)
+        return (
+            _agent_reads(names, builder_calls.scopes(home), home.bindings, call, keyword)
+            and (not _denotes_agent(names, call)
+                 or builder_calls.constructor_issue(home, call) is None)
+        )
+
     for path in paths:
         text = load_text_file(path)
         tree = parse_python_file(path, label="OpenAI Agents SDK")
         source_ref = display_path(path, base_dir)
+        module = imports.resolver.entry(path, tree, text)
+        if module is not None:
+            tree = module.tree
         sdk_names = _SdkNames(tree)
         scopes = ScopeIndex(tree)
-        module = imports.resolver.entry(path, tree, text)
         import_aliases: dict[str, str] = {}
         # The call an assignment binds to a plain name: that name is the
         # agent's identity, as it always has been. Any other construction —
@@ -293,10 +325,13 @@ def _extract_agent_bindings(
             bindings=module_bindings,
             module=module,
             resolver=imports.resolver if module is not None else None,
-            agent_reads=lambda call, keyword, sdk_names=sdk_names, scopes=scopes, module_bindings=module_bindings: _agent_reads(
+            agent_reads=lambda call, keyword, sdk_names=sdk_names, scopes=scopes, module_bindings=module_bindings, module=module: module is not None and _agent_reads(
                 sdk_names, scopes, module_bindings, call, keyword
-            ),
+            ) and (not _denotes_agent(sdk_names, call)
+                   or builder_calls.constructor_issue(module, call) is None),
             cache=list_cache if module is not None else None,
+            builder_calls=builder_calls,
+            module_agent_reads=module_agent_reads,
         )
         subclasses = _agent_subclasses(tree, sdk_names)
         values = _AgentValues(tree, scopes, module_bindings, sdk_names, subclasses)
@@ -347,9 +382,17 @@ def _extract_agent_bindings(
             )
 
         file_observations: list[AgentBindingObservation] = []
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
+        construction_sites = [
+            (node, context)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            for context in (
+                builder_calls.contexts(module, node)
+                if module is not None and _denotes_agent(sdk_names, node)
+                else (ConstructionContext(),)
+            )
+        ]
+        for node, context in construction_sites:
             pointer = f"{source_ref}:{node.lineno}"
             if _copy_shape(node) is not None:
                 # Whether the receiver is an agent is known only once every
@@ -404,13 +447,39 @@ def _extract_agent_bindings(
                 )
                 continue
             tools_expr = _keyword(call, "tools")
-            listed = lists.resolve(tools_expr)
-            issues: list[str] = []
-            tools_complete = True
+            listed = lists.resolve(tools_expr, invocation=context.invocation)
+            issues: list[str] = list(context.limits)
+            warnings.extend(context.limits)
+            tools_complete = not context.limits
+            constructor_changed = lists.constructor_changed(call, context.invocation)
+            constructor_context = lists.constructor_refusal_context(call, context.invocation)
+            constructor_issue = builder_calls.constructor_issue(module, call) if module is not None else None
+            if constructor_issue is None and constructor_changed:
+                constructor_issue = "its builder's constructor or imports may change its capability lists"
+                if constructor_context:
+                    constructor_issue += ". Additional constructor refusal context: " + "; ".join(constructor_context)
+            if constructor_issue is None and lists.constructor_namespace_changed():
+                constructor_issue = lists.constructor_namespace_issue or "an agent handle may change or hand on a tool carrying the constructor namespace"
+            constructor_issues = {}
+            if constructor_issue is not None:
+                reason = f"OpenAI Agents SDK agent {target!r} at {pointer}: its constructor identity is not established: {constructor_issue}."
+                constructor_issues[pointer] = reason
+                issues.append(reason)
+                warnings.append(reason)
+                tools_complete = False
+            if lists.construction_changed(context.invocation, "tools") or lists.construction_changed(context.invocation, "mcp_servers"):
+                reason = f"OpenAI Agents SDK agent {target!r}: the caller's returned agent handle may change its tools or MCP servers."
+                issues.append(reason)
+                warnings.append(reason)
+                tools_complete = False
             names: list[str] = []
             locators: dict[str, str] = {}
             tool_issues: dict[str, str] = {}
+            tool_sites: dict[str, list[str]] = {}
             when = Conditions()
+            #: ``name -> payload`` of the tools this agent binds as objects (#910).
+            objects: dict[str, dict[str, Any]] = {}
+            slots: dict[str, int] = {}
             if listed.unresolved:
                 reason = unread_list_reason("OpenAI Agents SDK", target, pointer, listed)
                 warnings.append(reason)
@@ -425,10 +494,101 @@ def _extract_agent_bindings(
             # sees one name for both, so neither is bound (#879 review).
             duplicated: set[str] = set()
             first_location: dict[str, str] = {}
+
+            def note_sites(
+                name: str,
+                invocation: Invocation | None,
+                *,
+                pointer: str = pointer,
+                context: ConstructionContext = context,
+                tool_sites: dict[str, list[str]] = tool_sites,
+            ) -> None:
+                # Where the binding is made: the construction, its caller's
+                # sites and the returned list's factory call (#964).
+                if context.invocation is None and invocation is None:
+                    return
+                locations = tool_sites.setdefault(name, [])
+                for location in (
+                    pointer,
+                    *(context.invocation.locations if context.invocation else ()),
+                    *(invocation.locations if invocation else ()),
+                ):
+                    if location not in locations:
+                        locations.append(location)
+
+            def bind_object(
+                found: ObjectBinding,
+                conditions: tuple[str, ...],
+                invocation: Invocation | None = None,
+                *,
+                target: str = target,
+                pointer: str = pointer,
+                objects: dict[str, dict[str, Any]] = objects,
+                slots: dict[str, int] = slots,
+                names: list[str] = names,
+                locators: dict[str, str] = locators,
+                tool_issues: dict[str, str] = tool_issues,
+                duplicated: set[str] = duplicated,
+                issues: list[str] = issues,
+                when: Conditions = when,
+            ) -> bool:
+                # An anonymous server is numbered by its place in the list.
+                name = found.name
+                if name is None:
+                    kind = str(found.identity.get("class"))
+                    slots[kind] = slots.get(kind, 0) + 1
+                    name = f"{kind}#{slots[kind]}"
+                if name in duplicated:
+                    return True
+                payload = found.payload()
+                held = objects.get(name)
+                if (held is not None and held["identity"] != payload["identity"]) or name in names:
+                    reason = (
+                        f"OpenAI Agents SDK agent {target!r} at {pointer} binds two different "
+                        f"tools named {name!r}; the model sees one tool name for both, so "
+                        "neither is resolved."
+                    )
+                    warnings.append(reason)
+                    issues.append(reason)
+                    duplicated.add(name)
+                    objects.pop(name, None)
+                    names[:] = [item for item in names if item != name]
+                    locators.pop(name, None)
+                    tool_issues.pop(name, None)
+                    return False
+                objects[name] = payload
+                note_sites(name, invocation)
+                when.add(name, conditions)
+                return True
+
             for member in listed.members:
                 element = member.expr
+                home = member.module if member.module is not None else module
+                object_found = (
+                    objects_reader.recognize(element, home)
+                    if objects_reader is not None and home is not None
+                    else None
+                )
+                if isinstance(object_found, ObjectBinding):
+                    if not bind_object(object_found, member.conditions, member.invocation):
+                        tools_complete = False
+                    continue
+                if isinstance(object_found, Unread):
+                    reason = (
+                        f"OpenAI Agents SDK agent {target!r} at {pointer} binds a tool object "
+                        f"that is not read: {object_found.reason}."
+                    )
+                    warnings.append(reason)
+                    issues.append(reason)
+                    tools_complete = False
+                    continue
                 reference = reference_spelling(element)
-                if reference is None:
+                if isinstance(object_found, WrappedFunction):
+                    # ``function_tool(f)``: the function it wraps, read as a
+                    # decorated one is (#910).
+                    tool, detail = imports.wrapped_tool(object_found), None
+                    reference = reference or tool.name
+                elif reference is None:
                     reason = (
                         f"OpenAI Agents SDK agent {target!r} at {pointer} binds the tool "
                         f"expression `{source_text(element)}`, which is not a reference this "
@@ -443,12 +603,17 @@ def _extract_agent_bindings(
                     ))
                     tools_complete = False
                     continue
-                if member.module is not None:
+                elif member.module is not None:
                     # A member of a list another module builds: its names are
                     # that module's (#909).
-                    tool, detail = imports.tool_for(
-                        reference, member.module, member.module.ref, tool_by_name, {}
-                    )
+                    resolution = builder_calls.resolve(member.module, element)
+                    if resolution.definition is not None and resolution.definition not in resolution.module.tree.body:
+                        tool, detail = None, (
+                            f"the caller-local tool at {resolution.module.ref}:{resolution.definition.lineno} "
+                            "has an enclosing closure, which this increment does not follow"
+                        )
+                    else:
+                        tool, detail = imports.tool_from_resolution(resolution)
                 else:
                     head = reference.split(".", 1)[0]
                     # Read where the reference is written: a module-level
@@ -509,6 +674,9 @@ def _extract_agent_bindings(
                 if tool.name in duplicated:
                     continue
                 bound = locators.get(tool.name)
+                if tool.name in objects:
+                    # A function and an object under one tool name (#910).
+                    bound = f"object:{tool.name}"
                 if bound is not None and locator is not None and bound != locator:
                     reason = (
                         f"OpenAI Agents SDK agent {target!r} at {pointer} binds two "
@@ -521,11 +689,13 @@ def _extract_agent_bindings(
                     issues.append(reason)
                     tools_complete = False
                     duplicated.add(tool.name)
-                    names = [name for name in names if name != tool.name]
+                    names[:] = [name for name in names if name != tool.name]
                     locators.pop(tool.name, None)
                     tool_issues.pop(tool.name, None)
+                    objects.pop(tool.name, None)
                     continue
                 names.append(tool.name)
+                note_sites(tool.name, member.invocation)
                 when.add(tool.name, member.conditions)
                 if locator is not None:
                     locators[tool.name] = locator
@@ -540,9 +710,13 @@ def _extract_agent_bindings(
                     )
                     warnings.append(reason)
                     tool_issues[tool.name] = reason
-            tool_conditions = when.only_when(duplicated)
-            handoff_list = lists.resolve(_keyword(call, "handoffs"))
-            handoffs_complete = True
+            handoff_list = lists.resolve(_keyword(call, "handoffs"), invocation=context.invocation)
+            handoffs_complete = not context.limits and constructor_issue is None
+            if lists.construction_changed(context.invocation, "handoffs"):
+                reason = f"OpenAI Agents SDK agent {target!r}: the caller's returned agent handle may change its handoffs."
+                issues.append(reason)
+                warnings.append(reason)
+                handoffs_complete = False
             handoff_names: list[str] = []
             handoff_when = Conditions()
             if handoff_list.unresolved:
@@ -554,6 +728,12 @@ def _extract_agent_bindings(
                 issues.append(reason)
                 handoffs_complete = False
             for member in handoff_list.members:
+                if context.invocation is not None and member.module is not None:
+                    handoffs_complete = False
+                    reason = f"OpenAI Agents SDK agent {target!r} has a caller-supplied handoff target in {member.module.ref} whose construction surface is not read by this increment."
+                    issues.append(reason)
+                    warnings.append(reason)
+                    continue
                 identity, why_not = _handoff_identity(
                     member,
                     scopes=scopes,
@@ -571,9 +751,60 @@ def _extract_agent_bindings(
                     warnings.append(reason)
                     issues.append(reason)
                     handoffs_complete = False
+                    # A refused identity still names this source's possible
+                    # edge. Keep only an actual local Name from the same
+                    # captured module; this never makes its identity complete.
+                    if module is not None and member.module is module and isinstance(member.expr, ast.Name):
+                        handoff_names.append(member.expr.id)
+                        handoff_when.add(member.expr.id, member.conditions)
                     continue
                 handoff_names.append(identity)
                 handoff_when.add(identity, member.conditions)
+            if objects_reader is not None and module is None and _keyword(call, "mcp_servers") is not None:
+                reason = (
+                    f"OpenAI Agents SDK agent {target!r} at {pointer} has MCP servers this "
+                    "reader does not read outside the selected scope."
+                )
+                warnings.append(reason)
+                issues.append(reason)
+                tools_complete = False
+            if objects_reader is not None and module is not None:
+                # ``mcp_servers=[...]``: each server is a binding of the agent's
+                # (#910). Read only for the comparison; ``scan`` does not read
+                # the keyword.
+                servers = lists.resolve(_keyword(call, "mcp_servers"), invocation=context.invocation)
+                if servers.unresolved:
+                    reason = (
+                        f"OpenAI Agents SDK agent {target!r} at {pointer} has MCP servers it reads "
+                        f"only in part. Not read: {unread_parts(servers)}."
+                    )
+                    warnings.append(reason)
+                    issues.append(reason)
+                    tools_complete = False
+                for member in servers.members:
+                    home = member.module if member.module is not None else module
+                    server = objects_reader.recognize(member.expr, home)
+                    if isinstance(server, ObjectBinding) and server.identity.get("kind") == "mcp_server":
+                        if not bind_object(server, member.conditions, member.invocation):
+                            tools_complete = False
+                        continue
+                    spelled = reference_spelling(member.expr)
+                    reason = (
+                        f"OpenAI Agents SDK agent {target!r} at {pointer} binds the MCP server "
+                        + (f"`{spelled}`" if spelled else f"at {home.ref}:{member.expr.lineno}")
+                        + ", which is not one this reader identifies"
+                        + (f": {server.reason}." if isinstance(server, Unread) else ".")
+                    )
+                    warnings.append(reason)
+                    issues.append(reason)
+                    tools_complete = False
+            if constructor_issue is not None:
+                # Every binding of an agent whose constructor is not proved,
+                # a tool bound as an object included (#910, #964).
+                tool_issues.update({name: "; ".join(filter(None, [tool_issues.get(name),
+                                   f"the constructor identity is not established: {constructor_issue}"]))
+                                    for name in (*names, *objects)})
+            tool_conditions = when.only_when(duplicated)
             file_observations.append(
                 AgentBindingObservation(
                     agent=target,
@@ -581,14 +812,19 @@ def _extract_agent_bindings(
                     source=source_ref,
                     source_pointer=pointer,
                     tool_names=names,
+                    object_bindings=objects,
                     tool_locators=locators,
                     tool_issues=tool_issues,
                     tool_conditions=tool_conditions,
+                    tool_sites={name: locations for name, locations in tool_sites.items() if name in locators or name in objects},
                     handoff_names=handoff_names,
+                    handoff_sites={name: list(dict.fromkeys((pointer, *context.invocation.locations)))
+                                   for name in handoff_names} if context.invocation else {},
                     handoff_conditions=handoff_when.only_when(),
                     tools_complete=tools_complete,
                     handoffs_complete=handoffs_complete,
                     issues=issues,
+                    constructor_issues=constructor_issues,
                 )
             )
         for node in copies:
@@ -665,6 +901,12 @@ def _extract_agent_bindings(
                     tuple(observation.tool_names),
                     tuple(sorted(observation.tool_locators.items())),
                     tuple(observation.handoff_names),
+                    tuple(
+                        sorted(
+                            (name, json.dumps(payload["identity"], sort_keys=True))
+                            for name, payload in observation.object_bindings.items()
+                        )
+                    ),
                     tuple(sorted((k, tuple(v)) for k, v in observation.tool_conditions.items())),
                     tuple(
                         sorted((k, tuple(v)) for k, v in observation.handoff_conditions.items())
@@ -681,13 +923,24 @@ def _extract_agent_bindings(
                 # The same agent either way: one observation, not two that the
                 # comparison would read as an ambiguous identity.
                 first = next(o for o in file_observations if o.agent == identity)
+                for other in file_observations:
+                    if other.agent == identity:
+                        for name, locations in other.tool_sites.items():
+                            first.tool_sites[name] = list(dict.fromkeys((*first.tool_sites.get(name, []), *locations)))
+                        for name, locations in other.handoff_sites.items():
+                            first.handoff_sites[name] = list(dict.fromkeys((*first.handoff_sites.get(name, []), *locations)))
                 file_observations = [
                     o for o in file_observations if o.agent != identity or o is first
                 ]
                 continue
+            caller_locations = list(dict.fromkeys(
+                location for observation in file_observations if observation.agent == identity
+                for locations in (*observation.tool_sites.values(), *observation.handoff_sites.values())
+                for location in locations
+            ))
             reason = (
                 f"OpenAI Agents SDK agent {identity!r} is constructed more than once in "
-                f"{source_ref} ({', '.join(p.rsplit(':', 1)[-1] for p in pointers)}); "
+                f"{source_ref} ({', '.join(caller_locations or pointers)}); "
                 "its tools are not attributed to either construction."
             )
             warnings.append(reason)
@@ -727,6 +980,8 @@ class _ImportedTools:
             self.by_symbol.setdefault((tool.source_ref, tool.annotations.get("python_symbol")), tool)
         self.new_tools: list[Tool] = []
         self.new_guards: list[GuardDependencyEvidence] = []
+        #: ``(location, name override, options) -> tool`` for ``function_tool(f)`` (#910).
+        self.by_wrapper: dict[tuple[str, str | None, str | None], Tool] = {}
 
     def tool_for(
         self,
@@ -761,6 +1016,50 @@ class _ImportedTools:
         if resolution.reason == NOT_BOUND:
             return None, f"{reference!r} is not bound at module level in {module.ref}"
         return self.tool_from_resolution(resolution)
+
+    def wrapped_tool(self, wrapped: WrappedFunction) -> Tool:
+        """The function ``function_tool(f)`` wraps, as one tool per definition
+        and name (#910): read as a decorated definition would be."""
+
+        node, defining = wrapped.definition, wrapped.module
+        location = f"{defining.ref}:{node.lineno}"
+        key = (location, wrapped.name_override, wrapped.options_sha256)
+        tool = self.by_wrapper.get(key)
+        if tool is None:
+            tool = _function_to_tool(node, self.source, defining.ref, set())
+            if wrapped.name_override:
+                tool = tool.model_copy(
+                    update={
+                        "id": stable_tool_id(wrapped.name_override),
+                        "name": wrapped.name_override,
+                        "function_signature": function_signature(
+                            wrapped.name_override, tool.parameters, node
+                        ),
+                    }
+                )
+            tool.extraction["wrapped_by"] = f"function_tool at {wrapped.location}"
+            if wrapped.options_sha256 is not None:
+                tool.extraction["wrapper_options_sha256"] = wrapped.options_sha256
+            self.by_wrapper[key] = tool
+            self.new_tools.append(tool)
+            source_sha256, within_limits = guard_module_metadata(defining.tree, defining.text)
+            self.new_guards.append(
+                read_guard_dependency(
+                    tree=defining.tree,
+                    source_sha256=source_sha256,
+                    source_within_limits=within_limits,
+                    path=defining.path,
+                    root=self.base_dir,
+                    tool=tool,
+                    definition=node,
+                )
+            )
+        if wrapped.resolution is not None:
+            evidence = wrapped.resolution.evidence()
+            recorded = tool.extraction.setdefault("import_resolutions", [])
+            if evidence not in recorded:
+                recorded.append(evidence)
+        return tool
 
     def tool_from_resolution(self, resolution: Resolution) -> tuple[Tool | None, str | None]:
         """The tool one import resolution reached, or None and why not.

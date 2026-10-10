@@ -1,0 +1,44 @@
+name: "600: [FLOW] PR Checks"
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - labeled
+permissions:
+  id-token: write
+  actions: read
+  issues: write
+  pull-requests: write
+  statuses: write
+  checks: write
+  contents: read
+jobs:
+  detect-change-type:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo fixture
+  extract-jdk-version:
+    uses: ./.github/workflows/854-call-extract-jdk-version.yaml
+    secrets:
+      github-token: ${{ secrets.GITHUB_TOKEN }}
+  mats-pr-checks:
+    uses: ./.github/workflows/800-call-mats-tests.yaml
+    secrets:
+      access-token: ${{ secrets.GITHUB_TOKEN }}
+      codacy-project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+      codecov-token: ${{ secrets.CODECOV_TOKEN }}
+      gradle-cache-username: ${{ secrets.GRADLE_CACHE_USERNAME }}
+      gradle-cache-password: ${{ secrets.GRADLE_CACHE_PASSWORD }}
+      snyk-token: ${{ secrets.SNYK_TOKEN }}
+  workflow-unit-tests:
+    uses: ./.github/workflows/857-call-workflow-unit-tests.yaml
+  ci-complete:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo fixture
+  report-summary:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo fixture

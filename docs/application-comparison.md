@@ -34,6 +34,82 @@ A reviewer can inspect the new callable and decide whether that agent should
 receive it. A body change is a request to review the implementation; it does not
 establish widening, narrowing, business impact or runtime behavior.
 
+## Findings first
+
+The text opens with one **finding per changed agent**, then the rows. A finding
+names the tools the change added (`+`), removed (`-`) or changed (`~`); a
+leading `?` marks a candidate the comparison could not establish. Its first line
+stands alone. For [jpka/attest#3](https://github.com/jpka/attest/pull/3):
+
+```text
+Findings: 1 changed agent, 2 rows (2 added); effect evidence 2 write (provisional: unknown effect).
+attest_orchestrator [partial]: +recall_firm_memory, +remember_firm_finding (reach: none established; not read beyond agents/attest_orchestrator/memory_bank.py:531)
+  Review: Should attest_orchestrator be able to call recall_firm_memory, remember_firm_finding? What they reach was not read in full.
+Detail:
+```
+
+and for [MIS_TALENT#7](https://github.com/Tiendat2703/MIS_TALENT/pull/7), whose
+first finding line names a new database read before the rows that carry it:
+
+```text
+Finance_Agent_Preflight [partial]: +load_service_catalog, ~load_and_validate (new reach: database read; not read beyond app/tools/FinanceAgent/tools.py:39)
+```
+
+The committed goldens in
+[`benchmark/application-q2/goldens/`](../benchmark/application-q2/goldens/)
+hold the whole text of six real answers, among them these two and the 234-row
+[O.R.I.O.N#126](https://github.com/VidulaWickramasinghe/O.R.I.O.N/pull/126),
+which reads in 24 lines.
+
+What a finding states, and from where:
+
+- **Capability.** What the tool's code reaches (#872, #913) and what an object
+  tool is (#910): the outbound call or library effect, its host, the
+  credentials it sends by name, and the parameters the model controls. For a
+  changed tool only a difference is new reach (`now also reaches`); the same
+  call sending something new is `changed reach`; a reach the change left alone
+  is `still reaches`.
+- **The first unresolved hop.** A finding is `partial`, never `compared`, when
+  any of its tools has a reach the reader stopped short of, a binding it could
+  not establish or an agent whose binding graph is incomplete. It names the
+  first place reading stopped (`not read beyond …`) and, per tool, how many
+  more there are. `comparison_status` is unchanged and still speaks of
+  bindings only, so a `compared` answer can carry a `partial` finding.
+- **Effect evidence** is counted once for the whole answer instead of repeated
+  per row.
+- **Shared causes.** `not_established` rows with the same reason are one line
+  with a count, one example and the rows' number, however many tools and
+  agents share it. Two reasons are one cause when they differ only in the names
+  and places they quote. Limits no row states are one line, by agent.
+- **A question specific to the change**: a new write, process, network or
+  database reach ("should `agent` reach …?") with the credentials it sends and
+  the arguments the model controls; the same call newly sending a credential or
+  taking a model-controlled argument; a removed tool; or a changed one and what
+  changed ("arguments +units").
+
+The reading is presentation. It changes no row, status, direction, gap, scope
+or exit code, and states nothing a row does not: every finding, tool, cause and
+question names the `rows` it summarizes by index. The rows follow under
+`Detail:` for up to 10 of them. Above that the text says how many it did not
+print: `--json` always carries every row, with every reach limit.
+
+`summary` in the JSON is the content the text renders, and nothing else:
+
+| Field | Meaning |
+| --- | --- |
+| `counts` | `total`, `added`, `removed`, `changed`, `not_established` over `rows`. |
+| `findings[]` | One per agent with a row, in row order: `agent`, `agent_source`, `status` (`compared` or `partial`), `rows` (indexes into `rows`), `counts`, `first_unresolved` (`kind` `binding`, `agent` or `reach`; `text`, `at`, `row`; `null` when nothing was left unread), `capabilities` (new reach), `changed_capabilities`, `unchanged_capabilities`, `tools[]`, `causes` (indexes into `summary.causes`), `questions[]` (`question`, `rows`) and, when the agent's graph has limits no row states, `agent_limits`. |
+| `findings[].tools[]` | `row`, `tool`, `change`, `candidate_change`, `facts[]`, `unresolved` (`at`, `why`, `count`) and `effect`. A fact is `change` (what differs), `object`, or one of `reaches`, `reaches_new`, `reaches_dropped`, `reaches_same`, `reaches_changed`, each with `target`, `short`, `at` and, when present, `host`, `credentials` and `model_supplied` (for `reaches_changed`, what is new, and `dropped` what is gone). |
+| `effects[]` | `effect`, `status` and `count` over established rows. |
+| `causes[]` | One per shared reason: `pattern`, an `example`, how many distinct `reasons` share it, the `rows`, `sides` and `agents`. |
+| `not_read[]` | Limits no row states, by `agent` (`null` when no single agent): `count`, `sides`, `first`. |
+| `question` | Present when a row is `not_established`. |
+
+`summary` is derived from the sanitized rows and digested into `comparison_id`
+with them. With several applications (`comparisons`) it covers the combined
+top-level `rows`; each comparison keeps its own detail without one. `benchmark/application-q2/summarize.py` leaves it out of
+`answer_id`, so a hand score keeps judging the answer it read.
+
 ## A scope derived from the change
 
 Without `--scope`, the comparison does not read the whole repository, nor only
@@ -139,13 +215,18 @@ An absent side names the missing scope and suggests `--base-scope`/`--scope`
 for relocation. If neither selected directory exists, the command refuses with
 exit 2. A removal describes the selected source path, not the entire repository.
 
-`--json` emits `application_comparison_schema_version: "0.3"`, engine identity,
+`--json` emits `application_comparison_schema_version: "0.4"`, engine identity,
 requested and compared refs/tree IDs, per-side scope/coverage, rows, source
 correspondence, `scope_selection`, `comparisons` when a derived change spans
 more than one application, and a deterministic `comparison_id`. Version 0.2 adds
 `reach`, `effect_evidence` and `construction_sites` to a row's sides (see
 [What a bound tool reaches](#what-a-bound-tool-reaches)); version 0.3 adds
-`bound_when` (see [Tools lists built by an expression](#tools-lists-built-by-an-expression)).
+`bound_when` (see [Tools lists built by an expression](#tools-lists-built-by-an-expression));
+version 0.4 adds `object` and `object_evidence` (see
+[Tools bound as objects](#tools-bound-as-objects)), `reach.effects` (see
+[What a bound tool reaches beyond HTTP](#what-a-bound-tool-reaches-beyond-http))
+and the top-level `summary` (see [Findings first](#findings-first)); 0.4 is not
+yet released, so `summary` extends it rather than adding 0.5.
 This is a separate advisory
 artifact from the existing host diff JSON and verifier receipt.
 
@@ -285,8 +366,9 @@ relative `.agents` import is the project's own package.
 
 Discovery is bounded by `--max-python-files` (default 1000) and a 2 MB per-Python
 file limit. Partial discovery remains visible. The readers follow tools imported
-from other modules inside the selected scope (next section); dynamic factories,
-built-ins and imports they cannot follow remain explicit reader limitations. It
+from other modules inside the selected scope (next section) and identify tools
+bound as objects ([below](#tools-bound-as-objects)); dynamic factories and
+imports they cannot follow remain explicit reader limitations. It
 does not support other application frameworks yet. Indirect helper effects,
 runtime loading, deployed reachability and business authority are outside this
 comparison. It grants no release or merge permission and cannot stand in for a
@@ -587,12 +669,90 @@ When a part of the agent's list was not read, or the agent is constructed more
 than once differently, the row is `not_established` instead: the unread part
 may hold the tool another way.
 
+## Tools bound as objects
+
+Some capabilities are bound as objects, not as functions (#910): a remote MCP
+server, another agent exposed as a tool, a tool the framework hosts. Each is a
+binding of its agent, identified by what it is:
+
+| Kind | Read from | `object` |
+| --- | --- | --- |
+| MCP server or toolset | Google ADK `McpToolset` / `MCPToolset`; OpenAI Agents SDK `MCPServerStdio`, `MCPServerSse`, `MCPServerStreamableHttp` in `mcp_servers=` | `transport`; the URL's `host` or the `command`'s file name; `credential_sources`; `tool_filter`; `endpoint_sha256` |
+| Agent as a tool | SDK `agent.as_tool(...)`; ADK `AgentTool(agent=...)` | the wrapped `agent` and the `tool` name; `agent_class` when ADK wraps another kind of agent (`RemoteA2aAgent`, a workflow agent) |
+| Hosted or built-in tool | SDK `WebSearchTool`, `FileSearchTool`, `CodeInterpreterTool`, `ComputerTool`; ADK `google_search`, `built_in_code_execution`, `load_memory` | the `tool`; a hosted tool's argument names and a digest of their values |
+| Function wrapped as a value | SDK `function_tool(f)` (ADK's `FunctionTool(func=f)` [above](#tools-imported-from-other-modules)) | none: the row is the function's, as for a decorated one; the wrapper's other arguments (`needs_approval=`) are part of its implementation digest |
+
+```text
+ADDED  cinescout_phase1 → parallel_search
+  before: no observed binding
+  after: parallel_search at app/agent.py:31
+    MCP server (McpToolset, streamable_http); host env PARALLEL_MCP_URL or search.parallel.ai; tool filter ["web_fetch", "web_search"]; endpoint digest e262dcaf6404 at app/agent.py:21
+      credential: env PARALLEL_API_KEY → header Authorization
+```
+
+The row's name is the tool's own name (`generate_blog_content`,
+`load_memory`, `WebSearchTool`), or for an MCP server its `name=`, the variable
+it is bound to, the helper call it comes from (`create_toolset()`), or its
+class and place in the list (`MCPServerStdio#1`). Its `object` is the compared
+meaning: a different host, command, transport, credential name, filter, wrapped
+agent or tool name is a `changed` row, and adding one is `added`. Where it is
+built is evidence (`definition`), so moving it, or importing the same class
+from another module of the framework, is not a change. A tool's description,
+which tells the model about it, is not part of it.
+
+Nothing credential-shaped is printed. A host is shown, never a URL's path or
+query; a header, query key or a stdio server's `env` entry with a secret's name
+is a `credential_sources` entry naming the environment variables its value is
+made from (#872's rules), or `literal: true` with no value. A path, query,
+header value or command argument changes `endpoint_sha256`, a digest, and
+nothing else; a command's file name shaped like a key is withheld, as a URL's
+path piece is. Values are read as a tool's reach reads them — module constants
+through imports, `os.getenv` with its default, a repository helper's return —
+and an attribute of a plain class instance built with no arguments
+(`settings.url` after `settings = Settings()`, a dataclass with no base, no
+constructor of its own and nothing storing into that attribute) is the class
+body's default. A pydantic settings class is not read: it reads the
+environment by field name. A value from a module-level dict is not taken as
+written, as for a tool's reach.
+
+Identity is the import. A name is a built-in, and a call one of these classes,
+only when its one binding where it is used is an absolute import of the
+framework's package that no file in the read scope or the repository provides
+and nothing in the scope stores into. A same-named local function, a shadowed
+or reassigned import, a module-level import under `if TYPE_CHECKING:` or `try:`, a vendored
+`google/adk` package and another package's `load_memory` are not. A repository
+helper that returns one of these from its one unconditional `return` (its last
+statement; not decorated, `async` or a generator) is followed, up to eight
+steps deep, with its parameters bound to the caller's arguments: OpenCMO's
+`_multi_channel_tool(blog_expert, tool_name="generate_blog_content", ...)`
+is an agent tool wrapping `blog_expert`. Any other helper stays what it was, a
+named limit. An object changed after it is built — an attribute set
+(`toolset.tool_filter = [...]`) or changed through a method
+(`toolset.tool_filter.append(...)`), or its name rebound from a nested
+function — is a named limit.
+
+What is not read is never guessed. An `.as_tool` whose receiver is not an
+agent the reader identifies, or whose `tool_name` is not a literal, an
+`AgentTool` whose agent has no literal name, and an `mcp_servers=` member that is
+not an MCP server are named on the agent, which stays incomplete. A part of an
+object's identity the read cannot name — a host from a builder's parameter,
+headers built elsewhere, a computed filter — leaves the binding present and its
+addition or removal established, but names the part in a limit (the comparison
+is `partial`), and a change to that object is `not_established`, never
+`changed`. An SDK agent's `mcp_servers=` is read as its `tools=` is, member by
+member; a part it cannot read is named.
+
+These are read for `diff --application` only. `scan` reads what it read
+before, so no catalog, check or report changes.
+
 ## What a bound tool reaches
 
 A signature says what the model may pass, not what the call does. Each
 `before`/`after` side of a function tool also carries `reach`: the outbound
-HTTP calls the tool's own code makes. It is read statically from the function
-and the repository helpers it calls, up to three helper calls deep.
+HTTP calls the tool's own code makes, and what it reaches beyond HTTP (see
+[below](#what-a-bound-tool-reaches-beyond-http)). It is read statically from
+the function and the repository helpers it calls, up to three helper calls
+deep.
 
 ```text
 ADDED  tensorflow_pr_review_agent → submit_pr_code_review
@@ -805,6 +965,92 @@ the evidence status and the claims.
   are not listed but still count for the effect.
 - **Unread method or document.** When a request method or a GraphQL document is
   not a literal, it is a limit, and that call supports no effect.
+
+### What a bound tool reaches beyond HTTP
+
+Most tools do their work somewhere other than an HTTP endpoint. `reach.effects`
+names what the tool's own code (and the same helpers, within the same bound)
+reaches through a recognised library, by its import, never by a name alone:
+
+```text
+ADDED  Finance_Agent_Preflight → load_service_catalog
+  after: load_service_catalog() -> dict at app/Agent/financeAgent.py:117
+    implementation: app/tools/FinanceAgent/tools.py:48 (418c97358c98)
+    reaches: database read SELECT (postgresql, psycopg2 cursor.execute) at app/database/repository.py:80 via app/tools/FinanceAgent/tools.py:56 get_services → app/tools/FinanceAgent/finance_data.py:71 _fetch → app/tools/FinanceAgent/finance_data.py:40 query_db
+      host: aws-0-ap-southeast-1.pooler.supabase.com, env SUPABASE_DB_HOST
+      credential: env SUPABASE_DB_PASSWORD, env SUPABASE_PASSWORD → keyword password
+    effect: write (provisional: unknown effect)
+    reach limit: app/tools/FinanceAgent/tools.py:56 calls asyncio.to_thread, which is not read
+    reach limit: app/database/repository.py:73 calls init_db_pool, more than 3 helper calls from the tool; not read
+    reach limit: app/database/repository.py:80 the SELECT statement splices in a value the read does not name; a further statement in it is not read
+```
+
+The query reads Postgres; the tool is still not said to read, because other
+calls stay unread and the statement splices in a table name from a module-level
+dict.
+
+| Family | Recognised | Operation |
+| --- | --- | --- |
+| `database` | `sqlite3`, `psycopg2` (and its pools), `psycopg`, `asyncpg`, `pymysql`, SQLAlchemy engines, connections, sessions and queries, `pymongo`, `redis` | A literal SQL statement decides: `SELECT` (and `WITH`, `VALUES`, `SHOW`, `EXPLAIN`) reads, `INSERT`/`UPDATE`/`DELETE`/DDL writes. SQLAlchemy's `select()`/`insert()`/`update()`/`delete()` decide as their statement; `session.add` and `query.delete` write. MongoDB and Redis methods by their table (`find` reads, `insert_one` writes, an aggregation with `$out` or `$merge` writes). |
+| `process` | `subprocess.run`/`call`/`check_call`/`check_output`/`Popen`, `os.system`, `os.popen`, `os.exec*`, `os.spawn*`, `os.posix_spawn*`, `asyncio.create_subprocess_*` | `execute`, naming the literal program by its file name. |
+| `filesystem` | `open` (and `io.open`, `Path.open`), `pathlib.Path` reads and writes, `shutil` copies, moves and `rmtree`, `os.remove` and the like, `os.listdir`/`walk`/`scandir`/`stat` | A literal mode with `w`, `a`, `x` or `+` writes, any other reads; `Path.write_*`, `touch`, `unlink`, `rename` write; `read_*`, `glob` read. |
+| `cloud` | `boto3` clients and resources, `google.cloud` `storage`, `firestore` and `bigquery`, Vertex AI Memory Bank (`vertexai.Client(...).agent_engines.memories`, ADK's `VertexAiMemoryBankService`) | boto3 by the operation's verb (`get_`, `list_`, `describe_`, `head_` read; `put_`, `create_`, `delete_`, `update_`, `upload_` write); the Google clients and Memory Bank by their tables (`retrieve` reads, `generate` writes). |
+| `messaging` | `smtplib`, `slack_sdk` (`WebClient`, `WebhookClient`), `twilio` | Sending writes; a Slack read method (`conversations_history`) reads. |
+
+Each entry has `family`, `operation` (`read`, `write`, `execute` or `unknown`),
+`library`, `call` (the function, or the object's role and method:
+`cursor.execute`), `at` and `via`, and, where they are known:
+
+- `target`: the program, the table, the bucket, collection or Redis key, or a
+  path. A path is printed only relative: an absolute or home path, or one that
+  climbs out (`..`), is withheld, and so is any piece shaped like a key. A name
+  is printed only when it is plainly a name.
+- `statement`: a SQL statement's leading keyword. The statement itself is
+  never printed: `value_sha256` digests it, and digests a command's arguments
+  and any withheld target.
+- `service`: the database engine (`postgresql`, read off the library or a
+  SQLAlchemy URL's dialect), the boto3 service, `storage`, `memory_bank`,
+  `smtp`, `slack`.
+- `host` and `credential_sources`: read off the client's construction as a
+  request's are. A connection string's password is `literal: true`, never
+  printed.
+- `model_supplied`: the parameters that flow into the command, the statement,
+  its parameters, the path or the call's arguments.
+
+What an effect supports:
+
+- An effect that writes supports `write`; running a process supports
+  `code_execution`; sending a message supports `external_communication`. Each
+  is a `source_library_call` claim in `effect_evidence`.
+- `read` still needs everything the tool reaches, HTTP calls and effects alike,
+  to read, and nothing unresolved, exactly as above.
+- A library call outside the tables is a limit, as before. A method of a
+  recognised object outside its table is an effect with operation `unknown`,
+  and a limit: the family is established, the direction is not. So is a SQL
+  statement or file mode that is not a literal.
+- A `SELECT` reads only when nothing after its keyword could write: no
+  writing word (`SELECT … INTO` creates a table), one statement, and no
+  function call outside a list of SQL's own read functions
+  (`SELECT setval(…)` writes). A statement that splices in a value the read
+  does not name is a read, and a limit: a further statement could be spliced
+  in.
+- A database, cloud or messaging object built outside the function that reads
+  through it, or built with an argument the read does not see into (a factory
+  class), is named as a limit on that read, as an HTTP client built elsewhere
+  is: its configuration can add hooks. A file or process opened elsewhere (a
+  module's log file) has its writes named where the tool makes them, and a
+  `print(..., file=…)` writes to its file.
+- A module global set only by its own module's functions, each time to `None`
+  or the same kind of recognised object (the lazy pool pattern), holds that
+  object; nothing else in the scope may store into that name.
+- What a helper returns is read one call past the helper bound, so a pool a
+  fourth helper builds is still named; the call itself stays a limit.
+- A name-alike is not the library: a repository module or function spelled
+  `subprocess`, `open` or `connect`, another library's `run` or `WebClient`,
+  or a library function replaced anywhere in the scope.
+
+A repository class that wraps one of these libraries is not followed into: a
+method called on its instance stays a named limit.
 
 `reach` and `effect_evidence` are evidence, not compared meaning. A helper's
 changed endpoint does not make a binding `changed` on its own, and neither

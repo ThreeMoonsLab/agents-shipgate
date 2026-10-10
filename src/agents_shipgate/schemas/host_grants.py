@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
 from agents_shipgate.schemas.instruction_structure import InstructionStructureEvidence
 from agents_shipgate.schemas.openshell import OpenShellPolicyFacts
@@ -1153,13 +1153,292 @@ class HostOpenShellPolicyGrantV9(HostOpenShellPolicyGrantV8):
     facts: OpenShellPolicyFacts | OpenShellComposedPolicyFacts | OpenShellSnapshotFactsV2
 
 
-HostGrantV9 = Annotated[HostGrantV7 | HostOpenShellPolicyGrantV9, Field(discriminator="kind")]
-HostBaselineGrantV9 = Annotated[HostBaselineGrantV7 | HostOpenShellPolicyGrantV9, Field(discriminator="kind")]
+class HostPermissionRuleGrantV9(HostPermissionRuleGrantV2):
+    """A permission rule plus, for a Claude Code ``!`` deny or ask rule, what it follows (#974).
+
+    Claude Code reads a deny or ask pattern that starts with ``!`` as a
+    carve-out from the relative-path rules of the same tool listed before it in
+    the same source (https://code.claude.com/docs/en/permissions#read-and-edit).
+    ``carves_from`` is those earlier rules, sorted: present (possibly empty) on
+    every such rule and absent on every other, so a grant that lacks it was read
+    by a version that did not record its position. Whether the patterns
+    overlap is not decided.
+    """
+
+    carves_from: list[str] | None = Field(default=None, exclude_if=lambda value: value is None)
+# v0.9 reads a same-repository reusable workflow's own restrictions (#921).
+# Both members are present only on a call whose target is a workflow in the
+# same repository and whose job declares a `write` scope, so every other call
+# keeps its v0.7 shape and digest.
+class HostReusableWorkflowCallV9(HostReusableWorkflowCallV6):
+    """One job's reusable-workflow call; its job's ``permissions`` are a ceiling (#921).
+
+    ``callee_permissions`` says whether the called workflow's own declarations
+    were read: ``read``, or why not — ``not_read`` (not among the workflows
+    read on this side, or a same-repository spelling GitHub does not run),
+    ``limited`` (a blocking limit on that file), ``cycle`` or ``too_deep``
+    (past GitHub's ten levels of workflows, or this audit's bound on how many
+    it follows). ``callee_write_scopes`` is present only when ``read``: the
+    ceiling's write scopes some called job may hold (``*`` for all); the
+    caller's ``effective_write_scopes`` for the job hold exactly those. When
+    the called workflow was not read the ceiling is assumed to reach it whole.
+    """
+
+    callee_permissions: Literal["read", "not_read", "limited", "cycle", "too_deep"] | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    callee_write_scopes: list[str] | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+
+class HostWorkflowGrantV9(HostWorkflowGrantV7):
+    """A v0.7 workflow grant whose same-repository reusable calls read their callee (#921).
+
+    ``access`` describes the job tokens alone: ``pull_request_target`` raises
+    ``risk``, and makes ``access`` ``write`` only where a job declares no
+    permissions (#920).
+    """
+
+    reusable_calls: list[HostReusableWorkflowCallV9]
+
+
+#: The hosts a ``0.9`` inventory publishes a source under (#936): each host
+#: this entry reads, and ``unknown`` for an MCP configuration no declaration
+#: this entry reads selects while another host's plugin manifest sits beside
+#: it. ``unknown`` names no host: it says which host loads the servers is not
+#: established, so they are not Claude Code's by the file name. Extended in
+#: place: ``0.9`` has not shipped in a tagged release.
+HostNameV9 = Literal["codex", "claude-code", "cursor", "vscode", "github", "openshell", "unknown"]
+McpHostNameV9 = Literal["codex", "claude-code", "cursor", "vscode", "github", "unknown"]
+
+
+class HostMcpLaunchSourceV9(HostMcpLaunchSourceV7):
+    """#825's pin, and where the launcher finds the source when the declaration leaves it open (#933).
+
+    ``resolution`` is ``local_project_or_registry`` for an ``npx`` package
+    named with no version specifier: npm runs the local project's dependency
+    of that name when there is one and otherwise installs it from the
+    registry into its cache, and the declaration does not establish which. It
+    is absent for every other source. ``pin`` keeps #825's meaning, a fact of
+    the declaration. Display-only, like the rest of ``launch_source``.
+    Extended in place: ``0.9`` has not shipped in a tagged release.
+    """
+
+    resolution: Literal["local_project_or_registry"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+
+class HostMcpServerGrantV9(HostMcpServerGrantV7):
+    """An MCP server, published under the host whose declaration selects its file (#936)."""
+
+    host: McpHostNameV9
+    launch_source: HostMcpLaunchSourceV9 | None = None
+    #: The plain environment-variable names the server's ``env_vars`` list
+    #: declares, in declared order (#795): names only, never a value, and none
+    #: that the redaction ``config_sha256``'s input applies or the label
+    #: redaction would rewrite. An entry that is not such a name is not
+    #: published. Display-only, left out of grant equality, the inventory
+    #: digests and saved baselines, like ``package``. Extended in place: ``0.9``
+    #: has not shipped in a tagged release.
+    env_var_names: list[str] = Field(default_factory=list)
+
+
+class HostMcpServerBaselineGrantV9(HostMcpServerGrantV2):
+    host: McpHostNameV9
+
+
+class HostInventoryIssueV9(HostInventoryIssueV8):
+    host: HostNameV9
+
+
+class HostHookCommandShapeV9(BaseModel):
+    """What a hook's inline command is made of, without any of its text (#934).
+
+    Read by a bounded, static reading of the command as ``config_sha256``'s
+    input holds it, never run. ``commands`` lists, in the order they are
+    written, the first 12 distinct programs named at a command position, each
+    a plain token (``[A-Za-z0-9._+-]``, at most 80 characters) no redaction
+    rule rewrites, the last ``/`` segment of the word; ``commands_more`` counts
+    the distinct programs past those, and ``unnamed`` the command positions
+    whose word is not such a token (a variable, a substitution, a quoted or
+    glob word), both left out when 0. ``statements`` counts the simple
+    commands, ``pipes`` the ``|`` and ``|&`` operators, ``substitutions`` the
+    ``$( … )`` command substitutions, ``control_flow`` the ``if``, ``elif``,
+    ``while``, ``until`` and ``for`` keywords and ``quoted`` the quoted
+    strings, each across the whole command. ``redirects`` lists, in order, at
+    most 8 redirects to a file as ``> target``, ``>> target`` or ``< target``,
+    the target only when it is ``/dev/null`` or a repository-relative path of
+    letters, digits, ``.``, ``_`` and ``-`` with no ``..`` segment that no
+    redaction rule rewrites, ``<not-shown>`` otherwise; ``redirects_more``
+    counts those past them. ``script`` is a script path published as a
+    handler's ``args`` publish one: a command word shaped as a relative script
+    path, or the first such argument of an interpreter. A command that runs
+    ``bash -c '…'`` with a literal script is read inside that script too.
+
+    No argument, quoted string, variable or absolute path is published. It
+    describes the command's structure and claims nothing about what it does,
+    whether a host runs it, or in which direction a change moves authority.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    commands: list[str]
+    commands_more: int | None = Field(default=None, exclude_if=lambda value: value is None)
+    unnamed: int | None = Field(default=None, exclude_if=lambda value: value is None)
+    statements: int
+    pipes: int
+    substitutions: int
+    control_flow: int
+    quoted: int
+    redirects: list[str] | None = Field(default=None, exclude_if=lambda value: value is None)
+    redirects_more: int | None = Field(default=None, exclude_if=lambda value: value is None)
+    script: str | None = Field(default=None, max_length=200, exclude_if=lambda value: value is None)
+
+
+class HostHookCommandV9(HostHookCommandV7):
+    """A hook command plus the shape of the inline command, or why it has none (#934).
+
+    Exactly one of ``shape`` and ``shape_limit`` is present. ``shape_limit``
+    says why the command is not described and the digest is all there is to
+    compare: ``too_long`` (more than 8,192 characters as ``config_sha256``'s
+    input holds it), ``unsupported_shell`` (the handler's ``shell`` setting is
+    neither ``bash`` nor ``sh``) or ``unsupported_syntax`` (a form the bounded
+    reading refuses whole: a here-document, a backquote, ``$(( … ))``,
+    ``case``, a function definition, an unterminated quote or group, or a
+    command past its word or nesting bound). A row then says so and that the
+    config has to be opened to read the change. Left out of grant equality,
+    the inventory digests and saved baselines, like the rest of ``handlers``.
+    """
+
+    shape: HostHookCommandShapeV9 | None = Field(default=None, exclude_if=lambda value: value is None)
+    shape_limit: Literal["too_long", "unsupported_shell", "unsupported_syntax"] | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+
+class HostHookArgsV9(BaseModel):
+    """A hook handler's ``args``, without their text (#972).
+
+    ``script`` is the first argument shaped as a relative script path
+    (segments of letters, digits, ``.``, ``_`` and ``-``, optionally led by
+    ``./``, ``${CLAUDE_PROJECT_DIR}/`` or ``${CLAUDE_PLUGIN_ROOT}/``, ending
+    in a script extension such as ``.py``, ``.sh`` or ``.mjs``) when no
+    redaction rule rewrites it, alone or after the three arguments before it,
+    and ``None`` otherwise. It is a label, not a claim about what runs.
+    ``sha256`` is the digest of the declared ``args`` as ``config_sha256``'s
+    input holds them, with the published script replaced by a marker and its
+    position digested beside them, as an MCP server's ``args_sha256`` is, so
+    it moves only when that digest does. No other argument text is published.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    script: str | None = Field(max_length=200)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+#: A published hook handler setting: as a timeout is published (#971, #972).
+HookSettingValueV9 = bool | int | float | str | None
+
+
+class HostHookHandlerV9(HostHookHandlerV7):
+    """A hook handler plus its ``args``, its documented settings and, on a Claude Code tool event, its matcher's reach.
+
+    ``command`` also carries the shape of an inline command, or why it has
+    none (:class:`HostHookCommandV9`, #934). ``args`` is present only on a handler that declares them
+    (:class:`HostHookArgsV9`). ``type``, ``async``, ``asyncRewake``,
+    ``shell`` and ``once``, the documented boolean and enumerated handler
+    settings (https://code.claude.com/docs/en/hooks#common-fields), are each
+    present only when the handler declares a value other than ``null``, and
+    published as a timeout is: a boolean or finite number as declared, a
+    string as written when it is a plain token, and anything else as
+    ``<not-shown>`` (#971, #972). Other handler settings, such as ``if``,
+    ``statusMessage``, ``prompt``, ``model``, ``url`` and ``headers``, are not
+    published; a change confined to them is a row whose text says it is not
+    shown.
+
+    ``matcher_reach`` is present on every handler of a Claude Code
+    ``PreToolUse``, ``PostToolUse``, ``PostToolUseFailure``,
+    ``PermissionRequest`` or ``PermissionDenied`` hook, the events whose
+    matcher filters the tool name
+    (https://code.claude.com/docs/en/hooks#matcher-patterns), and absent on
+    every other, so absence means not examined. ``no_tool_name``: every string
+    the declared matcher can match holds a character no built-in or MCP tool
+    name holds, so the handler runs for no tool call, as with ``Bash(git
+    push*)``, which Claude Code reads as a regular expression over the tool
+    name. ``possible``: any other matcher, including one this reader does not
+    decide. Read from the declared matcher, not the published one, and left
+    out of grant equality, the inventory digests and saved baselines like the
+    rest of ``handlers``.
+    """
+
+    # `async` is a Python keyword: the field is published under its
+    # documented name.
+    model_config = ConfigDict(extra="forbid", serialize_by_alias=True)
+
+    command: HostHookCommandV9 | None = None
+    matcher_reach: Literal["possible", "no_tool_name"] | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    args: HostHookArgsV9 | None = Field(default=None, exclude_if=lambda value: value is None)
+    # `bool` first in each: pydantic's lax `int` would otherwise read `true` as `1`.
+    type: HookSettingValueV9 = Field(default=None, exclude_if=lambda value: value is None)
+    async_: HookSettingValueV9 = Field(
+        default=None, alias="async", exclude_if=lambda value: value is None,
+    )
+    asyncRewake: HookSettingValueV9 = Field(default=None, exclude_if=lambda value: value is None)
+    shell: HookSettingValueV9 = Field(default=None, exclude_if=lambda value: value is None)
+    once: HookSettingValueV9 = Field(default=None, exclude_if=lambda value: value is None)
+
+
+class HostHookGrantV9(HostHookGrantV7):
+    handlers: list[HostHookHandlerV9] | None
+
+
+HostGrantV9 = Annotated[
+    HostMcpServerGrantV9
+    | HostPermissionRuleGrantV9
+    | HostPermissionModeGrantV2
+    | HostHookGrantV9
+    | HostSandboxGrantV2
+    | HostAdditionalPathGrantV2
+    | HostPluginGrantV2
+    | HostProfileGrantV2
+    | HostRequirementGrantV2
+    | HostWorkflowGrantV9
+    | HostInstructionGrantV2
+    | HostOpenShellPolicyGrantV9,
+    Field(discriminator="kind"),
+]
+HostBaselineGrantV9 = Annotated[
+    HostMcpServerBaselineGrantV9
+    | HostPermissionRuleGrantV9
+    | HostPermissionModeGrantV2
+    | HostHookComparisonV7
+    | HostSandboxGrantV2
+    | HostAdditionalPathGrantV2
+    | HostPluginGrantV2
+    | HostProfileGrantV2
+    | HostRequirementGrantV2
+    | HostWorkflowGrantV9
+    | HostInstructionGrantV2
+    | HostOpenShellPolicyGrantV9,
+    Field(discriminator="kind"),
+]
 
 
 class HostArtifactV9(HostArtifactV8):
+    host: HostNameV9
     kind: Literal["config", "mcp", "hooks", "workflow", "instructions", "requirements", "hook_script",
                   "openshell_selection", "openshell_policy", "openshell_profile"]
+
+    @model_validator(mode="after")
+    def unknown_host_is_mcp_only(self):
+        if self.host == "unknown" and self.kind != "mcp":
+            raise ValueError("only an MCP configuration is published with host unknown (#936)")
+        return self
 
 
 class HostArtifactChangeV9(HostArtifactChangeV8):
@@ -1171,6 +1450,7 @@ class HostGrantsInventoryV9(HostGrantsInventoryV8):
     host_grants_inventory_schema_version: Literal["0.9"] = "0.9"
     grants: list[HostGrantV9] = Field(default_factory=list)
     artifacts: list[HostArtifactV9] = Field(default_factory=list)
+    issues: list[HostInventoryIssueV9] = Field(default_factory=list)
 
 
 class HostGrantsNormalizedSnapshotV9(HostGrantsNormalizedSnapshotV8):
@@ -1186,6 +1466,7 @@ class HostGrantsBaselineV9(HostGrantsBaselineV8):
 class HostGrantsDriftV9(HostGrantsDriftV8):
     host_grants_schema_version: Literal["0.9"] = "0.9"
     artifact_changes: list[HostArtifactChangeV9] = Field(default_factory=list)
+    issues: list[HostInventoryIssueV9] = Field(default_factory=list)
 
 
 class HostGrantsInventoryArtifactV9(RootModel[HostGrantsInventoryV9]):

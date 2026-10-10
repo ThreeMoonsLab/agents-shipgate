@@ -92,6 +92,26 @@ PIN_SHAPES: tuple[tuple[str, re.Pattern[str], str], ...] = (
 )
 
 
+#: The fifth shape, and the only one that spans two lines: a downstream
+#: ``.pre-commit-config.yaml`` names this repository on one line and the git tag
+#: pre-commit clones on the next,
+#:
+#:     - repo: https://github.com/ThreeMoonsLab/agents-shipgate
+#:       rev: v1.2.0
+#:
+#: (#796). It is not in :data:`PIN_SHAPES` because that tuple is matched line by
+#: line against what ``init`` emits, and ``init`` emits no such snippet — only
+#: the ``rev: v<NEW>`` reader blank in ``upgrade-shipgate-version.md``. The
+#: committed examples carry it instead, so
+#: ``tests/test_distribution_surface_parity.py`` sweeps it. Anchored on this
+#: repository's URL: another project's ``rev:`` in the same file is not ours to
+#: judge. The ``#`` allowance covers the example inside
+#: ``.pre-commit-hooks.yaml``'s header comment.
+PRE_COMMIT_REV_PATTERN = re.compile(
+    r"ThreeMoonsLab/agents-shipgate(?:\.git)?/?[ \t]*\r?\n[ \t#]*rev:[ \t]*['\"]?([^\s'\"]+)"
+)
+
+
 #: Refs the bundled prompts print as a *blank for the reader to fill in* while
 #: teaching an adopter to bump a pin. Enumerated, never pattern-matched: an
 #: allowlist that guessed at "looks like a placeholder" is one bad guess away

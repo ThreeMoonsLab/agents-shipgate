@@ -45,6 +45,7 @@ def derive_agent_control(
     human_review_required: bool = False,
     unsafe_block: bool = False,
     publication_allowed: bool = False,
+    subject_evaluated: bool = False,
     allowed_next_commands: Sequence[str] = (),
     human_review_why: str | None = None,
     required_reviewers: Sequence[str] = (),
@@ -55,11 +56,11 @@ def derive_agent_control(
     Precedence is intentionally explicit: human-only review or an unsafe block
     routes to a human; otherwise an exact coding-agent route remains
     actionable; otherwise pending verification without a route is an internal
-    consistency error; and only an obligation-free result is complete.
+    consistency error; and only an obligation-free, evaluated result is complete.
 
-``publication_allowed`` is one fact, asserted by the caller, meaning "this
+    ``publication_allowed`` is one fact, asserted by the caller, meaning "this
     result rests on a change Shipgate actually read and can stand behind".  It
-    governs the ``permissions`` vector on *every* route, not only human ones,
+    governs the ``permissions`` vector on non-terminal routes, not only human ones,
     and it defaults to ``False`` so a caller that has not thought about it
     authorizes nothing.
 
@@ -69,6 +70,11 @@ def derive_agent_control(
     ``configure`` route with ``execution=failed`` and no diff, which any
     plausible allowlist would have treated as evaluated.  On a human route the
     same fact additionally selects ``review_publishable`` over the total stop.
+
+    ``subject_evaluated`` separately proves the terminal route: no remaining
+    obligation is not evidence that any input was read. A caller must assert
+    this fact before completion can grant merge and report-complete authority.
+    Publication alone never implies terminal authority.
 
     ``completion_allowed``, ``must_stop``, and ``permissions`` are not inputs.
     They are fixed by the selected union variant and therefore cannot drift
@@ -160,6 +166,8 @@ def derive_agent_control(
         raise AgentControlConsistencyError(
             "a complete result cannot carry a human or stop obligation"
         )
+    if not subject_evaluated:
+        raise AgentControlConsistencyError("a complete result requires an evaluated subject")
     return CompleteAgentControl(state="complete", reason=reason)
 
 

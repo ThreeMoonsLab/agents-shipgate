@@ -1145,3 +1145,67 @@ def test_evidence_gaps_deterministic_ordering():
         "alpha [langchain_function]",
         "zeta [langchain_function]",
     ]
+
+
+
+def test_requested_incomplete_binding_comparison_is_a_gap_even_without_tool_ids():
+    from agents_shipgate.schemas.bindings import BindingSurfaceDiff
+
+    report = _report(tools=[], summary_status="no_release_blockers_detected")
+    report.binding_surface_diff = BindingSurfaceDiff(
+        enabled=False, base_comparison_requested=True,
+        notes=["Capability comparison incomplete on base: partial_binding_evidence."],
+    )
+    decision = _build(report, ci_mode="advisory", tools=[])
+    assert decision.decision == "insufficient_evidence"
+    gaps = decision.evidence_coverage.evidence_gaps
+    comparison = [gap for gap in gaps if gap.source_ref == "--diff-from"]
+    assert len(comparison) == 1
+    assert comparison[0].next_action.kind == "provide_source"
+    assert comparison[0].next_action.command is None
+    assert "head or base" in comparison[0].why
+
+
+def test_an_enabled_tool_comparison_that_withheld_absence_is_still_an_incomplete_comparison_gap():
+    """The tool comparison now reports additions while a graph is incomplete.
+
+    Its being enabled must not read as "the comparison was established": its
+    notes (and the binding diff's) carry the limit, and the gap still stands.
+    """
+    from agents_shipgate.core.binding_comparison import binding_comparison_limits
+    from agents_shipgate.schemas.bindings import (
+        AgentBindingGraphAssessment,
+        AgentBindingIssue,
+        BindingSurfaceDiff,
+    )
+    from agents_shipgate.schemas.surfaces import ToolSurfaceDiff
+
+    partial = AgentBindingGraphAssessment(status="partial", issues=[AgentBindingIssue(
+        kind="partial_binding_evidence", message="Unread constructor",
+        source="framework_constructor_ownership", source_pointer="agent.py:8",
+    )])
+    note = binding_comparison_limits(partial, None, absence_only=True)
+    whole = binding_comparison_limits(partial, None)
+    assert note and whole and note != whole
+
+    for binding_notes, tool_notes in ((whole, note), (whole, []), ([], note)):
+        report = _report(tools=[], summary_status="no_release_blockers_detected")
+        report.binding_surface_diff = BindingSurfaceDiff(
+            enabled=False, base_comparison_requested=True, notes=binding_notes,
+        )
+        report.tool_surface_diff = ToolSurfaceDiff(enabled=True, notes=tool_notes)
+        decision = _build(report, ci_mode="advisory", tools=[])
+        gaps = decision.evidence_coverage.evidence_gaps
+        assert decision.decision == "insufficient_evidence"
+        assert len([gap for gap in gaps if gap.source_ref == "--diff-from"]) == 1
+
+    # No marker anywhere: an enabled tool comparison with a disabled binding
+    # diff (a base predating binding facts) keeps its earlier routing.
+    report = _report(tools=[], summary_status="no_release_blockers_detected")
+    report.binding_surface_diff = BindingSurfaceDiff(
+        enabled=False, base_comparison_requested=True, notes=["Binding diff requires a report_schema_version 0.31 base report."],
+    )
+    report.tool_surface_diff = ToolSurfaceDiff(enabled=True)
+    decision = _build(report, ci_mode="advisory", tools=[])
+    assert not [gap for gap in decision.evidence_coverage.evidence_gaps if gap.source_ref == "--diff-from"]
+

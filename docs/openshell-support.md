@@ -93,6 +93,30 @@ or request-partition cells. Unsupported semantics never become inferred safe
 narrowing. An HTTP method or MCP tool name still supplies no business effect,
 approval, argument restriction or deployed agent binding.
 
+## Naming the changed declarations
+
+A changed policy row names what differs, beside the unchanged limits in its
+reason, instead of two endpoint counts and a facts digest. The text is
+`review.changes[].change` in `diff --json` and the `verify` host comparison, and
+the entry in `diff`, `check` and the PR comment: filesystem paths added or
+removed per list (`read_only`, `read_write`) and a changed `include_workdir`;
+the Landlock compatibility and process identity; and, per destination, each
+binary selector added or removed and each destination or request declaration
+(protocol, enforcement, access preset, allowed and denied method/path pairs)
+added, removed or edited. Destinations that changed alike share one entry. Each
+list names its first five or eight entries, then counts the rest.
+
+Only values the inventory already publishes are named. Query and parameter
+constraints, endpoint options and credential options appear by field name, never
+by value, and a value that would change under redaction is printed as
+`<redacted>`. A change confined to an option value says `other options changed
+(not shown)`. A policy whose changed fields none of these cover says so. A
+newly selected or removed document lists what it declares, with the sections and
+inspected endpoints left to an upstream default named. That list is a
+description: it never marks the change as an expansion, and a row's direction,
+expansion signals, severity and `check` outcome are those of the comparison
+above. The published `rows[]` keep their counts and digest.
+
 ## Read limits and coverage
 
 The shared identity-bound host reader limits individual files to 1 MiB, along
@@ -174,7 +198,10 @@ For an end-to-end exercise, register the sample policy, commit it as the base,
 then remove `enforcement: enforce` from its REST endpoint. Run:
 
 ```bash
-shipgate audit --host --workspace . --json
+# Save the base inventory before making the policy change:
+shipgate audit --host --workspace . --save-baseline --baseline-file /tmp/openshell-base.json --json
+# After making the change:
+shipgate audit --host --workspace . --drift --baseline-file /tmp/openshell-base.json --json
 shipgate diff --workspace . --base main --json
 shipgate check --agent codex --workspace . --base main --format agent-boundary-json
 shipgate verify --workspace . --base main --json
@@ -189,6 +216,26 @@ configured verification and SARIF, plus malformed input and Git-tree isolation.
 Validation is pinned to OpenShell v0.1.2/schema 1 and the supported comparison
 subset above. Gateway state, live enforcement, credentials, provider/global
 composition and native containment remain outside this static MVP.
+
+The [acceptance example](examples/openshell-review/README.md) includes a
+constructed Git history, exact source changes, captured comparison and
+receipt/control identities, and commands for generating fresh evidence.
+Its acceptance matrix names the conformance, routing and currency tests.
+It validates a source checkout; it does not claim an installed release or a
+running sandbox.
+
+Configured committed verification supports selected, contained file-link
+chains using selection read from the same verified Git object store as the
+application snapshot. A changed reference retains review independently of
+any supported policy expansion, including an expansion on the linked document.
+Unrelated links and submodules retain the application snapshot's refusal.
+Selected links that escape, cycle, exceed eight hops or resolve to directories
+are not admitted by that snapshot, nor are links that would not open as
+written: each hop is followed component by component, as the filesystem
+follows it, so a link through a missing name or a regular file, or with an
+empty component such as a trailing slash, is refused even when its text
+normalizes to a policy file. Its manifest, baseline and policy-pack link
+guards are unchanged.
 
 The pre-commit hook recognizes OpenShell selection files. Its static filename
 filter cannot identify an arbitrary selected policy path on its own. Run

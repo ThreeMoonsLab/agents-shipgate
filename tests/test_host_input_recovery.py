@@ -29,7 +29,8 @@ from agents_shipgate.schemas.agent_result_v1 import AgentResultViolatedRule
 
 def _result(workspace: Path, snapshot: HostBoundarySnapshot):
     return build_agent_boundary_result(evaluate_agent_boundary(
-        workspace=workspace, diff_text="", host_snapshot=snapshot,
+        workspace=workspace, diff_text="", host_snapshot=snapshot, input_mode="worktree",
+        verification_replayable=True,
     )).model_dump(mode="json")
 
 

@@ -953,7 +953,7 @@ def test_pr_comment_keeps_code_span_values_unescaped() -> None:
         merge_verdict="mergeable",
         applicability="not_applicable",
         can_merge_without_human=True,
-        control=derive_agent_control(reason="No applicable changes."),
+        control=derive_agent_control(reason="No applicable changes.", subject_evaluated=True),
         artifacts={
             "report_markdown": "agents-shipgate-reports/report.md",
             "verifier_json": "agents-shipgate-reports/verifier.json",
@@ -1094,6 +1094,29 @@ def test_capability_review_pr_comment_leads_with_top_changes_and_trust_root() ->
         '"verification_command": "agents-shipgate verify --base origin/main --head HEAD --json"'
         in comment
     )
+
+
+def test_capability_review_says_removed_and_narrowed_were_withheld_not_absent() -> None:
+    """Zero removed beside an enabled comparison would read as "none removed"."""
+    from agents_shipgate.core.binding_comparison import binding_comparison_limits
+    from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, AgentBindingIssue
+    from agents_shipgate.schemas.surfaces import ToolSurfaceDiff, ToolSurfaceToolChange
+
+    partial = AgentBindingGraphAssessment(status="partial", issues=[AgentBindingIssue(
+        kind="partial_binding_evidence", message="Unread constructor",
+        source="framework_constructor_ownership", source_pointer="agent.py:8",
+    )])
+    notes = binding_comparison_limits(partial, None, absence_only=True)
+    report = _report(decision="passed", exit_code=0)
+    report.tool_surface_diff = ToolSurfaceDiff(
+        enabled=True, tools=[ToolSurfaceToolChange(kind="added", name="fresh")], notes=["unrelated", *notes],
+    )
+    review = build_capability_review(report)
+    assert review.added == 1 and review.removed == 0
+    assert review.notes == notes
+
+    report.tool_surface_diff = ToolSurfaceDiff(enabled=True, tools=[ToolSurfaceToolChange(kind="added", name="fresh")])
+    assert build_capability_review(report).notes == []
 
 
 def test_capability_review_groups_one_bound_tool_without_changing_legacy_counts() -> None:
@@ -2745,6 +2768,10 @@ def test_verify_head_errors_preserve_exit_codes(
 def test_internal_control_consistency_failure_clears_stale_handoff(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from agents_shipgate.core.agent_control import AgentControlConsistencyError
+    from agents_shipgate.core.static_inputs import active_static_input_snapshot
+
+    prior_snapshot = active_static_input_snapshot()
     repo = _repo_with_manifest(tmp_path)
     reports = repo / "agents-shipgate-reports"
     reports.mkdir(exist_ok=True)
@@ -2753,7 +2780,8 @@ def test_internal_control_consistency_failure_clears_stale_handoff(
     _patch_run_scan(monkeypatch, [], head_exit=0)
 
     def fail_control_projection(**_kwargs: Any):
-        raise ValueError("agent control consistency failure")
+        assert active_static_input_snapshot() is not prior_snapshot
+        raise AgentControlConsistencyError("agent control consistency failure")
 
     monkeypatch.setattr(
         "agents_shipgate.cli.verify.orchestrator._build_verifier",
@@ -2767,6 +2795,44 @@ def test_internal_control_consistency_failure_clears_stale_handoff(
     assert result.exit_code == 4
     assert "agent control consistency failure" in result.output
     assert not stale.exists()
+    assert active_static_input_snapshot() is prior_snapshot
+
+
+def test_base_preparation_failure_restores_input_context_when_cleanup_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tempfile
+
+    from agents_shipgate.core.static_inputs import active_static_input_snapshot
+
+    prior_snapshot = active_static_input_snapshot()
+    repo = _repo_with_manifest(tmp_path)
+    (repo / "README.md").write_text("change\n", encoding="utf-8")
+    _commit_all(repo, "head")
+    _patch_run_scan(monkeypatch, [], head_exit=0)
+
+    def fail_base_preparation(**kwargs: Any):
+        assert active_static_input_snapshot() is not prior_snapshot
+        kwargs["run_report_dir"]()  # The run-private base directory now exists.
+        raise RuntimeError("base preparation failed")
+
+    real_cleanup = tempfile.TemporaryDirectory.cleanup
+
+    def fail_run_base_cleanup(self) -> None:
+        real_cleanup(self)
+        if Path(self.name).name.startswith("agents-shipgate-verify-base-"):
+            raise OSError("run-private base directory cleanup failed")
+
+    monkeypatch.setattr(verify_orchestrator, "_prepare_base_report", fail_base_preparation)
+    monkeypatch.setattr(tempfile.TemporaryDirectory, "cleanup", fail_run_base_cleanup)
+    result = runner.invoke(
+        app,
+        ["verify", "--workspace", str(repo), "--config", "shipgate.yaml", "--base", "HEAD~1"],
+    )
+
+    assert result.exit_code == 4
+    assert "run-private base directory cleanup failed" in result.output
+    assert active_static_input_snapshot() is prior_snapshot
 
 
 def test_advisory_and_strict_change_only_exit_policy_not_control(
@@ -3662,8 +3728,8 @@ def test_build_verifier_preserves_trigger_state_but_scrubs_embedded_commands(
         base_report=None,
         base_notes=[],
         report=None,
-        head_status="skipped",
-        head_exit_code=0,
+        head_status="failed",
+        head_exit_code=2,
         out_dir=out_dir,
         manifest_provenance_value="unknown",
     )

@@ -6,3 +6,9 @@
 # breaks the pointer for the reader, not just for the test that guards it.
 # Git must hand these files over exactly as committed on every platform.
 samples/**/expected/** -text
+
+# The OpenShell review example is byte-bound too: `git fast-import` reads
+# `history.git-export` by exact byte counts, and `change.diff` must equal the
+# imported commits' `git diff` byte for byte, so neither may gain CRLFs.
+docs/examples/openshell-review/history.git-export -text
+docs/examples/openshell-review/change.diff -text
