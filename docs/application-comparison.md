@@ -246,11 +246,30 @@ either an observed agent or a named limit. An agent assigned to a plain name
 is identified by that name (`assistant = Agent(...)` is `assistant`), as
 before, so renaming its `name=` or moving it into a builder changes nothing.
 Only a variable name assigned in more than one function or class body — two
-builders' local `agent` — gives way to each agent's literal `name`, and a handoff to such a
+builders' local `agent` — gives way to each agent's literal `name` or source
+label, and a handoff to such a
 variable is named by the agent it holds. Any other construction is identified
 by its literal `name`: `return Agent(name="Quote", ...)` inside a factory
 function, `self.agent = Agent(name="Held", ...)`, an agent inline in a list,
 or `Agent("Positional")`. `Agent[Context](...)` is the same construction.
+
+When that construction has no literal name, a unique source label identifies
+it. A returned construction in `build` is `build@agent.py`; two builders'
+local `agent` variables are `first.agent@agent.py` and `second.agent@agent.py`.
+A class-held attribute is `Helper.self.agent@agent.py`, so moving its
+construction between that class's methods keeps its identity. Other labels
+use the enclosing functions and classes, the single assignment target when
+present, and the file. An unassigned module construction is `Agent@agent.py`.
+These are source identities; the reader does not evaluate a computed `name`.
+No label uses a line number or an ordinal. If two constructions would receive
+one label, or a label would collide with an existing identity in that file,
+their correspondence is a named limit and their tools are not attributed.
+If a source identity disappears and another identity appears in the same file,
+their correspondence is ambiguous: affected rows are `not_established`,
+not established additions and removals. A file move can also change a label's
+file component. The same qualified source label at two unpaired paths names
+that ambiguity even when the file moved with edits; it does not prove agent
+correspondence.
 
 What the reader cannot read is a named limit on the agent it concerns, so other
 agents' rows in the file stand:
@@ -290,7 +309,10 @@ agents' rows in the file stand:
   module, whose tools arrive through its constructor, including one made with
   `type("X", (Agent,), {})`.
 
-A construction whose `name` is not a literal is a limit on its file.
+A computed name alone does not prevent identification. Tool-list, constructor,
+and handle checks still apply. A template method such as `self.get_tools()`
+is still a named limit; this source-label step does not instantiate a base
+class once for each concrete subclass or read its overridden method returns.
 
 A module that is not read as an SDK source is still read for what can change
 an agent without it: a capability-passing copy, and — once the module imports

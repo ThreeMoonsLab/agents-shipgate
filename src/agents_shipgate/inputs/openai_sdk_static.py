@@ -15,6 +15,7 @@ from agents_shipgate.core.domain import (
     ToolkitScopeBound,
 )
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.inputs.agent_construction_identity import construction_identities
 from agents_shipgate.inputs.builder_calls import (
     BuilderCalls,
     ConstructionContext,
@@ -277,9 +278,10 @@ def _extract_agent_bindings(
         # The call an assignment binds to a plain name: that name is the
         # agent's identity, as it always has been. Any other construction —
         # ``return Agent(...)``, ``self.agent = Agent(...)``, an agent inline in
-        # a list — is identified by its literal ``name`` (#876). A variable name
+        # a list — is identified by its literal ``name`` (#876), or by a unique
+        # qualified source label when the name is computed (#912). A variable name
         # assigned in more than one function (two builders' local ``agent``) is
-        # no identity at all, so those agents take their literal ``name`` too;
+        # no identity at all, so those agents take their literal or source label;
         # anywhere else a rename or a move between scopes keeps the identity
         # it had (#876 review).
         assigned: dict[int, str] = {}
@@ -298,17 +300,26 @@ def _extract_agent_bindings(
                     if enclosing is not None:
                         function_local.add(id(node.value))
         shared = {name for name, found in variable_scopes.items() if len(found) > 1}
+        fallback_identities: dict[int, str] = {}
 
         def identity_of(
             call: ast.Call,
             assigned: dict[int, str] = assigned,
             function_local: set[int] = function_local,
             shared: set[str] = shared,
+            fallback_identities: dict[int, str] = fallback_identities,
         ) -> str | None:
             target, literal = assigned.get(id(call)), _literal_agent_name(call)
-            if literal is not None and target in shared and id(call) in function_local:
-                return literal
-            return target or literal
+            if target in shared and id(call) in function_local:
+                return literal or fallback_identities.get(id(call))
+            return target or literal or fallback_identities.get(id(call))
+        sdk_calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call) and _denotes_agent(sdk_names, node)]
+        unnamed = [call for call in sdk_calls if identity_of(call) is None]
+        recovered, identity_refusals = construction_identities(
+            unnamed, scopes, source_ref,
+            {identity for call in sdk_calls if (identity := identity_of(call)) is not None},
+        )
+        fallback_identities.update(recovered)
         module_bindings = module.bindings if module is not None else _module_bindings(tree)[0]
         #: Every agent identity this file constructs: a handoff from another
         #: module's list spelled the same would be read as this file's agent.
@@ -417,8 +428,10 @@ def _extract_agent_bindings(
             target = identity_of(call)
             if target is None:
                 unread(
-                    f"OpenAI Agents SDK agent constructed at {pointer} has no literal "
-                    "name, so it cannot be identified; its tools are not read.",
+                    identity_refusals.get(id(call)) or (
+                        f"OpenAI Agents SDK agent constructed at {pointer} has no literal "
+                        "name, so it cannot be identified; its tools are not read."
+                    ),
                     pointer,
                     "sdk_agent_identity_unresolved",
                 )
@@ -975,6 +988,9 @@ def _extract_agent_bindings(
                     observation.handoffs_complete = False
                     if reason not in observation.issues:
                         observation.issues.append(reason)
+        fallback_names = set(fallback_identities.values())
+        for observation in file_observations:
+            observation.source_identity_fallback = observation.agent in fallback_names
         observations.extend(file_observations)
     return (
         list(dict.fromkeys(warnings)),

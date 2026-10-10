@@ -75,10 +75,6 @@ def test_every_agent_construction_is_observed(repo, body, agent):
     ("body", "reason"),
     [
         (
-            'def build(name):\n    return Agent(name=name, instructions="q", tools=[quote])\n',
-            "has no literal name",
-        ),
-        (
             'class Custom(Agent):\n    pass\nhelper = Custom(name="c", tools=[quote])\n',
             "built from the subclass 'Custom'",
         ),
@@ -101,6 +97,16 @@ def test_an_agent_the_reader_cannot_identify_is_a_named_limit(repo, body, reason
     assert result["comparison_status"] == "partial"
     assert any(reason in limit for limit in result["head"]["limits"])
     assert all(g["source"] == "agent.py" for g in result["head"]["coverage_gaps"])
+
+
+def test_computed_name_alone_keeps_the_builder_source_identity(repo):
+    text = _agents('def build(name):\n    return Agent(name=name, instructions="q", tools=[quote])\n')
+    base = commit(repo, {"agent.py": text})
+    head = commit(repo, {"agent.py": text + "# touched\n"})
+    result = run(repo, base, head)
+    assert result["comparison_status"] == "compared"
+    assert [agent["name"] for agent in result["head"]["agents"]] == ["build@agent.py"]
+    assert result["rows"] == [] and result["head"]["limits"] == []
 
 
 def test_a_test_double_does_not_establish_the_application(repo):

@@ -730,6 +730,8 @@ class AgentBindingObservation(BaseModel):
     #: Reader-owned constructor causes by construction pointer. Internal
     #: routing provenance, never inferred from warning prose or annotations.
     constructor_issues: dict[str, str] = Field(default_factory=dict, exclude=True)
+    #: Internal source-label provenance; never a deployed agent-name assertion.
+    source_identity_fallback: bool = Field(default=False, exclude=True)
 
 
 class SourceSurfaceOmission(BaseModel):
