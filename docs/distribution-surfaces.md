@@ -221,3 +221,10 @@ Optional `agent_settings` on a binding records recognized source literals and
 is part of the compared declaration. It is never a tool, effect, authority or
 runtime assertion. Unknown receiver/settings forms keep their documented
 limits. See [application comparison](application-comparison.md).
+
+Unreleased #913: the existing cloud-effect table recognises the synchronous
+`google.cloud.aiplatform_v1beta1` Memory Bank client at two documented exports.
+Seven exact methods supply read/write facts; literal resource strings in direct
+keywords or inline requests use the existing target redaction. Unknown methods, wrappers and unseen client
+configuration keep their limits. The existing reach schema and assessment
+remain unchanged; no runtime authority or corpus result is asserted.
