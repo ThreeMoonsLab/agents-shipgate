@@ -33,7 +33,7 @@ const publish = async (kind, value) => {
   }
 };
 const github = {
-  paginate: async () => input.prior ? [{id: 42, body: '<!-- agents-shipgate-pr-comment --> old'}] : [],
+  paginate: async () => input.comments || (input.prior ? [{id: 42, body: '<!-- agents-shipgate-pr-comment --> old'}] : []),
   rest: {issues: {
     listComments: () => {},
     createComment: value => publish('create', value),

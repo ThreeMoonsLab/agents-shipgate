@@ -4,6 +4,12 @@ Copy-paste-ready workflows. Each one is a complete file — drop it into `.githu
 
 **No `shipgate.yaml`?** If the repository's pull requests change coding-agent host configuration — `.claude/settings.json`, `.mcp.json`, Codex, Cursor or VS Code MCP configuration — start with [`14-host-only-advisory-pr.yml`](14-host-only-advisory-pr.yml). It is the team version of a local `agents-shipgate diff`; see [Host-only advisory PR review](#host-only-advisory-pr-review).
 
+For application-agent wiring without a manifest, use the
+[application route in one YAML block](../../docs/quickstart.md#application-route-in-one-yaml-block-source-only).
+This opt-in source Action compares exact PR commits, posts the CLI review,
+uploads its JSON, and writes the job summary. It is not available in the
+published `v1.2.0` Action. It supplies no merge verdict or control permission.
+
 | File | When to use |
 |---|---|
 | [`01-advisory-pr-comment.yml`](01-advisory-pr-comment.yml) | First time you're adding the gate. Comments on PRs but never blocks. **Recommended starting point.** |

@@ -1,6 +1,6 @@
 # Quickstart
 
-Two ways in, depending on what the pull request in front of you changes:
+Three ways in, depending on what the pull request in front of you changes:
 
 - **What a coding agent may do** — `.claude/settings.json`, `.mcp.json`,
   `.codex/`, `.cursor/` or VS Code MCP configuration. Start at
@@ -10,6 +10,9 @@ Two ways in, depending on what the pull request in front of you changes:
   framework tool definitions. Follow
   [One review, end to end](#one-review-end-to-end), on a sample committed to
   this repository.
+- **Application-agent wiring without a manifest** — who receives a tool,
+  what its interface or implementation changed, and where the read stops.
+  Start at [Application route in one YAML block](#application-route-in-one-yaml-block-source-only).
 
 By the end you should be able to say four things about the change under
 review, from the artifacts alone:
@@ -87,6 +90,67 @@ installed. Agents Shipgate requires Python 3.12 or newer. If your project uses
 an older runtime, install the CLI with `pipx` or `uv` against a 3.12+
 interpreter rather than into the project environment — your agent project does
 not need Python 3.12 itself.
+
+## Application route in one YAML block (source only)
+
+Use this for a pull request that changes an application's agent/tool wiring.
+It needs no `shipgate.yaml`, policy or saved baseline. This Action input is
+**not in the published `v1.2.0` Action**. Replace `v<NEW>` below with the full
+reviewed commit SHA that contains this input. Leave `shipgate_version` empty
+so the Action installs the CLI from that same source.
+
+```yaml
+name: Application agent review
+on: pull_request
+permissions:
+  contents: read
+  pull-requests: write
+concurrency:
+  group: application-review-${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  application:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: ThreeMoonsLab/agents-shipgate@v<NEW>
+        with:
+          application: "true"
+          pr_comment: "true"
+```
+
+The Action compares the merge-base of the PR base and head SHAs with the PR
+head SHA. It derives the application scope from that change. Set
+`application_scope` to a repository-relative directory to choose one scope.
+For a non-PR run, supply both `base_ref` and `head_ref`. All commits and full
+objects must already be local. The Action never fetches; a shallow or partial
+checkout produces a refusal with a fix, rather than a no-change answer.
+
+The sticky comment starts with the CLI's reviewer findings and states where
+reading stopped. The `agents-shipgate-application-review` workflow artifact
+carries `application-comparison.json`
+and the complete text. `application_status`, `application_json`, and
+`application_markdown` expose that result to later steps. Each run writes a
+new directory under `output_dir`; a refusal cannot reuse an earlier result.
+The job summary always carries the review. On a fork, the read-only token
+may prevent the PR comment; the comment step writes a publication note and
+the review to the summary. Keep the `pull_request` event.
+
+Findings are advisory. Execution refusals fail the job. Set
+`application_fail_on: "partial,not_established"` only if your workflow should
+fail on those comparison statuses. These statuses concern source coverage;
+they are not merge verdicts. Verifier options, such as `baseline`,
+`fail_on_merge_verdicts`, `attestation` and `check_run`, are refused in this
+mode. Verifier decision and control outputs remain empty.
+
+A real comparison input is [MIS_TALENT PR #7](https://github.com/Tiendat2703/MIS_TALENT/pull/7).
+Its base is `420f570c9b800d54b9d3c0b2857339b2eb12445c` and its head is
+`da7034ae6ea4fc492ceb969a759a7d156e435d56`. The source reader reports its
+binding limitations; a partial comparison does not establish the application's
+full tool surface. This link names the input, not a released-build score or
+an existing Action deployment.
 
 ## Review a host-configuration change
 

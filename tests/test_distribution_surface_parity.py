@@ -168,7 +168,7 @@ SURFACES: tuple[Surface, ...] = (
     ),
     Surface(
         "github_action",
-        ("action.yml", "scripts/github_action_outputs.py"),
+        ("action.yml", "scripts/github_action_outputs.py", "scripts/github_action_application.py"),
         {
             "merge_verdict_vocabulary": (
                 "test_action_input_enumerates_engine_merge_verdicts",
@@ -1178,6 +1178,25 @@ def test_action_output_script_shares_the_engine_merge_verdicts():
         "verdict vocabulary and it has drifted from "
         "agents_shipgate.schemas.contract.MERGE_VERDICTS."
     )
+
+
+@pytest.mark.parametrize("tools", ["[lookup, execute]", "[lookup]", "load_tools()"])
+def test_action_application_review_matches_the_cli_without_verdict(tmp_path, tools):
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+    from scripts.github_action_application import render
+    from tests.test_application_diff import SDK, commit, git, run
+
+    git(tmp_path, "init", "-q", "-b", "main")
+    base = commit(tmp_path, {"agent.py": SDK.replace("TOOLS", "[lookup]")})
+    head = commit(tmp_path, {"agent.py": SDK.replace("TOOLS", tools)})
+    payload = run(tmp_path, base, head)
+    cli = CliRunner().invoke(app, ["diff", "--application", "--workspace", str(tmp_path),
+                                  "--base", base, "--head", head])
+    assert cli.exit_code == 0
+    assert render(payload) == cli.output
+    assert not {"control", "decision", "merge_verdict", "release_decision"} & payload.keys()
 
 
 def test_verdict_token_parser_rejects_a_seeded_extra_value():

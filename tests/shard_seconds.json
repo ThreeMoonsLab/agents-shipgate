@@ -426,7 +426,8 @@
   "tests/test_workflow_label_redaction.py": 46.3,
   "tests/test_workflow_step_action_references.py": 38.9,
   "tests/test_workspace_input_guard.py": 0.3,
-  "tests/test_zero_install_detector.py": 34.3
+  "tests/test_zero_install_detector.py": 34.3,
+  "tests/test_action_application.py": 43.7
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -446,6 +447,17 @@
    },
    "case_count": 13,
    "command": "python -m pytest tests/test_application_diff_list_candidates.py -n 4 --junitxml=candidates-timing.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "68517566bd0e with PR #915 application Action increment",
+   "report_sha256": "e4dee89d75bce28fb1066c865dcfc6b7bf40fafb0fa6e13a242834d83e11cec4",
+   "files": {
+    "tests/test_action_application.py": 43.7
+   },
+   "case_count": 19,
+   "command": "python -m pytest tests/test_action_application.py tests/test_action_comment_fallback.py tests/test_action_metadata.py -n 4 --junitxml=action-timing.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]
