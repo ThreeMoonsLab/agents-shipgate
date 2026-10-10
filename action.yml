@@ -17,6 +17,18 @@ branding:
   color: blue
 
 inputs:
+  application:
+    required: false
+    default: "false"
+    description: "Opt in to manifest-free, advisory application comparison. Uses exact PR base/head SHAs; checkout must provide full history and objects. Verifier options do not apply."
+  application_scope:
+    required: false
+    default: ""
+    description: "Optional repository-relative application scope. Empty derives scope from the PR change."
+  application_fail_on:
+    required: false
+    default: ""
+    description: "Optional comma-separated application comparison statuses that fail CI: compared, partial, not_established. Empty is advisory. Execution refusals still fail."
   config:
     required: false
     default: shipgate.yaml
@@ -52,11 +64,11 @@ inputs:
   base_ref:
     required: false
     default: ""
-    description: Optional local base ref/SHA for PR diff. With diff_base=target on pull_request, defaults to origin/<github.base_ref>. The action never fetches.
+    description: Optional local base ref/SHA; application defaults to the PR base SHA. With diff_base=target on pull_request, defaults to origin/<github.base_ref>. The action never fetches.
   head_ref:
     required: false
     default: ""
-    description: Optional local head ref/SHA for PR diff and scan. Omit to scan the checked-out workspace.
+    description: Optional local head ref/SHA for PR diff and scan. Omit to scan the checked-out workspace in verifier/scan mode. Application defaults to the PR head SHA.
   baseline_mode:
     required: false
     default: new-findings
@@ -157,6 +169,15 @@ outputs:
   status:
     description: Agents Shipgate summary status (legacy v0.7 caller; baseline-blind).
     value: ${{ steps.report_outputs.outputs.status }}
+  application_status:
+    description: "Application comparison status: compared, partial, not_established, or refused. Not a merge verdict."
+    value: ${{ steps.scan.outputs.application_status }}
+  application_json:
+    description: Path to the application comparison JSON; empty on refusal.
+    value: ${{ steps.scan.outputs.application_json }}
+  application_markdown:
+    description: Path to the complete application review, including limits.
+    value: ${{ steps.scan.outputs.application_markdown }}
   critical_count:
     description: Number of unsuppressed critical findings.
     value: ${{ steps.report_outputs.outputs.critical_count }}
@@ -384,7 +405,30 @@ runs:
         NO_PLUGINS: ${{ inputs.no_plugins }}
         OUTPUT_DIR: ${{ inputs.output_dir }}
         PR_COMMENT_STYLE: ${{ inputs.pr_comment_style }}
+        APPLICATION: ${{ inputs.application }}
+        APPLICATION_SCOPE: ${{ inputs.application_scope }}
+        APPLICATION_FAIL_ON: ${{ inputs.application_fail_on }}
+        APPLICATION_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        APPLICATION_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        FAIL_ON_MERGE_VERDICTS: ${{ inputs.fail_on_merge_verdicts }}
+        ATTESTATION: ${{ inputs.attestation }}
+        ORG_BUNDLE: ${{ inputs.org_bundle }}
+        HOST_AUDIT: ${{ inputs.host_audit }}
+        ORG_STATUS: ${{ inputs.org_status }}
+        CHECK_RUN: ${{ inputs.check_run }}
       run: |
+        if [ "${APPLICATION}" = "true" ]; then
+          echo "execution_mode=application" >> "${GITHUB_OUTPUT}"
+          set +e
+          python "${GITHUB_ACTION_PATH}/scripts/github_action_application.py"
+          exit_code=$?
+          echo "exit_code=${exit_code}" >> "${GITHUB_OUTPUT}"
+          exit 0
+        elif [ "${APPLICATION}" != "false" ]; then
+          echo "application must be 'true' or 'false'." >&2
+          echo "exit_code=2" >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
         if [ "${VERIFY_MODE}" = "verify" ]; then
           args=(
             verify
@@ -441,6 +485,7 @@ runs:
         if [ "${NO_PLUGINS}" = "true" ]; then
           args+=(--no-plugins)
         fi
+        echo "execution_mode=manifest" >> "${GITHUB_OUTPUT}"
         set +e
         agents-shipgate "${args[@]}"
         exit_code=$?
@@ -448,7 +493,7 @@ runs:
         exit 0
 
     - name: Build Agents Shipgate attestation
-      if: ${{ always() && inputs.attestation == 'true' }}
+      if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.attestation == 'true' }}
       shell: bash
       env:
         OUTPUT_DIR: ${{ inputs.output_dir }}
@@ -472,7 +517,7 @@ runs:
         fi
 
     - name: Build Agents Shipgate host audit
-      if: ${{ always() && inputs.host_audit == 'true' }}
+      if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.host_audit == 'true' }}
       shell: bash
       env:
         OUTPUT_DIR: ${{ inputs.output_dir }}
@@ -483,7 +528,7 @@ runs:
           echo "Agents Shipgate host audit failed; artifact skipped." >&2
 
     - name: Build Agents Shipgate org status
-      if: ${{ always() && inputs.org_status == 'true' }}
+      if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.org_status == 'true' }}
       shell: bash
       env:
         OUTPUT_DIR: ${{ inputs.output_dir }}
@@ -500,7 +545,7 @@ runs:
         fi
 
     - name: Build Agents Shipgate org evidence bundle
-      if: ${{ always() && inputs.org_bundle == 'true' }}
+      if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.org_bundle == 'true' }}
       shell: bash
       env:
         OUTPUT_DIR: ${{ inputs.output_dir }}
@@ -529,7 +574,7 @@ runs:
 
     - name: Extract Agents Shipgate outputs
       id: report_outputs
-      if: ${{ always() }}
+      if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' }}
       shell: bash
       env:
         OUTPUT_DIR: ${{ inputs.output_dir }}
@@ -537,7 +582,7 @@ runs:
         python "${GITHUB_ACTION_PATH}/scripts/github_action_outputs.py"
 
     - name: Emit Agents Shipgate annotations
-      if: ${{ always() && inputs.check_annotations == 'true' }}
+      if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.check_annotations == 'true' }}
       shell: bash
       env:
         OUTPUT_DIR: ${{ inputs.output_dir }}
@@ -546,18 +591,19 @@ runs:
         python "${GITHUB_ACTION_PATH}/scripts/github_action_annotations.py"
 
     - name: Upload Agents Shipgate report
-      if: ${{ always() && inputs.upload_artifact == 'true' }}
+      if: ${{ always() && inputs.upload_artifact == 'true' && (steps.scan.outputs.execution_mode == 'manifest' || (steps.scan.outputs.execution_mode == 'application' && steps.scan.outputs.application_reports != '')) }}
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
-        name: agents-shipgate-report
-        path: ${{ inputs.output_dir }}/
+        name: ${{ steps.scan.outputs.execution_mode == 'application' && 'agents-shipgate-application-review' || 'agents-shipgate-report' }}
+        path: ${{ steps.scan.outputs.execution_mode == 'application' && steps.scan.outputs.application_reports || inputs.output_dir }}/
         if-no-files-found: warn
 
     - name: Comment on pull request
-      if: ${{ always() && inputs.pr_comment == 'true' && github.event_name == 'pull_request' }}
+      if: ${{ always() && inputs.pr_comment == 'true' && github.event_name == 'pull_request' && (steps.scan.outputs.execution_mode == 'manifest' || (steps.scan.outputs.execution_mode == 'application' && steps.scan.outputs.application_reports != '')) }}
       uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
       env:
-        OUTPUT_DIR: ${{ inputs.output_dir }}
+        OUTPUT_DIR: ${{ steps.scan.outputs.execution_mode == 'application' && steps.scan.outputs.application_reports || inputs.output_dir }}
+        APPLICATION: ${{ steps.scan.outputs.execution_mode == 'application' }}
       with:
         github-token: ${{ inputs.github_token || github.token }}
         script: |
@@ -569,7 +615,8 @@ runs:
             core.warning(`Agents Shipgate PR comment not found at ${commentPath}`);
             return;
           }
-          const STICKY = "<!-- agents-shipgate-pr-comment -->";
+          const application = process.env.APPLICATION === 'true';
+          const STICKY = application ? "<!-- agents-shipgate-application-comment -->" : "<!-- agents-shipgate-pr-comment -->";
           let body = fs.readFileSync(commentPath, "utf8").slice(0, 6000);
           const serverUrl = process.env.GITHUB_SERVER_URL || "https://github.com";
           const runId = process.env.GITHUB_RUN_ID;
@@ -609,9 +656,12 @@ runs:
             const rateLimited = headers['x-ratelimit-remaining'] === '0' ||
               headers['retry-after'] !== undefined || /rate limit/i.test(error.message || '');
             if (![403, 404].includes(error.status) || rateLimited) throw error;
-            const limitation = 'PR comment publication is unavailable with this token or PR context. ' +
-              'Read the review below in the workflow summary. No authenticated decision is recorded; ' +
-              'the verifier gate and current control still apply.';
+            const limitation = application
+              ? 'PR comment publication is unavailable with this token or PR context. ' +
+                'Read the advisory application review below in the workflow summary. No merge verdict is implied.'
+              : 'PR comment publication is unavailable with this token or PR context. ' +
+                'Read the review below in the workflow summary. No authenticated decision is recorded; ' +
+                'the verifier gate and current control still apply.';
             core.warning(limitation);
             await core.summary.addRaw(
               `## Agents Shipgate: PR publication unavailable\n\n${limitation}\n\n${body}\n`
@@ -619,7 +669,7 @@ runs:
           }
 
     - name: Build Agents Shipgate check-run payload
-      if: ${{ always() && inputs.check_run == 'true' }}
+      if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.check_run == 'true' }}
       shell: bash
       env:
         OUTPUT_DIR: ${{ inputs.output_dir }}
@@ -629,7 +679,7 @@ runs:
         python "${GITHUB_ACTION_PATH}/scripts/github_check_run.py"
 
     - name: Create Agents Shipgate check run
-      if: ${{ always() && inputs.check_run == 'true' }}
+      if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.check_run == 'true' }}
       uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
       env:
         OUTPUT_DIR: ${{ inputs.output_dir }}
@@ -665,7 +715,7 @@ runs:
           }
 
     - name: Apply Agents Shipgate merge verdict policy
-      if: ${{ always() && inputs.fail_on_merge_verdicts != '' }}
+      if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.fail_on_merge_verdicts != '' }}
       shell: bash
       env:
         FAIL_ON_MERGE_VERDICTS: ${{ inputs.fail_on_merge_verdicts }}

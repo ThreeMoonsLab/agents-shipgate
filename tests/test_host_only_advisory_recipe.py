@@ -259,7 +259,8 @@ def _run_action(clone: Path, tmp_path: Path, *, base_ref: str = "main") -> Actio
     assert len(exit_code) == 1, (tmp_path / "github-output").read_text()
 
     # Both run under `always()`; annotations also need the default input on.
-    assert _named_step("Extract Agents Shipgate outputs")["if"] == "${{ always() }}"
+    assert _named_step("Extract Agents Shipgate outputs")["if"] == "${{ always() && steps.scan.outputs.execution_mode == 'manifest' }}"
+    assert _inputs()["application"] == "false"
     assert _inputs()["check_annotations"] == "true"
     for name in ("Extract Agents Shipgate outputs", "Emit Agents Shipgate annotations"):
         step = _run_step(name, clone, tmp_path, github)

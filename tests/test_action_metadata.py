@@ -99,6 +99,14 @@ def test_action_has_marketplace_metadata_and_outputs():
         "Verifier convenience verdict. Prefer `decision`"
     )
     assert data["inputs"]["verify_mode"]["default"] == "verify"
+    assert data["inputs"]["application"]["default"] == "false"
+    assert data["inputs"]["application_scope"]["default"] == ""
+    assert data["inputs"]["application_fail_on"]["default"] == ""
+    assert {"application_status", "application_json", "application_markdown"} <= set(data["outputs"])
+    upload = next(step for step in data["runs"]["steps"] if step["name"] == "Upload Agents Shipgate report")
+    assert "steps.scan.outputs.execution_mode" in upload["with"]["name"]
+    assert "'agents-shipgate-application-review'" in upload["with"]["name"]
+    assert "'agents-shipgate-report'" in upload["with"]["name"]
     assert data["inputs"]["fail_on_merge_verdicts"]["default"] == ""
     assert "fail_on_decisions" not in data["inputs"]
     assert data["inputs"]["check_annotations"]["default"] == "true"
@@ -165,7 +173,7 @@ def test_action_preserves_reports_before_applying_exit_code():
     assert "fail_on_decisions" not in text
     assert "Apply Agents Shipgate merge verdict policy" in text
     assert "merge_verdict_policy_exit_code" in text
-    assert "if: ${{ always() && inputs.fail_on_merge_verdicts != '' }}" in text
+    assert "if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.fail_on_merge_verdicts != '' }}" in text
     assert "verifier.json did not expose a merge verdict" in text
     assert "scripts/github_check_run.py" in text
     assert "check-run-payload.json" in text
