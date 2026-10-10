@@ -57,6 +57,12 @@ from agents_shipgate.inputs.python_imports import (
     replaces_builtin_namespace,
 )
 from agents_shipgate.inputs.python_static import dotted_name
+from agents_shipgate.inputs.sdk_agent_clones import (
+    ClonePlan,
+    clone_plan,
+    is_clone,
+    literal_name_filter,
+)
 
 if TYPE_CHECKING:
     from agents_shipgate.inputs.builder_calls import BuilderCalls, Invocation
@@ -501,6 +507,15 @@ def _direct_agent_instance(view: _View, value: ast.Call) -> bool:
     )
 
 
+
+def _clone_plan(view: _View, call: ast.Call) -> ClonePlan | None:
+    lookup = view.lookup or bindings_at(view.scopes, view.bindings)
+    def receiver_call(receiver: ast.Name) -> ast.Call | None:
+        found = lookup(receiver.id, receiver)
+        value = getattr(found[0][1], "value", None) if len(found) == 1 else None
+        return value if isinstance(value, ast.Call) else None
+    return clone_plan(call, receiver_call, lambda owner: _direct_agent_instance(view, owner))
+
 def _returned_agent_instance(view: _View, value: ast.Call) -> bool:
     """Only a bound source-local builder's direct Agent return owns this role."""
     if id(value) in view.returned_instances:
@@ -768,9 +783,13 @@ def _constructor_family(view: _View, call: ast.Call) -> str | None:
         lookup = view.lookup or bindings_at(view.scopes, view.bindings)
         found = lookup(receiver.id, receiver)
         owner = getattr(found[0][1], "value", None) if len(found) == 1 else None
-        if not isinstance(owner, ast.Call) or not _direct_agent_instance(view, owner):
+        if not isinstance(owner, ast.Call):
             return None
-        qualified = _namespace_call_reference(view, owner)
+        plan = _clone_plan(view, owner) if is_clone(owner) else None
+        root = plan.root if plan is not None else owner
+        if not _direct_agent_instance(view, root):
+            return None
+        qualified = _namespace_call_reference(view, root)
     return next((family for family in ("agents", "openai_agents", "google.adk")
                  if qualified in _external_constructor_paths(family)), None)
 
@@ -1552,9 +1571,10 @@ class ListExpressions:
             lookup = view.lookup or bindings_at(view.scopes, view.bindings)
             found = lookup(call.func.value.id, call.func.value)
             owner = getattr(found[0][1], "value", None) if len(found) == 1 else None
-            if not isinstance(owner, ast.Call) or not _direct_agent_instance(view, owner):
+            plan = _clone_plan(view, call)
+            if plan is None or not isinstance(owner, ast.Call):
                 return False
-            constructor = _namespace_call_reference(view, owner)
+            constructor = _namespace_call_reference(view, plan.root)
             if constructor is None or not self._reads_agent(view, owner, keyword):
                 return False
             qualified = constructor + ".clone"
@@ -2019,7 +2039,8 @@ class ListExpressions:
         if not entered and (not isinstance(parent, ast.Assign | ast.AnnAssign) or parent.value is not call):
             return not isinstance(parent, ast.Expr) and not (
                 strict_container and (
-                    self._field_data_read(view, call) if keyword == "field_data"
+                    self._settings_data_read(view, call) if keyword == "settings_data"
+                    else self._field_data_read(view, call) if keyword == "field_data"
                     else self._toolset_data_read(view, call) if keyword == "toolset_data"
                     else self._instance_data_read(view, call) if keyword == "instance_data"
                     else self._container_read(view, call)
@@ -2059,8 +2080,7 @@ class ListExpressions:
             return False  # This exact operand loads the function before wrapping it.
         use = view.scopes.parents.get(node)
         if (keyword in {"__class__", *CAPABILITY_FIELDS} and strict_container
-                and self._checking_constructor_namespaces and not initial_field
-                and self._agent_copy_receiver_read(view, node, keyword)):
+                and self._agent_copy_receiver_read(view, node, keyword, initial_field=initial_field)):
             return False
         if isinstance(use, ast.Return):
             # Follow ``agent = Agent(...); return agent`` with its actual
@@ -2085,6 +2105,9 @@ class ListExpressions:
                     return True
             finally:
                 self._checking_returns.remove(key)
+        elif keyword == "settings_data":
+            if not self._settings_data_read(view, node):
+                return True
         elif keyword == "field_data":
             if not self._field_data_read(view, node):
                 return True
@@ -2281,7 +2304,7 @@ class ListExpressions:
                     return False
         return stores > 0
 
-    def _agent_copy_receiver_read(self, view: _View, node: ast.Name, keyword: str) -> bool:
+    def _agent_copy_receiver_read(self, view: _View, node: ast.Name, keyword: str, *, initial_field: bool = False) -> bool:
         """Retain an exact SDK copy receiver only through its owned result."""
         parent = view.scopes.parents.get(node)
         if isinstance(parent, ast.Attribute) and parent.value is node and parent.attr == "clone":
@@ -2298,10 +2321,21 @@ class ListExpressions:
         # must also retain its class safely through every use of its result.
         return (
             self._reads_agent(view, call, "tools")
-            and not self._agent_result_changed(view, call, "__class__", strict_container=True)
+            and not self._agent_result_changed(view, call, "__class__", strict_container=True, initial_field=initial_field)
             and (keyword == "__class__" or not self._agent_result_changed(
-                view, call, keyword, strict_container=True,
+                view, call, keyword, strict_container=True, initial_field=initial_field,
             ))
+        )
+
+    def _settings_data_read(self, view: _View, node: ast.expr) -> bool:
+        """Only inline literal SDK tool-choice settings enter a proved agent."""
+        parent = view.scopes.parents.get(node)
+        destination = view.scopes.parents.get(parent)
+        return bool(
+            isinstance(node, ast.Call) and isinstance(parent, ast.keyword) and parent.arg == "model_settings"
+            and isinstance(destination, ast.Call) and _constructor_unchanged(view, node, family="agents")
+            and self._reads_agent(view, destination, "tools")
+            and not self._agent_result_changed(view, destination, "__class__", strict_container=True)
         )
 
     @staticmethod
@@ -2356,6 +2390,19 @@ class ListExpressions:
         )
 
     # -- resolution --------------------------------------------------------
+
+    def clone_fields_unchanged(self, plan: ClonePlan) -> bool:
+        return self._clone_fields_unchanged(self.entry, plan)
+
+    def _clone_fields_unchanged(self, view: _View, plan: ClonePlan) -> bool:
+        """The source and each retained copy keep the fields the plan read."""
+        for construction in (plan.root, *plan.chain):
+            for role in ("tools", "handoffs", "mcp_servers"):
+                if (not self._reads_agent(view, construction, role)
+                        or self._agent_result_changed(view, construction, role,
+                                                      strict_container=True, initial_field=True)):
+                    return False
+        return True
 
     def constructor_changed(self, call: ast.Call, invocation: Invocation | None) -> bool:
         """A bound construction must retain its constructor even for literals."""
@@ -2927,7 +2974,15 @@ class ListExpressions:
             return self._callee_leaves_alone(view, call, position, keyword, strict_container=True)
         # Iteration may retain the mutable projected list, and an alias may
         # subsequently change it. Neither is a read-only ownership proof.
-        if isinstance(parent, ast.For | ast.AsyncFor | ast.comprehension):
+        if isinstance(parent, ast.comprehension):
+            expression = view.scopes.parents.get(parent)
+            if (parent.iter is node and isinstance(expression, ast.ListComp)
+                    and literal_name_filter(expression) is not None):
+                # The exact predicate only reads the tool name; members reach
+                # the same proved agent destination, never a callback or alias.
+                return self._container_read(view, expression)
+            return False
+        if isinstance(parent, ast.For | ast.AsyncFor):
             return False
         return read_only_use(node, view.scopes.parents, self._call_reads(view))
 
@@ -3056,6 +3111,12 @@ class ListExpressions:
         if self._reads_agent(view, call, field):
             if initial_field and self._agent_result_changed(view, call, field, strict_container=True, initial_field=True):
                 return None
+            plan = _clone_plan(view, call) if is_clone(call) else None
+            if plan is not None:
+                if initial_field and not self._clone_fields_unchanged(view, plan):
+                    return None
+                value = plan.fields.get(field)
+                return (view, value, invocation) if value is not None else None
             values = [keyword.value for keyword in call.keywords if keyword.arg == field]
             return (view, values[0], invocation) if len(values) == 1 else None
         from agents_shipgate.inputs.builder_calls import CallLimit, CallSite, single_return

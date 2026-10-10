@@ -301,7 +301,8 @@ agents' rows in the file stand:
 - a copy that passes its own `tools`, `handoffs` or `mcp_servers`
   (`agent.clone(tools=...)`, `dataclasses.replace(agent, tools=...)`,
   `copy.replace(...)`), wherever the original came from, unless the original
-  is proven not to be an agent. A copy passing only `**` is a limit only on a
+  is proven not to be an agent or the exact SDK clone route described below
+  reads it. A copy passing only `**` is a limit only on a
   value known to be an agent. A copy that passes none of them keeps the
   original's tools, which the original's rows already compare, and is not a
   limit;
@@ -668,6 +669,42 @@ an agent this module builds is not taken for that agent. Nothing is imported or
 run. A Google ADK `tools=` or `sub_agents=` list that came through a name, or
 from another module, is not counted by `scan` as a proven surface, because
 another module could change it; a literal spread into a literal is.
+
+For `diff --application` only, OpenAI Agents SDK clones with uniquely bound
+local source agents are read as
+independent agents. A literal `name=` override identifies the clone; otherwise
+its identity combines the source identity with a qualified construction label,
+without a line number. Competing labels or identities remain ambiguous. The
+reader follows at most eight clone hops to a direct SDK `Agent` construction.
+An imported, custom-instance or otherwise unidentified receiver remains unread.
+
+A clone inherits `tools`, `handoffs` and `mcp_servers` when it omits the field,
+and reads an explicit override through the same list resolver. A single literal
+filter `[t for t in source.tools if t.name == "read"]` selects only tool names
+the SDK reader established for function tools. Object-tool display names are
+not runtime names; such a filter remains unread. Other filters retain their
+source condition.
+Source, method, shared members and returned handles must retain their existing
+constructor and ownership proofs. Replacing a field, changing a shared list or
+handing a handle to unread code refuses the read. The SDK makes a shallow copy;
+these agents can still share the same list and entries. See the
+[SDK clone reference](https://openai.github.io/openai-agents-python/ref/agent/#agents.agent.Agent.clone).
+
+A clone row can also carry `agent_settings`: a recognized literal
+`tool_use_behavior`, and `tool_choice` from an inline SDK
+`ModelSettings(tool_choice="auto"|"required"|"none")`. These are facts read from
+the source, not bindings or verified runtime behavior. `tool_choice="none"`
+keeps tools declared and states that this setting disallows their use. A
+setting change can produce a `changed` row without adding or removing tools.
+Unknown settings acquire no inferred value. These optional fields extend the
+application comparison `0.4` document; they do not add merge authority.
+An explicit model override without `model_settings` supplies no inherited
+`tool_choice` fact, because SDK model defaults can change; its setting remains
+uncertain on the affected rows. Conflicting
+constructions keep their settings uncertain. A clone's construction label is
+retained separately from its name: replacing the clone at that site with an
+unread factory does not establish that its bindings were removed.
+The same guard covers an assigned object or import bound at that source site.
 
 Caller arguments can reach a module-level builder's construction inside
 `if` or `else`. The row carries both the caller's condition and the

@@ -214,3 +214,10 @@ renders that sentence into the adoption prompts beside the pin, and the
 See also [`CONTRIBUTING.md` § Surface discipline](../CONTRIBUTING.md#surface-discipline),
 which governs whether a *new* surface should exist at all. This document governs
 what an existing one is allowed to say.
+
+Unreleased #911: the application reader gives exact source-local SDK clones
+independent bindings, through the existing constructor/list/handle proofs.
+Optional `agent_settings` on a binding records recognized source literals and
+is part of the compared declaration. It is never a tool, effect, authority or
+runtime assertion. Unknown receiver/settings forms keep their documented
+limits. See [application comparison](application-comparison.md).

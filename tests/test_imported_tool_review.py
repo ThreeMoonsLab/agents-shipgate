@@ -894,17 +894,35 @@ def test_sdk_list_passed_to_a_helper_is_dynamic_only_when_it_can_change(repo, he
     if dynamic:
         assert result["comparison_status"] == "partial"
     elif "base_agent.clone(tools=TOOLS)" in helper:
-        # The unread copy owns its limit; passing TOOLS does not mutate the
-        # list or erase the two independently declared agents' tool changes.
-        assert result["comparison_status"] == "partial"
+        # The source-local SDK clone reads TOOLS without mutating it; each
+        # agent retains the imported function's actual implementation change.
+        clone = "base_agent clone at variant@agent.py"
+        assert result["comparison_status"] == "compared"
         assert _rows(result) == [("agent", "lookup", "changed"),
-                                 ("base_agent", "lookup", "changed")]
+                                 ("base_agent", "lookup", "changed"),
+                                 (clone, "lookup", "changed")]
+        assert all(row["uncertainty"] == {} for row in result["rows"])
         for side in ("base", "head"):
-            gaps = result[side]["coverage_gaps"]
-            assert len(gaps) == 1
-            assert gaps[0]["agent"] == "variant"
-            assert "agent copy at agent.py:6 (clone) is not read" in gaps[0]["reason"]
-            assert gaps[0]["affects"] == "binding_presence"
+            assert result[side]["coverage_gaps"] == []
+            field = "before" if side == "base" else "after"
+            assert all(row[field]["definition"]["source"] == "billing.py" for row in result["rows"])
+
+        for refused in (
+            agent.replace("variant =", "base_agent.clone = replacement\nvariant ="),
+            agent.replace("agent = Agent(name='app'", "opaque(variant)\nagent = Agent(name='app'"),
+        ):
+            base = commit(repo, {"agent.py": refused, "billing.py": BILLING_SDK})
+            head = commit(repo, {"billing.py": BILLING_SDK.replace("'billing'", "q.upper()")})
+            limited = run(repo, base, head)
+            assert limited["comparison_status"] == "partial"
+            row, = [row for row in limited["rows"] if row["agent"] == clone]
+            assert row["change"] == "not_established"
+            assert row["candidate_change"] == "changed"
+            for side in ("base", "head"):
+                assert row["uncertainty"][side]
+                assert any(gap.get("agent") == clone
+                           and "constructor identity is not established" in gap["reason"]
+                           for gap in limited[side]["coverage_gaps"])
     else:
         # These consumers can retain a callable's constructor namespace even
         # when the old membership-only proof regarded them as reads.

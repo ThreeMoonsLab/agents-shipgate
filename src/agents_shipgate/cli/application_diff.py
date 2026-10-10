@@ -49,7 +49,10 @@ from agents_shipgate.core.semantic_assessment import (
     assess_tool_semantics,
 )
 from agents_shipgate.core.verification_identity import build_engine_requirement
-from agents_shipgate.inputs.agent_construction_identity import source_construction_label
+from agents_shipgate.inputs.agent_construction_identity import (
+    source_binding_labels,
+    source_construction_label,
+)
 from agents_shipgate.inputs.google_adk import adk_agent_subclasses, load_google_adk_artifacts
 from agents_shipgate.inputs.object_tools import object_display, reading_object_bindings
 from agents_shipgate.inputs.openai_sdk_static import (
@@ -93,6 +96,7 @@ class Observations:
     handoff_only: set[tuple[str, str]] = field(default_factory=set)
     #: Internal source labels, used only to refuse ambiguous identity matching.
     identity_fallbacks: set[tuple[str, str]] = field(default_factory=set)
+    construction_labels: dict[tuple[str, str], set[str]] = field(default_factory=dict)
     bindings: dict[tuple[str, str, str], dict[str, Any]] = field(default_factory=dict)
     limits: list[str] = field(default_factory=list)
     sources: list[dict[str, str]] = field(default_factory=list)
@@ -844,6 +848,10 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
             constructed.add((path, observation.agent))
             if observation.source_identity_fallback:
                 result.identity_fallbacks.add((path, observation.agent))
+            if observation.source_construction_labels:
+                result.construction_labels.setdefault((path, observation.agent), set()).update(
+                    observation.source_construction_labels
+                )
             handoff_targets.update((path, name) for name in observation.handoff_names)
             if not observation.tools_complete or not observation.handoffs_complete:
                 for message in observation.issues or ["Incomplete observed binding list."]:
@@ -1140,6 +1148,28 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
             if len(listed) > 1:
                 result.bindings[key]["construction_sites"] = listed
 
+    settings_by_agent: dict[tuple[str, str], dict[str, str] | None] = {}
+    settings_issues: dict[tuple[str, str], set[str]] = {}
+    for item in loaded:
+        for observation in item.binding_observations:
+            key = (_source_path(root, observation.source), observation.agent)
+            settings_issues.setdefault(key, set()).update(observation.agent_settings_issues)
+            if key in settings_by_agent and settings_by_agent[key] != observation.agent_settings:
+                settings_by_agent[key] = None  # Conflicting constructions supply no selected setting.
+            else:
+                settings_by_agent[key] = observation.agent_settings
+    for key, binding in result.bindings.items():
+        for message in sorted(settings_issues.get(key[:2], ())):
+            result.gap(message, source=key[0], agent=key[1], tool=key[2])
+        settings = settings_by_agent.get(key[:2])
+        if key[:2] in settings_by_agent and settings is None:
+            result.gap(
+                "Conflicting constructions supply different declared agent settings.",
+                source=key[0], agent=key[1], tool=key[2],
+            )
+        if settings:
+            binding["agent_settings"] = dict(settings)
+
 
 def _object_binding(
     key: tuple[str, str], name: str, payload: dict[str, Any], pointer: str | None
@@ -1359,6 +1389,7 @@ def compare(
                 if target in unmatched:
                     uncertainty.setdefault(missing_side, []).append(identity_reason)
         only_condition = False
+        only_settings = False
         if before is None:
             reasons = base.absence_gaps(key, target_moves)
             if reasons:
@@ -1385,6 +1416,9 @@ def compare(
             # stated as one, whose direction is not established.
             only_condition = before_meaning != _meaning(after) and (
                 {**before_meaning, "bound_when": None} == {**_meaning(after), "bound_when": None}
+            )
+            only_settings = before_meaning != _meaning(after) and (
+                {**before_meaning, "agent_settings": None} == {**_meaning(after), "agent_settings": None}
             )
             if only_condition:
                 # A part of the list that was not read may hold the tool some
@@ -1432,7 +1466,9 @@ def compare(
                     + (f" (it was bound {_bound(before)})" if before and before.get("bound_when") else "")
                     + "; check scope limits for relocation.",
                     "not_established": "This candidate change cannot be established from the affected inputs; it is not a no-change result.",
-                    "changed": "What the bound tool object is changed (its `object`); authority direction is not established."
+                    "changed": "The declared agent settings changed; its tools remain bound and runtime behavior is not verified."
+                    if only_settings
+                    else "What the bound tool object is changed (its `object`); authority direction is not established."
                     if (before or {}).get("object") and (after or {}).get("object")
                     else "The bound callable's interface or implementation changed; authority direction is not established.",
                 }[kind],
@@ -1527,7 +1563,10 @@ def _align_exact_moves(
     ]
 
 
-def _still_named_at(root: Path, path: str, name: str, *, source_label_path: str | None = None) -> int | None:
+def _still_named_at(
+    root: Path, path: str, name: str, *, source_label_path: str | None = None,
+    construction_labels: set[str] | None = None,
+) -> int | None:
     """First line at which ``path`` still binds ``name`` or passes ``name=name``.
 
     Those are the two agent identities the readers key on: the SDK's bound
@@ -1563,8 +1602,19 @@ def _still_named_at(root: Path, path: str, name: str, *, source_label_path: str 
         scopes = ScopeIndex(tree)
         lines.extend(
             node.lineno for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-            and source_construction_label(node, scopes, source_label_path) == name
+            if (isinstance(node, ast.alias) or (
+                isinstance(node, ast.Name | ast.Attribute) and isinstance(node.ctx, ast.Store)
+            ))
+            and source_binding_labels(node, scopes, source_label_path) & (construction_labels or {name})
+        )
+        lines.extend(
+            node.lineno for node in ast.walk(tree)
+            if (isinstance(node, ast.Call | ast.alias) or (
+                isinstance(node, ast.expr)
+                and isinstance(scopes.parents.get(node), ast.Assign | ast.AnnAssign)
+                and scopes.parents[node].value is node
+            ))
+            and source_construction_label(node, scopes, source_label_path) in (construction_labels or {name})
         )
     return min(lines, default=None)
 
@@ -1587,12 +1637,16 @@ def _unobserved_agent_gaps(
     }
     old_fallbacks = {(moves.get(path, path), name): path for path, name in old.identity_fallbacks}
     new_fallbacks = {key: key[0] for key in new.identity_fallbacks}
-    for side, root, agents, bindings, to_side, source_labels in (
-        (new, head_root, new.agents.keys() - new.handoff_only, old.bindings, lambda path: path, old_fallbacks),
-        (old, base_root, old_agents, new.bindings, lambda path: unmoves.get(path, path), new_fallbacks),
+    old_labels = {(moves.get(path, path), name): (path, labels) for (path, name), labels in old.construction_labels.items()}
+    new_labels = {key: (key[0], labels) for key, labels in new.construction_labels.items()}
+    for side, root, agents, bindings, to_side, source_labels, labels in (
+        (new, head_root, new.agents.keys() - new.handoff_only, old.bindings, lambda path: path, old_fallbacks, old_labels),
+        (old, base_root, old_agents, new.bindings, lambda path: unmoves.get(path, path), new_fallbacks, new_labels),
     ):
         for path, name in sorted({key[:2] for key in bindings} - agents):
-            line = _still_named_at(root, to_side(path), name, source_label_path=source_labels.get((path, name)))
+            label_path, construction_labels = labels.get((path, name), (source_labels.get((path, name)), None))
+            line = _still_named_at(root, to_side(path), name, source_label_path=label_path,
+                                  construction_labels=construction_labels)
             if line is not None:
                 side.gap(
                     f"{to_side(path)}:{line} still names agent {name!r}, but no supported "
@@ -2256,6 +2310,11 @@ def _print_rows(payload: dict[str, Any], _one_line: Any) -> None:
                     f"  {side}: {_one_line(value.get('signature') or value['tool'])} at {_one_line(value.get('binding_location'))}"
                     + (f" (also listed at {_one_line(', '.join(also))})" if also else "")
                 )
+                if value.get("agent_settings"):
+                    settings = value["agent_settings"]
+                    typer.echo("    declared settings: " + ", ".join(f"{key}={item}" for key, item in settings.items()))
+                    if settings.get("tool_choice") == "none":
+                        typer.echo("    tools remain declared; this tool_choice setting disallows tool use.")
                 if value.get("bound_when"):
                     typer.echo(f"    bound {_one_line(_bound(value))}")
                 if value.get("object"):

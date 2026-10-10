@@ -732,6 +732,11 @@ class AgentBindingObservation(BaseModel):
     constructor_issues: dict[str, str] = Field(default_factory=dict, exclude=True)
     #: Internal source-label provenance; never a deployed agent-name assertion.
     source_identity_fallback: bool = Field(default=False, exclude=True)
+    #: Qualified construction labels, independent of a clone's display identity.
+    source_construction_labels: list[str] = Field(default_factory=list, exclude=True)
+    #: Source-read clone settings; not bindings or runtime behavior assertions.
+    agent_settings: dict[str, str] = Field(default_factory=dict, exclude=True)
+    agent_settings_issues: list[str] = Field(default_factory=list, exclude=True)
 
 
 class SourceSurfaceOmission(BaseModel):

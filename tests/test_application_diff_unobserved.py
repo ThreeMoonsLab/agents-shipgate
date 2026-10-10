@@ -79,11 +79,6 @@ def test_every_agent_construction_is_observed(repo, body, agent):
             "built from the subclass 'Custom'",
         ),
         (
-            'base = Agent(name="base", tools=[quote])\n'
-            'copy = base.clone(tools=[quote, send_image])\n',
-            "agent copy at agent.py:",
-        ),
-        (
             "from shared import base_agent\n"
             "copy = base_agent.clone(tools=[quote, send_image])\n",
             "agent copy at agent.py:",
@@ -407,11 +402,9 @@ def test_an_unused_literal_clone_preserves_the_original_membership_comparison(re
     result = _compare(
         repo, body.replace("TOOLS", "[quote]"), body.replace("TOOLS", "[quote, send_image]")
     )
-    # #876 treats a name/instructions-only copy with an unused result as no
-    # explicit capability override. Its direct receiver still needs complete
-    # constructor/method/result ownership; other copy/escape tests pin refusal.
+    # #911 gives the identified copy its own inherited binding as well.
     assert result["comparison_status"] == "compared"
-    assert _pairs(result) == [("pirate_agent", "send_image", "added")]
+    assert _pairs(result) == [("Robot", "send_image", "added"), ("pirate_agent", "send_image", "added")]
 
 
 def test_unused_sdk_subclass_hooks_limit_constructor_identity(repo):

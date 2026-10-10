@@ -15,7 +15,10 @@ from agents_shipgate.core.domain import (
     ToolkitScopeBound,
 )
 from agents_shipgate.core.errors import InputParseError
-from agents_shipgate.inputs.agent_construction_identity import construction_identities
+from agents_shipgate.inputs.agent_construction_identity import (
+    construction_identities,
+    source_construction_label,
+)
 from agents_shipgate.inputs.builder_calls import (
     BuilderCalls,
     ConstructionContext,
@@ -71,6 +74,7 @@ from agents_shipgate.inputs.python_static import (
     function_signature,
     parse_python_file,
 )
+from agents_shipgate.inputs.sdk_agent_clones import clone_plan, is_clone, literal_name_filter
 from agents_shipgate.inputs.sdk_guard_dependencies import (
     guard_module_metadata,
     read_guard_dependency,
@@ -314,12 +318,48 @@ def _extract_agent_bindings(
                 return literal or fallback_identities.get(id(call))
             return target or literal or fallback_identities.get(id(call))
         sdk_calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call) and _denotes_agent(sdk_names, node)]
+        lookup = _bindings_at(scopes, module.bindings if module is not None else _module_bindings(tree)[0])
+
+        def receiver_call(receiver: ast.Name, lookup=lookup) -> ast.Call | None:
+            found = lookup(receiver.id, receiver)
+            value = getattr(found[0][1], "value", None) if len(found) == 1 else None
+            return value if isinstance(value, ast.Call) else None
+
+        clone_plans = {
+            id(call): plan for call in ast.walk(tree)
+            if object_rule is not None and isinstance(call, ast.Call) and is_clone(call)
+            if (plan := clone_plan(call, receiver_call, lambda owner, names=sdk_names: _denotes_agent(names, owner))) is not None
+        }
+        clone_calls = [call for call in ast.walk(tree) if id(call) in clone_plans]
+        clone_labels, clone_refusals = construction_identities(
+            clone_calls, scopes, source_ref, set(),
+        )
+        clone_identities: dict[int, str] = {}
+        for call in clone_calls:
+            plan = clone_plans[id(call)]
+            source_identity = identity_of(plan.root)
+            label = clone_labels.get(id(call))
+            if _literal_agent_name(call) is not None:
+                clone_identities[id(call)] = _literal_agent_name(call)
+            elif source_identity is not None and label is not None:
+                clone_identities[id(call)] = f"{source_identity} clone at {label}"
         unnamed = [call for call in sdk_calls if identity_of(call) is None]
         recovered, identity_refusals = construction_identities(
             unnamed, scopes, source_ref,
             {identity for call in sdk_calls if (identity := identity_of(call)) is not None},
         )
         fallback_identities.update(recovered)
+        for call in clone_calls:
+            plan = clone_plans[id(call)]
+            if id(call) not in clone_identities and id(call) in clone_labels and identity_of(plan.root) is not None:
+                clone_identities[id(call)] = f"{identity_of(plan.root)} clone at {clone_labels[id(call)]}"
+        direct_identity_of = identity_of
+
+        def identity_of(call: ast.Call, direct=direct_identity_of, clones=clone_identities, plans=clone_plans) -> str | None:
+            return clones.get(id(call)) if id(call) in plans else direct(call)
+
+        def field(call: ast.Call, name: str, plans=clone_plans) -> ast.AST | None:
+            return plans[id(call)].fields.get(name) if id(call) in plans else _keyword(call, name)
         module_bindings = module.bindings if module is not None else _module_bindings(tree)[0]
         #: Every agent identity this file constructs: a handoff from another
         #: module's list spelled the same would be read as this file's agent.
@@ -350,6 +390,39 @@ def _extract_agent_bindings(
         #: ``list binding -> identities`` of agents constructed with that list.
         list_holders: dict[object, set[str]] = {}
         copies: list[ast.Call] = []
+        if clone_plans:
+            # The SDK shallow copy retains the actual omitted list object,
+            # including a constructor literal that has no bound list name.
+            def shared_clone_lists(
+                expression: ast.AST | None, seen: frozenset[int] = frozenset(), *,
+                lookup=lookup, sdk_names=sdk_names, clone_plans=clone_plans,
+            ) -> set[object]:
+                if expression is None or id(expression) in seen or len(seen) >= 32:
+                    return set()
+                seen = seen | {id(expression)}
+                if isinstance(expression, ast.List):
+                    return {("clone_list", id(expression))}
+                if isinstance(expression, ast.Name):
+                    found = lookup(expression.id, expression)
+                    value = getattr(found[0][1], "value", None) if len(found) == 1 else None
+                    return shared_clone_lists(value, seen)
+                if (isinstance(expression, ast.Attribute) and expression.attr in {"tools", "handoffs", "mcp_servers"}
+                        and isinstance(expression.value, ast.Name)):
+                    owner = receiver_call(expression.value)
+                    if owner is not None and (_denotes_agent(sdk_names, owner) or id(owner) in clone_plans):
+                        return shared_clone_lists(field(owner, expression.attr), seen)
+                if isinstance(expression, ast.IfExp | ast.BoolOp):
+                    members = (expression.body, expression.orelse) if isinstance(expression, ast.IfExp) else expression.values
+                    return set().union(*(shared_clone_lists(member, seen) for member in members))
+                return set()
+
+            for holder in (*sdk_calls, *clone_calls):
+                identity = identity_of(holder)
+                if identity is not None:
+                    for role in ("tools", "handoffs", "mcp_servers"):
+                        expression = field(holder, role)
+                        for shared in shared_clone_lists(expression):
+                            list_holders.setdefault(shared, set()).add(identity)
 
         def unread(reason: str, pointer: str, kind: str, path: str = source_ref) -> None:
             # A construction the reader saw but cannot establish is a named
@@ -406,7 +479,7 @@ def _extract_agent_bindings(
         ]
         for node, context in construction_sites:
             pointer = f"{source_ref}:{node.lineno}"
-            if _copy_shape(node) is not None:
+            if id(node) not in clone_plans and _copy_shape(node) is not None:
                 # Whether the receiver is an agent is known only once every
                 # construction in the file has been read.
                 copies.append(node)
@@ -422,13 +495,13 @@ def _extract_agent_bindings(
                     file_observations,
                 )
                 continue
-            if not _denotes_agent(sdk_names, node):
+            if not _denotes_agent(sdk_names, node) and id(node) not in clone_plans:
                 continue
             call = node
             target = identity_of(call)
             if target is None:
                 unread(
-                    identity_refusals.get(id(call)) or (
+                    clone_refusals.get(id(call)) or identity_refusals.get(id(call)) or (
                         f"OpenAI Agents SDK agent constructed at {pointer} has no literal "
                         "name, so it cannot be identified; its tools are not read."
                     ),
@@ -442,7 +515,7 @@ def _extract_agent_bindings(
             for shared in shared_lists(
                 scopes,
                 module_bindings,
-                [value for value in (_keyword(call, "tools"), _keyword(call, "handoffs")) if value is not None],
+                [value for value in (field(call, "tools"), field(call, "handoffs")) if value is not None],
             ):
                 list_holders.setdefault(shared, set()).add(target)
             opaque = _opaque_arguments(call)
@@ -460,14 +533,23 @@ def _extract_agent_bindings(
                     )
                 )
                 continue
-            tools_expr = _keyword(call, "tools")
+            tools_expr = field(call, "tools")
             listed = lists.resolve(tools_expr, invocation=context.invocation)
+            filtered_name = literal_name_filter(tools_expr) if id(call) in clone_plans else None
+            if filtered_name is not None:
+                condition = f"the filter `{ast.unparse(tools_expr.generators[0].ifs[0])}` keeps it"
+                listed = replace(listed, members=tuple(
+                    replace(member, conditions=tuple(item for item in member.conditions if item != condition))
+                    for member in listed.members
+                ))
             issues: list[str] = list(context.limits)
             warnings.extend(context.limits)
             tools_complete = not context.limits
             constructor_changed = lists.constructor_changed(call, context.invocation)
             constructor_context = lists.constructor_refusal_context(call, context.invocation)
-            constructor_issue = builder_calls.constructor_issue(module, call) if module is not None else None
+            constructor_issue = builder_calls.constructor_issue(module, call) if module is not None and id(call) not in clone_plans else None
+            if id(call) in clone_plans and not lists.clone_fields_unchanged(clone_plans[id(call)]):
+                constructor_issue = "the clone's source, method, inherited field or retained handle is not established"
             if constructor_issue is None and constructor_changed:
                 constructor_issue = "its builder's constructor or imports may change its capability lists"
                 if constructor_context:
@@ -602,6 +684,13 @@ def _extract_agent_bindings(
                 if isinstance(object_found, ObjectBinding):
                     if id(member.expr) in candidate_nodes:
                         continue  # This initializer fallback covers function references only.
+                    if filtered_name is not None:
+                        reason = "The clone filter cannot establish this object tool's runtime name; its display name is not that proof."
+                        tools_complete = False
+                        issues.append(reason)
+                        warnings.append(reason)
+                        if object_found.name is not None:
+                            tool_issues[object_found.name] = reason
                     if not bind_object(object_found, member.conditions, member.invocation):
                         tools_complete = False
                     continue
@@ -702,6 +791,8 @@ def _extract_agent_bindings(
                         names.append(import_aliases.get(reference, reference))
                         when.add(names[-1], member.conditions)
                     continue
+                if filtered_name is not None and tool.name != filtered_name:
+                    continue
                 locator = f"{tool.source_ref}#{tool.name}" if tool.source_ref else None
                 if tool.name in duplicated:
                     continue
@@ -748,7 +839,7 @@ def _extract_agent_bindings(
                         f"{constructor_issue}; {unread_list_reason('OpenAI Agents SDK', target, pointer, listed)}"
                     )
                     tool_issues[tool.name] = "; ".join(filter(None, (tool_issues.get(tool.name), reason)))
-            handoff_list = lists.resolve(_keyword(call, "handoffs"), invocation=context.invocation)
+            handoff_list = lists.resolve(field(call, "handoffs"), invocation=context.invocation)
             handoffs_complete = not context.limits and constructor_issue is None
             if lists.construction_changed(context.invocation, "handoffs"):
                 reason = f"OpenAI Agents SDK agent {target!r}: the caller's returned agent handle may change its handoffs."
@@ -798,7 +889,7 @@ def _extract_agent_bindings(
                     continue
                 handoff_names.append(identity)
                 handoff_when.add(identity, member.conditions)
-            if objects_reader is not None and module is None and _keyword(call, "mcp_servers") is not None:
+            if objects_reader is not None and module is None and field(call, "mcp_servers") is not None:
                 reason = (
                     f"OpenAI Agents SDK agent {target!r} at {pointer} has MCP servers this "
                     "reader does not read outside the selected scope."
@@ -810,7 +901,7 @@ def _extract_agent_bindings(
                 # ``mcp_servers=[...]``: each server is a binding of the agent's
                 # (#910). Read only for the comparison; ``scan`` does not read
                 # the keyword.
-                servers = lists.resolve(_keyword(call, "mcp_servers"), invocation=context.invocation)
+                servers = lists.resolve(field(call, "mcp_servers"), invocation=context.invocation)
                 if servers.unresolved:
                     reason = (
                         f"OpenAI Agents SDK agent {target!r} at {pointer} has MCP servers it reads "
@@ -843,6 +934,24 @@ def _extract_agent_bindings(
                                    f"the constructor identity is not established: {constructor_issue}"]))
                                     for name in (*names, *objects)})
             tool_conditions = when.only_when(duplicated)
+            settings: dict[str, str] = {}
+            settings_issues: list[str] = []
+            if id(call) in clone_plans and constructor_issue is None:
+                if clone_plans[id(call)].settings_unread:
+                    settings_issues.append("A model override may change inherited model settings; that SDK decision was not read.")
+                behavior = field(call, "tool_use_behavior")
+                if isinstance(behavior, ast.Constant) and behavior.value in {"run_llm_again", "stop_on_first_tool"}:
+                    settings["tool_use_behavior"] = behavior.value
+                elif behavior is not None:
+                    settings_issues.append("The clone's tool_use_behavior setting is outside the recognized literal values.")
+                model_settings = field(call, "model_settings")
+                if (isinstance(model_settings, ast.Call)
+                        and sdk_names.denotes(dotted_name(model_settings.func), model_settings, "ModelSettings", {"ModelSettings"})):
+                    choice = _keyword(model_settings, "tool_choice")
+                    if isinstance(choice, ast.Constant) and choice.value in {"required", "none", "auto"}:
+                        settings["tool_choice"] = choice.value
+                if model_settings is not None and "tool_choice" not in settings:
+                    settings_issues.append("The clone's model settings do not supply a recognized inline SDK tool_choice literal.")
             file_observations.append(
                 AgentBindingObservation(
                     agent=target,
@@ -863,6 +972,10 @@ def _extract_agent_bindings(
                     handoffs_complete=handoffs_complete,
                     issues=issues,
                     constructor_issues=constructor_issues,
+                    agent_settings=settings,
+                    agent_settings_issues=settings_issues,
+                    source_construction_labels=[label] if id(call) in clone_plans
+                    and (label := source_construction_label(call, scopes, source_ref)) is not None else [],
                 )
             )
         for node in copies:
@@ -949,6 +1062,8 @@ def _extract_agent_bindings(
                     tuple(
                         sorted((k, tuple(v)) for k, v in observation.handoff_conditions.items())
                     ),
+                    tuple(sorted(observation.agent_settings.items())),
+                    tuple(observation.agent_settings_issues),
                     observation.tools_complete,
                     observation.handoffs_complete,
                     tuple(observation.issues),
@@ -963,6 +1078,9 @@ def _extract_agent_bindings(
                 first = next(o for o in file_observations if o.agent == identity)
                 for other in file_observations:
                     if other.agent == identity:
+                        first.source_construction_labels = list(dict.fromkeys(
+                            (*first.source_construction_labels, *other.source_construction_labels)
+                        ))
                         for name, locations in other.tool_sites.items():
                             first.tool_sites[name] = list(dict.fromkeys((*first.tool_sites.get(name, []), *locations)))
                         for name, locations in other.handoff_sites.items():
@@ -988,7 +1106,8 @@ def _extract_agent_bindings(
                     observation.handoffs_complete = False
                     if reason not in observation.issues:
                         observation.issues.append(reason)
-        fallback_names = set(fallback_identities.values())
+        fallback_names = set(fallback_identities.values()) | {identity for call in clone_calls
+                            if _literal_agent_name(call) is None and (identity := clone_identities.get(id(call))) is not None}
         for observation in file_observations:
             observation.source_identity_fallback = observation.agent in fallback_names
         observations.extend(file_observations)
@@ -1169,21 +1288,13 @@ def _agent_reads(
         return False
     if sdk_names.denotes(dotted_name(call.func), call, "Agent", DEFAULT_AGENT_CONSTRUCTORS):
         return True
-    if isinstance(call.func, ast.Attribute) and call.func.attr == "clone":
-        receiver = call.func.value
-        if not isinstance(receiver, ast.Name):
-            return False
-        local = scopes.enclosing_bindings(receiver, receiver.id)
-        if local:
-            statements = [scopes.statement_of(local[0])] if len(local) == 1 else []
-        else:
-            found = module_bindings.get(receiver.id, [])
-            statements = [found[0].statement] if len(found) == 1 else []
-        return any(
-            isinstance(getattr(statement, "value", None), ast.Call)
-            and _denotes_agent(sdk_names, statement.value)
-            for statement in statements
-        )
+    if is_clone(call):
+        lookup = _bindings_at(scopes, module_bindings)
+        def receiver_call(receiver: ast.Name) -> ast.Call | None:
+            found = lookup(receiver.id, receiver)
+            value = getattr(found[0][1], "value", None) if len(found) == 1 else None
+            return value if isinstance(value, ast.Call) else None
+        return clone_plan(call, receiver_call, lambda owner: _denotes_agent(sdk_names, owner)) is not None
     name = dotted_name(call.func)
     if name not in {"replace", "dataclasses.replace", "copy.replace"}:
         return False
@@ -1231,7 +1342,7 @@ def _handoff_identity(
         if (
             isinstance(found[0] if found else None, ast.Name)
             and isinstance(value, ast.Call)
-            and _denotes_agent(sdk_names, value)
+            and (_denotes_agent(sdk_names, value) or is_clone(value))
         ):
             identity = identity_of(value)
             if identity is not None:

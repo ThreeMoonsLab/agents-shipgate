@@ -430,7 +430,8 @@
   "tests/test_action_application.py": 43.7,
   "tests/test_application_source_identity.py": 20.7,
   "tests/test_agent_field_lists.py": 7.0,
-  "tests/test_builder_construction_conditions.py": 3.1
+  "tests/test_builder_construction_conditions.py": 3.1,
+  "tests/test_sdk_agent_clones.py": 73.3
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -484,6 +485,17 @@
    },
    "case_count": 48,
    "command": "python -m pytest tests/test_agent_field_lists.py tests/test_builder_construction_conditions.py --junitxml=flow.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "bef21d5ac7bf with issue #911 bounded clone increment",
+   "report_sha256": "75e56025f6bf6cede09ebf85baba23c8e68e8e197817e2a540b417d6b707d9d1",
+   "files": {
+    "tests/test_sdk_agent_clones.py": 73.3
+   },
+   "case_count": 92,
+   "command": "python -m pytest tests/test_sdk_agent_clones.py tests/test_application_source_identity.py tests/test_application_diff_unobserved.py -n 4 --junitxml=clones-identity.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]
