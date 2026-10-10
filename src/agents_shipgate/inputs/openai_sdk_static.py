@@ -74,6 +74,7 @@ from agents_shipgate.inputs.sdk_guard_dependencies import (
     guard_module_metadata,
     read_guard_dependency,
 )
+from agents_shipgate.inputs.tool_list_candidates import tool_list_candidates
 from agents_shipgate.schemas.coverage_recovery import CoverageRecovery, SourceRecoveryEvidence
 from agents_shipgate.schemas.guard_dependencies import GuardDependencyEvidence
 from agents_shipgate.schemas.manifest import (
@@ -490,6 +491,16 @@ def _extract_agent_bindings(
                     recovery=CoverageRecovery(kind="unresolved", reason="sdk_tools_expression_unresolved"),
                 ))
                 tools_complete = False
+            # A refused constructor does not erase the source initializer.
+            # Retain its readable members only as candidates, with the same
+            # refusal attached to each tool. No ownership proof is relaxed.
+            candidates = (
+                tool_list_candidates(tools_expr, module, imports.resolver)
+                if listed.unresolved and constructor_issue is not None else ()
+            )
+            resolved_nodes = {id(member.expr) for member in listed.members}
+            candidates = tuple(member for member in candidates if id(member.expr) not in resolved_nodes)
+            candidate_nodes = {id(member.expr) for member in candidates}
             # Two different definitions under one tool name: the model
             # sees one name for both, so neither is bound (#879 review).
             duplicated: set[str] = set()
@@ -561,7 +572,7 @@ def _extract_agent_bindings(
                 when.add(name, conditions)
                 return True
 
-            for member in listed.members:
+            for member in (*listed.members, *candidates):
                 element = member.expr
                 home = member.module if member.module is not None else module
                 object_found = (
@@ -570,6 +581,8 @@ def _extract_agent_bindings(
                     else None
                 )
                 if isinstance(object_found, ObjectBinding):
+                    if id(member.expr) in candidate_nodes:
+                        continue  # This initializer fallback covers function references only.
                     if not bind_object(object_found, member.conditions, member.invocation):
                         tools_complete = False
                     continue
@@ -710,6 +723,12 @@ def _extract_agent_bindings(
                     )
                     warnings.append(reason)
                     tool_issues[tool.name] = reason
+                if id(member.expr) in candidate_nodes:
+                    reason = (
+                        f"The source initializer names {tool.name!r}, but its binding is not established: "
+                        f"{constructor_issue}; {unread_list_reason('OpenAI Agents SDK', target, pointer, listed)}"
+                    )
+                    tool_issues[tool.name] = "; ".join(filter(None, (tool_issues.get(tool.name), reason)))
             handoff_list = lists.resolve(_keyword(call, "handoffs"), invocation=context.invocation)
             handoffs_complete = not context.limits and constructor_issue is None
             if lists.construction_changed(context.invocation, "handoffs"):
