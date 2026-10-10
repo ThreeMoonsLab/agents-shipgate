@@ -2501,10 +2501,15 @@ def test_the_real_readers_still_read(repo, reader, established):
         assert (result["comparison_status"] == "compared") is established, result["head"]["limits"]
         assert _rows(result) == [("agent", "execute", "added")]
     else:
-        # Library readers need an explicit retained-namespace proof; a named
-        # mutable list cannot enumerate its members under that uncertainty.
+        # Library readers still lack retained-namespace proof. Readable
+        # initializer members are candidates, never established bindings.
         assert result["comparison_status"] == "partial"
-        assert result["rows"] == []
+        assert _rows(result) == [
+            ("agent", "execute", "not_established"),
+            ("agent", "lookup", "not_established"),
+        ]
+        assert all(row["uncertainty"] for row in result["rows"])
+        assert next(row for row in result["rows"] if row["tool"] == "execute")["candidate_change"] == "added"
         assert any("dynamic tools expression" in gap["reason"] for gap in result["head"]["coverage_gaps"])
         assert any("constructor identity is not established" in gap["reason"]
                    for gap in result["head"]["coverage_gaps"])

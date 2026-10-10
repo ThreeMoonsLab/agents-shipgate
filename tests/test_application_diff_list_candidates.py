@@ -69,8 +69,9 @@ def test_mutating_a_literal_list_does_not_grant_an_established_candidate(tmp_pat
         ("", "load_tools()", []),
         ("", "[make_tool(), *load_tools(), read]", [("read", ())]),
         ("", "[" + ",".join("read" for _ in range(MAX_MEMBERS + 1)) + "]", []),
+        ("BASE = [" + ",".join("read" for _ in range(MAX_MEMBERS)) + "]\n", "BASE + BASE", []),
     ],
-    ids=["spread-concatenation", "conditions", "constant-condition", "cycle", "rebound", "call", "unread-operands", "member-bound"],
+    ids=["spread-concatenation", "conditions", "constant-condition", "cycle", "rebound", "call", "unread-operands", "member-bound", "shared-member-bound"],
 )
 def test_candidate_initializer_walk_has_bounded_source_only_behavior(tmp_path, source, expression, expected):
     _write(tmp_path, {"candidate.py": source + f"candidate = {expression}\n"})

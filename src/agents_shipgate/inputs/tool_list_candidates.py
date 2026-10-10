@@ -34,12 +34,17 @@ def tool_list_candidates(
     import with no initializer supplies no candidate.
     """
     visits = 0
+    member_count = 0
+    exhausted = False
     scopes: dict[int, ScopeIndex] = {}
 
     def walk(node: ast.expr, home: PythonModule, depth: int, seen: frozenset) -> list[ListMember]:
-        nonlocal visits
+        nonlocal visits, member_count, exhausted
+        if exhausted:
+            return []
         visits += 1
         if depth > MAX_DEPTH or visits > MAX_VISITS:
+            exhausted = True
             return []
         if isinstance(node, ast.List | ast.Tuple):
             members = []
@@ -47,8 +52,12 @@ def tool_list_candidates(
                 if isinstance(item, ast.Starred):
                     members.extend(walk(item.value, home, depth + 1, seen))
                 elif isinstance(item, ast.Name | ast.Attribute):
+                    member_count += 1
+                    if member_count > MAX_MEMBERS:
+                        exhausted = True
+                        return []
                     members.append(ListMember(item, home))
-                if len(members) > MAX_MEMBERS:
+                if exhausted:
                     return []
             return members
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
@@ -91,4 +100,4 @@ def tool_list_candidates(
     if expression is None or module is None:
         return ()
     members = walk(expression, module, 0, frozenset())
-    return tuple(members) if len(members) <= MAX_MEMBERS else ()
+    return () if exhausted else tuple(members)
