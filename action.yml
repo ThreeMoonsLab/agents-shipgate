@@ -164,6 +164,11 @@ inputs:
     description: Optional registry path label embedded in org bundle metadata; never mutated by this action.
 
 outputs:
+  # Legacy v0.7-caller output; baseline-blind. Prefer release_decision.decision
+  # via the `decision` output below for gating.
+  status:
+    description: Agents Shipgate summary status (legacy v0.7 caller; baseline-blind).
+    value: ${{ steps.report_outputs.outputs.status }}
   application_status:
     description: "Application comparison status: compared, partial, not_established, or refused. Not a merge verdict."
     value: ${{ steps.scan.outputs.application_status }}
@@ -173,11 +178,6 @@ outputs:
   application_markdown:
     description: Path to the complete application review, including limits.
     value: ${{ steps.scan.outputs.application_markdown }}
-  # Legacy v0.7-caller output; baseline-blind. Prefer release_decision.decision
-  # via the `decision` output below for gating.
-  status:
-    description: Agents Shipgate summary status (legacy v0.7 caller; baseline-blind).
-    value: ${{ steps.report_outputs.outputs.status }}
   critical_count:
     description: Number of unsuppressed critical findings.
     value: ${{ steps.report_outputs.outputs.critical_count }}
