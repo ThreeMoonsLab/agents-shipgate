@@ -133,6 +133,8 @@ def _what_changed(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
             changes.append("signature changed")
     if before.get("bound_when") != after.get("bound_when"):
         changes.append(f"bound {bound_phrase(before)} → {bound_phrase(after)}")
+    if before.get("agent_settings") != after.get("agent_settings"):
+        changes.append("declared agent settings changed")
     if before.get("object") != after.get("object"):
         identity_before, identity_after = before.get("object") or {}, after.get("object") or {}
         keys = sorted(

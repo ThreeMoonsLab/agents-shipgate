@@ -1,5 +1,12 @@
 # Stability Contract · 1.2.0
 
+Unreleased #911: application comparison `0.4` adds optional `agent_settings`
+on a clone's binding side. Recognized source literals can change a row's
+compared declaration; they add no binding, release verdict or merge authority.
+Exact source-local SDK clones have their own bindings. Unknown receivers,
+constructor/handle changes and unread lists retain explicit uncertainty.
+See [the application contract](docs/application-comparison.md).
+
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
 Unreleased, runtime contract v42: an empty preflight plan no longer mints

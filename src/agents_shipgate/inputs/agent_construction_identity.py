@@ -30,7 +30,7 @@ def construction_identities(
     return identities, refusals
 
 
-def source_construction_label(call: ast.Call, scopes: ScopeIndex, source: str) -> str:
+def source_construction_label(call: ast.expr | ast.alias, scopes: ScopeIndex, source: str) -> str:
     """Label syntax only; the caller must prove SDK identity separately."""
     parent = scopes.parents.get(call)
     target = None
@@ -38,8 +38,20 @@ def source_construction_label(call: ast.Call, scopes: ScopeIndex, source: str) -
         targets = parent.targets if isinstance(parent, ast.Assign) else [parent.target]
         if len(targets) == 1:
             target = reference_spelling(targets[0])
+    elif isinstance(call, ast.alias) and isinstance(parent, ast.Import | ast.ImportFrom):
+        target = call.asname or call.name.split(".", 1)[0]
+    return _source_label(call, target, scopes, source)
+
+
+def source_binding_label(target: ast.Name | ast.Attribute | ast.alias, scopes: ScopeIndex, source: str) -> str:
+    """A qualified stored/imported target, used only to protect uncertain absence."""
+    spelling = target.asname or target.name.split(".", 1)[0] if isinstance(target, ast.alias) else reference_spelling(target)
+    return _source_label(target, spelling, scopes, source)
+
+
+def _source_label(node: ast.AST, target: str | None, scopes: ScopeIndex, source: str) -> str:
     ancestors = []
-    current = parent
+    current = scopes.parents.get(node)
     while current is not None:
         if isinstance(current, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
             ancestors.append(current)

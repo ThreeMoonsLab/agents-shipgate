@@ -4258,6 +4258,17 @@ def _external_constructor_use(
             # Agent capability fields or builtin-container method allowances.
             resolver._constructor_namespace_owners[(family, id(parent), "field_data")] = (module, parent, "field_data")
             continue
+        if (family == "agents" and allow_owner_routes and isinstance(parent, ast.Call) and parent.func is node
+                and resolver._constructor_reference(module, node, scopes).get("external_constructor") in {
+                    "agents.ModelSettings", "agents.model_settings.ModelSettings", "openai_agents.ModelSettings",
+                } and not parent.args and len(parent.keywords) == 1
+                and parent.keywords[0].arg == "tool_choice"
+                and isinstance(parent.keywords[0].value, ast.Constant)
+                and parent.keywords[0].value.value in {"auto", "none", "required"}):
+            # A narrow data role still carries a shared SDK class. Its owner
+            # checks the inline destination and every result use separately.
+            resolver._constructor_namespace_owners[(family, id(parent), "settings_data")] = (module, parent, "settings_data")
+            continue
         decorated = parent
         if isinstance(parent, ast.Call) and parent.func is node:
             decorated = scopes.parents.get(parent)
