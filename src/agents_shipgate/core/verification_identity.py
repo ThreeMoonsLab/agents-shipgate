@@ -804,6 +804,20 @@ def read_regular_file_beneath(
     try:
         directory = open_directory_beneath(root, parts[:-1])
     except OSError as exc:
+        if os.name == "nt":
+            target = root.joinpath(*parts)
+            try:
+                resolved_root = root.resolve()
+                resolved_target = target.resolve()
+                if not str(resolved_target).startswith(str(resolved_root)):
+                    raise ValueError(f"{label} path escapes root: {logical_path!r}")
+                if resolved_target.is_file():
+                    data = resolved_target.read_bytes()
+                    if len(data) > max_size:
+                        raise ValueError(f"{label} exceeds max size {max_size}: {logical_path!r}")
+                    return data
+            except OSError:
+                pass
         raise ValueError(f"could not safely read {label} {logical_path!r}: {exc}") from exc
     try:
         return read_regular_file_at(
