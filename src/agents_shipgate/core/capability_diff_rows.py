@@ -61,7 +61,12 @@ from agents_shipgate.core.host_grants import (
     secret_mapping_key,
     step_action_key,
 )
-from agents_shipgate.core.host_settings import rate_claude_setting, setting_value_text
+from agents_shipgate.core.host_settings import (
+    claude_env_rating,
+    command_setting_basis,
+    rate_claude_setting,
+    setting_value_text,
+)
 from agents_shipgate.core.mcp_host_selection import UNATTRIBUTED_MCP_HOST
 from agents_shipgate.core.openshell_compare import compare_openshell_grants
 from agents_shipgate.core.openshell_row_detail import (
@@ -792,6 +797,11 @@ def _grant_value(
         # (#827). It names both, the value as the settings file spells it.
         setting = str(grant["setting"])
         return f"{setting}: {setting_value_text(setting, published_setting_value(grant))}"
+    # A command setting or an env entry is named, never its value (#1027).
+    if kind == "command_setting" and grant.get("setting"):
+        return str(grant["setting"])
+    if kind == "env" and grant.get("name"):
+        return f"env.{grant['name']}"
     # `event` names a hook's trigger. Without it a hook row rendered as
     # "hook", which tells a reviewer a hook changed and not which one (#689).
     for key in ("rule", "server", "name", "event", "value", "permission"):
@@ -1013,6 +1023,14 @@ def _why(
         )
     if kind == "instruction_trust_root":
         return "changes instructions the agent is given"
+    if kind == "command_setting":
+        # Rated as a settings hook is: Claude Code runs it (#1027).
+        basis = command_setting_basis(str(grant.get("setting") or ""))
+        return f"removes a setting that {basis}" if direction == REMOVED else basis
+    if kind == "env":
+        rating = claude_env_rating(str(grant.get("name") or ""))
+        if rating is not None and rating.basis:
+            return f"removes an env entry that {rating.basis}" if direction == REMOVED else rating.basis
     if kind == "permission_mode" and grant.get("host") == "claude-code" and grant.get("setting"):
         # The basis of the rating the row's severity carries, from the one
         # table `check` rates the same value with (#827).
@@ -1797,6 +1815,63 @@ def _hook_cell(value: str, grant: dict[str, Any] | None) -> str:
     return f"{value} ({_listed_handlers(grant)})"
 
 
+#: Why a command setting's row shows no command (#1027).
+_NO_STRING_COMMAND = "no command shown: the value holds no string command"
+#: What an env row says in place of the value it never publishes (#1027).
+_ENV_VALUE_NOT_SHOWN = "value not shown"
+
+
+def _command_setting_cell(value: str, grant: dict[str, Any] | None) -> str:
+    """An added or removed command setting: its command as a hook's is shown, never its text (#1027)."""
+
+    if not grant or value == ABSENT:
+        return value
+    command = grant.get("command")
+    if not isinstance(command, dict):
+        return f"{value} ({_NO_STRING_COMMAND})"
+    summary = _shape_summary(command)
+    return f"{value}: {_command_text(command)}" + (f" ({summary})" if summary else "")
+
+
+def _command_setting_change(value: str, before: dict[str, Any], after: dict[str, Any]) -> str:
+    """What changed in a command setting both sides declare, in its published facts (#1027)."""
+
+    old, new = before.get("command"), after.get("command")
+    if isinstance(old, dict) and isinstance(new, dict):
+        if old.get("sha256") != new.get("sha256"):
+            return (
+                f"{value} command changed ({_command_text(old)} → {_command_text(new)})"
+                f"{_command_shape_change(old, new)}"
+            )
+        return (
+            f"{value} changed outside its command, such as its type or padding; "
+            f"the command is unchanged ({_command_text(new)})"
+        )
+    return (
+        f"{value} changed ({_digest_text(before.get('config_sha256'))} → "
+        f"{_digest_text(after.get('config_sha256'))}); {_NO_STRING_COMMAND} on "
+        + ("either side" if not isinstance(old, dict) and not isinstance(new, dict)
+           else "the base" if not isinstance(old, dict) else "the head")
+    )
+
+
+def _env_cell(value: str, grant: dict[str, Any] | None) -> str:
+    """An added or removed env entry: its name and its value's digest, never the value (#1027)."""
+
+    if not grant or value == ABSENT:
+        return value
+    return f"{value} ({_ENV_VALUE_NOT_SHOWN}, {_digest_text(grant.get('config_sha256'))})"
+
+
+def _env_change(value: str, before: dict[str, Any], after: dict[str, Any]) -> str:
+    """An env entry whose value changed: the two digests, never the values (#1027)."""
+
+    return (
+        f"{value} value changed ({_digest_text(before.get('config_sha256'))} → "
+        f"{_digest_text(after.get('config_sha256'))}); {_ENV_VALUE_NOT_SHOWN}"
+    )
+
+
 def _listed_handlers(grant: dict[str, Any]) -> str:
     """The handlers a grant publishes, as a cell lists them: at most three, then a count (#819)."""
 
@@ -2444,6 +2519,28 @@ def capability_diff_rows(
             view = _RowView(
                 before=_hook_cell(row.before, before_grant),
                 after=_hook_cell(row.after, after_grant),
+            )
+        elif kind == "command_setting" and before_grant and after_grant:
+            view = _RowView(
+                before=row.before,
+                after=row.after,
+                change=_command_setting_change(row.after, before_grant, after_grant),
+            )
+        elif kind == "command_setting":
+            view = _RowView(
+                before=_command_setting_cell(row.before, before_grant),
+                after=_command_setting_cell(row.after, after_grant),
+            )
+        elif kind == "env" and before_grant and after_grant:
+            view = _RowView(
+                before=row.before,
+                after=row.after,
+                change=_env_change(row.after, before_grant, after_grant),
+            )
+        elif kind == "env":
+            view = _RowView(
+                before=_env_cell(row.before, before_grant),
+                after=_env_cell(row.after, after_grant),
             )
         elif kind == "openshell_policy" and before_grant and after_grant:
             view = _RowView(

@@ -448,7 +448,14 @@ def run_capability_diff(
         typer.echo("")
     if not rows:
         if not partial:
-            typer.echo("No static host-grant changes detected. No verdict is implied.")
+            from agents_shipgate.report.host_comparison import (
+                NO_CHANGE_HEADLINE,
+                not_compared_headline,
+            )
+
+            # A settings file that changed with no row is named, never
+            # presented as no change (#1027).
+            typer.echo(not_compared_headline(comparison) or NO_CHANGE_HEADLINE)
         # A partial result already said, above, that it is not a no-change
         # answer, and a blank line followed it; its block names what was and
         # was not compared.

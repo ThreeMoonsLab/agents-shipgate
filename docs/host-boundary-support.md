@@ -17,7 +17,7 @@ and `audit --host`.
 |---|---|---|---|
 | OpenShell | static inventory | root/nested `.shipgate/openshell.json` selecting arbitrary repository policy files | [Pinned policy schema 1 inventory](openshell-support.md), authored/effective-snapshot roles, explicit/defaulted fields and named read limits; runtime enforcement and freshness remain unverified |
 | Codex | first-class | `.codex/config.toml`, `.codex/hooks.json`, a `.mcp.json` a `.codex-plugin/plugin.json` selects | sandbox, approvals, network, MCP/app approvals, hooks |
-| Claude Code | first-class | `.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json` (the root one, a Claude Code plugin's, and a nested one nothing else selects), `CLAUDE.md`, Claude skills | permission modes/rules, sandbox/network, additional paths, MCP restrictions, plugins and their marketplaces (`extraKnownMarketplaces`), hooks |
+| Claude Code | first-class | `.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json` (the root one, a Claude Code plugin's, and a nested one nothing else selects), `CLAUDE.md`, Claude skills | permission modes/rules, sandbox/network, additional paths, MCP restrictions, plugins and their marketplaces (`extraKnownMarketplaces`), hooks, [settings it runs as commands and endpoint, trust and loader `env` entries](#claude-code-commands-and-env) |
 | Cursor | first-class | `.cursor/cli.json`, `.cursor/mcp.json`, `.cursor/rules/**` | Shell/Read/Write rules, MCP declarations, instruction trust roots |
 | VS Code MCP | first-class | `.vscode/mcp.json` | MCP servers; `sandbox` and per-server `sandboxEnabled`; `${input:…}` references by name, never value; `envFile` recorded as a limit; other top-level keys partial |
 | Shared/GitHub | first-class | `AGENTS.md`, Shipgate policies/state, skills, `.github/workflows/*` | instruction/gate weakening, workflow permissions and triggers (the event context apart from job token scopes), reusable-call permission ceilings and the permissions of same-repository called workflows, remote step action references, named secret sources passed to reusable workflows, agent launches (documented agent action inputs, `run:` steps that are one plain `claude -p` / `codex exec` command, `run:` steps that mention an agent CLI in shell this audit does not parse, named as a limit) and `actions/checkout` refs |
@@ -207,6 +207,16 @@ the changed inputs the candidate rules at the end of this section name (#821):
   became a script or an action outside the table in the same change reads as
   moved; while the job keeps such a step, or any job but the receiving one
   gains one, it never does.
+- **Claude Code settings keys no reader compares** (#1027): `forceLoginMethod`,
+  `forceLoginOrgUUID`, `disabledMcpjsonServers`, `model` and every other
+  top-level key no grant reader models, a `permissions` key beside the rules
+  and modelled settings, and an `env` entry other than the
+  [endpoint, trust and loader names](#claude-code-commands-and-env). Unlike
+  the surfaces above, they are named: a change to one gives no row, but its
+  coverage item names the key and the headline reads `Changed, not compared`.
+  A change only to such an `env` entry's value is redacted, so it is named as
+  a changed file with no key. One shaped as a command Claude Code runs is a
+  blocking limit instead.
 
 Review changes to those files and fields as you would a change to the workflow,
 hook or server entry that holds them.
@@ -607,7 +617,7 @@ is named. The workflow's coverage line says so: `… compared; changed, but no
 grant this entry compares changed, so no row (text this entry does not read,
 such as a step's env or an unread agent step, is not compared; audit --host
 names each unread agent step)`, where another file's line names redacted
-values such as env values and `apiKeyHelper`.
+values, such as env values this entry does not model (#1027).
 
 A workflow's labels are published redacted (#802). A job id, a step's `id` or
 `name`, a trigger and a permission scope name go through the same redaction as
@@ -1375,6 +1385,71 @@ paired by likeness, and a pair it cannot decide stays a widening.
   syntax to the rule model, so a rule holding one is never proven covered and
   keeps its `⚠`. `check` redacts every argument and lists each such rule as
   its own `Bash(<redacted-arguments>)` row.
+
+### Claude Code commands and env
+
+Claude Code runs some settings as shell commands with the user's authority,
+and some `env` entries redirect its requests or load code into it. Since #1027
+the settings reader publishes them as grants (host-grants `0.9`, extended in
+place), so `diff` (text and `--json`), `verify`'s host comparison, the PR
+comment, `check`'s rows and `audit --host` name a change to one as a row:
+
+- **`command_setting`** — `statusLine`, `subagentStatusLine` and
+  `fileSuggestion` (an object whose `command` it runs), and `apiKeyHelper`,
+  `otelHeadersHelper`, `awsAuthRefresh` and `awsCredentialExport` (a string it
+  runs). Rated `execute`/`high`, as a hook a settings file declares. The
+  grant digests the whole value, and publishes its `command` as a hook
+  handler's is: the executable's name, a digest and a shape, never the text.
+  A row reads `statusLine: curl sha256:… (runs curl, sh; 1 pipe)`; a changed
+  command reads `apiKeyHelper command changed (k.sh sha256:… → curl sha256:…)`.
+  A script the command runs is not read, unlike a hook's
+  ([bounded script comparison](#hook-script-dependencies)): an edit only to
+  the script gives no row.
+- **`env`** — an entry whose name sets where Claude Code, or a tool it starts,
+  sends requests (any `*_BASE_URL`, an `OTEL_EXPORTER_OTLP_…ENDPOINT`,
+  `HTTP_PROXY`, `HTTPS_PROXY`), which TLS certificates it trusts
+  (`NODE_EXTRA_CA_CERTS`, `NODE_TLS_REJECT_UNAUTHORIZED`), or what code
+  loads in the processes it starts (`NODE_OPTIONS`, `BASH_ENV`,
+  `CLAUDE_CODE_SHELL_PREFIX`, `LD_PRELOAD`, `DYLD_INSERT_LIBRARIES`). Rated
+  `high`. The row names the entry, `env.ANTHROPIC_BASE_URL (value not shown,
+  sha256:…)`; the value is never published, and a value change reads
+  `value changed (sha256:… → sha256:…)`. The digest is of the value as every
+  grant's is held, with credential shapes and a URL's path withheld, so a
+  change only to a URL's path is not a row (#772).
+
+Adding either is a widening (`⚠`); editing one is a `changed` row whose
+direction is unknown; removing one is a removal. Every other `env` entry stays
+out of the grants and its value redacted, so rotating a token there is quiet.
+Both kinds merge across settings layers: each layer's entry is kept, never
+shadowed. `check`'s decision is unchanged: it already routed these files to
+review, and its advisory rows now include these.
+
+**Keys no reader compares.** A parsed `.claude/settings.json`,
+`.claude/settings.local.json`, user or managed settings file publishes
+`unmodelled_keys` on its artifact: every top-level key no grant reader
+compares (`model`, `forceLoginMethod`, `disabledMcpjsonServers`, an unknown
+key), each `permissions.<key>` beside the rules and modelled settings, and
+`env` for the entries above it does not model, each with a digest of the key
+and its value as `config_sha256`'s input holds them (an `env` or secret-named
+value redacted). It is display-only: out of artifact equality, the inventory
+digests and saved baselines. When a comparison finds no row for a settings
+file whose such keys changed, its coverage item names them in `detail`
+(`keys this entry does not compare: someFutureSetting`), and `diff`, `verify`
+and the PR comment lead with `Changed, not compared: .claude/settings.json
+(keys this entry does not compare: someFutureSetting). No host-grant row
+describes this change. No verdict is implied.` instead of `No static
+host-grant changes detected`. The same headline names, without keys, any
+other settings, MCP or hook file that changed with no row (an `env` value
+this entry does not model, a reordered rule, a plugin manifest's `hooks`
+reference). A workflow or instruction document keeps its own coverage line.
+
+**Command-shaped keys no reader models.** A top-level key no reader compares
+whose value is an object holding a string `command`, or a string under a key
+ending in `Helper`, is shaped as something Claude Code runs. It records a
+blocking `unsupported` issue, as `policyHelper` always has, so `audit --host`
+reports Claude Code coverage `partial` while it is present, no baseline can
+acknowledge it, and a comparison of a change to that file is refused rather
+than shown without it.
 
 ### Claude Code setting ratings
 

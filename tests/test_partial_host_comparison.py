@@ -452,7 +452,13 @@ def test_a_settings_change_is_never_said_to_move_no_grant_beside_a_withheld_plug
     assert _settings_item(payload)["status"] == "changed_without_rows"
     for output in (text, verify_text, comment):
         assert "no grant this entry compares changed" not in output
-    assert f"{SETTINGS} (claude-code): compared; changed, but no row is attributed to this path" in text
+    # `additionalMarketplaces` publishes no grant of its own, so the key is
+    # named as one no reader compares (#1027).
+    assert _settings_item(payload)["detail"] == "keys this entry does not compare: additionalMarketplaces"
+    assert (
+        f"{SETTINGS} (claude-code): compared; changed, not compared "
+        "(keys this entry does not compare: additionalMarketplaces), so no row"
+    ) in text
 
 
 def test_a_sibling_directory_whose_name_extends_the_withheld_one_is_compared(
