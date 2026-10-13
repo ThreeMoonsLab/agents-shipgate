@@ -1,7 +1,9 @@
 import json
+import shutil
 from pathlib import Path
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from agents_shipgate.cli._artifact_lifecycle import (
@@ -2003,3 +2005,151 @@ def test_scan_reports_a_manifest_type_mismatch_as_a_config_error(tmp_path):
     assert "file an issue" not in json.dumps(payload)
     assert payload["next_actions"][0]["kind"] == "edit"
     assert payload["next_actions"][0]["path"] == str(manifest)
+
+
+_ARCHIVE_CASE = {
+    "operationId": "support.archive_case",
+    "summary": "Archive a support case.",
+    "parameters": [
+        {"name": "case_id", "in": "path", "required": True, "schema": {"type": "string"}}
+    ],
+    "responses": {"204": {"description": "archived"}},
+}
+
+
+def _google_adk_sample_with_delete(tmp_path: Path, *, behind_path_item_ref: bool) -> Path:
+    root = tmp_path / ("ref" if behind_path_item_ref else "inline")
+    shutil.copytree(GOOGLE_ADK_SAMPLE.parent, root)
+    spec_path = root / "specs" / "support.openapi.yaml"
+    spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
+    if behind_path_item_ref:
+        spec["paths"]["/cases/{case_id}/archive"] = {"$ref": "#/components/pathItems/Archive"}
+        spec["components"] = {"pathItems": {"Archive": {"delete": _ARCHIVE_CASE}}}
+    else:
+        spec["paths"]["/cases/{case_id}/archive"] = {"delete": _ARCHIVE_CASE}
+    spec_path.write_text(yaml.safe_dump(spec, sort_keys=False), encoding="utf-8")
+    return root / "shipgate.yaml"
+
+
+def test_openapi_delete_behind_a_path_item_ref_is_gated_like_an_inline_one(tmp_path):
+    """#1021: the same DELETE behind `$ref` was invisible and left the base verdict."""
+
+    verdicts = {}
+    for behind_ref in (False, True):
+        config = _google_adk_sample_with_delete(tmp_path, behind_path_item_ref=behind_ref)
+        out = config.parent / "out"
+        report, exit_code = run_scan(
+            config_path=config, output_dir=out, ci_mode="strict", plugins_enabled=False
+        )
+        assert "support.archive_case" in (out / "report.json").read_text(encoding="utf-8")
+        verdicts[behind_ref] = (
+            report.release_decision.decision,
+            exit_code,
+            sorted(
+                (finding.check_id, finding.severity)
+                for finding in report.findings
+                if finding.tool_name == "support.archive_case"
+            ),
+        )
+
+    assert verdicts[True] == verdicts[False]
+    decision, _, findings = verdicts[True]
+    assert decision == "blocked"
+    assert ("SHIP-POLICY-APPROVAL-MISSING", "critical") in findings
+
+
+_READ_TOOLS = ("listLabels", "getLabel", "listBoards", "getBoard")
+_LABEL_SCHEMA = {"type": "object", "properties": {"name": {"type": "string"}}}
+
+
+def _openapi_read_workspace(tmp_path: Path, extra_paths: dict | None = None, *, refs: bool):
+    """Four reviewed read operations, scanned strictly; ``refs`` names the schema."""
+
+    label = {"$ref": "#/components/schemas/Label"} if refs else _LABEL_SCHEMA
+    paths: dict = {
+        f"/reads/{index}": {
+            "get": {
+                "operationId": name,
+                "description": "Read label metadata.",
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "content": {
+                            "application/json": {
+                                "schema": {"type": "object", "additionalProperties": label}
+                            }
+                        },
+                    }
+                },
+            }
+        }
+        for index, name in enumerate(_READ_TOOLS)
+    }
+    paths.update(extra_paths or {})
+    document = {
+        "openapi": "3.1.0",
+        "info": {"title": "Labels", "version": "1"},
+        "security": [],
+        "paths": paths,
+        "components": {"schemas": {"Label": _LABEL_SCHEMA}},
+    }
+    manifest = {
+        "version": "0.1",
+        "project": {"name": "labels", "owner": "test"},
+        "agent": {"name": "label_helper", "declared_purpose": ["look up labels"]},
+        "environment": {"target": "local"},
+        "tool_sources": [{"id": "labels", "type": "openapi", "path": "api.json"}],
+        "agent_bindings": {
+            "declarations": [
+                {
+                    "agent": "root",
+                    "complete": True,
+                    "tools": [{"tool": name, "source_id": "labels"} for name in _READ_TOOLS],
+                    "handoffs": [],
+                    "reason": "Synthetic isolated regression fixture",
+                }
+            ]
+        },
+        "action_surface": {
+            "actions": [
+                {"tool": name, "effect": "read", "authority": {"mode": "none"}}
+                for name in _READ_TOOLS
+            ]
+        },
+    }
+    root = tmp_path / ("refs" if refs else "inline")
+    root.mkdir()
+    (root / "shipgate.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    (root / "api.json").write_text(json.dumps(document), encoding="utf-8")
+    report, _ = run_scan(
+        config_path=root / "shipgate.yaml",
+        output_dir=root / "out",
+        ci_mode="strict",
+        plugins_enabled=False,
+    )
+    return report
+
+
+def test_openapi_schema_refs_the_document_resolves_do_not_degrade_evidence(tmp_path):
+    """#1021: four `additionalProperties` refs read as four unresolved-ref warnings."""
+
+    inline = _openapi_read_workspace(tmp_path, refs=False)
+    referenced = _openapi_read_workspace(tmp_path, refs=True)
+
+    assert referenced.source_warnings == []
+    assert referenced.release_decision.decision == inline.release_decision.decision == "passed"
+
+
+def test_openapi_external_path_item_ref_withholds_a_pass_and_is_ledgered(tmp_path):
+    report = _openapi_read_workspace(
+        tmp_path, {"/accounts/{id}": {"$ref": "./paths/accounts.yaml"}}, refs=True
+    )
+
+    (warning,) = report.source_warnings
+    assert "'/accounts/{id}'" in warning and "'./paths/accounts.yaml'" in warning
+    assert report.release_decision.decision != "passed"
+    (row,) = [
+        entry for entry in report.surface_exclusions.entries if entry.stage == "adapter_parse"
+    ]
+    assert (row.subject, row.reason) == ("/paths/~1accounts~1{id}", "unresolved_path_item_ref")
+    assert (row.accounting, row.accounted_by) == ("evidence_gap", warning)

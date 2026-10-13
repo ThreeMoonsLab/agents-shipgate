@@ -1547,7 +1547,8 @@ def test_every_reason_the_ledger_owns_renders_a_phrase():
     Both directions: a token added to a builder without a phrase says nothing
     a reader can act on, and a phrase left behind by a renamed token is dead
     text nobody would notice. Scoped to the vocabularies this package owns —
-    the two report-side builders and the two bundled MCP loaders — because a
+    the two report-side builders, the two bundled MCP loaders and the OpenAPI
+    loader — because a
     third-party adapter may coin any token and the fallback is the right
     answer for it. A new emitter here is meant to fail this test and be added
     deliberately.
@@ -1563,6 +1564,7 @@ def test_every_reason_the_ledger_owns_renders_a_phrase():
     from agents_shipgate.core import surface_exclusions as module
     from agents_shipgate.inputs import mcp as mcp_module
     from agents_shipgate.inputs import mcp_manifest as mcp_manifest_module
+    from agents_shipgate.inputs import openapi as openapi_module
 
     def _module_constants(tree: ast.AST) -> dict[str, str]:
         found: dict[str, str] = {}
@@ -1619,6 +1621,7 @@ def test_every_reason_the_ledger_owns_renders_a_phrase():
             {"_binding_exclusions", "_surface_completeness_exclusions"},
         )
         | _omit_reasons(Path(mcp_module.__file__))
+        | _omit_reasons(Path(openapi_module.__file__))
         | _keyword_reasons(
             Path(mcp_manifest_module.__file__), {"_merge_server_declarations"}
         )
