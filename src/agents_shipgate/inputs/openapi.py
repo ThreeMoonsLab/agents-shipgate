@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from copy import deepcopy
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
@@ -11,6 +12,7 @@ from agents_shipgate.core.domain import (
     AuthorityMode,
     AuthSchemeRequirement,
     LoadedToolSource,
+    SourceSurfaceOmission,
     Tool,
 )
 from agents_shipgate.core.errors import InputParseError
@@ -42,6 +44,18 @@ from agents_shipgate.schemas.manifest import (
 MAX_SCHEMA_RESOLVE_DEPTH = 32
 MAX_SCHEMA_RESOLVE_NODES = 5000
 
+#: ``SourceSurfaceOmission.reason`` for a path item whose ``$ref`` leaves this
+#: document, names nothing in it, names something that is not an object, or
+#: loops: the operations it points to are never read.
+UNRESOLVED_PATH_ITEM_REF = "unresolved_path_item_ref"
+#: ``SourceSurfaceOmission.reason`` for an operation a referenced path item
+#: declares and a key of the same name beside the ``$ref`` replaces. OpenAPI
+#: leaves that conflict undefined; the operation written beside the ``$ref`` is
+#: the one read.
+SHADOWED_PATH_ITEM_OPERATION = "shadowed_path_item_operation"
+
+_MISSING = object()
+
 
 def load_openapi_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSource:
     assert source.path is not None
@@ -64,15 +78,62 @@ def load_openapi_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSo
 
     tools: list[Tool] = []
     warnings: list[str] = []
+    omissions: list[SourceSurfaceOmission] = []
     seen_names: set[str] = set()
     operation_rows = []
-    document_unambiguous = unambiguous_document(text)
+    # The DELETE proof profile's uniqueness check parses the document again in
+    # pure Python. Only a DELETE operation consults it, so it is computed on
+    # the first one rather than for every document read.
+    document_unambiguous: bool | None = None
     document_digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
-    for api_path, path_item in paths.items():
-        if not isinstance(path_item, dict):
+    source_path = manifest_relative_path(source.path, base_dir)
+    # Each schema $ref this document cannot resolve, once, with its tools.
+    unresolved_schema_refs: dict[str, list[str]] = {}
+
+    def _omit(subject: str, reason: str, warning: str, detail: str) -> None:
+        """Record an operation that never reached the catalog, beside its warning."""
+
+        warnings.append(warning)
+        omissions.append(
+            SourceSurfaceOmission(subject=subject, reason=reason, detail=detail, warning=warning)
+        )
+
+    for api_path, raw_path_item in paths.items():
+        if not isinstance(raw_path_item, dict):
             raise InputParseError(f"OpenAPI path item {api_path} must be an object")
-        path_parameters = path_item.get("parameters") or []
-        for method, operation in path_item.items():
+        path_item = _read_path_item(document, str(api_path), raw_path_item)
+        if path_item.unresolved_ref is not None:
+            ref = path_item.unresolved_ref
+            external = not ref.startswith("#")
+            _omit(
+                f"/paths/{json_pointer_escape(str(api_path))}",
+                UNRESOLVED_PATH_ITEM_REF,
+                f"OpenAPI path item {str(api_path)!r} in {source_path!r} points to "
+                f"$ref {ref!r}, "
+                + (
+                    "outside this document"
+                    if external
+                    else "which this document does not resolve to a path item"
+                )
+                + "; the operations it declares were not read.",
+                "The path item's operations live in another file, which is not read; "
+                "point this source at a bundled document that inlines them."
+                if external
+                else "The path item's $ref names nothing usable in this document, so "
+                "its operations were not read; correct the reference.",
+            )
+        for method_key, shadowed_pointer in path_item.shadowed:
+            _omit(
+                shadowed_pointer,
+                SHADOWED_PATH_ITEM_OPERATION,
+                f"OpenAPI path item {str(api_path)!r} in {source_path!r} declares "
+                f"{method_key!r} both beside its $ref and at {shadowed_pointer!r}; "
+                "only the operation beside the $ref was read.",
+                "Two operations claim the same method on this path; remove one so "
+                "the document says which is served.",
+            )
+        path_parameters = path_item.fields.get("parameters") or []
+        for method, operation in path_item.fields.items():
             method_lower = str(method).lower()
             if method_lower not in HTTP_METHODS:
                 continue
@@ -85,8 +146,9 @@ def load_openapi_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSo
                     document=document,
                     source=source,
                     source_ref=source.path,
-                    source_path=manifest_relative_path(source.path, base_dir),
+                    source_path=source_path,
                     api_path=str(api_path),
+                    pointer_base=path_item.pointers[method],
                     method=method_lower,
                     operation=operation,
                     path_parameters=path_parameters,
@@ -107,19 +169,32 @@ def load_openapi_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSo
             seen_names.add(tool.name)
             if warning := tool_name_warning(tool.name):
                 warnings.append(warning)
-            for ref in _unresolved_refs(tool.input_schema) + _unresolved_refs(tool.output_schema):
-                warnings.append(
-                    f"Unresolved OpenAPI $ref {ref!r} in tool {tool.name!r}; "
-                    "external or missing refs are left as metadata."
-                )
+            for ref in _unresolved_refs(document, tool.input_schema) + _unresolved_refs(
+                document, tool.output_schema
+            ):
+                carriers = unresolved_schema_refs.setdefault(ref, [])
+                if tool.name not in carriers:
+                    carriers.append(tool.name)
             tools.append(tool)
             if method_lower == "delete":
+                if document_unambiguous is None:
+                    document_unambiguous = unambiguous_document(text)
                 operation_rows.append(operation_evidence(
                     document=document, document_digest=document_digest,
-                    source=source, tool=tool, path_item=path_item,
+                    # The path item as written: a ``$ref`` in it is a
+                    # dependency the proof profile does not model, and refuses.
+                    source=source, tool=tool, path_item=raw_path_item,
                     method_key=method, operation=operation,
                     document_unambiguous=document_unambiguous,
                 ))
+
+    for ref, carriers in unresolved_schema_refs.items():
+        others = len(carriers) - 1
+        warnings.append(
+            f"Unresolved OpenAPI $ref {ref!r} in tool {carriers[0]!r}"
+            + (f" and {others} other tool{'s' if others > 1 else ''}" if others else "")
+            + "; external or missing refs are left as metadata."
+        )
 
     snapshot = active_static_input_snapshot()
     if operation_rows and snapshot is not None and snapshot.contains(path):
@@ -129,8 +204,72 @@ def load_openapi_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSo
         source_type="openapi",
         tools=tools,
         warnings=warnings,
+        omissions=omissions,
         operation_evidence=operation_rows,
     )
+
+
+@dataclass
+class _PathItem:
+    """One ``paths`` entry with its ``$ref`` chain followed inside the document."""
+
+    #: Path Item fields, the ones written beside a ``$ref`` first.
+    fields: dict[Any, Any] = field(default_factory=dict)
+    #: For each field, the JSON pointer of the object that declares it.
+    pointers: dict[Any, str] = field(default_factory=dict)
+    #: The ``$ref`` that could not be followed, when one could not.
+    unresolved_ref: str | None = None
+    #: ``(method key, pointer)`` of each referenced operation that a field of
+    #: the same name, read earlier in the chain, replaced.
+    shadowed: list[tuple[str, str]] = field(default_factory=list)
+
+
+def _read_path_item(document: dict[str, Any], api_path: str, raw: dict[str, Any]) -> _PathItem:
+    """Read a Path Item, following its ``$ref`` within this document.
+
+    A Path Item may carry a ``$ref`` to another Path Item (OpenAPI 3.1 adds
+    ``components.pathItems`` to hold them) beside fields of its own. The fields
+    written beside the ``$ref`` are read first, then each referenced object's in
+    turn, and every field keeps the pointer of the object that declares it, so
+    an operation's ``source_pointer`` and line name where it is written. Where
+    two declare the same field the specification leaves the result undefined:
+    the earlier one is kept, and a replaced operation is returned in
+    ``shadowed`` rather than dropped unseen.
+
+    A reference this cannot follow — one that leaves the document, names
+    nothing in it, names something that is not an object, or loops — is
+    returned in ``unresolved_ref``. No file is opened: an external reference is
+    reported, never read.
+    """
+
+    item = _PathItem()
+    current: dict[Any, Any] = raw
+    pointer = f"/paths/{json_pointer_escape(api_path)}"
+    # By object, not by spelling: two pointers can name one object.
+    visited = {id(raw)}
+    while True:
+        for key, value in current.items():
+            if key == "$ref":
+                continue
+            if key in item.fields:
+                if str(key).lower() in HTTP_METHODS:
+                    item.shadowed.append(
+                        (str(key), f"{pointer}/{json_pointer_escape(str(key))}")
+                    )
+                continue
+            item.fields[key] = value
+            item.pointers[key] = pointer
+        if "$ref" not in current:
+            return item
+        ref = current["$ref"]
+        target = _local_ref_target(document, ref) if isinstance(ref, str) else _MISSING
+        if not isinstance(target, dict) or id(target) in visited:
+            item.unresolved_ref = str(ref)
+            return item
+        visited.add(id(target))
+        current = target
+        # ``_local_ref_target`` resolves only ``#/…``, so this is its pointer.
+        pointer = ref[1:]
 
 
 def _operation_to_tool(
@@ -140,6 +279,7 @@ def _operation_to_tool(
     source_ref: str | None,
     source_path: str | None,
     api_path: str,
+    pointer_base: str,
     method: str,
     operation: dict[str, Any],
     path_parameters: list[Any],
@@ -164,7 +304,9 @@ def _operation_to_tool(
     annotations["path"] = api_path
     auth = _extract_security(document, operation)
 
-    pointer = f"/paths/{json_pointer_escape(api_path)}/{method}"
+    # Where the operation is written: under ``/paths`` or, for a path item
+    # reached through ``$ref``, under the object that reference names.
+    pointer = f"{pointer_base}/{method}"
     pos = positions.lookup(pointer)
     source_start_line: int | None = None
     source_start_column: int | None = None
@@ -218,7 +360,7 @@ def _extract_response_schema(document: dict[str, Any], operation: dict[str, Any]
     responses = operation.get("responses") or {}
     if not isinstance(responses, dict):
         return {}
-    response = responses.get("200") or responses.get("201") or next(iter(responses.values()), {})
+    response = _success_response(responses)
     if not isinstance(response, dict):
         return {}
     response = _resolve_ref(document, response)
@@ -230,6 +372,29 @@ def _extract_response_schema(document: dict[str, Any], operation: dict[str, Any]
         return {}
     schema = media.get("schema") or {}
     return _resolve_schema(document, schema) if isinstance(schema, dict) else {}
+
+
+def _success_response(responses: dict[Any, Any]) -> Any:
+    """The response an operation returns on success: its lowest 2xx code.
+
+    Codes are compared as text because YAML reads an unquoted ``200:`` as an
+    integer, where JSON and a quoted key give a string. The ``2XX`` range
+    stands in when no code is listed, and the first response when neither is.
+    """
+
+    codes: list[tuple[int, Any]] = []
+    success_range: Any = None
+    for key, value in responses.items():
+        code = str(key).strip()
+        if len(code) == 3 and code.isascii() and code.isdigit() and code.startswith("2"):
+            codes.append((int(code), value))
+        elif code.upper() == "2XX" and success_range is None:
+            success_range = value
+    if codes:
+        return min(codes, key=lambda item: item[0])[1]
+    if success_range is not None:
+        return success_range
+    return next(iter(responses.values()), {})
 
 
 def _parameters_to_schema(
@@ -419,55 +584,86 @@ def _resolve_schema(
     resolved = _resolve_ref(document, schema)
     if not isinstance(resolved, dict):
         return {}
+    if resolved is not schema and set(resolved) == {"$ref"}:
+        # A schema that is only a reference to another: follow the alias,
+        # cycles included, rather than leave a resolvable ``$ref`` in place of
+        # its schema. A target with keywords beside its ``$ref`` is kept whole.
+        return _resolve_schema(document, resolved, seen_refs, depth + 1, budget)
     resolved = deepcopy(resolved)
+
+    def child(value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        return _resolve_schema(document, value, seen_refs.copy(), depth + 1, budget)
+
     if "properties" in resolved and isinstance(resolved["properties"], dict):
         resolved["properties"] = {
-            name: _resolve_schema(document, prop, seen_refs.copy(), depth + 1, budget)
-            if isinstance(prop, dict)
-            else prop
-            for name, prop in resolved["properties"].items()
+            name: child(prop) for name, prop in resolved["properties"].items()
         }
     if "items" in resolved and isinstance(resolved["items"], dict):
-        resolved["items"] = _resolve_schema(
-            document, resolved["items"], seen_refs.copy(), depth + 1, budget
-        )
+        resolved["items"] = child(resolved["items"])
     for combinator in ("oneOf", "anyOf", "allOf"):
         if combinator in resolved and isinstance(resolved[combinator], list):
-            resolved[combinator] = [
-                _resolve_schema(document, item, seen_refs.copy(), depth + 1, budget)
-                if isinstance(item, dict)
-                else item
-                for item in resolved[combinator]
-            ]
+            resolved[combinator] = [child(item) for item in resolved[combinator]]
+    # Read after the keywords above so a schema that uses only those resolves,
+    # and is truncated, exactly as before these were read.
+    if isinstance(resolved.get("patternProperties"), dict):
+        resolved["patternProperties"] = {
+            pattern: child(prop) for pattern, prop in resolved["patternProperties"].items()
+        }
+    for keyword in ("additionalProperties", "not"):
+        if isinstance(resolved.get(keyword), dict):
+            resolved[keyword] = child(resolved[keyword])
+    # ``items`` as a list is the pre-2020-12 tuple form of ``prefixItems``.
+    for keyword in ("prefixItems", "items"):
+        if isinstance(resolved.get(keyword), list):
+            resolved[keyword] = [child(item) for item in resolved[keyword]]
     return resolved
+
+
+def _local_ref_target(document: dict[str, Any], ref: str) -> Any:
+    """What a ``#/…`` reference names in ``document``, or ``_MISSING``."""
+
+    if not ref.startswith("#/"):
+        return _MISSING
+    current: Any = document
+    for part in ref[2:].split("/"):
+        part = part.replace("~1", "/").replace("~0", "~")
+        if not isinstance(current, dict) or part not in current:
+            return _MISSING
+        current = current[part]
+    return current
 
 
 def _resolve_ref(document: dict[str, Any], value: dict[str, Any]) -> Any:
     ref = value.get("$ref")
     if not isinstance(ref, str):
         return value
-    if not ref.startswith("#/"):
-        return value
-    current: Any = document
-    for part in ref[2:].split("/"):
-        part = part.replace("~1", "/").replace("~0", "~")
-        if not isinstance(current, dict) or part not in current:
-            return value
-        current = current[part]
-    return current
+    target = _local_ref_target(document, ref)
+    return value if target is _MISSING else target
 
 
-def _unresolved_refs(value: Any) -> list[str]:
+def _unresolved_refs(document: dict[str, Any], value: Any) -> list[str]:
+    """The ``$ref`` values in a resolved schema this document cannot resolve.
+
+    Only a reference that leaves the document or names nothing in it is
+    unresolved. That excludes the ``x-agents-shipgate-recursive-ref`` marker the
+    resolver writes where a schema refers back to itself, whose ``$ref`` it has
+    already resolved once, and a local reference left in place under a keyword
+    the resolver does not descend into. The marker key itself is not trusted:
+    the document can spell it too, so the reference is tested either way.
+    """
+
     refs: list[str] = []
     if isinstance(value, dict):
         ref = value.get("$ref")
-        if isinstance(ref, str):
+        if isinstance(ref, str) and _local_ref_target(document, ref) is _MISSING:
             refs.append(ref)
         for child in value.values():
-            refs.extend(_unresolved_refs(child))
+            refs.extend(_unresolved_refs(document, child))
     elif isinstance(value, list):
         for child in value:
-            refs.extend(_unresolved_refs(child))
+            refs.extend(_unresolved_refs(document, child))
     return refs
 
 
@@ -496,9 +692,13 @@ class OpenAPIAdapter:
                 status="extracted",
                 reads=(
                     "Each `paths` operation with its parameters, request body, and "
-                    "declared security. A `$ref` the document does not resolve is "
-                    "reported as a source warning against an action that is still "
-                    "read."
+                    "declared security, including the operations of a path item "
+                    "whose `$ref` names another path item in the same document. A "
+                    "path item whose `$ref` leaves the document or does not resolve "
+                    "is recorded as an omission with a source warning, since its "
+                    "operations are not read; a schema `$ref` the document does not "
+                    "resolve is reported as a source warning against an action that "
+                    "is still read."
                 ),
                 emits=("openapi",),
                 ceiling="high",

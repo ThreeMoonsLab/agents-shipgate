@@ -323,6 +323,38 @@ def test_duplicate_yaml_keys_and_aliases_are_profile_refusals(tmp_path):
     assert not unambiguous_document("a: &a {x: y}\nb: {<<: *a}\n")
 
 
+def test_uniqueness_proof_stops_parsing_once_past_its_node_budget(monkeypatch):
+    """#1021: a 10,000-operation spec spent seconds composing to answer False."""
+
+    from agents_shipgate.inputs import openapi_operation_contract as contract
+
+    budget = contract.MAX_PROOF_NODES
+    # The largest document the proof accepts: every value a distinct node, so
+    # one root and budget - 1 keyed scalars, 2 * budget - 1 node events.
+    widest = json.dumps({f"k{index}": index for index in range(budget - 1)})
+    assert contract.unambiguous_document(widest)
+    assert not contract.unambiguous_document(
+        json.dumps({f"k{index}": index for index in range(budget)})
+    )
+
+    consumed = []
+    real_parse = contract.yaml.parse
+
+    def parse(text):
+        for event in real_parse(text):
+            consumed.append(event)
+            yield event
+
+    def compose(text):
+        raise AssertionError("composed a document past the node budget")
+
+    monkeypatch.setattr(contract.yaml, "parse", parse)
+    monkeypatch.setattr(contract.yaml, "compose", compose)
+    huge = json.dumps({"items": list(range(20 * budget))})
+    assert not contract.unambiguous_document(huge)
+    assert len(consumed) < 2 * budget + 16
+
+
 def test_conflicting_canonical_evidence_cannot_compare(tmp_path):
     root = tmp_path / "repo"
     workspace(root)

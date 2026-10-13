@@ -113,7 +113,7 @@ Where an input shows more than one answer for a shape, the table shows the best 
 
 | Declaration shape | What is read | Emits | Ceiling | Outcome | Evidence gaps | Raises |
 | --- | --- | --- | --- | --- | --- | --- |
-| `export_artifact` | Each `paths` operation with its parameters, request body, and declared security. A `$ref` the document does not resolve is reported as a source warning against an action that is still read. | `openapi` | `high` | `proven` | — | — |
+| `export_artifact` | Each `paths` operation with its parameters, request body, and declared security, including the operations of a path item whose `$ref` names another path item in the same document. A path item whose `$ref` leaves the document or does not resolve is recorded as an omission with a source warning, since its operations are not read; a schema `$ref` the document does not resolve is reported as a source warning against an action that is still read. | `openapi` | `high` | `proven` | — | — |
 | `literal_registration` | An OpenAPI document is a contract file, not source. | — | — | `not_applicable` | — | — |
 | `factory` | Nothing in an OpenAPI document constructs operations. | — | — | `not_applicable` | — | — |
 | `dynamic_construction` | An operation is present in the document or it is not; there is no expression form to be unable to resolve. | — | — | `not_applicable` | — | — |

@@ -97,6 +97,15 @@ EXCLUSION_REASON_PHRASES: dict[str, str] = {
         "a disagreeing second declaration of a server this workspace declares "
         "more than once"
     ),
+    # adapter_parse (agents_shipgate.inputs.openapi)
+    "unresolved_path_item_ref": (
+        "a path item whose $ref this document does not resolve, so its "
+        "operations were not read"
+    ),
+    "shadowed_path_item_operation": (
+        "a referenced operation replaced by one of the same method written "
+        "beside the $ref"
+    ),
 }
 
 #: What an unrecognised token renders as. Deliberately says only what every

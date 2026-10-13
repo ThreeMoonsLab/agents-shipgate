@@ -268,7 +268,7 @@
           "extraction_permits_pass": true,
           "outcome": "proven",
           "raises": [],
-          "reads": "Each `paths` operation with its parameters, request body, and declared security. A `$ref` the document does not resolve is reported as a source warning against an action that is still read.",
+          "reads": "Each `paths` operation with its parameters, request body, and declared security, including the operations of a path item whose `$ref` names another path item in the same document. A path item whose `$ref` leaves the document or does not resolve is recorded as an omission with a source warning, since its operations are not read; a schema `$ref` the document does not resolve is reported as a source warning against an action that is still read.",
           "shape": "export_artifact",
           "status": "extracted",
           "surface": null,

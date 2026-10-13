@@ -15,6 +15,9 @@ from agents_shipgate.core.tool_identity import source_observation_id
 from agents_shipgate.schemas.operation_attribution import DeclaredOperation, OperationInput
 
 MAX_TARGET_BYTES = 16 * 1024
+#: The largest document, in value nodes, whose uniqueness this profile proves.
+MAX_PROOF_NODES = 5000
+_NODE_EVENTS = (yaml.ScalarEvent, yaml.MappingStartEvent, yaml.SequenceStartEvent, yaml.AliasEvent)
 
 
 def unambiguous_document(text: str) -> bool:
@@ -22,13 +25,25 @@ def unambiguous_document(text: str) -> bool:
 
     This is a proof-profile refusal, not a change to the supported source loader.
     In particular, a last-key-wins loader result cannot prove uniqueness.
+
+    The loader calls this only once it holds a DELETE operation, and the event
+    stream is counted before anything is composed: a provable document has at
+    most ``MAX_PROOF_NODES`` value nodes and no more keys than values, so past
+    twice that many node events the answer is already ``False`` and the rest of
+    the document is never parsed.
     """
     try:
+        node_events = 0
+        for event in yaml.parse(text):
+            if isinstance(event, _NODE_EVENTS):
+                node_events += 1
+                if node_events > 2 * MAX_PROOF_NODES:
+                    return False
         root = yaml.compose(text)
         todo, seen = [root], set()
         while todo:
             node = todo.pop()
-            if node is None or id(node) in seen or len(seen) >= 5000:
+            if node is None or id(node) in seen or len(seen) >= MAX_PROOF_NODES:
                 return False
             seen.add(id(node))
             if isinstance(node, yaml.MappingNode):
