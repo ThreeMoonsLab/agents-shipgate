@@ -552,7 +552,21 @@ source authority; verify `${{ github.event.pull_request.head.sha }}` as the
 explicit head in a separate run before requesting push authorization.
 The Action exports `request_id`, `receipt_id`, `decision_id`,
 `artifact_set_id`, and `verification_receipt_json` only after validating the
-receipt and all referenced hashes.
+receipt and all referenced hashes; otherwise each is empty.
+
+`attest`, `org bundle` and the Action's output step decide whether a
+`verifier.json` owes a receipt with one predicate,
+`agents_shipgate.schemas.verification_identity.requires_verification_receipt`
+(#1022). It names the verifier versions written before receipts (`0.1`–`0.4`)
+and reads every other version, newer ones included, as owing one whenever the
+verifier states an outcome: an execution that `succeeded` or was `skipped`, a
+decision, a merge verdict other than `unknown`, or merge authority. A failed
+or not-run execution that states none of these (a missing manifest, the
+manifest-free host route) is never closed by a receipt, so none is owed. A
+receipt that is present is validated either way, and every identity a
+consumer publishes is copied from a receipt that validated. A missing,
+tampered or mismatched receipt fails `attest` and `org bundle` with exit `3`
+and a line naming the receipt, and fails the Action's output step.
 
 ## Boundaries
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 from pathlib import PurePosixPath
 from typing import Any, Literal
 
@@ -395,11 +396,52 @@ class VerificationReceipt(BaseModel):
         return self
 
 
+#: Verifier schema versions written before terminal receipts existed. Receipts
+#: arrived with verifier ``0.5`` (#273). Only these versions are named: every
+#: other value, including a version newer than this build and a missing one,
+#: reads as receipt-era, so a new minor can never silently read as one that
+#: owes no receipt. A list of current versions did exactly that from ``0.8``
+#: to ``0.21`` (#1022), the failure ``cli/first_look.py`` fixed for host-grants
+#: inventories in #700.
+VERIFIER_SCHEMA_VERSIONS_BEFORE_RECEIPTS = frozenset({"0.1", "0.2", "0.3", "0.4"})
+
+#: Executions ``verify`` closes with a terminal receipt. A ``failed`` or
+#: ``not_run`` execution (a missing manifest, a head that could not be
+#: evaluated, the manifest-free host route) never receives one.
+_RECEIPTED_EXECUTIONS = frozenset({"succeeded", "skipped"})
+
+
+def requires_verification_receipt(verifier_payload: Mapping[str, Any]) -> bool:
+    """Whether ``verifier.json`` must be closed by a valid ``verification-receipt.json``.
+
+    The one predicate ``attest``, ``org bundle`` and the GitHub Action's output
+    step share. A receipt binds the outcome a verifier states, so one is owed
+    unless the version predates receipts or the verifier states no outcome: an
+    execution that was not run or failed, with no decision, a merge verdict of
+    ``unknown`` and no merge authority. The engine writes no receipt for those,
+    and a payload that claims any outcome without one fails closed in every
+    consumer.
+    """
+
+    version = verifier_payload.get("verifier_schema_version")
+    if isinstance(version, str) and version in VERIFIER_SCHEMA_VERSIONS_BEFORE_RECEIPTS:
+        return False
+    execution = verifier_payload.get("execution") or verifier_payload.get("head_status")
+    return bool(
+        (isinstance(execution, str) and execution in _RECEIPTED_EXECUTIONS)
+        or verifier_payload.get("decision") is not None
+        or verifier_payload.get("release_decision")
+        or verifier_payload.get("merge_verdict") not in (None, "unknown")
+        or verifier_payload.get("can_merge_without_human")
+    )
+
+
 __all__ = [
     "VERIFICATION_ARTIFACT_MANIFEST_SCHEMA_VERSION",
     "VERIFICATION_PLAN_SCHEMA_VERSION",
     "VERIFICATION_RECEIPT_SCHEMA_VERSION",
     "VERIFICATION_UNIT_RESULT_SCHEMA_VERSION",
+    "VERIFIER_SCHEMA_VERSIONS_BEFORE_RECEIPTS",
     "VerificationArtifactManifest",
     "VerificationArtifactRef",
     "VerificationBlob",
@@ -414,5 +456,6 @@ __all__ = [
     "VerificationUnitResult",
     "canonical_json",
     "content_id",
+    "requires_verification_receipt",
     "validate_portable_path",
 ]

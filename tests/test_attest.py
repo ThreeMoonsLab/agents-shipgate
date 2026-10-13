@@ -17,7 +17,11 @@ SCHEMA = json.loads((REPO_ROOT / "docs/attestation-schema.v0.5.json").read_text(
 
 
 def _verifier_payload() -> dict:
+    # A verifier written before receipts, since no receipt sits beside it
+    # (#1022). attest on real verify output, receipt included, is in
+    # tests/test_verification_receipt_consumers.py.
     return {
+        "verifier_schema_version": "0.4",
         "base_ref": "origin/main",
         "head_ref": "HEAD",
         "base_tree_sha": "7d4d5f5e125a9bbcf16d4091fa0038bd229e1c7c",

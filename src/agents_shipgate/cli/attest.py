@@ -21,8 +21,10 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from pydantic import ValidationError
 
 from agents_shipgate import __version__
+from agents_shipgate.cli.agent_mode import emit_agent_mode_error_action
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.verification_identity import validate_receipt_artifacts
@@ -30,7 +32,15 @@ from agents_shipgate.schemas.attestation import (
     ATTESTATION_SCHEMA_VERSION,
     ReleaseAttestationV1,
 )
-from agents_shipgate.schemas.verification_identity import VerificationReceipt
+from agents_shipgate.schemas.diagnostics import NextAction
+from agents_shipgate.schemas.verification_identity import (
+    VerificationReceipt,
+    requires_verification_receipt,
+)
+
+#: The receipt identities an attestation and an org evidence bundle carry.
+#: Each one is copied from a receipt only after it validates.
+RECEIPT_IDENTITY_FIELDS = ("request_id", "receipt_id", "decision_id", "artifact_set_id")
 
 
 def _attest_command(
@@ -130,15 +140,14 @@ def _attest_command(
         else None
     )
     receipt_path = source.with_name("verification-receipt.json")
-    receipt_payload = _load_optional_json_object(receipt_path)
-    receipt_sha256 = None
-    if verifier.get("verifier_schema_version") in {"0.5", "0.6", "0.7"}:
-        if not receipt_payload:
-            raise typer.Exit(3)
-        receipt = VerificationReceipt.model_validate(receipt_payload)
-        validate_receipt_artifacts(receipt, root=source.parent)
-        receipt_payload = receipt.model_dump(mode="json")
-        receipt_sha256 = hashlib.sha256(receipt_path.read_bytes()).hexdigest()
+    try:
+        receipt = load_verified_receipt(verifier, receipt_path, root=source.parent)
+    except (ValueError, OSError) as exc:
+        raise receipt_failure(receipt_path, exc) from exc
+    receipt_payload = receipt.model_dump(mode="json") if receipt is not None else None
+    receipt_sha256 = (
+        hashlib.sha256(receipt_path.read_bytes()).hexdigest() if receipt is not None else None
+    )
     org_context, run_context = _context_from_inputs(
         config=config,
         explicit={
@@ -182,6 +191,80 @@ def _attest_command(
         typer.echo(rendered.rstrip())
     else:
         typer.echo(f"Wrote attestation to {out}")
+
+
+def load_verified_receipt(
+    verifier: dict[str, Any],
+    receipt_path: Path,
+    *,
+    root: Path,
+) -> VerificationReceipt | None:
+    """Return the receipt beside ``verifier.json`` once it validates.
+
+    ``None`` only when no receipt is present and
+    :func:`requires_verification_receipt` says the verifier owes none. A
+    receipt that is present is always validated, so no identity reaches an
+    attestation or a bundle unchecked: its own content addressing, every
+    artifact it binds (``verifier.json`` among them), and the request and
+    decision ``verifier.json`` names. Raises ``ValueError`` (a pydantic
+    ``ValidationError`` included) or ``OSError``.
+    """
+
+    if not receipt_path.is_file():
+        if requires_verification_receipt(verifier):
+            raise ValueError(
+                f"{receipt_path.name} is missing beside verifier.json, which states a "
+                "verification outcome; only the terminal receipt of the same verify run "
+                "can close it"
+            )
+        return None
+    try:
+        payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{receipt_path.name} is not valid JSON") from exc
+    receipt = VerificationReceipt.model_validate(payload)
+    validate_receipt_artifacts(receipt, root=root)
+    for field in ("request_id", "decision_id"):
+        if verifier.get(field) != getattr(receipt, field):
+            raise ValueError(f"verifier.json {field} does not match {receipt_path.name}")
+    return receipt
+
+
+def receipt_error_message(receipt_path: Path, exc: BaseException) -> str:
+    """One line naming the receipt and why it was refused."""
+
+    if isinstance(exc, ValidationError):
+        reasons = []
+        for error in exc.errors():
+            reason = str(error.get("msg", "")).removeprefix("Value error, ")
+            location = ".".join(str(part) for part in error.get("loc", ()))
+            reasons.append(f"{location}: {reason}" if location else reason)
+        detail = "; ".join(reasons)
+    else:
+        detail = " ".join(str(exc).split())
+    return f"Verification receipt error ({receipt_path.name}): {detail}"
+
+
+def receipt_failure(receipt_path: Path, exc: BaseException) -> typer.Exit:
+    """Report a refused receipt on both channels and return the exit to raise."""
+
+    message = receipt_error_message(receipt_path, exc)
+    typer.echo(message, err=True)
+    emit_agent_mode_error_action(
+        "input_parse_error",
+        message=message,
+        exit_code=3,
+        action=NextAction(
+            kind="review",
+            why=(
+                "Rerun agents-shipgate verify so verifier.json and "
+                f"{receipt_path.name} come from one run, then rerun this command. "
+                "Do not edit either file."
+            ),
+            expects=f"A {receipt_path.name} that validates against verifier.json.",
+        ),
+    )
+    return typer.Exit(3)
 
 
 def build_attestation_payload(
@@ -663,4 +746,11 @@ def _obj(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-__all__ = ["ATTESTATION_SCHEMA_VERSION", "build_attestation_payload"]
+__all__ = [
+    "ATTESTATION_SCHEMA_VERSION",
+    "RECEIPT_IDENTITY_FIELDS",
+    "build_attestation_payload",
+    "load_verified_receipt",
+    "receipt_error_message",
+    "receipt_failure",
+]

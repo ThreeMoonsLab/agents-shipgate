@@ -9,6 +9,21 @@ from agents_shipgate.core.verification_identity import validate_receipt_artifact
 from agents_shipgate.schemas.agent_control import validate_agent_control
 from agents_shipgate.schemas.verification_identity import VerificationReceipt
 
+try:
+    from agents_shipgate.schemas.verification_identity import requires_verification_receipt
+except ImportError:  # An engine released before the shared predicate (#1022).
+
+    def requires_verification_receipt(verifier_payload: dict[str, Any]) -> bool:
+        """Owe nothing the installed engine cannot name.
+
+        A ``shipgate_version`` older than this Action has no predicate to say
+        whether its verifier owes a receipt, and restating one here would be
+        the version list #1022 removed. A receipt that is present is still
+        validated before any identity is published.
+        """
+
+        return False
+
 TRUST_ROOT_CHECK_ID = "SHIP-VERIFY-TRUST-ROOT-TOUCHED"
 POLICY_WEAKENING_CHECK_ID = "SHIP-VERIFY-POLICY-WEAKENED"
 POLICY_BASE_ABSENT_CHECK_ID = "SHIP-VERIFY-POLICY-BASE-ABSENT"
@@ -131,25 +146,20 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
     payload = _load_json(report_json)
     verifier_payload = _load_json(verifier_json)
     verify_run = _load_json(verify_run_json)
-    receipt: VerificationReceipt | None = None
-    if verifier_json.is_file() and verify_run.get("schema_version") == "shipgate.verify_run/v3":
-        receipt = VerificationReceipt.model_validate(_load_json(verification_receipt_json))
-        validate_receipt_artifacts(receipt, root=output_dir)
-        identities = {
-            "request_id": receipt.request_id,
-            "decision_id": receipt.decision_id,
-        }
-        for name, document in (
-            ("report", payload),
-            ("verifier", verifier_payload),
-            ("verify-run", verify_run),
-        ):
-            for key, expected in identities.items():
-                actual = document.get(key)
-                if actual != expected:
-                    raise ValueError(
-                        f"{name} {key} does not match the terminal verification receipt"
-                    )
+    receipt = (
+        _validated_receipt(
+            output_dir,
+            verifier_payload=verifier_payload,
+            receipt_path=verification_receipt_json,
+            documents=(
+                ("report", report_json, payload),
+                ("verifier", verifier_json, verifier_payload),
+                ("verify-run", verify_run_json, verify_run),
+            ),
+        )
+        if verifier_json.is_file()
+        else None
+    )
     summary = payload.get("summary") or {}
     baseline = payload.get("baseline") or {}
     adk_surface = (payload.get("frameworks") or {}).get("google_adk") or {}
@@ -196,7 +206,9 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
         "verifier_json": verifier_json,
         "verify_run_json": verify_run_json,
         "agent_handoff_json": agent_handoff_json,
-        "verification_receipt_json": verification_receipt_json,
+        # Published only once the receipt validated (action.yml): a path to an
+        # unchecked or absent receipt would read as a validated one.
+        "verification_receipt_json": verification_receipt_json if receipt is not None else "",
         "run_id": verify_run.get("run_id", ""),
         "request_id": receipt.request_id if receipt is not None else "",
         "receipt_id": receipt.receipt_id if receipt is not None else "",
@@ -248,6 +260,45 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
         "capability_changes_modified": capability_modified,
         "capability_changes_removed": capability_removed,
     }
+
+
+def _validated_receipt(
+    output_dir: Path,
+    *,
+    verifier_payload: dict[str, Any],
+    receipt_path: Path,
+    documents: tuple[tuple[str, Path, dict[str, Any]], ...],
+) -> VerificationReceipt | None:
+    """Validate the terminal receipt before any identity output is published.
+
+    A verify run owes one when the engine's shared predicate says its verifier
+    states an outcome, and a receipt that is present is validated whether or
+    not one was owed. Every artifact the receipt binds is hash-checked, and each
+    of ``report.json``, ``verifier.json`` and ``verify-run.json`` that exists
+    must name the receipt's request and decision. Anything else fails the step
+    rather than publishing empty or unchecked identities.
+    """
+
+    if not receipt_path.is_file():
+        if requires_verification_receipt(verifier_payload):
+            raise ValueError(
+                "verifier.json states a verification outcome but "
+                f"{receipt_path.name} is missing; rerun verify so both come from one run"
+            )
+        return None
+    receipt = VerificationReceipt.model_validate(_load_json(receipt_path))
+    validate_receipt_artifacts(receipt, root=output_dir)
+    for name, path, document in documents:
+        if not path.is_file():
+            # The receipt hash-binds every artifact it names, so a document
+            # absent here is one it did not bind (a run with no head scan).
+            continue
+        for key in ("request_id", "decision_id"):
+            if document.get(key) != getattr(receipt, key):
+                raise ValueError(
+                    f"{name} {key} does not match the terminal verification receipt"
+                )
+    return receipt
 
 
 def _control_projection(

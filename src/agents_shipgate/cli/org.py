@@ -9,7 +9,12 @@ from typing import Any
 import typer
 
 from agents_shipgate import __version__
-from agents_shipgate.cli.attest import build_attestation_payload
+from agents_shipgate.cli.attest import (
+    RECEIPT_IDENTITY_FIELDS,
+    build_attestation_payload,
+    load_verified_receipt,
+    receipt_failure,
+)
 from agents_shipgate.cli.registry import _row_from_attestation
 from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.config.loader import load_manifest
@@ -24,13 +29,11 @@ from agents_shipgate.core.org_governance import (
     host_grant_drift_payload,
     render_org_status_markdown,
 )
-from agents_shipgate.core.verification_identity import validate_receipt_artifacts
 from agents_shipgate.schemas.attestation import ReleaseAttestationV1
 from agents_shipgate.schemas.org_evidence_bundle import (
     OrgEvidenceBundleArtifactRef,
     OrgEvidenceBundleV1,
 )
-from agents_shipgate.schemas.verification_identity import VerificationReceipt
 
 ORG_GOVERNANCE_EXIT_CODE = 20
 
@@ -230,18 +233,14 @@ def org_bundle(
         "verification_receipt_json",
         "verification-receipt.json",
     )
-    receipt = _load_optional_json_object(receipt_path)
-    verified_receipt: VerificationReceipt | None = None
-    if verifier.get("verifier_schema_version") in {"0.5", "0.6", "0.7"}:
-        try:
-            if receipt is None:
-                raise ValueError("current verifier evidence is missing verification-receipt.json")
-            verified_receipt = VerificationReceipt.model_validate(receipt)
-            validate_receipt_artifacts(verified_receipt, root=verifier_path.parent)
-            receipt = verified_receipt.model_dump(mode="json")
-        except (ValueError, OSError) as exc:
-            typer.echo(f"Verification receipt error: {exc}", err=True)
-            raise typer.Exit(3) from exc
+    try:
+        verified_receipt = load_verified_receipt(
+            verifier, receipt_path, root=verifier_path.parent
+        )
+    except (ValueError, OSError) as exc:
+        raise receipt_failure(receipt_path, exc) from exc
+    receipt = verified_receipt.model_dump(mode="json") if verified_receipt is not None else None
+    receipt_sha256 = _file_sha256(receipt_path) if verified_receipt is not None else None
     attestation_path = _resolve_attestation_path(verifier_path, attestation)
     attestation_payload = _load_optional_json_object(attestation_path)
     if attestation_payload is None:
@@ -253,26 +252,30 @@ def org_bundle(
             verify_run=verify_run,
             verify_run_sha256=_file_sha256(verify_run_path),
             verification_receipt=receipt,
-            verification_receipt_sha256=_file_sha256(receipt_path),
+            verification_receipt_sha256=receipt_sha256,
             org_context=_org_context_from_manifest(manifest),
         )
     attestation_model = ReleaseAttestationV1.model_validate(
         _normalize_attestation_payload(attestation_payload)
     )
-    if verified_receipt is not None:
-        expected_receipt_identity = {
-            "request_id": verified_receipt.request_id,
-            "receipt_id": verified_receipt.receipt_id,
-            "decision_id": verified_receipt.decision_id,
-            "artifact_set_id": verified_receipt.artifact_set_id,
-        }
-        for field, expected in expected_receipt_identity.items():
-            if getattr(attestation_model, field) != expected:
-                typer.echo(
-                    f"Attestation {field} does not match the terminal verification receipt.",
-                    err=True,
-                )
-                raise typer.Exit(3)
+    # Every identity the bundle publishes (top level, embedded attestation and
+    # registry row) is the attestation's, so it must be the validated
+    # receipt's, or absent when no receipt was validated.
+    expected_receipt_identity = {
+        field: getattr(verified_receipt, field) if verified_receipt is not None else None
+        for field in RECEIPT_IDENTITY_FIELDS
+    }
+    expected_receipt_identity["verification_receipt_sha256"] = receipt_sha256
+    for field, expected in expected_receipt_identity.items():
+        if getattr(attestation_model, field) != expected:
+            typer.echo(
+                f"Attestation {field} does not match the terminal verification receipt."
+                if verified_receipt is not None
+                else f"Attestation {field} names a verification receipt that "
+                f"{receipt_path.name} does not provide.",
+                err=True,
+            )
+            raise typer.Exit(3)
     attestation_json = attestation_model.model_dump(mode="json")
     registry_row = _row_from_attestation(
         attestation_json,
