@@ -103,6 +103,36 @@ def _run_step(
     }
 
 
+def _child_environment(env: dict[str, str]) -> dict[str, str]:
+    """``env`` with ``PYTHONPATH`` meaning what it meant to this process.
+
+    A relative or empty ``PYTHONPATH`` entry is resolved against the
+    working directory at import time, ``-P`` or not. Each step's working
+    directory is the workspace under review, so ``PYTHONPATH=src`` given
+    to this process would reach the child as ``<workspace>/src`` — the
+    same import from the reviewed repository that ``-P`` removes (#1020).
+    Anchoring those entries at this process's own directory keeps the
+    import path the caller set and nothing from the workspace.
+    """
+
+    raw = env.get("PYTHONPATH")
+    if not raw:
+        return env
+    try:
+        base = os.getcwd()
+    except OSError:
+        # No working directory to anchor to: drop the entries that would
+        # otherwise resolve inside the workspace.
+        base = None
+    entries: list[str] = []
+    for entry in raw.split(os.pathsep):
+        if os.path.isabs(entry):
+            entries.append(entry)
+        elif base is not None:
+            entries.append(os.path.join(base, entry) if entry else base)
+    return {**env, "PYTHONPATH": os.pathsep.join(entries)}
+
+
 def bootstrap_run(
     *,
     workspace: Path,
@@ -122,6 +152,7 @@ def bootstrap_run(
     """
     if env is None:
         env = dict(os.environ)
+    env = _child_environment(env)
     # Pre-flight: workspace must exist and be a directory. Without
     # this, _run_step's subprocess.run(cwd=...) blows up with
     # FileNotFoundError before bootstrap can produce a structured

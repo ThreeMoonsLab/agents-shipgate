@@ -370,7 +370,9 @@ entry point with `AGENTS_SHIPGATE_ENABLE_PLUGINS` unset, where `scan` and
   `next_actions[].executable` — is `<sys.executable> -P -m agents_shipgate …`.
   `executable[]` is four tokens instead of three. `-P` drops only the working
   directory from `sys.path`; `PYTHONPATH` and the environment still reach the
-  child.
+  child. `bootstrap` also anchors relative and empty `PYTHONPATH` entries at
+  the directory it was started from, since Python would otherwise resolve
+  them inside the workspace each step runs in.
 - `capability export` and `shipgate.capabilities` load third-party adapters
   only when `AGENTS_SHIPGATE_ENABLE_PLUGINS` is set, and `--no-plugins` /
   `no_plugins` still forces them off. The lock's `source.plugins_enabled`

@@ -64,7 +64,7 @@ runner, which `install-hooks --target claude-code` writes into a repository.
 
 | Call site | What it runs | Reached by |
 | --- | --- | --- |
-| `cli/bootstrap.py::_run_step` | Shipgate's own CLI as `<sys.executable> -P -m agents_shipgate` (`detect`, `init`, `scan`, `apply-patches`), with the workspace as the working directory. `-P` keeps that directory off the child's `sys.path`, so a `yaml/` or `agents_shipgate/` package committed in the workspace is never imported in place of the real one. | `bootstrap` |
+| `cli/bootstrap.py::_run_step` | Shipgate's own CLI as `<sys.executable> -P -m agents_shipgate` (`detect`, `init`, `scan`, `apply-patches`), with the workspace as the working directory. `-P` keeps that directory off the child's `sys.path`, and relative or empty `PYTHONPATH` entries are anchored where `bootstrap` was started, so a `yaml/` or `agents_shipgate/` package committed in the workspace is never imported in place of the real one. | `bootstrap` |
 | `cli/discovery/artifacts.py::_git_candidate_files` | `git rev-parse --show-toplevel`, with a sanitised environment and a 2-second timeout. | workspace discovery in `detect` and auto-init |
 | `cli/discovery/artifacts.py::_run_git_inventory_bounded` | `git ls-files`, drained under byte and wall-clock bounds. | workspace discovery in `detect` and auto-init |
 | `cli/verify/git.py::_run_process` | Local Git plumbing: ref and merge-base resolution, `pack-objects`, `index-pack` and `fsck` into an isolated object store, and `cat-file` reads of that store. It never fetches. | every command that reads Git state, among them `verify`, `check`, `diff` and `trigger` |
