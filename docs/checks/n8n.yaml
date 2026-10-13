@@ -70,12 +70,14 @@ checks:
   description: n8n MCP Client Tool exposes an unfiltered toolset.
   rationale: |-
     All-tools and all-except MCP client selections can expose more tools than reviewers expect. The check is environment-sensitive because the selector is straightforward to narrow before production, while production-like use increases blast radius.
-  fires_when: An n8n MCP Client Tool uses All or All Except selection and no explicit
-    local inventory is declared.
+  fires_when: An n8n MCP Client Tool uses All or All Except selection (`include`
+    of `all`, the default an export leaves out, or `except`) and no explicit local
+    inventory is declared.
   evidence_fields:
   - source_ref
   - node_id
   - selection_mode
   - explicit_inventory
+  - excluded_tools
   recommendation: Select an explicit MCP tool allowlist in n8n or provide a local
     MCP inventory.
