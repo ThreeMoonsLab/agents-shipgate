@@ -559,7 +559,7 @@ def run_verify(
         else None
     )
     # A reference inside the repository is content the change under review
-    # can rewrite. It is read as the base commits it, never from the head, and
+    # can rewrite. It is read as committed at the base, never from the head, and
     # editing it is touching a trust root (#1024). One outside the repository
     # is the operator's own and is read where it is.
     diff_from_relative = _repository_relative_input(git_root, static_diff_from_path)

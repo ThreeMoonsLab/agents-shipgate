@@ -236,11 +236,16 @@ def test_a_regenerated_in_repo_reference_cannot_make_the_change_mergeable(
     )
 
 
+@pytest.mark.parametrize("named_base", [True, False], ids=["named-base", "detected-base"])
 @pytest.mark.parametrize("committed", [True, False], ids=["head", "worktree"])
 def test_an_in_repo_reference_is_never_read_from_the_change_under_review(
-    tmp_path: Path, committed: bool
+    tmp_path: Path, committed: bool, named_base: bool
 ) -> None:
-    """With a resolvable base, the head's copy is not even parsed."""
+    """With a resolvable base, the head's copy is not even parsed.
+
+    A detected base counts: with no ``--base`` and no remote, verify follows
+    #1023's ladder to the local ``main``, and the reference is read there.
+    """
 
     repo, base_bytes = _forged_reference_pr(tmp_path)
     # Unreadable as a report: reading it would disable the diff with an error.
@@ -251,14 +256,18 @@ def test_an_in_repo_reference_is_never_read_from_the_change_under_review(
 
     result, payload = _verify(
         repo,
-        "--base", "main",
+        *(["--base", "main"] if named_base else []),
         *(["--head", "HEAD"] if committed else []),
         "--diff-from", REFERENCE,
         out=out,
     )
 
     assert result.exit_code == 0, result.output
+    assert payload["base_ref"] == "main"
     assert payload["base_status"] == "diff_from_provided"
+    assert any(
+        f"{REFERENCE} as committed at 'main'" in note for note in payload["base_notes"]
+    )
     assert (out / "verification-base-report.json").read_bytes() == base_bytes
     report = _report(out)
     assert report["tool_surface_diff"]["enabled"] is True

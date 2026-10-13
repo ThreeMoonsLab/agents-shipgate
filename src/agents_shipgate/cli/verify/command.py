@@ -196,7 +196,7 @@ def verify(
         "--diff-from",
         help=(
             "Explicit prior report.json or baseline JSON for head diff. A path "
-            "inside the repository is read as the base commits it."
+            "inside the repository is read as committed at the base."
         ),
     ),
     authorization: Path | None = typer.Option(
